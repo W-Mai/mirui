@@ -1,7 +1,4 @@
-//! Headless dump of the effect_demo scene to a PPM file. Uses the
-//! same widget tree as `effect_demo`, runs a few frames so
-//! `prev_texture_of` has content for shadow / temporal-mix, then
-//! writes the framebuffer as a PPM.
+//! Headless dump of the effect_demo scene to a PPM file. Uses the same widget tree as `effect_demo`, renders completed source outputs and retained temporal-mix history, then writes the framebuffer as a PPM.
 //!
 //! ```text
 //! cargo run -p gallery --example effect_demo_snapshot --release \
@@ -264,9 +261,8 @@ fn main() {
 
     app.compose(root, effects_panel());
 
-    // Initial full render so OffscreenRender entities allocate buffers
-    // and DropShadow / TemporalMix have a previous-frame texture to
-    // read on the second render pass.
+    // Prepare source outputs and publish the first TemporalMix result
+    // before another render batch reads its retained history.
     app.render().unwrap();
 
     // If the second arg is "anim", dump 60 sequential frames so we

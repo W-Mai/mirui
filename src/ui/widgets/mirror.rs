@@ -1,16 +1,12 @@
-//! Mirror reflection of another entity. Reads the source's current-
-//! frame texture and paints it flipped vertically into the mirror's
-//! own rect, with optional fade.
+//! Mirror reflection of another entity. Reads the source's completed texture and paints it flipped vertically into the mirror's own rect, with optional fade.
 //!
-//! The source must be rendered before the mirror in walker order
-//! (i.e. earlier in the children array). When the source's texture
-//! isn't available yet (first frame, or source out of order), the
-//! mirror skips silently.
+//! Referenced sources are prepared before composition. An unavailable source produces no reflection.
 
 use crate::ecs::{Entity, World};
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Fixed, Point, Rect};
-use crate::ui::offscreen::{WidgetTextureAccess, WidgetTextureRef};
+use crate::ui::offscreen::{WidgetTexture, WidgetTextureRef};
+use crate::ui::outputs::Outputs;
 use crate::ui::view::{PaintCtx, View};
 
 pub struct MirrorOf {
@@ -35,11 +31,13 @@ fn mirror_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
     let Some(mir) = world.get::<MirrorOf>(entity) else {
         return;
     };
-    let Some(snap) = world.texture_of(mir.source) else {
+    let Some(source) = world
+        .resource::<Outputs<WidgetTexture>>()
+        .and_then(|outputs| outputs.get(mir.source))
+    else {
         return;
     };
-    let src = snap.borrow();
-    flip_into(&src, paint.rect(), mir.fade, paint);
+    flip_into(source.texture(), paint.rect(), mir.fade, paint);
 }
 
 /// Vertically flip `src` and blit it into `rect`. Fade
@@ -134,10 +132,7 @@ fn mirror_attach(world: &mut World, entity: Entity) {
     if world.get::<WidgetTextureRef>(entity).is_none() {
         world.insert(entity, WidgetTextureRef(source));
     }
-    // Add OffscreenRender up front so the first frame's
-    // texture_of(source) hits cache; maintain_widget_texture_refs
-    // does the same on its first tick, but that tick runs after the
-    // initial render.
+    // Request the source before the initial render prepares its output.
     use crate::ui::offscreen::{OffscreenAlphaMode, OffscreenAutoAdded};
     if world.get::<crate::ui::OffscreenRender>(source).is_none() {
         world.insert(source, crate::ui::OffscreenRender::default());

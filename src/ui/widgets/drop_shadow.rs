@@ -4,8 +4,9 @@ use crate::render::sw::blur::{alpha_for_radius, iir_blur_inplace};
 use crate::render::texture::{ColorFormat, TexBuf, Texture};
 use crate::types::{Fixed, Point};
 use crate::ui::offscreen::{
-    OffscreenAlphaMode, OffscreenAutoAdded, OffscreenRender, WidgetTextureAccess, WidgetTextureRef,
+    OffscreenAlphaMode, OffscreenAutoAdded, OffscreenRender, WidgetTexture, WidgetTextureRef,
 };
+use crate::ui::outputs::Outputs;
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::view::{PaintCtx, View};
 
@@ -109,10 +110,13 @@ fn render_drop_effect(
     if blur_radius <= Fixed::ZERO {
         return;
     }
-    let Some(snap) = world.texture_of(source) else {
+    let Some(output) = world
+        .resource::<Outputs<WidgetTexture>>()
+        .and_then(|outputs| outputs.get(source))
+    else {
         return;
     };
-    let src = snap.borrow();
+    let src = output.texture();
 
     let theme = world
         .resource::<crate::ui::Theme>()

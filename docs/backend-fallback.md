@@ -100,3 +100,13 @@ The public route result is semantic rather than predictive performance data.
 A native route is preferred; fallback cost is proportional to the clipped
 physical region and the number of backend crossings, not to the full surface
 or glyph count.
+
+## Retained widget outputs
+
+`OffscreenRender` renders a widget subtree into a CPU texture and composites the completed result through the outer backend. Configure `app.with_offscreen_pool_budget(bytes)` before constructing output consumers; zero disables output storage and explicit offscreen nodes render inline. `OffscreenRender::with_scale(scale)` controls output resolution, and `with_opacity(alpha)` controls subtree composition. Subtree production uses the software renderer even when the outer backend uses a GPU.
+
+Typed callbacks can declare `textures: res!(Outputs<WidgetTexture>)`, importing both types from `mirui::ui`. `textures.get(source)` returns a borrowed result whose `texture()` method exposes completed pixels. An unprepared or failed output returns `None`. Reading does not produce a source, subscribe to its changes, or change the Component-only `query!` contract. An explicit `OffscreenRender` attachment or an effect widget establishes the existing source request. `App::snapshot_widget(entity)` returns an owned copy when the pixels must outlive the callback borrow.
+
+Ordinary outputs reuse one pixel slot. `TemporalMix` requests a second slot for its own history and reads `textures.previous(owner)`, frozen at the start of the drawing batch. Multiple dirty regions share that history; failed production does not advance it. First use and owners without retained history return `None`. History tracks successful outputs rather than adjacent input generations.
+
+The output budget counts stored current and historical pixel slots together with in-progress writes. Admission rejects an oversized request before pixel allocation and preserves other outputs. For example, a 128×64 RGBA texture needs 32 KiB for one slot and 64 KiB for two retained slots. Source textures, the framebuffer, metadata, and filter scratch add to the application's total memory requirement. Unchanged inputs reuse completed pixels; changed outputs of the same size reuse their slots. `OffscreenAlphaMode` still selects transparent clearing or parent-target initialization, and nested offscreen nodes and projectively transformed sources remain unsupported.

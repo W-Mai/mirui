@@ -20,6 +20,7 @@ pub mod layout;
 pub(crate) mod layout_binding;
 pub mod niche;
 pub mod offscreen;
+pub mod outputs;
 pub mod property;
 pub(crate) mod recipe;
 pub mod render_system;
@@ -40,9 +41,10 @@ pub use layout_binding::{
 };
 pub use niche::NicheMap;
 pub use offscreen::{
-    OffscreenAlphaMode, OffscreenAutoAdded, OffscreenBufferPool, OffscreenGeneration,
-    OffscreenRender, TextureSnapshot, WidgetTextureAccess, WidgetTextureRef,
+    OffscreenAlphaMode, OffscreenAutoAdded, OffscreenGeneration, OffscreenRender, WidgetTexture,
+    WidgetTextureRead, WidgetTextureRef,
 };
+pub use outputs::{Output, Outputs};
 pub use property::WidgetMut;
 pub use scope::UiScope;
 pub use state::{InteractionState, UserState};

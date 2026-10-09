@@ -1,15 +1,8 @@
-//! Temporal IIR mix of `source`. Each frame's output is
-//! `α * prev_output + (1 - α) * source_curr`, where α = `mix / 255`.
-//! The recursion gives a real exponential decay across many frames:
-//! a step in `source` colour fades over several frames at α=0.75
-//! (mix=190) instead of resolving in one.
+//! Temporal IIR mix of `source`. Each successful output is `α * prev_output + (1 - α) * source_curr`, where α = `mix / 255`. A source color change decays across successive outputs.
 //!
-//! `mix=0` shows only the current source; `mix=255` freezes the
-//! initial frame.
+//! `mix=0` shows only the current source; `mix=255` freezes the initial output.
 //!
-//! Source must render before this widget in walker order. The
-//! widget's own offscreen buffer holds last frame's output and is
-//! reused as `prev_output` next frame.
+//! The widget retains its own previous successful output. Its history stays fixed throughout one drawing batch, including multiple dirty regions.
 
 use crate::ecs::{Entity, World};
 use crate::render::command::{CompositeMode, DrawCommand};
@@ -17,8 +10,9 @@ use crate::render::sw::mix::mix_inplace;
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Fixed, Point};
 use crate::ui::offscreen::{
-    OffscreenAlphaMode, OffscreenAutoAdded, WidgetTextureAccess, WidgetTextureRef,
+    OffscreenAlphaMode, OffscreenAutoAdded, WidgetTexture, WidgetTextureRef,
 };
+use crate::ui::outputs::Outputs;
 use crate::ui::view::{PaintCtx, View};
 
 pub struct TemporalMix {
@@ -43,10 +37,13 @@ fn temporal_mix_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) 
     let Some(tm) = world.get::<TemporalMix>(entity) else {
         return;
     };
-    let Some(curr_snap) = world.texture_of(tm.source) else {
+    let Some(current) = world
+        .resource::<Outputs<WidgetTexture>>()
+        .and_then(|outputs| outputs.get(tm.source))
+    else {
         return;
     };
-    let curr = curr_snap.borrow();
+    let curr = current.texture();
     if curr.format != ColorFormat::RGBA8888 {
         return;
     }
@@ -55,17 +52,16 @@ fn temporal_mix_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) 
     if let crate::render::texture::TexBuf::Owned(ref mut dst) = tmp.buf {
         dst.copy_from_slice(curr.buf.as_slice());
     }
-    drop(curr);
+    drop(current);
 
-    // Feedback: mix `prev_output` (this widget's own previous frame
-    // texture, generation - 1) into `tmp`. Without this the effect
-    // resolves a colour change in a single frame because both
-    // operands are source inputs from adjacent frames; with it the
-    // recursion `out_n = α*out_{n-1} + (1-α)*src_n` decays over many.
-    if let Some(prev_out) = world.prev_texture_of(entity) {
-        let p = prev_out.borrow();
+    // Read this widget's frozen output history for the current drawing batch.
+    if let Some(previous) = world
+        .resource::<Outputs<WidgetTexture>>()
+        .and_then(|outputs| outputs.previous(entity))
+    {
+        let p = previous.texture();
         if p.width == tmp.width && p.height == tmp.height && p.format == tmp.format {
-            mix_inplace(&mut tmp, &p, tm.mix);
+            mix_inplace(&mut tmp, p, tm.mix);
         }
     }
 
@@ -107,10 +103,115 @@ fn temporal_mix_attach(world: &mut World, entity: Entity) {
     if world.get::<OffscreenAlphaMode>(entity).is_none() {
         world.insert(entity, OffscreenAlphaMode::clear_transparent());
     }
+    if let Some(outputs) = world.resource::<Outputs<WidgetTexture>>() {
+        outputs
+            .reserve(1)
+            .expect("temporal output metadata capacity");
+        outputs
+            .set_retained(entity, true)
+            .expect("prepared temporal output history");
+    }
 }
 
 pub fn view() -> View {
     View::new("TemporalMix", 60, temporal_mix_render)
         .with_filter::<TemporalMix>()
         .with_attach(temporal_mix_attach)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prelude::*;
+
+    #[crate::compose]
+    fn temporal_fixture() {
+        ui! {
+            Row (width: 16, height: 8) {
+                View (id: "temporal_source", width: 8, height: 8, bg_color: Color::rgb(255, 0, 0))
+                View (id: "temporal_output", width: 8, height: 8) [
+                    TemporalMix::new(id("temporal_source")).with_mix(128),
+                ]
+            }
+        };
+    }
+
+    #[test]
+    fn temporal_mix_retains_its_own_completed_output_between_batches() {
+        let mut app = App::headless(16, 8);
+        app.with_default_widgets()
+            .with_offscreen_pool_budget(2 * 1024);
+        let root = app.spawn_root().id();
+        app.compose(root, temporal_fixture());
+        let source = app.world.find_by_id("temporal_source").unwrap();
+        let owner = app.world.find_by_id("temporal_output").unwrap();
+        app.render().unwrap();
+        {
+            let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+            assert_eq!(
+                outputs.get(owner).unwrap().texture().get_pixel(1, 1),
+                Color::rgb(255, 0, 0)
+            );
+            assert!(outputs.previous(owner).is_none());
+        }
+
+        app.world.get_mut::<Style>(source).unwrap().bg_color = Some(Color::rgb(0, 0, 255).into());
+        app.world.invalidate(source);
+        app.world.invalidate(owner);
+        app.render_dirty().unwrap();
+        let mixed = {
+            let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+            assert!(outputs.previous(source).is_none());
+            assert_eq!(
+                outputs.previous(owner).unwrap().texture().get_pixel(1, 1),
+                Color::rgb(255, 0, 0)
+            );
+            let pixel = outputs.get(owner).unwrap().texture().get_pixel(1, 1);
+            assert!((126..=129).contains(&pixel.r));
+            assert_eq!(pixel.g, 0);
+            assert!((126..=129).contains(&pixel.b));
+            pixel
+        };
+
+        app.world.invalidate(owner);
+        app.render_dirty().unwrap();
+        let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+        assert_eq!(
+            outputs.previous(owner).unwrap().texture().get_pixel(1, 1),
+            mixed
+        );
+        let decayed = outputs.get(owner).unwrap().texture().get_pixel(1, 1);
+        assert!(decayed.r < mixed.r);
+        assert!(decayed.b > mixed.b);
+    }
+
+    #[test]
+    fn full_render_republishes_changed_source_and_retains_owner_history() {
+        let mut app = App::headless(16, 8);
+        app.with_default_widgets()
+            .with_offscreen_pool_budget(2 * 1024);
+        let root = app.spawn_root().id();
+        app.compose(root, temporal_fixture());
+        let source = app.world.find_by_id("temporal_source").unwrap();
+        let owner = app.world.find_by_id("temporal_output").unwrap();
+        app.render().unwrap();
+
+        app.world.get_mut::<Style>(source).unwrap().bg_color = Some(Color::rgb(0, 0, 255).into());
+        app.world.invalidate(source);
+        app.world.invalidate(owner);
+        app.render().unwrap();
+
+        let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+        assert_eq!(
+            outputs.get(source).unwrap().texture().get_pixel(1, 1),
+            Color::rgb(0, 0, 255)
+        );
+        assert_eq!(
+            outputs.previous(owner).unwrap().texture().get_pixel(1, 1),
+            Color::rgb(255, 0, 0)
+        );
+        let mixed = outputs.get(owner).unwrap().texture().get_pixel(1, 1);
+        assert!((126..=129).contains(&mixed.r));
+        assert!((126..=129).contains(&mixed.b));
+    }
 }

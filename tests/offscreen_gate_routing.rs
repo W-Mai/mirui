@@ -8,7 +8,7 @@ use mirui::types::{Color, Fixed, Rect, Viewport};
 use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::layout::LayoutStyle;
 use mirui::ui::offscreen::OffscreenRender;
-use mirui::ui::{OffscreenBufferPool, render_system};
+use mirui::ui::{Outputs, WidgetTexture, render_system};
 
 #[derive(Default)]
 struct Counts {
@@ -66,10 +66,10 @@ impl Renderer for MockOuter {
     }
 }
 
-fn make_world(with_pool: bool) -> (World, mirui::ecs::Entity) {
+fn make_world(with_outputs: bool) -> (World, mirui::ecs::Entity) {
     let mut app = mirui::app::App::headless(64, 64);
     app.with_default_widgets();
-    if with_pool {
+    if with_outputs {
         app.with_offscreen_pool_budget(64 * 1024);
     }
     let mut world = app.world;
@@ -119,9 +119,9 @@ fn gate_off_falls_through_to_inline_render() {
 }
 
 #[test]
-fn pool_resource_must_exist_when_gate_is_on() {
+fn output_resource_routes_supported_offscreen_rendering() {
     let (mut world, panel) = make_world(false);
-    world.insert_resource(OffscreenBufferPool::with_budget(64 * 1024));
+    world.insert_resource(Outputs::<WidgetTexture>::with_budget(64 * 1024));
     let mut outer = MockOuter {
         supports_offscreen: true,
         fail_blit: false,
@@ -149,4 +149,12 @@ fn offscreen_blit_failure_reaches_render_caller() {
         Err(RenderError::ResourceLimit(RenderResource::Texture))
     );
     assert_eq!(outer.counts.borrow().blit, 0);
+    assert!(
+        world
+            .resource::<Outputs<WidgetTexture>>()
+            .unwrap()
+            .get(panel)
+            .is_some(),
+        "failed composition does not roll back the completed output"
+    );
 }

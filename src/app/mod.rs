@@ -17,7 +17,8 @@ use crate::render::renderer::Renderer;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::{PhysicalRect, Rect};
 use crate::ui::dirty::DirtyRegions;
-use crate::ui::offscreen::OffscreenBufferPool;
+use crate::ui::offscreen::WidgetTexture;
+use crate::ui::outputs::Outputs;
 use crate::ui::render_system;
 use crate::ui::view::{View, ViewRegistry};
 use crate::ui::{Theme, ThemeCatalog, ThemeError, ThemeSource};
@@ -266,7 +267,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(crate::render::path::PathStore::default());
         world.insert_resource(crate::text::baseline::PathBaselineResource::default());
         world.insert_resource(crate::core::i18n::I18n::default());
-        world.insert_resource(OffscreenBufferPool::default());
+        world.insert_resource(Outputs::<WidgetTexture>::with_budget(0));
         world.insert_resource(crate::ui::IdMap::new());
         world.insert_resource(crate::ui::dirty::ExactDirtyRegions::default());
         world.insert_resource(RenderViewport(backend.viewport()));
@@ -558,20 +559,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
-    /// Set the offscreen render buffer pool's byte budget. Pick a
-    /// value large enough to hold every concurrently-cached widget
-    /// buffer the app needs (each is `width × height ×
-    /// bytes_per_pixel`, so a 128×64 RGB565 buffer is 16 KiB) plus
-    /// some eviction headroom; lower values trade cache hit rate for
-    /// resident memory. Pass `0` to disable the pool entirely —
-    /// `OffscreenRender` entities then fall through to inline
-    /// rendering on every frame.
+    /// Set the widget output storage's byte budget. The budget must cover concurrently needed current outputs, retained history, and writable slots. A 128×64 RGB565 texture occupies 16 KiB. Pass `0` to disable output storage; explicit `OffscreenRender` entities then fall through to inline rendering.
     ///
-    /// Replaces the existing pool, so call before any frame renders
-    /// an [`crate::ui::OffscreenRender`] entity.
+    /// Replaces the existing output storage, so configure it before constructing widgets that request retained history or rendering an [`crate::ui::OffscreenRender`] entity.
     pub fn with_offscreen_pool_budget(&mut self, budget_bytes: usize) -> &mut Self {
         self.world
-            .insert_resource(OffscreenBufferPool::with_budget(budget_bytes));
+            .insert_resource(Outputs::<WidgetTexture>::with_budget(budget_bytes));
         self
     }
 
@@ -617,22 +610,22 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         crate::ui::theme::edit_registered(&mut self.world, id, update)
     }
 
-    /// Owned snapshot of the entity's rendered output. One-off cost:
-    /// triggers a full-tree render if the entity isn't already
-    /// cached. For sustained access use [`WidgetTextureRef`](crate::ui::offscreen::WidgetTextureRef).
+    /// Copy the entity's completed output into an owned texture. Triggers a full-tree render if no completed output is available. Shared reads use [`Outputs<WidgetTexture>`].
     ///
-    /// `None` when the renderer doesn't expose offscreen rendering
-    /// (GPU backends) or when the pool can't fit the entity's buffer.
-    /// Render failures are returned without exposing a partial snapshot.
+    /// Returns `None` when the renderer cannot produce an offscreen texture or the output storage cannot fit it. Render failures are returned without exposing a partial snapshot.
     pub fn snapshot_widget(
         &mut self,
         entity: crate::ecs::Entity,
     ) -> Result<Option<crate::render::texture::Texture<'static>>, crate::render::RenderError> {
         use crate::ui::OffscreenRender;
-        use crate::ui::offscreen::{OffscreenAutoAdded, WidgetTextureAccess};
+        use crate::ui::offscreen::OffscreenAutoAdded;
 
-        if let Some(snap) = self.world.texture_of(entity) {
-            return Ok(Some(clone_texture_owned(&snap.borrow())));
+        if let Some(output) = self
+            .world
+            .resource::<Outputs<WidgetTexture>>()
+            .and_then(|outputs| outputs.get(entity))
+        {
+            return Ok(Some(clone_texture_owned(output.texture())));
         }
 
         let already_explicit = self.world.get::<OffscreenRender>(entity).is_some();
@@ -645,12 +638,14 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
         let result = self
             .world
-            .texture_of(entity)
-            .map(|snap| clone_texture_owned(&snap.borrow()));
+            .resource::<Outputs<WidgetTexture>>()
+            .and_then(|outputs| outputs.get(entity))
+            .map(|output| clone_texture_owned(output.texture()));
 
         if !already_explicit {
             self.world.remove::<OffscreenRender>(entity);
             self.world.remove::<OffscreenAutoAdded>(entity);
+            crate::ui::offscreen::reconcile_texture_outputs(&self.world);
         }
 
         render_result.map(|_| result)
@@ -755,8 +750,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// Releases reconstructible caches while preserving application state.
     pub fn handle_memory_warning(&mut self) {
-        if let Some(pool) = self.world.resource::<OffscreenBufferPool>() {
-            pool.trim_memory();
+        if let Some(outputs) = self.world.resource::<Outputs<WidgetTexture>>() {
+            outputs.trim_memory();
         }
         if let Some(layouts) = self
             .world
@@ -989,6 +984,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.prepare_dirty_storage();
         ViewRegistry::reconcile_observations(&mut self.world);
         crate::core::reactive::flush_signal_dirty(&mut self.world);
+        crate::ui::offscreen::reconcile_texture_outputs(&self.world);
     }
 
     /// Render one frame
@@ -1012,14 +1008,23 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
         {
             crate::trace_span!("frame.layout");
-            render_system::try_update_layout(&mut self.world, root, &transform)
-                .map_err(|_| crate::render::RenderError::TextLayout)?;
+            render_system::try_collect_dirty_regions_into(
+                &mut self.world,
+                root,
+                &transform,
+                &mut self.dirty_plan,
+            )
+            .map_err(|_| crate::render::RenderError::TextLayout)?;
         }
         let layout_end = self.clock_ns();
         self.last_layout_ns = layout_end.saturating_sub(layout_start);
 
         let render_result = {
             crate::trace_span!("frame.render");
+            let _outputs_batch = self
+                .world
+                .resource::<Outputs<WidgetTexture>>()
+                .map(Outputs::begin_batch);
             let mut renderer = self.factory.make(&mut self.backend, &transform);
             if root_hidden {
                 clear_hidden_root(&self.world, &transform, &mut renderer);
@@ -1032,6 +1037,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             self.world.mark_subtree_dirty(root);
             return Err(error);
         }
+        self.dirty_plan.clear();
         let render_end = self.clock_ns();
         self.last_render_ns = render_end.saturating_sub(layout_end);
         let render_ns = render_end.saturating_sub(layout_start);
@@ -1409,34 +1415,61 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 self.world
                     .insert_resource(crate::ui::render_system::LastDirtyRegions(plan.clone()));
             }
-            for sop in &plan.shifts {
-                if let Err(error) = renderer.scroll_target_region(&sop.area, sop.dx, sop.dy) {
-                    drop(renderer);
-                    self.world.mark_subtree_dirty(root);
-                    self.dirty_plan = plan;
-                    return Err(error);
-                }
-            }
-
-            let snapshot = self
-                .world
-                .resource::<crate::ui::render_system::LayoutSnapshot>();
-            let render_result = if root_hidden {
-                clear_hidden_root(&self.world, &transform, &mut renderer);
-                Ok(())
-            } else if plan.prefers_split_redraw()
-                && self
+            let render_result = (|| {
+                let _outputs_batch = self
                     .world
-                    .storage::<crate::ui::offscreen::WidgetTextureRef>()
-                    .is_none()
-            {
-                let mut result = Ok(());
-                for rect in &plan.rects {
-                    result = if let Some(snapshot) = snapshot {
+                    .resource::<Outputs<WidgetTexture>>()
+                    .map(Outputs::begin_batch);
+                for sop in &plan.shifts {
+                    renderer.scroll_target_region(&sop.area, sop.dx, sop.dy)?;
+                }
+
+                let snapshot = self
+                    .world
+                    .resource::<crate::ui::render_system::LayoutSnapshot>();
+                if root_hidden {
+                    clear_hidden_root(&self.world, &transform, &mut renderer);
+                    Ok(())
+                } else if plan.prefers_split_redraw()
+                    && self
+                        .world
+                        .storage::<crate::ui::offscreen::WidgetTextureRef>()
+                        .is_none()
+                {
+                    let mut result = Ok(());
+                    for rect in &plan.rects {
+                        result = if let Some(snapshot) = snapshot {
+                            render_system::render_region_cached(
+                                &self.world,
+                                snapshot,
+                                rect,
+                                &mut renderer,
+                            )
+                        } else {
+                            render_system::render_region(
+                                &self.world,
+                                root,
+                                &transform,
+                                rect,
+                                &mut renderer,
+                            )
+                        };
+                        if result.is_err() {
+                            break;
+                        }
+                    }
+                    result
+                } else if let Some(union_rect) = plan
+                    .rects
+                    .iter()
+                    .copied()
+                    .reduce(|left, right| left.union(&right))
+                {
+                    if let Some(snapshot) = snapshot {
                         render_system::render_region_cached(
                             &self.world,
                             snapshot,
-                            rect,
+                            &union_rect,
                             &mut renderer,
                         )
                     } else {
@@ -1444,40 +1477,14 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                             &self.world,
                             root,
                             &transform,
-                            rect,
+                            &union_rect,
                             &mut renderer,
                         )
-                    };
-                    if result.is_err() {
-                        break;
                     }
-                }
-                result
-            } else if let Some(union_rect) = plan
-                .rects
-                .iter()
-                .copied()
-                .reduce(|left, right| left.union(&right))
-            {
-                if let Some(snapshot) = snapshot {
-                    render_system::render_region_cached(
-                        &self.world,
-                        snapshot,
-                        &union_rect,
-                        &mut renderer,
-                    )
                 } else {
-                    render_system::render_region(
-                        &self.world,
-                        root,
-                        &transform,
-                        &union_rect,
-                        &mut renderer,
-                    )
+                    Ok(())
                 }
-            } else {
-                Ok(())
-            };
+            })();
 
             drop(renderer);
             if let Err(error) = render_result {

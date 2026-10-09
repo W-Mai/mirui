@@ -1,22 +1,18 @@
-//! Offscreen render — mark an entity with [`OffscreenRender`] to send
-//! its subtree through a private buffer instead of writing straight
-//! into the parent renderer's target. The buffer is sized at
-//! `ComputedRect × scale` (so `scale = 1.0` is a 1:1 cache and
-//! `scale < 1.0` reduces resolution), rendered into, then blit'd back
-//! onto the parent at the entity's full rect.
+//! Retained widget output pixels. [`OffscreenRender`] renders an entity's subtree into a buffer sized at `ComputedRect × scale`, then composites the completed buffer at the entity's full rectangle. A scale below one reduces the buffer resolution; group opacity applies during composition.
 //!
-//! Buffers live in [`OffscreenBufferPool`], a `World` resource keyed
-//! by `(entity, w, h, format, generation)`. The dirty walker bumps
-//! `generation` whenever the entity itself or any descendant carries
-//! `Dirty`, which forces the next render to miss the cache and
-//! rebuild the buffer; otherwise the prior buffer is blit'd as-is and
-//! the subtree's raster work is skipped entirely.
+//! [`Outputs<WidgetTexture>`](crate::ui::Outputs) owns the pixel storage and published records for complete entity identities. The internal input key includes size, format, and dirty generation. An unchanged key reuses a completed result; rebuilding a same-size output reuses its allocated pixel slot.
 //!
-//! Texture entries are published after their subtree finishes rendering. Preparing a referenced source does not composite it into the parent target; the main tree traversal determines composition order. A failed preparation does not discard other completed entries.
+//! A texture becomes readable only after its subtree renders successfully. Preparing a referenced source does not composite it into the parent target; the main tree traversal determines composition order. An unfinished or failed write is unavailable through `get`, and failure of another output does not discard an already completed result.
+//!
+//! Typed callbacks read the resource with `textures: res!(Outputs<WidgetTexture>)`. `textures.get(entity)` returns a borrowed [`WidgetTextureRead`], whose `texture()` method exposes the completed CPU texture. Reads do not produce pixels or register a source dependency. [`App::snapshot_widget`](crate::app::App::snapshot_widget) provides an owned pixel copy when a result must outlive that borrow.
+//!
+//! Outputs use one pixel slot by default. An owner that explicitly requests history, such as [`TemporalMix`](crate::ui::widgets::TemporalMix), uses two slots and reads its own frozen result through `previous(entity)`. History is the last successful output at the start of the drawing batch, remains fixed across dirty regions, and is independent of input-generation gaps. A first output or an owner without history has no previous result; incompatible dimensions or format clear old history.
+//!
+//! The pixel budget includes retained slots and detached in-progress write buffers. A request that exceeds it is rejected before allocating pixels, and other outputs remain resident. Metadata and effect scratch storage are additional costs. The default budget is zero; [`App::with_offscreen_pool_budget`](crate::app::App::with_offscreen_pool_budget) configures it before widget construction.
 //!
 //! # Usage
 //!
-//! Two pieces opt the app in:
+//! Configure the budget before composing nodes that request output storage:
 //!
 //! ```ignore
 //! use mirui::prelude::*;
@@ -30,41 +26,26 @@
 //! let mut app = App::headless(128, 64);
 //! app.with_default_widgets();
 //! let root = app.spawn_root().id();
-//! // 1. Size the pool. Default is `Bytes(0)` (disabled), so the cache
-//! //    never grows and OffscreenRender silently falls through to
-//! //    inline. Pick a budget that fits a couple of buffers:
-//! //    `width × height × bytes_per_pixel`. RGB565 is 2, RGBA8888 is 4.
+//! // Include every concurrently retained pixel slot in the budget.
+//! // RGB565 uses two bytes per pixel; RGBA8888 uses four.
 //! app.with_offscreen_pool_budget(64 * 1024);
 //!
-//! // 2. Compose the node carrying the offscreen marker.
 //! app.compose(root, cached_panel());
 //! ```
 //!
 //! # When it pays off
 //!
-//! Best fit: a subtree that is **static or near-static between frames**
-//! while something else on screen redraws (forces the dirty rect to
-//! cover the cached entity). Inline path re-rasters the subtree;
-//! offscreen path blit's the cached buffer once.
+//! A subtree with unchanged pixels can reuse its completed output when another widget's damage covers it. Frequently changing subtrees still pay for rasterization and a subsequent composition step, so output storage alone does not make them cheaper to render.
 //!
-//! Worst fit: the subtree mutates every frame, or a `WidgetTransform`
-//! on the entity animates while the subtree is static. Both cases
-//! bump `generation` (or fail to skip raster) so the offscreen path
-//! runs the full raster + blit each frame and ends up slower than
-//! inline.
+//! # Rendering constraints
 //!
-//! # Constraints (debug_assert panics)
+//! The outer renderer must provide an offscreen pixel format and accept texture composition. Subtree production uses the CPU software renderer, including when the outer backend uses a GPU. An explicit `OffscreenRender` node renders inline when output storage is unavailable.
 //!
-//! - Renderer must implement the SW pipeline. GPU backends log once
-//!   and fall through to inline rendering.
-//! - Entity cannot also carry `WidgetTransform3D`.
-//! - `OffscreenRender` cannot nest.
+//! A source's [`OffscreenAlphaMode`] selects transparent clearing or initialization from the parent target. Nested `OffscreenRender` and a source carrying `WidgetTransform3D` are unsupported.
 
-use crate::core::cache::{Handle, LruCache, MaxSize, WithFactory};
 use crate::ecs::{Entity, World};
-use crate::render::texture::{ColorFormat, Texture};
+use crate::render::texture::ColorFormat;
 use crate::types::Fixed;
-use core::cell::{Ref, RefCell};
 
 /// Mark an entity for offscreen rendering. Insert / remove to toggle.
 ///
@@ -179,9 +160,7 @@ pub(crate) struct WidgetTextureRefState {
 
 impl crate::ecs::Component for WidgetTextureRefState {}
 
-/// Cache key for [`OffscreenBufferPool`]. `entity` is part of the key so
-/// each offscreen entity owns its own slot — sharing buffers across
-/// entities would race when both render in the same frame.
+/// Input identity for one widget texture. Entity identity, pixel dimensions, format, and content generation determine whether the published result can be reused; historical output selection is independent of this key.
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub(crate) struct BufferKey {
     pub entity: Entity,
@@ -217,122 +196,15 @@ impl BufferKey {
     }
 }
 
-/// LRU pool limited by the bytes held by its cached texture entries rather than their count. Evicted payloads retained by external snapshots are no longer counted against this cache budget. `App::with_factory` installs a zero-budget pool, disabling caching; configure it through [`crate::app::App::with_offscreen_pool_budget`].
-pub struct OffscreenBufferPool {
-    // RefCell so render_system can borrow the pool mutably while
-    // holding `&World`. Each cached value is itself a RefCell<Texture>
-    // because the inner SwRenderer borrows the buffer's bytes mutably
-    // for the duration of the subtree render.
-    pub(crate) cache:
-        RefCell<WithFactory<LruCache<BufferKey, RefCell<Texture<'static>>>, BufferCtor>>,
-    next_cache_revision: core::cell::Cell<u64>,
-    // Parent target format; transparent sources select RGBA independently.
-    pub(crate) backend_format: core::cell::Cell<Option<ColorFormat>>,
-}
+mod output;
+pub use output::{WidgetTexture, WidgetTextureRead, WidgetTextureStorage};
 
-pub(crate) type BufferCtor = fn(&BufferKey) -> Result<RefCell<Texture<'static>>, BufferAllocError>;
-
-#[derive(Debug)]
-pub struct BufferAllocError;
-
-fn make_buffer(k: &BufferKey) -> Result<RefCell<Texture<'static>>, BufferAllocError> {
-    Ok(RefCell::new(Texture::owned(k.w, k.h, k.format)))
-}
-
-impl OffscreenBufferPool {
-    /// Build a pool with an explicit byte budget. The budget caps the
-    /// total Texture heap held by the cache; LRU eviction kicks in
-    /// once an insert would push the running total past the budget.
-    pub fn with_budget(budget_bytes: usize) -> Self {
-        let cache = LruCache::builder()
-            .max_size(MaxSize::Bytes(budget_bytes))
-            .name("widget/offscreen")
-            .build();
-        Self {
-            cache: RefCell::new(WithFactory::new(cache, make_buffer as BufferCtor)),
-            next_cache_revision: core::cell::Cell::new(1),
-            backend_format: core::cell::Cell::new(None),
-        }
-    }
-
-    pub(crate) fn allocate_cache_revision(&self) -> Option<u64> {
-        let revision = self.next_cache_revision.get();
-        self.next_cache_revision.set(revision.checked_add(1)?);
-        Some(revision)
-    }
-
-    pub(crate) fn trim_memory(&self) {
-        self.cache.borrow_mut().cache_mut().clear();
-        self.backend_format.set(None);
-    }
-}
-
-impl Default for OffscreenBufferPool {
-    /// Disabled cache. Buffer working sets depend on widget sizes and
-    /// available RAM, neither of which the library can guess; the
-    /// caller opts in via
-    /// [`crate::app::App::with_offscreen_pool_budget`].
-    fn default() -> Self {
-        Self::with_budget(0)
-    }
-}
-
-/// Retains a cached texture payload even if its entry is evicted from [`OffscreenBufferPool`]. A snapshot does not pin cache membership or guarantee that a later lookup finds the same generation.
-#[derive(Clone)]
-pub struct TextureSnapshot {
-    handle: Handle<RefCell<Texture<'static>>>,
-}
-
-impl TextureSnapshot {
-    /// Borrow the underlying texture immutably.
-    ///
-    /// Panics if this payload is currently borrowed mutably.
-    pub fn borrow(&self) -> Ref<'_, Texture<'static>> {
-        self.handle.get().borrow()
-    }
-}
-
-fn texture_for(world: &World, entity: Entity, generation_offset: i64) -> Option<TextureSnapshot> {
-    let pool = world.resource::<OffscreenBufferPool>()?;
-    let backend_format = pool.backend_format.get()?;
-    let off = world.get::<OffscreenRender>(entity)?;
-    let rect = world.get::<super::ComputedRect>(entity)?.0;
-    let clear_transparent = world
-        .get::<OffscreenAlphaMode>(entity)
-        .is_some_and(|mode| mode.clear_transparent);
-
-    let g_now = world
-        .get::<OffscreenGeneration>(entity)
-        .map(|g| g.0)
-        .unwrap_or(0);
-    let g = if generation_offset >= 0 {
-        g_now.checked_add(generation_offset as u32)?
-    } else {
-        g_now.checked_sub((-generation_offset) as u32)?
-    };
-
-    let key = BufferKey::for_widget(entity, rect, *off, g, backend_format, clear_transparent);
-    let handle = pool.cache.borrow_mut().acquire(&key)?;
-    Some(TextureSnapshot { handle })
-}
-
-/// Extension trait that lives on `World` for ergonomic access to
-/// rendered widget textures from inside an effect widget's view fn.
-pub trait WidgetTextureAccess {
-    /// The entity's cached current generation at its current dimensions and format. Returns `None` when it has not been rendered, the entry has been evicted, or its configuration no longer matches the cached key.
-    fn texture_of(&self, entity: Entity) -> Option<TextureSnapshot>;
-
-    /// The preceding cached generation at the entity's current dimensions and format. It is not necessarily the previous display frame. Returns `None` before a preceding generation exists or when that key is absent from the cache.
-    fn prev_texture_of(&self, entity: Entity) -> Option<TextureSnapshot>;
-}
-
-impl WidgetTextureAccess for World {
-    fn texture_of(&self, entity: Entity) -> Option<TextureSnapshot> {
-        texture_for(self, entity, 0)
-    }
-
-    fn prev_texture_of(&self, entity: Entity) -> Option<TextureSnapshot> {
-        texture_for(self, entity, -1)
+pub(crate) fn reconcile_texture_outputs(world: &World) {
+    if let Some(outputs) = world.resource::<crate::ui::Outputs<WidgetTexture>>() {
+        outputs.reconcile_textures(
+            |entity| world.get::<OffscreenRender>(entity).is_some(),
+            |entity| !super::branch::is_hidden_in_tree(world, entity),
+        );
     }
 }
 
@@ -362,6 +234,7 @@ pub fn maintain_widget_texture_refs(world: &mut World) -> Result<(), crate::ecs:
     let any_ref = world.query::<WidgetTextureRef>().iter().next().is_some();
     let any_auto = world.query::<OffscreenAutoAdded>().iter().next().is_some();
     if !any_ref && !any_auto {
+        reconcile_texture_outputs(world);
         return Ok(());
     }
 
@@ -437,6 +310,7 @@ pub fn maintain_widget_texture_refs(world: &mut World) -> Result<(), crate::ecs:
             }
         }
     }
+    reconcile_texture_outputs(world);
     Ok(())
 }
 
@@ -449,18 +323,37 @@ crate::ecs::system::framework_system!(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Color;
+    use crate::ui::outputs::Outputs;
 
     fn dummy_entity(id: u32) -> Entity {
         Entity { id, generation: 0 }
     }
 
+    fn texture_key(id: u32, generation: u32) -> BufferKey {
+        BufferKey {
+            entity: dummy_entity(id),
+            w: 40,
+            h: 24,
+            format: ColorFormat::RGBA8888,
+            generation,
+        }
+    }
+
     #[test]
-    fn content_revisions_advance_and_overflow_disables_caching() {
-        let pool = OffscreenBufferPool::with_budget(1024);
-        assert_eq!(pool.allocate_cache_revision(), Some(1));
-        assert_eq!(pool.allocate_cache_revision(), Some(2));
-        pool.next_cache_revision.set(u64::MAX);
-        assert_eq!(pool.allocate_cache_revision(), None);
+    fn texture_is_unavailable_until_successfully_published() {
+        let outputs = Outputs::<WidgetTexture>::with_budget(64 * 1024);
+        let key = texture_key(1, 0);
+        let mut write = outputs.prepare_texture(key).expect("texture storage");
+        write.texture_mut().set_pixel(0, 0, &Color::rgb(17, 31, 47));
+        assert!(outputs.get(key.entity).is_none());
+        assert!(outputs.previous(key.entity).is_none());
+
+        assert!(write.publish());
+        assert_eq!(
+            outputs.get(key.entity).unwrap().texture().get_pixel(0, 0),
+            Color::rgb(17, 31, 47)
+        );
     }
 
     #[test]
@@ -482,36 +375,18 @@ mod tests {
     }
 
     #[test]
-    fn pool_creates_with_byte_budget() {
-        let pool = OffscreenBufferPool::with_budget(64 * 1024);
-        assert_eq!(pool.cache.borrow().cache().len(), 0);
+    fn output_storage_starts_without_published_textures() {
+        let outputs = Outputs::<WidgetTexture>::with_budget(64 * 1024);
+        assert!(outputs.get(dummy_entity(1)).is_none());
+        assert!(outputs.previous(dummy_entity(1)).is_none());
     }
 
     #[test]
-    fn pool_default_disables_cache() {
-        // No platform sniffing in the default — caller must opt in via
-        // `App::with_offscreen_pool_budget`. Until they do, every
-        // insert lands as a detached invalid handle and the cache
-        // stays empty.
-        let pool = OffscreenBufferPool::default();
-        let key = BufferKey {
-            entity: dummy_entity(1),
-            w: 32,
-            h: 32,
-            format: ColorFormat::RGBA8888,
-            generation: 0,
-        };
-        let handle = pool
-            .cache
-            .borrow_mut()
-            .entry(key)
-            .or_insert()
-            .expect("ctor still runs even when the budget is zero");
-        assert!(
-            handle.is_invalid(),
-            "Bytes(0) must hand back a detached handle"
-        );
-        assert_eq!(pool.cache.borrow().cache().len(), 0);
+    fn default_output_budget_rejects_texture_preparation() {
+        let outputs = Outputs::<WidgetTexture>::default();
+        let key = texture_key(1, 0);
+        assert!(outputs.prepare_texture(key).is_none());
+        assert!(outputs.get(key.entity).is_none());
     }
 
     #[test]
@@ -550,120 +425,82 @@ mod tests {
     }
 
     #[test]
-    fn pool_or_insert_creates_buffer_at_requested_size() {
-        let pool = OffscreenBufferPool::with_budget(64 * 1024);
-        let key = BufferKey {
-            entity: dummy_entity(1),
-            w: 40,
-            h: 24,
-            format: ColorFormat::RGBA8888,
-            generation: 0,
-        };
-        let handle = pool
-            .cache
-            .borrow_mut()
-            .entry(key)
-            .or_insert()
-            .expect("alloc");
-        assert!(!handle.is_invalid());
-        let tex = handle.borrow();
+    fn texture_preparation_preserves_requested_geometry() {
+        let outputs = Outputs::<WidgetTexture>::with_budget(64 * 1024);
+        let key = texture_key(1, 0);
+        let write = outputs.prepare_texture(key).expect("texture storage");
+        assert!(write.publish());
+        let output = outputs.get(key.entity).expect("published texture");
+        let tex = output.texture();
         assert_eq!(tex.width, 40);
         assert_eq!(tex.height, 24);
         assert_eq!(tex.format, ColorFormat::RGBA8888);
     }
 
     #[test]
-    fn pool_or_insert_hits_same_key() {
-        let pool = OffscreenBufferPool::with_budget(64 * 1024);
-        let key = BufferKey {
-            entity: dummy_entity(1),
-            w: 40,
-            h: 24,
-            format: ColorFormat::RGBA8888,
-            generation: 0,
-        };
-        let _h1 = pool
-            .cache
-            .borrow_mut()
-            .entry(key)
-            .or_insert()
-            .expect("first");
-        let stats_after_first = *pool.cache.borrow().cache().stats();
-        let _h2 = pool
-            .cache
-            .borrow_mut()
-            .entry(key)
-            .or_insert()
-            .expect("second");
-        let stats_after_second = *pool.cache.borrow().cache().stats();
-        // Second call hits, not misses.
-        assert_eq!(stats_after_second.miss_count, stats_after_first.miss_count);
-        assert_eq!(
-            stats_after_second.hit_count,
-            stats_after_first.hit_count + 1
+    fn stable_texture_rewrites_reuse_prepared_storage() {
+        let outputs = Outputs::<WidgetTexture>::with_budget(64 * 1024);
+        let write = outputs
+            .prepare_texture(texture_key(1, 0))
+            .expect("initial texture storage");
+        assert!(write.publish());
+
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for generation in 1..8 {
+                let _batch = outputs.begin_batch();
+                let write = outputs
+                    .prepare_texture(texture_key(1, generation))
+                    .expect("reusable texture storage");
+                assert!(write.publish());
+                assert!(outputs.get(dummy_entity(1)).is_some());
+            }
+        });
+        assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn cancelled_texture_write_does_not_publish_partial_pixels() {
+        let outputs = Outputs::<WidgetTexture>::with_budget(64 * 1024);
+        let key = texture_key(1, 0);
+        assert!(outputs.prepare_texture(key).unwrap().publish());
+
+        let mut write = outputs
+            .prepare_texture(texture_key(1, 7))
+            .expect("replacement texture storage");
+        write
+            .texture_mut()
+            .set_pixel(0, 0, &Color::rgb(200, 100, 50));
+        assert!(outputs.get(key.entity).is_none());
+        drop(write);
+        assert!(outputs.get(key.entity).is_none());
+        assert!(outputs.previous(key.entity).is_none());
+    }
+
+    #[test]
+    fn texture_budget_rejects_new_outputs_without_evicting_live_sources() {
+        // Two 40 by 24 RGBA textures fit; a third exceeds the live budget.
+        let outputs = Outputs::<WidgetTexture>::with_budget(8 * 1024);
+        assert!(
+            outputs
+                .prepare_texture(texture_key(1, 0))
+                .unwrap()
+                .publish()
         );
+        let pending = outputs.prepare_texture(texture_key(2, 0)).unwrap();
+        assert!(outputs.get(dummy_entity(1)).is_some());
+        assert!(outputs.get(dummy_entity(2)).is_none());
+
+        assert!(outputs.prepare_texture(texture_key(3, 0)).is_none());
+        assert!(outputs.get(dummy_entity(1)).is_some());
+        assert!(pending.publish());
+        assert!(outputs.get(dummy_entity(2)).is_some());
+        assert!(outputs.get(dummy_entity(3)).is_none());
     }
 
     #[test]
-    fn pool_or_insert_misses_after_generation_bump() {
-        let pool = OffscreenBufferPool::with_budget(64 * 1024);
-        let key0 = BufferKey {
-            entity: dummy_entity(1),
-            w: 40,
-            h: 24,
-            format: ColorFormat::RGBA8888,
-            generation: 0,
-        };
-        let _h0 = pool
-            .cache
-            .borrow_mut()
-            .entry(key0)
-            .or_insert()
-            .expect("gen 0");
-        let key1 = BufferKey {
-            generation: 1,
-            ..key0
-        };
-        let stats_before = *pool.cache.borrow().cache().stats();
-        let _h1 = pool
-            .cache
-            .borrow_mut()
-            .entry(key1)
-            .or_insert()
-            .expect("gen 1");
-        let stats_after = *pool.cache.borrow().cache().stats();
-        // generation bump → key not in cache → miss.
-        assert_eq!(stats_after.miss_count, stats_before.miss_count + 1);
-    }
-
-    #[test]
-    fn pool_byte_budget_evicts_lru_when_total_exceeds_limit() {
-        // Budget = 8 KB; one 40×24 RGBA buffer is 3840 bytes. Three of
-        // them (11.5 KB) won't fit, so the LRU one must leave.
-        let pool = OffscreenBufferPool::with_budget(8 * 1024);
-        let key = |id, g| BufferKey {
-            entity: dummy_entity(id),
-            w: 40,
-            h: 24,
-            format: ColorFormat::RGBA8888,
-            generation: g,
-        };
-        let _h1 = pool.cache.borrow_mut().entry(key(1, 0)).or_insert();
-        let _h2 = pool.cache.borrow_mut().entry(key(2, 0)).or_insert();
-        // Touch h1 so h2 is the LRU candidate.
-        let _ = pool.cache.borrow_mut().acquire(&key(1, 0));
-        let _h3 = pool.cache.borrow_mut().entry(key(3, 0)).or_insert();
-
-        let cache = pool.cache.borrow();
-        assert_eq!(cache.cache().len(), 2);
-        assert!(cache.cache().current_size() <= 8 * 1024);
-        assert_eq!(cache.cache().stats().evict_count, 1);
-    }
-
-    #[test]
-    fn pool_oversized_entry_returns_invalid_handle_without_growing_cache() {
-        // 200×200 RGBA = 160 KB, way past a 4 KB budget.
-        let pool = OffscreenBufferPool::with_budget(4 * 1024);
+    fn oversized_texture_is_rejected_without_allocating_pixels() {
+        let outputs = Outputs::<WidgetTexture>::with_budget(4 * 1024);
+        outputs.reserve(1).expect("output metadata capacity");
         let key = BufferKey {
             entity: dummy_entity(1),
             w: 200,
@@ -671,17 +508,181 @@ mod tests {
             format: ColorFormat::RGBA8888,
             generation: 0,
         };
-        let handle = pool
-            .cache
-            .borrow_mut()
-            .entry(key)
-            .or_insert()
-            .expect("ctor still runs even when entry won't fit");
+        let allocations = crate::test_support::tracked_allocations(|| {
+            assert!(outputs.prepare_texture(key).is_none());
+        });
+        assert_eq!(allocations, 0);
+        assert!(outputs.get(key.entity).is_none());
+    }
+
+    #[test]
+    fn history_freezes_successful_outputs_across_input_revision_gaps() {
+        let outputs = Outputs::<WidgetTexture>::with_budget(2 * 40 * 24 * 4);
+        let entity = dummy_entity(1);
+        outputs.reserve(1).expect("output metadata capacity");
+        outputs.set_retained(entity, true).expect("history slot");
+        let first = Color::rgb(200, 10, 20);
+        let second = Color::rgb(30, 40, 220);
+        {
+            let _batch = outputs.begin_batch();
+            let mut write = outputs.prepare_texture(texture_key(1, 2)).unwrap();
+            write.texture_mut().set_pixel(0, 0, &first);
+            assert!(write.publish());
+            assert!(outputs.previous(entity).is_none());
+        }
+        {
+            let _batch = outputs.begin_batch();
+            let mut write = outputs.prepare_texture(texture_key(1, 11)).unwrap();
+            assert_eq!(
+                outputs.previous(entity).unwrap().texture().get_pixel(0, 0),
+                first
+            );
+            write.texture_mut().set_pixel(0, 0, &second);
+            assert!(write.publish());
+            assert_eq!(
+                outputs.get(entity).unwrap().texture().get_pixel(0, 0),
+                second
+            );
+            assert_eq!(
+                outputs.previous(entity).unwrap().texture().get_pixel(0, 0),
+                first
+            );
+            assert!(outputs.prepare_texture(texture_key(2, 0)).is_none());
+        }
+        {
+            let _batch = outputs.begin_batch();
+            let write = outputs.prepare_texture(texture_key(1, 19)).unwrap();
+            drop(write);
+            assert!(outputs.get(entity).is_none());
+            assert_eq!(
+                outputs.previous(entity).unwrap().texture().get_pixel(0, 0),
+                second
+            );
+        }
+    }
+
+    #[test]
+    fn trimming_outputs_releases_published_textures_and_live_budget() {
+        let outputs = Outputs::<WidgetTexture>::with_budget(40 * 24 * 4);
         assert!(
-            handle.is_invalid(),
-            "oversized entry must come back detached"
+            outputs
+                .prepare_texture(texture_key(1, 0))
+                .unwrap()
+                .publish()
         );
-        assert_eq!(pool.cache.borrow().cache().len(), 0);
+        assert!(outputs.prepare_texture(texture_key(2, 0)).is_none());
+
+        outputs.trim_memory();
+        assert!(outputs.get(dummy_entity(1)).is_none());
+        assert!(
+            outputs
+                .prepare_texture(texture_key(2, 0))
+                .unwrap()
+                .publish()
+        );
+    }
+
+    #[test]
+    fn retired_sources_release_their_output_and_pixel_budget() {
+        for despawn in [false, true] {
+            let mut world = World::default();
+            world.insert_resource(Outputs::<WidgetTexture>::with_budget(40 * 24 * 4));
+            let source = world.spawn_empty();
+            world.insert(source, OffscreenRender::default());
+            {
+                let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+                let write = outputs
+                    .prepare_texture(BufferKey {
+                        entity: source,
+                        ..texture_key(0, 1)
+                    })
+                    .unwrap();
+                assert!(write.publish());
+                assert!(outputs.get(source).is_some());
+            }
+
+            if despawn {
+                assert!(world.despawn(source));
+            } else {
+                world.remove::<OffscreenRender>(source);
+            }
+            reconcile_texture_outputs(&world);
+
+            let replacement = world.spawn_empty();
+            world.insert(replacement, OffscreenRender::default());
+            let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+            assert!(outputs.get(source).is_none());
+            let write = outputs
+                .prepare_texture(BufferKey {
+                    entity: replacement,
+                    ..texture_key(0, 1)
+                })
+                .expect("retired source released the pixel budget");
+            assert!(write.publish());
+            assert!(outputs.get(replacement).is_some());
+            assert!(outputs.get(source).is_none());
+        }
+    }
+
+    #[test]
+    fn hidden_branch_clears_output_history_and_preserves_retention_demand() {
+        let mut world = World::default();
+        world.insert_resource(Outputs::<WidgetTexture>::with_budget(2 * 40 * 24 * 4));
+        let parent = world.spawn_empty();
+        let source = world.spawn_empty();
+        world.insert(source, crate::ui::Parent(parent));
+        world.insert(source, OffscreenRender::default());
+        {
+            let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+            outputs.reserve(1).unwrap();
+            outputs.set_retained(source, true).unwrap();
+            for generation in 1..=2 {
+                let _batch = outputs.begin_batch();
+                let write = outputs
+                    .prepare_texture(BufferKey {
+                        entity: source,
+                        ..texture_key(0, generation)
+                    })
+                    .unwrap();
+                assert!(write.publish());
+            }
+            assert!(outputs.get(source).is_some());
+            assert!(outputs.previous(source).is_some());
+        }
+
+        world.insert(parent, crate::ui::Hidden);
+        reconcile_texture_outputs(&world);
+        {
+            let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+            assert!(outputs.get(source).is_none());
+            assert!(outputs.previous(source).is_none());
+            assert!(outputs.state(source).unwrap().retained);
+        }
+
+        world.remove::<crate::ui::Hidden>(parent);
+        reconcile_texture_outputs(&world);
+        let expected = Color::rgb(29, 53, 101);
+        let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+        {
+            let _batch = outputs.begin_batch();
+            assert!(outputs.previous(source).is_none());
+            let mut write = outputs
+                .prepare_texture(BufferKey {
+                    entity: source,
+                    ..texture_key(0, 7)
+                })
+                .unwrap();
+            write.texture_mut().set_pixel(0, 0, &expected);
+            assert!(write.publish());
+            assert!(outputs.previous(source).is_none());
+        }
+        {
+            let _batch = outputs.begin_batch();
+            assert_eq!(
+                outputs.previous(source).unwrap().texture().get_pixel(0, 0),
+                expected
+            );
+        }
     }
 
     #[test]

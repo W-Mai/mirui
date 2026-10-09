@@ -1,8 +1,3 @@
-use alloc::boxed::Box;
-use alloc::vec::Vec;
-use core::cell::RefCell;
-
-use crate::core::cache::Handle;
 use crate::ecs::{Entity, World};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::renderer::{DrawRequest, FallbackRegion, RenderError, RenderRoute, Renderer};
@@ -11,12 +6,15 @@ use crate::types::{Dimension, Fixed, Point, Rect, Transform, Transform3D, Viewpo
 use crate::ui::layout::{LayoutNode, LayoutStyle, compute_layout};
 use crate::ui::widgets::transform::WidgetTransform;
 use crate::ui::widgets::transform_3d::{TransformOrigin, WidgetTransform3D};
+use alloc::boxed::Box;
+use alloc::vec::Vec;
 
 use super::dirty::{DirtyRegions, RegionShift};
 use super::state::{InteractionState, UserState};
 use super::theme::WidgetState;
 use super::view::{PaintCtx, ViewRegistry};
 use super::{Children, Parent, Style, Widget};
+use super::{Outputs, WidgetTexture};
 
 /// Stage at which a text widget failed to prepare its layout.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1777,13 +1775,13 @@ fn prepare_offscreen(
     shifted_rect: &Rect,
     off: super::OffscreenRender,
     entity: Entity,
-) -> Result<Option<Handle<RefCell<Texture<'static>>>>, RenderError> {
+) -> Result<bool, RenderError> {
     use crate::render::canvas::Canvas;
     use crate::render::sw::SwRenderer;
 
     let backend_format = match renderer.offscreen_format() {
         Some(f) => f,
-        None => return Ok(None),
+        None => return Ok(false),
     };
     let clear_transparent = world
         .get::<super::OffscreenAlphaMode>(entity)
@@ -1808,29 +1806,26 @@ fn prepare_offscreen(
     );
     let (buf_w, buf_h) = (key.w, key.h);
 
-    let pool = match world.resource::<super::OffscreenBufferPool>() {
+    let outputs = match world.resource::<Outputs<WidgetTexture>>() {
         Some(p) => p,
-        None => return Ok(None),
+        None => return Ok(false),
     };
-    pool.backend_format.set(Some(backend_format));
 
     crate::trace_span!("draw.offscreen");
 
-    let cached = pool.cache.borrow_mut().acquire(&key);
-    if let Some(handle) = cached {
+    if outputs.texture_matches(key) {
         *idx += count_nodes(node);
-        return Ok(Some(handle));
+        return Ok(true);
     }
 
     // Keep unfinished pixels outside the readable cache. View callbacks can
     // borrow completed sources without overlapping a mutable cache borrow.
-    let mut texture = Texture::owned(buf_w, buf_h, key.format);
-    if let Some(revision) = pool.allocate_cache_revision() {
-        texture.cache_revision = revision;
-        texture.transient = false;
-    }
+    let Some(mut write) = outputs.prepare_texture(key) else {
+        return Ok(false);
+    };
+    let texture = write.texture_mut();
     if !clear_transparent {
-        renderer.read_target_region(shifted_rect, &mut texture)?;
+        renderer.read_target_region(shifted_rect, texture)?;
     }
 
     {
@@ -1902,13 +1897,7 @@ fn prepare_offscreen(
         Canvas::flush(&mut inner);
     }
 
-    let handle = pool
-        .cache
-        .borrow_mut()
-        .cache_mut()
-        .entry(key)
-        .or_insert_with(|| RefCell::new(texture));
-    Ok(Some(handle))
+    Ok(write.publish())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1925,7 +1914,7 @@ fn try_draw_offscreen(
     outer_tf: &Transform,
     outer_quad: Option<[Point; 4]>,
 ) -> Result<bool, RenderError> {
-    let Some(handle) = prepare_offscreen(
+    if !prepare_offscreen(
         node,
         world,
         entities,
@@ -1934,8 +1923,7 @@ fn try_draw_offscreen(
         shifted_rect,
         off,
         entity,
-    )?
-    else {
+    )? {
         return Ok(false);
     };
 
@@ -1945,13 +1933,18 @@ fn try_draw_offscreen(
     // entry point and lets every backend handle the blit identically.
 
     {
-        let tex_ref = handle.get().borrow();
+        let Some(texture) = world
+            .resource::<Outputs<WidgetTexture>>()
+            .and_then(|outputs| outputs.get(entity))
+        else {
+            return Ok(false);
+        };
         let blit_cmd = DrawCommand::Blit {
             pos: Point::new(shifted_rect.x, shifted_rect.y),
             size: Point::new(shifted_rect.w, shifted_rect.h),
             transform: *outer_tf,
             quad: outer_quad,
-            texture: &tex_ref,
+            texture: texture.texture(),
             opa: off.opacity,
             radius: Fixed::ZERO,
             composite: CompositeMode::SourceOver,
@@ -1982,6 +1975,10 @@ pub fn render(
     transform: &Viewport,
     renderer: &mut dyn Renderer,
 ) -> Result<(), RenderError> {
+    super::offscreen::reconcile_texture_outputs(world);
+    let _outputs_batch = world
+        .resource::<Outputs<WidgetTexture>>()
+        .map(Outputs::begin_batch);
     let (logical_w, logical_h) = transform.logical_size();
     if let Some(snapshot) = world
         .resource::<LayoutSnapshot>()
@@ -2226,6 +2223,10 @@ pub fn render_region(
     dirty_rect: &Rect,
     renderer: &mut dyn Renderer,
 ) -> Result<(), RenderError> {
+    super::offscreen::reconcile_texture_outputs(world);
+    let _outputs_batch = world
+        .resource::<Outputs<WidgetTexture>>()
+        .map(Outputs::begin_batch);
     let (logical_w, logical_h) = transform.logical_size();
     if let Some(snapshot) = world
         .resource::<LayoutSnapshot>()
@@ -5827,7 +5828,7 @@ mod offscreen_render_check {
     use crate::types::{Color, Dimension, Viewport};
     use crate::ui::layout::LayoutStyle;
     use crate::ui::offscreen::BufferKey;
-    use crate::ui::{Children, OffscreenBufferPool, OffscreenRender, Parent, Style, Widget};
+    use crate::ui::{Children, OffscreenRender, Outputs, Parent, Style, Widget, WidgetTexture};
 
     fn spawn(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
         let e = world.spawn_empty();
@@ -5864,19 +5865,23 @@ mod offscreen_render_check {
     impl crate::ecs::Component for OffscreenReadProbe {}
 
     fn probe_offscreen_reads(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-        use crate::ui::offscreen::WidgetTextureAccess;
-
         let probe = world.get::<OffscreenReadProbe>(entity).unwrap();
         if !probe.fail {
             assert!(
-                world.texture_of(entity).is_none(),
+                world
+                    .resource::<Outputs<WidgetTexture>>()
+                    .unwrap()
+                    .get(entity)
+                    .is_none(),
                 "a subtree under construction must not be readable"
             );
         }
         let source = world
-            .texture_of(probe.source)
+            .resource::<Outputs<WidgetTexture>>()
+            .unwrap()
+            .get(probe.source)
             .expect("a completed source stays readable while another subtree renders");
-        assert_eq!(source.borrow().get_pixel(1, 1), Color::rgb(64, 128, 255));
+        assert_eq!(source.texture().get_pixel(1, 1), Color::rgb(64, 128, 255));
         probe.calls.set(probe.calls.get() + 1);
         if probe.fail {
             paint.fail(RenderError::BackendFailure);
@@ -5920,8 +5925,6 @@ mod offscreen_render_check {
 
     #[test]
     fn offscreen_subtree_reads_only_completed_sources() {
-        use crate::ui::offscreen::WidgetTextureAccess;
-
         let (mut world, source, consumer) = offscreen_read_probe_world(false);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         let mut pixels = [0; 64 * 64 * 4];
@@ -5940,15 +5943,19 @@ mod offscreen_render_check {
             1
         );
         assert_eq!(
-            world.texture_of(consumer).unwrap().borrow().get_pixel(1, 1),
+            world
+                .resource::<Outputs<WidgetTexture>>()
+                .unwrap()
+                .get(consumer)
+                .unwrap()
+                .texture()
+                .get_pixel(1, 1),
             Color::rgb(64, 128, 255)
         );
     }
 
     #[test]
     fn offscreen_subtree_failure_preserves_completed_sources() {
-        use crate::ui::offscreen::WidgetTextureAccess;
-
         let (mut world, source, consumer) = offscreen_read_probe_world(true);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         let mut pixels = [0; 64 * 64 * 4];
@@ -5956,7 +5963,13 @@ mod offscreen_render_check {
         let mut renderer = SwRenderer::new(texture);
         super::update_layout(&mut world, source, &viewport);
         super::render(&world, source, &viewport, &mut renderer).unwrap();
-        let revision = world.texture_of(source).unwrap().borrow().cache_revision;
+        let revision = world
+            .resource::<Outputs<WidgetTexture>>()
+            .unwrap()
+            .get(source)
+            .unwrap()
+            .texture()
+            .cache_revision;
         super::update_layout(&mut world, consumer, &viewport);
         assert_eq!(
             super::render(&world, consumer, &viewport, &mut renderer),
@@ -5970,29 +5983,25 @@ mod offscreen_render_check {
                 .get(),
             1
         );
-        assert!(world.texture_of(consumer).is_none());
+        assert!(
+            world
+                .resource::<Outputs<WidgetTexture>>()
+                .unwrap()
+                .get(consumer)
+                .is_none()
+        );
         let source = world
-            .texture_of(source)
+            .resource::<Outputs<WidgetTexture>>()
+            .unwrap()
+            .get(source)
             .expect("completed source remains cached");
-        let texture = source.borrow();
+        let texture = source.texture();
         assert_eq!(texture.cache_revision, revision);
         assert_eq!(texture.get_pixel(1, 1), Color::rgb(64, 128, 255));
-        assert_eq!(
-            world
-                .resource::<OffscreenBufferPool>()
-                .unwrap()
-                .cache
-                .borrow()
-                .cache()
-                .len(),
-            1
-        );
     }
 
     #[test]
     fn offscreen_prerender_does_not_submit_to_parent_target() {
-        use crate::ui::offscreen::WidgetTextureAccess;
-
         struct PreparationTarget;
 
         impl Renderer for PreparationTarget {
@@ -6024,16 +6033,20 @@ mod offscreen_render_check {
             .unwrap();
             assert_eq!(idx, snapshot.entities.len());
             assert_eq!(
-                world.texture_of(source).unwrap().borrow().get_pixel(1, 1),
+                world
+                    .resource::<Outputs<WidgetTexture>>()
+                    .unwrap()
+                    .get(source)
+                    .unwrap()
+                    .texture()
+                    .get_pixel(1, 1),
                 Color::rgb(64, 128, 255)
             );
         }
     }
 
     #[test]
-    fn offscreen_render_paints_subtree_into_pool_buffer() {
-        // 32×32 panel marked OffscreenRender; the buffer pool should
-        // see exactly one entry after render.
+    fn offscreen_render_publishes_completed_subtree() {
         let mut world = make_world();
         let panel = spawn(
             &mut world,
@@ -6056,12 +6069,14 @@ mod offscreen_render_check {
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
 
-        let pool = world.resource::<OffscreenBufferPool>().expect("pool");
-        assert_eq!(pool.cache.borrow().cache().len(), 1);
+        let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+        let output = outputs.get(panel).expect("completed subtree output");
+        assert_eq!((output.texture().width, output.texture().height), (32, 32));
+        assert_eq!(output.texture().get_pixel(1, 1), Color::rgb(64, 128, 255));
     }
 
     #[test]
-    fn offscreen_read_failure_drops_incomplete_cache_entry() {
+    fn offscreen_read_failure_keeps_current_unavailable() {
         struct FailingRead;
 
         impl Renderer for FailingRead {
@@ -6108,14 +6123,14 @@ mod offscreen_render_check {
             super::render(&world, panel, &viewport, &mut FailingRead),
             Err(RenderError::BackendFailure)
         );
-        let pool = world.resource::<OffscreenBufferPool>().unwrap();
-        assert_eq!(pool.cache.borrow().cache().len(), 0);
+        let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+        assert!(outputs.get(panel).is_none());
 
         let mut pixels = std::vec![0; 64 * 64 * 4];
         let texture = Texture::new(&mut pixels, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(texture);
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
-        assert_eq!(pool.cache.borrow().cache().len(), 1);
+        assert!(outputs.get(panel).is_some());
     }
 
     #[test]
@@ -6210,12 +6225,9 @@ mod offscreen_render_check {
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
 
-        // Pool has 1 entry; the key reports the half-resolution buffer
-        // dims (32 × 0.5 = 16).
-        let pool = world.resource::<OffscreenBufferPool>().expect("pool");
-        let cache_borrow = pool.cache.borrow();
-        let stats = cache_borrow.cache().stats();
-        assert_eq!(stats.insert_count, 1);
+        let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+        let output = outputs.get(panel).unwrap();
+        assert_eq!((output.texture().width, output.texture().height), (16, 16));
     }
 
     /// Children inside an OffscreenRender + scale=0.5 subtree must
@@ -6347,7 +6359,7 @@ mod offscreen_render_check {
             let mut world = World::default();
             // 64 KiB is plenty for a 40×20 panel + child buffer; the
             // pool default is 0 (disabled) so the test must opt in.
-            world.insert_resource(OffscreenBufferPool::with_budget(64 * 1024));
+            world.insert_resource(Outputs::<WidgetTexture>::with_budget(64 * 1024));
             world.insert_resource(ViewRegistry::with_builtins());
             world.insert_resource(Theme::dark());
 
@@ -6440,7 +6452,7 @@ mod offscreen_render_check {
 
         fn build_world(with_offscreen: bool, tf: Transform) -> (World, Entity) {
             let mut world = World::default();
-            world.insert_resource(OffscreenBufferPool::with_budget(64 * 1024));
+            world.insert_resource(Outputs::<WidgetTexture>::with_budget(64 * 1024));
             world.insert_resource(ViewRegistry::with_builtins());
             world.insert_resource(Theme::dark());
 
@@ -6594,7 +6606,7 @@ mod offscreen_render_check {
             // 64 KiB covers the form_page + Switch buffer working
             // set; the pool default is 0 (disabled) so the test
             // must opt in.
-            w.insert_resource(OffscreenBufferPool::with_budget(64 * 1024));
+            w.insert_resource(Outputs::<WidgetTexture>::with_budget(64 * 1024));
             w.insert_resource(ViewRegistry::with_builtins());
             w.insert_resource(Theme::dark());
 
@@ -7047,7 +7059,7 @@ mod offscreen_render_check {
     }
 
     #[test]
-    fn offscreen_cache_hit_skips_inner_raster() {
+    fn offscreen_reuses_current_until_input_generation_changes() {
         let mut world = make_world();
         let panel = spawn(
             &mut world,
@@ -7071,41 +7083,46 @@ mod offscreen_render_check {
 
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
 
-        // Stamp magenta over the cached green buffer. Frame 2 raster
-        // would overwrite it back to green; hit path leaves it alone.
-        let pool = world.resource::<OffscreenBufferPool>().unwrap();
-        let key = {
-            let cache_ref = pool.cache.borrow();
-            cache_ref
-                .cache()
-                .iter()
-                .next()
-                .map(|(k, _)| *k)
-                .expect("frame 1 must have populated the buffer")
-        };
-        {
-            let mut cache_mut = pool.cache.borrow_mut();
-            let handle = cache_mut.acquire(&key).expect("acquire by key");
-            let mut tex_ref = handle.get().borrow_mut();
-            let bytes = tex_ref.buf.as_mut_slice();
-            for px in bytes.chunks_exact_mut(4) {
-                px[0] = 255;
-                px[1] = 0;
-                px[2] = 255;
-                px[3] = 255;
-            }
-        }
+        let first_version = world
+            .resource::<Outputs<WidgetTexture>>()
+            .unwrap()
+            .state(panel)
+            .unwrap()
+            .current
+            .unwrap()
+            .version;
 
         let mut buf2 = std::vec![0u8; 64 * 64 * 4];
         let tex2 = Texture::new(&mut buf2, 64, 64, ColorFormat::RGBA8888);
         let mut renderer2 = SwRenderer::new(tex2);
         super::render(&world, panel, &viewport, &mut renderer2).unwrap();
 
-        assert_eq!(
-            (buf2[0], buf2[1], buf2[2]),
-            (255, 0, 255),
-            "cache hit ran inner raster instead of blitting cached pixels"
+        {
+            let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+            assert_eq!(
+                outputs.state(panel).unwrap().current.unwrap().version,
+                first_version
+            );
+            assert_eq!(
+                outputs.get(panel).unwrap().texture().get_pixel(1, 1),
+                Color::rgb(0, 255, 0)
+            );
+        }
+        world.get_mut::<Style>(panel).unwrap().bg_color = Some(Color::rgb(255, 0, 255).into());
+        world.insert(panel, super::super::OffscreenGeneration(1));
+        super::render(&world, panel, &viewport, &mut renderer2).unwrap();
+        assert!(
+            world
+                .resource::<Outputs<WidgetTexture>>()
+                .unwrap()
+                .state(panel)
+                .unwrap()
+                .current
+                .unwrap()
+                .version
+                > first_version
         );
+        assert_eq!((buf2[0], buf2[1], buf2[2]), (255, 0, 255));
     }
 
     /// Pure Bug 2 isolation: the transform stays fully on-screen so
@@ -7329,28 +7346,31 @@ mod offscreen_render_check {
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
 
-        // Frame 1
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
-        let stats1 = *world
-            .resource::<OffscreenBufferPool>()
+        let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+        let version = outputs.state(panel).unwrap().current.unwrap().version;
+        let pixels = outputs
+            .get(panel)
             .unwrap()
-            .cache
-            .borrow()
-            .cache()
-            .stats();
-
-        // Frame 2 — generation didn't change, pool should hit cache.
+            .texture()
+            .buf
+            .as_slice()
+            .as_ptr();
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
-        let stats2 = *world
-            .resource::<OffscreenBufferPool>()
-            .unwrap()
-            .cache
-            .borrow()
-            .cache()
-            .stats();
-
-        assert_eq!(stats2.insert_count, stats1.insert_count);
-        assert!(stats2.hit_count > stats1.hit_count);
+        assert_eq!(
+            outputs.state(panel).unwrap().current.unwrap().version,
+            version
+        );
+        assert_eq!(
+            outputs
+                .get(panel)
+                .unwrap()
+                .texture()
+                .buf
+                .as_slice()
+                .as_ptr(),
+            pixels
+        );
     }
 
     /// `App::snapshot_widget` returns an owned RGBA8888 texture and
@@ -7398,10 +7418,8 @@ mod offscreen_render_check {
     }
 
     #[test]
-    fn mixed_offscreen_formats_resolve_each_source_and_its_previous_generation() {
-        use super::super::offscreen::{
-            OffscreenAlphaMode, OffscreenGeneration, WidgetTextureAccess,
-        };
+    fn mixed_offscreen_formats_retain_each_sources_successful_output() {
+        use super::super::offscreen::{OffscreenAlphaMode, OffscreenGeneration};
 
         for (transparent_first, backend_format) in [
             (false, ColorFormat::RGB565),
@@ -7446,6 +7464,13 @@ mod offscreen_render_check {
             } else {
                 [opaque, transparent]
             };
+            {
+                let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+                outputs.reserve(2).unwrap();
+                for entity in order {
+                    outputs.set_retained(entity, true).unwrap();
+                }
+            }
             let viewport = Viewport::new(8, 8, Fixed::ONE);
             let mut target = [0_u8; 8 * 8 * 4];
             let texture = Texture::new(&mut target, 8, 8, backend_format);
@@ -7453,7 +7478,10 @@ mod offscreen_render_check {
             for generation in 0..2 {
                 for entity in order {
                     world.insert(entity, OffscreenGeneration(generation));
-                    super::update_layout(&mut world, entity, &viewport);
+                }
+                let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+                let _batch = outputs.begin_batch();
+                for entity in order {
                     super::render(&world, entity, &viewport, &mut renderer).unwrap();
                 }
                 for (entity, format) in [
@@ -7461,29 +7489,46 @@ mod offscreen_render_check {
                     (opaque, backend_format),
                 ] {
                     let current = world
-                        .texture_of(entity)
+                        .resource::<Outputs<WidgetTexture>>()
+                        .unwrap()
+                        .get(entity)
                         .expect("source-specific current buffer");
-                    assert_eq!(current.borrow().format, format);
+                    assert_eq!(current.texture().format, format);
                     assert_eq!(
-                        current.borrow().get_pixel(1, 1),
+                        current.texture().get_pixel(1, 1),
                         if entity == transparent {
                             Color::rgb(255, 0, 0)
                         } else {
                             Color::rgb(0, 255, 0)
                         }
                     );
-                    let previous = world.prev_texture_of(entity);
+                    let previous = world
+                        .resource::<Outputs<WidgetTexture>>()
+                        .unwrap()
+                        .previous(entity);
                     assert_eq!(previous.is_some(), generation != 0);
                     if let Some(previous) = previous {
-                        assert_eq!(previous.borrow().format, format);
+                        assert_eq!(previous.texture().format, format);
                     }
                 }
             }
             assert_eq!(
                 crate::test_support::tracked_allocations(|| {
                     for entity in order {
-                        assert!(world.texture_of(entity).is_some());
-                        assert!(world.prev_texture_of(entity).is_some());
+                        assert!(
+                            world
+                                .resource::<Outputs<WidgetTexture>>()
+                                .unwrap()
+                                .get(entity)
+                                .is_some()
+                        );
+                        assert!(
+                            world
+                                .resource::<Outputs<WidgetTexture>>()
+                                .unwrap()
+                                .previous(entity)
+                                .is_some()
+                        );
                     }
                 }),
                 0
@@ -7491,15 +7536,9 @@ mod offscreen_render_check {
         }
     }
 
-    /// Across consecutive dirty renders driven through render_region
-    /// (the production path), `prev_texture_of` returns the buffer
-    /// from the previous render. Frame 1 has no prev (None), frame 2
-    /// sees frame 1's buffer, frame 3 sees frame 2's.
+    /// Successful retained outputs use two slots while failed or skipped production does not advance history.
     #[test]
-    fn prev_texture_of_returns_previous_frame_buffer() {
-        use super::super::dirty::Dirty;
-        use super::super::offscreen::WidgetTextureAccess;
-
+    fn retained_history_reads_successful_outputs_and_reuses_two_slots() {
         let mut world = make_world();
         let panel = spawn(
             &mut world,
@@ -7515,6 +7554,12 @@ mod offscreen_render_check {
             },
         );
         world.insert(panel, OffscreenRender::default());
+
+        {
+            let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+            outputs.reserve(1).unwrap();
+            outputs.set_retained(panel, true).unwrap();
+        }
 
         let mut buf = std::vec![0u8; 64 * 64 * 4];
         let viewport = Viewport::new(64, 64, Fixed::ONE);
@@ -7532,43 +7577,36 @@ mod offscreen_render_check {
             super::render_region(world, panel, &viewport, &dirty, &mut renderer).unwrap();
         };
 
-        render_frame(&mut world, &mut buf);
-        assert!(
-            world.texture_of(panel).is_some(),
-            "frame 1 should have current"
-        );
-        let first_revision = world.texture_of(panel).unwrap().borrow().cache_revision;
-        assert_ne!(first_revision, 0);
-        assert!(!world.texture_of(panel).unwrap().borrow().transient);
-        assert!(
-            world.prev_texture_of(panel).is_none(),
-            "frame 1 has no prev"
-        );
-
-        world.insert(panel, Dirty);
-        render_frame(&mut world, &mut buf);
-        assert!(
-            world.texture_of(panel).is_some(),
-            "frame 2 should have current"
-        );
-        let second_revision = world.texture_of(panel).unwrap().borrow().cache_revision;
-        assert!(second_revision > first_revision);
-        assert!(!world.texture_of(panel).unwrap().borrow().transient);
-        assert!(
-            world.prev_texture_of(panel).is_some(),
-            "frame 2 should see frame 1"
-        );
-
-        world.insert(panel, Dirty);
-        render_frame(&mut world, &mut buf);
-        assert!(
-            world.texture_of(panel).is_some(),
-            "frame 3 should have current"
-        );
-        assert!(
-            world.prev_texture_of(panel).is_some(),
-            "frame 3 should see frame 2"
-        );
+        let mut first_pixels = core::ptr::null();
+        let mut prior_revision = 0;
+        let colors = [
+            Color::rgb(255, 0, 0),
+            Color::rgb(0, 255, 0),
+            Color::rgb(0, 0, 255),
+        ];
+        for (index, color) in colors.into_iter().enumerate() {
+            world.get_mut::<Style>(panel).unwrap().bg_color = Some(color.into());
+            render_frame(&mut world, &mut buf);
+            let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+            let current = outputs.get(panel).unwrap();
+            assert_eq!(current.texture().get_pixel(1, 1), color);
+            assert!(current.texture().cache_revision > prior_revision);
+            assert!(!current.texture().transient);
+            prior_revision = current.texture().cache_revision;
+            if index == 0 {
+                first_pixels = current.texture().buf.as_slice().as_ptr();
+                assert!(outputs.previous(panel).is_none());
+            } else {
+                let previous = outputs.previous(panel).unwrap();
+                assert_eq!(previous.texture().get_pixel(1, 1), colors[index - 1]);
+                if index == 1 {
+                    assert_eq!(previous.texture().buf.as_slice().as_ptr(), first_pixels);
+                    assert_ne!(current.texture().buf.as_slice().as_ptr(), first_pixels);
+                } else {
+                    assert_eq!(current.texture().buf.as_slice().as_ptr(), first_pixels);
+                }
+            }
+        }
     }
 
     #[test]
@@ -7930,11 +7968,9 @@ mod offscreen_render_check {
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
 
-        let pool = world.resource::<OffscreenBufferPool>().expect("pool");
-        let cb = pool.cache.borrow();
-        // Single insert, single entry; buffer dims must round to 22×22.
-        assert_eq!(cb.cache().stats().insert_count, 1);
-        assert_eq!(cb.cache().len(), 1);
+        let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+        let output = outputs.get(panel).unwrap();
+        assert_eq!((output.texture().width, output.texture().height), (22, 22));
     }
 
     #[test]
@@ -7966,12 +8002,9 @@ mod offscreen_render_check {
         let viewport = Viewport::new(32, 32, Fixed::ONE);
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
 
-        let pool = world.resource::<OffscreenBufferPool>().expect("pool");
-        assert_eq!(
-            pool.cache.borrow().cache().len(),
-            0,
-            "Hidden entity should not allocate an offscreen buffer"
-        );
+        let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+        assert!(outputs.get(panel).is_none());
+        assert!(outputs.state(panel).is_none());
     }
 
     /// MirrorOf paints the source's flipped texture into the mirror
@@ -8101,7 +8134,9 @@ mod offscreen_render_check {
         );
         world.insert(panel, super::super::OffscreenRender::default());
         world.insert(panel, OffscreenAlphaMode::clear_transparent());
-        world.insert_resource(super::super::OffscreenBufferPool::with_budget(64 * 1024));
+        world.insert_resource(super::super::Outputs::<WidgetTexture>::with_budget(
+            64 * 1024,
+        ));
 
         let mut buf = std::vec![0xFFu8; 12 * 12 * 4];
         let tex = Texture::new(&mut buf, 12, 12, ColorFormat::RGBA8888);
@@ -8109,13 +8144,9 @@ mod offscreen_render_check {
         let viewport = Viewport::new(12, 12, Fixed::ONE);
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
 
-        let pool = world
-            .resource::<super::super::OffscreenBufferPool>()
-            .unwrap();
-        let cache = pool.cache.borrow();
-        let entry = cache.cache().iter().next().expect("buffer entry");
-        let tex_ref = entry.1.borrow();
-        for px in tex_ref.buf.as_slice().chunks_exact(4) {
+        let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+        let output = outputs.get(panel).unwrap();
+        for px in output.texture().buf.as_slice().chunks_exact(4) {
             assert_eq!(px[3], 0, "alpha-clear buffer pixel must stay alpha=0");
         }
     }
