@@ -934,6 +934,73 @@ fn layout_text(
     Ok(Some(LaidOutText { handle, measure }))
 }
 
+fn prepare_path_text_placements(
+    world: &World,
+    entities: &[Entity],
+) -> Result<(), TextLayoutFailure> {
+    use crate::text::baseline::{
+        DEFAULT_TOLERANCE, PathBaselineError, PathBaselineResource, PlacementKey,
+    };
+    use crate::text::layout::TextLayoutResource;
+    use crate::text::{TextLayoutHandle, TextPath};
+
+    let Some(baselines) = world.resource::<PathBaselineResource>() else {
+        return Ok(());
+    };
+    baselines.begin_placements();
+    let (Some(_fonts), Some(paths), Some(layouts)) = (
+        world.resource::<crate::render::font::FontManager>(),
+        world.resource::<crate::render::path::PathStore>(),
+        world.resource::<TextLayoutResource>(),
+    ) else {
+        return Ok(());
+    };
+    let key_for = |entity| -> Result<Option<(PlacementKey, TextLayoutHandle)>, TextLayoutFailure> {
+        if !world.has::<crate::ui::widgets::Text>(entity) {
+            return Ok(None);
+        }
+        let (Some(path), Some(handle)) = (
+            world.get::<TextPath>(entity).copied(),
+            world.get::<TextLayoutHandle>(entity).copied(),
+        ) else {
+            return Ok(None);
+        };
+        let revision = paths.revision(path.path()).map_err(|error| {
+            TextLayoutFailure::baseline(
+                entity,
+                TextLayoutStage::Layout,
+                PathBaselineError::Store(error),
+            )
+        })?;
+        Ok(Some((
+            PlacementKey::new(entity, handle, path, revision, DEFAULT_TOLERANCE),
+            handle,
+        )))
+    };
+    for &entity in entities {
+        if let Some((key, _)) = key_for(entity)? {
+            baselines.pin_placement(key);
+        }
+    }
+    let layouts = layouts.borrow();
+    for &entity in entities {
+        let Some((key, handle)) = key_for(entity)? else {
+            continue;
+        };
+        let layout = layouts.get(handle).ok_or(TextLayoutFailure {
+            entity,
+            stage: TextLayoutStage::Layout,
+            kind: TextLayoutFailureKind::MissingLayout,
+        })?;
+        baselines
+            .prepare_glyph_frames(paths, key, &layout)
+            .map_err(|error| TextLayoutFailure::baseline(entity, TextLayoutStage::Layout, error))?;
+        // Caret storage is optional; exhausted interaction geometry does not discard glyphs.
+        let _ = baselines.prepare_caret_frames(paths, key, &layout);
+    }
+    Ok(())
+}
+
 fn layout_text_tree(
     node: &mut LayoutNode,
     world: &mut World,
@@ -2246,7 +2313,7 @@ pub fn try_update_layout(
     let (logical_w, logical_h) = transform.logical_size();
 
     if let Some(cache) = world.resource::<crate::text::baseline::PathBaselineResource>() {
-        cache.begin_frame();
+        cache.begin_layout();
     }
 
     let snapshot = match reconcile_layout_snapshot(world, root, logical_w, logical_h) {
@@ -2261,6 +2328,11 @@ pub fn try_update_layout(
         super::view::ViewRegistry::invalidate_queries(world);
         return Ok(());
     };
+    if let Err(failure) = prepare_path_text_placements(world, &snapshot.entities) {
+        world.put_resource_box(snapshot);
+        record_text_layout_failure(world, root, failure);
+        return Err(failure);
+    }
     crate::input::event::hit_test::update_hit_test_geometry(
         world,
         root,
@@ -2896,7 +2968,7 @@ pub(crate) fn try_collect_dirty_regions_into(
     plan.clear();
 
     if let Some(cache) = world.resource::<crate::text::baseline::PathBaselineResource>() {
-        cache.begin_frame();
+        cache.begin_layout();
     }
 
     if super::branch::is_effectively_hidden(world, root) {
@@ -2998,6 +3070,12 @@ pub(crate) fn try_collect_dirty_regions_into(
         return Ok(());
     };
 
+    if let Err(failure) = prepare_path_text_placements(world, &snapshot.entities) {
+        world.put_resource_box(snapshot);
+        record_text_layout_failure(world, root, failure);
+        plan.clear();
+        return Err(failure);
+    }
     super::view::ViewRegistry::invalidate_queries(world);
     let output_plan =
         output_plan::measure_for_dirty(world, &snapshot.layout_tree, &snapshot.entities);
@@ -4839,6 +4917,143 @@ mod text_layout_check {
 
         assert_eq!(padded_node.intrinsic_width, plain_node.intrinsic_width);
         assert_eq!(padded_node.intrinsic_height, plain_node.intrinsic_height);
+    }
+
+    #[test]
+    fn path_placements_are_ready_before_paint_and_survive_idle_and_visual_updates() {
+        use crate::render::path::{Path, PathId, PathStore};
+        use crate::text::baseline::{DEFAULT_TOLERANCE, PathBaselineResource, PlacementKey};
+        use crate::text::{TextLayoutHandle, TextPath};
+        use crate::ui::widgets::text::{PathCaretGeometry, PathTextGeometry};
+
+        #[crate::compose]
+        fn label(path: PathId) -> Entity {
+            crate::ui!(Text("AB", width: 64, height: 16) [
+                TextPath::new(path).with_range(Fixed::ZERO..Fixed::from_int(64)),
+            ] {} )
+        }
+
+        fn key(world: &World, label: Entity, path: PathId) -> PlacementKey {
+            PlacementKey::new(
+                label,
+                *world.get::<TextLayoutHandle>(label).unwrap(),
+                *world.get::<TextPath>(label).unwrap(),
+                world
+                    .resource::<PathStore>()
+                    .unwrap()
+                    .revision(path)
+                    .unwrap(),
+                DEFAULT_TOLERANCE,
+            )
+        }
+
+        let mut paths = PathStore::new(1).unwrap();
+        let mut line = Path::new();
+        line.move_to(Point::new(0, 20)).line_to(Point::new(64, 20));
+        let path = paths.insert(line).unwrap();
+        let mut app = crate::app::App::headless(96, 96);
+        app.with_default_widgets().add_resource(paths);
+        let root = app.spawn_root().id();
+        let label = app.compose(root, label(path));
+        let viewport = Viewport::new(96, 96, Fixed::ONE);
+        try_update_layout(&mut app.world, root, &viewport).unwrap();
+        let initial_key = key(&app.world, label, path);
+        let initial_origin = app
+            .world
+            .resource::<PathBaselineResource>()
+            .unwrap()
+            .glyph_frames(initial_key, |frames| frames[0].local_origin)
+            .unwrap();
+        let initial_handle = *app.world.get::<TextLayoutHandle>(label).unwrap();
+        let mut carets = [PathCaretGeometry::default(); 8];
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                let geometry = PathTextGeometry::for_widget(&app.world, label).unwrap();
+                assert!(!geometry.carets_into(&mut carets).unwrap().is_empty());
+                assert!(
+                    crate::ui::widgets::text::path_text_ink_bounds(
+                        &app.world,
+                        label,
+                        app.world
+                            .get::<super::super::ComputedRect>(label)
+                            .unwrap()
+                            .0,
+                        Transform::IDENTITY,
+                        Fixed::ONE,
+                    )
+                    .is_some()
+                );
+            }),
+            0
+        );
+
+        let mut damage = DirtyRegions::default();
+        try_collect_dirty_regions_into(&mut app.world, root, &viewport, &mut damage).unwrap();
+        for _ in 0..3 {
+            try_collect_dirty_regions_into(&mut app.world, root, &viewport, &mut damage).unwrap();
+            assert!(damage.rects.is_empty());
+            assert!(
+                app.world
+                    .resource::<PathBaselineResource>()
+                    .unwrap()
+                    .glyph_frames(initial_key, |frames| !frames.is_empty())
+                    .unwrap()
+            );
+        }
+
+        app.world
+            .resource_mut::<PathStore>()
+            .unwrap()
+            .edit(path, |line| {
+                line.set_command(0, crate::render::path::PathCmd::MoveTo(Point::new(0, 28)))
+                    .unwrap();
+                line.set_command(1, crate::render::path::PathCmd::LineTo(Point::new(64, 28)))
+                    .unwrap();
+            })
+            .unwrap();
+        app.world.invalidate_visual(label);
+        assert!(!super::super::dirty::has_visible_dirty::<
+            super::super::dirty::Dirty,
+        >(&app.world, root));
+        try_collect_dirty_regions_into(&mut app.world, root, &viewport, &mut damage).unwrap();
+        assert_eq!(
+            *app.world.get::<TextLayoutHandle>(label).unwrap(),
+            initial_handle
+        );
+        let current_key = key(&app.world, label, path);
+        let placements = app.world.resource::<PathBaselineResource>().unwrap();
+        assert!(placements.glyph_frames(initial_key, |_| ()).is_none());
+        assert_eq!(
+            placements
+                .glyph_frames(current_key, |frames| frames[0].local_origin.y)
+                .unwrap(),
+            initial_origin.y + (8 << 8)
+        );
+        assert!(
+            !PathTextGeometry::for_widget(&app.world, label)
+                .unwrap()
+                .carets_into(&mut carets)
+                .unwrap()
+                .is_empty()
+        );
+
+        app.world
+            .remove_resource::<crate::render::font::FontManager>();
+        app.handle_memory_warning();
+        app.render().unwrap();
+        assert!(
+            app.world
+                .resource::<PathBaselineResource>()
+                .unwrap()
+                .glyph_frames(current_key, |_| ())
+                .is_none()
+        );
+        assert!(matches!(
+            PathTextGeometry::for_widget(&app.world, label)
+                .unwrap()
+                .carets_into(&mut carets),
+            Err(crate::text::PathTextGeometryError::Unavailable)
+        ));
     }
 
     #[test]

@@ -273,9 +273,7 @@ fn bendable_label(path: PathId) {
 
 ## Query caret and selection geometry
 
-`PathTextGeometry::for_widget` resolves the text entity's computed rectangle,
-scroll offsets, and accumulated 2D or projective transform. Caret hit testing
-and selection ribbons therefore use the same placed geometry as rendering.
+`PathTextGeometry::for_widget` resolves the text entity's computed rectangle, scroll offsets, and accumulated 2D or projective transform. Glyph and caret placement is prepared after layout; painting, hit testing, and selection read the completed geometry without filling placement caches.
 
 ```rust
 use mirui::ecs::World;
@@ -307,14 +305,7 @@ fn inspect_path_text(
 }
 ```
 
-Mixed-direction selections are split at visual-run and line boundaries. A
-render-only label pays no caret-frame cost; caret frames and ribbons are
-created only when queried and use caller-provided bounded storage.
-`PathTextGeometry::with_transform` accepts an explicit `Transform` or
-`Transform3D` for scene tools that already hold the final render transform.
-Projection through or behind the near plane returns
-`PathTextGeometryError::InvalidProjection`. Selection output remains unchanged
-when capacity or projection validation fails.
+Mixed-direction selections are split at visual-run and line boundaries. Active path text uses separate bounded glyph and caret caches. Exhausted caret storage makes interaction geometry unavailable without discarding prepared glyphs; selection ribbons use caller-provided storage. `PathTextGeometry::with_transform` accepts an explicit `Transform` or `Transform3D` for scene tools that already hold the final render transform. Projection through or behind the near plane returns `PathTextGeometryError::InvalidProjection`. Selection output remains unchanged when capacity or projection validation fails.
 
 ## Backend behavior
 

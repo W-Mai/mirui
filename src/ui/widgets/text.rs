@@ -7,6 +7,7 @@ use core::ops::Range;
 use crate::core::i18n::Localized;
 use crate::ecs::{Entity, World};
 use crate::render::command::DrawCommand;
+use crate::text::baseline::PlacementKey;
 use crate::types::{Fixed, Fixed64, Point, Rect, Transform, Transform3D};
 use crate::ui::view::PaintCtx;
 
@@ -717,34 +718,38 @@ fn text_render(
         let Some(path_cache) = path_cache else {
             return;
         };
+        let Ok(revision) = paths.revision(path.path()) else {
+            paint.fail(crate::render::RenderError::InvalidGeometry);
+            return;
+        };
+        let key = PlacementKey::new(
+            entity,
+            handle,
+            path,
+            revision,
+            crate::text::baseline::DEFAULT_TOLERANCE,
+        );
         let rect = paint.rect();
         let transform = paint.transform();
         let clip = paint.clip();
-        let result = path_cache.with_glyph_frames(
-            paths,
-            path,
-            crate::text::baseline::DEFAULT_TOLERANCE,
-            handle,
-            &layout,
-            |frames| {
-                draw_posed_text_layout(
-                    paint,
-                    &layout,
-                    frames,
-                    |font_id| fonts.font(font_id),
-                    TextPaint::new(
-                        Point {
-                            x: rect.x,
-                            y: rect.y,
-                        },
-                        transform,
-                        &clip,
-                        color,
-                    ),
-                )
-            },
-        );
-        if result.is_err() {
+        let result = path_cache.glyph_frames(key, |frames| {
+            draw_posed_text_layout(
+                paint,
+                &layout,
+                frames,
+                |font_id| fonts.font(font_id),
+                TextPaint::new(
+                    Point {
+                        x: rect.x,
+                        y: rect.y,
+                    },
+                    transform,
+                    &clip,
+                    color,
+                ),
+            )
+        });
+        if result.is_none() {
             paint.fail(crate::render::RenderError::InvalidGeometry);
         }
         return;
@@ -906,40 +911,39 @@ pub(crate) fn path_text_ink_bounds(
         .copied()?;
     let layouts = layouts.borrow();
     let layout = layouts.get(handle)?;
+    let key = PlacementKey::new(
+        entity,
+        handle,
+        text_path,
+        paths.revision(text_path.path()).ok()?,
+        crate::text::baseline::DEFAULT_TOLERANCE,
+    );
     path_cache
-        .with_glyph_frames(
-            paths,
-            text_path,
-            crate::text::baseline::DEFAULT_TOLERANCE,
-            handle,
-            &layout,
-            |frames| {
-                let mut bounds: Option<Rect> = None;
-                for_each_posed_run(
-                    &layout,
-                    frames,
-                    |font_id| fonts.font(font_id),
-                    |font, glyphs| {
-                        if let Some(run_bounds) = glyphs.ink_bounds(
-                            font,
-                            Point {
-                                x: rect.x,
-                                y: rect.y,
-                            },
-                            transform,
-                            output_scale,
-                        ) {
-                            bounds = Some(match bounds {
-                                Some(current) => current.union(&run_bounds),
-                                None => run_bounds,
-                            });
-                        }
-                    },
-                );
-                bounds
-            },
-        )
-        .ok()
+        .glyph_frames(key, |frames| {
+            let mut bounds: Option<Rect> = None;
+            for_each_posed_run(
+                &layout,
+                frames,
+                |font_id| fonts.font(font_id),
+                |font, glyphs| {
+                    if let Some(run_bounds) = glyphs.ink_bounds(
+                        font,
+                        Point {
+                            x: rect.x,
+                            y: rect.y,
+                        },
+                        transform,
+                        output_scale,
+                    ) {
+                        bounds = Some(match bounds {
+                            Some(current) => current.union(&run_bounds),
+                            None => run_bounds,
+                        });
+                    }
+                },
+            );
+            bounds
+        })
         .flatten()
 }
 
@@ -1229,16 +1233,14 @@ impl<'a> PathTextGeometry<'a> {
         let layouts = layouts.borrow();
         let layout = layouts.get(handle)?;
         let paragraph = layout.paragraph().ok()?;
-        path_cache
-            .with_caret_frames(
-                paths,
-                text_path,
-                crate::text::baseline::DEFAULT_TOLERANCE,
-                handle,
-                &layout,
-                |frames| inspect(&paragraph, frames, metrics),
-            )
-            .ok()
+        let key = PlacementKey::new(
+            self.entity,
+            handle,
+            text_path,
+            paths.revision(text_path.path()).ok()?,
+            crate::text::baseline::DEFAULT_TOLERANCE,
+        );
+        path_cache.caret_frames(key, |frames| inspect(&paragraph, frames, metrics))
     }
 }
 
@@ -1962,7 +1964,9 @@ mod tests {
         app.with_default_widgets();
         let root = app.spawn_root().id();
         app.compose(root, |cx| {
-            crate::ui! { Text ("A", id: "handle_consumer", width: 20, height: 10) };
+            crate::ui! {
+                Text ("A", id: "handle_consumer", width: 20, height: 10)
+            };
         });
         let label = app.world.find_by_id("handle_consumer").unwrap();
         app.render_dirty().unwrap();
@@ -1996,11 +2000,17 @@ mod tests {
         app.add_resource(core::cell::Cell::new(0_usize));
         let root = app.spawn_root().id();
         app.compose(root, |cx| {
-            crate::ui! { Text ("A", id: "reused_handle", width: 20, height: 10) };
+            crate::ui! {
+                Text ("A", id: "reused_handle", width: 20, height: 10)
+            };
         });
         let label = app.world.find_by_id("reused_handle").unwrap();
         app.compose(root, |cx| {
-            crate::ui! { View (width: 8, height: 6) [LayoutFollower { source: label }] };
+            crate::ui! {
+                View (width: 8, height: 6) [
+                    LayoutFollower { source: label },
+                ]
+            };
         });
         app.render_dirty().unwrap();
         let handle = *app

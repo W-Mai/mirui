@@ -357,6 +357,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             crate::text::layout::TextLayoutResource::new(limits)
         };
         self.world.insert_resource(resource);
+        if let Some(paths) = self
+            .world
+            .resource::<crate::text::baseline::PathBaselineResource>()
+        {
+            paths.trim_memory();
+        }
         self.world
             .invalidate_query_dependency::<crate::text::TextLayoutHandle>();
         Ok(self)
@@ -2167,6 +2173,65 @@ mod app_invariant_tests {
             app.with_text_layout_capacity(text_capacity(4, 24)).err(),
             Some(crate::text::TextLayoutError::InUse)
         );
+    }
+
+    #[test]
+    fn layout_limit_replacement_resets_path_frames_only_after_success() {
+        use crate::text::baseline::{DEFAULT_TOLERANCE, PathBaselineResource, PlacementKey};
+        use crate::text::{TextLayoutHandle, TextPath};
+
+        fn frame_counts(world: &World, key: PlacementKey) -> (Option<usize>, Option<usize>) {
+            let baselines = world.resource::<PathBaselineResource>().unwrap();
+            (
+                baselines.glyph_frames(key, <[_]>::len),
+                baselines.caret_frames(key, <[_]>::len),
+            )
+        }
+
+        for bounded in [false, true] {
+            let mut app = App::headless(64, 32);
+            app.with_default_widgets();
+            if bounded {
+                app.with_text_layout_capacity(text_capacity(2, 8)).unwrap();
+            }
+            let mut baseline = crate::render::path::Path::new();
+            baseline
+                .move_to(crate::types::Point::new(0, 16))
+                .line_to(crate::types::Point::new(64, 16));
+            let path = app.paths().insert(baseline).unwrap();
+            let root = app.spawn_root().id();
+            let label = app.compose(root, |cx| cx.spawn(Text::build("A").path(path)));
+            app.render().unwrap();
+            let handle = *app.world.get::<TextLayoutHandle>(label).unwrap();
+            let key = PlacementKey::new(
+                label,
+                handle,
+                TextPath::new(path),
+                app.paths().revision(path).unwrap(),
+                DEFAULT_TOLERANCE,
+            );
+            assert_eq!(frame_counts(&app.world, key), (Some(1), Some(2)));
+
+            if bounded {
+                assert_eq!(
+                    app.try_with_text_layout_limits(crate::text::TextLayoutLimits::HOST)
+                        .err(),
+                    Some(crate::text::TextLayoutError::InUse)
+                );
+                assert_eq!(frame_counts(&app.world, key), (Some(1), Some(2)));
+            } else {
+                app.try_with_text_layout_limits(crate::text::TextLayoutLimits::HOST)
+                    .unwrap();
+                assert_eq!(frame_counts(&app.world, key), (None, None));
+                app.world
+                    .get_mut::<Text>(label)
+                    .unwrap()
+                    .set_content("ABCD");
+                app.render_dirty().unwrap();
+                assert_eq!(app.world.get::<TextLayoutHandle>(label), Some(&handle));
+                assert_eq!(frame_counts(&app.world, key), (Some(4), Some(5)));
+            }
+        }
     }
 
     #[test]

@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Path glyph and caret placement is prepared after layout. Painting and geometry queries read completed placement without cache mutation; replacing the layout cache invalidates retained path frames.
 - TemporalMix uses typed View parameters and the shared pixel workspace. Blending requests further frames only until convergence, including quantized channel values, while frozen and unavailable outputs remain idle.
 - Shadow and glow rendering use typed View parameters and the shared, budgeted pixel workspace. Published widget textures include logical geometry; effects retain their size at reduced source resolution and their position inside nested captures.
 - Mirror rendering uses typed View parameters and a reusable pixel workspace. Output pixels and the reflection workspace share one byte budget; fixed-size updates reuse storage without per-paint allocation.

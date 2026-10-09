@@ -2,6 +2,7 @@ use alloc::vec::Vec;
 use core::cell::RefCell;
 use core::ops::Range;
 
+use crate::ecs::Entity;
 use crate::render::path::{Path, PathCmd};
 use crate::render::path::{PathId, PathRevision, PathStore, PathStoreError};
 use crate::text::{PathDirection, TextLayout, TextLayoutHandle, TextPath};
@@ -1143,6 +1144,9 @@ impl PathBaselineCache {
                 .min_by_key(|(_, entry)| entry.last_used)
                 .map(|(index, _)| index)
             else {
+                if changed {
+                    self.compact();
+                }
                 return Err(PathBaselineError::CacheBudget {
                     required: single,
                     budget: self.budget_bytes,
@@ -1163,8 +1167,11 @@ impl PathBaselineCache {
             .saturating_add(1)
             .saturating_mul(core::mem::size_of::<MeasurementEntry>())
             .saturating_add(
-                self.segments
-                    .len()
+                self.entries
+                    .iter()
+                    .fold(0usize, |total, entry| {
+                        total.saturating_add(entry.segments.len())
+                    })
                     .saturating_add(incoming_segments)
                     .saturating_mul(core::mem::size_of::<MeasuredSegment>()),
             )
@@ -1342,11 +1349,30 @@ impl Default for PathBaselineCache {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct PlacementKey {
+pub(crate) struct PlacementKey {
+    owner: Entity,
     layout: TextLayoutHandle,
     path: TextPath,
     revision: Option<PathRevision>,
     tolerance: Fixed,
+}
+
+impl PlacementKey {
+    pub(crate) const fn new(
+        owner: Entity,
+        layout: TextLayoutHandle,
+        path: TextPath,
+        revision: Option<PathRevision>,
+        tolerance: Fixed,
+    ) -> Self {
+        Self {
+            owner,
+            layout,
+            path,
+            revision,
+            tolerance,
+        }
+    }
 }
 
 struct FrameEntry {
@@ -1378,6 +1404,22 @@ impl<T> FrameArena<T> {
         self.frame = self.frame.wrapping_add(1).max(1);
     }
 
+    fn pin(&mut self, key: PlacementKey) -> bool {
+        let Some(entry) = self.entries.iter_mut().find(|entry| entry.key == key) else {
+            return false;
+        };
+        entry.last_used = self.frame;
+        true
+    }
+
+    fn get(&self, key: PlacementKey) -> Option<&[T]> {
+        let entry = self
+            .entries
+            .iter()
+            .find(|entry| entry.key == key && entry.last_used == self.frame)?;
+        self.values.get(entry.values.clone())
+    }
+
     fn trim_memory(&mut self) {
         self.entries = Vec::new();
         self.values = Vec::new();
@@ -1398,6 +1440,7 @@ impl<T: Copy + Default> FrameArena<T> {
         }
         if let Some(index) = self.entries.iter().position(|entry| {
             entry.last_used != self.frame
+                && entry.key.owner == key.owner
                 && entry.key.path.path() == key.path.path()
                 && entry.key.tolerance == key.tolerance
         }) {
@@ -1442,6 +1485,9 @@ impl<T: Copy + Default> FrameArena<T> {
                 .min_by_key(|(_, entry)| entry.last_used)
                 .map(|(index, _)| index)
             else {
+                if changed {
+                    self.compact();
+                }
                 return Err(PathBaselineError::CacheBudget {
                     required: single,
                     budget: self.budget_bytes,
@@ -1462,8 +1508,11 @@ impl<T: Copy + Default> FrameArena<T> {
             .saturating_add(1)
             .saturating_mul(core::mem::size_of::<FrameEntry>())
             .saturating_add(
-                self.values
-                    .len()
+                self.entries
+                    .iter()
+                    .fold(0usize, |total, entry| {
+                        total.saturating_add(entry.values.len())
+                    })
                     .saturating_add(incoming_values)
                     .saturating_mul(core::mem::size_of::<T>()),
             )
@@ -1615,10 +1664,18 @@ impl PathBaselineResource {
         }))
     }
 
-    pub fn begin_frame(&self) {
+    pub(crate) fn begin_layout(&self) {
+        self.0.borrow_mut().baselines.begin_frame();
+    }
+
+    pub(crate) fn begin_placements(&self) {
+        self.0.borrow_mut().placements.begin_frame();
+    }
+
+    pub(crate) fn pin_placement(&self, key: PlacementKey) {
         let runtime = &mut *self.0.borrow_mut();
-        runtime.baselines.begin_frame();
-        runtime.placements.begin_frame();
+        runtime.placements.glyphs.pin(key);
+        runtime.placements.carets.pin(key);
     }
 
     pub(crate) fn trim_memory(&self) {
@@ -1679,28 +1736,26 @@ impl PathBaselineResource {
         Ok(inspect(&lines))
     }
 
-    pub fn with_glyph_frames<R>(
+    pub(crate) fn prepare_glyph_frames(
         &self,
         store: &PathStore,
-        text_path: TextPath,
-        tolerance: Fixed,
-        layout_handle: TextLayoutHandle,
+        key: PlacementKey,
         layout: &TextLayout<'_>,
-        inspect: impl FnOnce(&[textflow::placement::GlyphFrame]) -> R,
-    ) -> Result<R, PathBaselineError> {
-        let path = store
-            .get(text_path.path())
-            .map_err(PathBaselineError::Store)?;
-        let revision = store
-            .revision(text_path.path())
-            .map_err(PathBaselineError::Store)?;
-        let placement_key = PlacementKey {
-            layout: layout_handle,
-            path: text_path,
-            revision,
-            tolerance,
-        };
+    ) -> Result<(), PathBaselineError> {
+        if store
+            .revision(key.path.path())
+            .map_err(PathBaselineError::Store)?
+            != key.revision
+        {
+            return Err(PathBaselineError::Unavailable);
+        }
         let runtime = &mut *self.0.borrow_mut();
+        if runtime.placements.glyphs.pin(key) {
+            return Ok(());
+        }
+        let path = store
+            .get(key.path.path())
+            .map_err(PathBaselineError::Store)?;
         let PathTextRuntime {
             baselines,
             placements,
@@ -1708,38 +1763,36 @@ impl PathBaselineResource {
         let lines = prepare_path_lines(
             baselines,
             path,
-            text_path.path(),
-            revision,
-            text_path,
-            tolerance,
+            key.path.path(),
+            key.revision,
+            key.path,
+            key.tolerance,
             layout.lines().len(),
         )?;
-        let frames = placements.resolve_glyphs(placement_key, layout, &lines)?;
-        Ok(inspect(frames))
+        placements.resolve_glyphs(key, layout, &lines)?;
+        Ok(())
     }
 
-    pub fn with_caret_frames<R>(
+    pub(crate) fn prepare_caret_frames(
         &self,
         store: &PathStore,
-        text_path: TextPath,
-        tolerance: Fixed,
-        layout_handle: TextLayoutHandle,
+        key: PlacementKey,
         layout: &TextLayout<'_>,
-        inspect: impl FnOnce(&[textflow::placement::CaretFrame]) -> R,
-    ) -> Result<R, PathBaselineError> {
-        let path = store
-            .get(text_path.path())
-            .map_err(PathBaselineError::Store)?;
-        let revision = store
-            .revision(text_path.path())
-            .map_err(PathBaselineError::Store)?;
-        let placement_key = PlacementKey {
-            layout: layout_handle,
-            path: text_path,
-            revision,
-            tolerance,
-        };
+    ) -> Result<(), PathBaselineError> {
+        if store
+            .revision(key.path.path())
+            .map_err(PathBaselineError::Store)?
+            != key.revision
+        {
+            return Err(PathBaselineError::Unavailable);
+        }
         let runtime = &mut *self.0.borrow_mut();
+        if runtime.placements.carets.pin(key) {
+            return Ok(());
+        }
+        let path = store
+            .get(key.path.path())
+            .map_err(PathBaselineError::Store)?;
         let PathTextRuntime {
             baselines,
             placements,
@@ -1747,14 +1800,32 @@ impl PathBaselineResource {
         let lines = prepare_path_lines(
             baselines,
             path,
-            text_path.path(),
-            revision,
-            text_path,
-            tolerance,
+            key.path.path(),
+            key.revision,
+            key.path,
+            key.tolerance,
             layout.lines().len(),
         )?;
-        let frames = placements.resolve_carets(placement_key, layout, &lines)?;
-        Ok(inspect(frames))
+        placements.resolve_carets(key, layout, &lines)?;
+        Ok(())
+    }
+
+    pub(crate) fn glyph_frames<R>(
+        &self,
+        key: PlacementKey,
+        inspect: impl FnOnce(&[textflow::placement::GlyphFrame]) -> R,
+    ) -> Option<R> {
+        let runtime = self.0.borrow();
+        runtime.placements.glyphs.get(key).map(inspect)
+    }
+
+    pub(crate) fn caret_frames<R>(
+        &self,
+        key: PlacementKey,
+        inspect: impl FnOnce(&[textflow::placement::CaretFrame]) -> R,
+    ) -> Option<R> {
+        let runtime = self.0.borrow();
+        runtime.placements.carets.get(key).map(inspect)
     }
 }
 
@@ -2119,6 +2190,59 @@ mod tests {
         store.insert(path).unwrap()
     }
 
+    fn placement_key(store: &PathStore, path: TextPath, layout: TextLayoutHandle) -> PlacementKey {
+        PlacementKey::new(
+            Entity {
+                id: 1,
+                generation: 0,
+            },
+            layout,
+            path,
+            store.revision(path.path()).unwrap(),
+            DEFAULT_TOLERANCE,
+        )
+    }
+
+    fn test_layout(layouts: &mut TextLayoutCache, text: &str) -> TextLayoutHandle {
+        let face = SimpleTypeface::new(&Mono);
+        layouts
+            .layout(
+                TextLayoutRequest {
+                    text,
+                    max_width: 100 << 8,
+                    width: Some(100 << 8),
+                    max_lines: 1,
+                    line_height: 256,
+                    baseline: 192,
+                    direction: BaseDirection::LeftToRight,
+                    wrap: WrapMode::NoWrap,
+                    alignment: Alignment::Start,
+                    overflow: Overflow::Clip,
+                    spacing: TextSpacing::default(),
+                    features: &[],
+                    line_widths: None,
+                },
+                &[&face],
+            )
+            .unwrap()
+    }
+
+    fn placement_fixture() -> (TextLayoutCache, TextLayoutHandle, PathStore, TextPath) {
+        let mut layouts = TextLayoutCache::default();
+        let handle = test_layout(&mut layouts, "ab");
+        let mut store = PathStore::new(1).unwrap();
+        let path = store
+            .insert(Path::from_owned(alloc::vec![
+                PathCmd::MoveTo(point(0, 0)),
+                PathCmd::QuadTo {
+                    ctrl: point(50, 40),
+                    end: point(100, 0)
+                },
+            ]))
+            .unwrap();
+        (layouts, handle, store, TextPath::new(path))
+    }
+
     struct Mono;
 
     impl GlyphSource for Mono {
@@ -2157,6 +2281,319 @@ mod tests {
         assert_eq!(runtime.placements.carets.values.capacity(), 0);
         assert_eq!(core::mem::size_of::<textflow::placement::GlyphFrame>(), 16);
         assert_eq!(core::mem::size_of::<textflow::placement::CaretFrame>(), 16);
+    }
+
+    #[test]
+    fn placement_reads_are_shared_epoch_scoped_and_do_not_pin() {
+        let (layouts, handle, store, path) = placement_fixture();
+        let layout = layouts.get(handle).unwrap();
+        let key = placement_key(&store, path, handle);
+        let resource = PathBaselineResource::default();
+        resource.begin_layout();
+        resource.begin_placements();
+        {
+            let runtime = resource.0.borrow();
+            assert!(resource.glyph_frames(key, |_| ()).is_none());
+            assert!(resource.caret_frames(key, |_| ()).is_none());
+            assert!(runtime.placements.glyphs.entries.is_empty());
+            assert!(runtime.placements.carets.entries.is_empty());
+        }
+        resource.prepare_glyph_frames(&store, key, &layout).unwrap();
+        resource.prepare_caret_frames(&store, key, &layout).unwrap();
+        {
+            let runtime = resource.0.borrow();
+            let used = runtime.placements.glyphs.entries[0].last_used;
+            assert_eq!(
+                resource.glyph_frames(key, |glyphs| {
+                    resource.caret_frames(key, |carets| (glyphs.len(), carets.len()))
+                }),
+                Some(Some((2, 3)))
+            );
+            assert_eq!(runtime.placements.glyphs.entries[0].last_used, used);
+        }
+        resource.begin_layout();
+        assert_eq!(resource.glyph_frames(key, <[_]>::len), Some(2));
+        resource.begin_placements();
+        {
+            let runtime = resource.0.borrow();
+            let used = runtime.placements.glyphs.entries[0].last_used;
+            assert!(resource.glyph_frames(key, |_| ()).is_none());
+            assert!(resource.caret_frames(key, |_| ()).is_none());
+            assert_eq!(runtime.placements.glyphs.entries[0].last_used, used);
+        }
+        resource.pin_placement(key);
+        assert_eq!(resource.glyph_frames(key, <[_]>::len), Some(2));
+        assert_eq!(resource.caret_frames(key, <[_]>::len), Some(3));
+        resource.trim_memory();
+        assert!(resource.glyph_frames(key, |_| ()).is_none());
+        assert!(resource.caret_frames(key, |_| ()).is_none());
+        let runtime = resource.0.borrow();
+        assert_eq!(runtime.placements.glyphs.values.capacity(), 0);
+        assert_eq!(runtime.placements.carets.values.capacity(), 0);
+    }
+
+    #[test]
+    fn placement_working_set_is_pinned_before_new_keys_compact_the_arenas() {
+        let (layouts, handle, store, path) = placement_fixture();
+        let layout = layouts.get(handle).unwrap();
+        let old = placement_key(&store, path, handle);
+        let retained = PlacementKey {
+            owner: Entity {
+                id: 2,
+                generation: 0,
+            },
+            ..old
+        };
+        let incoming = PlacementKey {
+            owner: Entity {
+                id: 3,
+                generation: 0,
+            },
+            ..old
+        };
+        let rejected = PlacementKey {
+            owner: Entity {
+                id: 4,
+                generation: 0,
+            },
+            ..old
+        };
+        let resource = PathBaselineResource::default();
+        resource.0.borrow_mut().placements = PathPlacementCache::new(4096, 4096, 2);
+        resource.begin_placements();
+        for key in [old, retained] {
+            resource.prepare_glyph_frames(&store, key, &layout).unwrap();
+            resource.prepare_caret_frames(&store, key, &layout).unwrap();
+        }
+        let glyph = resource.glyph_frames(retained, |frames| frames[0]).unwrap();
+        let caret = resource.caret_frames(retained, |frames| frames[0]).unwrap();
+        resource.begin_placements();
+        resource.pin_placement(retained);
+        resource
+            .prepare_glyph_frames(&store, incoming, &layout)
+            .unwrap();
+        resource
+            .prepare_caret_frames(&store, incoming, &layout)
+            .unwrap();
+        assert!(resource.glyph_frames(old, |_| ()).is_none());
+        assert!(resource.caret_frames(old, |_| ()).is_none());
+        assert_eq!(
+            resource.glyph_frames(retained, |frames| frames[0]),
+            Some(glyph)
+        );
+        assert_eq!(
+            resource.caret_frames(retained, |frames| frames[0]),
+            Some(caret)
+        );
+        {
+            let runtime = resource.0.borrow();
+            assert_eq!(runtime.placements.glyphs.entries[0].key, retained);
+            assert_eq!(runtime.placements.glyphs.entries[0].values.start, 0);
+            assert_eq!(runtime.placements.carets.entries[0].key, retained);
+            assert_eq!(runtime.placements.carets.entries[0].values.start, 0);
+        }
+        assert!(matches!(
+            resource.prepare_glyph_frames(&store, rejected, &layout),
+            Err(PathBaselineError::CacheBudget { .. })
+        ));
+        assert!(matches!(
+            resource.prepare_caret_frames(&store, rejected, &layout),
+            Err(PathBaselineError::CacheBudget { .. })
+        ));
+        for key in [retained, incoming] {
+            assert_eq!(resource.glyph_frames(key, <[_]>::len), Some(2));
+            assert_eq!(resource.caret_frames(key, <[_]>::len), Some(3));
+        }
+    }
+
+    #[test]
+    fn placement_keys_cover_owner_generation_layout_path_revision_and_tolerance() {
+        let (mut layouts, handle, mut store, path) = placement_fixture();
+        let different_layout = test_layout(&mut layouts, "abc");
+        let layout = layouts.get(handle).unwrap();
+        let key = placement_key(&store, path, handle);
+        let resource = PathBaselineResource::default();
+        resource.begin_placements();
+        resource.prepare_glyph_frames(&store, key, &layout).unwrap();
+        resource.prepare_caret_frames(&store, key, &layout).unwrap();
+        for different in [
+            PlacementKey {
+                owner: Entity {
+                    id: 2,
+                    generation: 0,
+                },
+                ..key
+            },
+            PlacementKey {
+                owner: Entity {
+                    id: 1,
+                    generation: 1,
+                },
+                ..key
+            },
+            PlacementKey {
+                layout: different_layout,
+                ..key
+            },
+            PlacementKey {
+                path: path.with_offset(Fixed::ONE),
+                ..key
+            },
+            PlacementKey {
+                tolerance: Fixed::HALF,
+                ..key
+            },
+        ] {
+            assert!(resource.glyph_frames(different, |_| ()).is_none());
+            assert!(resource.caret_frames(different, |_| ()).is_none());
+        }
+        store
+            .edit(path.path(), |path| {
+                path.set_command(
+                    1,
+                    PathCmd::QuadTo {
+                        ctrl: point(50, 80),
+                        end: point(100, 0),
+                    },
+                )
+                .unwrap();
+            })
+            .unwrap();
+        let revised = placement_key(&store, path, handle);
+        assert_ne!(revised, key);
+        assert!(resource.glyph_frames(revised, |_| ()).is_none());
+        assert_eq!(
+            resource.prepare_glyph_frames(&store, key, &layout),
+            Err(PathBaselineError::Unavailable)
+        );
+        assert_eq!(
+            resource.prepare_caret_frames(&store, key, &layout),
+            Err(PathBaselineError::Unavailable)
+        );
+        resource.begin_layout();
+        resource.begin_placements();
+        resource
+            .prepare_glyph_frames(&store, revised, &layout)
+            .unwrap();
+        resource
+            .prepare_caret_frames(&store, revised, &layout)
+            .unwrap();
+        assert!(resource.glyph_frames(key, |_| ()).is_none());
+        assert!(resource.caret_frames(key, |_| ()).is_none());
+        assert_eq!(resource.glyph_frames(revised, <[_]>::len), Some(2));
+        assert_eq!(resource.caret_frames(revised, <[_]>::len), Some(3));
+    }
+
+    #[test]
+    fn caret_budget_failure_does_not_discard_prepared_glyphs() {
+        let (layouts, handle, store, path) = placement_fixture();
+        let layout = layouts.get(handle).unwrap();
+        let key = placement_key(&store, path, handle);
+        let resource = PathBaselineResource::default();
+        resource.0.borrow_mut().placements = PathPlacementCache::new(4096, 1, 4);
+        resource.begin_placements();
+        resource.prepare_glyph_frames(&store, key, &layout).unwrap();
+        assert!(matches!(
+            resource.prepare_caret_frames(&store, key, &layout),
+            Err(PathBaselineError::CacheBudget { budget: 1, .. })
+        ));
+        assert_eq!(resource.glyph_frames(key, <[_]>::len), Some(2));
+        assert!(resource.caret_frames(key, |_| ()).is_none());
+        let runtime = resource.0.borrow();
+        assert!(runtime.placements.carets.entries.is_empty());
+        assert!(runtime.placements.carets.values.is_empty());
+    }
+
+    #[test]
+    fn placement_budget_eviction_counts_surviving_ranges() {
+        let (_, handle, store, path) = placement_fixture();
+        let old = placement_key(&store, path, handle);
+        let incoming = PlacementKey {
+            owner: Entity {
+                id: 2,
+                generation: 0,
+            },
+            ..old
+        };
+        let mut arena = FrameArena::<u32>::new(frame_capacity_bytes::<u32>(1, 1000), 4);
+        arena
+            .resolve(old, 1000, |values| {
+                values.fill(1);
+                Ok(())
+            })
+            .unwrap();
+        arena.begin_frame();
+        arena
+            .resolve(incoming, 1000, |values| {
+                values.fill(2);
+                Ok(())
+            })
+            .unwrap();
+        assert!(arena.get(old).is_none());
+        assert_eq!(arena.get(incoming).unwrap(), &[2; 1000]);
+        assert_eq!(arena.entries.len(), 1);
+        assert_eq!(arena.entries[0].values, 0..1000);
+    }
+
+    #[test]
+    fn placement_admission_still_accounts_for_retained_capacity() {
+        let (_, handle, store, path) = placement_fixture();
+        let first = placement_key(&store, path, handle);
+        let second = PlacementKey {
+            owner: Entity {
+                id: 2,
+                generation: 0,
+            },
+            ..first
+        };
+        let incoming = PlacementKey {
+            owner: Entity {
+                id: 3,
+                generation: 0,
+            },
+            ..first
+        };
+        let budget = frame_capacity_bytes::<u32>(2, 100);
+        let mut arena = FrameArena::<u32>::new(budget, 4);
+        for key in [first, second] {
+            arena.resolve(key, 50, |_| Ok(())).unwrap();
+        }
+        arena.begin_frame();
+        assert!(frame_capacity_bytes::<u32>(1, 101) <= budget);
+        let allocations = crate::test_support::tracked_allocations(|| {
+            assert!(matches!(
+                arena.resolve(incoming, 101, |_| Ok(())),
+                Err(PathBaselineError::CacheBudget { .. })
+            ));
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(arena.entries.capacity(), 2);
+        assert_eq!(arena.values.capacity(), 100);
+        assert!(arena.get(incoming).is_none());
+    }
+
+    #[test]
+    fn warmed_placement_preparation_and_reads_do_not_allocate() {
+        let (layouts, handle, store, path) = placement_fixture();
+        let layout = layouts.get(handle).unwrap();
+        let key = placement_key(&store, path, handle);
+        let resource = PathBaselineResource::default();
+        resource.begin_layout();
+        resource.begin_placements();
+        resource.prepare_glyph_frames(&store, key, &layout).unwrap();
+        resource.prepare_caret_frames(&store, key, &layout).unwrap();
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for _ in 0..16 {
+                resource.begin_layout();
+                resource.begin_placements();
+                resource.pin_placement(key);
+                resource.prepare_glyph_frames(&store, key, &layout).unwrap();
+                resource.prepare_caret_frames(&store, key, &layout).unwrap();
+                assert_eq!(resource.glyph_frames(key, <[_]>::len), Some(2));
+                assert_eq!(resource.caret_frames(key, <[_]>::len), Some(3));
+            }
+        });
+        assert_eq!(allocations, 0);
     }
 
     #[test]
@@ -2739,7 +3176,8 @@ mod tests {
         let resource = PathBaselineResource::default();
 
         for frame in 0..64 {
-            resource.begin_frame();
+            resource.begin_layout();
+            resource.begin_placements();
             store
                 .edit(path, |path| {
                     path.set_command(
@@ -2752,16 +3190,9 @@ mod tests {
                     .unwrap();
                 })
                 .unwrap();
-            resource
-                .with_glyph_frames(
-                    &store,
-                    text_path,
-                    DEFAULT_TOLERANCE,
-                    handle,
-                    &layout,
-                    |_| {},
-                )
-                .unwrap();
+            let key = placement_key(&store, text_path, handle);
+            resource.prepare_glyph_frames(&store, key, &layout).unwrap();
+            assert!(resource.glyph_frames(key, |_| ()).is_some());
         }
 
         let runtime = resource.0.borrow();
@@ -2805,6 +3236,145 @@ mod tests {
         assert_eq!(cache.entries[0].key, key(second_id));
         assert_eq!(cache.entries[0].segments.start, 0);
         assert_eq!(cache.entries[0].segments.end, cache.segments.len());
+    }
+
+    #[test]
+    fn measured_budget_eviction_counts_surviving_ranges() {
+        let (_, _, source_store, source_path) = placement_fixture();
+        let path = source_store.get(source_path.path()).unwrap();
+        let count = PathMeasure::new(path, 0, DEFAULT_TOLERANCE)
+            .unwrap()
+            .requirements()
+            .unwrap()
+            .segments;
+        let mut store = PathStore::new(2).unwrap();
+        let first_id = store.insert(path.clone()).unwrap();
+        let second_id = store.insert(path.clone()).unwrap();
+        let first = MeasurementKey {
+            path: first_id,
+            revision: None,
+            subpath: 0,
+            tolerance: DEFAULT_TOLERANCE,
+        };
+        let second = MeasurementKey {
+            path: second_id,
+            ..first
+        };
+        let mut cache = PathBaselineCache::new(capacity_bytes(1, count), 4);
+        let expected = cache.resolve(first, path).unwrap().length();
+        cache.begin_frame();
+        assert_eq!(cache.resolve(second, path).unwrap().length(), expected);
+        assert_eq!(cache.entries.len(), 1);
+        assert_eq!(cache.entries[0].key, second);
+        assert_eq!(cache.entries[0].segments, 0..count);
+    }
+
+    #[test]
+    fn failed_baseline_admission_compacts_evicted_segments_and_preserves_pins() {
+        let (_, _, source_store, source_path) = placement_fixture();
+        let path = source_store.get(source_path.path()).unwrap();
+        let count = PathMeasure::new(path, 0, DEFAULT_TOLERANCE)
+            .unwrap()
+            .requirements()
+            .unwrap()
+            .segments;
+        let mut store = PathStore::new(3).unwrap();
+        let first = MeasurementKey {
+            path: store.insert(path.clone()).unwrap(),
+            revision: None,
+            subpath: 0,
+            tolerance: DEFAULT_TOLERANCE,
+        };
+        let pinned = MeasurementKey {
+            path: store.insert(path.clone()).unwrap(),
+            ..first
+        };
+        let incoming = MeasurementKey {
+            path: store.insert(path.clone()).unwrap(),
+            ..first
+        };
+        let mut cache = PathBaselineCache::new(capacity_bytes(2, 2 * count), 4);
+        cache.resolve(first, path).unwrap();
+        let expected = cache.resolve(pinned, path).unwrap().length();
+        cache.begin_frame();
+        cache.resolve(pinned, path).unwrap();
+        assert!(matches!(
+            cache.make_room(count + 1),
+            Err(PathBaselineError::CacheBudget { .. })
+        ));
+        assert_eq!(cache.segments.len(), count);
+        assert_eq!(cache.entries[0].segments, 0..count);
+        assert_eq!(cache.prepared(pinned, path).unwrap().length(), expected);
+        assert_eq!(cache.resolve(incoming, path).unwrap().length(), expected);
+        assert_eq!(cache.prepared(pinned, path).unwrap().length(), expected);
+    }
+
+    #[test]
+    fn failed_frame_admission_compacts_evicted_values_and_preserves_pins() {
+        let (_, handle, store, path) = placement_fixture();
+        let old = placement_key(&store, path, handle);
+        let pinned = PlacementKey {
+            owner: Entity {
+                id: 2,
+                generation: 0,
+            },
+            ..old
+        };
+        let incoming = PlacementKey {
+            owner: Entity {
+                id: 3,
+                generation: 0,
+            },
+            ..old
+        };
+        let mut arena = FrameArena::<u32>::new(frame_capacity_bytes::<u32>(2, 100), 4);
+        arena.resolve(old, 50, |_| Ok(())).unwrap();
+        arena
+            .resolve(pinned, 50, |values| {
+                values.fill(7);
+                Ok(())
+            })
+            .unwrap();
+        arena.begin_frame();
+        arena.pin(pinned);
+        assert!(matches!(
+            arena.resolve(incoming, 75, |_| Ok(())),
+            Err(PathBaselineError::CacheBudget { .. })
+        ));
+        assert_eq!(arena.values.len(), 50);
+        assert_eq!(arena.get(pinned).unwrap(), &[7; 50]);
+        arena
+            .resolve(incoming, 50, |values| {
+                values.fill(9);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(arena.get(incoming).unwrap(), &[9; 50]);
+        assert_eq!(arena.get(pinned).unwrap(), &[7; 50]);
+    }
+
+    #[test]
+    fn failed_placement_writer_never_publishes_partial_frames() {
+        let (_, handle, store, path) = placement_fixture();
+        let key = placement_key(&store, path, handle);
+        let mut arena = FrameArena::<u32>::new(4096, 4);
+        assert_eq!(
+            arena.resolve(key, 2, |values| {
+                values[0] = 99;
+                Err(PathBaselineError::Unavailable)
+            }),
+            Err(PathBaselineError::Unavailable)
+        );
+        assert!(arena.get(key).is_none());
+        assert!(arena.entries.is_empty());
+        assert!(arena.values.is_empty());
+        arena
+            .resolve(key, 2, |values| {
+                values.fill(5);
+                Ok(())
+            })
+            .unwrap();
+        assert_eq!(arena.get(key).unwrap(), &[5, 5]);
     }
 
     #[test]
@@ -2866,32 +3436,27 @@ mod tests {
         let resource = PathBaselineResource::default();
         let text_path = TextPath::new(path);
 
+        let key = placement_key(&store, text_path, handle);
+        resource.prepare_glyph_frames(&store, key, &layout).unwrap();
         resource
-            .with_glyph_frames(
-                &store,
-                text_path,
-                DEFAULT_TOLERANCE,
-                handle,
-                &layout,
-                |frames| {
-                    assert_eq!(frames.len(), 2);
-                    assert_eq!(
-                        frames[0].local_origin,
-                        FlowPoint {
-                            x: 10 << 8,
-                            y: 20 << 8
-                        }
-                    );
-                    assert_eq!(frames[0].unit_tangent, FlowPoint { x: 256, y: 0 });
-                    assert_eq!(
-                        frames[1].local_origin,
-                        FlowPoint {
-                            x: 11 << 8,
-                            y: 20 << 8
-                        }
-                    );
-                },
-            )
+            .glyph_frames(key, |frames| {
+                assert_eq!(frames.len(), 2);
+                assert_eq!(
+                    frames[0].local_origin,
+                    FlowPoint {
+                        x: 10 << 8,
+                        y: 20 << 8
+                    }
+                );
+                assert_eq!(frames[0].unit_tangent, FlowPoint { x: 256, y: 0 });
+                assert_eq!(
+                    frames[1].local_origin,
+                    FlowPoint {
+                        x: 11 << 8,
+                        y: 20 << 8
+                    }
+                );
+            })
             .unwrap();
 
         {
@@ -2901,25 +3466,19 @@ mod tests {
             assert!(runtime.placements.carets.values.is_empty());
         }
 
+        resource.prepare_caret_frames(&store, key, &layout).unwrap();
         resource
-            .with_caret_frames(
-                &store,
-                text_path,
-                DEFAULT_TOLERANCE,
-                handle,
-                &layout,
-                |frames| {
-                    assert_eq!(frames.len(), 3);
-                    assert_eq!(frames[0].local_origin.x, 10 << 8);
-                    assert_eq!(frames[1].local_origin.x, 11 << 8);
-                    assert_eq!(frames[2].local_origin.x, 12 << 8);
-                    assert!(
-                        frames
-                            .iter()
-                            .all(|frame| frame.unit_tangent == FlowPoint { x: 256, y: 0 })
-                    );
-                },
-            )
+            .caret_frames(key, |frames| {
+                assert_eq!(frames.len(), 3);
+                assert_eq!(frames[0].local_origin.x, 10 << 8);
+                assert_eq!(frames[1].local_origin.x, 11 << 8);
+                assert_eq!(frames[2].local_origin.x, 12 << 8);
+                assert!(
+                    frames
+                        .iter()
+                        .all(|frame| frame.unit_tangent == FlowPoint { x: 256, y: 0 })
+                );
+            })
             .unwrap();
 
         let runtime = resource.0.borrow();
@@ -2970,38 +3529,33 @@ mod tests {
         assert_eq!(layout.lines()[0].advance(), 2 << 8);
         assert_eq!(layout.lines()[1].advance(), 1 << 8);
 
+        let key = placement_key(&store, text_path, handle);
+        resource.prepare_glyph_frames(&store, key, &layout).unwrap();
         resource
-            .with_glyph_frames(
-                &store,
-                text_path,
-                DEFAULT_TOLERANCE,
-                handle,
-                &layout,
-                |frames| {
-                    assert_eq!(frames.len(), 3);
-                    assert_eq!(
-                        frames[0].local_origin,
-                        FlowPoint {
-                            x: 10 << 8,
-                            y: 20 << 8
-                        }
-                    );
-                    assert_eq!(
-                        frames[1].local_origin,
-                        FlowPoint {
-                            x: 11 << 8,
-                            y: 20 << 8
-                        }
-                    );
-                    assert_eq!(
-                        frames[2].local_origin,
-                        FlowPoint {
-                            x: 30 << 8,
-                            y: 40 << 8
-                        }
-                    );
-                },
-            )
+            .glyph_frames(key, |frames| {
+                assert_eq!(frames.len(), 3);
+                assert_eq!(
+                    frames[0].local_origin,
+                    FlowPoint {
+                        x: 10 << 8,
+                        y: 20 << 8
+                    }
+                );
+                assert_eq!(
+                    frames[1].local_origin,
+                    FlowPoint {
+                        x: 11 << 8,
+                        y: 20 << 8
+                    }
+                );
+                assert_eq!(
+                    frames[2].local_origin,
+                    FlowPoint {
+                        x: 30 << 8,
+                        y: 40 << 8
+                    }
+                );
+            })
             .unwrap();
     }
 
@@ -3049,15 +3603,10 @@ mod tests {
             layout.glyphs()[2].glyph_id(),
             GlyphId::new('\u{2026}' as u16)
         );
+        let key = placement_key(&store, text_path, handle);
+        resource.prepare_glyph_frames(&store, key, &layout).unwrap();
         resource
-            .with_glyph_frames(
-                &store,
-                text_path,
-                DEFAULT_TOLERANCE,
-                handle,
-                &layout,
-                |frames| assert_eq!(frames.len(), 3),
-            )
+            .glyph_frames(key, |frames| assert_eq!(frames.len(), 3))
             .unwrap();
     }
 
@@ -3103,22 +3652,17 @@ mod tests {
             layout.glyphs()[0].glyph_id(),
             GlyphId::new('\u{2026}' as u16)
         );
+        let key = placement_key(&store, text_path, handle);
+        resource.prepare_glyph_frames(&store, key, &layout).unwrap();
         resource
-            .with_glyph_frames(
-                &store,
-                text_path,
-                DEFAULT_TOLERANCE,
-                handle,
-                &layout,
-                |frames| {
-                    assert_eq!(frames[0].local_origin.x, 10 << 8);
-                    assert!(
-                        frames
-                            .windows(2)
-                            .all(|pair| pair[0].local_origin.x <= pair[1].local_origin.x)
-                    );
-                },
-            )
+            .glyph_frames(key, |frames| {
+                assert_eq!(frames[0].local_origin.x, 10 << 8);
+                assert!(
+                    frames
+                        .windows(2)
+                        .all(|pair| pair[0].local_origin.x <= pair[1].local_origin.x)
+                );
+            })
             .unwrap();
     }
 }
