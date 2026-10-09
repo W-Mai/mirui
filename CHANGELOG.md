@@ -72,6 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Offscreen textures become readable only after successful rendering. Source preparation no longer writes to the parent target, and a failed subtree leaves completed sources intact.
 - Mutable component access records entity changes so registered View bindings follow the final component value.
 - Pointer and wheel scrolling share elastic resistance, content-velocity tracking, and released motion. Continuous input controls the content at both resting and moving boundaries.
 - SDL surfaces enable native macOS trackpad momentum when using sdl2-compat.

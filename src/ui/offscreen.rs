@@ -12,6 +12,8 @@
 //! rebuild the buffer; otherwise the prior buffer is blit'd as-is and
 //! the subtree's raster work is skipped entirely.
 //!
+//! Texture entries are published after their subtree finishes rendering. Preparing a referenced source does not composite it into the parent target; the main tree traversal determines composition order. A failed preparation does not discard other completed entries.
+//!
 //! # Usage
 //!
 //! Two pieces opt the app in:
