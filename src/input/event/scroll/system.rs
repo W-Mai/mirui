@@ -3,7 +3,7 @@ use crate::anim::{BOUNCY, SMOOTH, Spring};
 use crate::ecs::{Entity, World};
 use crate::input::event::hit_test::hit_test;
 use crate::input::event::input::InputEvent;
-use crate::types::Fixed;
+use crate::types::{Fixed, Fixed64};
 
 fn descendant_extent(world: &World, entity: Entity) -> Option<(Fixed, Fixed)> {
     let rect = world.get::<crate::ui::ComputedRect>(entity)?.0;
@@ -328,9 +328,9 @@ pub(crate) fn scroll_system_with_target(
             let (max_x, max_y) = (bounds.max_x, bounds.max_y);
 
             // elastic=true rubber-bands past the edges; elastic=false hard-clamps.
-            let bound = |offset: Fixed, delta: Fixed, max: Fixed| -> Fixed {
+            let bound = |offset: Fixed, delta: Fixed, max: Fixed, viewport: Fixed| -> Fixed {
                 if elastic {
-                    elastic_resist(offset, delta, max)
+                    elastic_resist(offset, delta, max, viewport)
                 } else {
                     let target = (offset + delta).clamp(Fixed::ZERO, max);
                     target - offset
@@ -342,18 +342,18 @@ pub(crate) fn scroll_system_with_target(
             if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
                 match dir {
                     ScrollAxis::Vertical => {
-                        let d = bound(scroll.y, -dy, max_y);
+                        let d = bound(scroll.y, -dy, max_y, bounds.viewport_height);
                         scroll.y += d;
                         applied_dy = d;
                     }
                     ScrollAxis::Horizontal => {
-                        let d = bound(scroll.x, -dx, max_x);
+                        let d = bound(scroll.x, -dx, max_x, bounds.viewport_width);
                         scroll.x += d;
                         applied_dx = d;
                     }
                     ScrollAxis::Both => {
-                        let dxa = bound(scroll.x, -dx, max_x);
-                        let dya = bound(scroll.y, -dy, max_y);
+                        let dxa = bound(scroll.x, -dx, max_x, bounds.viewport_width);
+                        let dya = bound(scroll.y, -dy, max_y, bounds.viewport_height);
                         scroll.x += dxa;
                         scroll.y += dya;
                         applied_dx = dxa;
@@ -514,17 +514,18 @@ pub(crate) fn scroll_system_with_target(
                 return false;
             };
 
-            let (axis, max_x, max_y, elastic) = {
+            let (axis, bounds, elastic) = {
                 let cfg = world.get::<ScrollConfig>(target);
                 let bounds = scroll_bounds(world, target).unwrap_or_default();
                 let dir = cfg.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
                 let elastic = cfg.map(|c| c.elastic).unwrap_or(true);
-                (dir, bounds.max_x, bounds.max_y, elastic)
+                (dir, bounds, elastic)
             };
+            let (max_x, max_y) = (bounds.max_x, bounds.max_y);
 
-            let bound = |offset: Fixed, delta: Fixed, max: Fixed| {
+            let bound = |offset: Fixed, delta: Fixed, max: Fixed, viewport: Fixed| {
                 if elastic {
-                    offset + elastic_resist(offset, delta, max)
+                    offset + elastic_resist(offset, delta, max, viewport)
                 } else {
                     (offset + delta).clamp(Fixed::ZERO, max)
                 }
@@ -537,37 +538,33 @@ pub(crate) fn scroll_system_with_target(
                 matches!(axis, ScrollAxis::Horizontal | ScrollAxis::Both) && delta_x != Fixed::ZERO;
             let needs_y =
                 matches!(axis, ScrollAxis::Vertical | ScrollAxis::Both) && delta_y != Fixed::ZERO;
-            let next_x = if needs_x {
-                bound(offset_x, delta_x, max_x)
+            let mut next_x = if needs_x {
+                bound(offset_x, delta_x, max_x, bounds.viewport_width)
             } else {
                 offset_x
             };
-            let next_y = if needs_y {
-                bound(offset_y, delta_y, max_y)
+            let mut next_y = if needs_y {
+                bound(offset_y, delta_y, max_y, bounds.viewport_height)
             } else {
                 offset_y
             };
             accepted = needs_x || needs_y;
-            if let Some(offset) = world.get_mut::<ScrollOffset>(target) {
-                offset.x = next_x;
-                offset.y = next_y;
-            }
-            let rebound = |position: Fixed, max: Fixed| {
-                (position < Fixed::ZERO || position > max)
-                    .then(|| Spring::preset(position, position.clamp(Fixed::ZERO, max), BOUNCY))
-            };
             if let Some(ss) = world.resource_mut::<ScrollSpring>() {
                 if ss.target_entity != Some(target) {
                     ss.x = None;
                     ss.y = None;
                 }
                 if needs_x {
-                    ss.x = rebound(next_x, max_x);
+                    next_x = update_wheel_rebound(&mut ss.x, offset_x, next_x, max_x);
                 }
                 if needs_y {
-                    ss.y = rebound(next_y, max_y);
+                    next_y = update_wheel_rebound(&mut ss.y, offset_y, next_y, max_y);
                 }
                 ss.target_entity = (ss.x.is_some() || ss.y.is_some()).then_some(target);
+            }
+            if let Some(offset) = world.get_mut::<ScrollOffset>(target) {
+                offset.x = next_x;
+                offset.y = next_y;
             }
             if next_x != offset_x || next_y != offset_y {
                 accumulate_scroll_delta(world, target, next_x - offset_x, next_y - offset_y);
@@ -611,12 +608,13 @@ pub fn scroll_inertia_system(world: &mut World) -> Result<(), crate::ecs::Comman
         .resource::<crate::ecs::DeltaTimeMs>()
         .map_or(16, |r| r.0);
 
-    let (max_x, max_y, elastic) = {
+    let (bounds, elastic) = {
         let config = world.get::<ScrollConfig>(target);
         let bounds = scroll_bounds(world, target).unwrap_or_default();
         let elastic = config.map(|c| c.elastic).unwrap_or(true);
-        (bounds.max_x, bounds.max_y, elastic)
+        (bounds, elastic)
     };
+    let (max_x, max_y) = (bounds.max_x, bounds.max_y);
 
     let (new_x, new_y, done) = {
         let Some(ss) = world.resource_mut::<ScrollSpring>() else {
@@ -631,7 +629,7 @@ pub fn scroll_inertia_system(world: &mut World) -> Result<(), crate::ecs::Comman
         let edge_curve = if elastic { Some(BOUNCY) } else { Some(SMOOTH) };
 
         if let Some(ref mut sx) = ss.x {
-            sx.tick(dt);
+            tick_scroll_spring(sx, dt, max_x, bounds.viewport_width, elastic);
             let pos = sx.value();
             if pos < Fixed::ZERO {
                 sx.retarget(Fixed::ZERO, edge_curve);
@@ -644,7 +642,7 @@ pub fn scroll_inertia_system(world: &mut World) -> Result<(), crate::ecs::Comman
         }
 
         if let Some(ref mut sy) = ss.y {
-            sy.tick(dt);
+            tick_scroll_spring(sy, dt, max_y, bounds.viewport_height, elastic);
             let pos = sy.value();
             if pos < Fixed::ZERO {
                 sy.retarget(Fixed::ZERO, edge_curve);
@@ -765,9 +763,6 @@ fn find_scroll_target_for_direction(
     last_matching
 }
 
-/// Apply elastic resistance when overscrolling.
-/// `offset`: current scroll offset, `delta`: requested change, `max`: max allowed offset.
-/// Returns the effective delta to apply (reduced when out of bounds).
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -980,6 +975,58 @@ mod tests {
             scroll_inertia_system(&mut world).unwrap();
         }
         assert_eq!(world.get::<ScrollOffset>(root).unwrap().x, Fixed::ONE);
+    }
+
+    #[test]
+    fn rubber_band_preserves_in_bounds_distance_and_event_batching() {
+        let max = Fixed::from_int(200);
+        let viewport = Fixed::from_int(240);
+        assert_eq!(
+            elastic_resist(50.into(), 30.into(), max, viewport),
+            30.into()
+        );
+        assert_eq!(
+            elastic_resist((-20).into(), 5.into(), max, viewport),
+            5.into()
+        );
+        let single = elastic_resist(Fixed::ZERO, (-120).into(), max, viewport);
+        for step in [1, 4, 30] {
+            let mut top = Fixed::ZERO;
+            let mut bottom = max;
+            for _ in 0..120 / step {
+                top += elastic_resist(top, Fixed::from_int(-step), max, viewport);
+                bottom += elastic_resist(bottom, Fixed::from_int(step), max, viewport);
+            }
+            assert!((top - single).abs() < Fixed::ONE);
+            assert_eq!(top, max - bottom);
+        }
+    }
+
+    #[test]
+    fn continuous_wheel_updates_drive_velocity_without_jumping_position() {
+        let mut spring = Some(Spring::preset((-40).into(), Fixed::ZERO, BOUNCY));
+        spring.as_mut().unwrap().tick(16);
+        let position = spring.as_ref().unwrap().value();
+        let velocity = spring.as_ref().unwrap().velocity;
+        assert!(velocity > Fixed::ZERO);
+        assert_eq!(
+            update_wheel_rebound(&mut spring, position, position - Fixed::ONE, 200.into()),
+            position
+        );
+        assert!(spring.as_ref().unwrap().velocity < velocity);
+        assert_eq!(spring.as_ref().unwrap().value(), position);
+        assert_eq!(
+            update_wheel_rebound(&mut spring, position, 5.into(), 200.into()),
+            5.into()
+        );
+        assert!(spring.is_none());
+
+        spring = Some(Spring::preset(10.into(), Fixed::ZERO, SMOOTH));
+        assert_eq!(
+            update_wheel_rebound(&mut spring, 10.into(), (-5).into(), 200.into()),
+            Fixed::ZERO
+        );
+        assert_eq!(spring.as_ref().unwrap().value(), Fixed::ZERO);
     }
 
     #[test]
@@ -1573,31 +1620,73 @@ mod tests {
     }
 }
 
-fn elastic_resist(offset: Fixed, delta: Fixed, max: Fixed) -> Fixed {
-    const DAMPING: i32 = 200;
-
-    let new_offset = offset + delta;
-
-    // If staying in bounds, no resistance
-    if new_offset >= Fixed::ZERO && new_offset <= max {
-        return delta;
+fn update_wheel_rebound(
+    spring: &mut Option<Spring>,
+    offset: Fixed,
+    requested: Fixed,
+    max: Fixed,
+) -> Fixed {
+    let edge = requested.clamp(Fixed::ZERO, max);
+    if edge == requested {
+        *spring = None;
+        return requested;
     }
-
-    // Calculate how far out of bounds we are (or will be)
-    let overscroll = if new_offset < Fixed::ZERO {
-        -new_offset
+    let position = if edge == Fixed::ZERO {
+        offset.min(edge)
     } else {
-        new_offset - max
+        offset.max(edge)
     };
+    let current = match spring {
+        Some(current) if current.target == edge => current,
+        slot => slot.insert(Spring::preset(position, edge, BOUNCY)),
+    };
+    current.position = position;
+    current.absorb_displacement(requested - position);
+    position
+}
 
-    // Resistance: damping / (damping + overscroll)
-    // Use integer math on raw values
-    let over_int = overscroll.to_int();
-    let resistance_denom = DAMPING + over_int;
-    if resistance_denom == 0 {
-        return Fixed::ZERO;
+fn tick_scroll_spring(spring: &mut Spring, dt: u16, max: Fixed, viewport: Fixed, elastic: bool) {
+    let previous = spring.value();
+    spring.tick(dt);
+    if elastic {
+        let requested = spring.value() - previous;
+        let applied = elastic_resist(previous, requested, max, viewport);
+        if applied != requested {
+            spring.position = previous + applied;
+            spring.velocity = spring.velocity * (applied / requested);
+        }
     }
-    delta * DAMPING / resistance_denom
+}
+
+fn elastic_resist(offset: Fixed, delta: Fixed, max: Fixed, viewport: Fixed) -> Fixed {
+    let next = offset + delta;
+    let (edge, distance, pull, sign) = if next < Fixed::ZERO && delta < Fixed::ZERO {
+        (
+            Fixed::ZERO,
+            (-offset).max(Fixed::ZERO),
+            (-delta).min(-next),
+            -Fixed::ONE,
+        )
+    } else if next > max && delta > Fixed::ZERO {
+        (
+            max,
+            (offset - max).max(Fixed::ZERO),
+            delta.min(next - max),
+            Fixed::ONE,
+        )
+    } else {
+        return delta;
+    };
+    if viewport <= Fixed::ZERO {
+        return edge - offset;
+    }
+    let distance = distance.min(viewport);
+    let remaining = Fixed64::from_fixed(viewport - distance);
+    let extent = Fixed64::from_fixed(viewport);
+    // Integrate the rubber-band curve in displacement space, independent of event batching.
+    let pull = Fixed64::from_fixed(pull) * Fixed64::from_ratio(55, 100) * (remaining / extent);
+    let stretch = (remaining * (pull / (extent + pull))).to_fixed();
+    edge + sign * (distance + stretch) - offset
 }
 fn is_at_boundary(world: &World, entity: Entity, delta_x: Fixed, delta_y: Fixed) -> bool {
     let Some(scroll) = world.get::<ScrollOffset>(entity) else {
