@@ -5,14 +5,14 @@ mod support {
 use std::cell::Cell;
 use std::rc::Rc;
 
+use mirui::app::App;
 use mirui::core::model::SharedValue;
 use mirui::core::reactive::{Signal, flush_signal_dirty};
 use mirui::ecs::{Entity, World};
 use mirui::model;
 use mirui::ui;
-use mirui::ui::builder::WidgetBuilder;
+use mirui::ui::Children;
 use mirui::ui::widgets::Text;
-use mirui::ui::{Children, IdMap};
 
 use support::tracked_allocations;
 
@@ -44,9 +44,8 @@ fn visible_children(world: &World, parent: Entity) -> Vec<Entity> {
 
 #[test]
 fn no_binding_match_keeps_all_roots_state_and_static_sibling_order() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let root = WidgetBuilder::new(&mut world).id();
+    let mut app = App::headless(64, 64);
+    let root = app.spawn_root().id();
     let mode = Signal::new(Some(0u8));
     let selection = mode.clone();
     let built_zero = Rc::new(Cell::new(0));
@@ -54,8 +53,7 @@ fn no_binding_match_keeps_all_roots_state_and_static_sibling_order() {
     let count_zero = Rc::clone(&built_zero);
     let count_other = Rc::clone(&built_other);
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    app.compose(root, |cx| {
         ui! {
             Column () {
                 Text ("before", id: "before")
@@ -76,8 +74,9 @@ fn no_binding_match_keeps_all_roots_state_and_static_sibling_order() {
                 Text ("after", id: "after")
             }
         }
-    };
+    });
 
+    let world = &mut app.world;
     let column = world.get::<Children>(root).unwrap().0[0];
     let lookup = |id| world.find_by_id(id).unwrap();
     let before = lookup("before");
@@ -89,7 +88,7 @@ fn no_binding_match_keeps_all_roots_state_and_static_sibling_order() {
     let all_children = [before, zero_a, zero_b, other_a, other_b, after];
     assert_eq!(world.get::<Children>(column).unwrap().0, all_children);
     assert_eq!(
-        visible_children(&world, column),
+        visible_children(world, column),
         [before, zero_a, zero_b, after]
     );
     assert_eq!((built_zero.get(), built_other.get()), (1, 1));
@@ -98,46 +97,46 @@ fn no_binding_match_keeps_all_roots_state_and_static_sibling_order() {
     assert_eq!(
         tracked_allocations(|| {
             mode.set(Some(1));
-            flush_signal_dirty(&mut world);
+            flush_signal_dirty(world);
         }),
         0
     );
     assert_eq!(
-        visible_children(&world, column),
+        visible_children(world, column),
         [before, other_a, other_b, after]
     );
 
     assert_eq!(
         tracked_allocations(|| {
             mode.set(Some(2));
-            flush_signal_dirty(&mut world);
+            flush_signal_dirty(world);
         }),
         0
     );
     assert_eq!(
-        visible_children(&world, column),
+        visible_children(world, column),
         [before, other_a, other_b, after]
     );
 
     assert_eq!(
         tracked_allocations(|| {
             mode.set(None);
-            flush_signal_dirty(&mut world);
+            flush_signal_dirty(world);
         }),
         0
     );
-    assert_eq!(visible_children(&world, column), [before, after]);
+    assert_eq!(visible_children(world, column), [before, after]);
 
     assert_eq!(
         tracked_allocations(|| {
             mode.set(Some(0));
-            flush_signal_dirty(&mut world);
+            flush_signal_dirty(world);
         }),
         0
     );
     assert_eq!(world.get::<Children>(column).unwrap().0, all_children);
     assert_eq!(
-        visible_children(&world, column),
+        visible_children(world, column),
         [before, zero_a, zero_b, after]
     );
     assert_eq!(world.get::<BranchState>(zero_a).unwrap().0, 73);
@@ -148,14 +147,12 @@ fn no_binding_match_keeps_all_roots_state_and_static_sibling_order() {
 
 #[test]
 fn payload_binding_match_still_rebuilds_the_selected_arm() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let root = WidgetBuilder::new(&mut world).id();
+    let mut app = App::headless(64, 64);
+    let root = app.spawn_root().id();
     let payload = Signal::new(None::<&'static str>);
     let selection = payload.clone();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    app.compose(root, |cx| {
         ui! {
             Column () {
                 Text ("before")
@@ -170,24 +167,25 @@ fn payload_binding_match_still_rebuilds_the_selected_arm() {
                 Text ("after")
             }
         }
-    };
+    });
 
+    let world = &mut app.world;
     let column = world.get::<Children>(root).unwrap().0[0];
     let empty_initial = world.get::<Children>(column).unwrap().0.clone();
     assert_eq!(empty_initial.len(), 2);
 
     payload.set(Some("alpha"));
-    flush_signal_dirty(&mut world);
+    flush_signal_dirty(world);
     let initial = world.get::<Children>(column).unwrap().0.clone();
     assert_eq!(initial.len(), 4);
     assert_eq!(initial[0], empty_initial[0]);
     assert_eq!(initial[3], empty_initial[1]);
     let mounted = initial[1];
     let suffix = initial[2];
-    assert_eq!(world.get::<Text>(mounted).unwrap().resolve(&world), "alpha");
+    assert_eq!(world.get::<Text>(mounted).unwrap().resolve(world), "alpha");
 
     payload.set(Some("beta"));
-    flush_signal_dirty(&mut world);
+    flush_signal_dirty(world);
     let updated = &world.get::<Children>(column).unwrap().0;
     assert_eq!(updated.len(), 4);
     assert_eq!(updated[0], initial[0]);
@@ -196,38 +194,36 @@ fn payload_binding_match_still_rebuilds_the_selected_arm() {
     assert!(!world.is_alive(mounted));
     assert!(!world.is_alive(suffix));
     assert_eq!(
-        world.get::<Text>(updated[1]).unwrap().resolve(&world),
+        world.get::<Text>(updated[1]).unwrap().resolve(world),
         "beta"
     );
 
     payload.set(None);
-    flush_signal_dirty(&mut world);
+    flush_signal_dirty(world);
     let empty = &world.get::<Children>(column).unwrap().0;
     assert_eq!(empty, &[initial[0], initial[3]]);
 
     payload.set(Some("gamma"));
-    flush_signal_dirty(&mut world);
+    flush_signal_dirty(world);
     let remounted = &world.get::<Children>(column).unwrap().0;
     assert_eq!(remounted.len(), 4);
     assert_eq!(remounted[0], initial[0]);
     assert_eq!(remounted[3], initial[3]);
     assert_eq!(
-        world.get::<Text>(remounted[1]).unwrap().resolve(&world),
+        world.get::<Text>(remounted[1]).unwrap().resolve(world),
         "gamma"
     );
 }
 
 #[test]
 fn model_observation_switches_a_cached_match_without_allocating() {
-    let mut app = mirui::app::App::headless(64, 64);
+    let mut app = App::headless(64, 64);
     app.with_default_widgets();
-    app.world.insert_resource(IdMap::new());
     let root = app.spawn_root().id();
     let model = app.add_model(ModeModel { mode: 0 });
     let selection = model.share();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+    app.compose(root, |cx| {
         ui! {
             Column () {
                 match ${ selection.mode() } {
@@ -240,7 +236,7 @@ fn model_observation_switches_a_cached_match_without_allocating() {
                 }
             }
         }
-    };
+    });
 
     let zero = app.world.find_by_id("zero").unwrap();
     let other = app.world.find_by_id("other").unwrap();

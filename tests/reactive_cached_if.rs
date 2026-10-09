@@ -11,10 +11,9 @@ use mirui::ecs::{Entity, World};
 use mirui::model;
 use mirui::render::{DrawCommand, DrawRequest, RenderError, RenderRoute, Renderer};
 use mirui::types::{Color, Dimension, Fixed, Viewport};
-use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::render_system;
 use mirui::ui::widgets::Text;
-use mirui::ui::{Children, Hidden, IdMap, InteractionState};
+use mirui::ui::{Children, Hidden, InteractionState, Style};
 use mirui::{input::event::hit_test::hit_test, ui};
 
 use support::tracked_allocations;
@@ -65,9 +64,8 @@ fn visible_children(world: &World, parent: Entity) -> Vec<Entity> {
 
 #[test]
 fn reactive_if_keeps_all_roots_and_state_at_a_stable_position() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let root = WidgetBuilder::new(&mut world).id();
+    let mut app = mirui::app::App::headless(80, 80);
+    let root = app.spawn_root().id();
     let selected = Signal::new(false);
     let condition = selected.clone();
     let built_true = Rc::new(Cell::new(0));
@@ -75,8 +73,7 @@ fn reactive_if_keeps_all_roots_and_state_at_a_stable_position() {
     let true_counter = Rc::clone(&built_true);
     let false_counter = Rc::clone(&built_false);
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    app.compose(root, |cx| {
         ui! {
             Column () {
                 Text ("before", id: "before")
@@ -91,9 +88,10 @@ fn reactive_if_keeps_all_roots_and_state_at_a_stable_position() {
                 }
                 Text ("after", id: "after")
             }
-        }
-    };
+        };
+    });
 
+    let world = &mut app.world;
     let column = world.get::<Children>(root).unwrap().0[0];
     let all_children = world.get::<Children>(column).unwrap().0.clone();
     let lookup = |id| world.find_by_id(id).unwrap();
@@ -110,27 +108,27 @@ fn reactive_if_keeps_all_roots_and_state_at_a_stable_position() {
     assert_eq!(built_true.get(), 1);
     assert_eq!(built_false.get(), 1);
     assert_eq!(
-        visible_children(&world, column),
+        visible_children(world, column),
         [before, false_a, false_b, after]
     );
 
     world.insert(true_a, BranchState(73));
     let first_switch_allocations = tracked_allocations(|| {
         selected.set(true);
-        flush_signal_dirty(&mut world);
+        flush_signal_dirty(world);
     });
     assert_eq!(first_switch_allocations, 0);
     assert_eq!(
-        visible_children(&world, column),
+        visible_children(world, column),
         [before, true_a, true_b, after]
     );
     assert_eq!(world.get::<BranchState>(true_a).unwrap().0, 73);
 
     let repeated_switch_allocations = tracked_allocations(|| {
         selected.set(false);
-        flush_signal_dirty(&mut world);
+        flush_signal_dirty(world);
         selected.set(true);
-        flush_signal_dirty(&mut world);
+        flush_signal_dirty(world);
     });
     assert_eq!(repeated_switch_allocations, 0);
     assert_eq!(world.get::<Children>(column).unwrap().0, all_children);
@@ -143,14 +141,12 @@ fn reactive_if_keeps_all_roots_and_state_at_a_stable_position() {
 fn hidden_if_branches_leave_layout_and_hit_testing() {
     let mut app = mirui::app::App::headless(80, 80);
     app.with_default_widgets();
-    let mut world = app.world;
-    world.insert_resource(IdMap::new());
-    let root = WidgetBuilder::new(&mut world).id();
+    let app_root = app.spawn_root().id();
+    let root = app.compose(app_root, |tree| tree.spawn(Style::default()));
     let selected = Signal::new(false);
     let condition = selected.clone();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    app.compose(root, |cx| {
         ui! {
             Column (width: Dimension::px(80), height: Dimension::px(80)) {
                 if $condition {
@@ -159,51 +155,50 @@ fn hidden_if_branches_leave_layout_and_hit_testing() {
                     View (id: "disabled", width: 40, height: 30, bg_color: Color::rgb(0, 0, 255)) on Tap { }
                 }
             }
-        }
-    };
+        };
+    });
 
+    let world = &mut app.world;
     let enabled = world.find_by_id("enabled").unwrap();
     let disabled = world.find_by_id("disabled").unwrap();
     let viewport = Viewport::new(80, 80, Fixed::ONE);
-    render_system::update_layout(&mut world, root, &viewport);
+    render_system::update_layout(world, root, &viewport);
     assert_eq!(
-        hit_test(&world, root, 10.into(), 10.into(), 80, 80),
+        hit_test(world, root, 10.into(), 10.into(), 80, 80),
         Some(disabled)
     );
     let mut paints = FillColors::default();
-    render_system::render(&world, root, &viewport, &mut paints).unwrap();
+    render_system::render(world, root, &viewport, &mut paints).unwrap();
     assert_eq!(paints.0, [Color::rgb(0, 0, 255)]);
     world.insert(disabled, InteractionState::Hovered);
 
     let switch_allocations = tracked_allocations(|| {
         selected.set(true);
-        flush_signal_dirty(&mut world);
+        flush_signal_dirty(world);
     });
     assert_eq!(switch_allocations, 0);
     assert!(world.get::<InteractionState>(disabled).is_none());
-    assert_eq!(hit_test(&world, root, 10.into(), 10.into(), 80, 80), None);
-    render_system::update_layout(&mut world, root, &viewport);
+    assert_eq!(hit_test(world, root, 10.into(), 10.into(), 80, 80), None);
+    render_system::update_layout(world, root, &viewport);
     assert_eq!(
-        hit_test(&world, root, 10.into(), 10.into(), 80, 80),
+        hit_test(world, root, 10.into(), 10.into(), 80, 80),
         Some(enabled)
     );
     paints.0.clear();
-    render_system::render(&world, root, &viewport, &mut paints).unwrap();
+    render_system::render(world, root, &viewport, &mut paints).unwrap();
     assert_eq!(paints.0, [Color::rgb(255, 0, 0)]);
-    assert!(ui::branch::is_effectively_hidden(&world, disabled));
-    assert!(!ui::branch::is_effectively_hidden(&world, enabled));
+    assert!(ui::branch::is_effectively_hidden(world, disabled));
+    assert!(!ui::branch::is_effectively_hidden(world, enabled));
 }
 
 #[test]
 fn reactive_if_without_else_can_hide_every_arm() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let root = WidgetBuilder::new(&mut world).id();
+    let mut app = mirui::app::App::headless(80, 80);
+    let root = app.spawn_root().id();
     let mode = Signal::new(0u8);
     let condition = mode.clone();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    app.compose(root, |cx| {
         ui! {
             Column () {
                 if ${ condition.get() == 1 } {
@@ -212,40 +207,39 @@ fn reactive_if_without_else_can_hide_every_arm() {
                     View (id: "two", width: 20, height: 20)
                 }
             }
-        }
-    };
+        };
+    });
 
+    let world = &mut app.world;
     let column = world.get::<Children>(root).unwrap().0[0];
     let one = world.find_by_id("one").unwrap();
     let two = world.find_by_id("two").unwrap();
-    assert!(visible_children(&world, column).is_empty());
+    assert!(visible_children(world, column).is_empty());
 
     let allocations = tracked_allocations(|| {
         mode.set(1);
-        flush_signal_dirty(&mut world);
+        flush_signal_dirty(world);
         mode.set(2);
-        flush_signal_dirty(&mut world);
+        flush_signal_dirty(world);
         mode.set(0);
-        flush_signal_dirty(&mut world);
+        flush_signal_dirty(world);
     });
     assert_eq!(allocations, 0);
-    assert!(visible_children(&world, column).is_empty());
+    assert!(visible_children(world, column).is_empty());
     assert!(world.is_alive(one));
     assert!(world.is_alive(two));
 }
 
 #[test]
 fn branch_visibility_does_not_override_a_roots_own_visible_binding() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let root = WidgetBuilder::new(&mut world).id();
+    let mut app = mirui::app::App::headless(80, 80);
+    let root = app.spawn_root().id();
     let selected = Signal::new(false);
     let own_visible = Signal::new(false);
     let condition = selected.clone();
     let own_binding = own_visible.clone();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    app.compose(root, |cx| {
         ui! {
             Column () {
                 if $condition {
@@ -254,9 +248,10 @@ fn branch_visibility_does_not_override_a_roots_own_visible_binding() {
                     View (id: "fallback", width: 20, height: 20)
                 }
             }
-        }
-    };
+        };
+    });
 
+    let world = &mut app.world;
     let gated = world.find_by_id("gated").unwrap();
     let fallback = world.find_by_id("fallback").unwrap();
     assert!(world.has::<Hidden>(gated));
@@ -264,32 +259,32 @@ fn branch_visibility_does_not_override_a_roots_own_visible_binding() {
 
     let first_select_allocations = tracked_allocations(|| {
         selected.set(true);
-        flush_signal_dirty(&mut world);
+        flush_signal_dirty(world);
     });
     assert_eq!(first_select_allocations, 0);
     assert!(world.has::<Hidden>(gated));
-    assert!(ui::branch::is_effectively_hidden(&world, fallback));
+    assert!(ui::branch::is_effectively_hidden(world, fallback));
 
     let own_visibility_allocations = tracked_allocations(|| {
         own_visible.set(true);
-        flush_signal_dirty(&mut world);
+        flush_signal_dirty(world);
     });
     assert_eq!(own_visibility_allocations, 0);
     assert!(!world.has::<Hidden>(gated));
 
     selected.set(false);
-    flush_signal_dirty(&mut world);
-    assert!(ui::branch::is_effectively_hidden(&world, gated));
+    flush_signal_dirty(world);
+    assert!(ui::branch::is_effectively_hidden(world, gated));
     own_visible.set(false);
-    flush_signal_dirty(&mut world);
+    flush_signal_dirty(world);
     own_visible.set(true);
-    flush_signal_dirty(&mut world);
+    flush_signal_dirty(world);
     assert!(!world.has::<Hidden>(gated));
-    assert!(ui::branch::is_effectively_hidden(&world, gated));
-    assert!(!ui::branch::is_effectively_hidden(&world, fallback));
+    assert!(ui::branch::is_effectively_hidden(world, gated));
+    assert!(!ui::branch::is_effectively_hidden(world, fallback));
 
     selected.set(true);
-    flush_signal_dirty(&mut world);
+    flush_signal_dirty(world);
     assert!(!world.has::<Hidden>(gated));
 }
 
@@ -297,13 +292,11 @@ fn branch_visibility_does_not_override_a_roots_own_visible_binding() {
 fn model_observation_switches_a_cached_branch_without_allocating() {
     let mut app = mirui::app::App::headless(64, 64);
     app.with_default_widgets();
-    app.world.insert_resource(IdMap::new());
     let root = app.spawn_root().id();
     let model = app.add_model(VisibilityModel { enabled: false });
     let condition = model.share();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+    app.compose(root, |cx| {
         ui! {
             Column () {
                 if ${ condition.enabled() } {
@@ -312,8 +305,8 @@ fn model_observation_switches_a_cached_branch_without_allocating() {
                     View (id: "disabled", width: 20, height: 20)
                 }
             }
-        }
-    };
+        };
+    });
 
     let enabled = app.world.find_by_id("enabled").unwrap();
     let disabled = app.world.find_by_id("disabled").unwrap();
