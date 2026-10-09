@@ -2,7 +2,7 @@
 
 ## Input and viewport
 
-Scrolling does not snap to cell boundaries. Pointer-release inertia follows recent movement and expires after the pointer stops; wheel input applies its fractional deltas directly, retaining platform-provided momentum. Scroll offsets invalidate painting and hit geometry, while cell reassignment or size changes still update layout. Framebuffer reuse is restricted to whole physical-pixel shifts in untransformed rectangular viewports without borders or rounded corners; other movement repaints the affected viewport.
+Scrolling does not snap to cell boundaries. Pointer-release inertia follows recent movement and expires after the pointer stops. Within scroll bounds, wheel input applies its fractional deltas directly, retaining platform-provided momentum. Scroll offsets invalidate painting and hit geometry, while cell reassignment or size changes still update layout. Framebuffer reuse is restricted to whole physical-pixel shifts in untransformed rectangular viewports without borders or rounded corners; other movement repaints the affected viewport.
 
 `InputEvent::Wheel` and the typed `Wheel` payload use logical pixels for `dx`, `dy`, `x`, and `y`. Positive `dx` increases the horizontal scroll offset; positive `dy` decreases the vertical offset. Backends normalize displacement before converting it to fixed point. Custom surfaces and simulated wheel input must provide pixel displacement, not wheel ticks. `Rotary.delta` remains an encoder step count.
 

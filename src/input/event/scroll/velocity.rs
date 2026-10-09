@@ -16,6 +16,12 @@ pub(crate) struct VelocityTracker {
 }
 
 impl VelocityTracker {
+    pub fn is_recent(&self, now: u32) -> bool {
+        self.samples[..self.len]
+            .last()
+            .is_some_and(|last| now.wrapping_sub(last.time) < WINDOW_MS)
+    }
+
     pub fn record_delta(&mut self, dx: Fixed, dy: Fixed, time: u32) {
         if let Some(origin) = self.samples[..self.len].last().copied() {
             for sample in &mut self.samples[..self.len] {
@@ -44,7 +50,7 @@ impl VelocityTracker {
         let Some(last) = self.samples[..self.len].last() else {
             return (Fixed::ZERO, Fixed::ZERO);
         };
-        if now.wrapping_sub(last.time) >= WINDOW_MS {
+        if !self.is_recent(now) {
             return (Fixed::ZERO, Fixed::ZERO);
         }
         let first = self.samples[..self.len]

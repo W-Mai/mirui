@@ -165,11 +165,6 @@ impl Spring {
         self.velocity = velocity;
     }
 
-    pub(crate) fn absorb_displacement(&mut self, displacement: Fixed) {
-        // Match displacement to the damping impulse without jumping the position.
-        self.velocity += displacement * self.damping;
-    }
-
     /// Idempotent on `target` — same value is a no-op so per-frame
     /// callers (e.g. boundary rebound) don't collapse `is_settled`'s
     /// span by resetting `origin = position` every tick. Config still

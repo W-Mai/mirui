@@ -109,9 +109,7 @@ pub struct ScrollSpring {
     pub x: Option<Spring>,
     pub y: Option<Spring>,
     pub target_entity: Option<Entity>,
-    wheel_velocity: super::velocity::VelocityTracker,
-    wheel_x: bool,
-    wheel_y: bool,
+    wheel: super::wheel::WheelScroll,
 }
 
 impl Default for ScrollDragState {
@@ -191,9 +189,7 @@ pub(crate) fn cancel_scroll_drag(world: &mut World) {
         spring.x = None;
         spring.y = None;
         spring.target_entity = None;
-        spring.wheel_velocity = super::velocity::VelocityTracker::default();
-        spring.wheel_x = false;
-        spring.wheel_y = false;
+        spring.wheel = super::wheel::WheelScroll::default();
     }
     if let Some(state) = world.resource_mut::<ScrollDragState>() {
         state.active = false;
@@ -237,9 +233,7 @@ pub(crate) fn scroll_system_with_target(
                 ss.x = None;
                 ss.y = None;
                 ss.target_entity = None;
-                ss.wheel_velocity = super::velocity::VelocityTracker::default();
-                ss.wheel_x = false;
-                ss.wheel_y = false;
+                ss.wheel = super::wheel::WheelScroll::default();
             }
         }
         InputEvent::PointerMove { x, y, .. } => {
@@ -460,9 +454,7 @@ pub(crate) fn scroll_system_with_target(
                 ss.x = spring_x;
                 ss.y = spring_y;
                 ss.target_entity = Some(target_entity);
-                ss.wheel_velocity = super::velocity::VelocityTracker::default();
-                ss.wheel_x = false;
-                ss.wheel_y = false;
+                ss.wheel = super::wheel::WheelScroll::default();
             }
 
             if let Some(state) = world.resource_mut::<ScrollDragState>() {
@@ -550,40 +542,44 @@ pub(crate) fn scroll_system_with_target(
                 matches!(axis, ScrollAxis::Horizontal | ScrollAxis::Both) && delta_x != Fixed::ZERO;
             let needs_y =
                 matches!(axis, ScrollAxis::Vertical | ScrollAxis::Both) && delta_y != Fixed::ZERO;
-            let mut next_x = if needs_x {
-                bound(offset_x, delta_x, max_x, bounds.viewport_width)
-            } else {
-                offset_x
-            };
-            let mut next_y = if needs_y {
-                bound(offset_y, delta_y, max_y, bounds.viewport_height)
-            } else {
-                offset_y
+            let direct = || {
+                (
+                    if needs_x {
+                        bound(offset_x, delta_x, max_x, bounds.viewport_width)
+                    } else {
+                        offset_x
+                    },
+                    if needs_y {
+                        bound(offset_y, delta_y, max_y, bounds.viewport_height)
+                    } else {
+                        offset_y
+                    },
+                )
             };
             accepted = needs_x || needs_y;
-            if let Some(ss) = world.resource_mut::<ScrollSpring>() {
-                ss.wheel_velocity.record_delta(delta_x, delta_y, now_ms);
-                let (velocity_x, velocity_y) = ss.wheel_velocity.velocity(now_ms);
-                if ss.target_entity != Some(target) {
+            let (next_x, next_y) =
+                if accepted && let Some(ss) = world.resource_mut::<ScrollSpring>() {
                     ss.x = None;
                     ss.y = None;
-                }
-                if needs_x {
-                    if !ss.wheel_x {
-                        ss.x = None;
+                    ss.target_entity = None;
+                    if elastic {
+                        ss.wheel.input(
+                            target,
+                            (offset_x, offset_y),
+                            (
+                                if needs_x { delta_x } else { Fixed::ZERO },
+                                if needs_y { delta_y } else { Fixed::ZERO },
+                            ),
+                            bounds,
+                            now_ms,
+                        )
+                    } else {
+                        ss.wheel = super::wheel::WheelScroll::default();
+                        direct()
                     }
-                    next_x = update_wheel_rebound(&mut ss.x, offset_x, next_x, max_x, velocity_x);
-                    ss.wheel_x = ss.x.is_some();
-                }
-                if needs_y {
-                    if !ss.wheel_y {
-                        ss.y = None;
-                    }
-                    next_y = update_wheel_rebound(&mut ss.y, offset_y, next_y, max_y, velocity_y);
-                    ss.wheel_y = ss.y.is_some();
-                }
-                ss.target_entity = (ss.x.is_some() || ss.y.is_some()).then_some(target);
-            }
+                } else {
+                    direct()
+                };
             if let Some(offset) = world.get_mut::<ScrollOffset>(target) {
                 offset.x = next_x;
                 offset.y = next_y;
@@ -615,7 +611,10 @@ pub fn scroll_inertia_system(world: &mut World) -> Result<(), crate::ecs::Comman
         let Some(ss) = world.resource::<ScrollSpring>() else {
             return Ok(());
         };
-        (ss.x.is_some() || ss.y.is_some(), ss.target_entity)
+        (
+            ss.x.is_some() || ss.y.is_some() || ss.wheel.active_target().is_some(),
+            ss.wheel.active_target().or(ss.target_entity),
+        )
     };
 
     if !has_spring {
@@ -643,60 +642,64 @@ pub fn scroll_inertia_system(world: &mut World) -> Result<(), crate::ecs::Comman
             return Ok(());
         };
 
-        let mut done = true;
-
-        // elastic=true bounces past the edge with a softer curve;
-        // elastic=false snaps to the edge with the same smooth preset
-        // the spring already uses, never letting the offset leave bounds.
-        let edge_curve = if elastic { Some(BOUNCY) } else { Some(SMOOTH) };
-
-        if let Some(ref mut sx) = ss.x {
-            tick_scroll_spring(sx, dt, max_x, bounds.viewport_width, elastic && !ss.wheel_x);
-            let pos = sx.value();
-            if pos < Fixed::ZERO {
-                sx.retarget(Fixed::ZERO, edge_curve);
-            } else if pos > max_x {
-                sx.retarget(max_x, edge_curve);
+        if ss.wheel.active_target().is_some() {
+            let (mut x, mut y) = ss.wheel.tick(dt, bounds);
+            if !elastic {
+                x = x.map(|value| value.clamp(Fixed::ZERO, max_x));
+                y = y.map(|value| value.clamp(Fixed::ZERO, max_y));
+                ss.wheel = super::wheel::WheelScroll::default();
             }
-            if !sx.is_settled() {
-                done = false;
+            (x, y, false)
+        } else {
+            let mut done = true;
+
+            // elastic=true bounces past the edge with a softer curve;
+            // elastic=false snaps to the edge with the same smooth preset
+            // the spring already uses, never letting the offset leave bounds.
+            let edge_curve = if elastic { Some(BOUNCY) } else { Some(SMOOTH) };
+
+            if let Some(ref mut sx) = ss.x {
+                tick_scroll_spring(sx, dt, max_x, bounds.viewport_width, elastic);
+                let pos = sx.value();
+                if pos < Fixed::ZERO {
+                    sx.retarget(Fixed::ZERO, edge_curve);
+                } else if pos > max_x {
+                    sx.retarget(max_x, edge_curve);
+                }
+                if !sx.is_settled() {
+                    done = false;
+                }
             }
+
+            if let Some(ref mut sy) = ss.y {
+                tick_scroll_spring(sy, dt, max_y, bounds.viewport_height, elastic);
+                let pos = sy.value();
+                if pos < Fixed::ZERO {
+                    sy.retarget(Fixed::ZERO, edge_curve);
+                } else if pos > max_y {
+                    sy.retarget(max_y, edge_curve);
+                }
+                if !sy.is_settled() {
+                    done = false;
+                }
+            }
+
+            let nx = ss.x.as_ref().map(|s| {
+                if elastic {
+                    s.value()
+                } else {
+                    s.value().clamp(Fixed::ZERO, max_x)
+                }
+            });
+            let ny = ss.y.as_ref().map(|s| {
+                if elastic {
+                    s.value()
+                } else {
+                    s.value().clamp(Fixed::ZERO, max_y)
+                }
+            });
+            (nx, ny, done)
         }
-
-        if let Some(ref mut sy) = ss.y {
-            tick_scroll_spring(
-                sy,
-                dt,
-                max_y,
-                bounds.viewport_height,
-                elastic && !ss.wheel_y,
-            );
-            let pos = sy.value();
-            if pos < Fixed::ZERO {
-                sy.retarget(Fixed::ZERO, edge_curve);
-            } else if pos > max_y {
-                sy.retarget(max_y, edge_curve);
-            }
-            if !sy.is_settled() {
-                done = false;
-            }
-        }
-
-        let nx = ss.x.as_ref().map(|s| {
-            if elastic {
-                s.value()
-            } else {
-                s.value().clamp(Fixed::ZERO, max_x)
-            }
-        });
-        let ny = ss.y.as_ref().map(|s| {
-            if elastic {
-                s.value()
-            } else {
-                s.value().clamp(Fixed::ZERO, max_y)
-            }
-        });
-        (nx, ny, done)
     };
 
     let mut changed = false;
@@ -1031,44 +1034,7 @@ mod tests {
     }
 
     #[test]
-    fn continuous_wheel_updates_drive_velocity_without_jumping_position() {
-        let mut spring = Some(Spring::preset((-40).into(), Fixed::ZERO, BOUNCY));
-        spring.as_mut().unwrap().tick(16);
-        let position = spring.as_ref().unwrap().value();
-        let velocity = spring.as_ref().unwrap().velocity;
-        assert!(velocity > Fixed::ZERO);
-        let mut previous_velocity = velocity;
-        for _ in 0..4 {
-            assert_eq!(
-                update_wheel_rebound(
-                    &mut spring,
-                    position,
-                    position - Fixed::ONE,
-                    200.into(),
-                    Fixed::ZERO
-                ),
-                position
-            );
-            assert!(spring.as_ref().unwrap().velocity < previous_velocity);
-            assert_eq!(spring.as_ref().unwrap().value(), position);
-            previous_velocity = spring.as_ref().unwrap().velocity;
-        }
-        assert_eq!(
-            update_wheel_rebound(&mut spring, position, 5.into(), 200.into(), Fixed::ZERO),
-            5.into()
-        );
-        assert!(spring.is_none());
-
-        spring = Some(Spring::preset(10.into(), Fixed::ZERO, SMOOTH));
-        assert_eq!(
-            update_wheel_rebound(&mut spring, 10.into(), (-5).into(), 200.into(), Fixed::ZERO),
-            Fixed::ZERO
-        );
-        assert_eq!(spring.as_ref().unwrap().value(), Fixed::ZERO);
-    }
-
-    #[test]
-    fn wheel_boundary_retains_incoming_velocity_without_repeated_resistance() {
+    fn wheel_tail_is_owned_by_rebound_until_settled_without_allocating() {
         for interval in [8, 16, 32] {
             let (mut world, root) = fallback_scroll_world();
             world.get_mut::<ScrollConfig>(root).unwrap().elastic = true;
@@ -1090,20 +1056,54 @@ mod tests {
                     (frame * interval) as u32,
                 );
             }
-            let mut expected = world.resource::<ScrollSpring>().unwrap().y.unwrap();
-            assert_eq!(expected.velocity, Fixed::from_int(-1000));
-            assert_eq!(world.get::<ScrollOffset>(root).unwrap().y, Fixed::ZERO);
-            expected.tick(interval as u16);
-            scroll_inertia_system(&mut world).unwrap();
-            assert_eq!(world.get::<ScrollOffset>(root).unwrap().y, expected.value());
-            assert_eq!(
+            assert!(
                 world
                     .resource::<ScrollSpring>()
                     .unwrap()
-                    .y
+                    .wheel
+                    .active_target()
+                    .is_some()
+            );
+            let initial = world.get::<ScrollOffset>(root).unwrap().y;
+            assert!(initial < Fixed::ZERO);
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| {
+                    for frame in 4..400 {
+                        let before = world.get::<ScrollOffset>(root).unwrap().y;
+                        let event = InputEvent::Wheel {
+                            dx: Fixed::ZERO,
+                            dy: Fixed::from_ratio(1, 4),
+                            x: 20.into(),
+                            y: 20.into(),
+                        };
+                        assert!(scroll_system_with_target(
+                            &mut world,
+                            root,
+                            &event,
+                            100,
+                            100,
+                            None,
+                            (frame * interval) as u32
+                        ));
+                        assert_eq!(world.get::<ScrollOffset>(root).unwrap().y, before);
+                        scroll_inertia_system(&mut world).unwrap();
+                        let position = world.get::<ScrollOffset>(root).unwrap().y;
+                        assert!(position <= Fixed::ZERO);
+                        if frame == 4 {
+                            assert!(position < initial);
+                        }
+                    }
+                }),
+                0
+            );
+            assert_eq!(world.get::<ScrollOffset>(root).unwrap().y, Fixed::ZERO);
+            assert!(
+                world
+                    .resource::<ScrollSpring>()
                     .unwrap()
-                    .velocity,
-                expected.velocity
+                    .wheel
+                    .active_target()
+                    .is_none()
             );
         }
     }
@@ -1699,39 +1699,6 @@ mod tests {
     }
 }
 
-fn update_wheel_rebound(
-    spring: &mut Option<Spring>,
-    offset: Fixed,
-    requested: Fixed,
-    max: Fixed,
-    velocity: Fixed,
-) -> Fixed {
-    let edge = requested.clamp(Fixed::ZERO, max);
-    if edge == requested {
-        *spring = None;
-        return requested;
-    }
-    let position = if edge == Fixed::ZERO {
-        offset.min(edge)
-    } else {
-        offset.max(edge)
-    };
-    let current = match spring {
-        Some(current) if current.target == edge => current,
-        slot => {
-            let current =
-                slot.insert(Spring::preset(position, edge, BOUNCY).with_velocity(velocity));
-            if velocity == Fixed::ZERO {
-                current.absorb_displacement(requested - position);
-            }
-            return position;
-        }
-    };
-    current.position = position;
-    current.absorb_displacement(requested - position);
-    position
-}
-
 fn tick_scroll_spring(
     spring: &mut Spring,
     dt: u16,
@@ -1751,7 +1718,7 @@ fn tick_scroll_spring(
     }
 }
 
-fn elastic_resist(offset: Fixed, delta: Fixed, max: Fixed, viewport: Fixed) -> Fixed {
+pub(super) fn elastic_resist(offset: Fixed, delta: Fixed, max: Fixed, viewport: Fixed) -> Fixed {
     let next = offset + delta;
     let (edge, distance, pull, sign) = if next < Fixed::ZERO && delta < Fixed::ZERO {
         (
