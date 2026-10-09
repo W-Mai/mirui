@@ -6,25 +6,21 @@ use super::state::CoverFlowBounds;
 use super::state::{Carousel, CarouselCard};
 #[cfg(feature = "std")]
 use crate::ecs::SystemScheduler;
-use crate::ecs::World;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::types::Dimension;
-use crate::ui::{Children, IdMap, UiScope};
+use crate::ui::Children;
 
 #[test]
 fn build_widgets_smoke() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    world.insert_resource(CoverFlowBounds::for_view(320, 180));
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(640, 360)(&mut cx);
-    drop(cx);
-    let bounds = world.resource::<CoverFlowBounds>().unwrap();
+    let mut app = App::headless(640, 360);
+    app.add_resource(CoverFlowBounds::for_view(320, 180));
+    let parent = app.spawn_root().id();
+    app.compose(parent, build_widgets(640, 360));
+    let bounds = app.world.resource::<CoverFlowBounds>().unwrap();
     assert_eq!((bounds.view_w, bounds.view_h), (640, 360));
     assert!(
-        world
+        app.world
             .get::<Children>(parent)
             .is_some_and(|c| !c.0.is_empty()),
     );

@@ -6,18 +6,15 @@ use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::render_system::update_layout;
 use crate::ui::widgets::{Text, WidgetTransform};
-use crate::ui::{Children, ComputedRect, IdMap, UiScope};
+use crate::ui::{Children, ComputedRect};
 
 #[test]
 fn build_widgets_smoke() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets()(&mut cx);
-    drop(cx);
+    let mut app = App::headless(super::DEFAULT_VIEW.0, super::DEFAULT_VIEW.1);
+    let parent = app.spawn_root().id();
+    app.compose(parent, build_widgets());
     assert!(
-        world
+        app.world
             .get::<Children>(parent)
             .is_some_and(|c| !c.0.is_empty())
     );
@@ -49,7 +46,7 @@ fn modal_is_centered_and_contained_across_supported_viewports() {
 #[test]
 fn slide_origin_uses_the_live_layout_position() {
     let mut world = World::new();
-    let panel = WidgetBuilder::new(&mut world).id();
+    let panel = world.spawn((Style::default(), Children(alloc::vec::Vec::new())));
     world.insert(panel, ModalAnim { t: Fixed::ZERO });
     world.insert(
         panel,
@@ -72,16 +69,14 @@ fn slide_origin_uses_the_live_layout_position() {
 
 #[test]
 fn readout_updates_content_without_replacing_paragraph_style() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    world.insert_resource(FrameTimings {
+    let mut app = App::headless(super::DEFAULT_VIEW.0, super::DEFAULT_VIEW.1);
+    app.add_resource(FrameTimings {
         render_nanos: 77_000,
         ..FrameTimings::default()
     });
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets()(&mut cx);
-    drop(cx);
+    let parent = app.spawn_root().id();
+    app.compose(parent, build_widgets());
+    let world = &mut app.world;
 
     let readout = world.find_by_id("offscreen_modal_readout").unwrap();
     let paragraph = world.get::<Text>(readout).unwrap().paragraph().clone();
@@ -90,9 +85,9 @@ fn readout_updates_content_without_replacing_paragraph_style() {
     state.accum_render_ns = 77_000 * (UPDATE_EVERY - 1) as u64;
     let mut scheduler = SystemScheduler::new();
     scheduler.add(fps_readout_system::system());
-    scheduler.run_all(&mut world).unwrap();
+    scheduler.run_all(world).unwrap();
 
     let text = world.get::<Text>(readout).unwrap();
-    assert!(text.resolve(&world).contains("render avg 77us"));
+    assert!(text.resolve(world).contains("render avg 77us"));
     assert_eq!(text.paragraph(), &paragraph);
 }

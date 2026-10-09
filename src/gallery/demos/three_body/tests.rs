@@ -3,23 +3,18 @@ use alloc::vec::Vec;
 use super::simulation::BODY_SIZE;
 use super::state::LayoutOrigin;
 use super::*;
-use crate::ecs::{SystemScheduler, World};
+use crate::ecs::SystemScheduler;
 use crate::prelude::*;
 use crate::types::Transform;
 use crate::ui::Children;
-use crate::ui::IdMap;
-use crate::ui::UiScope;
 
 #[test]
 fn build_widgets_smoke() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(128, 128, 3, Fixed::from_int(30))(&mut cx);
-    drop(cx);
+    let mut app = App::headless(128, 128);
+    let parent = app.spawn_root().id();
+    app.compose(parent, build_widgets(128, 128, 3, Fixed::from_int(30)));
     assert!(
-        world
+        app.world
             .get::<Children>(parent)
             .is_some_and(|c| !c.0.is_empty()),
     );
@@ -27,12 +22,10 @@ fn build_widgets_smoke() {
 
 #[test]
 fn animation_systems_reuse_body_entities() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(128, 128, 3, Fixed::from_int(30))(&mut cx);
-    drop(cx);
+    let mut app = App::headless(128, 128);
+    let parent = app.spawn_root().id();
+    app.compose(parent, build_widgets(128, 128, 3, Fixed::from_int(30)));
+    let world = &mut app.world;
 
     let mut entities = Vec::new();
     world
@@ -50,7 +43,7 @@ fn animation_systems_reuse_body_entities() {
     let mut scheduler = SystemScheduler::new();
     scheduler.add(kick_system::system());
     scheduler.add(sync_layout_system::system());
-    scheduler.run_all(&mut world).unwrap();
+    scheduler.run_all(world).unwrap();
     assert_ne!(
         world.get::<Velocity>(selected).unwrap().vx,
         initial_velocity
@@ -58,7 +51,7 @@ fn animation_systems_reuse_body_entities() {
     let body = world.get_mut::<PhysicsBody>(selected).unwrap();
     body.x = Fixed::from_int(40);
     body.y = Fixed::from_int(50);
-    scheduler.run_all(&mut world).unwrap();
+    scheduler.run_all(world).unwrap();
 
     let origin = *world.get::<LayoutOrigin>(selected).unwrap();
     let transform = world
