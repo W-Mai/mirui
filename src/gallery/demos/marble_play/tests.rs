@@ -22,7 +22,9 @@ use crate::ui::Hidden;
 use crate::ui::branch::is_hidden_in_tree;
 use crate::ui::view::ViewRegistry;
 use crate::ui::widgets::{Button, Slider, Switch, Text};
-use crate::ui::{Children, IdMap, UiScope};
+use crate::ui::{Children, IdMap};
+
+type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 #[crate::model]
 struct BoardSelection {
@@ -68,44 +70,37 @@ fn multi_source_board_render(
     );
 }
 
-fn fixture() -> World {
-    let mut world = World::new();
-    crate::input::event::runtime::configure(
-        &mut world,
+fn fixture() -> TestApp {
+    let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+    app.with_event_capacity(
         EventCapacity::new()
             .notifications::<crate::ui::widgets::slider::ValueChanged>(4)
             .notifications::<crate::ui::widgets::switch::Toggled>(2)
             .flush_limit(6),
-    )
-    .unwrap();
-    let mut registry = ViewRegistry::with_builtins();
-    registry.insert(board_render::view());
-    registry.insert(scene_board_render::view());
-    registry.insert(settings_panel_render::view());
-    world.insert_resource(registry);
-    world.insert_resource(IdMap::new());
-    let (cell, model) = crate::core::model::register(&mut world, MarbleModel::new());
-    let registration = world.spawn_empty();
-    world.insert(registration, cell);
+    );
+    app.with_default_widgets()
+        .with_widget(board_render::view())
+        .with_widget(scene_board_render::view())
+        .with_widget(settings_panel_render::view());
+    let model = app.add_model(MarbleModel::new());
     #[cfg(feature = "audio")]
     {
         let core = crate::audio::SharedAudioCore::new(crate::audio::AudioBus::<32>::new());
-        world.insert_resource(crate::audio::SharedAudioCore::handle(&core));
-        world.insert_resource(core.state_signal());
-        world.insert_resource(core);
+        app.add_resource(crate::audio::SharedAudioCore::handle(&core));
+        app.add_resource(core.state_signal());
+        app.add_resource(core);
     }
-    let root = WidgetBuilder::new(&mut world).id();
+    let root = app.spawn_root().layout(LayoutStyle::default()).id();
     #[cfg(feature = "audio")]
-    let audio = world.resource::<AudioHandle>().cloned();
-    let mut cx = UiScope::new(&mut world, root);
+    let audio = app.world.resource::<AudioHandle>().cloned();
     #[cfg(feature = "audio")]
-    build_widgets(model.clone(), audio)(&mut cx);
+    app.compose(root, build_widgets(model.clone(), audio));
     #[cfg(not(feature = "audio"))]
-    build_widgets(model.clone())(&mut cx);
-    world.insert_resource(model);
-    crate::core::reactive::flush_signal_dirty(&mut world);
-    assert!(world.get::<Children>(root).is_some());
-    world
+    app.compose(root, build_widgets(model.clone()));
+    app.add_resource(model);
+    crate::core::reactive::flush_signal_dirty(&mut app.world);
+    assert!(app.world.get::<Children>(root).is_some());
+    app
 }
 
 fn trigger_board_event(world: &mut World, event: &GestureEvent) -> bool {
@@ -118,25 +113,27 @@ fn trigger_board_event(world: &mut World, event: &GestureEvent) -> bool {
 
 #[test]
 fn bound_tick_uses_delta_time_and_zero_elapsed_is_idle() {
-    let mut world = fixture();
+    let mut app = fixture();
+    let world = &mut app.world;
     let model = world.resource::<MarbleModelHandle>().unwrap().clone();
     let mut scheduler = SystemScheduler::new();
     scheduler.add(marble_tick_system::system(model.clone()));
 
     let revision = model.visual_revision();
     world.insert_resource(DeltaTimeMs(60));
-    scheduler.run_all(&mut world).unwrap();
+    scheduler.run_all(world).unwrap();
     assert!(model.visual_revision() > revision);
 
     let revision = model.visual_revision();
     world.insert_resource(DeltaTimeMs(0));
-    scheduler.run_all(&mut world).unwrap();
+    scheduler.run_all(world).unwrap();
     assert_eq!(model.visual_revision(), revision);
 }
 
 #[test]
 fn composition_uses_real_text_and_button_widgets() {
-    let world = fixture();
+    let app = fixture();
+    let world = &app.world;
     assert!(world.query::<Text>().collect().len() >= 4);
     assert!(world.query::<Button>().collect().len() >= 6);
     assert_eq!(world.query::<MarbleBoard>().collect().len(), 1);
@@ -402,13 +399,17 @@ fn marble_boards_share_only_their_bound_model_instance() {
         height: Dimension::px(199),
         ..LayoutStyle::default()
     };
-    let boards: [_; 3] =
-        core::array::from_fn(|_| WidgetBuilder::new(&mut app.world).layout(board_layout).id());
-    let root = WidgetBuilder::new(&mut app.world)
-        .child(boards[0])
-        .child(boards[1])
-        .child(boards[2])
-        .id();
+    let host = app.spawn_root().id();
+    let (root, boards): (_, [_; 3]) = app.compose(host, |tree| {
+        tree.children(Style::default(), |row| {
+            core::array::from_fn(|_| {
+                row.spawn(Style {
+                    layout: board_layout,
+                    ..Style::default()
+                })
+            })
+        })
+    });
     app.set_root(root);
     for (index, board) in boards.into_iter().enumerate() {
         app.world.insert(
@@ -473,19 +474,28 @@ fn marble_board_pixels_follow_only_their_bound_model() {
         height: Dimension::px(199),
         ..LayoutStyle::default()
     };
-    let boards: [_; 3] =
-        core::array::from_fn(|_| WidgetBuilder::new(&mut app.world).layout(board_layout).id());
-    let root = WidgetBuilder::new(&mut app.world)
-        .layout(LayoutStyle {
-            direction: FlexDirection::Row,
-            width: Dimension::px(1440),
-            height: Dimension::px(199),
-            ..LayoutStyle::default()
-        })
-        .child(boards[0])
-        .child(boards[1])
-        .child(boards[2])
-        .id();
+    let host = app.spawn_root().id();
+    let (root, boards): (_, [_; 3]) = app.compose(host, |tree| {
+        tree.children(
+            Style {
+                layout: LayoutStyle {
+                    direction: FlexDirection::Row,
+                    width: Dimension::px(1440),
+                    height: Dimension::px(199),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+            |row| {
+                core::array::from_fn(|_| {
+                    row.spawn(Style {
+                        layout: board_layout,
+                        ..Style::default()
+                    })
+                })
+            },
+        )
+    });
     app.set_root(root);
     for (slot, board) in boards.into_iter().enumerate() {
         app.world.insert(
@@ -584,18 +594,28 @@ fn independent_marble_boards_repaint_for_a_shared_selection_source() {
         height: Dimension::px(199),
         ..LayoutStyle::default()
     };
-    let boards: [_; 2] =
-        core::array::from_fn(|_| WidgetBuilder::new(&mut app.world).layout(board_layout).id());
-    let root = WidgetBuilder::new(&mut app.world)
-        .layout(LayoutStyle {
-            direction: FlexDirection::Row,
-            width: Dimension::px(960),
-            height: Dimension::px(199),
-            ..LayoutStyle::default()
-        })
-        .child(boards[0])
-        .child(boards[1])
-        .id();
+    let host = app.spawn_root().id();
+    let (root, boards): (_, [_; 2]) = app.compose(host, |tree| {
+        tree.children(
+            Style {
+                layout: LayoutStyle {
+                    direction: FlexDirection::Row,
+                    width: Dimension::px(960),
+                    height: Dimension::px(199),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+            |row| {
+                core::array::from_fn(|_| {
+                    row.spawn(Style {
+                        layout: board_layout,
+                        ..Style::default()
+                    })
+                })
+            },
+        )
+    });
     app.set_root(root);
     for (board, game) in boards.into_iter().zip([first.clone(), second.clone()]) {
         app.world.insert(
@@ -693,48 +713,49 @@ fn installed_model_routes_pad_sound_to_the_shared_audio_core() {
 
 #[test]
 fn bound_controls_follow_page_selection_and_scene_reset() {
-    let mut world = fixture();
+    let mut app = fixture();
+    let world = &mut app.world;
     let properties = world.find_by_id("marble_properties").unwrap();
     let scene_label = world.find_by_id("marble_scene_0_name").unwrap();
     let gravity = world.find_by_id("marble_setting_gravity_control").unwrap();
     let bpm = world.find_by_id("marble_setting_bpm_control").unwrap();
     let pitch = world.find_by_id("marble_pitch").unwrap();
-    assert!(is_hidden_in_tree(&world, properties));
-    assert!(is_hidden_in_tree(&world, scene_label));
+    assert!(is_hidden_in_tree(world, properties));
+    assert!(is_hidden_in_tree(world, scene_label));
 
     world
         .resource::<MarbleModelHandle>()
         .unwrap()
         .set_page(Page::Edit);
-    crate::core::reactive::flush_signal_dirty(&mut world);
-    assert!(!is_hidden_in_tree(&world, properties));
+    crate::core::reactive::flush_signal_dirty(world);
+    assert!(!is_hidden_in_tree(world, properties));
 
     world
         .resource::<MarbleModelHandle>()
         .unwrap()
         .adjust_pitch(1);
-    crate::core::reactive::flush_signal_dirty(&mut world);
+    crate::core::reactive::flush_signal_dirty(world);
     let selected_pitch = world
         .resource::<MarbleModelHandle>()
         .unwrap()
         .selected_pitch();
     assert_eq!(selected_pitch, 74);
-    assert_eq!(world.get::<Text>(pitch).unwrap().resolve(&world), "D5");
+    assert_eq!(world.get::<Text>(pitch).unwrap().resolve(world), "D5");
 
     world
         .resource::<MarbleModelHandle>()
         .unwrap()
         .set_page(Page::Scenes);
-    crate::core::reactive::flush_signal_dirty(&mut world);
-    assert!(is_hidden_in_tree(&world, properties));
-    assert!(!is_hidden_in_tree(&world, scene_label));
+    crate::core::reactive::flush_signal_dirty(world);
+    assert!(is_hidden_in_tree(world, properties));
+    assert!(!is_hidden_in_tree(world, scene_label));
 
     world
         .resource::<MarbleModelHandle>()
         .unwrap()
         .reset_scene(2);
-    crate::core::reactive::flush_signal_dirty(&mut world);
-    assert!(is_hidden_in_tree(&world, scene_label));
+    crate::core::reactive::flush_signal_dirty(world);
+    assert!(is_hidden_in_tree(world, scene_label));
     assert_eq!(
         world.get::<Slider>(gravity).unwrap().value,
         THEMES[2].gravity.to_fixed()
@@ -747,7 +768,8 @@ fn bound_controls_follow_page_selection_and_scene_reset() {
 
 #[test]
 fn bound_readout_tracks_visual_only_hit_changes() {
-    let mut world = fixture();
+    let mut app = fixture();
+    let world = &mut app.world;
     let readout = world.find_by_id("marble_readout").unwrap();
     crate::core::model::ModelHandle::update(
         world.resource::<MarbleModelHandle>().unwrap(),
@@ -756,38 +778,40 @@ fn bound_readout_tracks_visual_only_hit_changes() {
             ChangeSet::VISUAL
         },
     );
-    crate::core::reactive::flush_signal_dirty(&mut world);
+    crate::core::reactive::flush_signal_dirty(world);
     assert!(
         world
             .get::<Text>(readout)
             .unwrap()
-            .resolve(&world)
+            .resolve(world)
             .contains("1 HITS")
     );
 }
 
 #[test]
 fn bound_switches_update_without_widget_events() {
-    let mut world = fixture();
+    let mut app = fixture();
+    let world = &mut app.world;
     let trails = world.find_by_id("marble_setting_trails_control").unwrap();
     assert!(world.get::<Switch>(trails).unwrap().on);
     world
         .resource::<MarbleModelHandle>()
         .unwrap()
         .toggle_trails();
-    crate::core::reactive::flush_signal_dirty(&mut world);
+    crate::core::reactive::flush_signal_dirty(world);
     assert!(!world.get::<Switch>(trails).unwrap().on);
     assert!(!world.resource::<MarbleModelHandle>().unwrap().trails());
 }
 
 #[test]
 fn nav_tap_updates_model_and_bound_page() {
-    let mut world = fixture();
+    let mut app = fixture();
+    let world = &mut app.world;
     let edit = world.find_by_id("marble_nav_edit").unwrap();
     let properties = world.find_by_id("marble_properties").unwrap();
     {
         crate::__macro_support::dispatch_entity_gesture(
-            &mut world,
+            world,
             &GestureEvent::Tap {
                 x: Fixed::ZERO,
                 y: Fixed::ZERO,
@@ -796,14 +820,14 @@ fn nav_tap_updates_model_and_bound_page() {
             0,
         )
         .unwrap();
-        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
     };
-    crate::core::reactive::flush_signal_dirty(&mut world);
+    crate::core::reactive::flush_signal_dirty(world);
     assert_eq!(
         world.resource::<MarbleModelHandle>().unwrap().page(),
         Page::Edit
     );
-    assert!(!is_hidden_in_tree(&world, properties));
+    assert!(!is_hidden_in_tree(world, properties));
 }
 
 #[test]
@@ -862,22 +886,23 @@ fn nav_pointer_tap_reaches_edit_after_layout() {
 #[cfg(feature = "audio")]
 #[test]
 fn audio_display_tracks_shared_controls() {
-    let mut world = fixture();
+    let mut app = fixture();
+    let world = &mut app.world;
     let audio = world.find_by_id("marble_audio").unwrap();
-    crate::core::reactive::flush_signal_dirty(&mut world);
+    crate::core::reactive::flush_signal_dirty(world);
     assert!(world.get::<Hidden>(audio).is_none());
-    assert_eq!(world.get::<Text>(audio).unwrap().resolve(&world), "WAIT");
+    assert_eq!(world.get::<Text>(audio).unwrap().resolve(world), "WAIT");
 
     world
         .resource::<alloc::rc::Rc<crate::audio::SharedAudioCore<32>>>()
         .unwrap()
         .set_output_state(AudioOutputState::Ready);
-    crate::core::reactive::flush_signal_dirty(&mut world);
-    assert_eq!(world.get::<Text>(audio).unwrap().resolve(&world), "ON");
+    crate::core::reactive::flush_signal_dirty(world);
+    assert_eq!(world.get::<Text>(audio).unwrap().resolve(world), "ON");
 
     world.resource::<AudioHandle>().unwrap().set_muted(true);
-    crate::core::reactive::flush_signal_dirty(&mut world);
-    assert_eq!(world.get::<Text>(audio).unwrap().resolve(&world), "SOUND");
+    crate::core::reactive::flush_signal_dirty(world);
+    assert_eq!(world.get::<Text>(audio).unwrap().resolve(world), "SOUND");
 }
 
 #[cfg(feature = "audio")]
@@ -885,7 +910,8 @@ fn audio_display_tracks_shared_controls() {
 fn external_mute_updates_shared_state_without_playing_a_pad() {
     use crate::audio::AudioCommand;
 
-    let mut world = fixture();
+    let mut app = fixture();
+    let world = &mut app.world;
     let core = world
         .resource::<alloc::rc::Rc<crate::audio::SharedAudioCore<32>>>()
         .unwrap()
@@ -919,13 +945,13 @@ fn external_mute_updates_shared_state_without_playing_a_pad() {
         target: audio_button,
     };
     {
-        crate::__macro_support::dispatch_entity_gesture(&mut world, &tap, 0).unwrap();
-        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        crate::__macro_support::dispatch_entity_gesture(world, &tap, 0).unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
     };
     assert_eq!(core.pop(), Some(AudioCommand::SetMuted(true)));
     {
-        crate::__macro_support::dispatch_entity_gesture(&mut world, &tap, 0).unwrap();
-        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        crate::__macro_support::dispatch_entity_gesture(world, &tap, 0).unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
     };
     assert_eq!(core.pop(), Some(AudioCommand::SetMuted(false)));
     assert!(matches!(core.pop(), Some(AudioCommand::Tone(_))));
@@ -933,7 +959,8 @@ fn external_mute_updates_shared_state_without_playing_a_pad() {
 
 #[test]
 fn drag_cancel_reaches_transactional_model_path() {
-    let mut world = fixture();
+    let mut app = fixture();
+    let world = &mut app.world;
     let board = world.find_by_id("marble_play_board").unwrap();
     world.insert(board, ComputedRect(Rect::new(0, 52, 480, 199)));
     let original = crate::core::model::ModelHandle::read(
@@ -945,7 +972,7 @@ fn drag_cancel_reaches_transactional_model_path() {
         .unwrap()
         .set_page(Page::Edit);
     assert!(trigger_board_event(
-        &mut world,
+        world,
         &GestureEvent::DragStart {
             x: original.x.to_fixed(),
             y: original.y.to_fixed(),
@@ -953,7 +980,7 @@ fn drag_cancel_reaches_transactional_model_path() {
         }
     ));
     assert!(trigger_board_event(
-        &mut world,
+        world,
         &GestureEvent::DragMove {
             x: original.x.to_fixed() + Fixed::from_int(30),
             y: original.y.to_fixed(),
@@ -964,7 +991,7 @@ fn drag_cancel_reaches_transactional_model_path() {
     ));
     world.remove::<ComputedRect>(board);
     assert!(trigger_board_event(
-        &mut world,
+        world,
         &GestureEvent::DragCancel {
             x: original.x.to_fixed() + Fixed::from_int(30),
             y: original.y.to_fixed(),
@@ -982,7 +1009,8 @@ fn drag_cancel_reaches_transactional_model_path() {
 
 #[test]
 fn drag_end_commits_after_layout_component_is_removed() {
-    let mut world = fixture();
+    let mut app = fixture();
+    let world = &mut app.world;
     let board = world.find_by_id("marble_play_board").unwrap();
     world.insert(board, ComputedRect(Rect::new(0, 52, 480, 199)));
     let original = crate::core::model::ModelHandle::read(
@@ -994,7 +1022,7 @@ fn drag_end_commits_after_layout_component_is_removed() {
         .unwrap()
         .set_page(Page::Edit);
     assert!(trigger_board_event(
-        &mut world,
+        world,
         &GestureEvent::DragStart {
             x: original.x.to_fixed(),
             y: original.y.to_fixed(),
@@ -1002,7 +1030,7 @@ fn drag_end_commits_after_layout_component_is_removed() {
         }
     ));
     assert!(trigger_board_event(
-        &mut world,
+        world,
         &GestureEvent::DragMove {
             x: original.x.to_fixed() + Fixed::from_int(20),
             y: original.y.to_fixed(),
@@ -1013,7 +1041,7 @@ fn drag_end_commits_after_layout_component_is_removed() {
     ));
     world.remove::<ComputedRect>(board);
     assert!(trigger_board_event(
-        &mut world,
+        world,
         &GestureEvent::DragEnd {
             x: original.x.to_fixed() + Fixed::from_int(20),
             y: original.y.to_fixed(),
@@ -1044,7 +1072,8 @@ fn pointer_mapping_reverses_centered_uniform_canvas_fit() {
 
 #[test]
 fn tap_selects_a_pad_without_crossing_drag_threshold() {
-    let mut world = fixture();
+    let mut app = fixture();
+    let world = &mut app.world;
     let board = world.find_by_id("marble_play_board").unwrap();
     world.insert(board, ComputedRect(Rect::new(0, 52, 480, 199)));
     let target = crate::core::model::ModelHandle::read(
@@ -1052,7 +1081,7 @@ fn tap_selects_a_pad_without_crossing_drag_threshold() {
         |model| model.pads[1].expect("second pad").pos,
     );
     assert!(trigger_board_event(
-        &mut world,
+        world,
         &GestureEvent::Tap {
             x: target.x.to_fixed(),
             y: target.y.to_fixed(),
@@ -1069,17 +1098,18 @@ fn tap_selects_a_pad_without_crossing_drag_threshold() {
 
 #[test]
 fn scene_card_tap_loads_selected_preset() {
-    let mut world = fixture();
+    let mut app = fixture();
+    let world = &mut app.world;
     let card = world.find_by_id("marble_scene_card_2").unwrap();
     world
         .resource::<MarbleModelHandle>()
         .unwrap()
         .set_page(Page::Scenes);
-    crate::core::reactive::flush_signal_dirty(&mut world);
-    assert!(!is_hidden_in_tree(&world, card));
+    crate::core::reactive::flush_signal_dirty(world);
+    assert!(!is_hidden_in_tree(world, card));
     {
         crate::__macro_support::dispatch_entity_gesture(
-            &mut world,
+            world,
             &GestureEvent::Tap {
                 x: Fixed::from_int(340),
                 y: Fixed::from_int(120),
@@ -1088,7 +1118,7 @@ fn scene_card_tap_loads_selected_preset() {
             0,
         )
         .unwrap();
-        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
     };
     let model = world.resource::<MarbleModelHandle>().unwrap();
     assert_eq!(model.scene(), 2);
