@@ -7,7 +7,7 @@ use crate::types::{Color, Fixed, Fixed64, Point, Rect};
 use crate::ui::offscreen::{WidgetTexture, WidgetTextureRead};
 use crate::ui::outputs::Outputs;
 use crate::ui::theme::{ColorToken, ThemedColor};
-use crate::ui::view::{PaintCtx, View};
+use crate::ui::view::{PaintCtx, PaintMeasurement, SourceGeometry, View};
 
 #[crate::component]
 pub struct DropShadow {
@@ -73,17 +73,25 @@ fn drop_shadow_render(
 }
 
 pub fn view() -> View {
-    drop_shadow_render::view().with_workspace(shadow_workspace)
+    drop_shadow_render::view().with_measurement(shadow_measurement)
 }
 
-fn shadow_workspace(
+fn shadow_measurement(
     world: &World,
     entity: Entity,
-    source_layout: &dyn Fn(Entity) -> Option<(PlaneLayout, Rect)>,
-) -> Option<PlaneLayout> {
+    _rect: Rect,
+    source_geometry: &dyn Fn(Entity) -> Option<SourceGeometry>,
+) -> Option<PaintMeasurement> {
     let shadow = world.get::<DropShadow>(entity)?;
-    let (source, bounds) = source_layout(shadow.source)?;
-    effect_plane(source, bounds, shadow.blur_radius, shadow.offset).map(|plane| plane.layout)
+    let (plane, bounds) = effect_geometry(
+        source_geometry(shadow.source)?,
+        shadow.blur_radius,
+        shadow.offset,
+    )?;
+    Some(PaintMeasurement {
+        bounds: Some(bounds),
+        workspace: Some(plane.layout),
+    })
 }
 
 struct EffectPlane {
@@ -161,6 +169,38 @@ fn effect_plane(
     })
 }
 
+fn effect_geometry(
+    source: SourceGeometry,
+    blur_radius: Fixed,
+    offset: (Fixed, Fixed),
+) -> Option<(EffectPlane, Rect)> {
+    let plane = effect_plane(source.plane, source.local_bounds, blur_radius, offset)?;
+    let origin = |layout: Fixed, local: Fixed, offset: Fixed, inset: Fixed| {
+        checked_fixed(
+            Fixed64::from_fixed(layout)
+                + Fixed64::from_fixed(local)
+                + Fixed64::from_fixed(offset)
+                + Fixed64::from_fixed(inset),
+        )
+    };
+    let x = origin(
+        source.layout_rect.x,
+        source.local_bounds.x,
+        offset.0,
+        plane.bounds.x,
+    )?;
+    let y = origin(
+        source.layout_rect.y,
+        source.local_bounds.y,
+        offset.1,
+        plane.bounds.y,
+    )?;
+    checked_fixed(Fixed64::from_fixed(x) + Fixed64::from_fixed(plane.bounds.w))?;
+    checked_fixed(Fixed64::from_fixed(y) + Fixed64::from_fixed(plane.bounds.h))?;
+    let bounds = Rect::new(x, y, plane.bounds.w, plane.bounds.h);
+    Some((plane, bounds))
+}
+
 fn blur_effect(texture: &mut Texture<'_>, alpha: (Fixed, Fixed)) {
     let width = texture.width;
     let height = texture.height;
@@ -190,26 +230,15 @@ fn render_drop_effect(
     let Ok(source_layout) = PlaneLayout::packed(src.width, src.height, src.format) else {
         return;
     };
-    let bounds = output.local_bounds();
-    let Some(plane) = effect_plane(source_layout, bounds, blur_radius, offset) else {
+    let source = SourceGeometry {
+        plane: source_layout,
+        layout_rect: output.layout_rect(),
+        local_bounds: output.local_bounds(),
+    };
+    let Some((plane, bounds)) = effect_geometry(source, blur_radius, offset) else {
         return;
     };
-    let source_rect = output.layout_rect();
-    let origin = |layout: Fixed, local: Fixed, offset: Fixed, inset: Fixed| {
-        checked_fixed(
-            Fixed64::from_fixed(layout)
-                + Fixed64::from_fixed(local)
-                + Fixed64::from_fixed(offset)
-                + Fixed64::from_fixed(inset),
-        )
-    };
-    let (Some(x), Some(y)) = (
-        origin(source_rect.x, bounds.x, offset.0, plane.bounds.x),
-        origin(source_rect.y, bounds.y, offset.1, plane.bounds.y),
-    ) else {
-        return;
-    };
-    let rect = paint.map_layout_rect(Rect::new(x, y, plane.bounds.w, plane.bounds.h));
+    let rect = paint.map_layout_rect(bounds);
     paint.with_workspace(plane.layout, |work, paint| {
         work.alpha_mode = AlphaMode::Blend;
         work.transient = true;
@@ -307,18 +336,25 @@ fn drop_glow_render(
 }
 
 pub fn glow_view() -> View {
-    drop_glow_render::view().with_workspace(glow_workspace)
+    drop_glow_render::view().with_measurement(glow_measurement)
 }
 
-fn glow_workspace(
+fn glow_measurement(
     world: &World,
     entity: Entity,
-    source_layout: &dyn Fn(Entity) -> Option<(PlaneLayout, Rect)>,
-) -> Option<PlaneLayout> {
+    _rect: Rect,
+    source_geometry: &dyn Fn(Entity) -> Option<SourceGeometry>,
+) -> Option<PaintMeasurement> {
     let glow = world.get::<DropGlow>(entity)?;
-    let (source, bounds) = source_layout(glow.source)?;
-    effect_plane(source, bounds, glow.blur_radius, (Fixed::ZERO, Fixed::ZERO))
-        .map(|plane| plane.layout)
+    let (plane, bounds) = effect_geometry(
+        source_geometry(glow.source)?,
+        glow.blur_radius,
+        (Fixed::ZERO, Fixed::ZERO),
+    )?;
+    Some(PaintMeasurement {
+        bounds: Some(bounds),
+        workspace: Some(plane.layout),
+    })
 }
 
 #[cfg(test)]
@@ -328,6 +364,69 @@ mod tests {
     use crate::types::Transform;
     use crate::ui::widgets::WidgetTransform;
     use crate::ui::{OffscreenRender, ViewRegistry};
+
+    #[test]
+    fn effect_measurement_keeps_source_placement_and_workspace_in_sync() {
+        let mut world = World::new();
+        let source = world.spawn_empty();
+        let owner = world.spawn_empty();
+        world.insert(
+            owner,
+            DropShadow::new(source)
+                .with_blur_radius(2)
+                .with_offset(2, -1),
+        );
+        world.insert(owner, DropGlow::new(source).with_blur_radius(2));
+        let owner_rect = Rect::new(600, 700, 1, 1);
+        for pixels in [4, 8, 16] {
+            let geometry = SourceGeometry {
+                plane: PlaneLayout::packed(pixels, pixels, ColorFormat::RGBA8888).unwrap(),
+                layout_rect: Rect::new(100, 50, 8, 8),
+                local_bounds: Rect::new(-3, -2, 8, 8),
+            };
+            for (view, offset, expected) in [
+                (
+                    view(),
+                    (Fixed::from_int(2), Fixed::from_int(-1)),
+                    Rect::new(95, 43, 16, 16),
+                ),
+                (
+                    glow_view(),
+                    (Fixed::ZERO, Fixed::ZERO),
+                    Rect::new(95, 46, 12, 12),
+                ),
+            ] {
+                let measure = view.measurement().unwrap();
+                let measured = measure(&world, owner, owner_rect, &|entity| {
+                    (entity == source).then_some(geometry)
+                })
+                .unwrap();
+                let (plane, bounds) =
+                    effect_geometry(geometry, Fixed::from_int(2), offset).unwrap();
+                assert_eq!(bounds, expected);
+                assert_eq!(measured.bounds, Some(bounds));
+                assert_eq!(measured.workspace, Some(plane.layout));
+                assert!(measure(&world, owner, owner_rect, &|_| None).is_none());
+            }
+            for radius in [Fixed::ZERO, Fixed::MAX] {
+                assert!(effect_geometry(geometry, radius, (Fixed::ZERO, Fixed::ZERO)).is_none());
+            }
+            for local_x in [0, 8] {
+                assert!(
+                    effect_geometry(
+                        SourceGeometry {
+                            layout_rect: Rect::new(Fixed::MAX, 50, 8, 8),
+                            local_bounds: Rect::new(local_x, -2, 8, 8),
+                            ..geometry
+                        },
+                        Fixed::from_int(2),
+                        (Fixed::ZERO, Fixed::ZERO),
+                    )
+                    .is_none()
+                );
+            }
+        }
+    }
 
     #[test]
     fn effect_planes_preserve_logical_extents_at_each_pixel_density() {

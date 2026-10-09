@@ -43,6 +43,10 @@ pub fn blit_quad(
         return;
     };
     let bbox = quad_bbox(q);
+    let fractional_axis_rect = (!bbox.is_aligned()
+        && ((q[0].y == q[1].y && q[1].x == q[2].x && q[2].y == q[3].y && q[3].x == q[0].x)
+            || (q[0].x == q[1].x && q[1].y == q[2].y && q[2].x == q[3].x && q[3].y == q[0].y)))
+        .then_some(bbox);
     let Some(area) = bbox.intersect(&phys_clip) else {
         return;
     };
@@ -58,7 +62,10 @@ pub fn blit_quad(
     let half = Fixed64::from_ratio(1, 2);
     for py in px_y0..px_y1 {
         let py_f = Fixed::from_int(py) + Fixed::HALF;
-        let Some((x_l, x_r)) = quad_row_span(q, py_f) else {
+        let span = fractional_axis_rect
+            .map(|rect| (rect.x, rect.x + rect.w))
+            .or_else(|| quad_row_span(q, py_f));
+        let Some((x_l, x_r)) = span else {
             continue;
         };
         let x_l_px = x_l.to_int().max(px_x0);
@@ -82,13 +89,22 @@ pub fn blit_quad(
             let edge_cx = cx;
             cx += one;
             if w.is_positive() {
-                let edge_cov = quad_pixel_coverage_row(&edges, None, edge_cx, py_f, &row);
+                let edge_cov = if let Some(rect) = fractional_axis_rect {
+                    rect.intersect(&Rect::new(px, py, 1, 1))
+                        .map_or(Fixed::ZERO, |covered| covered.w * covered.h)
+                } else {
+                    quad_pixel_coverage_row(&edges, None, edge_cx, py_f, &row)
+                };
                 if edge_cov != Fixed::ZERO {
                     let inv_w = Fixed64::ONE / w;
                     let source_x = big_x * inv_w;
                     let source_y = big_y * inv_w;
-                    let sx = source_x.to_fixed().to_int();
-                    let sy = source_y.to_fixed().to_int();
+                    let mut sx = source_x.to_fixed().to_int();
+                    let mut sy = source_y.to_fixed().to_int();
+                    if fractional_axis_rect.is_some() {
+                        sx = sx.clamp(0, sw - 1);
+                        sy = sy.clamp(0, sh - 1);
+                    }
                     if sx >= 0 && sx < sw && sy >= 0 && sy < sh {
                         let corner_cov = if radius > Fixed::ZERO {
                             super::rect_fill::rounded_rect_coverage(

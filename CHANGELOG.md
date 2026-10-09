@@ -79,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Offscreen capture, composition, culling, and dirty regions share visual bounds, including unclipped children and shadow or glow overflow. Fractional output dimensions round outward; transforms retain the layout pivot, and changed output mappings clear incompatible history.
 - Unclipped children remain visible when their parent's layout rectangle is outside the redraw region. Transformed widget culling includes border and text ink bounds.
 - RGBA integer-scale blits preserve straight-alpha colors when compositing into transparent targets.
 - Offscreen textures become readable only after successful rendering. Source preparation no longer writes to the parent target, and a failed subtree leaves completed sources intact.

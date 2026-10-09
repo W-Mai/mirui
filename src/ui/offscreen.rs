@@ -1,12 +1,12 @@
-//! Retained widget output pixels. [`OffscreenRender`] renders an entity's subtree into a buffer sized at `ComputedRect × scale`, then composites the completed buffer at the entity's full rectangle. A scale below one reduces the buffer resolution; group opacity applies during composition.
+//! Retained widget output pixels. [`OffscreenRender`] renders an entity's subtree into a buffer covering its local paint bounds, then composites the completed buffer at that logical footprint. A scale below one reduces the buffer resolution; group opacity applies during composition.
 //!
-//! [`Outputs<WidgetTexture>`](crate::ui::Outputs) owns the pixel storage and published records for complete entity identities. The internal input key includes the source layout rectangle, pixel size, format, and dirty generation. An unchanged key reuses a completed result; rebuilding a same-size output reuses its allocated pixel slot.
+//! [`Outputs<WidgetTexture>`](crate::ui::Outputs) owns the pixel storage and published records for complete entity identities. The internal input key includes the source layout rectangle, local paint footprint, effective scale, pixel size, format, and dirty generation. An unchanged key reuses a completed result; rebuilding a same-size output reuses its allocated pixel slot.
 //!
 //! A texture becomes readable only after its subtree renders successfully. Preparing a referenced source does not composite it into the parent target; the main tree traversal determines composition order. An unfinished or failed write is unavailable through `get`, and failure of another output does not discard an already completed result.
 //!
-//! Typed callbacks read the resource with `textures: res!(Outputs<WidgetTexture>)`. `textures.get(entity)` returns a borrowed [`WidgetTextureRead`] with the completed CPU texture, source layout rectangle, and local logical bounds from the same publication. The layout rectangle excludes scrolling and external transforms; local bounds cover the source's logical width and height without visual overflow. Reads do not produce pixels or register a source dependency. [`App::snapshot_widget`](crate::app::App::snapshot_widget) provides an owned pixel copy when a result must outlive that borrow.
+//! Typed callbacks read the resource with `textures: res!(Outputs<WidgetTexture>)`. `textures.get(entity)` returns a borrowed [`WidgetTextureRead`] with the completed CPU texture, source layout rectangle, and local logical bounds from the same publication. The layout rectangle excludes scrolling and external transforms; local bounds include the prepared paint extent relative to that layout origin, rounded outward to cover the pixel footprint. Reads do not produce pixels or register a source dependency. [`App::snapshot_widget`](crate::app::App::snapshot_widget) provides an owned pixel copy when a result must outlive that borrow.
 //!
-//! Outputs use one pixel slot by default. An owner that explicitly requests history, such as [`TemporalMix`](crate::ui::widgets::TemporalMix), uses two slots and reads its own frozen result through `previous(entity)`. History is the last successful output at the start of the drawing batch, remains fixed across dirty regions, and is independent of input-generation gaps. A first output or an owner without history has no previous result; changed logical dimensions, pixel dimensions, or format clear old history. Moving the source preserves its local history.
+//! Outputs use one pixel slot by default. An owner that explicitly requests history, such as [`TemporalMix`](crate::ui::widgets::TemporalMix), uses two slots and reads its own frozen result through `previous(entity)`. History is the last successful output at the start of the drawing batch, remains fixed across dirty regions, and is independent of input-generation gaps. A first output or an owner without history has no previous result; changed logical dimensions, local footprint, effective scale, pixel dimensions, or format clear old history. Moving the source preserves its local history.
 //!
 //! The pixel budget includes retained slots, detached in-progress write buffers, and the shared Mirror/Shadow/Glow/TemporalMix workspace. A request that exceeds it is rejected before allocating pixels, and other outputs remain resident. Metadata and other filters' scratch storage are additional costs. The default budget is zero; [`App::with_offscreen_pool_budget`](crate::app::App::with_offscreen_pool_budget) configures it before widget construction.
 //!
@@ -20,7 +20,7 @@
 //!
 //! #[compose]
 //! fn cached_panel() {
-//!     ui! { View (width: 128, height: 64) [OffscreenRender::new()] {} };
+//!     ui!(View(width: 128, height: 64) [OffscreenRender::new()] {});
 //! }
 //!
 //! let mut app = App::headless(128, 64);
@@ -45,7 +45,7 @@
 
 use crate::ecs::{Entity, World};
 use crate::render::texture::ColorFormat;
-use crate::types::{Fixed, Rect};
+use crate::types::{Fixed, Fixed64, Rect};
 
 /// Mark an entity for offscreen rendering. Insert / remove to toggle.
 ///
@@ -56,10 +56,7 @@ use crate::types::{Fixed, Rect};
 #[derive(Clone, Copy, Debug)]
 #[non_exhaustive]
 pub struct OffscreenRender {
-    /// Render scale relative to the entity's `ComputedRect`. 1.0 keeps
-    /// the buffer at the entity's drawn size; 0.5 halves both axes (a
-    /// quarter of the pixel count). Values below `Fixed::ONE / 8` are
-    /// clamped at render time so `buf_w` / `buf_h` never round to 0.
+    /// Render scale for the entity's local paint bounds. A value of 1.0 keeps the logical resolution; 0.5 halves both axes before outward pixel rounding. Values below `Fixed::ONE / 8` are clamped at render time.
     pub scale: Fixed,
     /// Group opacity applied when the cached buffer is blitted onto the
     /// outer surface (not a per-pixel filter inside the subtree).
@@ -103,11 +100,13 @@ pub struct OffscreenGeneration(pub u32);
 
 impl crate::ecs::Component for OffscreenGeneration {}
 
-/// Input identity for one widget texture. Entity identity, source layout rectangle, pixel dimensions, format, and content generation determine whether the published result can be reused; historical output selection is independent of this key.
+/// Input identity for one widget texture. Entity identity, source layout rectangle, local pixel footprint, effective scale, pixel dimensions, format, and content generation determine whether the published result can be reused; historical output selection is independent of this key.
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub(crate) struct BufferKey {
     pub entity: Entity,
     pub layout_rect: Rect,
+    pub local_bounds: Rect,
+    pub scale: Fixed,
     pub w: u16,
     pub h: u16,
     pub format: ColorFormat,
@@ -117,30 +116,84 @@ pub(crate) struct BufferKey {
 impl BufferKey {
     pub(crate) fn for_widget(
         entity: Entity,
-        rect: Rect,
+        layout_rect: Rect,
+        local_bounds: Rect,
         offscreen: OffscreenRender,
         generation: u32,
     ) -> Self {
         let scale = offscreen.scale.max(Fixed::ONE / 8);
-        let width = Fixed::from_int(rect.w.to_int().max(1)) * scale;
-        let height = Fixed::from_int(rect.h.to_int().max(1)) * scale;
+        let geometry =
+            quantized_axis(local_bounds.x, local_bounds.w, scale).and_then(|(x, width, w)| {
+                let (y, height, h) = quantized_axis(local_bounds.y, local_bounds.h, scale)?;
+                Some((
+                    Rect {
+                        x,
+                        y,
+                        w: width,
+                        h: height,
+                    },
+                    w,
+                    h,
+                ))
+            });
+        let (local_bounds, w, h) = geometry.unwrap_or((Rect::ZERO, 0, 0));
         Self {
             entity,
-            layout_rect: rect,
-            w: if rect.w > Fixed::ZERO {
-                width.to_int().max(1).min(u16::MAX as i32) as u16
-            } else {
-                0
-            },
-            h: if rect.h > Fixed::ZERO {
-                height.to_int().max(1).min(u16::MAX as i32) as u16
-            } else {
-                0
-            },
+            layout_rect,
+            local_bounds,
+            scale,
+            w,
+            h,
             format: ColorFormat::RGBA8888,
             generation,
         }
     }
+}
+
+fn quantized_axis(origin: Fixed, extent: Fixed, scale: Fixed) -> Option<(Fixed, Fixed, u16)> {
+    if extent <= Fixed::ZERO {
+        return None;
+    }
+    let origin = Fixed64::from_fixed(origin);
+    let end = origin + Fixed64::from_fixed(extent);
+    let scale = Fixed64::from_fixed(scale);
+    // Q24.8 endpoints and scale fit Q48.16 after wide multiplication.
+    let first = origin.mul_wide(scale).to_int();
+    let last = end.mul_wide(scale);
+    let floor = last.to_int();
+    let last = floor.checked_add(i64::from(last > Fixed64::from_int(floor)))?;
+    let pixels = u16::try_from(last.checked_sub(first)?).ok()?;
+    if pixels == 0 {
+        return None;
+    }
+    let origin = outward_logical_edge(first, scale, false)?;
+    let end = outward_logical_edge(last, scale, true)?;
+    let extent = checked_geometry_fixed(Fixed64::from_fixed(end) - Fixed64::from_fixed(origin))?;
+    (extent > Fixed::ZERO).then_some((origin, extent, pixels))
+}
+
+fn outward_logical_edge(pixel: i64, scale: Fixed64, upper: bool) -> Option<Fixed> {
+    // Fixed64::from_int shifts by 16; reject an unrepresentable endpoint first.
+    pixel.checked_mul(65_536)?;
+    let pixel = Fixed64::from_int(pixel);
+    let candidate = checked_geometry_fixed(pixel.div_wide(scale))?;
+    let candidate = Fixed64::from_fixed(candidate);
+    let projected = candidate.mul_wide(scale);
+    let quantum = Fixed64::from_ratio(1, 256);
+    // Division and narrowing can truncate across a pixel boundary, including a negative edge.
+    let candidate = if upper && projected < pixel {
+        candidate + quantum
+    } else if !upper && projected > pixel {
+        candidate - quantum
+    } else {
+        candidate
+    };
+    checked_geometry_fixed(candidate)
+}
+
+fn checked_geometry_fixed(value: Fixed64) -> Option<Fixed> {
+    (value >= Fixed64::from_fixed(Fixed::MIN) && value <= Fixed64::from_fixed(Fixed::MAX))
+        .then(|| value.to_fixed())
 }
 
 mod output;
@@ -198,6 +251,8 @@ mod tests {
                 h: Fixed::from_int(24),
                 ..Rect::ZERO
             },
+            local_bounds: Rect::new(0, 0, 40, 24),
+            scale: Fixed::ONE,
             w: 40,
             h: 24,
             format: ColorFormat::RGBA8888,
@@ -275,6 +330,118 @@ mod tests {
             ..k1
         };
         assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn fractional_bounds_round_outward_before_allocating_pixels() {
+        let bounds = Rect::new(0, 0, Fixed::from_ratio(7, 4), Fixed::from_ratio(7, 4));
+        let key = BufferKey::for_widget(
+            dummy_entity(1),
+            bounds,
+            bounds,
+            OffscreenRender::with_scale(Fixed::from_int(2)),
+            0,
+        );
+        assert_eq!((key.w, key.h), (4, 4));
+        assert_eq!(key.local_bounds, Rect::new(0, 0, 2, 2));
+        assert_eq!(key.layout_rect, bounds);
+        assert_eq!(key.scale, Fixed::from_int(2));
+    }
+
+    #[test]
+    fn negative_origins_and_fractional_scales_preserve_both_pixel_edges() {
+        let bounds = Rect::new(
+            -Fixed::ONE / 4,
+            -Fixed::from_ratio(3, 4),
+            Fixed::from_ratio(7, 4),
+            Fixed::from_ratio(5, 2),
+        );
+        for (scale, pixels, physical) in [
+            (Fixed::ONE / 8, (2, 2), (-1, -1, 1, 1)),
+            (Fixed::HALF, (2, 2), (-1, -1, 1, 1)),
+            (Fixed::ONE, (3, 3), (-1, -1, 2, 2)),
+            (Fixed::from_ratio(3, 2), (4, 5), (-1, -2, 3, 3)),
+            (Fixed::from_int(2), (4, 6), (-1, -2, 3, 4)),
+        ] {
+            let key = BufferKey::for_widget(
+                dummy_entity(1),
+                Rect::new(11, 13, 1, 1),
+                bounds,
+                OffscreenRender::with_scale(scale),
+                0,
+            );
+            assert_eq!((key.w, key.h), pixels);
+            assert_eq!(key.scale, scale);
+            let scale = Fixed64::from_fixed(scale);
+            let left = Fixed64::from_fixed(key.local_bounds.x);
+            let top = Fixed64::from_fixed(key.local_bounds.y);
+            let right = left + Fixed64::from_fixed(key.local_bounds.w);
+            let bottom = top + Fixed64::from_fixed(key.local_bounds.h);
+            assert!(left.mul_wide(scale) <= Fixed64::from_int(physical.0));
+            assert!(top.mul_wide(scale) <= Fixed64::from_int(physical.1));
+            assert!(right.mul_wide(scale) >= Fixed64::from_int(physical.2));
+            assert!(bottom.mul_wide(scale) >= Fixed64::from_int(physical.3));
+        }
+
+        let bounds = Rect::new(-1, -1, 2, 2);
+        for requested_scale in [Fixed::MIN, Fixed::ZERO, Fixed::ONE / 16] {
+            let key = BufferKey::for_widget(
+                dummy_entity(1),
+                bounds,
+                bounds,
+                OffscreenRender::with_scale(requested_scale),
+                0,
+            );
+            assert_eq!(key.scale, Fixed::ONE / 8);
+            assert_eq!((key.w, key.h), (2, 2));
+            assert_eq!(key.local_bounds, Rect::new(-8, -8, 16, 16));
+        }
+    }
+
+    #[test]
+    fn unrepresentable_pixel_or_logical_footprints_are_missing_instead_of_clamped() {
+        let layout = Rect::new(0, 0, 1, 1);
+        for (bounds, scale) in [
+            (Rect::new(0, 0, 65_536, 1), Fixed::ONE),
+            (
+                Rect::new(0, 0, Fixed::from_int(65_535) + Fixed::ONE / 256, 1),
+                Fixed::ONE,
+            ),
+            (Rect::new(Fixed::MAX, 0, Fixed::ONE, 1), Fixed::ONE),
+            (Rect::new(Fixed::MAX, 0, Fixed::MAX, 1), Fixed::MAX),
+            (Rect::new(Fixed::MIN, 0, Fixed::MAX, 1), Fixed::MAX),
+            (Rect::new(0, 0, Fixed::MAX, 1), Fixed::ONE / 8),
+            (Rect::new(0, 0, 0, 1), Fixed::ONE),
+            (Rect::new(0, 0, 1, -1), Fixed::ONE),
+        ] {
+            let key = BufferKey::for_widget(
+                dummy_entity(1),
+                layout,
+                bounds,
+                OffscreenRender::with_scale(scale),
+                0,
+            );
+            assert_eq!((key.w, key.h), (0, 0));
+            assert_eq!(key.local_bounds, Rect::ZERO);
+        }
+
+        let key = BufferKey::for_widget(
+            dummy_entity(1),
+            layout,
+            Rect::new(0, 0, 65_535, 1),
+            OffscreenRender::default(),
+            0,
+        );
+        assert_eq!((key.w, key.h), (u16::MAX, 1));
+        let key = BufferKey::for_widget(
+            dummy_entity(1),
+            layout,
+            Rect::new(Fixed::MIN, 0, 1, 1),
+            OffscreenRender::default(),
+            0,
+        );
+        assert_eq!((key.w, key.h), (1, 1));
+        assert_eq!(key.local_bounds, Rect::new(Fixed::MIN, 0, 1, 1));
     }
 
     #[test]
@@ -361,6 +528,8 @@ mod tests {
                 h: Fixed::from_int(200),
                 ..Rect::ZERO
             },
+            local_bounds: Rect::new(0, 0, 200, 200),
+            scale: Fixed::ONE,
             w: 200,
             h: 200,
             format: ColorFormat::RGBA8888,

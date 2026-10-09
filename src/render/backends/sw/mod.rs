@@ -3629,6 +3629,74 @@ mod tests {
     }
 
     #[test]
+    fn fractional_quad_blit_preserves_coverage_under_quarter_turns_and_reflections() {
+        let source = [240u8, 80, 20, 255];
+        let texture = Texture::from_ref(&source, 1, 1, ColorFormat::RGBA8888);
+        // The same quarter-pixel footprint is sampled under either axis edge order.
+        let corners = [
+            Point::new(Fixed::from_ratio(11, 8), Fixed::ONE),
+            Point::new(Fixed::from_ratio(13, 8), Fixed::ONE),
+            Point::new(Fixed::from_ratio(13, 8), Fixed::from_int(2)),
+            Point::new(Fixed::from_ratio(11, 8), Fixed::from_int(2)),
+        ];
+        for opa in [255, 128] {
+            let unrounded_alpha = if opa == 255 { 63 } else { 32 };
+            for radius in [Fixed::ZERO, Fixed::HALF] {
+                let mut reference = None;
+                for turn in 0..4 {
+                    for reflected in [false, true] {
+                        let quad = core::array::from_fn(|index| {
+                            let offset = if reflected { 4 - index } else { index };
+                            corners[(turn + offset) % 4]
+                        });
+                        let mut pixels = [0u8; 3 * 3 * 4];
+                        let mut target = Texture::new(&mut pixels, 3, 3, ColorFormat::RGBA8888);
+                        target.alpha_mode = AlphaMode::Blend;
+                        let mut renderer = SwRenderer::new(target);
+                        let command = DrawCommand::Blit {
+                            pos: Point::new(corners[0].x, corners[0].y),
+                            size: Point::new(1, 1),
+                            transform: Transform::IDENTITY,
+                            quad: Some(quad),
+                            texture: &texture,
+                            opa,
+                            radius,
+                            composite: CompositeMode::SourceOver,
+                        };
+                        assert_eq!(
+                            renderer.submit(&DrawRequest::new(&command, Rect::new(0, 0, 3, 3))),
+                            Ok(())
+                        );
+                        let edge = renderer.target.get_pixel(1, 1);
+                        assert_eq!((edge.r, edge.g, edge.b), (240, 80, 20));
+                        assert!(edge.a > 0, "turn {turn}, reflected {reflected}");
+                        if radius == Fixed::ZERO {
+                            assert_eq!(edge.a, unrounded_alpha);
+                        } else {
+                            assert!(edge.a < unrounded_alpha, "rounded mask must remain active");
+                        }
+                        let result: [Color; 9] = core::array::from_fn(|index| {
+                            renderer
+                                .target
+                                .get_pixel((index % 3) as i32, (index / 3) as i32)
+                        });
+                        if let Some(expected) = reference {
+                            assert_eq!(result, expected, "turn {turn}, reflected {reflected}");
+                        } else {
+                            reference = Some(result);
+                        }
+                        for (index, pixel) in result.iter().enumerate() {
+                            if index != 4 {
+                                assert_eq!(pixel.a, 0, "pixel {index} is outside the footprint");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn projected_quad_blit_preserves_radius_opacity_and_composite() {
         let src = [255u8, 0, 0, 255].repeat(16);
         let texture = Texture::from_ref(&src, 4, 4, ColorFormat::RGBA8888);

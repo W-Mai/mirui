@@ -8,7 +8,7 @@ use crate::render::texture::{AlphaMode, ColorFormat, Texture};
 use crate::types::{Fixed, Point, Rect};
 use crate::ui::offscreen::WidgetTexture;
 use crate::ui::outputs::Outputs;
-use crate::ui::view::{PaintCtx, View};
+use crate::ui::view::{PaintCtx, PaintMeasurement, SourceGeometry, View};
 
 #[crate::component]
 pub struct MirrorOf {
@@ -36,19 +36,24 @@ fn mirror_render(mirror: component!(), outputs: res!(Outputs<WidgetTexture>), pa
     flip_into(source.texture(), paint.rect(), mirror.fade, paint);
 }
 
-fn mirror_workspace(
+fn mirror_measurement(
     world: &World,
     entity: Entity,
-    source_layout: &dyn Fn(Entity) -> Option<(PlaneLayout, Rect)>,
-) -> Option<PlaneLayout> {
+    _rect: Rect,
+    source_geometry: &dyn Fn(Entity) -> Option<SourceGeometry>,
+) -> Option<PaintMeasurement> {
     let mirror = world.get::<MirrorOf>(entity)?;
-    let (source, _) = source_layout(mirror.source)?;
-    match source.format() {
+    let source = source_geometry(mirror.source)?.plane;
+    let workspace = match source.format() {
         ColorFormat::RGBA8888 | ColorFormat::RGB565 | ColorFormat::RGB565Swapped => {
-            PlaneLayout::packed(source.width(), source.height(), ColorFormat::RGBA8888).ok()
+            PlaneLayout::packed(source.width(), source.height(), ColorFormat::RGBA8888).ok()?
         }
-        ColorFormat::RGB888 | ColorFormat::BGRA8888 => None,
-    }
+        ColorFormat::RGB888 | ColorFormat::BGRA8888 => return None,
+    };
+    Some(PaintMeasurement {
+        bounds: None,
+        workspace: Some(workspace),
+    })
 }
 
 /// Vertically flip `src` into `rect`, attenuating alpha progressively down the reflection.
@@ -139,5 +144,5 @@ fn flip_rgb565(src: &Texture, dst_buf: &mut [u8], dst_stride: usize, fade: u8, s
 }
 
 pub fn view() -> View {
-    mirror_render::view().with_workspace(mirror_workspace)
+    mirror_render::view().with_measurement(mirror_measurement)
 }

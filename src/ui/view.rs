@@ -498,11 +498,24 @@ struct ViewPaint {
     /// widgets, 80..100 overlays.
     priority: u8,
     render: ViewRender,
-    workspace: Option<WorkspaceMeasure>,
+    measurement: Option<PaintMeasure>,
 }
 
-pub(crate) type WorkspaceMeasure =
-    fn(&World, Entity, &dyn Fn(Entity) -> Option<(PlaneLayout, Rect)>) -> Option<PlaneLayout>;
+#[derive(Clone, Copy)]
+pub(crate) struct SourceGeometry {
+    pub plane: PlaneLayout,
+    pub layout_rect: Rect,
+    pub local_bounds: Rect,
+}
+
+#[derive(Clone, Copy, Default)]
+pub(crate) struct PaintMeasurement {
+    pub bounds: Option<Rect>,
+    pub workspace: Option<PlaneLayout>,
+}
+
+pub(crate) type PaintMeasure =
+    fn(&World, Entity, Rect, &dyn Fn(Entity) -> Option<SourceGeometry>) -> Option<PaintMeasurement>;
 
 /// Widget-kind descriptor with optional painting and independent behavior hooks.
 pub struct View {
@@ -535,7 +548,7 @@ impl View {
             paint: Some(ViewPaint {
                 priority,
                 render,
-                workspace: None,
+                measurement: None,
             }),
             auto_attach: None,
             systems: &[],
@@ -556,15 +569,15 @@ impl View {
         self
     }
 
-    pub(crate) const fn with_workspace(mut self, measure: WorkspaceMeasure) -> Self {
+    pub(crate) const fn with_measurement(mut self, measure: PaintMeasure) -> Self {
         if let Some(paint) = &mut self.paint {
-            paint.workspace = Some(measure);
+            paint.measurement = Some(measure);
         }
         self
     }
 
-    pub(crate) fn workspace(&self) -> Option<WorkspaceMeasure> {
-        self.paint.as_ref().and_then(|paint| paint.workspace)
+    pub(crate) fn measurement(&self) -> Option<PaintMeasure> {
+        self.paint.as_ref().and_then(|paint| paint.measurement)
     }
 
     pub const fn with_systems(mut self, systems: &'static [crate::ecs::System]) -> Self {
@@ -1651,6 +1664,8 @@ mod tests {
                     format: ColorFormat::RGBA8888,
                     generation,
                     layout_rect: Rect::new(0, 0, 2, 2),
+                    local_bounds: Rect::new(0, 0, 2, 2),
+                    scale: Fixed::ONE,
                 })
                 .expect("output write");
             assert!(write.publish());

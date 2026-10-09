@@ -11,7 +11,7 @@ use crate::render::texture::{AlphaMode, ColorFormat, Texture};
 use crate::types::{Fixed, Point, Rect};
 use crate::ui::offscreen::WidgetTexture;
 use crate::ui::outputs::Outputs;
-use crate::ui::view::View;
+use crate::ui::view::{PaintMeasurement, SourceGeometry, View};
 
 #[crate::component]
 #[retain_previous(WidgetTexture)]
@@ -72,14 +72,18 @@ fn temporal_mix_render(
     });
 }
 
-fn temporal_workspace(
+fn temporal_measurement(
     world: &World,
     entity: Entity,
-    source_layout: &dyn Fn(Entity) -> Option<(PlaneLayout, Rect)>,
-) -> Option<PlaneLayout> {
+    _rect: Rect,
+    source_geometry: &dyn Fn(Entity) -> Option<SourceGeometry>,
+) -> Option<PaintMeasurement> {
     let temporal = world.get::<TemporalMix>(entity)?;
-    let (source, _) = source_layout(temporal.source)?;
-    (source.format() == ColorFormat::RGBA8888).then_some(source)
+    let source = source_geometry(temporal.source)?.plane;
+    (source.format() == ColorFormat::RGBA8888).then_some(PaintMeasurement {
+        bounds: None,
+        workspace: Some(source),
+    })
 }
 
 fn mix_into(dst: &mut Texture, source: &Texture, previous: Option<&Texture>, mix: u8) -> bool {
@@ -121,7 +125,7 @@ fn mix_into(dst: &mut Texture, source: &Texture, previous: Option<&Texture>, mix
 }
 
 pub fn view() -> View {
-    temporal_mix_render::view().with_workspace(temporal_workspace)
+    temporal_mix_render::view().with_measurement(temporal_measurement)
 }
 
 #[cfg(test)]

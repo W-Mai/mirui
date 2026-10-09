@@ -420,6 +420,24 @@ fn visual_bounds(
     bounds
 }
 
+#[allow(clippy::too_many_arguments)]
+fn planned_visual_bounds(
+    world: &World,
+    entity: Entity,
+    rect: Rect,
+    affine: Transform,
+    projective: Transform3D,
+    output_scale: Fixed,
+    position: usize,
+    plan: Option<&output_plan::TexturePlan>,
+) -> Rect {
+    let bounds = visual_bounds(world, entity, rect, affine, projective, output_scale);
+    plan.and_then(|plan| plan.local_paint_bounds(position, rect))
+        .and_then(|extra| transformed_clip_bounds(extra, affine, projective))
+        .map_or(bounds, |extra| bounds.union(&extra))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn seed_prev_rect_walk(
     node: &LayoutNode,
     world: &mut World,
@@ -428,13 +446,29 @@ fn seed_prev_rect_walk(
     parent_transform: &Transform,
     parent_3d: &Transform3D,
     output_scale: Fixed,
+    scroll_offset: (Fixed, Fixed),
+    output_plan: Option<&output_plan::TexturePlan>,
 ) {
     if *idx >= entities.len() {
         return;
     }
     let entity = entities[*idx];
-    let (tf, tf_3d) = render_transforms(*parent_transform, *parent_3d, world, entity, node.rect);
-    let effective_rect = visual_bounds(world, entity, node.rect, tf, tf_3d, output_scale);
+    let shifted_rect = Rect {
+        x: node.rect.x - scroll_offset.0,
+        y: node.rect.y - scroll_offset.1,
+        ..node.rect
+    };
+    let (tf, tf_3d) = render_transforms(*parent_transform, *parent_3d, world, entity, shifted_rect);
+    let effective_rect = planned_visual_bounds(
+        world,
+        entity,
+        shifted_rect,
+        tf,
+        tf_3d,
+        output_scale,
+        *idx,
+        output_plan,
+    );
     let x0 = effective_rect.x.floor();
     let y0 = effective_rect.y.floor();
     let x1 = (effective_rect.x + effective_rect.w).ceil();
@@ -448,9 +482,25 @@ fn seed_prev_rect_walk(
             h: y1 - y0,
         }),
     );
+    let child_scroll =
+        if let Some(scroll) = world.get::<crate::input::event::scroll::ScrollOffset>(entity) {
+            (scroll_offset.0 + scroll.x, scroll_offset.1 + scroll.y)
+        } else {
+            scroll_offset
+        };
     *idx += 1;
     for child in &node.children {
-        seed_prev_rect_walk(child, world, entities, idx, &tf, &tf_3d, output_scale);
+        seed_prev_rect_walk(
+            child,
+            world,
+            entities,
+            idx,
+            &tf,
+            &tf_3d,
+            output_scale,
+            child_scroll,
+            output_plan,
+        );
     }
 }
 
@@ -461,6 +511,9 @@ pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
     let (logical_w, logical_h) = transform.logical_size();
     if let Some(snapshot) = world.take_resource_box::<LayoutSnapshot>() {
         if snapshot.matches(root, logical_w, logical_h) {
+            let output_plan = world
+                .resource::<Outputs<WidgetTexture>>()
+                .and_then(Outputs::take_texture_plan);
             let mut idx = 0;
             seed_prev_rect_walk(
                 &snapshot.layout_tree,
@@ -470,7 +523,10 @@ pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
                 &Transform::IDENTITY,
                 &Transform3D::IDENTITY,
                 transform.scale(),
+                (Fixed::ZERO, Fixed::ZERO),
+                output_plan.as_ref().filter(|plan| plan.matches_root(root)),
             );
+            output_plan::return_plan(world, output_plan);
             world.put_resource_box(snapshot);
             return;
         }
@@ -504,6 +560,8 @@ pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
         &Transform::IDENTITY,
         &Transform3D::IDENTITY,
         transform.scale(),
+        (Fixed::ZERO, Fixed::ZERO),
+        None,
     );
 }
 
@@ -925,6 +983,7 @@ fn compute_layout_snapshot(
     logical_w: u16,
     logical_h: u16,
 ) -> Result<Option<Box<LayoutSnapshot>>, TextLayoutFailure> {
+    output_plan::invalidate_geometry(world);
     let mut previous = world.take_resource_box::<LayoutSnapshot>();
     if super::branch::is_effectively_hidden(world, root) {
         if let Some(cache) = world.resource::<crate::text::layout::TextLayoutResource>() {
@@ -1293,12 +1352,16 @@ fn draw_tree_offset(
         None
     };
 
-    let cull_rect = if !tf_3d.is_identity() {
-        projective_visual_bounds(world, entity, shifted_rect, tf_3d, renderer.output_scale())
-            .unwrap_or(shifted_rect)
-    } else {
-        affine_visual_bounds(world, entity, shifted_rect, tf, renderer.output_scale())
-    };
+    let cull_rect = planned_visual_bounds(
+        world,
+        entity,
+        shifted_rect,
+        tf,
+        tf_3d,
+        renderer.output_scale(),
+        *idx,
+        output_plan,
+    );
     let visible = rects_intersect(&cull_rect, clip);
     let scroll = world.get::<crate::input::event::scroll::ScrollOffset>(entity);
     let clips_children = scroll.is_some()
@@ -1343,7 +1406,6 @@ fn draw_tree_offset(
                 off,
                 entity,
                 &tf,
-                quad,
             )?
         } else {
             draw_prepared_output(
@@ -1356,7 +1418,6 @@ fn draw_tree_offset(
                 off,
                 entity,
                 &tf,
-                quad,
             )?
         };
         if handled {
@@ -1808,7 +1869,7 @@ fn prepare_offscreen(
     idx: &mut usize,
     renderer: &dyn Renderer,
     shifted_rect: &Rect,
-    off: super::OffscreenRender,
+    key: super::offscreen::BufferKey,
     entity: Entity,
     output_plan: Option<&output_plan::TexturePlan>,
 ) -> Result<bool, RenderError> {
@@ -1822,13 +1883,7 @@ fn prepare_offscreen(
     // Preparation is independent of the parent clip: a visible consumer can
     // need a source outside the current damage region.
 
-    let scale = off.scale.max(Fixed::ONE / 8);
-    let generation = world
-        .get::<super::OffscreenGeneration>(entity)
-        .map(|g| g.0)
-        .unwrap_or(0);
-
-    let key = super::offscreen::BufferKey::for_widget(entity, *shifted_rect, off, generation);
+    let scale = key.scale;
     let (buf_w, buf_h) = (key.w, key.h);
 
     let outputs = match world.resource::<Outputs<WidgetTexture>>() {
@@ -1859,15 +1914,15 @@ fn prepare_offscreen(
 
         // Dispatch the root directly so its marker is not treated as a nested
         // offscreen request. Its logical origin maps to the buffer origin.
-        let inner_offset_x = shifted_rect.x;
-        let inner_offset_y = shifted_rect.y;
+        let inner_offset_x = shifted_rect.x + key.local_bounds.x;
+        let inner_offset_y = shifted_rect.y + key.local_bounds.y;
         let entity_rect = Rect {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
+            x: -key.local_bounds.x,
+            y: -key.local_bounds.y,
             w: shifted_rect.w,
             h: shifted_rect.h,
         };
-        let inner_clip = entity_rect;
+        let inner_clip = Rect::new(0, 0, key.local_bounds.w, key.local_bounds.h);
 
         if let Some(style) = world.get::<Style>(entity) {
             let state = resolve_widget_state(world, entity);
@@ -1889,15 +1944,15 @@ fn prepare_offscreen(
         *idx += 1;
 
         // Children retain their scroll offsets inside the local buffer.
-        let (child_clip, sx, sy) =
-            if let Some(scroll) = world.get::<crate::input::event::scroll::ScrollOffset>(entity) {
-                (
-                    inner_clip,
-                    inner_offset_x + scroll.x,
-                    inner_offset_y + scroll.y,
-                )
+        let scroll = world.get::<crate::input::event::scroll::ScrollOffset>(entity);
+        let (sx, sy) = scroll.map_or((inner_offset_x, inner_offset_y), |scroll| {
+            (inner_offset_x + scroll.x, inner_offset_y + scroll.y)
+        });
+        let child_clip =
+            if scroll.is_some() || world.get::<Style>(entity).is_some_and(|s| s.clip_children) {
+                inner_clip.intersect(&entity_rect).unwrap_or(Rect::ZERO)
             } else {
-                (inner_clip, inner_offset_x, inner_offset_y)
+                inner_clip
             };
 
         for child in &node.children {
@@ -1938,7 +1993,6 @@ fn draw_prepared_output(
     off: super::OffscreenRender,
     entity: Entity,
     outer_tf: &Transform,
-    outer_quad: Option<[Point; 4]>,
 ) -> Result<bool, RenderError> {
     // Blit buffer back to the outer renderer through DrawCommand::Blit.
     // This is the only Canvas-style operation we need from outer; going
@@ -1952,11 +2006,35 @@ fn draw_prepared_output(
         else {
             return Ok(false);
         };
+        let local = texture.local_bounds();
+        let footprint = Rect::new(
+            shifted_rect.x + local.x,
+            shifted_rect.y + local.y,
+            local.w,
+            local.h,
+        );
+        let corners = outer_tf.apply_rect(footprint);
+        let integral = corners.iter().all(|point| {
+            let scale = crate::types::Fixed64::from_fixed(renderer.output_scale());
+            let x = crate::types::Fixed64::from_fixed(point.x).mul_wide(scale);
+            let y = crate::types::Fixed64::from_fixed(point.y).mul_wide(scale);
+            x == crate::types::Fixed64::from_int(x.to_int())
+                && y == crate::types::Fixed64::from_int(y.to_int())
+        });
+        let quad = if integral
+            && matches!(
+                outer_tf.classify(),
+                crate::types::TransformClass::Identity | crate::types::TransformClass::Translate
+            ) {
+            None
+        } else {
+            Some(corners)
+        };
         let blit_cmd = DrawCommand::Blit {
-            pos: Point::new(shifted_rect.x, shifted_rect.y),
-            size: Point::new(shifted_rect.w, shifted_rect.h),
+            pos: Point::new(footprint.x, footprint.y),
+            size: Point::new(footprint.w, footprint.h),
             transform: *outer_tf,
-            quad: outer_quad,
+            quad,
             texture: texture.texture(),
             opa: off.opacity,
             radius: Fixed::ZERO,
@@ -2412,17 +2490,23 @@ fn collect_dirty_walk(
     bounds: &mut DirtyBounds,
     plan: &mut DirtyRegions,
     out_of_scroll_prev: &mut alloc::vec::Vec<Rect>,
+    output_plan: Option<&output_plan::TexturePlan>,
 ) {
     use super::dirty::Dirty;
     if *idx >= entities.len() {
         return;
     }
     let entity = entities[*idx];
-    let (tf, tf_3d) = render_transforms(*parent_transform, *parent_3d, world, entity, node.rect);
+    let shifted_rect = Rect {
+        x: node.rect.x - scroll_offset.0,
+        y: node.rect.y - scroll_offset.1,
+        ..node.rect
+    };
+    let (tf, tf_3d) = render_transforms(*parent_transform, *parent_3d, world, entity, shifted_rect);
 
     // Offscreen subtree containment: any Dirty under an OffscreenRender
     // entity must promote to the entity itself (so its full
-    // ComputedRect ends up in the dirty union, since the buffer
+    // paint bounds end up in the dirty union, since the buffer
     // re-renders entirely) and bump the buffer generation so the next
     // render misses the cache. Children's Dirty markers are cleared
     // here so the outer dirty bounds doesn't double-count them.
@@ -2434,15 +2518,16 @@ fn collect_dirty_walk(
             push_entity_dirty(
                 world,
                 entity,
-                node,
+                shifted_rect,
                 &tf,
                 &tf_3d,
                 output_scale,
-                scroll_offset,
                 inside_scroll,
                 scroll_clip,
                 bounds,
                 out_of_scroll_prev,
+                *idx,
+                output_plan,
             );
         }
 
@@ -2463,15 +2548,16 @@ fn collect_dirty_walk(
                 push_entity_dirty(
                     world,
                     entity,
-                    node,
+                    shifted_rect,
                     &tf,
                     &tf_3d,
                     output_scale,
-                    scroll_offset,
                     inside_scroll,
                     scroll_clip,
                     bounds,
                     out_of_scroll_prev,
+                    *idx,
+                    output_plan,
                 );
             }
             let next_gen = world
@@ -2506,12 +2592,7 @@ fn collect_dirty_walk(
         let blit_dx = -sd.dx;
         let blit_dy = -sd.dy;
         if blit_dx != Fixed::ZERO || blit_dy != Fixed::ZERO {
-            let area = Rect {
-                x: node.rect.x - scroll_offset.0,
-                y: node.rect.y - scroll_offset.1,
-                w: node.rect.w,
-                h: node.rect.h,
-            };
+            let area = shifted_rect;
             if blit_dx.abs() < area.w && blit_dy.abs() < area.h {
                 my_scroll_op = Some(RegionShift {
                     area,
@@ -2537,15 +2618,16 @@ fn collect_dirty_walk(
             push_entity_dirty(
                 world,
                 entity,
-                node,
+                shifted_rect,
                 &tf,
                 &tf_3d,
                 output_scale,
-                scroll_offset,
                 inside_scroll,
                 scroll_clip,
                 bounds,
                 out_of_scroll_prev,
+                *idx,
+                output_plan,
             );
         }
     }
@@ -2557,10 +2639,12 @@ fn collect_dirty_walk(
             scroll_offset
         };
 
-    let child_scroll_clip = if world.has::<crate::input::event::scroll::ScrollOffset>(entity) {
-        let mut area = visual_bounds(world, entity, node.rect, tf, tf_3d, output_scale);
-        area.x -= scroll_offset.0;
-        area.y -= scroll_offset.1;
+    let clips_children = world.has::<crate::input::event::scroll::ScrollOffset>(entity)
+        || world
+            .get::<Style>(entity)
+            .is_some_and(|style| style.clip_children);
+    let child_scroll_clip = if clips_children {
+        let area = transformed_clip_bounds(shifted_rect, tf, tf_3d).unwrap_or(Rect::ZERO);
         Some(scroll_clip.map_or(area, |clip| area.intersect(&clip).unwrap_or(Rect::ZERO)))
     } else {
         scroll_clip
@@ -2582,6 +2666,7 @@ fn collect_dirty_walk(
             bounds,
             plan,
             out_of_scroll_prev,
+            output_plan,
         );
     }
 
@@ -2640,24 +2725,28 @@ fn push_scroll_strips(sop: &RegionShift, plan: &mut DirtyRegions) {
 fn push_entity_dirty(
     world: &mut World,
     entity: Entity,
-    node: &LayoutNode,
+    rect: Rect,
     tf: &Transform,
     tf_3d: &Transform3D,
     output_scale: Fixed,
-    scroll_offset: (Fixed, Fixed),
     inside_scroll: bool,
     scroll_clip: Option<Rect>,
     bounds: &mut DirtyBounds,
     out_of_scroll_prev: &mut alloc::vec::Vec<Rect>,
+    position: usize,
+    output_plan: Option<&output_plan::TexturePlan>,
 ) {
     use super::dirty::Dirty;
-    let curr_layout = visual_bounds(world, entity, node.rect, *tf, *tf_3d, output_scale);
-    let mut curr = Rect {
-        x: curr_layout.x - scroll_offset.0,
-        y: curr_layout.y - scroll_offset.1,
-        w: curr_layout.w,
-        h: curr_layout.h,
-    };
+    let mut curr = planned_visual_bounds(
+        world,
+        entity,
+        rect,
+        *tf,
+        *tf_3d,
+        output_scale,
+        position,
+        output_plan,
+    );
     if let Some(inflate) = world.get::<super::dirty::PaintInflate>(entity).copied() {
         curr.x -= inflate.left;
         curr.y -= inflate.top;
@@ -2910,6 +2999,8 @@ pub(crate) fn try_collect_dirty_regions_into(
     };
 
     super::view::ViewRegistry::invalidate_queries(world);
+    let output_plan =
+        output_plan::measure_for_dirty(world, &snapshot.layout_tree, &snapshot.entities);
 
     let mut bounds = DirtyBounds {
         min_x: Fixed::from(logical_w),
@@ -2939,8 +3030,10 @@ pub(crate) fn try_collect_dirty_regions_into(
             &mut bounds,
             plan,
             &mut snapshot.out_of_scroll_prev,
+            output_plan.as_ref(),
         );
     }
+    output_plan::return_plan(world, output_plan);
 
     // Cover the smear strip from ancestor-scroll self-blit dragging overlay prev pixels.
     for prev in &snapshot.out_of_scroll_prev {
@@ -5319,13 +5412,17 @@ mod clip_children_check {
                 ..Default::default()
             },
         );
+        let viewport = vp();
+        // Settle initial Style registration before measuring transform-only damage.
+        collect_dirty_region(&mut world, root, &viewport).expect("initial layout damage");
+        assert!(!world.has::<Dirty>(root));
         world.insert(
             target,
             WidgetTransform(Transform::scale(Fixed::from_int(2), Fixed::from_int(2))),
         );
         world.insert(target, Dirty);
 
-        let dirty = collect_dirty_region(&mut world, root, &vp()).expect("dirty region");
+        let dirty = collect_dirty_region(&mut world, root, &viewport).expect("dirty region");
 
         assert_eq!(dirty.x, Fixed::from_int(15));
         assert_eq!(dirty.y, Fixed::from_int(15));
@@ -5367,15 +5464,19 @@ mod clip_children_check {
                 ..Default::default()
             },
         );
+        let viewport = vp();
+        // Settle the initial frame before seeding a transformed presentation.
+        collect_dirty_region(&mut world, root, &viewport).expect("initial layout damage");
+        assert!(!world.has::<Dirty>(root));
         world.insert(
             target,
             WidgetTransform(Transform::scale(Fixed::from_int(2), Fixed::from_int(2))),
         );
-        seed_prev_rects(&mut world, root, &vp());
+        seed_prev_rects(&mut world, root, &viewport);
 
         world.insert(target, WidgetTransform(Transform::IDENTITY));
         world.insert(target, Dirty);
-        let dirty = collect_dirty_region(&mut world, root, &vp()).expect("dirty region");
+        let dirty = collect_dirty_region(&mut world, root, &viewport).expect("dirty region");
 
         assert_eq!(dirty.x, Fixed::from_int(15));
         assert_eq!(dirty.y, Fixed::from_int(15));
@@ -5431,6 +5532,7 @@ mod clip_children_check {
         );
         let viewport = vp();
         update_layout(&mut world, root, &viewport);
+        collect_dirty_region(&mut world, root, &viewport);
 
         let root_rect = world.get::<super::super::ComputedRect>(root).unwrap().0;
         let target_rect = world.get::<super::super::ComputedRect>(target).unwrap().0;
@@ -7921,6 +8023,8 @@ mod offscreen_render_check {
             format: ColorFormat::RGBA8888,
             generation: 0,
             layout_rect: Rect::new(0, 0, 32, 32),
+            local_bounds: Rect::new(0, 0, 32, 32),
+            scale: Fixed::ONE,
         };
         let same = BufferKey {
             entity: Entity {
@@ -7932,14 +8036,14 @@ mod offscreen_render_check {
             format: ColorFormat::RGBA8888,
             generation: 0,
             layout_rect: Rect::new(0, 0, 32, 32),
+            local_bounds: Rect::new(0, 0, 32, 32),
+            scale: Fixed::ONE,
         };
         assert_eq!(k, same);
     }
 
     #[test]
     fn offscreen_render_fractional_scale_rounds_buffer_dims() {
-        // scale = 0.7 on a 32×32 panel should produce a 22×22 buffer
-        // (32 × 0.7 = 22.4 → truncated to 22 by `Fixed::to_int`).
         let mut world = make_world();
         let panel = spawn(
             &mut world,
@@ -7965,7 +8069,7 @@ mod offscreen_render_check {
 
         let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
         let output = outputs.get(panel).unwrap();
-        assert_eq!((output.texture().width, output.texture().height), (22, 22));
+        assert_eq!((output.texture().width, output.texture().height), (23, 23));
     }
 
     #[test]
