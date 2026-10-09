@@ -1,14 +1,13 @@
 #[cfg(test)]
 mod tests {
-    use mirui::ecs::{Entity, World};
+    use mirui::app::App;
+    use mirui::ecs::Entity;
     use mirui::input::event::gesture::GestureEvent;
-    use mirui::input::event::multi_tap::MultiTapTracker;
-    use mirui::types::{Fixed, Rect};
+    use mirui::surface::framebuf::FramebufSurface;
+    use mirui::types::{Fixed, PhysicalRect, Rect};
     use mirui::ui;
-    use mirui::ui::builder::WidgetBuilder;
-    use mirui::ui::view::ViewRegistry;
+    use mirui::ui::ComputedRect;
     use mirui::ui::widgets::{Checkbox, ProgressBar, Switch};
-    use mirui::ui::{ComputedRect, IdMap};
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, Ordering};
 
@@ -20,6 +19,8 @@ mod tests {
     static PROGRESS_FIRES: AtomicU32 = AtomicU32::new(0);
     static SERIAL: Mutex<()> = Mutex::new(());
 
+    type HeadlessApp = App<FramebufSurface<fn(&[u8], PhysicalRect)>>;
+
     fn reset() {
         SWITCH_LAST_NOW.store(false, Ordering::SeqCst);
         SWITCH_FIRES.store(0, Ordering::SeqCst);
@@ -29,14 +30,11 @@ mod tests {
         PROGRESS_FIRES.store(0, Ordering::SeqCst);
     }
 
-    fn fresh_world() -> (World, Entity) {
-        let app = mirui::app::App::headless(128, 128);
-        let mut world = app.world;
-        world.insert_resource(IdMap::new());
-        world.insert_resource(MultiTapTracker::new());
-        world.insert_resource(ViewRegistry::with_builtins());
-        let root = WidgetBuilder::new(&mut world).id();
-        (world, root)
+    fn fresh_app() -> (HeadlessApp, Entity) {
+        let mut app = App::headless(128, 128);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        (app, root)
     }
 
     fn tap(target: Entity, x: i32) -> GestureEvent {
@@ -51,16 +49,16 @@ mod tests {
     fn switch_on_toggled_emits_with_new_state() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, root) = fresh_world();
-        let switch = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let (mut app, root) = fresh_app();
+        let switch = app.compose(root, |cx| {
             ui! {
                 Switch (width: 60, height: 32) on Toggled {
                     SWITCH_LAST_NOW.store(event.now, Ordering::SeqCst);
                     SWITCH_FIRES.fetch_add(1, Ordering::SeqCst);
                 }
             }
-        };
+        });
+        let mut world = app.world;
         world.insert(
             switch,
             ComputedRect(Rect {
@@ -91,16 +89,16 @@ mod tests {
     fn checkbox_on_toggled_emits_with_new_state() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, root) = fresh_world();
-        let checkbox = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let (mut app, root) = fresh_app();
+        let checkbox = app.compose(root, |cx| {
             ui! {
                 Checkbox (width: 32, height: 32) on Toggled {
                     CHECKBOX_LAST_NOW.store(event.now, Ordering::SeqCst);
                     CHECKBOX_FIRES.fetch_add(1, Ordering::SeqCst);
                 }
             }
-        };
+        });
+        let mut world = app.world;
         world.insert(
             checkbox,
             ComputedRect(Rect {
@@ -123,9 +121,8 @@ mod tests {
     fn progress_bar_on_value_changed_emits_with_new_old() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, root) = fresh_world();
-        let pb = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let (mut app, root) = fresh_app();
+        let pb = app.compose(root, |cx| {
             ui! {
                 ProgressBar (width: 100, height: 16) on ValueChanged {
                     let _ = event.old;
@@ -133,7 +130,8 @@ mod tests {
                     PROGRESS_FIRES.fetch_add(1, Ordering::SeqCst);
                 }
             }
-        };
+        });
+        let mut world = app.world;
         world.insert(
             pb,
             ComputedRect(Rect {

@@ -1,14 +1,14 @@
 #[cfg(test)]
 mod tests {
-    use mirui::ecs::{Entity, World};
-    use mirui::input::event::gesture::GestureEvent;
-    use mirui::input::event::multi_tap::MultiTapTracker;
-    use mirui::types::{Fixed, Rect};
+    use mirui::app::App;
+    use mirui::ecs::Entity;
+    use mirui::input::event::contract::Event;
+    use mirui::input::event::gesture::{GestureEvent, Tap};
+    use mirui::surface::framebuf::FramebufSurface;
+    use mirui::types::{Fixed, PhysicalRect, Rect};
     use mirui::ui;
-    use mirui::ui::builder::WidgetBuilder;
-    use mirui::ui::view::ViewRegistry;
+    use mirui::ui::ComputedRect;
     use mirui::ui::widgets::Slider;
-    use mirui::ui::{ComputedRect, IdMap};
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicI64, Ordering};
 
@@ -16,6 +16,8 @@ mod tests {
     static LAST_NEW: AtomicI64 = AtomicI64::new(0);
     static USER_GESTURE_FIRES: AtomicI64 = AtomicI64::new(0);
     static SERIAL: Mutex<()> = Mutex::new(());
+
+    type HeadlessApp = App<FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
     fn reset() {
         EVENT_LOG.lock().unwrap_or_else(|e| e.into_inner()).clear();
@@ -36,24 +38,20 @@ mod tests {
         false
     }
 
-    fn fresh_world_with_slider() -> (World, Entity) {
-        let app = mirui::app::App::headless(128, 128);
-        let mut world = app.world;
-        world.insert_resource(IdMap::new());
-        world.insert_resource(MultiTapTracker::new());
-        world.insert_resource(ViewRegistry::with_builtins());
-        let root = WidgetBuilder::new(&mut world).id();
-        let slider = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+    fn slider_app() -> (HeadlessApp, Entity) {
+        let mut app = App::headless(128, 128);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        let slider = app.compose(root, |cx| {
             ui! {
-                Slider (width: 100, height: 20) on ValueChanged {
+                Slider (width: 100, height: 20, min: 0, max: 100, value: 0) on ValueChanged {
                     let _ = event.old;
                     log_event("ValueChanged");
                     LAST_NEW.store(event.new.to_int() as i64, std::sync::atomic::Ordering::SeqCst);
                 } on DragStarted { log_event("DragStarted"); } on DragEnded { log_event("DragEnded"); }
             }
-        };
-        world.insert(
+        });
+        app.world.insert(
             slider,
             ComputedRect(Rect {
                 x: Fixed::ZERO,
@@ -62,12 +60,7 @@ mod tests {
                 h: Fixed::from_int(20),
             }),
         );
-        if let Some(s) = world.get_mut::<Slider>(slider) {
-            s.min = Fixed::ZERO;
-            s.max = Fixed::from_int(100);
-            s.value = Fixed::ZERO;
-        }
-        (world, slider)
+        (app, slider)
     }
 
     fn drain_log() -> Vec<&'static str> {
@@ -86,7 +79,8 @@ mod tests {
     fn ui_macro_registers_value_changed_notifications() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, slider) = fresh_world_with_slider();
+        let (app, slider) = slider_app();
+        let mut world = app.world;
         mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(slider, 75), 100).unwrap();
         mirui::__macro_support::flush_entity_events(&mut world).unwrap();
         assert_eq!(drain_log(), &["ValueChanged"]);
@@ -97,7 +91,8 @@ mod tests {
     fn slider_tap_emits_value_changed_through_ui_macro() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, slider) = fresh_world_with_slider();
+        let (app, slider) = slider_app();
+        let mut world = app.world;
         {
             mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(slider, 75), 100)
                 .unwrap();
@@ -111,7 +106,8 @@ mod tests {
     fn slider_drag_lifecycle_emits_in_order() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, slider) = fresh_world_with_slider();
+        let (app, slider) = slider_app();
+        let mut world = app.world;
         {
             mirui::__macro_support::dispatch_entity_gesture(
                 &mut world,
@@ -166,16 +162,11 @@ mod tests {
     fn user_gesture_handler_does_not_replace_slider_internal() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, slider) = fresh_world_with_slider();
-        mirui::__macro_support::install_entity_event(
-            &mut world,
-            slider,
-            <mirui::input::event::gesture::Tap as mirui::input::event::contract::Event>::EVENT,
-            user_gesture_handler::callback::<
-                mirui::input::event::gesture::Tap,
-                mirui::__macro_support::NodeContext,
-            >(),
-        );
+        let (mut app, slider) = slider_app();
+        app.compose(slider, |tree| {
+            tree.on_event(slider, Tap::EVENT, user_gesture_handler::callback());
+        });
+        let mut world = app.world;
 
         {
             mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(slider, 50), 100)
@@ -206,22 +197,19 @@ mod tests {
     fn qualified_on_slider_value_changed_compiles() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let app = mirui::app::App::headless(128, 128);
-        let mut world = app.world;
-        world.insert_resource(IdMap::new());
-        world.insert_resource(MultiTapTracker::new());
-        world.insert_resource(ViewRegistry::with_builtins());
-        let root = WidgetBuilder::new(&mut world).id();
-        let slider = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut world, root);
+        let mut app = App::headless(128, 128);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        let slider = app.compose(root, |cx| {
             ui! {
-                Slider (width: 100, height: 20) on Slider::ValueChanged {
+                Slider (width: 100, height: 20, min: 0, max: 100, value: 0) on Slider::ValueChanged {
                     let _ = event.old;
                     LAST_NEW.store(event.new.to_int() as i64, std::sync::atomic::Ordering::SeqCst);
                     log_event("Q-ValueChanged");
                 }
             }
-        };
+        });
+        let mut world = app.world;
         world.insert(
             slider,
             ComputedRect(Rect {
@@ -231,11 +219,6 @@ mod tests {
                 h: Fixed::from_int(20),
             }),
         );
-        if let Some(s) = world.get_mut::<Slider>(slider) {
-            s.min = Fixed::ZERO;
-            s.max = Fixed::from_int(100);
-            s.value = Fixed::ZERO;
-        }
         {
             mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(slider, 50), 100)
                 .unwrap();

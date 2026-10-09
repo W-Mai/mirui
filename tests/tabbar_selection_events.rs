@@ -1,14 +1,14 @@
 #[cfg(test)]
 mod tests {
-    use mirui::ecs::{Entity, World};
-    use mirui::input::event::gesture::GestureEvent;
-    use mirui::input::event::multi_tap::MultiTapTracker;
-    use mirui::types::{Fixed, Rect};
+    use mirui::app::App;
+    use mirui::ecs::Entity;
+    use mirui::input::event::contract::Event;
+    use mirui::input::event::gesture::{GestureEvent, Tap};
+    use mirui::surface::framebuf::FramebufSurface;
+    use mirui::types::{Fixed, PhysicalRect, Rect};
     use mirui::ui;
-    use mirui::ui::builder::WidgetBuilder;
-    use mirui::ui::view::ViewRegistry;
+    use mirui::ui::ComputedRect;
     use mirui::ui::widgets::TabBar;
-    use mirui::ui::{ComputedRect, IdMap};
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
@@ -17,6 +17,8 @@ mod tests {
     static FIRES: AtomicU32 = AtomicU32::new(0);
     static USER_FIRES: AtomicU32 = AtomicU32::new(0);
     static SERIAL: Mutex<()> = Mutex::new(());
+
+    type HeadlessApp = App<FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
     fn reset() {
         LAST_NEW.store(0, Ordering::SeqCst);
@@ -31,31 +33,20 @@ mod tests {
         false
     }
 
-    fn fresh_world() -> (World, Entity) {
-        let app = mirui::app::App::headless(128, 128);
-        let mut world = app.world;
-        world.insert_resource(IdMap::new());
-        world.insert_resource(MultiTapTracker::new());
-        world.insert_resource(ViewRegistry::with_builtins());
-        let root = WidgetBuilder::new(&mut world).id();
-        (world, root)
-    }
-
-    fn build_tabbar(world: &mut World, root: Entity) -> Entity {
-        let bar = {
-            let mut cx = ::mirui::ui::UiScope::new(world, root);
+    fn tabbar_app() -> (HeadlessApp, Entity) {
+        let mut app = App::headless(128, 128);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        let bar = app.compose(root, |cx| {
             ui! {
-                TabBar (width: 300, height: 40) on SelectionChanged {
+                TabBar (width: 300, height: 40, count: 3) on SelectionChanged {
                     LAST_NEW.store(event.new, Ordering::SeqCst);
                     LAST_OLD.store(event.old, Ordering::SeqCst);
                     FIRES.fetch_add(1, Ordering::SeqCst);
                 }
             }
-        };
-        if let Some(tb) = world.get_mut::<TabBar>(bar) {
-            tb.count = 3;
-        }
-        world.insert(
+        });
+        app.world.insert(
             bar,
             ComputedRect(Rect {
                 x: Fixed::ZERO,
@@ -64,7 +55,7 @@ mod tests {
                 h: Fixed::from_int(40),
             }),
         );
-        bar
+        (app, bar)
     }
 
     fn tap(target: Entity, x: i32) -> GestureEvent {
@@ -79,8 +70,8 @@ mod tests {
     fn tabbar_tap_emits_selection_changed_with_new_old() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, root) = fresh_world();
-        let bar = build_tabbar(&mut world, root);
+        let (app, bar) = tabbar_app();
+        let mut world = app.world;
 
         {
             mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(bar, 150), 100)
@@ -105,8 +96,8 @@ mod tests {
     fn tabbar_same_tab_tap_does_not_emit() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, root) = fresh_world();
-        let bar = build_tabbar(&mut world, root);
+        let (app, bar) = tabbar_app();
+        let mut world = app.world;
 
         {
             mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(bar, 50), 100)
@@ -132,17 +123,11 @@ mod tests {
     fn user_gesture_handler_does_not_replace_tabbar_internal() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
-        let (mut world, root) = fresh_world();
-        let bar = build_tabbar(&mut world, root);
-        mirui::__macro_support::install_entity_event(
-            &mut world,
-            bar,
-            <mirui::input::event::gesture::Tap as mirui::input::event::contract::Event>::EVENT,
-            user_gesture::callback::<
-                mirui::input::event::gesture::Tap,
-                mirui::__macro_support::NodeContext,
-            >(),
-        );
+        let (mut app, bar) = tabbar_app();
+        app.compose(bar, |tree| {
+            tree.on_event(bar, Tap::EVENT, user_gesture::callback());
+        });
+        let mut world = app.world;
 
         {
             mirui::__macro_support::dispatch_entity_gesture(&mut world, &tap(bar, 150), 100)
