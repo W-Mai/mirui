@@ -1,4 +1,4 @@
-use crate::prelude::{Entity, Fixed};
+use crate::prelude::Fixed;
 
 pub(super) const BAR_W: i32 = 50;
 pub(super) const BAR_H: i32 = 8;
@@ -13,6 +13,3 @@ pub struct BarState {
     pub x: Fixed,
     pub right_anchored: bool,
 }
-
-#[derive(Clone, Copy)]
-pub(super) struct BarArena(pub(super) Entity);

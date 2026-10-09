@@ -1,6 +1,5 @@
 use super::composition::build_widgets;
 use super::motion::bar_move_system;
-use super::state::BarArena;
 use crate::prelude::*;
 
 #[cfg(feature = "std")]
@@ -11,9 +10,4 @@ where
 {
     app.add_system(bar_move_system::system());
     app.compose(parent, build_widgets());
-    let arena = app
-        .world
-        .find_by_id("subpixel_arena")
-        .expect("subpixel arena");
-    app.add_resource(BarArena(arena));
 }

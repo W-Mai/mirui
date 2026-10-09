@@ -7,7 +7,7 @@ use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::dirty::{Dirty, VisualDirty};
 use crate::ui::render_system::update_layout;
-use crate::ui::{Children, ComputedRect, IdMap, Style, UiScope};
+use crate::ui::{Children, ComputedRect, Style};
 
 fn run_bar_motion(world: &mut World) {
     let mut scheduler = SystemScheduler::new();
@@ -16,15 +16,65 @@ fn run_bar_motion(world: &mut World) {
 }
 
 #[test]
+fn bars_use_their_own_parent_bounds() {
+    let mut app = App::headless(320, 240);
+    let root = app.spawn_root().id();
+    let arenas = app.compose(root, |tree| {
+        [140, 240].map(|width| {
+            let (arena, bar) = tree.children(Style::default(), |children| {
+                children.spawn(BarState {
+                    y: Fixed::from_int(40),
+                    speed_per_second: Fixed::ZERO,
+                    snap: false,
+                    x: Fixed::ZERO,
+                    right_anchored: true,
+                })
+            });
+            (arena, bar, width)
+        })
+    });
+    for (arena, _, width) in arenas {
+        app.world.insert(
+            arena,
+            ComputedRect(crate::types::Rect::new(0, 0, width, width - 100)),
+        );
+    }
+    app.add_resource(crate::ecs::DeltaTimeMs(1));
+    run_bar_motion(&mut app.world);
+
+    for (_, entity, width) in arenas {
+        let bar = app.world.get::<BarState>(entity).unwrap();
+        assert_eq!(bar.x, Fixed::from_int(width - BAR_W - BAR_MARGIN));
+        let expected_y = if width == 140 { START_Y } else { 40 };
+        assert_eq!(bar.y, Fixed::from_int(expected_y));
+        let style = app.world.get::<Style>(entity).unwrap();
+        assert_eq!(style.layout.left, Dimension::Px(bar.x));
+        assert_eq!(style.layout.top, Dimension::Px(bar.y));
+    }
+
+    app.world.remove::<ComputedRect>(arenas[0].0);
+    app.world.insert(
+        arenas[1].0,
+        ComputedRect(crate::types::Rect::new(0, 0, 260, 160)),
+    );
+    run_bar_motion(&mut app.world);
+    assert_eq!(
+        app.world.get::<BarState>(arenas[0].1).unwrap().x,
+        Fixed::from_int(80)
+    );
+    assert_eq!(
+        app.world.get::<BarState>(arenas[1].1).unwrap().x,
+        Fixed::from_int(200)
+    );
+}
+
+#[test]
 fn build_widgets_smoke() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets()(&mut cx);
-    drop(cx);
+    let mut app = App::headless(320, 240);
+    let parent = app.spawn_root().id();
+    app.compose(parent, build_widgets());
     assert!(
-        world
+        app.world
             .get::<Children>(parent)
             .is_some_and(|c| !c.0.is_empty()),
     );

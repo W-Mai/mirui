@@ -301,6 +301,8 @@ returns `None`. Read-only fetches can share references. A query containing
 then permits another fetch or consuming iteration. Generated parameters supply
 the local mutable binding without requiring `mut rows` in the authored signature.
 
+Related entities can be read through separate queries. The Subpixel demo iterates `query!(Entity, mut BarState, Parent)` and obtains each bar's container bounds with `rects.get(parent.0)`, where `rects` is declared as `query!(ComputedRect)`. The parent relation supplies the target; no global arena resource or ID lookup is needed.
+
 ```rust
 #[system]
 fn update_selected(
