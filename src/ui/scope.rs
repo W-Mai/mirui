@@ -125,18 +125,6 @@ impl<'w> UiScope<'w> {
         super::recipe::bind_property::<P>(self.world, entity, read);
     }
 
-    pub fn bind_layout(
-        &mut self,
-        entity: Entity,
-        dependencies: &[crate::ui::LayoutDependency],
-        apply: impl Fn(&mut World, Entity, &crate::ui::LayoutValues) + 'static,
-    ) {
-        self.world.insert(
-            entity,
-            crate::ui::SharedLayoutBinding::new(dependencies, apply),
-        );
-    }
-
     pub fn bind_path(
         &mut self,
         path: crate::render::path::PathId,

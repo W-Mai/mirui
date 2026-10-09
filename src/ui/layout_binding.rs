@@ -1,5 +1,3 @@
-use alloc::rc::Rc;
-
 use crate::ecs::{Entity, World};
 use crate::types::Fixed;
 
@@ -71,7 +69,6 @@ impl LayoutValues {
 }
 
 type LayoutApplyFn = fn(&mut World, Entity, &LayoutValues) -> bool;
-type SharedLayoutApply = Rc<dyn Fn(&mut World, Entity, &LayoutValues)>;
 
 const INVALID_ENTITY: Entity = Entity {
     id: u32::MAX,
@@ -107,49 +104,6 @@ impl LayoutBinding {
             },
             initialized: false,
             apply,
-        }
-    }
-
-    fn dependency_count(&self) -> usize {
-        self.values.len()
-    }
-}
-
-pub struct SharedLayoutBinding {
-    dependencies: [LayoutDependency; LAYOUT_DEPENDENCY_CAPACITY],
-    resolved: [Entity; LAYOUT_DEPENDENCY_CAPACITY],
-    values: LayoutValues,
-    initialized: bool,
-    apply: SharedLayoutApply,
-}
-
-impl crate::ecs::Component for SharedLayoutBinding {}
-
-impl SharedLayoutBinding {
-    pub fn new(
-        dependencies: &[LayoutDependency],
-        apply: impl Fn(&mut World, Entity, &LayoutValues) + 'static,
-    ) -> Self {
-        assert!(
-            !dependencies.is_empty(),
-            "layout binding requires at least one dependency"
-        );
-        assert!(
-            dependencies.len() <= LAYOUT_DEPENDENCY_CAPACITY,
-            "layout binding supports at most {LAYOUT_DEPENDENCY_CAPACITY} dependencies"
-        );
-        let filler = LayoutDependency::entity(INVALID_ENTITY, LayoutAxis::Width);
-        let mut stored = [filler; LAYOUT_DEPENDENCY_CAPACITY];
-        stored[..dependencies.len()].copy_from_slice(dependencies);
-        Self {
-            dependencies: stored,
-            resolved: [INVALID_ENTITY; LAYOUT_DEPENDENCY_CAPACITY],
-            values: LayoutValues {
-                len: dependencies.len() as u8,
-                ..LayoutValues::EMPTY
-            },
-            initialized: false,
-            apply: Rc::new(apply),
         }
     }
 
@@ -247,60 +201,6 @@ pub(crate) fn apply_layout_bindings(world: &mut World, invoke: bool) -> bool {
             any_changed |= apply(world, owner, &next);
         }
     });
-    world.for_each_stable::<SharedLayoutBinding>(|world, owner| {
-        let (dependencies, mut resolved, count) = {
-            let binding = world
-                .get::<SharedLayoutBinding>(owner)
-                .expect("stable shared layout binding disappeared");
-            (
-                binding.dependencies,
-                binding.resolved,
-                binding.dependency_count(),
-            )
-        };
-
-        let mut next = LayoutValues {
-            len: count as u8,
-            ..LayoutValues::EMPTY
-        };
-        for index in 0..count {
-            let dependency = dependencies[index];
-            let Some(entity) =
-                resolve_cached_source(world, owner, dependency.source, resolved[index])
-            else {
-                return;
-            };
-            resolved[index] = entity;
-            let Some(rect) = world.get::<ComputedRect>(entity).map(|computed| computed.0) else {
-                return;
-            };
-            next.values[index] = match dependency.axis {
-                LayoutAxis::Width => rect.w,
-                LayoutAxis::Height => rect.h,
-            };
-        }
-
-        let apply = {
-            let binding = world
-                .get_mut::<SharedLayoutBinding>(owner)
-                .expect("stable shared layout binding disappeared");
-            binding.resolved = resolved;
-            if binding.initialized && binding.values == next {
-                None
-            } else if !invoke {
-                any_changed = true;
-                None
-            } else {
-                binding.values = next;
-                binding.initialized = true;
-                Some(Rc::clone(&binding.apply))
-            }
-        };
-        if let Some(apply) = apply {
-            apply(world, owner, &next);
-            any_changed = true;
-        }
-    });
     any_changed
 }
 
@@ -347,15 +247,14 @@ mod tests {
         world.insert_resource(Probe::default());
         let root = widget(&mut world, 320, 240);
         let target = widget(&mut world, 40, 20);
+        world.insert(root, LayoutContainer);
         world.insert(root, Children(vec![target]));
         world.insert(target, Parent(root));
         world.insert(
             target,
-            SharedLayoutBinding::new(
-                &[LayoutDependency::entity(root, LayoutAxis::Width)],
-                |world, entity, values| {
-                    let _ = record_width(world, entity, values);
-                },
+            LayoutBinding::new(
+                const { &[LayoutDependency::container(LayoutAxis::Width)] },
+                record_width,
             ),
         );
         let viewport = Viewport::new(320, 240, Fixed::ONE);
@@ -390,15 +289,14 @@ mod tests {
         let mut world = World::new();
         let root = widget(&mut world, 300, 200);
         let target = widget(&mut world, 20, 20);
+        world.insert(root, LayoutContainer);
         world.insert(root, Children(vec![target]));
         world.insert(target, Parent(root));
         world.insert(
             target,
-            SharedLayoutBinding::new(
-                &[LayoutDependency::entity(root, LayoutAxis::Width)],
-                |world, entity, values| {
-                    let _ = size_child(world, entity, values);
-                },
+            LayoutBinding::new(
+                const { &[LayoutDependency::container(LayoutAxis::Width)] },
+                size_child,
             ),
         );
 
@@ -418,15 +316,14 @@ mod tests {
         let mut world = World::new();
         let root = widget(&mut world, 300, 200);
         let target = widget(&mut world, 20, 20);
+        world.insert(root, LayoutContainer);
         world.insert(root, Children(vec![target]));
         world.insert(target, Parent(root));
         world.insert(
             target,
-            SharedLayoutBinding::new(
-                &[LayoutDependency::entity(root, LayoutAxis::Width)],
-                |world, entity, values| {
-                    let _ = size_child(world, entity, values);
-                },
+            LayoutBinding::new(
+                const { &[LayoutDependency::container(LayoutAxis::Width)] },
+                size_child,
             ),
         );
         world.insert(root, crate::ui::dirty::Dirty);
@@ -458,13 +355,14 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(Probe::default());
         let root = widget(&mut world, 100, 100);
+        let mut ids = IdMap::new();
+        ids.insert("root", root);
+        world.insert_resource(ids);
         world.insert(
             root,
-            SharedLayoutBinding::new(
-                &[LayoutDependency::entity(root, LayoutAxis::Width)],
-                |world, entity, values| {
-                    let _ = oscillate(world, entity, values);
-                },
+            LayoutBinding::new(
+                const { &[LayoutDependency::named("root", LayoutAxis::Width)] },
+                oscillate,
             ),
         );
 
@@ -492,21 +390,35 @@ mod tests {
         for child in [first, second, third, fourth] {
             world.insert(child, Parent(root));
         }
-        for (target, source) in [
-            (first, root),
-            (second, first),
-            (third, second),
-            (fourth, third),
+        let mut ids = IdMap::new();
+        for (name, node) in [
+            ("root", root),
+            ("first", first),
+            ("second", second),
+            ("third", third),
         ] {
-            world.insert(
-                target,
-                SharedLayoutBinding::new(
-                    &[LayoutDependency::entity(source, LayoutAxis::Width)],
-                    |world, entity, values| {
-                        let _ = size_child(world, entity, values);
-                    },
-                ),
-            );
+            ids.insert(name, node);
+        }
+        world.insert_resource(ids);
+        for (target, dependencies) in [
+            (
+                first,
+                const { &[LayoutDependency::named("root", LayoutAxis::Width)] },
+            ),
+            (
+                second,
+                const { &[LayoutDependency::named("first", LayoutAxis::Width)] },
+            ),
+            (
+                third,
+                const { &[LayoutDependency::named("second", LayoutAxis::Width)] },
+            ),
+            (
+                fourth,
+                const { &[LayoutDependency::named("third", LayoutAxis::Width)] },
+            ),
+        ] {
+            world.insert(target, LayoutBinding::new(dependencies, size_child));
         }
 
         crate::ui::render_system::update_layout(

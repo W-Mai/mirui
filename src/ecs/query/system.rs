@@ -1144,7 +1144,6 @@ mod tests {
         assert_component::<crate::core::timer::Timer>();
         assert_component::<crate::ui::InteractionState>();
         assert_component::<crate::ui::layout_binding::LayoutBinding>();
-        assert_component::<crate::ui::layout_binding::SharedLayoutBinding>();
         assert_component::<crate::ui::layout_binding::LayoutContainer>();
         assert_component::<crate::ui::offscreen::OffscreenRender>();
         assert_component::<crate::ui::offscreen::OffscreenGeneration>();

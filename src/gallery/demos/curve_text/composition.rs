@@ -1,7 +1,7 @@
-use super::geometry::CurvePaths;
-use super::runtime::{CurveMotion, bind_curve_paths, bind_stage_layout};
+use super::geometry::{CurvePaths, path_window_end};
+use super::runtime::{CurveMotion, bind_curve_paths};
 use super::stage::CurveStage;
-use super::state::CurveModel;
+use super::state::{CurveModel, CurveStageSize};
 use super::style::{
     BACKGROUND, BORDER, CYAN, GOLD, MUTED, PANEL, PANEL_ALT, ROUTE_LABEL, TEXT, UI, VIOLET,
     bounded_text, mixed_stack, single_line,
@@ -76,6 +76,31 @@ fn compose_header() -> Entity {
 }
 
 #[compose]
+fn compose_stage_backdrop(model: model!(CurveModel), paths: CurvePaths) -> Entity {
+    let stage = ui! {
+        View (
+            id: "curve_text_stage",
+            position: Position::Absolute,
+            left: 0,
+            top: 0,
+            width: Dimension::percent(100),
+            height: Dimension::percent(100)
+        ) [
+            CurveStage { model: model.clone() },
+            CurveMotion::default(),
+            IgnoreHitTest,
+        ] on SizeChanged {
+            model
+                .set_stage_size(
+                    CurveStageSize::from_dimensions(event.new.width, event.new.height),
+                );
+        }
+    };
+    ui!(bind_curve_paths(stage, paths, model));
+    stage
+}
+
+#[compose]
 fn compose_stage(model: model!(CurveModel), paths: CurvePaths) -> Entity {
     ui! {
         View (
@@ -96,23 +121,12 @@ fn compose_stage(model: model!(CurveModel), paths: CurvePaths) -> Entity {
             border_width: 1,
             border_radius: 18
         ) {
-            View (
-                id: "curve_text_stage",
-                position: Position::Absolute,
-                left: 0,
-                top: 0,
-                width: Dimension::percent(100),
-                height: Dimension::percent(100)
-            ) [
-                CurveStage { model: model.clone() },
-                CurveMotion::default(),
-                IgnoreHitTest,
-            ]
+            compose_stage_backdrop (model, paths)
             Text (
                 id: "curve_text_primary",
                 "MIRUI / BEND SPACE, NOT GLYPHS",
-                path: crate::text::TextPath::new(paths.ids[0])
-                    .with_range(Fixed::ZERO..Fixed::from_int(820)),
+                path: ${ crate::text::TextPath::new(paths.ids[0])
+                    .with_range(Fixed::ZERO..path_window_end(model.stage_size().width)) },
                 position: Position::Absolute,
                 left: 0,
                 top: 0,
@@ -130,8 +144,8 @@ fn compose_stage(model: model!(CurveModel), paths: CurvePaths) -> Entity {
             Text (
                 id: "curve_text_multiscript",
                 "中文曲线排版 / مرحبا / ตั้ง",
-                path: crate::text::TextPath::new(paths.ids[1])
-                    .with_range(Fixed::ZERO..Fixed::from_int(820)),
+                path: ${ crate::text::TextPath::new(paths.ids[1])
+                    .with_range(Fixed::ZERO..path_window_end(model.stage_size().width)) },
                 position: Position::Absolute,
                 left: 0,
                 top: 0,
@@ -149,8 +163,8 @@ fn compose_stage(model: model!(CurveModel), paths: CurvePaths) -> Entity {
             Text (
                 id: "curve_text_caption",
                 "PATH REVISION > MEASURE > PLACE > FOUR BACKENDS",
-                path: crate::text::TextPath::new(paths.ids[2])
-                    .with_range(Fixed::ZERO..Fixed::from_int(820)),
+                path: ${ crate::text::TextPath::new(paths.ids[2])
+                    .with_range(Fixed::ZERO..path_window_end(model.stage_size().width)) },
                 position: Position::Absolute,
                 left: 0,
                 top: 0,
@@ -325,30 +339,5 @@ pub(super) fn build_widgets(model: model!(CurveModel), paths: CurvePaths) {
             }
         }
     };
-    let stage = cx
-        .world_mut()
-        .find_by_id("curve_text_stage")
-        .expect("Curve Text stage");
-    let primary = cx
-        .world_mut()
-        .find_by_id("curve_text_primary")
-        .expect("Curve Text primary text");
-    let multiscript = cx
-        .world_mut()
-        .find_by_id("curve_text_multiscript")
-        .expect("Curve Text multiscript text");
-    let caption = cx
-        .world_mut()
-        .find_by_id("curve_text_caption")
-        .expect("Curve Text caption");
-    ui!(bind_curve_paths(stage, paths, model.clone()));
-    ui!(bind_stage_layout(
-        stage,
-        primary,
-        multiscript,
-        caption,
-        paths,
-        model
-    ));
     //~focus-end
 }

@@ -1,44 +1,12 @@
-use super::geometry::{CurvePaths, path_window_end, update_lane_for_stage};
+use super::geometry::{CurvePaths, update_lane_for_stage};
 use super::stage::CurveStage;
-use super::state::{CurveModel, CurveStageSize};
+use super::state::CurveModel;
 use crate::ecs::DeltaTimeMs;
 use crate::prelude::*;
-use crate::ui::{LayoutAxis, LayoutDependency};
 
 #[crate::component]
 #[derive(Default)]
 pub(super) struct CurveMotion(super::super::motion::BrakedPhase);
-
-#[compose]
-pub(super) fn bind_stage_layout(
-    stage: Entity,
-    primary: Entity,
-    multiscript: Entity,
-    caption: Entity,
-    paths: CurvePaths,
-    model: model!(CurveModel),
-) {
-    let dependencies = [
-        LayoutDependency::entity(stage, LayoutAxis::Width),
-        LayoutDependency::entity(stage, LayoutAxis::Height),
-    ];
-    cx.bind_layout(stage, &dependencies, move |world, _, values| {
-        let size = CurveStageSize::from_dimensions(values.get(0), values.get(1));
-        model.set_stage_size(size);
-
-        let end = path_window_end(size.width);
-        for (entity, path) in [
-            (primary, paths.ids[0]),
-            (multiscript, paths.ids[1]),
-            (caption, paths.ids[2]),
-        ] {
-            world
-                .widget_mut(entity)
-                .expect("responsive curve path target")
-                .text_path(crate::text::TextPath::new(path).with_range(Fixed::ZERO..end));
-        }
-    });
-}
 
 #[mirui_macros::system(order = Animation, expect = CurveStage)]
 pub(super) fn curve_text_animation_system(

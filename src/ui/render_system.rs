@@ -2077,9 +2077,6 @@ fn reconcile_layout_snapshot(
     let binding_count = world
         .storage::<super::layout_binding::LayoutBinding>()
         .map_or(0, |storage| storage.len())
-        + world
-            .storage::<super::layout_binding::SharedLayoutBinding>()
-            .map_or(0, |storage| storage.len())
         + crate::input::event::runtime::size_observer_count(world);
     let update_budget = binding_count
         .saturating_add(1)

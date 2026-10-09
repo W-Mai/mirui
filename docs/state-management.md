@@ -670,6 +670,8 @@ All sizes in a pass are captured after computed rectangles are written, before c
 
 Observation storage is prepared from the actual number of installed size listeners and reused during capture and delivery. Size snapshots do not consume business notification payload capacity; notifications emitted by their callbacks still use `EventCapacity`. Callback registration and structural construction retain their normal allocations.
 
+Curve Text uses a size event to update `CurveModel.stage_size`; its three `Text.path` properties observe that value with `$` bindings. Resizing updates their path ranges even while animation is paused. Use `@` dependencies for cross-node layout properties and size events for geometry-driven Model state; neither requires an author callback that receives World.
+
 ### App callbacks and event capacity
 
 `App::on_event(E::EVENT, callback)` installs a named callback for App lifecycle notifications or input fallback. The callback factory infers the installation context; authors do not name an internal context type or write a World callback.

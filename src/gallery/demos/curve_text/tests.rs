@@ -100,8 +100,12 @@ fn stage_size_is_published_as_one_clamped_value() {
 }
 
 #[test]
-fn layout_binding_updates_responsive_geometry_without_animation() {
+fn size_events_update_all_path_ranges_while_animation_is_paused() {
     let mut app = fixture();
+    let model = model_handle(&app.world);
+    model.toggle_paused();
+    assert!(model.paused());
+    let phase = model.phase();
     let root = app.root.expect("root");
     crate::ui::render_system::update_layout(
         &mut app.world,
@@ -126,14 +130,17 @@ fn layout_binding_updates_responsive_geometry_without_animation() {
         Dimension::px(146)
     );
     assert_eq!(app.world.get::<Style>(primary).unwrap().font_size, Some(18));
-    super::super::assert_text_layouts_fit(&app.world);
-    assert_eq!(
-        app.world
-            .get::<crate::text::TextPath>(primary)
-            .unwrap()
-            .end(),
-        Some(path_window_end(stage_size.width))
-    );
+    for name in [
+        "curve_text_primary",
+        "curve_text_multiscript",
+        "curve_text_caption",
+    ] {
+        let node = app.world.find_by_id(name).unwrap();
+        assert_eq!(
+            app.world.get::<crate::text::TextPath>(node).unwrap().end(),
+            Some(path_window_end(stage_size.width))
+        );
+    }
 
     crate::ui::render_system::update_layout(
         &mut app.world,
@@ -145,6 +152,24 @@ fn layout_binding_updates_responsive_geometry_without_animation() {
         Dimension::px(62)
     );
     assert_eq!(app.world.get::<Style>(primary).unwrap().font_size, Some(30));
+    let resized = app.world.get::<crate::ui::ComputedRect>(stage).unwrap().0;
+    assert_eq!(
+        model.stage_size(),
+        CurveStageSize::from_dimensions(resized.w, resized.h)
+    );
+    assert_ne!(model.stage_size(), stage_size);
+    for name in [
+        "curve_text_primary",
+        "curve_text_multiscript",
+        "curve_text_caption",
+    ] {
+        let node = app.world.find_by_id(name).unwrap();
+        assert_eq!(
+            app.world.get::<crate::text::TextPath>(node).unwrap().end(),
+            Some(path_window_end(model.stage_size().width))
+        );
+    }
+    assert_eq!(model.phase(), phase);
 }
 
 #[test]

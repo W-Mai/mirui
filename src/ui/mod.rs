@@ -36,7 +36,7 @@ pub mod widgets;
 pub use id::{IdMap, NamedId};
 pub use layout_binding::{
     LAYOUT_DEPENDENCY_CAPACITY, LayoutAxis, LayoutContainer, LayoutDependency, LayoutSource,
-    LayoutValues, SharedLayoutBinding,
+    LayoutValues,
 };
 pub use niche::NicheMap;
 pub use offscreen::{

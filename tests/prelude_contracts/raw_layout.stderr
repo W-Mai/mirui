@@ -1,19 +1,21 @@
-error[E0432]: unresolved import `mirui::ui::LayoutBinding`
- --> tests/prelude_contracts/raw_layout.rs:1:5
+error[E0432]: unresolved imports `mirui::ui::LayoutBinding`, `mirui::ui::SharedLayoutBinding`
+ --> tests/prelude_contracts/raw_layout.rs:2:17
   |
-1 | use mirui::ui::LayoutBinding;
-  |     ^^^^^^^^^^^^^^^^^^^^^^^^ no `LayoutBinding` in `ui`
+2 | use mirui::ui::{LayoutBinding, SharedLayoutBinding};
+  |                 ^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^ no `SharedLayoutBinding` in `ui`
+  |                 |
+  |                 no `LayoutBinding` in `ui`
   |
 help: a similar name exists in the module
   |
-1 - use mirui::ui::LayoutBinding;
-1 + use mirui::ui::layout_binding;
+2 - use mirui::ui::{LayoutBinding, SharedLayoutBinding};
+2 + use mirui::ui::{layout_binding, SharedLayoutBinding};
   |
 
 error[E0603]: module `layout_binding` is private
- --> tests/prelude_contracts/raw_layout.rs:2:16
+ --> tests/prelude_contracts/raw_layout.rs:1:16
   |
-2 | use mirui::ui::layout_binding;
+1 | use mirui::ui::layout_binding;
   |                ^^^^^^^^^^^^^^ private module
   |
 note: the module `layout_binding` is defined here
@@ -21,3 +23,9 @@ note: the module `layout_binding` is defined here
   |
   | pub(crate) mod layout_binding;
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `bind_layout` found for mutable reference `&mut UiScope<'_>` in the current scope
+ --> tests/prelude_contracts/raw_layout.rs:8:14
+  |
+8 |         tree.bind_layout(root, &[], |_, _, _| {});
+  |              ^^^^^^^^^^^ method not found in `&mut UiScope<'_>`
