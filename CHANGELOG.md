@@ -71,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- LazyList capacity changes preserve the entity of each retained row instead of remapping indices by pool size. Unused supplied slots are hidden, including after capacity reductions.
 - LazyList preserves partially visible rows at fixed-point boundaries, separates overscan from the visible index, and hides rows outside the data viewport during elastic scrolling. Tail positions no longer move backward to fill the retained pool, and row positions use checked content geometry.
 - Widgets input simulation targets its own named controls rather than the first controls of each type in the application.
 - Orbit Console preserves its caller's parent background and paints its own shell.

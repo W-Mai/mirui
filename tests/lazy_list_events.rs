@@ -248,7 +248,14 @@ fn callback_deletion_and_data_shrink_skip_remaining_invalid_items() {
     assert_eq!(app.world.resource::<Trace>().unwrap().0, [(list, 0)]);
     assert_eq!(app.world.get::<LazyList>(list).unwrap().item_count, 2);
     lazy_list_system(&mut app.world).unwrap();
-    assert_eq!(app.world.resource::<Trace>().unwrap().0, [(list, 0)]);
+    assert_eq!(
+        app.world.resource::<Trace>().unwrap().0,
+        [(list, 0), (list, 1)]
+    );
+    let pool = app.world.get::<LazyListPool>(list).unwrap();
+    assert!(!app.world.is_alive(pool.items[1]));
+    assert!(app.world.is_alive(pool.items[2]));
+    assert_eq!(pool.bound_indices, [0, u32::MAX, 1]);
 }
 
 #[test]

@@ -539,6 +539,8 @@ LazyList creates its missing runtime pool on the first system run from its decla
 
 Visible rows intersect the viewport with positive area, including partial rows at either edge. `visible_start` is the first intersecting data index, not the start of the retained buffer. Spare slots hold up to two extra rows on either side without displacing visible rows or filling past the data range. Elastic offsets remain unchanged; empty viewports and offsets entirely outside the data hide retained rows. The total content extent must fit layout coordinates.
 
+Rows already bound inside the retained range keep their entities when the viewport or pool capacity changes. Missing indices use free slots; slot selection does not depend on the data index modulo the current capacity. Unused slots are hidden even when the supplied pool contains extra entities.
+
 `LazyList::BindItem` updates row content through the shared event executor. Its payload contains the retained row `item` and its data `index`; `entity!()` identifies the list. The event supports blocks, typed inline callbacks, named factories, and `tree.on_event`. It does not bubble, install input feedback, or use business notification records.
 
 ```rust,ignore
