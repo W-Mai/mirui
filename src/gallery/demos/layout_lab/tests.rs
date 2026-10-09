@@ -5,21 +5,21 @@ use super::{VIEWPORT, build_widgets};
 use crate::ecs::World;
 use crate::prelude::*;
 use crate::ui::widgets::Image;
-use crate::ui::{Children, IdMap, Style, UiScope};
+use crate::ui::{Children, Style};
 
-fn fixture() -> (World, Entity) {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets()(&mut cx);
-    drop(cx);
-    (world, parent)
+type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
+
+fn fixture(width: u16, height: u16) -> (TestApp, Entity) {
+    let mut app = App::headless(width, height);
+    let parent = app.spawn_root().layout(LayoutStyle::default()).id();
+    app.compose(parent, build_widgets());
+    (app, parent)
 }
 
 #[test]
 fn preserves_every_migrated_layout_capability() {
-    let (world, _) = fixture();
+    let (app, _) = fixture(VIEWPORT.0, VIEWPORT.1);
+    let world = &app.world;
     for id in [
         "layout_lab_shell",
         "layout_lab_header",
@@ -64,9 +64,10 @@ fn default_viewport_keeps_the_two_by_two_grid_inside_the_shell() {
     use crate::ui::ComputedRect;
     use crate::ui::render_system::update_layout;
 
-    let (mut world, parent) = fixture();
+    let (mut app, parent) = fixture(VIEWPORT.0, VIEWPORT.1);
+    let world = &mut app.world;
     update_layout(
-        &mut world,
+        world,
         parent,
         &Viewport::new(VIEWPORT.0, VIEWPORT.1, Fixed::ONE),
     );
@@ -76,11 +77,11 @@ fn default_viewport_keeps_the_two_by_two_grid_inside_the_shell() {
             .unwrap()
             .0
     };
-    let shell = rect(&world, "layout_lab_shell");
-    let flex = rect(&world, "layout_lab_flex");
-    let surfaces = rect(&world, "layout_lab_surfaces");
-    let overlay = rect(&world, "layout_lab_overlay_card");
-    let collection = rect(&world, "layout_lab_collection");
+    let shell = rect(world, "layout_lab_shell");
+    let flex = rect(world, "layout_lab_flex");
+    let surfaces = rect(world, "layout_lab_surfaces");
+    let overlay = rect(world, "layout_lab_overlay_card");
+    let collection = rect(world, "layout_lab_collection");
 
     assert_eq!(flex.y, surfaces.y);
     assert_eq!(overlay.y, collection.y);
@@ -90,7 +91,7 @@ fn default_viewport_keeps_the_two_by_two_grid_inside_the_shell() {
         assert!(card.y >= shell.y && card.y + card.h <= shell.y + shell.h);
     }
 
-    let note = rect(&world, "layout_lab_surface_note");
+    let note = rect(world, "layout_lab_surface_note");
     assert!(note.x + note.w <= surfaces.x + surfaces.w);
     assert!(note.y + note.h <= surfaces.y + surfaces.h);
 }
@@ -101,28 +102,29 @@ fn phone_viewport_stacks_cards_without_horizontal_overflow() {
     use crate::ui::ComputedRect;
     use crate::ui::render_system::update_layout;
 
-    let (mut world, parent) = fixture();
-    update_layout(&mut world, parent, &Viewport::new(320, 568, Fixed::ONE));
+    let (mut app, parent) = fixture(320, 568);
+    let world = &mut app.world;
+    update_layout(world, parent, &Viewport::new(320, 568, Fixed::ONE));
     let rect = |world: &World, id| {
         world
             .get::<ComputedRect>(world.find_by_id(id).unwrap())
             .unwrap()
             .0
     };
-    let shell = rect(&world, "layout_lab_shell");
+    let shell = rect(world, "layout_lab_shell");
     let cards = [
-        rect(&world, "layout_lab_flex"),
-        rect(&world, "layout_lab_surfaces"),
-        rect(&world, "layout_lab_overlay_card"),
-        rect(&world, "layout_lab_collection"),
+        rect(world, "layout_lab_flex"),
+        rect(world, "layout_lab_surfaces"),
+        rect(world, "layout_lab_overlay_card"),
+        rect(world, "layout_lab_collection"),
     ];
     for card in cards {
         assert!(card.x >= shell.x);
         assert!(card.x + card.w <= shell.x + shell.w);
     }
 
-    let overlay = rect(&world, "layout_lab_overlay_stage");
-    let absolute = rect(&world, "layout_lab_absolute");
+    let overlay = rect(world, "layout_lab_overlay_stage");
+    let absolute = rect(world, "layout_lab_absolute");
     assert!(absolute.x + absolute.w <= overlay.x + overlay.w);
 }
 
@@ -172,19 +174,16 @@ fn phone_scroll_extent_ends_at_the_last_visible_descendant() {
     use crate::ui::render_system::update_layout;
 
     for (width, height) in [(320, 568), (422, 600), (480, 320)] {
-        let (mut world, parent) = fixture();
-        update_layout(
-            &mut world,
-            parent,
-            &Viewport::new(width, height, Fixed::ONE),
-        );
+        let (mut app, parent) = fixture(width, height);
+        let world = &mut app.world;
+        update_layout(world, parent, &Viewport::new(width, height, Fixed::ONE));
         let shell = world.find_by_id("layout_lab_shell").unwrap();
         let content = world.find_by_id("layout_lab_document").unwrap();
         let last = world.find_by_id("layout_lab_collection").unwrap();
         let shell_rect = world.get::<ComputedRect>(shell).unwrap().0;
         let content_rect = world.get::<ComputedRect>(content).unwrap().0;
         let last_rect = world.get::<ComputedRect>(last).unwrap().0;
-        let bounds = scroll_bounds(&world, shell).unwrap();
+        let bounds = scroll_bounds(world, shell).unwrap();
         let extent = bounds.content_height;
         let max_offset = bounds.max_y;
 

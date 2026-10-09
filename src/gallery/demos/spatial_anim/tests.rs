@@ -5,8 +5,6 @@ use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::Children;
 use crate::ui::ComputedRect;
-use crate::ui::IdMap;
-use crate::ui::UiScope;
 use crate::ui::render_system::update_layout;
 
 fn run_spring_motion(world: &mut World) {
@@ -17,14 +15,11 @@ fn run_spring_motion(world: &mut World) {
 
 #[test]
 fn build_widgets_smoke() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets()(&mut cx);
-    drop(cx);
+    let mut app = App::headless(320, 568);
+    let parent = app.spawn_root().layout(LayoutStyle::default()).id();
+    app.compose(parent, build_widgets());
     assert!(
-        world
+        app.world
             .get::<Children>(parent)
             .is_some_and(|c| !c.0.is_empty()),
     );
@@ -32,14 +27,12 @@ fn build_widgets_smoke() {
 
 #[test]
 fn labels_stay_inside_phone_stage() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets()(&mut cx);
-    drop(cx);
+    let mut app = App::headless(320, 568);
+    let parent = app.spawn_root().layout(LayoutStyle::default()).id();
+    app.compose(parent, build_widgets());
+    let world = &mut app.world;
 
-    update_layout(&mut world, parent, &Viewport::new(320, 568, Fixed::ONE));
+    update_layout(world, parent, &Viewport::new(320, 568, Fixed::ONE));
     let rect = |id| {
         world
             .get::<ComputedRect>(world.find_by_id(id).unwrap())

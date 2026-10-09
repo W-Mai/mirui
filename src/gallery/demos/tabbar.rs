@@ -200,12 +200,9 @@ pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_mos
 mod tests {
     use super::*;
     use crate::core::reactive::flush_signal_dirty;
-    use crate::ecs::World;
     use crate::input::event::gesture::GestureEvent;
-    use crate::input::event::multi_tap::MultiTapTracker;
     use crate::ui::ComputedRect;
     use crate::ui::UiScope;
-    use crate::ui::view::ViewRegistry;
     use crate::ui::{Children, IdMap};
 
     #[test]
@@ -251,20 +248,16 @@ mod tests {
 
     #[test]
     fn build_widgets_smoke() {
-        let mut world = World::new();
-        crate::input::event::runtime::configure(
-            &mut world,
+        let mut app = App::headless(480, 320);
+        app.with_event_capacity(
             EventCapacity::new()
                 .notifications::<crate::ui::widgets::tabbar::SelectionChanged>(1)
                 .flush_limit(1),
-        )
-        .unwrap();
-        world.insert_resource(IdMap::new());
-        world.insert_resource(MultiTapTracker::new());
-        world.insert_resource(ViewRegistry::with_builtins());
-        let parent = WidgetBuilder::new(&mut world).id();
-        let mut cx = UiScope::new(&mut world, parent);
-        build_widgets()(&mut cx);
+        );
+        app.with_default_widgets();
+        let parent = app.spawn_root().layout(LayoutStyle::default()).id();
+        app.compose(parent, build_widgets());
+        let world = &mut app.world;
         assert!(
             world
                 .get::<Children>(parent)
@@ -274,7 +267,7 @@ mod tests {
         assert!(
             crate::input::event::runtime::has_entity_listener::<
                 crate::ui::widgets::tabbar::SelectionChanged,
-            >(&world, tabs)
+            >(world, tabs)
             .unwrap()
         );
         world.insert(
@@ -288,7 +281,7 @@ mod tests {
         );
         {
             crate::__macro_support::dispatch_entity_gesture(
-                &mut world,
+                world,
                 &GestureEvent::Tap {
                     x: Fixed::from_int(150),
                     y: Fixed::ZERO,
@@ -297,11 +290,11 @@ mod tests {
                 100,
             )
             .unwrap();
-            crate::__macro_support::flush_entity_events(&mut world).unwrap();
+            crate::__macro_support::flush_entity_events(world).unwrap();
         };
-        flush_signal_dirty(&mut world);
+        flush_signal_dirty(world);
         let status = world.find_by_id("tabbar_selection_status").unwrap();
-        let status_text = world.get::<Text>(status).unwrap().resolve(&world);
+        let status_text = world.get::<Text>(status).unwrap().resolve(world);
         assert!(
             status_text.contains("TAB 2 · FROM 1 · 1 CHANGE"),
             "{status_text}"
