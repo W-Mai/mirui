@@ -668,17 +668,30 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 
     /// Register one widget kind (built-in or user-defined).
-    pub fn with_widget(&mut self, view: View) -> &mut Self {
-        let systems = &mut self.systems;
-        view.install(&mut self.world, |s| systems.add(s));
+    ///
+    /// Contributed systems are installed in the App scheduler. Register a kind once and include its model-bound systems in the same list; repeated registration adds another descriptor and another set of systems.
+    pub fn with_widget<S>(&mut self, view: View<S>) -> &mut Self
+    where
+        S: IntoIterator,
+        S::Item: Into<System>,
+    {
+        let view = view.install(|system| {
+            self.add_system(system);
+        });
         if let Some(reg) = self.world.resource_mut::<ViewRegistry>() {
             reg.insert(view);
         }
         self
     }
 
-    /// Batch counterpart of `with_widget`; also accepts a `ViewRegistry`.
-    pub fn with_widgets(&mut self, views: impl IntoIterator<Item = View>) -> &mut Self {
+    /// Register widget kinds with the same system-source type; also accepts a `ViewRegistry`.
+    ///
+    /// Chain [`Self::with_widget`] calls when system arrays have different lengths or source types.
+    pub fn with_widgets<S>(&mut self, views: impl IntoIterator<Item = View<S>>) -> &mut Self
+    where
+        S: IntoIterator,
+        S::Item: Into<System>,
+    {
         for view in views {
             self.with_widget(view);
         }

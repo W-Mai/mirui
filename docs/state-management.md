@@ -521,6 +521,10 @@ The generated adapter holds no model borrow after paint and rejects model writes
 
 `#[view]` constructs the descriptor returned by `function_name::view()`; `app.with_widget(...)` registers it. Raw descriptor assembly and observation collectors are confined to hidden macro support. The returned `View` supports `with_systems` and `with_invalidation` configuration.
 
+`with_systems([step::system(first), step::system(second)])` replaces the whole system list with owned systems bound to explicit Model instances. Borrowed system templates are also accepted. Register each View kind once; multiple instances can contribute systems in the same list or through `app.add_system`. Each system is checked against the target App before installation. Repeated registration adds another descriptor and another set of systems; it does not replace an installed kind.
+
+Systems belong to the App scheduler, not widget entities. Hiding or removing a widget does not uninstall its systems, and existing `expect` conditions retain their component-presence semantics. Arrays and source iteration add no heap allocation; bound callbacks and scheduler storage retain their registration-time allocation costs. Installed descriptors do not retain a second system list. `app.with_widgets` accepts Views with the same source type; chain `with_widget` for different array lengths or mixed source types.
+
 A View describes a widget kind, not just its paint function. Paint, attach,
 gesture, observation, and systems are independent capabilities.
 

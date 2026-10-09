@@ -831,7 +831,7 @@ mod tests {
         ));
         assert!(descriptor.internal_gesture().is_some());
         let mut systems = 0;
-        descriptor.install(&mut world, |_| systems += 1);
+        let descriptor = descriptor.install(|_| systems += 1);
         assert_eq!(systems, 1);
         let render = descriptor.render().unwrap();
         let style = Style::default();

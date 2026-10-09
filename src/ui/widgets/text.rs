@@ -1649,7 +1649,7 @@ mod tests {
             assert!(descriptor.internal_gesture().is_none());
             assert!(descriptor.observation().is_none());
             let mut installed = 0;
-            descriptor.install(&mut world, |_| installed += 1);
+            let descriptor = descriptor.install(|_| installed += 1);
             assert_eq!(installed, 0);
             render = descriptor.render();
         }

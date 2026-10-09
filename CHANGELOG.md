@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `View::with_systems` accepts owned arrays of Model-bound systems and borrowed templates. App registration validates each system's owner and transfers systems to the scheduler without retaining another list in the View registry.
 - `Outputs<TextGeometry>` provides prepared text layouts, font metrics, local caret and selection geometry, and screen-space hit testing. Text painting and geometry readers borrow the same retained layout and path-placement storage.
 - `paint.request_frame()` schedules a visual update after successful output publication or main-target drawing. Failed drawing cancels its own requests; completed outputs retain theirs across downstream failures.
 - **Component output dependencies.** `#[depends_on(T)]` declares current-output sources, and `#[retain_previous(T)]` requests owner history. View registration activates declarations; source edits, component removal, and entity retirement reconcile requests without changing explicit offscreen settings or consumer transforms. Mirror, shadow, glow, and temporal effects use these declarations.

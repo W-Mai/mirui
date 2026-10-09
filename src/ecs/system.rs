@@ -337,19 +337,6 @@ impl System {
         }
     }
 
-    pub(crate) fn fresh(&self) -> Self {
-        Self {
-            name: self.name,
-            priority: self.priority,
-            callback: self.callback.clone(),
-            owner: self.owner,
-            metadata: self.metadata,
-            last_us: 0,
-            total_us: 0,
-            call_count: 0,
-        }
-    }
-
     #[doc(hidden)]
     /// # Safety
     ///
@@ -398,6 +385,22 @@ impl System {
     #[cfg(test)]
     pub(crate) fn metadata(&self) -> &'static [SystemAccess] {
         self.metadata
+    }
+}
+
+impl From<&System> for System {
+    /// Copy a system template with fresh execution statistics.
+    fn from(template: &System) -> Self {
+        Self {
+            name: template.name,
+            priority: template.priority,
+            callback: template.callback.clone(),
+            owner: template.owner,
+            metadata: template.metadata,
+            last_us: 0,
+            total_us: 0,
+            call_count: 0,
+        }
     }
 }
 

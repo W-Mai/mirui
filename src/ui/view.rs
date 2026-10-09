@@ -538,11 +538,15 @@ pub(crate) type PaintMeasure =
     fn(&World, Entity, Rect, &dyn Fn(Entity) -> Option<SourceGeometry>) -> Option<PaintMeasurement>;
 
 /// Widget-kind descriptor with optional painting and independent behavior hooks.
-pub struct View {
+pub struct View<Systems = &'static [crate::ecs::System]> {
+    definition: ViewDefinition,
+    systems: Systems,
+}
+
+struct ViewDefinition {
     name: &'static str,
     paint: Option<ViewPaint>,
     auto_attach: Option<ViewAttach>,
-    systems: &'static [crate::ecs::System],
     /// When set, the walker only invokes `render` on entities that
     /// own a component of this type. `None` runs on every entity
     /// (e.g. the generic Style stage).
@@ -578,101 +582,33 @@ impl View {
             None => (None, 0),
         };
         Self {
-            name: descriptor.name,
-            paint,
-            auto_attach: descriptor.attach,
+            definition: ViewDefinition {
+                name: descriptor.name,
+                paint,
+                auto_attach: descriptor.attach,
+                component_filter,
+                query_dependencies: descriptor.query_dependencies,
+                output_dependencies,
+                internal_gesture: descriptor.gesture,
+                observe,
+                observation_count,
+                invalidation: descriptor.invalidation,
+                registration_id: None,
+                component_tracking_ready: false,
+            },
             systems: descriptor.systems,
-            component_filter,
-            query_dependencies: descriptor.query_dependencies,
-            output_dependencies,
-            internal_gesture: descriptor.gesture,
-            observe,
-            observation_count,
-            invalidation: descriptor.invalidation,
-            registration_id: None,
-            component_tracking_ready: false,
         }
     }
 
     #[cfg(test)]
     pub(crate) const fn new(name: &'static str, priority: u8, render: ViewRender) -> Self {
         let mut view = Self::systems_only(name, &[]);
-        view.paint = Some(ViewPaint {
+        view.definition.paint = Some(ViewPaint {
             priority,
             render,
             measurement: None,
         });
         view
-    }
-
-    #[cfg(test)]
-    pub(crate) const fn with_attach(mut self, attach: ViewAttach) -> Self {
-        self.auto_attach = Some(attach);
-        self
-    }
-
-    pub(crate) const fn with_measurement(mut self, measure: PaintMeasure) -> Self {
-        if let Some(paint) = &mut self.paint {
-            paint.measurement = Some(measure);
-        }
-        self
-    }
-
-    pub(crate) fn measurement(&self) -> Option<PaintMeasure> {
-        self.paint.as_ref().and_then(|paint| paint.measurement)
-    }
-
-    pub const fn with_systems(mut self, systems: &'static [crate::ecs::System]) -> Self {
-        self.systems = systems;
-        self
-    }
-
-    #[cfg(test)]
-    pub(crate) const fn with_filter<T: crate::ecs::Component>(mut self) -> Self {
-        self.component_filter = Some(TypeId::of::<T>);
-        self.output_dependencies = T::OUTPUT_DEPENDENCIES;
-        self
-    }
-
-    #[cfg(test)]
-    pub(crate) const fn with_query_dependencies(
-        mut self,
-        dependencies: &'static [fn() -> TypeId],
-    ) -> Self {
-        self.query_dependencies = dependencies;
-        self
-    }
-
-    #[cfg(test)]
-    pub(crate) const fn with_internal_gesture(mut self, f: ViewInternalGesture) -> Self {
-        self.internal_gesture = Some(f);
-        self
-    }
-
-    #[cfg(test)]
-    pub(crate) const fn with_observation(
-        mut self,
-        observe: ViewObserve,
-        subscription_count: usize,
-    ) -> Self {
-        self.observe = Some(observe);
-        self.observation_count = subscription_count;
-        self
-    }
-
-    /// Select the dirty scope for this View's component and model dependencies.
-    pub const fn with_invalidation(mut self, invalidation: ViewInvalidation) -> Self {
-        self.invalidation = invalidation;
-        self
-    }
-
-    pub(crate) fn observation(&self) -> Option<ViewObserve> {
-        self.observe
-    }
-
-    #[doc(hidden)]
-    pub fn registration_id(&self) -> u64 {
-        self.registration_id.expect("View has not been registered")
     }
 
     #[cfg(test)]
@@ -695,35 +631,126 @@ impl View {
             &[],
         )
     }
+}
+
+impl<Systems> View<Systems> {
+    #[cfg(test)]
+    pub(crate) const fn with_attach(mut self, attach: ViewAttach) -> Self {
+        self.definition.auto_attach = Some(attach);
+        self
+    }
+
+    pub(crate) const fn with_measurement(mut self, measure: PaintMeasure) -> Self {
+        if let Some(paint) = &mut self.definition.paint {
+            paint.measurement = Some(measure);
+        }
+        self
+    }
+
+    pub(crate) fn measurement(&self) -> Option<PaintMeasure> {
+        self.definition
+            .paint
+            .as_ref()
+            .and_then(|paint| paint.measurement)
+    }
+
+    /// Replace the systems installed with this widget kind.
+    ///
+    /// Accepts owned system arrays or borrowed system templates. Systems belong to the App scheduler, not to individual widget entities; hiding or removing an entity does not uninstall them.
+    pub fn with_systems<NewSystems>(self, systems: NewSystems) -> View<NewSystems>
+    where
+        NewSystems: IntoIterator,
+        NewSystems::Item: Into<crate::ecs::System>,
+    {
+        View {
+            definition: self.definition,
+            systems,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn with_filter<T: crate::ecs::Component>(mut self) -> Self {
+        self.definition.component_filter = Some(TypeId::of::<T>);
+        self.definition.output_dependencies = T::OUTPUT_DEPENDENCIES;
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn with_query_dependencies(
+        mut self,
+        dependencies: &'static [fn() -> TypeId],
+    ) -> Self {
+        self.definition.query_dependencies = dependencies;
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn with_internal_gesture(mut self, f: ViewInternalGesture) -> Self {
+        self.definition.internal_gesture = Some(f);
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn with_observation(
+        mut self,
+        observe: ViewObserve,
+        subscription_count: usize,
+    ) -> Self {
+        self.definition.observe = Some(observe);
+        self.definition.observation_count = subscription_count;
+        self
+    }
+
+    /// Select the dirty scope for this View's component and model dependencies.
+    pub const fn with_invalidation(mut self, invalidation: ViewInvalidation) -> Self {
+        self.definition.invalidation = invalidation;
+        self
+    }
+
+    pub(crate) fn observation(&self) -> Option<ViewObserve> {
+        self.definition.observe
+    }
+
+    #[doc(hidden)]
+    pub fn registration_id(&self) -> u64 {
+        self.definition
+            .registration_id
+            .expect("View has not been registered")
+    }
 
     pub fn name(&self) -> &'static str {
-        self.name
+        self.definition.name
     }
     pub(crate) fn priority(&self) -> Option<u8> {
-        self.paint.map(|paint| paint.priority)
+        self.definition.paint.map(|paint| paint.priority)
     }
     pub(crate) fn render(&self) -> Option<ViewRender> {
-        self.paint.map(|paint| paint.render)
+        self.definition.paint.map(|paint| paint.render)
     }
     pub(crate) fn auto_attach(&self) -> Option<ViewAttach> {
-        self.auto_attach
+        self.definition.auto_attach
     }
     pub(crate) fn component_filter(&self) -> Option<TypeId> {
-        self.component_filter.map(|f| f())
+        self.definition.component_filter.map(|f| f())
     }
     pub(crate) fn internal_gesture(&self) -> Option<ViewInternalGesture> {
-        self.internal_gesture
+        self.definition.internal_gesture
     }
     pub(crate) fn invalidation(&self) -> ViewInvalidation {
-        self.invalidation
+        self.definition.invalidation
     }
 
-    /// Hand each contributed `System` to `sink`. Called by `App` at
-    /// view-registration time; `View` owns when and how its systems
-    /// surface — callers don't read `self.systems` directly.
-    pub(crate) fn install(&self, _world: &mut World, mut sink: impl FnMut(crate::ecs::System)) {
-        for s in self.systems {
-            sink(s.fresh());
+    pub(crate) fn install(self, mut sink: impl FnMut(crate::ecs::System)) -> View
+    where
+        Systems: IntoIterator,
+        Systems::Item: Into<crate::ecs::System>,
+    {
+        for system in self.systems {
+            sink(system.into());
+        }
+        View {
+            definition: self.definition,
+            systems: &[],
         }
     }
 }
@@ -760,32 +787,32 @@ impl ViewRegistry {
             let has_outputs = registry
                 .views
                 .iter()
-                .any(|view| !view.output_dependencies.is_empty());
+                .any(|view| !view.definition.output_dependencies.is_empty());
             if has_outputs && world.resource::<OutputRelations>().is_none() {
                 world.insert_resource(OutputRelations::default());
             }
             for view in &mut registry.views {
-                if !view.component_tracking_ready {
-                    for dependency in view.output_dependencies {
+                if !view.definition.component_tracking_ready {
+                    for dependency in view.definition.output_dependencies {
                         (dependency.descriptor.install)(world);
                     }
                     if let Some(type_id) = view.component_filter() {
                         world.watch_component_type(type_id);
                     }
-                    for dependency in view.query_dependencies {
+                    for dependency in view.definition.query_dependencies {
                         world.watch_query_dependency_type(dependency());
                     }
-                    if !view.query_dependencies.is_empty() {
+                    if !view.definition.query_dependencies.is_empty() {
                         Self::invalidate_instances(world, view);
                     }
                 }
-                view.component_tracking_ready = true;
+                view.definition.component_tracking_ready = true;
             }
             if world.resource::<OutputRelations>().is_some() {
                 world.with_resource_box::<OutputRelations, _>(|relations, world| {
                     if relations.activate(world, &mut registry.output_registration) {
                         for view in &registry.views {
-                            if !view.output_dependencies.is_empty() {
+                            if !view.definition.output_dependencies.is_empty() {
                                 world.watch_component_type(
                                     view.component_filter().expect("output component filter"),
                                 );
@@ -793,7 +820,7 @@ impl ViewRegistry {
                         }
                     }
                     for view in &registry.views {
-                        for dependency in view.output_dependencies {
+                        for dependency in view.definition.output_dependencies {
                             relations.register(&dependency.descriptor);
                         }
                     }
@@ -833,6 +860,7 @@ impl ViewRegistry {
         world.drain_query_dependency_changes(|world, changed| {
             for view in &self.views {
                 if view
+                    .definition
                     .query_dependencies
                     .iter()
                     .any(|dependency| dependency() == changed)
@@ -845,7 +873,7 @@ impl ViewRegistry {
 
     fn invalidate_instances(world: &mut World, view: &View) {
         if let Some(type_id) = view.component_filter() {
-            world.for_each_stable_type(type_id, |world, entity| match view.invalidation {
+            world.for_each_stable_type(type_id, |world, entity| match view.invalidation() {
                 ViewInvalidation::Visual => world.invalidate_visual(entity),
                 ViewInvalidation::Layout => world.invalidate(entity),
             });
@@ -864,7 +892,8 @@ impl ViewRegistry {
             }
             if let Some(relations) = relations.as_deref_mut() {
                 if world.is_alive(change.entity) && world.has_type(change.entity, change.type_id) {
-                    for (slot, dependency) in view.output_dependencies.iter().enumerate() {
+                    for (slot, dependency) in view.definition.output_dependencies.iter().enumerate()
+                    {
                         relations.bind(
                             world,
                             change.entity,
@@ -901,7 +930,7 @@ impl ViewRegistry {
                 let binding = &mut self.bindings[index];
                 binding
                     .subscriptions
-                    .reset(view.invalidation(), view.observation_count);
+                    .reset(view.invalidation(), view.definition.observation_count);
                 binding.entity = change.entity;
                 binding.registration_id = registration_id;
                 binding.active =
@@ -952,17 +981,17 @@ impl ViewRegistry {
     /// paint hook independently by paint priority.
     pub fn insert(&mut self, mut view: View) {
         assert!(
-            view.query_dependencies.is_empty() || view.component_filter.is_some(),
+            view.definition.query_dependencies.is_empty() || view.component_filter().is_some(),
             "queried View requires a component filter"
         );
-        if view.observe.is_some() {
+        if view.observation().is_some() {
             assert!(
-                view.component_filter.is_some(),
+                view.component_filter().is_some(),
                 "observed View requires a component filter"
             );
         }
-        view.registration_id = Some(self.next_registration);
-        view.component_tracking_ready = false;
+        view.definition.registration_id = Some(self.next_registration);
+        view.definition.component_tracking_ready = false;
         self.next_registration = self
             .next_registration
             .checked_add(1)
@@ -2220,15 +2249,117 @@ mod tests {
             &[unsafe { crate::ecs::System::new("tagged", 100, dummy_run).with_metadata(EXPECT) }];
 
         let view = View::new("V", 60, dummy_render).with_systems(SYSTEMS);
-        let mut world = World::new();
         let mut installed: Vec<crate::ecs::System> = Vec::new();
-        view.install(&mut world, |s| installed.push(s));
+        let view = view.install(|s| installed.push(s));
 
+        assert!(view.systems.is_empty());
         assert_eq!(installed.len(), 1);
         assert_eq!(
             installed[0].metadata().len(),
             1,
             "expect must survive install"
+        );
+    }
+
+    #[test]
+    fn system_sources_move_owned_values_and_copy_templates_without_allocating() {
+        let mut template = tick_behavior::system();
+        template.last_us = 2;
+        template.total_us = 9;
+        template.call_count = 4;
+        let expected_metadata = template.metadata().as_ptr();
+        let mut copied = None;
+        assert_eq!(
+            tracked_allocations(|| {
+                let view = behavior_only_view::view()
+                    .with_invalidation(ViewInvalidation::Layout)
+                    .with_systems(core::slice::from_ref(&template))
+                    .install(|system| copied = Some(system));
+                assert!(view.systems.is_empty());
+                assert!(view.render().is_none());
+                assert_eq!(view.invalidation(), ViewInvalidation::Layout);
+                assert_eq!(
+                    view.component_filter(),
+                    Some(TypeId::of::<BehaviorOnlyTile>())
+                );
+            }),
+            0
+        );
+        let copied = copied.unwrap();
+        assert_eq!(
+            (copied.last_us, copied.total_us, copied.call_count),
+            (0, 0, 0)
+        );
+        assert_eq!(copied.metadata().as_ptr(), expected_metadata);
+        assert_eq!(copied.priority(), template.priority());
+
+        let mut moved = None;
+        assert_eq!(
+            tracked_allocations(|| {
+                let view = behavior_only_view::view()
+                    .with_systems([template])
+                    .with_invalidation(ViewInvalidation::Layout)
+                    .install(|system| moved = Some(system));
+                assert!(view.systems.is_empty());
+                assert!(view.render().is_none());
+                assert_eq!(view.invalidation(), ViewInvalidation::Layout);
+            }),
+            0
+        );
+        let moved = moved.unwrap();
+        assert_eq!((moved.last_us, moved.total_us, moved.call_count), (2, 9, 4));
+        assert_eq!(moved.metadata().as_ptr(), expected_metadata);
+    }
+
+    #[test]
+    fn bound_source_replacement_and_installation_transfer_callback_ownership() {
+        let mut app = crate::app::App::headless(8, 8);
+        let model = app.add_model(BoundState { value: 0 });
+        let retained = Rc::new(Cell::new(0));
+        let make_system = || {
+            let capture = retained.clone();
+            crate::ecs::System::bound("retained", 100, &model, move |_| {
+                capture.set(capture.get() + 1);
+                Ok(())
+            })
+        };
+        let replaced = behavior_only_view::view().with_systems([make_system()]);
+        assert_eq!(Rc::strong_count(&retained), 2);
+        let empty = replaced.with_systems([] as [crate::ecs::System; 0]);
+        assert_eq!(Rc::strong_count(&retained), 1);
+        drop(empty);
+
+        let uninstalled = behavior_only_view::view().with_systems([make_system()]);
+        assert_eq!(Rc::strong_count(&retained), 2);
+        drop(uninstalled);
+        assert_eq!(Rc::strong_count(&retained), 1);
+
+        app.with_widget(behavior_only_view::view().with_systems([make_system()]));
+        let registry = app.world.resource::<ViewRegistry>().unwrap();
+        assert!(registry.iter().all(|view| view.systems.is_empty()));
+        assert_eq!(registry.iter().count(), 1);
+        assert_eq!(Rc::strong_count(&retained), 2);
+        app.systems.run_all(&mut app.world).unwrap();
+        assert_eq!(retained.get(), 1);
+        drop(app);
+        assert_eq!(Rc::strong_count(&retained), 1);
+    }
+
+    #[test]
+    fn builtin_templates_are_consumed_only_when_installed_in_an_app() {
+        let registry = ViewRegistry::with_builtins();
+        let count: usize = registry.iter().map(|view| view.systems.len()).sum();
+        assert!(count > 0);
+        let mut app = crate::app::App::headless(8, 8);
+        let existing = app.systems.iter().count();
+        app.with_widgets(registry);
+        assert_eq!(app.systems.iter().count(), existing + count);
+        assert!(
+            app.world
+                .resource::<ViewRegistry>()
+                .unwrap()
+                .iter()
+                .all(|view| view.systems.is_empty())
         );
     }
 

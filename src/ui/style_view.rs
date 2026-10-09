@@ -76,7 +76,6 @@ mod tests {
 
     #[test]
     fn typed_style_descriptor_preserves_layout_invalidation_without_allocating() {
-        let mut world = World::new();
         for _ in 0..2 {
             let mut descriptor = None;
             assert_eq!(tracked_allocations(|| descriptor = Some(view())), 0);
@@ -91,7 +90,9 @@ mod tests {
             assert!(descriptor.observation().is_none());
             let mut installed = 0;
             assert_eq!(
-                tracked_allocations(|| descriptor.install(&mut world, |_| installed += 1)),
+                tracked_allocations(|| {
+                    descriptor.install(|_| installed += 1);
+                }),
                 0
             );
             assert_eq!(installed, 0);

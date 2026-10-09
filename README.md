@@ -231,7 +231,7 @@ where
 
 Use `#[component]` with `model!(T)` fields to attach registered model instances to entities. A typed `#[view(component = T)]` function declares its entity filter in the attribute, projects model fields through `model!(component.field)`, and subscribes only to selectors listed in `watch(...)`. `component!()` is only needed when the paint body also reads the component itself. One model can serve several Views; several instances of the same model type stay independent. A mutable model method may return `Result<Change, E>`; an error is returned without publishing reactive updates or effects. The [state guide](docs/state-management.md) covers Views, events, effects, systems, timers, ownership, and the update-path allocation boundary.
 
-Views register widget kinds with independent paint, attach, gesture, observation, and system hooks. An empty `#[view]` function declares a behavior-only widget without generating a paint callback; `app.with_widget(function_name::view())` installs its declared hooks and systems. Paint priority affects drawing order, not gesture dispatch or system scheduling.
+Views register widget kinds with independent paint, attach, gesture, observation, and system hooks. An empty `#[view]` function declares a behavior-only widget without generating a paint callback; `app.with_widget(function_name::view())` installs its declared hooks and systems. `view().with_systems([tick::system(model)])` replaces the declared system list with instance-bound systems owned by the App scheduler. Paint priority affects drawing order, not gesture dispatch or system scheduling.
 
 ### Common attributes
 
