@@ -43,7 +43,8 @@ fn render_text(text: &str, font_token: FontToken, size: Option<u16>) -> Vec<u8> 
             .add_static(FontToken::Heading.cache_key(), font);
     }
 
-    let root = WidgetBuilder::new(&mut app.world)
+    let root = app
+        .spawn_root()
         .bg_color(Color::rgb(20, 20, 30))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
@@ -55,8 +56,7 @@ fn render_text(text: &str, font_token: FontToken, size: Option<u16>) -> Vec<u8> 
         })
         .id();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+    app.compose(root, |cx| {
         ui! {
             Text (
                 text,
@@ -64,16 +64,15 @@ fn render_text(text: &str, font_token: FontToken, size: Option<u16>) -> Vec<u8> 
                 text_color: Color::rgb(255, 220, 140)
             )
         }
-    };
+    });
 
-    app.set_root(root);
     let viewport = Viewport::new(width, height, Fixed::ONE);
     render_system::update_layout(&mut app.world, root, &viewport);
     {
         let tex = app.backend.framebuffer();
         let mut renderer = SwRenderer::new(tex);
         renderer.viewport = viewport;
-        render_system::render(&mut app.world, root, &viewport, &mut renderer).unwrap();
+        render_system::render(&app.world, root, &viewport, &mut renderer).unwrap();
     }
 
     let tex = app.backend.framebuffer();

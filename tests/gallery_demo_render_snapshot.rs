@@ -2,7 +2,6 @@
 
 extern crate alloc;
 
-use mirui::ecs::World;
 use mirui::prelude::*;
 use mirui::render::SwRendererFactory;
 use mirui::render::sw::SwRenderer;
@@ -10,7 +9,6 @@ use mirui::render::texture::ColorFormat;
 use mirui::surface::FramebufferAccess;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::Viewport;
-use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::render_system;
 
 type SnapshotBackend = FramebufSurface<fn(&[u8], mirui::types::PhysicalRect)>;
@@ -27,13 +25,17 @@ fn snapshot_app(width: u16, height: u16) -> SnapshotApp {
 }
 
 fn snapshot_parent(app: &mut SnapshotApp) -> mirui::ecs::Entity {
-    WidgetBuilder::new(&mut app.world)
-        .layout(mirui::ui::layout::LayoutStyle {
-            direction: mirui::ui::layout::FlexDirection::Column,
-            grow: Fixed::ONE,
-            ..Default::default()
+    let root = app.spawn_root().id();
+    app.compose(root, |tree| {
+        tree.spawn(mirui::ui::Style {
+            layout: mirui::ui::layout::LayoutStyle {
+                direction: mirui::ui::layout::FlexDirection::Column,
+                grow: Fixed::ONE,
+                ..Default::default()
+            },
+            ..mirui::ui::Style::default()
         })
-        .id()
+    })
 }
 
 fn finish_snapshot(
@@ -70,17 +72,6 @@ fn finish_snapshot(
 /// Render the demo, return distinct quantized RGB colours encountered.
 /// A collapsed layout shows only the root bg (1 colour); real widget
 /// content emits multiple distinct colours.
-fn render_demo<F: FnOnce(&mut World, mirui::ecs::Entity)>(
-    width: u16,
-    height: u16,
-    build: F,
-) -> alloc::collections::BTreeSet<(u8, u8, u8)> {
-    let mut app = snapshot_app(width, height);
-    let parent = snapshot_parent(&mut app);
-    build(&mut app.world, parent);
-    finish_snapshot(&mut app, parent, width, height)
-}
-
 fn render_app_demo<F: FnOnce(&mut SnapshotApp, mirui::ecs::Entity)>(
     width: u16,
     height: u16,
@@ -110,22 +101,8 @@ macro_rules! basic_demo_scoped {
     ($name:ident, $w:expr, $h:expr) => {
         #[test]
         fn $name() {
-            let cs = render_demo($w, $h, |world, parent| {
-                let mut cx = mirui::ui::UiScope::new(world, parent);
-                mirui::gallery::demos::$name::build_widgets()(&mut cx);
-            });
-            assert_renders(stringify!($name), cs);
-        }
-    };
-}
-
-macro_rules! viewport_demo_scoped {
-    ($name:ident, $w:expr, $h:expr) => {
-        #[test]
-        fn $name() {
-            let cs = render_demo($w, $h, |world, parent| {
-                let mut cx = mirui::ui::UiScope::new(world, parent);
-                mirui::gallery::demos::$name::build_widgets($w, $h)(&mut cx);
+            let cs = render_app_demo($w, $h, |app, parent| {
+                app.compose(parent, mirui::gallery::demos::$name::build_widgets());
             });
             assert_renders(stringify!($name), cs);
         }
@@ -143,9 +120,8 @@ macro_rules! viewport_demo_ignored_scoped {
         #[test]
         #[ignore = "needs multi-frame example loop, see module note above"]
         fn $name() {
-            let cs = render_demo($w, $h, |world, parent| {
-                let mut cx = mirui::ui::UiScope::new(world, parent);
-                mirui::gallery::demos::$name::build_widgets($w, $h)(&mut cx);
+            let cs = render_app_demo($w, $h, |app, parent| {
+                app.compose(parent, mirui::gallery::demos::$name::build_widgets($w, $h));
             });
             assert_renders(stringify!($name), cs);
         }
@@ -157,9 +133,8 @@ macro_rules! viewport_demo_ignored_noargs_scoped {
         #[test]
         #[ignore = "needs multi-frame example loop, see module note above"]
         fn $name() {
-            let cs = render_demo($w, $h, |world, parent| {
-                let mut cx = mirui::ui::UiScope::new(world, parent);
-                mirui::gallery::demos::$name::build_widgets()(&mut cx);
+            let cs = render_app_demo($w, $h, |app, parent| {
+                app.compose(parent, mirui::gallery::demos::$name::build_widgets());
             });
             assert_renders(stringify!($name), cs);
         }
@@ -199,10 +174,9 @@ basic_demo_scoped!(transform, 480, 320);
 
 #[test]
 fn themed_demos_render_in_light_palette() {
-    let layout = render_demo(320, 568, |world, parent| {
-        world.insert_resource(mirui::ui::Theme::light());
-        let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::layout_lab::build_widgets()(&mut cx);
+    let layout = render_app_demo(320, 568, |app, parent| {
+        app.add_resource(mirui::ui::Theme::light());
+        app.compose(parent, mirui::gallery::demos::layout_lab::build_widgets());
     });
     assert_renders("layout_lab_light", layout);
 
@@ -213,43 +187,37 @@ fn themed_demos_render_in_light_palette() {
     });
     assert_renders("interaction_lab_light", interaction);
 
-    let scroll = render_demo(320, 568, |world, parent| {
-        world.insert_resource(mirui::ui::Theme::light());
-        let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::scroll::build_widgets()(&mut cx);
+    let scroll = render_app_demo(320, 568, |app, parent| {
+        app.add_resource(mirui::ui::Theme::light());
+        app.compose(parent, mirui::gallery::demos::scroll::build_widgets());
     });
     assert_renders("scroll_light", scroll);
 
-    let tabs = render_demo(320, 568, |world, parent| {
-        world.insert_resource(mirui::ui::Theme::light());
-        let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::tabbar::build_widgets()(&mut cx);
+    let tabs = render_app_demo(320, 568, |app, parent| {
+        app.add_resource(mirui::ui::Theme::light());
+        app.compose(parent, mirui::gallery::demos::tabbar::build_widgets());
     });
     assert_renders("tabbar_light", tabs);
 
-    let book = render_demo(320, 568, |world, parent| {
-        world.insert_resource(mirui::ui::Theme::light());
-        let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::book_flip::build_widgets()(&mut cx);
+    let book = render_app_demo(320, 568, |app, parent| {
+        app.add_resource(mirui::ui::Theme::light());
+        app.compose(parent, mirui::gallery::demos::book_flip::build_widgets());
     });
     assert_renders("book_flip_light", book);
 
-    let card = render_demo(320, 568, |world, parent| {
-        world.insert_resource(mirui::ui::Theme::light());
-        let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::flip_card::build_widgets()(&mut cx);
-        drop(cx);
-        world.insert_resource(mirui::ecs::DeltaTimeMs(16));
+    let card = render_app_demo(320, 568, |app, parent| {
+        app.add_resource(mirui::ui::Theme::light());
+        app.compose(parent, mirui::gallery::demos::flip_card::build_widgets());
+        app.add_resource(mirui::ecs::DeltaTimeMs(16));
         let mut systems = mirui::ecs::SystemScheduler::new();
         systems.add(mirui::gallery::demos::flip_card::flip_system::system());
-        systems.run_all(world).unwrap();
+        systems.run_all(&mut app.world).unwrap();
     });
     assert_renders("flip_card_light", card);
 
-    let image = render_demo(320, 568, |world, parent| {
-        world.insert_resource(mirui::ui::Theme::light());
-        let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::image_flip::build_widgets()(&mut cx);
+    let image = render_app_demo(320, 568, |app, parent| {
+        app.add_resource(mirui::ui::Theme::light());
+        app.compose(parent, mirui::gallery::demos::image_flip::build_widgets());
     });
     assert_renders("image_flip_light", image);
 }
@@ -258,14 +226,16 @@ basic_demo_scoped!(effect_panels, 480, 360);
 basic_demo_scoped!(effect_glass, 128, 128);
 basic_demo_scoped!(particles, 480, 320);
 basic_demo_scoped!(subpixel, 480, 320);
-viewport_demo_scoped!(widgets, 512, 512);
+basic_demo_scoped!(widgets, 512, 512);
 basic_demo_scoped!(widgets_compact, 128, 128);
 
 #[test]
 fn life_compact() {
-    let cs = render_demo(128, 128, |world, parent| {
-        let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::life_compact::build_widgets(128, 128)(&mut cx);
+    let cs = render_app_demo(128, 128, |app, parent| {
+        app.compose(
+            parent,
+            mirui::gallery::demos::life_compact::build_widgets(128, 128),
+        );
     });
     assert_renders("life_compact", cs);
 }
@@ -302,27 +272,25 @@ fn typography_lab_renders_in_light_palette() {
 
 #[test]
 fn three_body_renders() {
-    let cs = render_demo(480, 320, |world, parent| {
-        let mut cx = mirui::ui::UiScope::new(world, parent);
-        mirui::gallery::demos::three_body::build_widgets(480, 320, 3, Fixed::from_int(30))(&mut cx);
+    let cs = render_app_demo(480, 320, |app, parent| {
+        app.compose(
+            parent,
+            mirui::gallery::demos::three_body::build_widgets(480, 320, 3, Fixed::from_int(30)),
+        );
     });
     assert_renders("three_body", cs);
 }
 
 #[test]
 fn custom_view_renders() {
-    use mirui::ui::view::ViewRegistry;
     let backend = FramebufSurface::with_format(480, 200, ColorFormat::RGBA8888, |_, _| {});
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
-    if let Some(reg) = app.world.resource_mut::<ViewRegistry>() {
-        reg.insert(mirui::gallery::demos::custom_view::diamond_view());
-    }
+    app.with_widget(mirui::gallery::demos::custom_view::diamond_view());
 
-    let parent = WidgetBuilder::new(&mut app.world).id();
-    let mut cx = mirui::ui::UiScope::new(&mut app.world, parent);
-    mirui::gallery::demos::custom_view::build_widgets()(&mut cx);
-    drop(cx);
+    let root = app.spawn_root().id();
+    let parent = app.compose(root, |tree| tree.spawn(mirui::ui::Style::default()));
+    app.compose(parent, mirui::gallery::demos::custom_view::build_widgets());
 
     let viewport = Viewport::new(480, 200, Fixed::ONE);
     render_system::update_layout(&mut app.world, parent, &viewport);

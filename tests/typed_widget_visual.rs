@@ -8,7 +8,6 @@ mod tests {
     use mirui::surface::FramebufferAccess;
     use mirui::surface::framebuf::FramebufSurface;
     use mirui::types::Viewport;
-    use mirui::ui::builder::WidgetBuilder;
     use mirui::ui::layout::FlexDirection;
     use mirui::ui::render_system;
     use mirui::ui::widgets::{Button, Text};
@@ -42,7 +41,8 @@ mod tests {
         let mut app: App<_, _> = App::new(backend);
         app.with_default_widgets().with_default_systems();
 
-        let root = WidgetBuilder::new(&mut app.world)
+        let root = app
+            .spawn_root()
             .bg_color(Color::rgb(bg.0, bg.1, bg.2))
             .layout(LayoutStyle {
                 direction: FlexDirection::Column,
@@ -52,8 +52,7 @@ mod tests {
             })
             .id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        app.compose(root, |cx| {
             ui! {
                 Row (height: 44) {
                     Button (
@@ -68,9 +67,7 @@ mod tests {
                     } on Tap(|_| false)
                 }
             }
-        };
-
-        app.set_root(root);
+        });
 
         let world = &mut app.world;
         let viewport = Viewport::new(width, height, Fixed::ONE);
@@ -99,7 +96,7 @@ mod tests {
                 let r = pixels[i];
                 let g = pixels[i + 1];
                 let b = pixels[i + 2];
-                if r >= 35 && r <= 45 && g >= 45 && g <= 55 && b >= 65 && b <= 75 {
+                if (35..=45).contains(&r) && (45..=55).contains(&g) && (65..=75).contains(&b) {
                     found_button_color = true;
                     break;
                 }
@@ -124,7 +121,8 @@ mod tests {
         let mut app: App<_, _> = App::new(backend);
         app.with_default_widgets().with_default_systems();
 
-        let root = WidgetBuilder::new(&mut app.world)
+        let root = app
+            .spawn_root()
             .bg_color(Color::rgb(bg.0, bg.1, bg.2))
             .layout(LayoutStyle {
                 width: Dimension::px(width as i32),
@@ -133,17 +131,14 @@ mod tests {
             })
             .id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        app.compose(root, |cx| {
             ui! {
                 Row (width: 200, height: 40) {
                     View (grow: 1.0, bg_color: Color::rgb(255, 0, 0))
                     View (grow: 1.0, bg_color: Color::rgb(0, 255, 0))
                 }
             }
-        };
-
-        app.set_root(root);
+        });
 
         let world = &mut app.world;
         let viewport = Viewport::new(width, height, Fixed::ONE);
@@ -189,7 +184,8 @@ mod tests {
         let mut app: App<_, _> = App::new(backend);
         app.with_default_widgets().with_default_systems();
 
-        let root = WidgetBuilder::new(&mut app.world)
+        let root = app
+            .spawn_root()
             .bg_color(Color::rgb(bg.0, bg.1, bg.2))
             .layout(LayoutStyle {
                 width: Dimension::px(width as i32),
@@ -198,17 +194,14 @@ mod tests {
             })
             .id();
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        app.compose(root, |cx| {
             ui! {
                 Column (width: 40, height: 200) {
                     View (grow: 1.0, bg_color: Color::rgb(255, 0, 0))
                     View (grow: 1.0, bg_color: Color::rgb(0, 255, 0))
                 }
             }
-        };
-
-        app.set_root(root);
+        });
 
         let world = &mut app.world;
         let viewport = Viewport::new(width, height, Fixed::ONE);
