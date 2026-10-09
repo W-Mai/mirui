@@ -1,0 +1,114 @@
+error[E0277]: the trait bound `WidgetConstruction: mirui::input::event::contract::AppRoute` is not satisfied
+  --> tests/event_type_contracts/fail/cell_create_app.rs:13:9
+   |
+13 |     app.on_event(CreateCell::EVENT, bind_row::callback(root));
+   |         ^^^^^^^^ the trait `mirui::input::event::contract::AppRoute` is not implemented for `WidgetConstruction`
+   |
+help: the following other types implement trait `mirui::input::event::contract::AppRoute`
+  --> src/input/event/contract.rs
+   |
+   | impl AppRoute for InputFallback {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputFallback`
+   | impl AppRoute for AppNotification {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `AppNotification`
+note: required by a bound in `mirui::app::App::<B, F>::on_event`
+  --> src/app/mod.rs
+   |
+   |     pub fn on_event<E>(
+   |            -------- required by a bound in this associated function
+...
+   |         E::Route: crate::input::event::contract::AppRoute,
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `App::<B, F>::on_event`
+
+error[E0277]: the trait bound `WidgetSource<mirui::ui::widgets::LazyList>: mirui::input::event::contract::AppEventSource` is not satisfied
+  --> tests/event_type_contracts/fail/cell_create_app.rs:13:9
+   |
+13 |     app.on_event(CreateCell::EVENT, bind_row::callback(root));
+   |         ^^^^^^^^ the trait `mirui::input::event::contract::AppEventSource` is not implemented for `WidgetSource<mirui::ui::widgets::LazyList>`
+   |
+help: the following other types implement trait `mirui::input::event::contract::AppEventSource`
+  --> src/input/event/contract.rs
+   |
+   | impl AppEventSource for InputSource {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputSource`
+   | impl AppEventSource for AppSource {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `AppSource`
+note: required by a bound in `mirui::app::App::<B, F>::on_event`
+  --> src/app/mod.rs
+   |
+   |     pub fn on_event<E>(
+   |            -------- required by a bound in this associated function
+...
+   |         E::Source: crate::input::event::contract::AppEventSource,
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `App::<B, F>::on_event`
+
+error[E0277]: the trait bound `Option<mirui::ecs::Entity>: mirui::__macro_support::ListenerDecision` is not satisfied
+  --> tests/event_type_contracts/fail/cell_create_app.rs:13:9
+   |
+13 |     app.on_event(CreateCell::EVENT, bind_row::callback(root));
+   |         ^^^^^^^^ the trait `mirui::__macro_support::ListenerDecision` is not implemented for `Option<mirui::ecs::Entity>`
+   |
+help: the following other types implement trait `mirui::__macro_support::ListenerDecision`
+  --> src/input/event/listeners.rs
+   |
+   | impl ListenerDecision for () {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `()`
+...
+   | impl ListenerDecision for BubbleControl {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `BubbleControl`
+note: required by a bound in `mirui::app::App::<B, F>::on_event`
+  --> src/app/mod.rs
+   |
+   |     pub fn on_event<E>(
+   |            -------- required by a bound in this associated function
+...
+   |             crate::input::event::listeners::ListenerDecision,
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `App::<B, F>::on_event`
+
+error[E0271]: type mismatch resolving `<AppContext as CallbackContext<CreateCell>>::Target == Entity`
+  --> tests/event_type_contracts/fail/cell_create_app.rs:13:37
+   |
+13 |     app.on_event(CreateCell::EVENT, bind_row::callback(root));
+   |                                     ^^^^^^^^^^^^^^^^^^^^^^^^ expected `Entity`, found `()`
+
+error[E0277]: the trait bound `WidgetConstruction: mirui::input::event::contract::AppRoute` is not satisfied
+  --> tests/event_type_contracts/fail/cell_create_app.rs:13:37
+   |
+13 |     app.on_event(CreateCell::EVENT, bind_row::callback(root));
+   |                                     ^^^^^^^^^^^^^^^^^^^^^^^^ the trait `mirui::input::event::contract::AppRoute` is not implemented for `WidgetConstruction`
+   |
+help: the following other types implement trait `mirui::input::event::contract::AppRoute`
+  --> src/input/event/contract.rs
+   |
+   | impl AppRoute for InputFallback {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputFallback`
+   | impl AppRoute for AppNotification {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `AppNotification`
+   = note: required for `mirui::__macro_support::AppContext` to implement `mirui::__macro_support::CallbackContext<mirui::ui::widgets::lazy_list::CreateCell>`
+note: required by a bound in `callback`
+  --> tests/event_type_contracts/fail/cell_create_app.rs:4:1
+   |
+ 4 | #[event]
+   | ^^^^^^^^ required by this bound in `callback`
+   = note: this error originates in the attribute macro `event` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `WidgetSource<mirui::ui::widgets::LazyList>: mirui::input::event::contract::AppEventSource` is not satisfied
+  --> tests/event_type_contracts/fail/cell_create_app.rs:13:37
+   |
+13 |     app.on_event(CreateCell::EVENT, bind_row::callback(root));
+   |                                     ^^^^^^^^^^^^^^^^^^^^^^^^ the trait `mirui::input::event::contract::AppEventSource` is not implemented for `WidgetSource<mirui::ui::widgets::LazyList>`
+   |
+help: the following other types implement trait `mirui::input::event::contract::AppEventSource`
+  --> src/input/event/contract.rs
+   |
+   | impl AppEventSource for InputSource {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputSource`
+   | impl AppEventSource for AppSource {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `AppSource`
+   = note: required for `mirui::__macro_support::AppContext` to implement `mirui::__macro_support::CallbackContext<mirui::ui::widgets::lazy_list::CreateCell>`
+note: required by a bound in `callback`
+  --> tests/event_type_contracts/fail/cell_create_app.rs:4:1
+   |
+ 4 | #[event]
+   | ^^^^^^^^ required by this bound in `callback`
+   = note: this error originates in the attribute macro `event` (in Nightly builds, run with -Z macro-backtrace for more info)

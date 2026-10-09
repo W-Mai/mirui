@@ -1,27 +1,32 @@
-use alloc::format;
-
 use super::state::{FormProgress, FormSlider};
 use crate::prelude::*;
-use crate::ui::Children;
 use crate::ui::property::prop;
-use crate::ui::widgets::lazy_list::BindItem;
-use crate::ui::widgets::{ProgressBar, Slider, Text};
+use crate::ui::widgets::lazy_list::CreateCell;
+use crate::ui::widgets::{ParagraphStyle, ProgressBar, Slider, Text, TextAlign};
 
 #[event]
-pub(super) fn row_binder(
-    event: event!(BindItem),
-    rows: query!(Children),
-    labels: query!(mut Text),
-) {
-    let label = format!("Row {}", event.index);
-    let Some(label_entity) = rows
-        .get(event.item)
-        .and_then(|children| children.0.first().copied())
-    else {
-        return;
-    };
-    if let Some(text) = labels.get(label_entity) {
-        text.set_content(label);
+pub(super) fn create_row(event: event!(CreateCell)) -> Entity {
+    let item = event.item.clone();
+    ui! {
+        Row (
+            bg_color: ColorToken::Surface,
+            width: Dimension::percent(100),
+            align: AlignItems::Center,
+            padding: Padding {
+                top: Dimension::px(0),
+                right: Dimension::px(14),
+                bottom: Dimension::px(0),
+                left: Dimension::px(14),
+            }
+        ) {
+            Text (
+                text: ${ alloc::format!("Row {}", item.index()) },
+                grow: 1.0,
+                height: 24,
+                text_color: ColorToken::OnSurface,
+                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+            )
+        }
     }
 }
 

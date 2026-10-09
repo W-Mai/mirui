@@ -1,25 +1,43 @@
+use super::style::bitmap_label;
 use crate::prelude::*;
-use crate::ui::Children;
-use crate::ui::widgets::Text;
-use crate::ui::widgets::lazy_list::BindItem;
+use crate::ui::widgets::lazy_list::CreateCell;
+use crate::ui::widgets::{Text, TextAlign};
 
 pub(super) const ROW_HEIGHT: i32 = 12;
-pub(super) const POOL_SIZE: usize = 9;
 pub(super) const VIRTUAL_ITEM_COUNT: u32 = 600_000;
-pub(super) const VIRTUAL_CONTENT_HEIGHT: i32 = ROW_HEIGHT * VIRTUAL_ITEM_COUNT as i32;
 const ROW_LABELS: [&str; 8] = [
     "ALPHA", "BETA", "GAMMA", "DELTA", "EPS", "ZETA", "ETA", "THETA",
 ];
 
 #[event]
-pub(super) fn bind_row(event: event!(BindItem), rows: query!(Children), labels: query!(mut Text)) {
-    let Some(label) = rows
-        .get(event.item)
-        .and_then(|children| children.0.first().copied())
-    else {
-        return;
-    };
-    if let Some(text) = labels.get(label) {
-        text.set_content(ROW_LABELS[event.index as usize % ROW_LABELS.len()]);
+pub(super) fn create_row(event: event!(CreateCell)) -> Entity {
+    let item = event.item.clone();
+    ui! {
+        Row (
+            width: Dimension::percent(100),
+            padding: Padding {
+                top: Dimension::px(0),
+                right: Dimension::px(7),
+                bottom: Dimension::px(0),
+                left: Dimension::px(7),
+            },
+            align: AlignItems::Center,
+            bg_color: ColorToken::SurfaceVariant
+        ) {
+            Text (
+                text: ${ ROW_LABELS[item.index() as usize % ROW_LABELS.len()] },
+                grow: 1.0,
+                font: FontToken::Default,
+                font_size: 6,
+                text_color: ColorToken::OnSurface,
+                paragraph: bitmap_label(TextAlign::Start)
+            )
+            View (
+                width: 4,
+                height: 4,
+                bg_color: ColorToken::Primary,
+                border_radius: 2
+            )
+        }
     }
 }

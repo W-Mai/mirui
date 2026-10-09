@@ -220,8 +220,17 @@ fn collect_geometry(
         .map_or(scroll, |offset| (scroll.0 + offset.x, scroll.1 + offset.y));
     let child_clip = if world.get::<ScrollConfig>(entity).is_some()
         || world.get::<ScrollOffset>(entity).is_some()
+        || world
+            .get::<crate::ui::Style>(entity)
+            .is_some_and(|style| style.clip_children)
     {
-        intersect_clip(scroll_clip, shifted(node.rect, scroll))
+        let bounds = crate::ui::render_system::transformed_clip_bounds(
+            shifted(node.rect, scroll),
+            effective_2d,
+            effective_3d,
+        )
+        .unwrap_or(Rect::ZERO);
+        intersect_clip(scroll_clip, bounds)
     } else {
         scroll_clip
     };

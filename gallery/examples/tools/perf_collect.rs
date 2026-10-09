@@ -17,16 +17,20 @@ use mirui::surface::slow::SlowSurface;
 use mirui::types::{Color, DimPoint, Dimension, Fixed};
 use mirui::ui::widgets::LazyList;
 use mirui::ui::widgets::Text;
-use mirui::ui::widgets::lazy_list::BindItem;
+use mirui::ui::widgets::lazy_list::CreateCell;
 
 const ROW_H: i32 = 24;
-const POOL_SIZE: usize = 16; // 320 / 24 = 13.3 visible, +3 buffer
 const ITEM_COUNT: u32 = 200;
 
 #[event]
-fn row_binder(event: event!(BindItem), rows: query!(mut Text)) {
-    if let Some(text) = rows.get(event.item) {
-        text.set_content(alloc::format!("Row {}", event.index));
+fn create_row(event: event!(CreateCell)) -> Entity {
+    let item = event.item.clone();
+    ui! {
+        Text (
+            bg_color: Color::rgb(60, 60, 80),
+            text_color: Color::rgb(220, 220, 230),
+            text: ${ alloc::format!("Row {}", item.index()) }
+        )
     }
 }
 
@@ -39,7 +43,7 @@ fn scroll_list() -> Entity {
             bg_color: Color::rgb(40, 40, 56),
             grow: 1.0
         ) [
-            LazyList::new(ITEM_COUNT, ROW_H, POOL_SIZE as u8),
+            LazyList::new(ITEM_COUNT, ROW_H),
             ScrollOffset {
                 x: Fixed::ZERO,
                 y: Fixed::ZERO,
@@ -47,24 +51,9 @@ fn scroll_list() -> Entity {
             ScrollConfig {
                 direction: ScrollAxis::Vertical,
                 elastic: false,
-                content_height: Fixed::from_int(ROW_H * ITEM_COUNT as i32),
-                content_width: Fixed::ZERO,
+                ..Default::default()
             },
-        ] {
-            walk 0..POOL_SIZE with _i {
-                Row (
-                    bg_color: Color::rgb(60, 60, 80),
-                    text_color: Color::rgb(220, 220, 230),
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: 320,
-                    height: ROW_H
-                ) [
-                    Text::from(""),
-                ]
-            }
-        } on LazyList::BindItem(row_binder::callback())
+        ] on LazyList::CreateCell(create_row::callback())
     }
 }
 

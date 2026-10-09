@@ -1,9 +1,9 @@
-use super::binding::{ITEM_COUNT, POOL_SIZE, ROW_H, row_binder};
+use super::binding::{ITEM_COUNT, ROW_H, create_row};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
-use crate::ui::widgets::{LazyList, ParagraphStyle, Text, TextAlign};
+use crate::ui::widgets::{LazyList, Text};
 
 #[compose]
 fn compose_list() -> Entity {
@@ -18,8 +18,7 @@ fn compose_list() -> Entity {
             grow: 1.0,
             border_radius: 12,
             item_count: ITEM_COUNT,
-            item_height: Fixed::from_int(ROW_H),
-            pool_size: POOL_SIZE as u8
+            item_extent: Fixed::from_int(ROW_H)
         ) [
             ScrollOffset {
                 x: Fixed::ZERO,
@@ -28,42 +27,9 @@ fn compose_list() -> Entity {
             ScrollConfig {
                 direction: ScrollAxis::Vertical,
                 elastic: true,
-                content_height: Fixed::from_int(ROW_H * ITEM_COUNT as i32),
-                content_width: Fixed::ZERO,
+                ..Default::default()
             },
-        ] {
-            walk 0..POOL_SIZE with _i {
-                Row (
-                    bg_color: ColorToken::Surface,
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: Dimension::percent(100),
-                    height: ROW_H,
-                    align: AlignItems::Center,
-                    padding: Padding {
-                        top: Dimension::px(0),
-                        right: Dimension::px(12),
-                        bottom: Dimension::px(0),
-                        left: Dimension::px(12),
-                    }
-                ) {
-                    Text (
-                        "",
-                        grow: 1.0,
-                        height: 24,
-                        text_color: ColorToken::OnSurface,
-                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                    )
-                    View (
-                        width: 5,
-                        height: 5,
-                        bg_color: ColorToken::Primary,
-                        border_radius: 3
-                    )
-                }
-            }
-        } on BindItem(row_binder::callback())
+        ] on CreateCell(create_row::callback())
     }
 }
 
@@ -92,7 +58,7 @@ pub fn build_widgets() {
                     text_color: ColorToken::OnSurface
                 )
                 Text (
-                    "65,536 ROWS / 12 LIVE ENTITIES",
+                    "65,536 ROWS",
                     width: Dimension::percent(100),
                     height: 14,
                     font_size: 10,

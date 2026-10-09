@@ -43,6 +43,14 @@ impl ItemGeometry {
         visible.start - before..visible.start + visible_count.min(capacity) + after
     }
 
+    pub(super) fn capacity(self, viewport: Fixed) -> u32 {
+        let viewport = i64::from(storage::to_i32(viewport));
+        if viewport <= 0 {
+            return 0;
+        }
+        (((viewport + self.extent - 1) / self.extent + 5) as u32).min(self.count)
+    }
+
     pub(super) fn position(self, index: u32) -> Fixed {
         debug_assert!(index <= self.count);
         Fixed::from_ratio(

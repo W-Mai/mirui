@@ -46,8 +46,6 @@ impl<'w> UiScope<'w> {
         E: crate::input::event::contract::Event,
         E::Route: crate::__macro_support::EntityInstallRoute<E>,
         E::Source: crate::input::event::contract::EntityEventSource,
-        <E::Route as crate::input::event::contract::EventRoute>::Decision:
-            crate::__macro_support::ListenerDecision,
     {
         crate::input::event::binding::install_entity_event(self.world, entity, key, callback);
     }

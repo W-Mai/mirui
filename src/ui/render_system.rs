@@ -1224,7 +1224,11 @@ fn intersect_with_self(clip: &Rect, rect: &Rect) -> Rect {
     }
 }
 
-fn transformed_clip_bounds(rect: Rect, affine: Transform, projective: Transform3D) -> Option<Rect> {
+pub(crate) fn transformed_clip_bounds(
+    rect: Rect,
+    affine: Transform,
+    projective: Transform3D,
+) -> Option<Rect> {
     if projective.is_identity() {
         Some(affine.apply_rect_bbox(rect))
     } else {
@@ -2078,9 +2082,18 @@ fn reconcile_layout_snapshot(
         .storage::<super::layout_binding::LayoutBinding>()
         .map_or(0, |storage| storage.len())
         + crate::input::event::runtime::size_observer_count(world);
-    let update_budget = binding_count
-        .saturating_add(1)
-        .min(MAX_LAYOUT_BINDING_UPDATES);
+    let update_budget = if world
+        .query::<super::widgets::LazyList>()
+        .iter()
+        .next()
+        .is_some()
+    {
+        MAX_LAYOUT_BINDING_UPDATES
+    } else {
+        binding_count
+            .saturating_add(1)
+            .min(MAX_LAYOUT_BINDING_UPDATES)
+    };
     let pass_count = update_budget.saturating_add(1);
 
     for pass in 0..pass_count {
@@ -2101,6 +2114,9 @@ fn reconcile_layout_snapshot(
             };
         world.put_resource_box(snapshot);
         let mut changed = super::layout_binding::apply_layout_bindings(world, invoke);
+        if invoke {
+            changed |= super::widgets::lazy_list::reconcile(world);
+        }
         if let Some(sizes) = sizes {
             changed |= sizes.changed;
             if invoke {

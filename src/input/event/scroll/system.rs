@@ -56,6 +56,16 @@ pub fn scroll_bounds(world: &World, entity: Entity) -> Option<ScrollBounds> {
             content_height = config.content_height;
         }
     }
+    if let Some((horizontal, extent)) = crate::ui::widgets::lazy_list::content_extent(world, entity)
+    {
+        if horizontal {
+            content_width = extent;
+            content_height = rect.h;
+        } else {
+            content_height = extent;
+            content_width = rect.w;
+        }
+    }
     Some(ScrollBounds {
         viewport_width: rect.w,
         viewport_height: rect.h,

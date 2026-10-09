@@ -99,6 +99,115 @@ where
 }
 
 type Decision<E> = <<E as Event>::Route as EventRoute>::Decision;
+type Scope<'world, E> = <<E as Event>::Route as EventRoute>::Scope<'world>;
+
+/// Generated invocation capability. Construction cannot retain ECS parameter borrows.
+#[doc(hidden)]
+pub trait CallbackInvocation<P: SystemParamSet, T>: EventRoute {
+    /// # Safety
+    /// The complete parameter access plan must have been validated before invocation.
+    unsafe fn invoke<R: EventResult<Self>>(
+        world: &mut World,
+        target: T,
+        name: &'static str,
+        body: impl for<'world> FnOnce(P::Item<'world>, &mut Self::Scope<'world>) -> R,
+    ) -> Self::Decision
+    where
+        Self: Sized;
+}
+
+macro_rules! borrowed_invocation {
+    ($($route:ty),+ $(,)?) => {$(
+        impl<P: SystemParamSet, T> CallbackInvocation<P, T> for $route {
+            unsafe fn invoke<R: EventResult<Self>>(
+                world: &mut World,
+                _target: T,
+                name: &'static str,
+                body: impl for<'world> FnOnce(P::Item<'world>, &mut ()) -> R,
+            ) -> Self::Decision {
+                // SAFETY: the caller validated the complete parameter access plan.
+                body(unsafe { fetch_system_params::<P>(world, name) }, &mut ()).into_decision()
+            }
+        }
+    )+};
+}
+
+borrowed_invocation!(
+    super::contract::EntityBubble,
+    super::contract::EntityNotification,
+    super::contract::LayoutNotification,
+    super::contract::InputFallback,
+    super::contract::AppNotification,
+);
+
+struct ConstructionGuard<'world> {
+    world: &'world mut World,
+    parent: Entity,
+    previous_children: usize,
+    accepted: bool,
+}
+
+impl Drop for ConstructionGuard<'_> {
+    fn drop(&mut self) {
+        if self.accepted {
+            return;
+        }
+        while let Some(entity) = self
+            .world
+            .get_mut::<crate::ui::Children>(self.parent)
+            .and_then(|children| {
+                if children.0.len() > self.previous_children {
+                    children.0.pop()
+                } else {
+                    None
+                }
+            })
+        {
+            crate::ui::despawn_subtree(self.world, entity);
+        }
+    }
+}
+
+impl CallbackInvocation<(), Entity> for super::contract::WidgetConstruction {
+    unsafe fn invoke<R: EventResult<Self>>(
+        world: &mut World,
+        target: Entity,
+        _name: &'static str,
+        body: impl for<'world> FnOnce((), &mut crate::ui::UiScope<'world>) -> R,
+    ) -> Option<Entity> {
+        use crate::ui::{Children, Parent};
+        let previous_children = world
+            .get::<Children>(target)
+            .map_or(0, |children| children.0.len());
+        let mut construction = ConstructionGuard {
+            world,
+            parent: target,
+            previous_children,
+            accepted: false,
+        };
+        let result =
+            body((), &mut crate::ui::UiScope::new(construction.world, target)).into_decision();
+        let valid = result.filter(|&entity| {
+            construction.world.is_alive(target)
+                && construction
+                    .world
+                    .get::<Parent>(entity)
+                    .is_some_and(|parent| parent.0 == target)
+                && construction
+                    .world
+                    .get::<Children>(target)
+                    .is_some_and(|children| {
+                        children.0.len() == previous_children + 1
+                            && children.0.last() == Some(&entity)
+                    })
+        });
+        if valid.is_none() {
+            crate::warn!(target: "mirui::event::construction", "creation requires one new child root");
+        }
+        construction.accepted = valid.is_some();
+        valid
+    }
+}
 
 /// Typed callback values accepted by generated event bindings.
 #[doc(hidden)]
@@ -118,11 +227,12 @@ where
     C: CallbackContext<E>,
     F: for<'event> Fn(&'event E) -> R + 'static,
     R: EventResult<E::Route>,
+    E::Route: CallbackInvocation<(), C::Target>,
 {
     fn into_callback(self, name: &'static str) -> EventCallback<E, C> {
         // SAFETY: no World parameters are fetched; generated bindings record
         // declared Model requirements, while ordinary captures remain opaque.
-        unsafe { event_callback::<E, C, (), R>(name, &[], move |(), event, _| self(event)) }
+        unsafe { event_callback::<E, C, (), R>(name, &[], move |(), event, _, _| self(event)) }
     }
 }
 
@@ -145,14 +255,17 @@ impl<E: Event> EventKey<E> {
     pub unsafe fn __bind_plain<C, R>(
         self,
         name: &'static str,
-        body: impl for<'event> Fn(&'event E) -> R + 'static,
+        body: impl for<'event, 'world> Fn(&'event E, &mut Scope<'world, E>) -> R + 'static,
     ) -> EventCallback<E, C>
     where
         C: CallbackContext<E>,
         R: EventResult<E::Route>,
+        E::Route: CallbackInvocation<(), C::Target>,
     {
         // SAFETY: the macro records all declared Model bindings on the result.
-        unsafe { event_callback::<E, C, (), R>(name, &[], move |(), event, _| body(event)) }
+        unsafe {
+            event_callback::<E, C, (), R>(name, &[], move |(), event, _, scope| body(event, scope))
+        }
     }
 
     /// Anchor a generated deferred payload closure to this selector.
@@ -163,17 +276,25 @@ impl<E: Event> EventKey<E> {
     pub unsafe fn __bind_deferred<C, R>(
         self,
         name: &'static str,
-        body: impl for<'event, 'commands> Fn(&'event E, DeferredCommands<'commands>) -> R + 'static,
+        body: impl for<'event, 'commands, 'world> Fn(
+            &'event E,
+            &mut Scope<'world, E>,
+            DeferredCommands<'commands>,
+        ) -> R
+        + 'static,
     ) -> EventCallback<E, C>
     where
         C: CallbackContext<E>,
         R: EventResult<E::Route>,
+        E::Route: CallbackInvocation<(), C::Target>,
     {
         // SAFETY: the macro records all declared Model bindings on the result.
         unsafe {
-            deferred_event_callback::<E, C, (), R>(name, &[], move |(), event, _, commands| {
-                body(event, commands)
-            })
+            deferred_event_callback::<E, C, (), R>(
+                name,
+                &[],
+                move |(), event, _, scope, commands| body(event, scope, commands),
+            )
         }
     }
 
@@ -186,11 +307,18 @@ impl<E: Event> EventKey<E> {
         self,
         name: &'static str,
         metadata: &'static [SystemAccess],
-        body: impl for<'world, 'event> Fn(P::Item<'world>, &'event E, C::Target) -> R + 'static,
+        body: impl for<'world, 'event> Fn(
+            P::Item<'world>,
+            &'event E,
+            C::Target,
+            &mut Scope<'world, E>,
+        ) -> R
+        + 'static,
     ) -> EventCallback<E, C>
     where
         C: CallbackContext<E>,
         P: SystemParamSet + 'static,
+        E::Route: CallbackInvocation<P, C::Target>,
         R: EventResult<E::Route>,
     {
         // SAFETY: delegated from the generated invocation plan.
@@ -210,6 +338,7 @@ impl<E: Event> EventKey<E> {
             P::Item<'world>,
             &'event E,
             C::Target,
+            &mut Scope<'world, E>,
             DeferredCommands<'commands>,
         ) -> R
         + 'static,
@@ -217,6 +346,7 @@ impl<E: Event> EventKey<E> {
     where
         C: CallbackContext<E>,
         P: SystemParamSet + 'static,
+        E::Route: CallbackInvocation<P, C::Target>,
         R: EventResult<E::Route>,
     {
         // SAFETY: delegated from the generated invocation plan.
@@ -366,7 +496,10 @@ impl<E: Event, C: CallbackContext<E>> PreparedEvent<E, C> {
                 let mut queue = commands.try_borrow_mut().map_err(|_| CommandError::Busy)?;
                 let mut batch = queue.begin();
                 let decision = run(world, payload, target, batch.commands());
-                batch.finish(world)?;
+                if let Err(error) = batch.finish(world) {
+                    E::Route::discard(world, decision);
+                    return Err(error);
+                }
                 decision
             }
         };
@@ -385,12 +518,14 @@ impl<E: Event, C: CallbackContext<E>> PreparedEvent<E, C> {
 pub unsafe fn event_callback<E, C, P, R>(
     name: &'static str,
     metadata: &'static [SystemAccess],
-    body: impl for<'world, 'event> Fn(P::Item<'world>, &'event E, C::Target) -> R + 'static,
+    body: impl for<'world, 'event> Fn(P::Item<'world>, &'event E, C::Target, &mut Scope<'world, E>) -> R
+    + 'static,
 ) -> EventCallback<E, C>
 where
     E: Event,
     C: CallbackContext<E>,
     P: SystemParamSet + 'static,
+    E::Route: CallbackInvocation<P, C::Target>,
     R: EventResult<E::Route>,
 {
     EventCallback {
@@ -401,8 +536,11 @@ where
         run: CallbackRun::Plain(Rc::new(move |world, payload, target| {
             // SAFETY: prepare validated the complete immutable metadata before
             // this closure can run. The body cannot access World directly.
-            let params = unsafe { fetch_system_params::<P>(world, name) };
-            body(params, payload, target).into_decision()
+            unsafe {
+                E::Route::invoke::<R>(world, target, name, |params, scope| {
+                    body(params, payload, target, scope)
+                })
+            }
         })),
     }
 }
@@ -420,6 +558,7 @@ pub unsafe fn deferred_event_callback<E, C, P, R>(
         P::Item<'world>,
         &'event E,
         C::Target,
+        &mut Scope<'world, E>,
         DeferredCommands<'commands>,
     ) -> R
     + 'static,
@@ -428,6 +567,7 @@ where
     E: Event,
     C: CallbackContext<E>,
     P: SystemParamSet + 'static,
+    E::Route: CallbackInvocation<P, C::Target>,
     R: EventResult<E::Route>,
 {
     EventCallback {
@@ -441,8 +581,11 @@ where
                 // SAFETY: prepare validated the immutable complete access plan.
                 // These references are released when the body returns, before the
                 // executor commits any recorded structural changes.
-                let params = unsafe { fetch_system_params::<P>(world, name) };
-                body(params, payload, target, commands).into_decision()
+                unsafe {
+                    E::Route::invoke::<R>(world, target, name, |params, scope| {
+                        body(params, payload, target, scope, commands)
+                    })
+                }
             }),
         },
     }

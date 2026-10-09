@@ -1,5 +1,5 @@
 use super::VIEWPORT;
-use super::binding::{POOL_SIZE, VIRTUAL_ITEM_COUNT};
+use super::binding::VIRTUAL_ITEM_COUNT;
 use super::runtime::{automation, install};
 use super::style::CompactTheme;
 use crate::core::reactive::flush_signal_dirty;
@@ -7,7 +7,7 @@ use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::surface::FramebufferAccess;
 use crate::types::Viewport;
-use crate::ui::widgets::{LazyList, LazyListPool, ProgressBar, Slider, TabContent};
+use crate::ui::widgets::{LazyList, ProgressBar, Slider, TabContent};
 use crate::ui::{ComputedRect, Theme};
 
 #[test]
@@ -159,13 +159,20 @@ fn compact_tabs_keep_distinct_pages_and_a_bounded_virtual_pool() {
         .collect();
     pages.sort_unstable();
     let list = app.world.find_by_id("compact_widgets_list").unwrap();
-    assert_eq!(
-        app.world.get::<crate::ui::Children>(list).unwrap().0.len(),
-        POOL_SIZE
+    assert!(
+        app.world
+            .get::<crate::ui::Children>(list)
+            .unwrap()
+            .0
+            .is_empty()
     );
-    crate::ui::widgets::lazy_list::lazy_list_system(&mut app.world).unwrap();
+    crate::ui::render_system::update_layout(
+        &mut app.world,
+        root,
+        &Viewport::new(VIEWPORT.0, VIEWPORT.1, Fixed::ONE),
+    );
     let list_state = app.world.get::<LazyList>(list).unwrap();
-    let pool = app.world.get::<LazyListPool>(list).unwrap();
+    let cells = &app.world.get::<crate::ui::Children>(list).unwrap().0;
     let light = app.world.find_by_id("compact_theme_light").unwrap();
     let dark = app.world.find_by_id("compact_theme_dark").unwrap();
     let light_surface = app
@@ -183,7 +190,7 @@ fn compact_tabs_keep_distinct_pages_and_a_bounded_virtual_pool() {
 
     assert_eq!(pages, [0, 1, 2]);
     assert_eq!(list_state.item_count, VIRTUAL_ITEM_COUNT);
-    assert_eq!(pool.items.len(), POOL_SIZE);
+    assert!(cells.len() < 32);
     assert_ne!(light_surface, dark_surface);
     assert_eq!(timeline.total_ms, 9_000);
 }

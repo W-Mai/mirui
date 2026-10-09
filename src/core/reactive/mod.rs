@@ -2,6 +2,7 @@ extern crate alloc;
 
 mod graph;
 mod identity;
+pub(crate) mod retained;
 
 use alloc::collections::{BTreeMap, VecDeque};
 use alloc::rc::{Rc, Weak};
@@ -655,6 +656,20 @@ pub fn flush_signal_dirty(world: &mut World) {
     reclaim_dead_effects(world);
     let world_id = world.id();
     for _ in 0..FLUSH_MAX_PASSES {
+        if world.component_count(core::any::TypeId::of::<retained::RetainedEffects>()) > 0 {
+            with_reactive(|r| {
+                let effects = &r.effects;
+                r.dirty_effects
+                    .make_contiguous()
+                    .sort_unstable_by_key(|id| {
+                        let depth = effects
+                            .get(id)
+                            .and_then(|effect| effect.borrow().owner_entity)
+                            .map_or(0, |entity| retained::depth(world, entity));
+                        (depth, *id)
+                    });
+            });
+        }
         let pending_effects = with_reactive(|r| r.dirty_effects.len());
         let mut ran_effect = false;
         for _ in 0..pending_effects {
@@ -670,6 +685,14 @@ pub fn flush_signal_dirty(world: &mut World) {
                 }
             });
             if let Some(effect) = effect {
+                let owner = with_reactive(|r| {
+                    r.effects
+                        .get(&effect)
+                        .and_then(|effect| effect.borrow().owner_entity)
+                });
+                if owner.is_some_and(|entity| !retained::enabled(world, entity)) {
+                    continue;
+                }
                 run_effect(effect);
                 ran_effect = true;
             }

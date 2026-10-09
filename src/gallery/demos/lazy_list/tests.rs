@@ -11,6 +11,11 @@ fn build_widgets_smoke() {
     app.with_default_widgets();
     let parent = app.spawn_root().id();
     app.compose(parent, build_widgets());
+    crate::ui::render_system::update_layout(
+        &mut app.world,
+        parent,
+        &crate::types::Viewport::new(320, 320, Fixed::ONE),
+    );
     let mut world = app.world;
     assert!(
         world
@@ -24,13 +29,18 @@ fn build_widgets_smoke() {
     let paragraph = world.get::<Text>(label).unwrap().paragraph().clone();
     world.get_mut::<ScrollOffset>(list).unwrap().y = Fixed::from_int(42 * ROW_H);
     crate::ui::widgets::lazy_list::lazy_list_system(&mut world).unwrap();
-    let pool = world.get::<crate::ui::widgets::LazyListPool>(list).unwrap();
-    let slot = pool
-        .bound_indices
+    crate::core::reactive::flush_signal_dirty(&mut world);
+    let row = *world
+        .get::<Children>(list)
+        .unwrap()
+        .0
         .iter()
-        .position(|&index| index == 42)
+        .find(|&&row| {
+            world.get::<Children>(row).is_some_and(|children| {
+                world.get::<Text>(children.0[0]).unwrap().resolve(&world) == "Row 42"
+            })
+        })
         .unwrap();
-    let row = pool.items[slot];
     let label = world.get::<Children>(row).unwrap().0[0];
     assert_eq!(world.get::<Text>(label).unwrap().resolve(&world), "Row 42");
     assert_eq!(world.get::<Text>(label).unwrap().paragraph(), &paragraph);

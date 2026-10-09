@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **LazyList row events.** `BindItem` updates retained row content through typed callbacks before layout. Full pool assignment precedes callbacks, stale items are skipped after structural changes, and framework row updates do not consume business notification storage. Gallery lists and snapshot tools use the shared event path; World-based item binders are removed.
+- **Automatic LazyList cells.** `CreateCell` constructs retained cells through event blocks, typed callbacks, and builders. The observed `ListItem.index()` updates reactive content during reuse. Lists manage their own pools, support horizontal and vertical extents, suspend inactive cell bindings, and cancel stale cell interactions. Gallery lists and snapshot tools use the same lifecycle.
 - **Layout size events.** `SizeChanged` supports event blocks, typed callbacks, and widget builders through the shared executor. Logical size changes update reactive properties in the same frame, without adding hit targets or consuming business notification storage. Layout feedback is bounded and warns on non-convergence. Curve Text updates its Model and reactive path ranges through size events; World-based layout callback APIs are removed.
 - **Forward widget identities.** Static sibling declarations support forward `id(...)` references without changing component initialization or child order. Effect panels declare shadow and glow attachments with their source identities during composition.
 - **Default event storage.** App prepares a small bounded notification and deferred-command preset on demand, with explicit typed overrides for larger payloads and batches.
@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- LazyList reuses list and row snapshots across updates instead of allocating them each frame. Callback-driven deletions and pool replacements remain generation-checked, and recursive updates cannot replace an active batch.
+- LazyList reuses list and cell snapshots across updates. Hidden-cell storage is prepared during creation; warmed scrolling and property updates reuse capacity. Callback-driven deletions remain generation-checked, and recursive updates cannot replace an active batch.
 - Structural World access for generated reactive branches and lists is confined to hidden macro support; `core::reactive::with_world` is no longer a public authoring API.
 - Composition scopes no longer expose `world_mut`. Generated UI and Niche construction access the same storage through hidden macro support.
 - Kinetic Console, Widgets, and Compact Widgets construct their simulation timelines through resource compositions instead of World parameters. Widgets uses named targets and shares its composition, theme timer, and input sequence across desktop and embedded setup.
@@ -71,13 +71,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- LazyList capacity changes preserve the entity of each retained row instead of remapping indices by pool size. Unused supplied slots are hidden, including after capacity reductions.
+- LazyList capacity changes preserve the entity of each retained cell instead of remapping indices by pool size. Unused cells are hidden and reused when needed.
 - LazyList preserves partially visible rows at fixed-point boundaries, separates overscan from the visible index, and hides rows outside the data viewport during elastic scrolling. Tail positions no longer move backward to fill the retained pool, and row positions use checked content geometry.
 - Widgets input simulation targets its own named controls rather than the first controls of each type in the application.
 - Orbit Console preserves its caller's parent background and paints its own shell.
 - CompactCurveText keeps animation state on each animated Text and follows its current path.
 - Subpixel bars use their own parent container's live bounds instead of a shared arena resource.
-- LazyList initializes its runtime pool from declared children on first use, preserving explicit pools and removing manual pool installation from demos and snapshot tools.
+- LazyList constructs and lays out cells in the first valid layout pass. Data shrink suspends expired cell bindings before they read removed items.
+- Pointer hit testing respects clipping containers and transformed viewport bounds used by rendering.
 - Static component attachments are available during widget initialization, including attachments on layout Views. Reactive captures are prepared before attachment values can move Models, while static bounded content is seeded before consuming ordinary captures.
 - Offscreen texture lookups retain source-specific pixel formats when transparent RGBA and opaque RGB565 buffers share a cache.
 - Texture-reference invalidation tracks the full source identity and initializes new references even when pixel revisions match.

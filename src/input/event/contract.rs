@@ -28,6 +28,10 @@ pub trait Event: Sized + 'static {
 /// `()`; consumable routes require a [`BubbleControl`] decision.
 pub trait EventRoute: sealed::Route + 'static {
     type Decision;
+    #[doc(hidden)]
+    type Scope<'world>;
+    #[doc(hidden)]
+    fn discard(_world: &mut World, _decision: Self::Decision) {}
 }
 
 /// A consumable event routed from a target through its ancestors.
@@ -36,8 +40,8 @@ pub struct EntityBubble;
 pub struct EntityNotification;
 /// A direct layout notification emitted by the framework.
 pub struct LayoutNotification;
-/// A synchronous framework update for a widget, outside the business notification queue.
-pub struct WidgetUpdate;
+/// A synchronous, single-provider request that constructs a widget subtree.
+pub struct WidgetConstruction;
 /// Input handled by the focus/scroll route before reaching App listeners.
 pub struct InputFallback;
 /// A non-consumable App lifecycle notification.
@@ -49,6 +53,7 @@ macro_rules! routes {
             impl sealed::Route for $route {}
             impl EventRoute for $route {
                 type Decision = $decision;
+                type Scope<'world> = ();
             }
         )+
     };
@@ -58,10 +63,20 @@ routes!(
     EntityBubble => BubbleControl,
     EntityNotification => (),
     LayoutNotification => (),
-    WidgetUpdate => (),
     InputFallback => BubbleControl,
     AppNotification => (),
 );
+
+impl sealed::Route for WidgetConstruction {}
+impl EventRoute for WidgetConstruction {
+    type Decision = Option<Entity>;
+    type Scope<'world> = crate::ui::UiScope<'world>;
+    fn discard(world: &mut World, decision: Self::Decision) {
+        if let Some(entity) = decision {
+            crate::ui::despawn_subtree(world, entity);
+        }
+    }
+}
 
 /// A route accepted by an entity event installer.
 #[doc(hidden)]
@@ -69,7 +84,7 @@ pub trait EntityRoute: EventRoute {}
 impl EntityRoute for EntityBubble {}
 impl EntityRoute for EntityNotification {}
 impl EntityRoute for LayoutNotification {}
-impl EntityRoute for WidgetUpdate {}
+impl EntityRoute for WidgetConstruction {}
 impl EntityRoute for InputFallback {}
 
 /// A route accepted by an App event installer.
@@ -106,7 +121,7 @@ impl EventSource<InputFallback> for InputSource {}
 impl EventSource<InputFallback> for AppSource {}
 impl EventSource<AppNotification> for AppSource {}
 impl<W: Component> EventSource<EntityNotification> for WidgetSource<W> {}
-impl<W: Component> EventSource<WidgetUpdate> for WidgetSource<W> {}
+impl<W: Component> EventSource<WidgetConstruction> for WidgetSource<W> {}
 
 /// A source checked against an entity's installed components.
 #[doc(hidden)]
@@ -255,6 +270,13 @@ macro_rules! consumable_results {
 
 consumable_results!(EntityBubble, InputFallback);
 
+impl sealed::Result<WidgetConstruction> for Entity {}
+impl EventResult<WidgetConstruction> for Entity {
+    fn into_decision(self) -> Option<Entity> {
+        Some(self)
+    }
+}
+
 macro_rules! notification_results {
     ($($route:ty),+ $(,)?) => {
         $(
@@ -266,12 +288,7 @@ macro_rules! notification_results {
     };
 }
 
-notification_results!(
-    EntityNotification,
-    LayoutNotification,
-    WidgetUpdate,
-    AppNotification
-);
+notification_results!(EntityNotification, LayoutNotification, AppNotification);
 
 macro_rules! widget_events {
     (

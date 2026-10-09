@@ -8,7 +8,7 @@ fn main() {
         let _ = deferred_event_callback::<Key, AppContext, (), ()>(
             "escape-commands",
             &[],
-            move |(), _, (), commands| retained.set(Some(commands)),
+            move |(), _, (), _scope, commands| retained.set(Some(commands)),
         );
     }
 }

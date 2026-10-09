@@ -2,11 +2,11 @@ use crate::ecs::{Entity, World};
 
 use super::callback::{CallbackContext, EventCallback};
 use super::contract::{
-    EntityBubble, EntityEventSource, EntityNotification, EntityRoute, Event, EventKey, EventRoute,
-    InputFallback, LayoutNotification, WidgetUpdate,
+    EntityBubble, EntityEventSource, EntityNotification, EntityRoute, Event, EventKey,
+    InputFallback, LayoutNotification, WidgetConstruction,
 };
 use super::gesture::GesturePayload;
-use super::listeners::{ListenerDecision, ListenerSelector};
+use super::listeners::ListenerSelector;
 
 mod sealed {
     pub trait Install<E> {}
@@ -15,14 +15,29 @@ mod sealed {
 /// Selector matching used by generated entity event bindings.
 #[doc(hidden)]
 pub trait EntityInstallRoute<E: Event>: EntityRoute + sealed::Install<E> {
-    fn selector(key: EventKey<E>) -> ListenerSelector<E>;
+    fn install<C: CallbackContext<E, Target = Entity>>(
+        world: &mut World,
+        entity: Entity,
+        key: EventKey<E>,
+        callback: EventCallback<E, C>,
+    ) -> Result<(), super::runtime::RuntimeInstallError>
+    where
+        E::Source: EntityEventSource;
 }
 
 impl<E: GesturePayload> sealed::Install<E> for EntityBubble {}
 
 impl<E: GesturePayload> EntityInstallRoute<E> for EntityBubble {
-    fn selector(key: EventKey<E>) -> ListenerSelector<E> {
-        ListenerSelector::gesture(key)
+    fn install<C: CallbackContext<E, Target = Entity>>(
+        world: &mut World,
+        entity: Entity,
+        key: EventKey<E>,
+        callback: EventCallback<E, C>,
+    ) -> Result<(), super::runtime::RuntimeInstallError>
+    where
+        E::Source: EntityEventSource,
+    {
+        super::runtime::install_listener(world, entity, ListenerSelector::gesture(key), callback)
     }
 }
 
@@ -32,20 +47,34 @@ macro_rules! unit_routes {
             impl<E: Event<Route = $route, Options = ()>> sealed::Install<E> for $route {}
 
             impl<E: Event<Route = $route, Options = ()>> EntityInstallRoute<E> for $route {
-                fn selector(key: EventKey<E>) -> ListenerSelector<E> {
-                    ListenerSelector::new(key, |(), _| true)
+                fn install<C: CallbackContext<E, Target = Entity>>(
+                    world: &mut World, entity: Entity, key: EventKey<E>, callback: EventCallback<E, C>,
+                ) -> Result<(), super::runtime::RuntimeInstallError> where E::Source: EntityEventSource {
+                    super::runtime::install_listener(world, entity, ListenerSelector::new(key, |(), _| true), callback)
                 }
             }
         )+
     };
 }
 
-unit_routes!(
-    EntityNotification,
-    LayoutNotification,
-    WidgetUpdate,
-    InputFallback
-);
+unit_routes!(EntityNotification, LayoutNotification, InputFallback);
+
+impl<E: Event<Route = WidgetConstruction, Options = ()>> sealed::Install<E> for WidgetConstruction {}
+impl<E: Event<Route = WidgetConstruction, Options = ()>> EntityInstallRoute<E>
+    for WidgetConstruction
+{
+    fn install<C: CallbackContext<E, Target = Entity>>(
+        world: &mut World,
+        entity: Entity,
+        _key: EventKey<E>,
+        callback: EventCallback<E, C>,
+    ) -> Result<(), super::runtime::RuntimeInstallError>
+    where
+        E::Source: EntityEventSource,
+    {
+        super::runtime::install_provider(world, entity, callback)
+    }
+}
 
 /// One uninstalled binding stored by a widget builder.
 #[doc(hidden)]
@@ -97,7 +126,6 @@ where
     C: CallbackContext<E, Target = Entity>,
     E::Route: EntityInstallRoute<E>,
     E::Source: EntityEventSource,
-    <E::Route as EventRoute>::Decision: ListenerDecision,
 {
     fn install(self, world: &mut World, entity: Entity) {
         install_entity_event(world, entity, self.key, self.callback);
@@ -116,7 +144,6 @@ pub fn install_entity_event<E, C>(
     C: CallbackContext<E, Target = Entity>,
     E::Route: EntityInstallRoute<E>,
     E::Source: EntityEventSource,
-    <E::Route as EventRoute>::Decision: ListenerDecision,
 {
     if let Err(error) = super::runtime::install_entity(world, entity, key, callback) {
         crate::warn!(target: "mirui::event::install", "entity event binding skipped: {:?}", error);

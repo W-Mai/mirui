@@ -30,6 +30,19 @@ pub(crate) fn is_hidden_in_tree(world: &World, mut entity: Entity) -> bool {
     }
 }
 
+pub(crate) fn is_in_subtree(world: &World, root: Entity, mut entity: Entity) -> bool {
+    for _ in 0..=world.live_entity_count() {
+        if entity == root {
+            return true;
+        }
+        let Some(parent) = world.get::<Parent>(entity) else {
+            return false;
+        };
+        entity = parent.0;
+    }
+    false
+}
+
 /// Prepare all branch roots before the first selection. Branch bodies run once
 /// while their parent is composed, including bodies that start out hidden.
 #[doc(hidden)]

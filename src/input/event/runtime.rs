@@ -14,7 +14,7 @@ use super::callback::{AppContext, CallbackContext, EventCallback};
 use super::capacity::{EventCapacity, EventCapacityError, EventLimits};
 use super::contract::{
     AppEventSource, AppNotification, AppRoute, EntityBubble, EntityEventSource, EntityNotification,
-    Event, EventKey, EventRoute, WidgetUpdate,
+    Event, EventKey, EventRoute,
 };
 use super::emission::{
     enqueue_app_notice, flush_notifications_with, has_business_storage,
@@ -153,10 +153,13 @@ impl EventRuntime {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum RuntimeInstallError {
+pub enum RuntimeInstallError {
     Capacity(EventCapacityError),
     Listener(ListenerError),
     MissingCommandCapacity,
+    DuplicateProvider {
+        entity: Entity,
+    },
     NotificationPayload {
         event: &'static str,
         error: NotificationError,
@@ -209,6 +212,78 @@ pub(crate) fn initialize(world: &mut World) {
 
 fn runtime(world: &World) -> Option<Rc<EventRuntime>> {
     world.resource::<Rc<EventRuntime>>().cloned()
+}
+
+type ProviderRun<E> =
+    dyn Fn(&mut World, &E, Entity) -> Result<Option<Option<Entity>>, CommandError>;
+pub(crate) struct ConstructionProvider<E: Event>(Rc<ProviderRun<E>>);
+impl<E: Event> crate::ecs::Component for ConstructionProvider<E> {}
+impl<E: Event> Clone for ConstructionProvider<E> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+impl<E: Event> ConstructionProvider<E> {
+    pub(crate) fn invoke(&self, world: &mut World, event: &E, target: Entity) -> Option<Entity> {
+        match (self.0)(world, event, target) {
+            Ok(result) => result.flatten().filter(|&entity| {
+                let valid = world.is_alive(target)
+                    && world.is_alive(entity)
+                    && world
+                        .get::<crate::ui::Parent>(entity)
+                        .is_some_and(|parent| parent.0 == target);
+                if !valid {
+                    crate::ui::despawn_subtree(world, entity);
+                }
+                valid
+            }),
+            Err(error) => {
+                crate::warn!(target: "mirui::event::construction", "creation skipped: {:?}", error);
+                None
+            }
+        }
+    }
+}
+
+pub(crate) fn install_provider<E, C>(
+    world: &mut World,
+    entity: Entity,
+    callback: EventCallback<E, C>,
+) -> Result<(), RuntimeInstallError>
+where
+    E: Event<Route = super::contract::WidgetConstruction>,
+    E::Source: EntityEventSource,
+    C: CallbackContext<E, Target = Entity>,
+{
+    if !world.is_alive(entity) || !E::Source::present(world, entity) {
+        return Err(ListenerError::MissingSource { entity }.into());
+    }
+    if world.has::<ConstructionProvider<E>>(entity) {
+        return Err(RuntimeInstallError::DuplicateProvider { entity });
+    }
+    initialize(world);
+    let runtime = runtime(world).expect("initialized event runtime");
+    runtime.check_owner(world)?;
+    let configuration = runtime.configuration.get();
+    let capacity = if callback.uses_commands() {
+        configuration
+            .limits()
+            .commands
+            .ok_or(RuntimeInstallError::MissingCommandCapacity)?
+    } else {
+        CommandCapacity::new()
+    };
+    let callback = callback
+        .prepare(world, capacity)
+        .map_err(ListenerError::from)?;
+    world.insert(
+        entity,
+        ConstructionProvider(Rc::new(move |world, event, target| {
+            callback.invoke(world, event, target)
+        })),
+    );
+    runtime.configuration.set(configuration.freeze());
+    Ok(())
 }
 
 pub(crate) fn configure(
@@ -297,6 +372,21 @@ where
     C: CallbackContext<E, Target = Entity>,
     E::Route: EntityInstallRoute<E>,
     E::Source: EntityEventSource,
+{
+    E::Route::install(world, entity, key, callback)
+}
+
+pub(crate) fn install_listener<E, C>(
+    world: &mut World,
+    entity: Entity,
+    selector: ListenerSelector<E>,
+    callback: EventCallback<E, C>,
+) -> Result<(), RuntimeInstallError>
+where
+    E: Event,
+    C: CallbackContext<E, Target = Entity>,
+    E::Route: super::contract::EntityRoute,
+    E::Source: EntityEventSource,
     <E::Route as EventRoute>::Decision: ListenerDecision,
 {
     initialize(world);
@@ -318,13 +408,9 @@ where
     if observes_size {
         runtime.sizes.reserve(&runtime.listeners, world)?;
     }
-    let listener = runtime.listeners.install_entity(
-        world,
-        entity,
-        E::Route::selector(key),
-        callback,
-        commands,
-    )?;
+    let listener = runtime
+        .listeners
+        .install_entity(world, entity, selector, callback, commands)?;
     if observes_size {
         runtime.sizes.insert(listener, entity);
         world.insert(entity, crate::ui::dirty::Dirty);
@@ -412,28 +498,6 @@ pub(crate) fn has_entity_listener<E: Event>(
         Some(runtime) => runtime.listeners.has_entity_listener::<E>(world, entity),
         None => Ok(false),
     }
-}
-
-pub(crate) fn dispatch_widget_update<E>(
-    world: &mut World,
-    entity: Entity,
-    event: &E,
-) -> Result<(), ListenerError>
-where
-    E: Event<Route = WidgetUpdate>,
-    E::Source: EntityEventSource,
-{
-    if !world.is_alive(entity) || !E::Source::present(world, entity) {
-        return Ok(());
-    }
-    let Some(runtime) = runtime(world) else {
-        return Ok(());
-    };
-    runtime
-        .listeners
-        .snapshot(world, event, ListenerTarget::Entity(entity))?
-        .run(world)?;
-    Ok(())
 }
 
 pub(crate) fn emit_widget<E>(
@@ -616,47 +680,6 @@ mod tests {
     use crate::test_support::tracked_allocations;
     use crate::types::Fixed;
     use crate::ui::{Hidden, Parent, UserState};
-
-    struct UpdateCount(u32);
-
-    #[crate::event]
-    fn count_update(
-        change: event!(crate::ui::widgets::lazy_list::BindItem),
-        count: res!(mut UpdateCount),
-    ) {
-        count.0 += change.index + 1;
-    }
-
-    #[test]
-    fn widget_updates_borrow_payloads_without_allocating_or_reserving_business_records() {
-        use crate::ui::widgets::lazy_list::{BindItem, LazyList};
-        let mut app = crate::app::App::headless(10, 10);
-        app.with_event_capacity(EventCapacity::new())
-            .add_resource(UpdateCount(0));
-        let root = app.spawn_root().id();
-        let list = app.compose(root, |tree| {
-            let list = tree.spawn(LazyList::new(10, 1, 1));
-            tree.on_event(list, LazyList::BindItem, count_update::callback());
-            list
-        });
-        let change = BindItem {
-            item: list,
-            index: 2,
-        };
-        assert_eq!(
-            tracked_allocations(|| {
-                for _ in 0..32 {
-                    dispatch_widget_update(&mut app.world, list, &change).unwrap();
-                }
-            }),
-            0
-        );
-        assert_eq!(app.world.resource::<UpdateCount>().unwrap().0, 96);
-        assert!(!has_business_storage(&app.world));
-        app.world.remove::<LazyList>(list);
-        dispatch_widget_update(&mut app.world, list, &change).unwrap();
-        assert_eq!(app.world.resource::<UpdateCount>().unwrap().0, 96);
-    }
 
     #[derive(Default)]
     struct Trace {

@@ -14,46 +14,40 @@ use mirui::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::ui::widgets::Text;
-use mirui::ui::widgets::lazy_list::{BindItem, LazyList, lazy_list_system};
+use mirui::ui::widgets::lazy_list::{CreateCell, LazyList, lazy_list_system};
 
 const ROW_H: i32 = 32;
-const POOL_SIZE: usize = 12;
 const ITEM_COUNT: u32 = 200;
 const W: u16 = 320;
 const H: u16 = 320;
 
 #[event]
-fn row_binder(event: event!(BindItem), rows: query!(mut Text)) {
-    if let Some(text) = rows.get(event.item) {
-        text.set_content(alloc::format!("Row {}", event.index));
+fn create_row(event: event!(CreateCell)) -> Entity {
+    let item = event.item.clone();
+    ui! {
+        Text (
+            bg_color: Color::rgb(40, 40, 56),
+            text_color: Color::rgb(220, 220, 230),
+            text: ${ alloc::format!("Row {}", item.index()) }
+        )
     }
 }
 
 fn write_png(path: &std::path::Path, pixels: &[u8], stride: usize) {
-    let ppm = path.with_extension("ppm");
-    {
-        let f = File::create(&ppm).expect("ppm");
-        let mut w = BufWriter::new(f);
-        use std::io::Write;
-        write!(w, "P6\n{W} {H}\n255\n").unwrap();
-        for y in 0..(H as usize) {
-            for x in 0..(W as usize) {
-                let i = y * stride + x * 4;
-                w.write_all(&pixels[i..i + 3]).unwrap();
-            }
-        }
+    use std::io::Write;
+    let output = BufWriter::new(File::create(path).expect("snapshot output"));
+    let mut encoder = png::Encoder::new(output, u32::from(W), u32::from(H));
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().expect("PNG header");
+    let mut stream = writer.stream_writer().expect("PNG stream");
+    for y in 0..usize::from(H) {
+        let start = y * stride;
+        stream
+            .write_all(&pixels[start..start + usize::from(W) * 4])
+            .expect("PNG row");
     }
-    let _ = std::process::Command::new("python3")
-        .args([
-            "-c",
-            &format!(
-                "from PIL import Image; Image.open(r'{}').save(r'{}')",
-                ppm.display(),
-                path.display()
-            ),
-        ])
-        .status();
-    let _ = std::fs::remove_file(&ppm);
+    stream.finish().expect("PNG finish");
 }
 
 #[compose]
@@ -64,7 +58,7 @@ fn list_panel(scroll_y_int: i32) {
             width: W as i32,
             height: H as i32
         ) [
-            LazyList::new(ITEM_COUNT, ROW_H, POOL_SIZE as u8),
+            LazyList::new(ITEM_COUNT, ROW_H),
             ScrollOffset {
                 x: Fixed::ZERO,
                 y: Fixed::from_int(scroll_y_int),
@@ -72,31 +66,16 @@ fn list_panel(scroll_y_int: i32) {
             ScrollConfig {
                 direction: ScrollAxis::Vertical,
                 elastic: false,
-                content_height: Fixed::from_int(ROW_H * ITEM_COUNT as i32),
-                content_width: Fixed::ZERO,
+                ..Default::default()
             },
-        ] {
-            walk 0..POOL_SIZE with _i {
-                Row (
-                    bg_color: Color::rgb(40, 40, 56),
-                    text_color: Color::rgb(220, 220, 230),
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: W as i32,
-                    height: ROW_H
-                ) [
-                    Text::from(""),
-                ]
-            }
-        } on LazyList::BindItem(row_binder::callback())
+        ] on LazyList::CreateCell(create_row::callback())
     };
 }
 
 fn main() {
     let scenario = env::args().nth(1).unwrap_or_else(|| "top".into());
     // scroll_y is positive: lazy_list_system computes
-    // visible_start = max(scroll_y / item_height, 0).
+    // visible_start = max(scroll_y / item_extent, 0).
     let scroll_y_int: i32 = match scenario.as_str() {
         "top" => 0,
         "mid" => 1600,                                // row 50 visible

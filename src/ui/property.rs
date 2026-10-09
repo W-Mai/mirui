@@ -182,6 +182,36 @@ pub mod prop {
     pub struct Padding;
     pub struct ProgressValue;
     pub struct SliderValue;
+    pub struct LazyListCount;
+    pub struct LazyListExtent;
+
+    impl Property for LazyListCount {
+        type Value = u32;
+        fn apply(world: &mut World, entity: Entity, value: u32) -> PropertyChange {
+            let Some(list) = world.get_mut::<crate::ui::widgets::LazyList>(entity) else {
+                return PropertyChange::Unchanged;
+            };
+            if list.item_count == value {
+                return PropertyChange::Unchanged;
+            }
+            list.item_count = value;
+            PropertyChange::Layout
+        }
+    }
+
+    impl Property for LazyListExtent {
+        type Value = crate::types::Fixed;
+        fn apply(world: &mut World, entity: Entity, value: crate::types::Fixed) -> PropertyChange {
+            let Some(list) = world.get_mut::<crate::ui::widgets::LazyList>(entity) else {
+                return PropertyChange::Unchanged;
+            };
+            if list.item_extent == value {
+                return PropertyChange::Unchanged;
+            }
+            list.item_extent = value;
+            PropertyChange::Layout
+        }
+    }
     pub struct SwitchOn;
     pub struct CheckboxChecked;
     pub struct RowGap;

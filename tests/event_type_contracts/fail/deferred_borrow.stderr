@@ -1,13 +1,13 @@
 error[E0521]: borrowed data escapes outside of closure
-  --> tests/event_type_contracts/fail/deferred_borrow.rs:11:40
+  --> tests/event_type_contracts/fail/deferred_borrow.rs:11:48
    |
  6 |     let retained: Cell<Option<DeferredCommands<'static>>> = Cell::new(None);
    |         -------- `retained` declared here, outside of the closure body
 ...
-11 |             move |(), _, (), commands| retained.set(Some(commands)),
-   |                              --------  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `commands` escapes the closure body here
-   |                              |
-   |                              `commands` is a reference that is only valid in the closure body
+11 |             move |(), _, (), _scope, commands| retained.set(Some(commands)),
+   |                                      --------  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `commands` escapes the closure body here
+   |                                      |
+   |                                      `commands` is a reference that is only valid in the closure body
    |
    = note: requirement occurs because of the type `Cell<Option<mirui::__macro_support::DeferredCommands<'_>>>`, which makes the generic argument `Option<mirui::__macro_support::DeferredCommands<'_>>` invariant
    = note: the struct `Cell<T>` is invariant over the parameter `T`

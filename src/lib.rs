@@ -148,8 +148,8 @@ pub mod __macro_support {
         EntityEventBindings, EntityInstallRoute, EventBinding, install_entity_event,
     };
     pub use crate::input::event::callback::{
-        AppContext, CallbackContext, EntityContext, EventCallback, NodeContext, PreparationError,
-        PreparedEvent, deferred_event_callback, event_callback,
+        AppContext, CallbackContext, CallbackInvocation, EntityContext, EventCallback, NodeContext,
+        PreparationError, PreparedEvent, deferred_event_callback, event_callback,
     };
     pub use crate::input::event::emission::{flush_notifications, prepare_notifications};
     pub use crate::input::event::listeners::{

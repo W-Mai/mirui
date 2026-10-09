@@ -307,7 +307,11 @@ fn lower_callback(function: ItemFn, mut plan: InvocationPlan) -> syn::Result<Tok
         .commands_name()
         .cloned()
         .unwrap_or_else(|| format_ident!("__mirui_body_commands", span = Span::mixed_site()));
-    let (body, uses_commands) = lower_body(&function.block, &body_commands)?;
+    let (body, uses_commands) = lower_body(
+        &function.block,
+        &body_commands,
+        plan.models().map(|(name, _)| name.clone()).collect(),
+    )?;
     if uses_commands && !plan.has_commands() {
         plan.add_commands(body_commands)?;
     }
@@ -334,7 +338,10 @@ fn lower_callback(function: ItemFn, mut plan: InvocationPlan) -> syn::Result<Tok
     );
     let aliases = plan.aliases(&payload_name, &target_name, &commands_name);
     let fetched_names = plan.fetches().map(|(name, _, _)| name);
-    let fetched_types = plan.fetches().map(|(_, marker, _)| ChildScope::ty(marker));
+    let fetched_types: Vec<_> = plan
+        .fetches()
+        .map(|(_, marker, _)| ChildScope::ty(marker))
+        .collect();
     let metadata = plan
         .fetches()
         .flat_map(|(_, _, access)| access)
@@ -348,6 +355,14 @@ fn lower_callback(function: ItemFn, mut plan: InvocationPlan) -> syn::Result<Tok
         .payload()
         .map(ChildScope::ty)
         .map_or_else(|| quote!(#generic_event), |ty| quote!(#ty));
+    let helper_payload = plan
+        .payload()
+        .map_or_else(|| quote!(#generic_event), |ty| quote!(#ty));
+    let helper_generics = plan
+        .payload()
+        .is_none()
+        .then(|| quote!(<#generic_event: ::mirui::input::event::contract::Event>));
+    let helper_arguments = plan.payload().is_none().then(|| quote!(::<#payload>));
     let result = match &function.sig.output {
         ReturnType::Default => quote!(()),
         ReturnType::Type(_, ty) => {
@@ -373,9 +388,9 @@ fn lower_callback(function: ItemFn, mut plan: InvocationPlan) -> syn::Result<Tok
             #constructor::<#payload, #context, (#(#fetched_types,)*), #result>(
                 #callback_name,
                 const { &[#(#metadata),*] },
-                move |(#(#fetched_names,)*), #payload_name, #target_name #commands_argument| {
+                move |(#(#fetched_names,)*), #payload_name, #target_name, cx #commands_argument| {
                     #(#aliases)*
-                    super::#helper_name(#(#arguments),*)
+                    super::#helper_name #helper_arguments (cx, #(#arguments),*)
                 },
             )
         }
@@ -400,7 +415,10 @@ fn lower_callback(function: ItemFn, mut plan: InvocationPlan) -> syn::Result<Tok
         #(#helper)*
         #[doc(hidden)]
         #[allow(clippy::too_many_arguments)]
-        fn #helper_name(#(#helper_parameters),*) #output #body
+        fn #helper_name #helper_generics (
+            #[allow(unused_variables)] cx: &mut <<#helper_payload as ::mirui::input::event::contract::Event>::Route as ::mirui::input::event::contract::EventRoute>::Scope<'_>,
+            #(#helper_parameters),*
+        ) #output #body
 
         #(#conditional)*
         #(#declaration)*
@@ -417,6 +435,7 @@ fn lower_callback(function: ItemFn, mut plan: InvocationPlan) -> syn::Result<Tok
                 #payload: ::mirui::input::event::contract::Event,
                 #context: ::mirui::__macro_support::CallbackContext<#payload, #entity_bound>,
                 #result: ::mirui::input::event::contract::EventResult<<#payload as ::mirui::input::event::contract::Event>::Route>,
+                <#payload as ::mirui::input::event::contract::Event>::Route: ::mirui::__macro_support::CallbackInvocation<(#(#fetched_types,)*), <#context as ::mirui::__macro_support::CallbackContext<#payload>>::Target>,
             {
                 #(#checks)*
                 #(#captures)*
@@ -469,12 +488,13 @@ pub(crate) fn lower_inline_callback(
                 "plain event closures take one borrowed payload parameter",
             ));
         }
-        let (body, deferred) = lower_body(&body, &commands)?;
+        let (body, deferred) = lower_body(&body, &commands, Vec::new())?;
         let mut closure = closure.clone();
         closure.capture = Some(syn::token::Move {
             span: Span::mixed_site(),
         });
-        *closure.body = syn::parse_quote!(#body);
+        *closure.body = syn::parse_quote!({ let _ = &cx; #body });
+        closure.inputs.push(syn::parse_quote!(cx));
         let method = if deferred {
             closure.inputs.push(syn::parse_quote!(mut #commands));
             quote!(__bind_deferred)
@@ -517,7 +537,7 @@ pub(crate) fn lower_inline_callback(
         .commands_name()
         .cloned()
         .unwrap_or_else(|| commands.clone());
-    let (body, uses_commands) = lower_body(&body, &body_commands)?;
+    let (body, uses_commands) = lower_body(&body, &body_commands, Vec::new())?;
     if uses_commands && !plan.has_commands() {
         plan.add_commands(body_commands)?;
     }
@@ -564,7 +584,8 @@ pub(crate) fn lower_inline_callback(
             #key.#method::<::mirui::__macro_support::NodeContext, (#(#fetched_types,)*), _>(
                 #name,
                 const { &[#(#metadata),*] },
-                move |(#(#fetched_names,)*), #payload #payload_type, #target #commands_argument| #output {
+                move |(#(#fetched_names,)*), #payload #payload_type, #target, cx #commands_argument| #output {
+                    let _ = &cx;
                     #(#aliases)*
                     #body
                 },
@@ -574,10 +595,16 @@ pub(crate) fn lower_inline_callback(
     Ok(callback)
 }
 
-pub(crate) fn lower_body(body: &syn::Block, commands: &Ident) -> syn::Result<(syn::Block, bool)> {
+fn lower_body(
+    body: &syn::Block,
+    commands: &Ident,
+    captures: Vec<Ident>,
+) -> syn::Result<(syn::Block, bool)> {
     let mut deferred = false;
     let tokens = lower_tokens(quote! { #body }, commands, &mut deferred)?;
-    Ok((syn::parse2(tokens)?, deferred))
+    let mut body = syn::parse2(tokens)?;
+    crate::compose_attr::prepare_event_composition(&mut body, captures)?;
+    Ok((body, deferred))
 }
 
 fn lower_tokens(
@@ -908,7 +935,7 @@ mod tests {
             foreign::commands!();
         });
         let commands: Ident = syn::parse_quote!(__commands);
-        let (lowered, deferred) = lower_body(&body, &commands).unwrap();
+        let (lowered, deferred) = lower_body(&body, &commands, Vec::new()).unwrap();
         let lowered = lowered.into_token_stream().to_string();
         assert!(deferred);
         assert!(lowered.contains("& mut __commands"));
@@ -920,7 +947,8 @@ mod tests {
         let body: syn::Block = syn::parse_quote!({
             foreign::capability!(event.target);
         });
-        let (lowered, deferred) = lower_body(&body, &syn::parse_quote!(__commands)).unwrap();
+        let (lowered, deferred) =
+            lower_body(&body, &syn::parse_quote!(__commands), Vec::new()).unwrap();
         assert!(!deferred);
         assert_eq!(quote!(#lowered).to_string(), quote!(#body).to_string());
     }
@@ -969,7 +997,7 @@ mod tests {
         .unwrap()
         .to_string();
         assert!(output.contains("__bind_plain"));
-        assert!(output.contains("move | input |"));
+        assert!(output.contains("move | input , cx |"));
         assert!(!output.contains("__bind_params"));
         let grouped = syn::parse_quote!((|input| input.x > Fixed::ZERO));
         let grouped = lower_inline_callback(

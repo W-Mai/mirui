@@ -28,7 +28,7 @@ fn main() {
         event_callback::<Hit, EntityContext<Pad>, (ResMut<Hits>,), ()>(
             "hit",
             ACCESS,
-            |(hits,), payload, _| hits.0 += payload.0.len(),
+            |(hits,), payload, _, _scope| hits.0 += payload.0.len(),
         )
     }
     .prepare(&mut world, CommandCapacity::default())
@@ -39,9 +39,10 @@ fn main() {
     );
     assert_eq!(world.resource::<Hits>().unwrap().0, 3);
     // SAFETY: the empty access plan matches the empty parameter set.
-    let started =
-        unsafe { event_callback::<Started, AppContext, (), ()>("started", &[], |(), _, ()| ()) }
-            .prepare(&mut world, CommandCapacity::default())
-            .unwrap();
+    let started = unsafe {
+        event_callback::<Started, AppContext, (), ()>("started", &[], |(), _, (), _scope| ())
+    }
+    .prepare(&mut world, CommandCapacity::default())
+    .unwrap();
     assert_eq!(started.invoke(&mut world, &Started, ()), Ok(Some(())));
 }

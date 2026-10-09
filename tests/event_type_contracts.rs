@@ -12,7 +12,7 @@ fn layout_notifications_are_framework_owned_node_events() {
 }
 
 #[test]
-fn list_updates_enforce_framework_source_and_result_boundaries() {
+fn cell_creation_enforces_source_result_and_borrow_boundaries() {
     let cases = trybuild::TestCases::new();
-    cases.compile_fail("tests/event_type_contracts/fail/list_update_*.rs");
+    cases.compile_fail("tests/event_type_contracts/fail/cell_create_*.rs");
 }

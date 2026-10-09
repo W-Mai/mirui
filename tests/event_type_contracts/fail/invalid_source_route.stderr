@@ -10,8 +10,8 @@ help: `mirui::input::event::contract::WidgetSource<W>` implements trait `EventSo
    |
    | impl<W: Component> EventSource<EntityNotification> for WidgetSource<W> {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EventSource<EntityNotification>`
-   | impl<W: Component> EventSource<WidgetUpdate> for WidgetSource<W> {}
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EventSource<WidgetUpdate>`
+   | impl<W: Component> EventSource<WidgetConstruction> for WidgetSource<W> {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EventSource<WidgetConstruction>`
 note: required by a bound in `mirui::prelude::Event::Source`
   --> src/input/event/contract.rs
    |

@@ -160,6 +160,29 @@ pub(crate) fn clear_active_interaction_states(world: &mut World) {
     }
 }
 
+pub(crate) fn clear_subtree_interaction_states(world: &mut World, root: Entity) {
+    loop {
+        let entity = world
+            .query::<InteractionState>()
+            .iter()
+            .find_map(|(entity, _)| {
+                crate::ui::branch::is_in_subtree(world, root, entity).then_some(entity)
+            });
+        let Some(entity) = entity else {
+            break;
+        };
+        world.remove::<InteractionState>(entity);
+        world.insert(entity, Dirty);
+    }
+    if world
+        .resource::<PressSnapshot>()
+        .and_then(|snapshot| snapshot.target)
+        .is_some_and(|entity| crate::ui::branch::is_in_subtree(world, root, entity))
+    {
+        world.resource_mut::<PressSnapshot>().unwrap().target = None;
+    }
+}
+
 fn compute_pointer_target(
     world: &World,
     x: crate::types::Fixed,

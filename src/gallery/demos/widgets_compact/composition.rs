@@ -1,4 +1,4 @@
-use super::binding::{POOL_SIZE, ROW_HEIGHT, VIRTUAL_CONTENT_HEIGHT, VIRTUAL_ITEM_COUNT, bind_row};
+use super::binding::{ROW_HEIGHT, VIRTUAL_ITEM_COUNT, create_row};
 use super::style::{CompactTheme, bitmap_label};
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
@@ -158,8 +158,7 @@ pub fn build_widgets() {
                         height: Dimension::percent(100),
                         bg_color: ColorToken::SurfaceVariant,
                         item_count: VIRTUAL_ITEM_COUNT,
-                        item_height: Fixed::from_int(ROW_HEIGHT),
-                        pool_size: POOL_SIZE as u8
+                        item_extent: Fixed::from_int(ROW_HEIGHT)
                     ) [
                         TabContent {
                             tab_bar: id("compact_widgets_tabs"),
@@ -172,44 +171,9 @@ pub fn build_widgets() {
                         ScrollConfig {
                             direction: ScrollAxis::Vertical,
                             elastic: false,
-                            content_height: Fixed::from_int(VIRTUAL_CONTENT_HEIGHT),
-                            content_width: Fixed::ZERO,
+                            ..Default::default()
                         },
-                    ] {
-                        walk 0..POOL_SIZE with _index {
-                            Row (
-                                position: Position::Absolute,
-                                left: 0,
-                                top: 0,
-                                width: Dimension::percent(100),
-                                height: ROW_HEIGHT,
-                                padding: Padding {
-                                    top: Dimension::px(0),
-                                    right: Dimension::px(7),
-                                    bottom: Dimension::px(0),
-                                    left: Dimension::px(7),
-                                },
-                                align: AlignItems::Center,
-                                bg_color: ColorToken::SurfaceVariant
-                            ) {
-                                Text (
-                                    "",
-                                    grow: 1.0,
-                                    height: ROW_HEIGHT,
-                                    font: FontToken::Default,
-                                    font_size: 6,
-                                    text_color: ColorToken::OnSurface,
-                                    paragraph: bitmap_label(TextAlign::Start)
-                                )
-                                View (
-                                    width: 4,
-                                    height: 4,
-                                    bg_color: ColorToken::Primary,
-                                    border_radius: 2
-                                )
-                            }
-                        }
-                    } on BindItem(bind_row::callback())
+                    ] on CreateCell(create_row::callback())
                     Column (
                         position: Position::Absolute,
                         left: 0,

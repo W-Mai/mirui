@@ -197,6 +197,18 @@ struct ResourceExpressions {
     error: Option<syn::Error>,
 }
 
+pub(crate) fn prepare_event_composition(
+    body: &mut syn::Block,
+    captures: Vec<syn::Ident>,
+) -> syn::Result<()> {
+    if !captures.is_empty() {
+        BoundUiCalls { captures }.visit_block_mut(body);
+    }
+    let mut resources = ResourceExpressions { error: None };
+    resources.visit_block_mut(body);
+    resources.error.map_or(Ok(()), Err)
+}
+
 impl VisitMut for ResourceExpressions {
     fn visit_expr_mut(&mut self, expression: &mut syn::Expr) {
         if self.error.is_some() {

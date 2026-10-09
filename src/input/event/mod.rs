@@ -159,6 +159,66 @@ pub(crate) fn cancel_active_input(world: &mut World, now_ms: u32) {
     crate::ui::state::clear_active_interaction_states(world);
 }
 
+pub(crate) fn retire_subtree_interaction(world: &mut World, root: Entity) {
+    use crate::ui::branch::is_in_subtree;
+    let captured = world
+        .resource::<GestureSystem>()
+        .and_then(|system| system.recognizer.captured_target());
+    let cancellation = if captured.is_some_and(|target| is_in_subtree(world, root, target)) {
+        world
+            .resource_mut::<GestureSystem>()
+            .and_then(|system| system.recognizer.release_capture())
+    } else {
+        None
+    };
+    let mut index = 0;
+    while let Some(target) = world
+        .resource::<GestureSystem>()
+        .and_then(|system| system.events.buffer.get(index))
+        .map(|event| event.target())
+    {
+        if is_in_subtree(world, root, target) {
+            world
+                .resource_mut::<GestureSystem>()
+                .unwrap()
+                .events
+                .buffer
+                .remove(index);
+        } else {
+            index += 1;
+        }
+    }
+    if let Some(event) = cancellation
+        && let Err(error) = runtime::dispatch_gesture(world, &event, 0)
+    {
+        crate::warn!(target: "mirui::event", "retained cell cancellation skipped: {:?}", error);
+    }
+    if world
+        .resource::<focus::FocusState>()
+        .and_then(|focus| focus.focused)
+        .is_some_and(|entity| is_in_subtree(world, root, entity))
+    {
+        world.resource_mut::<focus::FocusState>().unwrap().focused = None;
+    }
+    if world
+        .resource::<multi_tap::MultiTapTracker>()
+        .and_then(|tracker| tracker.last)
+        .is_some_and(|last| is_in_subtree(world, root, last.entity))
+    {
+        world
+            .resource_mut::<multi_tap::MultiTapTracker>()
+            .unwrap()
+            .last = None;
+    }
+    if world
+        .resource::<ScrollDragState>()
+        .is_some_and(|drag| drag.active && is_in_subtree(world, root, drag.target))
+    {
+        scroll::system::cancel_scroll_drag(world);
+    }
+    crate::ui::state::clear_subtree_interaction_states(world, root);
+}
+
 pub fn entity_or_ancestor_disabled(world: &World, entity: Entity) -> bool {
     let mut cur = Some(entity);
     while let Some(e) = cur {
@@ -247,7 +307,7 @@ mod tests {
             >(
                 "user",
                 const { &[crate::__macro_support::SystemAccess::write_resource::<Calls>()] },
-                |(calls,), _, _| {
+                |(calls,), _, _, _scope| {
                     calls.user += 1;
                     true
                 },

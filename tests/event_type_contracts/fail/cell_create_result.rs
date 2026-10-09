@@ -4,7 +4,7 @@ use mirui::ui::widgets::LazyList;
 #[compose]
 fn panel() {
     ui! {
-        LazyList () on BindItem(|_| true)
+        LazyList () on CreateCell(|_| true)
     };
 }
 

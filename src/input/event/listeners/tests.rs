@@ -882,7 +882,7 @@ fn unchanged_editor_actions_are_accepted_without_reaching_app_fallback() {
     // SAFETY: the only capture is an independent test counter, not a Model.
     let changed = unsafe {
         TextInput::Changed
-            .__bind_plain::<super::super::callback::NodeContext, ()>("changed", move |_| {
+            .__bind_plain::<super::super::callback::NodeContext, ()>("changed", move |_, _scope| {
                 called.set(called.get() + 1)
             })
     };
@@ -964,7 +964,9 @@ where
 {
     // SAFETY: this body fetches no World parameters and captures no Models.
     unsafe {
-        event_callback::<E, AppContext, (), ()>("announce", &[], move |(), event, ()| body(event))
+        event_callback::<E, AppContext, (), ()>("announce", &[], move |(), event, (), _scope| {
+            body(event)
+        })
     }
 }
 
@@ -1513,7 +1515,7 @@ fn notification_fifo_and_fanout_use_the_prepared_executor_without_allocation() {
             event_callback::<Changed, EntityContext<Widget>, (), ()>(
                 "changed",
                 &[],
-                move |(), event, target| {
+                move |(), event, target, _scope| {
                     assert_eq!(target, node);
                     trace.borrow_mut().record(base + event.0);
                     if base == 100 && event.0 == 1 {
@@ -1664,10 +1666,14 @@ fn retiring_entities_releases_slots_without_rewriting_frozen_snapshots() {
     let calls = seen.clone();
     // SAFETY: the callback declares no World access or captured Model.
     let callback = unsafe {
-        event_callback::<Changed, EntityContext<Widget>, (), ()>("retired", &[], move |(), _, _| {
-            let _ = &captured;
-            calls.set(calls.get() + 1);
-        })
+        event_callback::<Changed, EntityContext<Widget>, (), ()>(
+            "retired",
+            &[],
+            move |(), _, _, _scope| {
+                let _ = &captured;
+                calls.set(calls.get() + 1);
+            },
+        )
     };
     let old = pool
         .install_entity(
@@ -1694,7 +1700,7 @@ fn retiring_entities_releases_slots_without_rewriting_frozen_snapshots() {
         event_callback::<Changed, EntityContext<Widget>, (), ()>(
             "replacement",
             &[],
-            move |(), _, _| calls.set(calls.get() + 10),
+            move |(), _, _, _scope| calls.set(calls.get() + 10),
         )
     };
     let new = pool
@@ -1750,9 +1756,13 @@ fn fresh_selection_reclaims_retired_callbacks_and_preserves_live_installation_or
     let captured = Owned(drops.clone());
     // SAFETY: the callback declares no World access or captured Model.
     let callback = unsafe {
-        event_callback::<Changed, EntityContext<Widget>, (), ()>("retired", &[], move |(), _, _| {
-            let _ = &captured;
-        })
+        event_callback::<Changed, EntityContext<Widget>, (), ()>(
+            "retired",
+            &[],
+            move |(), _, _, _scope| {
+                let _ = &captured;
+            },
+        )
     };
     let retired = pool
         .install_entity(
@@ -1835,9 +1845,13 @@ fn retirement_drops_captures_outside_the_entry_borrow_and_restores_scratch_on_un
     };
     // SAFETY: the callback declares no World access or captured Model.
     let callback = unsafe {
-        event_callback::<Changed, EntityContext<Widget>, (), ()>("retired", &[], move |(), _, _| {
-            let _ = &captured;
-        })
+        event_callback::<Changed, EntityContext<Widget>, (), ()>(
+            "retired",
+            &[],
+            move |(), _, _, _scope| {
+                let _ = &captured;
+            },
+        )
     };
     pool.install_entity(
         &mut world,
@@ -1878,9 +1892,13 @@ fn owner_and_busy_checks_do_not_retire_captures_before_rejecting_selection() {
     let captured = Owned(drops.clone());
     // SAFETY: the callback declares no World access or captured Model.
     let callback = unsafe {
-        event_callback::<Changed, EntityContext<Widget>, (), ()>("retired", &[], move |(), _, _| {
-            let _ = &captured;
-        })
+        event_callback::<Changed, EntityContext<Widget>, (), ()>(
+            "retired",
+            &[],
+            move |(), _, _, _scope| {
+                let _ = &captured;
+            },
+        )
     };
     let id = pool
         .install_entity(
@@ -2020,7 +2038,7 @@ fn widget_installation_checks_source_and_execution_checks_generation() {
             event_callback::<Changed, EntityContext<Widget>, (), ()>(
                 "changed",
                 &[],
-                move |(), _, _| body.set(body.get() + 1),
+                move |(), _, _, _scope| body.set(body.get() + 1),
             )
         }
     };
@@ -2138,7 +2156,9 @@ fn attached_source_validation_rejects_missing_foreign_and_stale_nodes_without_us
     .unwrap();
     let callback = || {
         // SAFETY: the body has no World access or captured Models.
-        unsafe { event_callback::<Changed, NodeContext, (), ()>("attached", &[], |(), _, _| ()) }
+        unsafe {
+            event_callback::<Changed, NodeContext, (), ()>("attached", &[], |(), _, _, _scope| ())
+        }
     };
     let install = |world: &mut World, node| {
         pool.install_entity(
@@ -2190,7 +2210,7 @@ fn attached_snapshot_preserves_frozen_matches_and_skips_retired_generations() {
     let body = seen.clone();
     // SAFETY: the body has no World access or captured Models.
     let callback = unsafe {
-        event_callback::<Changed, NodeContext, (), ()>("attached", &[], move |(), _, _| {
+        event_callback::<Changed, NodeContext, (), ()>("attached", &[], move |(), _, _, _scope| {
             body.set(body.get() + 1);
         })
     };
@@ -2246,7 +2266,7 @@ fn listener_command_error_cleans_notifications_and_keeps_both_storages_reusable(
         deferred_event_callback::<Owned, AppContext, (), ()>(
             "fail",
             &[],
-            move |(), _, (), mut commands| {
+            move |(), _, (), _scope, mut commands| {
                 seen.set(seen.get() + 1);
                 commands.insert_resource(7_u32);
             },
@@ -2355,7 +2375,7 @@ fn consumable_input_uses_the_same_pool_and_stops_in_installation_order() {
         let seen = seen.clone();
         // SAFETY: this callback fetches no parameters and captures no Models.
         let callback = unsafe {
-            event_callback::<Key, AppContext, (), bool>("key", &[], move |(), _, ()| {
+            event_callback::<Key, AppContext, (), bool>("key", &[], move |(), _, (), _scope| {
                 seen.set(index);
                 true
             })

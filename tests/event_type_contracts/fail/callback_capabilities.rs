@@ -11,26 +11,30 @@ struct Pad;
 
 fn main() {
     unsafe {
-        let _ = event_callback::<Tap, AppContext, (), bool>("app-tap", &[], |(), _, ()| true);
+        let _ =
+            event_callback::<Tap, AppContext, (), bool>("app-tap", &[], |(), _, (), _scope| true);
         let _ = event_callback::<Wheel, EntityContext<Pad>, (), bool>(
             "entity-wheel",
             &[],
-            |(), _, _: Entity| true,
+            |(), _, _: Entity, _scope| true,
         );
         let _ = event_callback::<slider::ValueChanged, EntityContext<Pad>, (), ()>(
             "wrong-widget",
             &[],
-            |(), _, _: Entity| (),
+            |(), _, _: Entity, _scope| (),
         );
         let _ = event_callback::<Started, AppContext, (), bool>(
             "notification-result",
             &[],
-            |(), _, ()| true,
+            |(), _, (), _scope| true,
         );
-        let callback =
-            event_callback::<Started, AppContext, (), ()>("app-entity", &[], |(), _, ()| ())
-                .prepare(&mut World::new(), CommandCapacity::default())
-                .unwrap();
+        let callback = event_callback::<Started, AppContext, (), ()>(
+            "app-entity",
+            &[],
+            |(), _, (), _scope| (),
+        )
+        .prepare(&mut World::new(), CommandCapacity::default())
+        .unwrap();
         callback.invoke(
             &mut World::new(),
             &Started,

@@ -1169,7 +1169,6 @@ mod tests {
         assert_component::<crate::ui::widgets::switch::AnimateThumbX>();
         assert_component::<crate::ui::widgets::Switch>();
         assert_component::<crate::ui::widgets::LazyList>();
-        assert_component::<crate::ui::widgets::LazyListPool>();
         assert_component::<crate::input::event::scroll::ScrollOffset>();
         assert_component::<crate::input::event::scroll::ScrollDelta>();
         assert_component::<crate::input::event::scroll::ScrollConfig>();

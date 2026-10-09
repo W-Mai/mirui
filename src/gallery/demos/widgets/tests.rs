@@ -141,12 +141,17 @@ fn list_binding_updates_content_without_dropping_paragraph_style() {
     app.with_default_widgets().with_default_systems();
     let parent = app.spawn_root().id();
     app.compose(parent, build_widgets());
+    crate::ui::render_system::update_layout(
+        &mut app.world,
+        parent,
+        &crate::types::Viewport::new(DEFAULT_VIEW.0, DEFAULT_VIEW.1, Fixed::ONE),
+    );
     let mut world = app.world;
 
     let list = world.find_by_id("widgets_list").expect("widgets list id");
     let row = world
         .get::<Children>(list)
-        .and_then(|children| children.0.get(7).copied())
+        .and_then(|children| children.0.first().copied())
         .expect("pooled row");
     let label = world
         .get::<Children>(row)
@@ -161,7 +166,7 @@ fn list_binding_updates_content_without_dropping_paragraph_style() {
     crate::ui::widgets::lazy_list::lazy_list_system(&mut world).unwrap();
 
     let text = world.get::<Text>(label).expect("bound label");
-    assert_eq!(text.resolve(&world), "Row 7");
+    assert_eq!(text.resolve(&world), "Row 0");
     assert_eq!(text.paragraph(), &paragraph);
 }
 

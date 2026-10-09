@@ -72,7 +72,7 @@ fn invocation_combines_typed_payload_resources_and_point_query() {
         event_callback::<Changed, EntityContext<Widget>, Params, ()>(
             "changed",
             ACCESS,
-            |(clock, settings, missing, mut rows), payload, target| {
+            |(clock, settings, missing, mut rows), payload, target, _scope| {
                 assert!(missing.is_none());
                 settings.0 += clock.0;
                 let position = rows.get(target).unwrap();
@@ -100,10 +100,14 @@ fn prepare_rejects_conflicts_before_fetching_or_running_body() {
     // SAFETY: the deliberately conflicting plan fully describes Params.
     // Preparation must reject it before any fetch can be attempted.
     let callback = unsafe {
-        event_callback::<Key, AppContext, Params, bool>("conflict", ACCESS, move |_, _, ()| {
-            seen.set(true);
-            true
-        })
+        event_callback::<Key, AppContext, Params, bool>(
+            "conflict",
+            ACCESS,
+            move |_, _, (), _scope| {
+                seen.set(true);
+                true
+            },
+        )
     };
     let error = callback
         .prepare(&mut world, CommandCapacity::default())
@@ -139,7 +143,7 @@ fn component_and_resource_domains_are_independent_and_shared_reads_are_valid() {
         event_callback::<Changed, EntityContext<Widget>, Params, ()>(
             "shared",
             ACCESS,
-            |(first, second, rows), _, target| {
+            |(first, second, rows), _, target, _scope| {
                 assert!(core::ptr::eq(first, second));
                 assert_eq!(rows.get(target), Some(&Position(3)));
             },
@@ -165,7 +169,7 @@ fn stale_generation_is_skipped_before_required_resource_fetch() {
         event_callback::<Changed, EntityContext<Widget>, (Res<Missing>,), ()>(
             "stale",
             ACCESS,
-            |_, _, _| panic!("stale callback invoked"),
+            |_, _, _, _scope| panic!("stale callback invoked"),
         )
     }
     .prepare(&mut world, CommandCapacity::default())
@@ -179,7 +183,7 @@ fn installed_owner_is_checked_before_body_execution() {
     let mut second = World::new();
     // SAFETY: the empty plan exactly describes the empty parameter set.
     let callback = unsafe {
-        event_callback::<Key, AppContext, (), bool>("owner", &[], |(), _, ()| {
+        event_callback::<Key, AppContext, (), bool>("owner", &[], |(), _, (), _scope| {
             panic!("cross-owner body invoked")
         })
     }
@@ -203,7 +207,7 @@ fn app_payload_is_borrowed_without_clone_or_entity() {
     let address = payload.0.as_ptr() as usize;
     // SAFETY: the empty plan matches Params and no Models are captured.
     let callback = unsafe {
-        event_callback::<Owned, AppContext, (), ()>("owned", &[], move |(), payload, ()| {
+        event_callback::<Owned, AppContext, (), ()>("owned", &[], move |(), payload, (), _scope| {
             assert_eq!(payload.0.as_ptr() as usize, address);
         })
     }
@@ -226,7 +230,9 @@ fn input_callback_normalizes_consume_results() {
     let mut world = World::new();
     // SAFETY: the empty plan matches Params and no Models are captured.
     let callback = unsafe {
-        event_callback::<Key, AppContext, (), bool>("key", &[], |(), input, ()| input.pressed)
+        event_callback::<Key, AppContext, (), bool>("key", &[], |(), input, (), _scope| {
+            input.pressed
+        })
     }
     .prepare(&mut world, CommandCapacity::default())
     .unwrap();
@@ -254,7 +260,7 @@ fn model_capture_uses_the_invocation_owner_and_preserves_instance_identity() {
     // SAFETY: Params is empty, the sole captured Model is declared below,
     // and the body does not acquire World through another path.
     let callback = unsafe {
-        event_callback::<Key, AppContext, (), ()>("model", &[], move |(), _, ()| {
+        event_callback::<Key, AppContext, (), ()>("model", &[], move |(), _, (), _scope| {
             captured.increment();
         })
     }
@@ -290,7 +296,7 @@ fn shared_capture_preparation_and_first_repeated_invocation_do_not_allocate() {
     // SAFETY: Params is empty and every captured binding is declared before
     // preparation. The body only uses its shared binding facades.
     let callback = unsafe {
-        event_callback::<Key, AppContext, (), ()>("shared", &[], move |(), _, ()| {
+        event_callback::<Key, AppContext, (), ()>("shared", &[], move |(), _, (), _scope| {
             assert_eq!(captured_signal.get(), 5);
             assert_eq!(captured_computed.get(), 7);
             captured.as_ref().unwrap().as_ref().unwrap().increment();
@@ -347,7 +353,7 @@ fn model_capture_rejects_mixed_owners_and_wrong_installation_owner() {
     let second = second_app.add_model(Counter { value: 2 });
     let build = || {
         // SAFETY: the body captures no Models or World and Params is empty.
-        unsafe { event_callback::<Key, AppContext, (), ()>("owner", &[], |(), _, ()| ()) }
+        unsafe { event_callback::<Key, AppContext, (), ()>("owner", &[], |(), _, (), _scope| ()) }
             .require_binding(&Some(Some(first.clone())))
     };
     let mixed = build().require_binding(&Some(second.clone()));
@@ -386,7 +392,7 @@ fn ended_model_capture_returns_an_owner_error_without_allocating_or_running_body
         let nested = Some(Some(model));
         // SAFETY: the body has no borrowed parameters or raw World access.
         let callback = unsafe {
-            event_callback::<Key, AppContext, (), ()>("ended", &[], |(), _, ()| {
+            event_callback::<Key, AppContext, (), ()>("ended", &[], |(), _, (), _scope| {
                 panic!("ended model callback reached its body")
             })
         };
@@ -424,7 +430,7 @@ fn query_reborrow_and_repeated_prepared_invocation_do_not_allocate() {
         event_callback::<Changed, EntityContext<Widget>, (Rows,), ()>(
             "allocation",
             ACCESS,
-            |(mut rows,), payload, target| {
+            |(mut rows,), payload, target, _scope| {
                 rows.get(target).unwrap().0 += payload.0;
             },
         )
@@ -453,7 +459,7 @@ fn panic_releases_invocation_borrows_and_preserves_prepared_callback() {
         event_callback::<Key, AppContext, (ResMut<Settings>,), bool>(
             "panic",
             ACCESS,
-            |(settings,), payload, ()| {
+            |(settings,), payload, (), _scope| {
                 settings.0 += 1;
                 assert!(!payload.pressed, "body failure");
                 false
@@ -489,7 +495,7 @@ fn deferred_body_reads_live_parameters_before_ordered_commit_without_allocating(
         deferred_event_callback::<Key, AppContext, (ResMut<Settings>,), bool>(
             "deferred",
             ACCESS,
-            |(settings,), _, (), mut commands| {
+            |(settings,), _, (), _scope, mut commands| {
                 settings.0 = 1;
                 commands.apply_resource(4i32, |world, value| {
                     world.resource_mut::<Settings>().unwrap().0 += value;
@@ -536,7 +542,7 @@ fn deferred_component_removal_runs_after_query_reborrow_ends() {
         deferred_event_callback::<Changed, EntityContext<Widget>, (Rows,), ()>(
             "remove",
             ACCESS,
-            |(rows,), _, target, mut commands| {
+            |(rows,), _, target, _scope, mut commands| {
                 let position = rows.get(target).unwrap();
                 commands.remove::<Position>(target);
                 assert_eq!(position.0, 7);
@@ -561,7 +567,7 @@ fn deferred_capacity_error_does_not_commit_partial_commands_or_rollback_resource
         deferred_event_callback::<Key, AppContext, (ResMut<Settings>,), bool>(
             "capacity",
             ACCESS,
-            |(settings,), payload, (), mut commands| {
+            |(settings,), payload, (), _scope, mut commands| {
                 settings.0 += 1;
                 commands.apply_resource(100i32, |world, value| {
                     world.resource_mut::<Settings>().unwrap().0 += value;
@@ -602,7 +608,9 @@ fn deferred_snapshot_shares_storage_and_reports_busy_without_panicking() {
     let mut world = World::new();
     // SAFETY: the empty plan matches Params; the body captures no Models.
     let callback = unsafe {
-        deferred_event_callback::<Key, AppContext, (), bool>("busy", &[], |(), _, (), _| false)
+        deferred_event_callback::<Key, AppContext, (), bool>("busy", &[], |(), _, (), _scope, _| {
+            false
+        })
     }
     .prepare(&mut world, CommandCapacity::default())
     .unwrap();
@@ -636,10 +644,11 @@ fn deferred_snapshot_shares_storage_and_reports_busy_without_panicking() {
         Ok(Some(BubbleControl::Allow))
     );
     // Plain callbacks do not allocate or retain command storage.
-    let plain =
-        unsafe { event_callback::<Key, AppContext, (), bool>("plain", &[], |(), _, ()| false) }
-            .prepare(&mut world, CommandCapacity::default())
-            .unwrap();
+    let plain = unsafe {
+        event_callback::<Key, AppContext, (), bool>("plain", &[], |(), _, (), _scope| false)
+    }
+    .prepare(&mut world, CommandCapacity::default())
+    .unwrap();
     assert!(matches!(plain.run, CallbackRun::Plain(_)));
 }
 
@@ -662,7 +671,7 @@ fn deferred_body_and_apply_panic_drop_pending_values_and_leave_executor_reusable
             deferred_event_callback::<Key, AppContext, (), bool>(
                 "unwind",
                 &[],
-                move |(), payload, (), mut commands| {
+                move |(), payload, (), _scope, mut commands| {
                     if !payload.pressed {
                         return false;
                     }
@@ -708,7 +717,11 @@ fn invalid_command_budget_is_rejected_during_installation() {
     let mut world = World::new();
     // SAFETY: the empty plan matches Params and the body captures no Models.
     let callback = unsafe {
-        deferred_event_callback::<Key, AppContext, (), bool>("budget", &[], |(), _, (), _| false)
+        deferred_event_callback::<Key, AppContext, (), bool>(
+            "budget",
+            &[],
+            |(), _, (), _scope, _| false,
+        )
     };
     assert!(matches!(
         callback.prepare(&mut world, CommandCapacity::new().despawn(usize::MAX)),

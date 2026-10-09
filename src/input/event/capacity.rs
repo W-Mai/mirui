@@ -134,7 +134,8 @@ pub(crate) struct EventLimits {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum EventCapacityError {
+#[doc(hidden)]
+pub enum EventCapacityError {
     SizeOverflow,
     MissingFlushLimit,
     Command(CommandError),

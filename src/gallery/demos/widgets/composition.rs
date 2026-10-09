@@ -1,4 +1,4 @@
-use super::binding::row_binder;
+use super::binding::create_row;
 use super::state::{ACCENT, FormProgress, FormSlider};
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
@@ -8,7 +8,6 @@ use crate::ui::widgets::{
     TabContent, Text, TextAlign,
 };
 
-const POOL_SIZE: usize = 12;
 const ITEM_COUNT: u32 = 50;
 
 #[compose]
@@ -95,8 +94,7 @@ pub fn build_widgets() {
                     height: Dimension::percent(100),
                     bg_color: ColorToken::SurfaceVariant,
                     item_count: ITEM_COUNT,
-                    item_height: Fixed::from_int(ROW_HEIGHT),
-                    pool_size: POOL_SIZE as u8
+                    item_extent: Fixed::from_int(ROW_HEIGHT)
                 ) [
                     TabContent {
                         tab_bar: id("widgets_tabs"),
@@ -109,36 +107,9 @@ pub fn build_widgets() {
                     ScrollConfig {
                         direction: ScrollAxis::Vertical,
                         elastic: false,
-                        content_height: Fixed::from_int(ROW_HEIGHT * ITEM_COUNT as i32),
-                        content_width: Fixed::ZERO,
+                        ..Default::default()
                     },
-                ] {
-                    walk 0..POOL_SIZE with _i {
-                        Row (
-                            bg_color: ColorToken::Surface,
-                            position: Position::Absolute,
-                            left: 0,
-                            top: 0,
-                            width: Dimension::percent(100),
-                            height: ROW_HEIGHT,
-                            align: AlignItems::Center,
-                            padding: Padding {
-                                top: Dimension::px(0),
-                                right: Dimension::px(14),
-                                bottom: Dimension::px(0),
-                                left: Dimension::px(14),
-                            }
-                        ) {
-                            Text (
-                                "",
-                                grow: 1.0,
-                                height: 24,
-                                text_color: ColorToken::OnSurface,
-                                paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                            )
-                        }
-                    }
-                } on BindItem(row_binder::callback())
+                ] on CreateCell(create_row::callback())
                 Column (
                     position: Position::Absolute,
                     left: 0,

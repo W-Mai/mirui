@@ -535,42 +535,42 @@ Registration retains a shared snapshot of attachment and internal-gesture hooks 
 
 `ui!` seeds the primary component and static text content, prepares binding captures, inserts static component attachments in source order, and invokes matching attachment hooks once before running reactive initial values. Preparing captures does not evaluate reactive expressions or register effects. Layout containers with component attachments participate in the same initialization; plain containers without a matching gesture capability do not gain input feedback. Prepared callbacks stay on the construction stack until installation and reuse the existing effect runtime.
 
-LazyList creates its missing runtime pool on the first system run from its declared direct children, then binds rows in that same run. The pool is a retained snapshot, not a live mirror of Children. An explicit `LazyListPool` selects custom slots and is preserved. Missing or insufficient children leave initialization pending until a later system run; row declarations do not require post-composition pool installation.
+`LazyList` creates cells after its first nonempty layout and retains them across scrolling. Declare the data count, the cell extent, and one `on CreateCell` callback returning a new cell root. The list owns pool sizing, positions, and recycling; authors do not prebuild slots or maintain a pool.
 
 Visible rows intersect the viewport with positive area, including partial rows at either edge. `visible_start` is the first intersecting data index, not the start of the retained buffer. Spare slots hold up to two extra rows on either side without displacing visible rows or filling past the data range. Elastic offsets remain unchanged; empty viewports and offsets entirely outside the data hide retained rows. The total content extent must fit layout coordinates.
 
-Rows already bound inside the retained range keep their entities when the viewport or pool capacity changes. Missing indices use free slots; slot selection does not depend on the data index modulo the current capacity. Unused slots are hidden even when the supplied pool contains extra entities.
+Cells already bound inside the retained range keep their entities when the viewport changes. Missing indices use free cells; unused cells remain hidden for reuse. `item_extent` specifies height for a vertical list and width for a horizontal list, selected by `ScrollConfig.direction`. The list derives the virtual content extent from its count and cell extent.
 
-`LazyList::BindItem` updates row content through the shared event executor. Its payload contains the retained row `item` and its data `index`; `entity!()` identifies the list. The event supports blocks, typed inline callbacks, named factories, and `tree.on_event`. It does not bubble, install input feedback, or use business notification records.
+`CreateCell` runs only when a new physical cell is needed. Its `item` is a library-owned `ListItem` Model whose observed `index()` changes when that cell is reused. Property bindings read the current index and update through the normal reactive and dirty mechanisms. Input callbacks also read the index when invoked, rather than capturing a construction-time integer.
 
 ```rust,ignore
-use mirui::ui::widgets::lazy_list::BindItem;
+use mirui::ui::widgets::lazy_list::CreateCell;
 
 #[event]
-fn bind_row(change: event!(BindItem), rows: query!(mut Text)) {
+fn create_row(event: event!(CreateCell)) -> Entity {
     const LABELS: [&str; 4] = ["ALPHA", "BETA", "GAMMA", "DELTA"];
-    if let Some(text) = rows.get(change.item) {
-        text.set_content(LABELS[change.index as usize % LABELS.len()]);
+    let item = event.item.clone();
+    ui! {
+        Text(text: ${ LABELS[item.index() as usize % LABELS.len()] })
     }
 }
 
 #[compose]
 fn rows_panel() {
     ui! {
-        LazyList (item_count: 100_u32, item_height: Fixed::from_int(24), pool_size: 6_u8) {
-            walk 0..6 with _slot {
-                Text ("", height: 24, position: Position::Absolute)
-            }
-        } on BindItem(bind_row::callback())
+        LazyList (height: 240, item_count: 100_u32, item_extent: Fixed::from_int(24))
+        on CreateCell(create_row::callback())
     };
 }
 ```
 
-All slot assignments and positions are updated before the first callback, within the list system and before layout. Each newly assigned data index produces one event; unchanged indices and late listener installation do not replay bindings. Lists without listeners still manage their slots. Node deletion, pool replacement, and data shrink invalidate pending items; callback changes are not overwritten by an older pool snapshot.
+Blocks, typed inline callbacks, named callback factories, and `tree.on_event` use the same construction route. `entity!()` identifies the list. Cell attachment sees the list as its parent. The callback returns exactly one new root; duplicate providers, existing roots, and construction of multiple roots are rejected. Invalid construction, unwinding, and failed deferred command submission dispose the newly created subtree. The request does not bubble, add input feedback, or consume business notification records; App listeners and `commands.emit` cannot produce it.
 
-Callback commands commit after query and resource borrows end. Business notifications emitted by those commands flush after the list binding batch. Callback failures warn and skip the remaining work in that invocation; completed mutations are retained, and an unchanged binding is not retried automatically. App listeners and `commands.emit` cannot produce framework row updates.
+Construction callbacks use Model and value captures, event/entity roles, and deferred commands. They cannot retain `query!` or parameter `res!` borrows while creating nodes. Short resource operations use the same `res!(T).with(...)` expressions as composition, so the borrow ends before construction continues. Ordinary input and notification callbacks retain their typed query/resource capabilities.
 
-The synchronous event dispatch reuses reserved listener storage and borrows its payload without heap allocation. List and row snapshots retain their capacity across frames; scrolling within that capacity does not allocate framework storage. Callback installation, pool creation, and snapshot capacity growth allocate during setup or structural changes. User-owned formatted strings have separate allocation costs. Recursive list updates are skipped with a warning while the current batch is active.
+Complex cells can call a `#[compose]` function with `item: model!(ListItem)` and a separate business Model. Bind `item_count` to the business data count. Ancestor property updates precede retained-cell effects, and cells with invalid or inactive indices stop evaluating their properties. Restoring data wakes those bindings without rebuilding cells. Rebinding cancels the cell's old pointer capture and focus, without cancelling an ancestor list's scroll drag. Persistent selection or editing state belongs in the business Model, keyed by data identity rather than the recycled Entity.
+
+First layout and resize settle cell creation, positions, and reactive properties before drawing and hit testing. List and cell snapshots retain their capacity; warmed scrolling, including hiding and restoring cells, adds no framework heap allocations. Callback installation, Model registration, and pool growth allocate during construction. User-owned formatted strings have separate allocation costs. Removing a list releases its cells, Model registrations, and owned effects.
 
 An empty `#[view]` function declares a widget without a paint hook:
 

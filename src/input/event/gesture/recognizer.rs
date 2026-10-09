@@ -282,18 +282,31 @@ impl GestureRecognizer {
         self.reset();
     }
 
-    fn cancel_active(&mut self, events_out: &mut GestureEvents) {
+    pub(crate) fn captured_target(&self) -> Option<Entity> {
+        self.target
+    }
+
+    pub(crate) fn release_capture(&mut self) -> Option<GestureEvent> {
         let finger = self.fingers.iter().find(|finger| finger.active).copied();
-        if self.state == GestureState::Dragging
+        let cancellation = if self.state == GestureState::Dragging
             && let (Some(target), Some(finger)) = (self.target, finger)
         {
-            events_out.push(GestureEvent::DragCancel {
+            Some(GestureEvent::DragCancel {
                 x: finger.current_x,
                 y: finger.current_y,
                 target,
-            });
-        }
+            })
+        } else {
+            None
+        };
         self.reset();
+        cancellation
+    }
+
+    fn cancel_active(&mut self, events_out: &mut GestureEvents) {
+        if let Some(event) = self.release_capture() {
+            events_out.push(event);
+        }
     }
 
     fn capture_multi_baseline(&mut self) {

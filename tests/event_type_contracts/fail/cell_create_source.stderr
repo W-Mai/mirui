@@ -1,7 +1,7 @@
 error[E0277]: the trait bound `WidgetSource<mirui::ui::widgets::LazyList>: mirui::input::event::contract::EntitySourceFor<Slider>` is not satisfied
-  --> tests/event_type_contracts/fail/list_update_source.rs:11:35
+  --> tests/event_type_contracts/fail/cell_create_source.rs:16:35
    |
-11 |     let _ = Slider::build(0, 100).on_event(LazyList::BindItem, bind_row::callback());
+16 |     let _ = Slider::build(0, 100).on_event(LazyList::CreateCell, bind_row::callback(node));
    |                                   ^^^^^^^^ the trait `mirui::input::event::contract::EntitySourceFor<Slider>` is not implemented for `WidgetSource<mirui::ui::widgets::LazyList>`
    |
 help: the trait `EntitySourceFor<Slider>` is not implemented for `WidgetSource<mirui::ui::widgets::LazyList>`
@@ -27,10 +27,10 @@ note: required by a bound in `SliderBuilder::<P, B>::on_event`
    = note: this error originates in the macro `crate::ui::recipe::widget_builder_bindings` (in Nightly builds, run with -Z macro-backtrace for more info)
 
 error[E0277]: the trait bound `WidgetSource<mirui::ui::widgets::LazyList>: mirui::input::event::contract::EntitySourceFor<Slider>` is not satisfied
-  --> tests/event_type_contracts/fail/list_update_source.rs:11:64
+  --> tests/event_type_contracts/fail/cell_create_source.rs:16:66
    |
-11 |     let _ = Slider::build(0, 100).on_event(LazyList::BindItem, bind_row::callback());
-   |                                                                ^^^^^^^^^^^^^^^^^^^^ the trait `mirui::input::event::contract::EntitySourceFor<Slider>` is not implemented for `WidgetSource<mirui::ui::widgets::LazyList>`
+16 |     let _ = Slider::build(0, 100).on_event(LazyList::CreateCell, bind_row::callback(node));
+   |                                                                  ^^^^^^^^^^^^^^^^^^^^^^^^ the trait `mirui::input::event::contract::EntitySourceFor<Slider>` is not implemented for `WidgetSource<mirui::ui::widgets::LazyList>`
    |
 help: the trait `EntitySourceFor<Slider>` is not implemented for `WidgetSource<mirui::ui::widgets::LazyList>`
       but trait `EntitySourceFor<mirui::ui::widgets::LazyList>` is implemented for it
@@ -39,9 +39,9 @@ help: the trait `EntitySourceFor<Slider>` is not implemented for `WidgetSource<m
    | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    = help: for that trait implementation, expected `mirui::ui::widgets::LazyList`, found `Slider`
-   = note: required for `mirui::__macro_support::EntityContext<Slider>` to implement `mirui::__macro_support::CallbackContext<mirui::ui::widgets::lazy_list::BindItem>`
+   = note: required for `mirui::__macro_support::EntityContext<Slider>` to implement `mirui::__macro_support::CallbackContext<mirui::ui::widgets::lazy_list::CreateCell>`
 note: required by a bound in `callback`
-  --> tests/event_type_contracts/fail/list_update_source.rs:5:1
+  --> tests/event_type_contracts/fail/cell_create_source.rs:5:1
    |
  5 | #[event]
    | ^^^^^^^^ required by this bound in `callback`

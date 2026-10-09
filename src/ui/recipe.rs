@@ -136,7 +136,6 @@ macro_rules! widget_builder_bindings {
             where
                 E: $crate::input::event::contract::Event,
                 E::Route: $crate::__macro_support::EntityInstallRoute<E>,
-                <E::Route as $crate::input::event::contract::EventRoute>::Decision: $crate::__macro_support::ListenerDecision,
                 E::Source: $crate::input::event::contract::EntitySourceFor<$widget>,
             {
                 $builder {

@@ -1,11 +1,11 @@
 error[E0521]: borrowed data escapes outside of closure
-  --> tests/event_type_contracts/fail/callback_borrows.rs:14:36
+  --> tests/event_type_contracts/fail/callback_borrows.rs:14:44
    |
  9 |     let retained: Cell<Option<&'static State>> = Cell::new(None);
    |         -------- `retained` declared here, outside of the closure body
 ...
-14 |             move |(state,), _, ()| retained.set(Some(state)),
-   |                                    ^^^^^^^^^^^^^^^^^^^^^^^^^ a temporary borrow escapes the closure body here
+14 |             move |(state,), _, (), _scope| retained.set(Some(state)),
+   |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^ a temporary borrow escapes the closure body here
    |
    = help: `retained` is declared outside the closure, so any data borrowed inside the closure cannot be stored into it
    = note: requirement occurs because of the type `Cell<Option<&State>>`, which makes the generic argument `Option<&State>` invariant
@@ -13,7 +13,7 @@ error[E0521]: borrowed data escapes outside of closure
    = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance
 
 error[E0594]: cannot assign to `event.pressed`, which is behind a `&` reference
-  --> tests/event_type_contracts/fail/callback_borrows.rs:18:17
+  --> tests/event_type_contracts/fail/callback_borrows.rs:19:37
    |
-18 |                 event.pressed = false
-   |                 ^^^^^^^^^^^^^^^^^^^^^ `event` is a `&` reference, so it cannot be written to
+19 |             |(), event, (), _scope| event.pressed = false,
+   |                                     ^^^^^^^^^^^^^^^^^^^^^ `event` is a `&` reference, so it cannot be written to

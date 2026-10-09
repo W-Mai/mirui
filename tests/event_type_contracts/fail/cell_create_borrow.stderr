@@ -1,0 +1,19 @@
+error[E0277]: the trait bound `WidgetConstruction: mirui::__macro_support::CallbackInvocation<(mirui::__macro_support::QueryParam<mirui::__macro_support::ComponentDriver<mirui::ui::widgets::Text>, mirui::__macro_support::Write<mirui::ui::widgets::Text>, ()>,), _>` is not satisfied
+  --> tests/event_type_contracts/fail/cell_create_borrow.rs:16:35
+   |
+16 |         LazyList () on CreateCell(create::callback())
+   |                                   ^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `CallbackInvocation<(mirui::__macro_support::QueryParam<mirui::__macro_support::ComponentDriver<mirui::ui::widgets::Text>, mirui::__macro_support::Write<mirui::ui::widgets::Text>, ()>,), _>` is not implemented for `WidgetConstruction`
+      but trait `CallbackInvocation<(), mirui::ecs::Entity>` is implemented for it
+  --> src/input/event/callback.rs
+   |
+   | impl CallbackInvocation<(), Entity> for super::contract::WidgetConstruction {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   = help: for that trait implementation, expected `()`, found `(mirui::__macro_support::QueryParam<mirui::__macro_support::ComponentDriver<mirui::ui::widgets::Text>, mirui::__macro_support::Write<mirui::ui::widgets::Text>, ()>,)`
+note: required by a bound in `callback`
+  --> tests/event_type_contracts/fail/cell_create_borrow.rs:5:1
+   |
+ 5 | #[event]
+   | ^^^^^^^^ required by this bound in `callback`
+   = note: this error originates in the attribute macro `event` (in Nightly builds, run with -Z macro-backtrace for more info)
