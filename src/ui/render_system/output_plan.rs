@@ -1,11 +1,15 @@
 use super::*;
+use crate::render::scratch::PlaneLayout;
 use crate::ui::offscreen::BufferKey;
 use crate::ui::outputs::graph::OutputGraph;
 use crate::ui::outputs::relations::OutputRelations;
+use crate::ui::outputs::workspace::PaintWorkspace;
 use core::any::TypeId;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod workspace_tests;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum CaptureState {
@@ -22,6 +26,7 @@ struct Capture {
     config: super::super::OffscreenRender,
     key: BufferKey,
     state: CaptureState,
+    workspace_bytes: usize,
 }
 
 #[derive(Default)]
@@ -31,6 +36,7 @@ pub(crate) struct TexturePlan {
     batch: u64,
     root: Option<Entity>,
     cycle_reported: bool,
+    pub(crate) workspace: PaintWorkspace,
 }
 
 impl TexturePlan {
@@ -63,6 +69,7 @@ impl TexturePlan {
                         .map_or(0, |g| g.0),
                 ),
                 state: CaptureState::Pending,
+                workspace_bytes: 0,
             });
             if let Some(parent) = parent {
                 self.graph.add_dependency(id, parent);
@@ -136,6 +143,58 @@ impl TexturePlan {
             .iter()
             .any(|capture| capture.entity == entity && capture.state == CaptureState::Ready)
     }
+
+    fn output_layout(&self, entity: Entity) -> Option<PlaneLayout> {
+        let capture = self
+            .captures
+            .iter()
+            .find(|capture| capture.entity == entity)?;
+        if matches!(capture.state, CaptureState::Blocked | CaptureState::Missing)
+            || capture.key.w == 0
+            || capture.key.h == 0
+        {
+            return None;
+        }
+        PlaneLayout::packed(capture.key.w, capture.key.h, capture.key.format).ok()
+    }
+
+    fn measure_workspace(&mut self, world: &World, entities: &[Entity]) -> usize {
+        let Some(registry) = world.resource::<ViewRegistry>() else {
+            return 0;
+        };
+        let mut required = 0;
+        for (position, &entity) in entities.iter().enumerate() {
+            let owner = self
+                .captures
+                .iter()
+                .rposition(|c| c.start <= position && position < c.end);
+            if owner.is_some_and(|id| self.captures[id].state == CaptureState::Blocked) {
+                continue;
+            }
+            for view in registry.paint_iter() {
+                let Some(measure) = view.workspace() else {
+                    continue;
+                };
+                if view
+                    .component_filter()
+                    .is_some_and(|ty| !world.has_type(entity, ty))
+                {
+                    continue;
+                }
+                let Some(layout) = measure(world, entity, &|source| self.output_layout(source))
+                else {
+                    continue;
+                };
+                let bytes = layout.required_bytes();
+                required = required.max(bytes);
+                if let Some(owner) = owner {
+                    self.captures[owner].workspace_bytes =
+                        self.captures[owner].workspace_bytes.max(bytes);
+                }
+            }
+        }
+        required
+    }
 }
 
 pub(super) struct PreparedTextures<'a> {
@@ -156,16 +215,21 @@ pub(super) fn prepare<'a>(
     entities: &[Entity],
     renderer: &dyn Renderer,
 ) -> Result<Option<PreparedTextures<'a>>, RenderError> {
+    let Some(outputs) = world.resource::<Outputs<WidgetTexture>>() else {
+        return Ok(None);
+    };
     if !super::super::offscreen::has_texture_requests(world)
         && world
             .storage::<super::super::OffscreenRender>()
             .is_none_or(|storage| storage.is_empty())
     {
+        if let Some(mut plan) = outputs.take_texture_plan() {
+            outputs.reserve_workspace(&mut plan.workspace, 0);
+            plan.root = None;
+            outputs.put_texture_plan(plan);
+        }
         return Ok(None);
     }
-    let Some(outputs) = world.resource::<Outputs<WidgetTexture>>() else {
-        return Ok(None);
-    };
     if renderer.offscreen_format().is_none() {
         return Ok(None);
     }
@@ -178,6 +242,10 @@ pub(super) fn prepare<'a>(
         return Ok(Some(prepared));
     }
     plan.build(world, tree, entities);
+    let workspace_bytes = plan.measure_workspace(world, entities);
+    if workspace_bytes == 0 {
+        outputs.reserve_workspace(&mut plan.workspace, 0);
+    }
     plan.batch = outputs.batch_id();
     plan.root = entities.first().copied();
     for capture in &plan.captures {
@@ -213,6 +281,21 @@ pub(super) fn prepare<'a>(
             CaptureState::Missing
         };
         plan.captures[id].state = state;
+    }
+    if workspace_bytes != 0 {
+        outputs.reserve_workspace(&mut plan.workspace, workspace_bytes);
+    }
+    for position in 0..plan.graph.order().len() {
+        let id = plan.graph.order()[position];
+        let missing = plan.captures[id].workspace_bytes > plan.workspace.capacity()
+            || plan
+                .graph
+                .dependencies(id)
+                .any(|dependency| plan.captures[dependency].state == CaptureState::Missing);
+        if missing {
+            outputs.invalidate(plan.captures[id].entity);
+            plan.captures[id].state = CaptureState::Missing;
+        }
     }
     let mut failure = None;
     for position in 0..plan.graph.order().len() {

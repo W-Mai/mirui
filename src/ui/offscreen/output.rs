@@ -4,6 +4,7 @@ use crate::render::texture::{ColorFormat, Texture};
 use crate::ui::outputs::{
     HistoryOutput, Output, Outputs,
     private::{HistoryKind, OutputKind},
+    workspace::PaintWorkspace,
 };
 use core::cell::Ref;
 use hashbrown::HashMap;
@@ -43,6 +44,7 @@ pub struct WidgetTextureStorage {
     budget: usize,
     allocated: usize,
     pub(crate) plan: Option<crate::ui::render_system::output_plan::TexturePlan>,
+    deferred_workspace_trim: bool,
 }
 
 impl OutputKind for WidgetTexture {
@@ -82,6 +84,7 @@ impl Outputs<WidgetTexture> {
             budget,
             allocated: 0,
             plan: Some(Default::default()),
+            deferred_workspace_trim: false,
         })
     }
 
@@ -93,11 +96,59 @@ impl Outputs<WidgetTexture> {
 
     pub(crate) fn put_texture_plan(
         &self,
-        plan: crate::ui::render_system::output_plan::TexturePlan,
+        mut plan: crate::ui::render_system::output_plan::TexturePlan,
     ) {
         let mut storage = self.storage_mut();
         assert!(storage.plan.is_none(), "texture plan is already stored");
+        if storage.deferred_workspace_trim {
+            storage.allocated -= plan.workspace.release();
+            storage.deferred_workspace_trim = false;
+        }
         storage.plan = Some(plan);
+    }
+
+    pub(crate) fn reserve_workspace(
+        &self,
+        workspace: &mut PaintWorkspace,
+        required_bytes: usize,
+    ) -> bool {
+        let mut storage = self.storage_mut();
+        if storage.plan.is_some() {
+            return false;
+        }
+        let previous_capacity = workspace.capacity();
+        let Some(without_workspace) = storage.allocated.checked_sub(previous_capacity) else {
+            return false;
+        };
+        if required_bytes == 0 {
+            workspace.release();
+            storage.allocated = without_workspace;
+            return true;
+        }
+        if storage.deferred_workspace_trim {
+            return false;
+        }
+        if required_bytes <= previous_capacity {
+            return true;
+        }
+        let available = storage.budget.saturating_sub(without_workspace);
+        if required_bytes > available {
+            return false;
+        }
+        // No old allocation remains live while the larger buffer is allocated.
+        workspace.release();
+        storage.allocated = without_workspace;
+        if !workspace.allocate(required_bytes) {
+            workspace.release();
+            return false;
+        }
+        let actual_capacity = workspace.capacity();
+        if actual_capacity > available {
+            workspace.release();
+            return false;
+        }
+        storage.allocated += actual_capacity;
+        true
     }
 
     pub(crate) fn texture_matches(&self, key: BufferKey) -> bool {
@@ -270,6 +321,12 @@ impl Outputs<WidgetTexture> {
             slots.writing
         });
         storage.allocated -= released;
+        if let Some(plan) = storage.plan.as_mut() {
+            let released = plan.workspace.release();
+            storage.allocated -= released;
+        } else {
+            storage.deferred_workspace_trim = true;
+        }
     }
 
     pub(crate) fn reconcile_textures(
@@ -389,6 +446,7 @@ impl Drop for TextureWrite<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::PlaneLayout;
     use crate::test_support::tracked_allocations;
     use crate::types::Color;
 
@@ -402,6 +460,113 @@ mod tests {
             format: ColorFormat::RGBA8888,
             generation,
         }
+    }
+
+    #[test]
+    fn workspace_growth_shares_pixel_budget_and_preserves_other_outputs_on_rejection() {
+        let outputs = Outputs::<WidgetTexture>::with_budget(3 * TEXTURE_BYTES);
+        let source = key(1, 1);
+        assert!(outputs.prepare_texture(source).unwrap().publish());
+        let mut plan = outputs.take_texture_plan().unwrap();
+        assert!(outputs.reserve_workspace(&mut plan.workspace, TEXTURE_BYTES));
+        assert_eq!(
+            outputs.storage().allocated,
+            TEXTURE_BYTES + plan.workspace.capacity()
+        );
+
+        assert!(outputs.reserve_workspace(&mut plan.workspace, 2 * TEXTURE_BYTES));
+        assert_eq!(plan.workspace.capacity(), 2 * TEXTURE_BYTES);
+        assert_eq!(outputs.storage().allocated, 3 * TEXTURE_BYTES);
+        assert!(!outputs.reserve_workspace(&mut plan.workspace, 3 * TEXTURE_BYTES));
+        assert_eq!(plan.workspace.capacity(), 2 * TEXTURE_BYTES);
+        assert_eq!(outputs.storage().allocated, 3 * TEXTURE_BYTES);
+        assert!(outputs.get(source.entity).is_some());
+        assert!(!outputs.reserve_texture(key(2, 1)));
+
+        assert!(outputs.reserve_workspace(&mut plan.workspace, 0));
+        assert_eq!(plan.workspace.capacity(), 0);
+        assert_eq!(outputs.storage().allocated, TEXTURE_BYTES);
+        assert!(
+            outputs
+                .prepare_texture(BufferKey { w: 8, ..key(2, 1) })
+                .unwrap()
+                .publish()
+        );
+        outputs.put_texture_plan(plan);
+        assert_eq!(outputs.storage().allocated, 3 * TEXTURE_BYTES);
+    }
+
+    #[test]
+    fn warm_workspace_leases_can_read_outputs_and_paint_without_allocating() {
+        let outputs = Outputs::<WidgetTexture>::with_budget(2 * TEXTURE_BYTES);
+        let source = key(1, 1);
+        let expected = Color::rgba(17, 31, 47, 63);
+        let mut write = outputs.prepare_texture(source).unwrap();
+        write.texture_mut().set_pixel(0, 0, &expected);
+        assert!(write.publish());
+        let layout = PlaneLayout::packed(source.w, source.h, source.format).unwrap();
+        let mut plan = outputs.take_texture_plan().unwrap();
+        assert!(outputs.reserve_workspace(&mut plan.workspace, layout.required_bytes()));
+        outputs.put_texture_plan(plan);
+
+        let allocations = tracked_allocations(|| {
+            for _ in 0..16 {
+                let mut plan = outputs.take_texture_plan().unwrap();
+                assert!(outputs.reserve_workspace(&mut plan.workspace, layout.required_bytes()));
+                {
+                    let source_read = outputs.get(source.entity).unwrap();
+                    assert!(plan.workspace.with_texture(layout, |texture| {
+                        texture.set_pixel(0, 0, &source_read.texture().get_pixel(0, 0));
+                        assert_eq!(texture.get_pixel(0, 0), expected);
+                    }));
+                }
+                outputs.put_texture_plan(plan);
+            }
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(outputs.storage().allocated, 2 * TEXTURE_BYTES);
+    }
+
+    #[test]
+    fn trimming_an_active_plan_keeps_workspace_and_write_lease_budget_until_return() {
+        let outputs = Outputs::<WidgetTexture>::with_budget(2 * TEXTURE_BYTES);
+        let input = key(1, 1);
+        let pending = outputs.prepare_texture(input).unwrap();
+        let mut plan = outputs.take_texture_plan().unwrap();
+        assert!(outputs.reserve_workspace(&mut plan.workspace, TEXTURE_BYTES));
+        let layout = PlaneLayout::packed(input.w, input.h, input.format).unwrap();
+        assert!(plan.workspace.with_texture(layout, |texture| {
+            outputs.trim_memory();
+            assert_eq!(outputs.storage().allocated, 2 * TEXTURE_BYTES);
+            assert_eq!(plan.workspace.capacity(), TEXTURE_BYTES);
+            assert!(!outputs.reserve_texture(key(2, 1)));
+            texture.set_pixel(0, 0, &Color::rgb(11, 29, 47));
+        }));
+        assert!(!outputs.reserve_workspace(&mut plan.workspace, TEXTURE_BYTES));
+        drop(pending);
+        assert_eq!(outputs.storage().allocated, TEXTURE_BYTES);
+        outputs.put_texture_plan(plan);
+        assert_eq!(outputs.storage().allocated, 0);
+
+        let plan = outputs.take_texture_plan().unwrap();
+        assert_eq!(plan.workspace.capacity(), 0);
+        outputs.put_texture_plan(plan);
+        assert!(outputs.prepare_texture(key(2, 1)).unwrap().publish());
+    }
+
+    #[test]
+    fn trimming_a_stored_plan_releases_its_workspace_immediately() {
+        let outputs = Outputs::<WidgetTexture>::with_budget(TEXTURE_BYTES);
+        let mut plan = outputs.take_texture_plan().unwrap();
+        assert!(outputs.reserve_workspace(&mut plan.workspace, TEXTURE_BYTES));
+        outputs.put_texture_plan(plan);
+        assert_eq!(outputs.storage().allocated, TEXTURE_BYTES);
+        outputs.trim_memory();
+        assert_eq!(outputs.storage().allocated, 0);
+        let plan = outputs.take_texture_plan().unwrap();
+        assert_eq!(plan.workspace.capacity(), 0);
+        outputs.put_texture_plan(plan);
+        assert!(outputs.prepare_texture(key(1, 1)).unwrap().publish());
     }
 
     #[test]

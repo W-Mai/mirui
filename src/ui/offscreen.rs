@@ -8,7 +8,7 @@
 //!
 //! Outputs use one pixel slot by default. An owner that explicitly requests history, such as [`TemporalMix`](crate::ui::widgets::TemporalMix), uses two slots and reads its own frozen result through `previous(entity)`. History is the last successful output at the start of the drawing batch, remains fixed across dirty regions, and is independent of input-generation gaps. A first output or an owner without history has no previous result; incompatible dimensions or format clear old history.
 //!
-//! The pixel budget includes retained slots and detached in-progress write buffers. A request that exceeds it is rejected before allocating pixels, and other outputs remain resident. Metadata and effect scratch storage are additional costs. The default budget is zero; [`App::with_offscreen_pool_budget`](crate::app::App::with_offscreen_pool_budget) configures it before widget construction.
+//! The pixel budget includes retained slots, detached in-progress write buffers, and the shared reflection workspace. A request that exceeds it is rejected before allocating pixels, and other outputs remain resident. Metadata and other filters' scratch storage are additional costs. The default budget is zero; [`App::with_offscreen_pool_budget`](crate::app::App::with_offscreen_pool_budget) configures it before widget construction.
 //!
 //! # Usage
 //!

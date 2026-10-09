@@ -3,7 +3,8 @@
 //! Referenced sources are prepared before composition. An unavailable source produces no reflection.
 
 use crate::ecs::{Entity, World};
-use crate::render::texture::{ColorFormat, Texture};
+use crate::render::PlaneLayout;
+use crate::render::texture::{AlphaMode, ColorFormat, Texture};
 use crate::types::{Fixed, Point, Rect};
 use crate::ui::offscreen::WidgetTexture;
 use crate::ui::outputs::Outputs;
@@ -27,49 +28,62 @@ impl MirrorOf {
     }
 }
 
-fn mirror_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    let Some(mir) = world.get::<MirrorOf>(entity) else {
+#[crate::view(component = MirrorOf, name = "MirrorOf", priority = 60)]
+fn mirror_render(mirror: component!(), outputs: res!(Outputs<WidgetTexture>), paint: paint!()) {
+    let Some(source) = outputs.get(mirror.source) else {
         return;
     };
-    let Some(source) = world
-        .resource::<Outputs<WidgetTexture>>()
-        .and_then(|outputs| outputs.get(mir.source))
-    else {
-        return;
-    };
-    flip_into(source.texture(), paint.rect(), mir.fade, paint);
+    flip_into(source.texture(), paint.rect(), mirror.fade, paint);
 }
 
-/// Vertically flip `src` and blit it into `rect`. Fade
-/// linearly attenuates alpha along the y-axis: row 0 is fully opaque,
-/// row h-1 picks up `fade/255` of additional transparency.
+fn mirror_workspace(
+    world: &World,
+    entity: Entity,
+    source_layout: &dyn Fn(Entity) -> Option<PlaneLayout>,
+) -> Option<PlaneLayout> {
+    let mirror = world.get::<MirrorOf>(entity)?;
+    let source = source_layout(mirror.source)?;
+    match source.format() {
+        ColorFormat::RGBA8888 | ColorFormat::RGB565 | ColorFormat::RGB565Swapped => {
+            PlaneLayout::packed(source.width(), source.height(), ColorFormat::RGBA8888).ok()
+        }
+        ColorFormat::RGB888 | ColorFormat::BGRA8888 => None,
+    }
+}
+
+/// Vertically flip `src` into `rect`, attenuating alpha progressively down the reflection.
 fn flip_into(src: &Texture, rect: Rect, fade: u8, paint: &mut PaintCtx<'_>) {
     use crate::render::command::{CompositeMode, DrawCommand};
 
-    let w = src.width;
-    let h = src.height;
-    let mut tmp = Texture::owned(w, h, ColorFormat::RGBA8888);
-    if let crate::render::texture::TexBuf::Owned(ref mut dst_buf) = tmp.buf {
-        let dst_stride = w as usize * 4;
+    if matches!(src.format, ColorFormat::RGB888 | ColorFormat::BGRA8888) {
+        return;
+    }
+    let Ok(layout) = PlaneLayout::packed(src.width, src.height, ColorFormat::RGBA8888) else {
+        return;
+    };
+    paint.with_workspace(layout, |texture, paint| {
+        texture.alpha_mode = AlphaMode::Blend;
+        texture.transient = true;
+        let dst_stride = texture.stride;
+        let dst_buf = texture.buf.as_mut_slice();
         match src.format {
             ColorFormat::RGBA8888 => flip_rgba8888(src, dst_buf, dst_stride, fade),
             ColorFormat::RGB565 => flip_rgb565(src, dst_buf, dst_stride, fade, false),
             ColorFormat::RGB565Swapped => flip_rgb565(src, dst_buf, dst_stride, fade, true),
             ColorFormat::RGB888 | ColorFormat::BGRA8888 => return,
         }
-    }
 
-    let cmd = DrawCommand::Blit {
-        pos: Point::new(rect.x, rect.y),
-        size: Point::new(rect.w, rect.h),
-        transform: paint.transform(),
-        quad: None,
-        texture: &tmp,
-        opa: 255,
-        radius: Fixed::ZERO,
-        composite: CompositeMode::SourceOver,
-    };
-    paint.draw(&cmd);
+        paint.draw(&DrawCommand::Blit {
+            pos: Point::new(rect.x, rect.y),
+            size: Point::new(rect.w, rect.h),
+            transform: paint.transform(),
+            quad: None,
+            texture,
+            opa: 255,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::SourceOver,
+        });
+    });
 }
 
 fn flip_rgba8888(src: &Texture, dst_buf: &mut [u8], dst_stride: usize, fade: u8) {
@@ -125,5 +139,5 @@ fn flip_rgb565(src: &Texture, dst_buf: &mut [u8], dst_stride: usize, fade: u8, s
 }
 
 pub fn view() -> View {
-    View::new("MirrorOf", 60, mirror_render).with_filter::<MirrorOf>()
+    mirror_render::view().with_workspace(mirror_workspace)
 }

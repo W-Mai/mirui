@@ -1398,6 +1398,9 @@ fn draw_tree_offset(
                         quad,
                         state,
                     );
+                    if let Some(plan) = output_plan {
+                        ctx.set_workspace(&plan.workspace);
+                    }
                     render_views(world, entity, &mut ctx)
                 };
                 if let Some(error) = scoped.error {
@@ -1407,6 +1410,9 @@ fn draw_tree_offset(
             } else {
                 let mut ctx =
                     PaintCtx::new(renderer, style, &shifted_rect, &view_clip, tf, quad, state);
+                if let Some(plan) = output_plan {
+                    ctx.set_workspace(&plan.workspace);
+                }
                 render_views(world, entity, &mut ctx)?;
             }
         }
@@ -1858,6 +1864,9 @@ fn prepare_offscreen(
                 None,
                 state,
             );
+            if let Some(plan) = output_plan {
+                ctx.set_workspace(&plan.workspace);
+            }
             render_views(world, entity, &mut ctx)?;
         }
         *idx += 1;

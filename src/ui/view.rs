@@ -14,9 +14,11 @@ use crate::render::command::DrawCommand;
 use crate::render::path::Path;
 use crate::render::raster::FillRule;
 use crate::render::renderer::{DrawRequest, RenderError, Renderer, TextRunIdentity};
+use crate::render::scratch::PlaneLayout;
 use crate::render::texture::Texture;
 use crate::types::{Point, Rect, Transform};
 use crate::ui::Style;
+use crate::ui::outputs::workspace::PaintWorkspace;
 use crate::ui::outputs::{OutputDependency, relations::OutputRelations};
 use crate::ui::theme::WidgetState;
 
@@ -31,6 +33,7 @@ pub struct PaintCtx<'frame> {
     state: WidgetState,
     background_handled: bool,
     error: Option<RenderError>,
+    workspace: Option<&'frame PaintWorkspace>,
 }
 
 impl<'frame> PaintCtx<'frame> {
@@ -53,11 +56,27 @@ impl<'frame> PaintCtx<'frame> {
             state,
             background_handled: false,
             error: None,
+            workspace: None,
         }
     }
 
     pub fn style(&self) -> &Style {
         self.style
+    }
+
+    pub(crate) fn set_workspace(&mut self, workspace: &'frame PaintWorkspace) {
+        self.workspace = Some(workspace);
+    }
+
+    pub(crate) fn with_workspace(
+        &mut self,
+        layout: PlaneLayout,
+        body: impl FnOnce(&mut Texture<'_>, &mut Self),
+    ) -> bool {
+        let Some(workspace) = self.workspace else {
+            return false;
+        };
+        workspace.with_texture(layout, |texture| body(texture, self))
     }
 
     pub fn rect(&self) -> Rect {
@@ -440,7 +459,11 @@ struct ViewPaint {
     /// widgets, 80..100 overlays.
     priority: u8,
     render: ViewRender,
+    workspace: Option<WorkspaceMeasure>,
 }
+
+pub(crate) type WorkspaceMeasure =
+    fn(&World, Entity, &dyn Fn(Entity) -> Option<PlaneLayout>) -> Option<PlaneLayout>;
 
 /// Widget-kind descriptor with optional painting and independent behavior hooks.
 pub struct View {
@@ -470,7 +493,11 @@ impl View {
     pub const fn new(name: &'static str, priority: u8, render: ViewRender) -> Self {
         Self {
             name,
-            paint: Some(ViewPaint { priority, render }),
+            paint: Some(ViewPaint {
+                priority,
+                render,
+                workspace: None,
+            }),
             auto_attach: None,
             systems: &[],
             component_filter: None,
@@ -488,6 +515,17 @@ impl View {
     pub const fn with_attach(mut self, attach: ViewAttach) -> Self {
         self.auto_attach = Some(attach);
         self
+    }
+
+    pub(crate) const fn with_workspace(mut self, measure: WorkspaceMeasure) -> Self {
+        if let Some(paint) = &mut self.paint {
+            paint.workspace = Some(measure);
+        }
+        self
+    }
+
+    pub(crate) fn workspace(&self) -> Option<WorkspaceMeasure> {
+        self.paint.as_ref().and_then(|paint| paint.workspace)
     }
 
     pub const fn with_systems(mut self, systems: &'static [crate::ecs::System]) -> Self {

@@ -11,6 +11,7 @@ pub(crate) use dependency::OutputDescriptor;
 pub use dependency::{OutputDependency, OutputSource};
 pub(crate) mod graph;
 pub(crate) mod relations;
+pub(crate) mod workspace;
 
 pub(crate) mod private {
     pub trait OutputKind {
