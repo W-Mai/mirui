@@ -162,7 +162,7 @@ fn expand_decl(name: syn::Ident, params: Vec<MoldParam>, children: &[DsTreeRef])
 
             #[doc(hidden)]
             pub fn __attach(world: &mut ::mirui::ecs::World, entity: ::mirui::ecs::Entity) {
-                let mut cx = ::mirui::ui::UiScope::new(world, entity);
+                let mut cx = ::mirui::__macro_support::new_scope(world, entity);
                 Self::__attach_scoped(&mut cx);
             }
 

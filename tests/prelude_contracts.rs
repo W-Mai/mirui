@@ -43,3 +43,11 @@ fn framework_systems_expose_descriptors_not_raw_callbacks() {
     cases.pass("tests/prelude_contracts/framework_system_descriptors.rs");
     cases.compile_fail("tests/prelude_contracts/framework_system_callbacks.rs");
 }
+
+#[test]
+fn composition_constructors_stay_in_macro_support() {
+    let cases = trybuild::TestCases::new();
+    cases.compile_fail("tests/prelude_contracts/scope_constructor.rs");
+    cases.compile_fail("tests/prelude_contracts/raw_builder.rs");
+    cases.compile_fail("tests/prelude_contracts/default_builder.rs");
+}

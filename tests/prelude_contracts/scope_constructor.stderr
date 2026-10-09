@@ -1,0 +1,10 @@
+error[E0624]: associated function `new` is private
+ --> tests/prelude_contracts/scope_constructor.rs:7:22
+  |
+7 |     let _ = UiScope::new(&mut app.world, root);
+  |                      ^^^ private associated function
+  |
+ ::: src/ui/scope.rs
+  |
+  |     pub(crate) fn new(world: &'w mut World, parent: Entity) -> Self {
+  |     --------------------------------------------------------------- private associated function defined here

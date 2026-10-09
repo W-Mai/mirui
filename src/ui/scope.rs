@@ -53,7 +53,7 @@ impl<'w> UiScope<'w> {
     /// Bind a fresh `UiScope` to a specific world and parent entity.
     ///
     /// `App::compose` creates the scope for a prepared composition. Generated widget code uses the scope during that execution window.
-    pub fn new(world: &'w mut World, parent: Entity) -> Self {
+    pub(crate) fn new(world: &'w mut World, parent: Entity) -> Self {
         let scope = crate::core::reactive::OwnerGuard::enter(world);
         Self {
             world,

@@ -51,7 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - LazyList reuses list and cell snapshots across updates. Hidden-cell storage is prepared during creation; warmed scrolling and property updates reuse capacity. Callback-driven deletions remain generation-checked, and recursive updates cannot replace an active batch.
 - Structural World access for generated reactive bindings, branches, and lists is confined to hidden macro support; `core::reactive::with_world` and `with_world_scope` are no longer public authoring APIs.
 - Built-in systems retain their `name::system()` registration descriptors; raw World callbacks are crate-private.
-- Composition scopes no longer expose `world_mut`. Generated UI and Niche construction access the same storage through hidden macro support.
+- Composition scopes no longer expose `new` or `world_mut`, and raw widget builders are removed from the ordinary UI module and prelude. `App::compose`, generated UI, and Niche construction share the same internal implementation.
 - Kinetic Console, Widgets, and Compact Widgets construct their simulation timelines through resource compositions instead of World parameters. Widgets uses named targets and shares its composition, theme timer, and input sequence across desktop and embedded setup.
 - Generated layout property callbacks are confined to macro support. Layout dependency descriptors and the dependency capacity remain available from `mirui::ui`.
 - State List derives its scroll extent from retained children, including row spacing and padding, and clips overflow to the list viewport. Its composition no longer writes scroll configuration through a World callback.

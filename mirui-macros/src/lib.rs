@@ -826,7 +826,7 @@ impl MiruiRune {
                 #(#id_lookups)*
                 let __compose_parent = #parent_var;
                 let __compose_factory = #function(#(#args),*);
-                let mut __compose_cx = mirui::ui::UiScope::new(#world, __compose_parent);
+                let mut __compose_cx = mirui::__macro_support::new_scope(#world, __compose_parent);
                 __compose_factory(&mut __compose_cx)
             };
         }
@@ -935,7 +935,7 @@ impl MiruiRune {
 
         let builder = match reserved {
             Some(reserved) => quote! { #reserved.build(#world) },
-            None => quote! { mirui::ui::builder::WidgetBuilder::new(#world) },
+            None => quote! { mirui::__macro_support::WidgetBuilder::new(#world) },
         };
         tokens.extend(quote! {
             let #var = #builder
@@ -1399,7 +1399,7 @@ impl MiruiRune {
                     Self::emit_siblings(&cmd.body, world, &slot_var_ts).collect();
                 return quote! {
                     let __slot_parent = #parent_var;
-                    let #slot_var = ::mirui::ui::builder::WidgetBuilder::new(#world).id();
+                    let #slot_var = ::mirui::__macro_support::WidgetBuilder::new(#world).id();
                     ::mirui::__macro_support::finish_widget_static(#world, __slot_parent, #slot_var);
                     __mold_niche_map.insert(#slot_name, #slot_var);
                     #fallback

@@ -1,0 +1,13 @@
+error[E0603]: module `builder` is private
+ --> tests/prelude_contracts/raw_builder.rs:1:16
+  |
+1 | use mirui::ui::builder::WidgetBuilder;
+  |                ^^^^^^^  ------------- struct `WidgetBuilder` is not publicly re-exported
+  |                |
+  |                private module
+  |
+note: the module `builder` is defined here
+ --> src/ui/mod.rs
+  |
+  | pub(crate) mod builder;
+  | ^^^^^^^^^^^^^^^^^^^^^^

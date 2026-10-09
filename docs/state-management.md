@@ -76,7 +76,7 @@ A prepared composition also works as the child callback of `tree.children(recipe
 
 Calling a `#[compose]` function prepares a stack-held composition without executing its body. All arguments remain owned or borrowed by that value until it is executed or dropped. Model validation, resource access, bindings, and widget creation run inside `App::compose`; preparing a composition does not require an active application owner. Composition outputs use concrete Rust types, including generics. Returned references may borrow application data supplied as arguments, but not the construction scope or its resources.
 
-For construction without the UI DSL, pass a closure to `App::compose`. Its scope accepts components, typed widget builders, and tuples of both. `children` returns the container entity and the closure's result. The scope does not expose World access; generated UI and Niche construction use an internal macro adapter. No manual parent wiring is required.
+For construction without the UI DSL, pass a closure to `App::compose`. Its scope accepts components, typed widget builders, and tuples of both. `children` returns the container entity and the closure's result. Scope creation and raw widget builders are internal; generated UI and Niche construction use the same implementation through hidden macro support. The supplied scope does not expose World access or require manual parent wiring.
 
 ```rust
 let (panel, slider) = app.compose(root, |tree| {

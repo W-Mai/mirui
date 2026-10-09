@@ -11,7 +11,7 @@
 
 #[doc(hidden)]
 pub mod branch;
-pub mod builder;
+pub(crate) mod builder;
 pub(crate) mod construction;
 pub mod dirty;
 pub mod icons;

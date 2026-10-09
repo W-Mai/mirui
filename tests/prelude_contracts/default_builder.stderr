@@ -1,0 +1,5 @@
+error[E0432]: unresolved import `mirui::prelude::WidgetBuilder`
+ --> tests/prelude_contracts/default_builder.rs:1:5
+  |
+1 | use mirui::prelude::WidgetBuilder;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `WidgetBuilder` in `prelude`

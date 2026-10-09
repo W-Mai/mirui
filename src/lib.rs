@@ -119,6 +119,13 @@ pub mod __macro_support {
         crate::core::reactive::with_world_scope(world, f)
     }
 
+    pub fn new_scope(
+        world: &mut crate::ecs::World,
+        parent: crate::ecs::Entity,
+    ) -> crate::ui::UiScope<'_> {
+        crate::ui::UiScope::new(world, parent)
+    }
+
     pub trait ScopeWorldAccess {
         fn __mirui_world(&mut self) -> &mut crate::ecs::World;
     }
@@ -167,6 +174,7 @@ pub mod __macro_support {
     pub use crate::input::event::runtime::{
         RuntimeRunError, dispatch_gesture as dispatch_entity_gesture, flush as flush_entity_events,
     };
+    pub use crate::ui::builder::WidgetBuilder;
     pub use crate::ui::construction::{ReservedWidget, finish_widget_static};
     pub use crate::ui::layout_binding::LayoutBinding;
     pub use crate::ui::recipe::{PropertyBindings, WidgetRecipe};
@@ -216,7 +224,6 @@ pub mod prelude {
         TextGeometryRead, TextPath,
     };
     pub use crate::types::{Color, Dimension, Fixed, PhysicalRect, Point, Rect};
-    pub use crate::ui::builder::WidgetBuilder;
     pub use crate::ui::layout::{
         AlignItems, FlexDirection, FlexWrap, JustifyContent, LayoutStyle, Padding, Position,
     };
