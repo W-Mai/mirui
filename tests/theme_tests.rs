@@ -126,20 +126,17 @@ fn theme_types_are_available_from_the_prelude() {
 
 #[test]
 fn set_theme_swaps_resource_and_marks_tree_dirty() {
-    use mirui::ui::builder::WidgetBuilder;
+    use mirui::ui::Style;
     use mirui::ui::dirty::Dirty;
 
     let backend = FramebufSurface::new(64, 64, |_, _| {});
     let mut app = App::new(backend);
     app.with_default_widgets();
 
-    let child_a = WidgetBuilder::new(&mut app.world).id();
-    let child_b = WidgetBuilder::new(&mut app.world).id();
-    let root = WidgetBuilder::new(&mut app.world)
-        .child(child_a)
-        .child(child_b)
-        .id();
-    app.set_root(root);
+    let root = app.spawn_root().id();
+    let (child_a, child_b) = app.compose(root, |tree| {
+        (tree.spawn(Style::default()), tree.spawn(Style::default()))
+    });
 
     // Sanity: we cleared the freshly-spawned tree's Dirty so the swap signal is unambiguous.
     app.world.remove::<Dirty>(root);
@@ -164,19 +161,19 @@ fn set_theme_swaps_resource_and_marks_tree_dirty() {
 
 #[test]
 fn set_root_publishes_widget_root_resource() {
-    use mirui::ui::WidgetRoot;
-    use mirui::ui::builder::WidgetBuilder;
+    use mirui::ui::{Style, WidgetRoot};
 
     let backend = FramebufSurface::new(64, 64, |_, _| {});
     let mut app = App::new(backend);
     app.with_default_widgets();
-    let root = WidgetBuilder::new(&mut app.world).id();
-    app.set_root(root);
+    let root = app.spawn_root().id();
+    let selected = app.compose(root, |tree| tree.spawn(Style::default()));
+    app.set_root(selected);
 
     let cached = app.world.resource::<WidgetRoot>().expect(
         "WidgetRoot must be published so handlers can reach the live root without an App ref",
     );
-    assert_eq!(cached.0, root);
+    assert_eq!(cached.0, selected);
 }
 
 #[test]

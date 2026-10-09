@@ -4,7 +4,7 @@ use mirui::core::reactive::flush_signal_dirty;
 use mirui::render::DrawCommand;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::{Color, Dimension, Fixed};
-use mirui::ui::builder::WidgetBuilder;
+use mirui::ui::Style;
 use mirui::ui::layout::{FlexDirection, LayoutStyle};
 use mirui::ui::view::{PaintCtx, ViewInvalidation};
 use mirui::{component, model, view};
@@ -340,33 +340,33 @@ fn shared_views_update_together_while_other_instances_stay_independent() {
         height: Dimension::px(10),
         ..LayoutStyle::default()
     };
-    let tiles: [_; 3] =
-        core::array::from_fn(|_| WidgetBuilder::new(&mut app.world).layout(tile_layout).id());
-    let root = WidgetBuilder::new(&mut app.world)
+    let root = app
+        .spawn_root()
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
             width: Dimension::px(32),
             height: Dimension::px(32),
             ..LayoutStyle::default()
         })
-        .child(tiles[0])
-        .child(tiles[1])
-        .child(tiles[2])
         .id();
-    app.set_root(root);
-    for (slot, entity) in tiles.into_iter().enumerate() {
-        app.world.insert(
-            entity,
-            SharedTile {
-                model: if slot == 2 {
-                    independent.share()
-                } else {
-                    shared.share()
+    let tiles: [_; 3] = app.compose(root, |tree| {
+        core::array::from_fn(|slot| {
+            tree.spawn((
+                Style {
+                    layout: tile_layout,
+                    ..Style::default()
                 },
-                slot,
-            },
-        );
-    }
+                SharedTile {
+                    model: if slot == 2 {
+                        independent.share()
+                    } else {
+                        shared.share()
+                    },
+                    slot,
+                },
+            ))
+        })
+    });
     app.render().unwrap();
     app.render_dirty().unwrap();
     assert_eq!(tile_values(), [1, 1, 7]);

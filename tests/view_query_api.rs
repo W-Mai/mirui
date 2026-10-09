@@ -1,10 +1,9 @@
 use mirui::app::App;
 use mirui::ecs::Entity;
 use mirui::types::Dimension;
-use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::layout::LayoutStyle;
 use mirui::ui::property::{apply_to_world, prop};
-use mirui::ui::{Children, ComputedRect, Parent};
+use mirui::ui::{ComputedRect, Style};
 use mirui::{component, view};
 use std::cell::Cell;
 use std::marker::PhantomData;
@@ -130,28 +129,25 @@ fn layout_outputs_repaint_distant_query_consumers_in_the_same_frame_then_stay_id
     app.add_resource(Trace::default());
     app.with_widget(paint_geometry::view());
     let root = app.spawn_root().id();
-    let source = WidgetBuilder::new(&mut app.world)
-        .layout(LayoutStyle {
+    let source = app.compose(root, |tree| {
+        let layout = LayoutStyle {
             width: Dimension::px(10),
             height: Dimension::px(10),
             ..LayoutStyle::default()
-        })
-        .id();
-    let tile = WidgetBuilder::new(&mut app.world)
-        .layout(LayoutStyle {
-            width: Dimension::px(10),
-            height: Dimension::px(10),
-            ..LayoutStyle::default()
-        })
-        .id();
-    app.world.insert(source, Parent(root));
-    app.world.insert(tile, Parent(root));
-    app.world
-        .get_mut::<Children>(root)
-        .unwrap()
-        .0
-        .extend([source, tile]);
-    app.world.insert(tile, Tile { target: source });
+        };
+        let source = tree.spawn(Style {
+            layout,
+            ..Style::default()
+        });
+        tree.spawn((
+            Style {
+                layout,
+                ..Style::default()
+            },
+            Tile { target: source },
+        ));
+        source
+    });
     app.render_dirty().unwrap();
     assert_eq!(app.world.resource::<Trace>().unwrap().value.get(), 10);
     app.render_dirty().unwrap();
@@ -243,32 +239,44 @@ fn dirty_plan_outputs_remain_pending_for_the_next_frame_without_replaying_the_wa
     app.add_resource(Trace::default());
     app.with_widget(paint_generation::view());
     let root = app.spawn_root().id();
-    let children = [10, 20, 10].map(|height| {
-        WidgetBuilder::new(&mut app.world)
-            .layout(LayoutStyle {
-                width: Dimension::px(10),
-                height: Dimension::px(height),
-                ..LayoutStyle::default()
-            })
-            .id()
+    let children = app.compose(root, |tree| {
+        let source = tree.spawn((
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(10),
+                    height: Dimension::px(10),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+            mirui::ui::OffscreenRender::new(),
+            mirui::ui::dirty::Dirty,
+        ));
+        let spacer = tree.spawn((
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(10),
+                    height: Dimension::px(20),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+            mirui::ui::dirty::Dirty,
+        ));
+        let tile = tree.spawn((
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(10),
+                    height: Dimension::px(10),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+            Tile { target: source },
+            mirui::ui::dirty::Dirty,
+        ));
+        [source, spacer, tile]
     });
-    for child in children {
-        app.world.insert(child, Parent(root));
-        app.world.insert(child, mirui::ui::dirty::Dirty);
-    }
-    app.world
-        .get_mut::<Children>(root)
-        .unwrap()
-        .0
-        .extend(children);
-    app.world
-        .insert(children[0], mirui::ui::OffscreenRender::new());
-    app.world.insert(
-        children[2],
-        Tile {
-            target: children[0],
-        },
-    );
     app.render_dirty().unwrap();
     assert_eq!(app.world.resource::<Trace>().unwrap().value.get(), 1);
     app.render_dirty().unwrap();

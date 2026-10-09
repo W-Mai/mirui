@@ -8,7 +8,6 @@ mod tests {
     use mirui::surface::FramebufferAccess;
     use mirui::surface::framebuf::FramebufSurface;
     use mirui::types::Viewport;
-    use mirui::ui::builder::WidgetBuilder;
     use mirui::ui::layout::FlexDirection;
     use mirui::ui::render_system;
     use mirui::ui::widgets::{
@@ -25,7 +24,8 @@ mod tests {
         let mut app: App<_, _> = App::new(backend);
         app.with_default_widgets().with_default_systems();
 
-        let root = WidgetBuilder::new(&mut app.world)
+        let root = app
+            .spawn_root()
             .bg_color(Color::rgb(bg.0, bg.1, bg.2))
             .layout(LayoutStyle {
                 direction: FlexDirection::Column,
@@ -36,8 +36,7 @@ mod tests {
             })
             .id();
 
-        let _chooser = {
-            let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        app.compose(root, |cx| {
             ui! {
                 Row (height: 44) {
                     Button (
@@ -72,10 +71,9 @@ mod tests {
                     } on Tap(|_| false)
                 }
             }
-        };
+        });
 
-        {
-            let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+        app.compose(root, |cx| {
             ui! {
                 Column (grow: 1.0) {
                     Row (height: 28, align: AlignItems::Center) {
@@ -125,9 +123,7 @@ mod tests {
                     }
                 }
             }
-        };
-
-        app.set_root(root);
+        });
 
         let world = &mut app.world;
         let viewport = Viewport::new(width, height, Fixed::ONE);
@@ -154,13 +150,13 @@ mod tests {
                 if r != bg.0 || g != bg.1 || b != bg.2 {
                     non_bg_count += 1;
                 }
-                if r >= 35 && r <= 45 && g >= 45 && g <= 55 && b >= 65 && b <= 75 {
+                if (35..=45).contains(&r) && (45..=55).contains(&g) && (65..=75).contains(&b) {
                     found_dark_btn = true;
                 }
-                if r <= 10 && g >= 95 && g <= 105 && b >= 195 && b <= 205 {
+                if r <= 10 && (95..=105).contains(&g) && (195..=205).contains(&b) {
                     found_light_btn = true;
                 }
-                if r >= 250 && g >= 100 && g <= 110 && b >= 175 && b <= 185 {
+                if r >= 250 && (100..=110).contains(&g) && (175..=185).contains(&b) {
                     found_custom_btn = true;
                 }
             }
