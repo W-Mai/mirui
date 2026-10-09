@@ -5,10 +5,9 @@ use mirui::prelude::Dimension;
 use mirui::render::texture::{ColorFormat, Texture};
 use mirui::render::{DrawCommand, DrawRequest, RenderError, RenderResource, RenderRoute, Renderer};
 use mirui::types::{Color, Fixed, Rect, Viewport};
-use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::layout::LayoutStyle;
 use mirui::ui::offscreen::OffscreenRender;
-use mirui::ui::{Outputs, WidgetTexture, render_system};
+use mirui::ui::{Children, Outputs, Style, WidgetTexture, render_system};
 
 #[derive(Default)]
 struct Counts {
@@ -74,14 +73,18 @@ fn make_world(with_outputs: bool) -> (World, mirui::ecs::Entity) {
     }
     let mut world = app.world;
 
-    let panel = WidgetBuilder::new(&mut world)
-        .bg_color(Color::rgb(255, 0, 0))
-        .layout(LayoutStyle {
-            width: Dimension::px(32),
-            height: Dimension::px(32),
+    let panel = world.spawn((
+        Style {
+            bg_color: Some(Color::rgb(255, 0, 0).into()),
+            layout: LayoutStyle {
+                width: Dimension::px(32),
+                height: Dimension::px(32),
+                ..Default::default()
+            },
             ..Default::default()
-        })
-        .id();
+        },
+        Children(Vec::new()),
+    ));
     world.insert(panel, OffscreenRender::default());
     (world, panel)
 }

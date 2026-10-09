@@ -2,30 +2,37 @@
 mod tests {
     use mirui::ecs::World;
     use mirui::types::{Dimension, Fixed, Rect, Viewport};
-    use mirui::ui::builder::WidgetBuilder;
     use mirui::ui::dirty::{Dirty, PrevRect};
     use mirui::ui::layout::*;
     use mirui::ui::{Children, Style};
 
     fn setup_world() -> (World, mirui::ecs::Entity, mirui::ecs::Entity) {
         let mut world = World::new();
-        let root = WidgetBuilder::new(&mut world)
-            .layout(LayoutStyle {
-                width: Dimension::px(128),
-                height: Dimension::px(128),
+        let root = world.spawn((
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(128),
+                    height: Dimension::px(128),
+                    ..Default::default()
+                },
                 ..Default::default()
-            })
-            .id();
-        let child = WidgetBuilder::new(&mut world)
-            .layout(LayoutStyle {
-                position: Position::Absolute,
-                left: Dimension::px(10),
-                top: Dimension::px(20),
-                width: Dimension::px(16),
-                height: Dimension::px(16),
+            },
+            Children(Vec::new()),
+        ));
+        let child = world.spawn((
+            Style {
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::px(10),
+                    top: Dimension::px(20),
+                    width: Dimension::px(16),
+                    height: Dimension::px(16),
+                    ..Default::default()
+                },
                 ..Default::default()
-            })
-            .id();
+            },
+            Children(Vec::new()),
+        ));
         world.insert(child, mirui::ui::Parent(root));
         if let Some(children) = world.get_mut::<Children>(root) {
             children.0.push(child);
@@ -173,13 +180,17 @@ mod tests {
 
         for _ in 0..1000 {
             let mut world = World::new();
-            let root = WidgetBuilder::new(&mut world)
-                .layout(LayoutStyle {
-                    width: Dimension::px(128),
-                    height: Dimension::px(128),
+            let root = world.spawn((
+                Style {
+                    layout: LayoutStyle {
+                        width: Dimension::px(128),
+                        height: Dimension::px(128),
+                        ..Default::default()
+                    },
                     ..Default::default()
-                })
-                .id();
+                },
+                Children(Vec::new()),
+            ));
 
             let old_x = Fixed::from_ratio(rng() + rng() * 256, 256);
             let old_y = Fixed::from_ratio(rng() + rng() * 256, 256);
@@ -188,16 +199,20 @@ mod tests {
             let w = Fixed::from_int(8 + (rng() % 20));
             let h = Fixed::from_int(8 + (rng() % 20));
 
-            let child = WidgetBuilder::new(&mut world)
-                .layout(LayoutStyle {
-                    position: Position::Absolute,
-                    left: Dimension::Px(old_x),
-                    top: Dimension::Px(old_y),
-                    width: Dimension::Px(w),
-                    height: Dimension::Px(h),
+            let child = world.spawn((
+                Style {
+                    layout: LayoutStyle {
+                        position: Position::Absolute,
+                        left: Dimension::Px(old_x),
+                        top: Dimension::Px(old_y),
+                        width: Dimension::Px(w),
+                        height: Dimension::Px(h),
+                        ..Default::default()
+                    },
                     ..Default::default()
-                })
-                .id();
+                },
+                Children(Vec::new()),
+            ));
             world.insert(child, mirui::ui::Parent(root));
             if let Some(children) = world.get_mut::<Children>(root) {
                 children.0.push(child);
@@ -268,31 +283,39 @@ mod tests {
 
         for _ in 0..50 {
             let mut world = World::new();
-            let root = WidgetBuilder::new(&mut world)
-                .bg_color(mirui::types::Color::rgb(30, 30, 30))
-                .layout(LayoutStyle {
-                    width: Dimension::px(W as i32),
-                    height: Dimension::px(H as i32),
+            let root = world.spawn((
+                Style {
+                    bg_color: Some(mirui::types::Color::rgb(30, 30, 30).into()),
+                    layout: LayoutStyle {
+                        width: Dimension::px(W as i32),
+                        height: Dimension::px(H as i32),
+                        ..Default::default()
+                    },
                     ..Default::default()
-                })
-                .id();
+                },
+                Children(Vec::new()),
+            ));
 
             let start_x = Fixed::from_ratio(rng() + (rng() % 40) * 256, 256);
             let start_y = Fixed::from_ratio(rng() + (rng() % 40) * 256, 256);
             let widget_w = Fixed::from_int(10 + (rng() % 8));
             let widget_h = Fixed::from_int(10 + (rng() % 8));
 
-            let child = WidgetBuilder::new(&mut world)
-                .bg_color(mirui::types::Color::rgb(255, 100, 50))
-                .layout(LayoutStyle {
-                    position: Position::Absolute,
-                    left: Dimension::Px(start_x),
-                    top: Dimension::Px(start_y),
-                    width: Dimension::Px(widget_w),
-                    height: Dimension::Px(widget_h),
+            let child = world.spawn((
+                Style {
+                    bg_color: Some(mirui::types::Color::rgb(255, 100, 50).into()),
+                    layout: LayoutStyle {
+                        position: Position::Absolute,
+                        left: Dimension::Px(start_x),
+                        top: Dimension::Px(start_y),
+                        width: Dimension::Px(widget_w),
+                        height: Dimension::Px(widget_h),
+                        ..Default::default()
+                    },
                     ..Default::default()
-                })
-                .id();
+                },
+                Children(Vec::new()),
+            ));
             world.insert(child, mirui::ui::Parent(root));
             if let Some(children) = world.get_mut::<Children>(root) {
                 children.0.push(child);
@@ -302,12 +325,8 @@ mod tests {
             let mut buf = vec![0u8; BUF_SIZE];
             let transform = Viewport::new(W, H, Fixed::ONE);
             {
-                let mut renderer = SwRenderer::new(Texture::new(
-                    &mut buf,
-                    W as u16,
-                    H as u16,
-                    ColorFormat::RGBA8888,
-                ));
+                let mut renderer =
+                    SwRenderer::new(Texture::new(&mut buf, W, H, ColorFormat::RGBA8888));
                 render_system::render(&world, root, &transform, &mut renderer).unwrap();
             }
 
@@ -333,12 +352,8 @@ mod tests {
 
                 let dirty = render_system::collect_dirty_region(&mut world, root, &transform);
                 if let Some(area) = dirty {
-                    let mut renderer = SwRenderer::new(Texture::new(
-                        &mut buf,
-                        W as u16,
-                        H as u16,
-                        ColorFormat::RGBA8888,
-                    ));
+                    let mut renderer =
+                        SwRenderer::new(Texture::new(&mut buf, W, H, ColorFormat::RGBA8888));
                     render_system::render_region(&world, root, &transform, &area, &mut renderer)
                         .unwrap();
                 }
@@ -347,12 +362,8 @@ mod tests {
             // Full re-render (reference)
             let mut buf_ref = vec![0u8; BUF_SIZE];
             {
-                let mut renderer = SwRenderer::new(Texture::new(
-                    &mut buf_ref,
-                    W as u16,
-                    H as u16,
-                    ColorFormat::RGBA8888,
-                ));
+                let mut renderer =
+                    SwRenderer::new(Texture::new(&mut buf_ref, W, H, ColorFormat::RGBA8888));
                 render_system::render(&world, root, &transform, &mut renderer).unwrap();
             }
 
@@ -392,14 +403,18 @@ mod tests {
 
         for _ in 0..30 {
             let mut world = World::new();
-            let root = WidgetBuilder::new(&mut world)
-                .bg_color(mirui::types::Color::rgb(30, 30, 30))
-                .layout(LayoutStyle {
-                    width: Dimension::px(W as i32),
-                    height: Dimension::px(H as i32),
+            let root = world.spawn((
+                Style {
+                    bg_color: Some(mirui::types::Color::rgb(30, 30, 30).into()),
+                    layout: LayoutStyle {
+                        width: Dimension::px(W as i32),
+                        height: Dimension::px(H as i32),
+                        ..Default::default()
+                    },
                     ..Default::default()
-                })
-                .id();
+                },
+                Children(Vec::new()),
+            ));
 
             let mut children_vec = Vec::new();
             let mut positions: Vec<(Fixed, Fixed)> = Vec::new();
@@ -411,21 +426,28 @@ mod tests {
                 let ww = Fixed::from_int(8 + (rng() % 6));
                 let wh = Fixed::from_int(8 + (rng() % 6));
 
-                let child = WidgetBuilder::new(&mut world)
-                    .bg_color(mirui::types::Color::rgb(
-                        (100 + rng() % 155) as u8,
-                        (100 + rng() % 155) as u8,
-                        (100 + rng() % 155) as u8,
-                    ))
-                    .layout(LayoutStyle {
-                        position: Position::Absolute,
-                        left: Dimension::Px(x),
-                        top: Dimension::Px(y),
-                        width: Dimension::Px(ww),
-                        height: Dimension::Px(wh),
+                let child = world.spawn((
+                    Style {
+                        bg_color: Some(
+                            mirui::types::Color::rgb(
+                                (100 + rng() % 155) as u8,
+                                (100 + rng() % 155) as u8,
+                                (100 + rng() % 155) as u8,
+                            )
+                            .into(),
+                        ),
+                        layout: LayoutStyle {
+                            position: Position::Absolute,
+                            left: Dimension::Px(x),
+                            top: Dimension::Px(y),
+                            width: Dimension::Px(ww),
+                            height: Dimension::Px(wh),
+                            ..Default::default()
+                        },
                         ..Default::default()
-                    })
-                    .id();
+                    },
+                    Children(Vec::new()),
+                ));
                 world.insert(child, mirui::ui::Parent(root));
                 if let Some(ch) = world.get_mut::<Children>(root) {
                     ch.0.push(child);
@@ -441,12 +463,8 @@ mod tests {
             let transform = Viewport::new(W, H, Fixed::ONE);
             let mut buf = vec![0u8; BUF_SIZE];
             {
-                let mut renderer = SwRenderer::new(Texture::new(
-                    &mut buf,
-                    W as u16,
-                    H as u16,
-                    ColorFormat::RGBA8888,
-                ));
+                let mut renderer =
+                    SwRenderer::new(Texture::new(&mut buf, W, H, ColorFormat::RGBA8888));
                 render_system::render(&world, root, &transform, &mut renderer).unwrap();
             }
 
@@ -467,12 +485,8 @@ mod tests {
 
                 let dirty = render_system::collect_dirty_region(&mut world, root, &transform);
                 if let Some(area) = dirty {
-                    let mut renderer = SwRenderer::new(Texture::new(
-                        &mut buf,
-                        W as u16,
-                        H as u16,
-                        ColorFormat::RGBA8888,
-                    ));
+                    let mut renderer =
+                        SwRenderer::new(Texture::new(&mut buf, W, H, ColorFormat::RGBA8888));
                     render_system::render_region(&world, root, &transform, &area, &mut renderer)
                         .unwrap();
                 }
@@ -480,12 +494,8 @@ mod tests {
 
             let mut buf_ref = vec![0u8; BUF_SIZE];
             {
-                let mut renderer = SwRenderer::new(Texture::new(
-                    &mut buf_ref,
-                    W as u16,
-                    H as u16,
-                    ColorFormat::RGBA8888,
-                ));
+                let mut renderer =
+                    SwRenderer::new(Texture::new(&mut buf_ref, W, H, ColorFormat::RGBA8888));
                 render_system::render(&world, root, &transform, &mut renderer).unwrap();
             }
 

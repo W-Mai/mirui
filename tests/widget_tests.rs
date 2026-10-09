@@ -2,9 +2,8 @@
 mod tests {
     use mirui::render::{DrawCommand, DrawRequest, RenderError, RenderRoute, Renderer};
     use mirui::types::{Color, Dimension, Fixed, Rect, Viewport};
-    use mirui::ui::builder::WidgetBuilder;
     use mirui::ui::layout::*;
-    use mirui::ui::render_system;
+    use mirui::ui::{Children, Parent, Style, render_system};
 
     struct RecordingRenderer {
         commands: Vec<(Rect, Color)>,
@@ -39,25 +38,34 @@ mod tests {
         app.with_default_widgets();
         let mut world = app.world;
 
-        let child = WidgetBuilder::new(&mut world)
-            .bg_color(Color::rgb(255, 0, 0))
-            .layout(LayoutStyle {
-                width: Dimension::px(50),
-                height: Dimension::px(50),
+        let child = world.spawn((
+            Style {
+                bg_color: Some(Color::rgb(255, 0, 0).into()),
+                layout: LayoutStyle {
+                    width: Dimension::px(50),
+                    height: Dimension::px(50),
+                    ..Default::default()
+                },
                 ..Default::default()
-            })
-            .id();
+            },
+            Children(Vec::new()),
+        ));
 
-        let root = WidgetBuilder::new(&mut world)
-            .bg_color(Color::rgb(0, 0, 0))
-            .layout(LayoutStyle {
-                direction: FlexDirection::Row,
-                width: Dimension::px(200),
-                height: Dimension::px(100),
+        let root = world.spawn((
+            Style {
+                bg_color: Some(Color::rgb(0, 0, 0).into()),
+                layout: LayoutStyle {
+                    direction: FlexDirection::Row,
+                    width: Dimension::px(200),
+                    height: Dimension::px(100),
+                    ..Default::default()
+                },
                 ..Default::default()
-            })
-            .child(child)
-            .id();
+            },
+            Children(Vec::new()),
+        ));
+        world.insert(child, Parent(root));
+        world.get_mut::<Children>(root).unwrap().0.push(child);
 
         let mut recorder = RecordingRenderer::new();
         let transform = Viewport::new(200, 100, Fixed::ONE);
@@ -97,34 +105,48 @@ mod tests {
         app.with_default_widgets();
         let mut world = app.world;
 
-        let c1 = WidgetBuilder::new(&mut world)
-            .bg_color(Color::rgb(255, 0, 0))
-            .layout(LayoutStyle {
-                grow: Fixed::from_f32(1.0),
-                height: Dimension::px(100),
+        let c1 = world.spawn((
+            Style {
+                bg_color: Some(Color::rgb(255, 0, 0).into()),
+                layout: LayoutStyle {
+                    grow: Fixed::from_f32(1.0),
+                    height: Dimension::px(100),
+                    ..Default::default()
+                },
                 ..Default::default()
-            })
-            .id();
+            },
+            Children(Vec::new()),
+        ));
 
-        let c2 = WidgetBuilder::new(&mut world)
-            .bg_color(Color::rgb(0, 255, 0))
-            .layout(LayoutStyle {
-                grow: Fixed::from_f32(1.0),
-                height: Dimension::px(100),
+        let c2 = world.spawn((
+            Style {
+                bg_color: Some(Color::rgb(0, 255, 0).into()),
+                layout: LayoutStyle {
+                    grow: Fixed::from_f32(1.0),
+                    height: Dimension::px(100),
+                    ..Default::default()
+                },
                 ..Default::default()
-            })
-            .id();
+            },
+            Children(Vec::new()),
+        ));
 
-        let root = WidgetBuilder::new(&mut world)
-            .layout(LayoutStyle {
-                direction: FlexDirection::Row,
-                width: Dimension::px(200),
-                height: Dimension::px(100),
+        let root = world.spawn((
+            Style {
+                layout: LayoutStyle {
+                    direction: FlexDirection::Row,
+                    width: Dimension::px(200),
+                    height: Dimension::px(100),
+                    ..Default::default()
+                },
                 ..Default::default()
-            })
-            .child(c1)
-            .child(c2)
-            .id();
+            },
+            Children(Vec::new()),
+        ));
+        world.insert(c1, Parent(root));
+        world.get_mut::<Children>(root).unwrap().0.push(c1);
+        world.insert(c2, Parent(root));
+        world.get_mut::<Children>(root).unwrap().0.push(c2);
 
         let mut recorder = RecordingRenderer::new();
         let transform = Viewport::new(200, 100, Fixed::ONE);

@@ -1,5 +1,5 @@
 error: unknown widget attribute `txt`. did you mean `text`?
-  --> tests/ui_diagnostics_fail/unknown_attr_typo.rs:15:19
+  --> tests/ui_diagnostics_fail/unknown_attr_typo.rs:10:19
    |
-15 |             slot (txt: "x")
+10 |             slot (txt: "x")
    |                   ^^^

@@ -2,10 +2,9 @@ use mirui::prelude::Dimension;
 use mirui::render::texture::Texture;
 use mirui::render::{DrawRequest, RenderError, RenderFeature, RenderRoute, Renderer};
 use mirui::types::{Fixed, Rect, Viewport};
-use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::layout::LayoutStyle;
-use mirui::ui::render_system;
 use mirui::ui::widgets::BackgroundBlur;
+use mirui::ui::{Children, Parent, Style, render_system};
 
 struct GracefulSkipRenderer {
     draws: usize,
@@ -38,23 +37,32 @@ fn background_blur_skips_empty_readback() {
     let mut app = mirui::app::App::headless(64, 64);
     app.with_default_widgets();
     let mut world = app.world;
-    let widget = WidgetBuilder::new(&mut world)
-        .layout(LayoutStyle {
-            width: Dimension::px(64),
-            height: Dimension::px(64),
+    let widget = world.spawn((
+        Style {
+            layout: LayoutStyle {
+                width: Dimension::px(64),
+                height: Dimension::px(64),
+                ..Default::default()
+            },
             ..Default::default()
-        })
-        .id();
+        },
+        Children(Vec::new()),
+    ));
     world.insert(widget, BackgroundBlur::new(Fixed::from_int(4)));
 
-    let root = WidgetBuilder::new(&mut world)
-        .layout(LayoutStyle {
-            width: Dimension::px(64),
-            height: Dimension::px(64),
+    let root = world.spawn((
+        Style {
+            layout: LayoutStyle {
+                width: Dimension::px(64),
+                height: Dimension::px(64),
+                ..Default::default()
+            },
             ..Default::default()
-        })
-        .child(widget)
-        .id();
+        },
+        Children(Vec::new()),
+    ));
+    world.insert(widget, Parent(root));
+    world.get_mut::<Children>(root).unwrap().0.push(widget);
 
     let mut renderer = GracefulSkipRenderer { draws: 0 };
     let viewport = Viewport::new(64, 64, Fixed::ONE);
@@ -77,13 +85,17 @@ fn background_blur_reports_unsupported_readback() {
     let mut app = mirui::app::App::headless(64, 64);
     app.with_default_widgets();
     let mut world = app.world;
-    let widget = WidgetBuilder::new(&mut world)
-        .layout(LayoutStyle {
-            width: Dimension::px(64),
-            height: Dimension::px(64),
+    let widget = world.spawn((
+        Style {
+            layout: LayoutStyle {
+                width: Dimension::px(64),
+                height: Dimension::px(64),
+                ..Default::default()
+            },
             ..Default::default()
-        })
-        .id();
+        },
+        Children(Vec::new()),
+    ));
     world.insert(widget, BackgroundBlur::new(Fixed::from_int(4)));
     let viewport = Viewport::new(64, 64, Fixed::ONE);
     assert_eq!(

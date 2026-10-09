@@ -1,13 +1,12 @@
 #[cfg(test)]
 mod tests {
     use mirui::ecs::{Entity, World};
-    use mirui::input::event::gesture::{GestureEvent, GestureEvents, GestureRecognizer};
+    use mirui::input::event::gesture::{GestureEvents, GestureRecognizer};
     use mirui::input::event::hit_test::hit_test;
     use mirui::input::event::input::InputEvent;
     use mirui::types::{Color, Dimension, Fixed, Viewport};
-    use mirui::ui::builder::WidgetBuilder;
     use mirui::ui::layout::*;
-    use mirui::ui::{HitTarget, render_system};
+    use mirui::ui::{Children, HitTarget, Parent, Style, render_system};
 
     /// Per-entity tap counter so tests don't share static state.
     #[mirui::component]
@@ -79,25 +78,34 @@ mod tests {
     #[test]
     fn hit_test_finds_child() {
         let mut world = World::new();
-        let child = WidgetBuilder::new(&mut world)
-            .bg_color(Color::rgb(255, 0, 0))
-            .layout(LayoutStyle {
-                width: Dimension::px(100),
-                height: Dimension::px(100),
+        let child = world.spawn((
+            Style {
+                bg_color: Some(Color::rgb(255, 0, 0).into()),
+                layout: LayoutStyle {
+                    width: Dimension::px(100),
+                    height: Dimension::px(100),
+                    ..Default::default()
+                },
                 ..Default::default()
-            })
-            .id();
+            },
+            Children(Vec::new()),
+        ));
         attach_counter(&mut world, child);
 
-        let root = WidgetBuilder::new(&mut world)
-            .layout(LayoutStyle {
-                direction: FlexDirection::Row,
-                width: Dimension::px(200),
-                height: Dimension::px(200),
+        let root = world.spawn((
+            Style {
+                layout: LayoutStyle {
+                    direction: FlexDirection::Row,
+                    width: Dimension::px(200),
+                    height: Dimension::px(200),
+                    ..Default::default()
+                },
                 ..Default::default()
-            })
-            .child(child)
-            .id();
+            },
+            Children(Vec::new()),
+        ));
+        world.insert(child, Parent(root));
+        world.get_mut::<Children>(root).unwrap().0.push(child);
 
         tap_at(&mut world, root, 50, 50, 200);
         assert_eq!(hits(&world, child), 1);
@@ -106,25 +114,34 @@ mod tests {
     #[test]
     fn hit_test_misses_outside() {
         let mut world = World::new();
-        let child = WidgetBuilder::new(&mut world)
-            .bg_color(Color::rgb(255, 0, 0))
-            .layout(LayoutStyle {
-                width: Dimension::px(50),
-                height: Dimension::px(50),
+        let child = world.spawn((
+            Style {
+                bg_color: Some(Color::rgb(255, 0, 0).into()),
+                layout: LayoutStyle {
+                    width: Dimension::px(50),
+                    height: Dimension::px(50),
+                    ..Default::default()
+                },
                 ..Default::default()
-            })
-            .id();
+            },
+            Children(Vec::new()),
+        ));
         attach_counter(&mut world, child);
 
-        let root = WidgetBuilder::new(&mut world)
-            .layout(LayoutStyle {
-                direction: FlexDirection::Row,
-                width: Dimension::px(200),
-                height: Dimension::px(200),
+        let root = world.spawn((
+            Style {
+                layout: LayoutStyle {
+                    direction: FlexDirection::Row,
+                    width: Dimension::px(200),
+                    height: Dimension::px(200),
+                    ..Default::default()
+                },
                 ..Default::default()
-            })
-            .child(child)
-            .id();
+            },
+            Children(Vec::new()),
+        ));
+        world.insert(child, Parent(root));
+        world.get_mut::<Children>(root).unwrap().0.push(child);
 
         tap_at(&mut world, root, 150, 150, 200);
         assert_eq!(hits(&world, child), 0);
@@ -133,35 +150,49 @@ mod tests {
     #[test]
     fn hit_test_deepest_wins() {
         let mut world = World::new();
-        let inner = WidgetBuilder::new(&mut world)
-            .bg_color(Color::rgb(0, 255, 0))
-            .layout(LayoutStyle {
-                width: Dimension::px(50),
-                height: Dimension::px(50),
+        let inner = world.spawn((
+            Style {
+                bg_color: Some(Color::rgb(0, 255, 0).into()),
+                layout: LayoutStyle {
+                    width: Dimension::px(50),
+                    height: Dimension::px(50),
+                    ..Default::default()
+                },
                 ..Default::default()
-            })
-            .id();
+            },
+            Children(Vec::new()),
+        ));
         attach_counter(&mut world, inner);
 
-        let outer = WidgetBuilder::new(&mut world)
-            .bg_color(Color::rgb(255, 0, 0))
-            .layout(LayoutStyle {
-                width: Dimension::px(100),
-                height: Dimension::px(100),
+        let outer = world.spawn((
+            Style {
+                bg_color: Some(Color::rgb(255, 0, 0).into()),
+                layout: LayoutStyle {
+                    width: Dimension::px(100),
+                    height: Dimension::px(100),
+                    ..Default::default()
+                },
                 ..Default::default()
-            })
-            .child(inner)
-            .id();
+            },
+            Children(Vec::new()),
+        ));
+        world.insert(inner, Parent(outer));
+        world.get_mut::<Children>(outer).unwrap().0.push(inner);
         attach_counter(&mut world, outer);
 
-        let root = WidgetBuilder::new(&mut world)
-            .layout(LayoutStyle {
-                width: Dimension::px(200),
-                height: Dimension::px(200),
+        let root = world.spawn((
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(200),
+                    height: Dimension::px(200),
+                    ..Default::default()
+                },
                 ..Default::default()
-            })
-            .child(outer)
-            .id();
+            },
+            Children(Vec::new()),
+        ));
+        world.insert(outer, Parent(root));
+        world.get_mut::<Children>(root).unwrap().0.push(outer);
 
         tap_at(&mut world, root, 25, 25, 200);
         // Deepest entity wins; inner's handler returns true so bubble stops there.
