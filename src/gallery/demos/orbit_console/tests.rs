@@ -312,6 +312,25 @@ fn controls_update_shared_state_and_visual_style() {
 }
 
 #[test]
+fn setup_preserves_the_parent_background() {
+    for run_mode in [DemoRunMode::Live, DemoRunMode::Capture] {
+        let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+        app.with_default_widgets().with_default_systems();
+        let parent = app.spawn_root().bg_color(ColorToken::Primary).id();
+
+        setup(&mut app, parent, run_mode);
+
+        assert_eq!(
+            app.world.get::<Style>(parent).unwrap().bg_color,
+            Some(ColorToken::Primary.into())
+        );
+        let shell = app.world.find_by_id(ConsoleNodes::SHELL).unwrap();
+        assert_eq!(app.world.get::<Parent>(shell).unwrap().0, parent);
+        assert!(app.world.has::<super::visuals::ConsoleBackdrop>(shell));
+    }
+}
+
+#[test]
 fn shell_and_instruments_resolve_the_active_theme() {
     let render = |theme_id| {
         let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);

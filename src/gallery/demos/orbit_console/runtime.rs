@@ -6,8 +6,6 @@ use super::FONT_BYTES;
 use super::composition::build_widgets;
 use super::state::ConsoleState;
 #[cfg(feature = "std")]
-use super::style::BG;
-#[cfg(feature = "std")]
 use super::visuals::{activity_render, backdrop_render, orbit_render, signal_render};
 use crate::ecs::DeltaTimeMs;
 #[cfg(any(feature = "std", test))]
@@ -59,9 +57,6 @@ where
     };
     let model = app.add_model(initial_state);
     app.compose(parent, register_fonts());
-    if let Some(style) = app.world.get_mut::<Style>(parent) {
-        style.set_bg_color(BG);
-    }
     app.with_widget(backdrop_render::view())
         .with_widget(orbit_render::view())
         .with_widget(signal_render::view())
