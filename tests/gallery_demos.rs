@@ -75,13 +75,11 @@ fn custom_view_demo_smoke() {
 #[test]
 fn widgets_demo_smoke() {
     let (w, h) = mirui::gallery::demos::widgets::DEFAULT_VIEW;
-    let mut world = World::new();
-    world.insert_resource(mirui::ui::IdMap::new());
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    mirui::gallery::demos::widgets::build_widgets(w, h)(&mut cx);
-    drop(cx);
-    assert_demo_built(&world, parent);
+    let mut app = App::headless(w, h);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    app.compose(root, mirui::gallery::demos::widgets::build_widgets());
+    assert_demo_built(&app.world, root);
 }
 
 #[test]

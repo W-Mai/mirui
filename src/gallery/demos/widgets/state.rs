@@ -9,7 +9,6 @@ pub(super) struct FormSlider;
 pub(super) struct FormProgress;
 
 #[derive(Default)]
-#[cfg(feature = "std")]
 #[crate::model]
 pub(super) struct ThemeCycle {
     index: u8,
@@ -36,7 +35,6 @@ pub fn custom_theme() -> Theme {
     ])
 }
 
-#[cfg(feature = "std")]
 #[crate::model]
 impl ThemeCycle {
     fn advance(&mut self) {
@@ -52,7 +50,6 @@ impl ThemeCycle {
     }
 }
 
-#[cfg(feature = "std")]
 #[mirui_macros::timer(every = 3_000)]
 pub(super) fn cycle(theme_cycle: model!(ThemeCycle), commands: commands!()) {
     theme_cycle.advance();

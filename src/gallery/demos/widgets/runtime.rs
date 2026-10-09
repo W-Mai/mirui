@@ -1,23 +1,36 @@
-use alloc::vec;
-use alloc::vec::Vec;
-
-#[cfg(feature = "std")]
 use super::binding::slider_to_progress_system;
-#[cfg(feature = "std")]
 use super::composition::build_widgets;
-#[cfg(feature = "std")]
 use super::state::{ThemeCycle, cycle, dark_with_accent};
 use crate::anim::ease;
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
-use crate::ecs::World;
 use crate::input::event::sim::{SimAction, SimTimeline};
 #[cfg(feature = "std")]
 use crate::prelude::plugin::{FpsSummaryPlugin, InputFeedbackPlugin};
 use crate::prelude::*;
 use crate::types::DimPoint;
-use crate::ui::Children;
-use crate::ui::widgets::{LazyList, Slider, Switch, TabBar};
+use crate::ui::IdMap;
+use alloc::vec;
+
+/// Install the workbench, theme cycle, and optional input simulation.
+///
+/// Register the default widgets and systems and provide a `MonoClock` before running the app.
+pub fn install<B, F>(app: &mut App<B, F>, parent: Entity, autoplay: bool)
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    app.add_system(crate::input::event::sim::sim_timeline_system::system());
+    app.add_system(slider_to_progress_system::system());
+    app.add_resource(dark_with_accent());
+    let theme_cycle = app.add_model(ThemeCycle::default());
+    app.add_timer(cycle::timer(theme_cycle));
+    app.compose(parent, build_widgets());
+
+    if autoplay && let Some(timeline) = app.compose(parent, build_sim_timeline()) {
+        app.add_resource(timeline);
+    }
+}
 
 #[cfg(feature = "std")]
 pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
@@ -25,51 +38,30 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    let info = app.backend.display_info();
     app.add_plugin(InputFeedbackPlugin::default());
     app.add_plugin(StdInstantClockPlugin);
     app.add_plugin(FpsSummaryPlugin::default());
     app.add_plugin(crate::app::plugins::ImageResourcesPlugin::default());
     app.with_offscreen_pool_budget(512 * 1024);
-    app.add_system(crate::input::event::sim::sim_timeline_system::system());
-    app.add_system(slider_to_progress_system::system());
-
-    app.add_resource(dark_with_accent());
-    let theme_cycle = app.add_model(ThemeCycle::default());
-    app.add_timer(cycle::timer(theme_cycle));
-
-    app.compose(parent, build_widgets(info.width, info.height));
-
-    if std::env::var("MIRUI_SIM_OFF").ok().as_deref() == Some("1") {
-        return;
-    }
-
-    if let Some(timeline) = build_sim_timeline(&app.world) {
-        app.add_resource(timeline);
-    }
+    let autoplay = std::env::var("MIRUI_SIM_OFF").ok().as_deref() != Some("1");
+    install(app, parent, autoplay);
 }
 
-/// Construct the demo's looping `SimTimeline` from the live widget tree.
+/// Prepare the demo's looping input sequence from its registered widget IDs.
 ///
 /// Returns `None` when the expected widgets aren't installed. Install a returned timeline with `App::add_resource`; the sim system is a no-op without one.
-pub fn build_sim_timeline(world: &World) -> Option<SimTimeline> {
-    let tab_bars: Vec<Entity> = world.query::<TabBar>().collect();
-    let tab_bar_e = *tab_bars.first()?;
-    let tabs_kids: Vec<Entity> = world
-        .get::<Children>(tab_bar_e)
-        .map(|c| c.0.clone())
-        .unwrap_or_default();
-    if tabs_kids.len() < 3 {
-        return None;
-    }
-    let (tab_list, tab_form, tab_theme) = (tabs_kids[0], tabs_kids[1], tabs_kids[2]);
-
-    let switches: Vec<Entity> = world.query::<Switch>().collect();
-    let switch_e = *switches.first()?;
-    let sliders: Vec<Entity> = world.query::<Slider>().collect();
-    let slider_e = *sliders.first()?;
-    let lists: Vec<Entity> = world.query::<LazyList>().collect();
-    let list_e = *lists.first()?;
+#[compose]
+pub fn build_sim_timeline() -> Option<SimTimeline> {
+    let (tab_list, tab_form, tab_theme, switch_e, slider_e, list_e) = res!(IdMap).with(|ids| {
+        Some((
+            ids.get("widgets_tab_list")?,
+            ids.get("widgets_tab_form")?,
+            ids.get("widgets_tab_theme")?,
+            ids.get("widgets_switch")?,
+            ids.get("widgets_slider")?,
+            ids.get("widgets_list")?,
+        ))
+    })?;
 
     Some(
         SimTimeline::new(vec![

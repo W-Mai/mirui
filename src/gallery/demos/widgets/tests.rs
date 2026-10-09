@@ -2,37 +2,94 @@ use super::DEFAULT_VIEW;
 use super::binding::{row_binder, slider_to_progress_system};
 use super::composition::build_widgets;
 use super::state::{
-    ACCENT, FormProgress, FormSlider, ThemeCycle, cycle, dark_with_accent, light_with_accent,
+    ACCENT, FormProgress, FormSlider, custom_theme, dark_with_accent, light_with_accent,
 };
 use crate::ecs::{SystemScheduler, World};
 use crate::prelude::*;
+use crate::ui::Children;
 use crate::ui::dirty::VisualDirty;
-use crate::ui::widgets::{Button, Checkbox, Image, ProgressBar, Slider, Text};
-use crate::ui::{Children, IdMap, UiScope};
+use crate::ui::widgets::{
+    Button, Checkbox, Image, LazyList, ProgressBar, Slider, Switch, TabBar, Text,
+};
 
 #[test]
-fn theme_cycle_timer_captures_model_and_applies_deferred_theme_change() {
+fn timeline_ignores_other_lists_and_controls() {
+    #[compose]
+    fn unrelated_controls() {
+        ui! {
+            Column () [
+                crate::ui::Hidden,
+            ] {
+                TabBar (count: 3) {
+                    Text ("Other list")
+                    Text ("Other controls")
+                    Text ("Other theme")
+                }
+                Switch ()
+                Slider ()
+                LazyList ()
+            }
+        };
+    }
+
+    let mut app = App::headless(320, 480);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    app.compose(root, unrelated_controls());
+    assert!(app.compose(root, super::build_sim_timeline()).is_none());
+    super::install(&mut app, root, true);
+    assert!(
+        app.world
+            .resource::<crate::input::event::sim::SimTimeline>()
+            .unwrap()
+            .is_running()
+    );
+
     let _guard = crate::core::time::mock::install();
     crate::core::time::mock::set_ms(0);
-    let mut app = App::headless(32, 32);
-    app.world
-        .insert_resource(crate::ecs::MonoClock::from_time_source());
-    app.world.insert_resource(dark_with_accent());
-    app.add_system(crate::core::timer::timer_system::system());
-    let state = app.add_model(ThemeCycle::default());
-    app.add_timer(cycle::timer(state));
-
-    app.systems.run_all(&mut app.world).unwrap();
-    crate::core::time::mock::set_ms(3_000);
-    app.systems.run_all(&mut app.world).unwrap();
-
-    assert_eq!(
-        app.world
-            .resource::<crate::ui::Theme>()
-            .unwrap()
-            .resolve(ACCENT),
-        light_with_accent().resolve(ACCENT)
+    app.add_resource(MonoClock::from_time_source());
+    crate::ui::render_system::update_layout(
+        &mut app.world,
+        root,
+        &crate::types::Viewport::new(320, 480, Fixed::ONE),
     );
+    for now in (0..=1_000).step_by(50) {
+        crate::core::time::mock::set_ms(now);
+        crate::input::event::sim::sim_timeline_system(&mut app.world).unwrap();
+    }
+    let tabs = app.world.find_by_id("widgets_tabs").unwrap();
+    assert_eq!(app.world.get::<TabBar>(tabs).unwrap().selected, 1);
+}
+
+#[test]
+fn installed_workbench_cycles_themes_without_autoplay() {
+    let _guard = crate::core::time::mock::install();
+    crate::core::time::mock::set_ms(0);
+    let mut app = App::headless(DEFAULT_VIEW.0, DEFAULT_VIEW.1);
+    app.with_default_widgets().with_default_systems();
+    app.add_resource(MonoClock::from_time_source());
+    let root = app.spawn_root().id();
+    super::install(&mut app, root, false);
+
+    app.systems.run_all(&mut app.world).unwrap();
+    for (now, expected) in [
+        (0, dark_with_accent()),
+        (3_000, light_with_accent()),
+        (6_000, custom_theme()),
+        (9_000, dark_with_accent()),
+    ] {
+        crate::core::time::mock::set_ms(now);
+        app.systems.run_all(&mut app.world).unwrap();
+        assert_eq!(
+            app.world.resource::<Theme>().unwrap().resolve(ACCENT),
+            expected.resolve(ACCENT)
+        );
+        assert!(
+            app.world
+                .resource::<crate::input::event::sim::SimTimeline>()
+                .is_none()
+        );
+    }
 }
 
 #[test]
@@ -62,12 +119,11 @@ fn slider_progress_sync_reuses_stable_traversal() {
 
 #[test]
 fn build_widgets_smoke() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(DEFAULT_VIEW.0, DEFAULT_VIEW.1)(&mut cx);
-    drop(cx);
+    let mut app = App::headless(DEFAULT_VIEW.0, DEFAULT_VIEW.1);
+    app.with_default_widgets().with_default_systems();
+    let parent = app.spawn_root().id();
+    app.compose(parent, build_widgets());
+    let world = app.world;
     assert!(
         world
             .get::<Children>(parent)
@@ -81,12 +137,11 @@ fn build_widgets_smoke() {
 
 #[test]
 fn list_binding_updates_content_without_dropping_paragraph_style() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets(DEFAULT_VIEW.0, DEFAULT_VIEW.1)(&mut cx);
-    drop(cx);
+    let mut app = App::headless(DEFAULT_VIEW.0, DEFAULT_VIEW.1);
+    app.with_default_widgets().with_default_systems();
+    let parent = app.spawn_root().id();
+    app.compose(parent, build_widgets());
+    let mut world = app.world;
 
     let list = world.find_by_id("widgets_list").expect("widgets list id");
     let row = world
@@ -119,7 +174,7 @@ fn portrait_layout_keeps_the_workbench_inside_the_viewport() {
     let mut app = App::headless(320, 480);
     app.with_default_widgets().with_default_systems();
     let root = app.spawn_root().id();
-    app.compose(root, build_widgets(320, 480));
+    app.compose(root, build_widgets());
     app.set_root(root);
     update_layout(&mut app.world, root, &Viewport::new(320, 480, Fixed::ONE));
 

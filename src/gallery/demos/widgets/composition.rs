@@ -12,7 +12,7 @@ const POOL_SIZE: usize = 12;
 const ITEM_COUNT: u32 = 50;
 
 #[compose]
-pub fn build_widgets(_view_w: u16, _view_h: u16) {
+pub fn build_widgets() {
     const ROW_HEIGHT: i32 = 38;
     //~focus-start
     ui! {
@@ -56,6 +56,7 @@ pub fn build_widgets(_view_w: u16, _view_h: u16) {
             ) {
                 Text (
                     "LIST",
+                    id: "widgets_tab_list",
                     grow: 1.0,
                     height: Dimension::percent(100),
                     text_color: ColorToken::OnSurfaceVariant,
@@ -63,6 +64,7 @@ pub fn build_widgets(_view_w: u16, _view_h: u16) {
                 )
                 Text (
                     "CONTROLS",
+                    id: "widgets_tab_form",
                     grow: 1.0,
                     height: Dimension::percent(100),
                     text_color: ColorToken::OnSurfaceVariant,
@@ -70,6 +72,7 @@ pub fn build_widgets(_view_w: u16, _view_h: u16) {
                 )
                 Text (
                     "THEME",
+                    id: "widgets_tab_theme",
                     grow: 1.0,
                     height: Dimension::percent(100),
                     text_color: ColorToken::OnSurfaceVariant,
@@ -160,7 +163,7 @@ pub fn build_widgets(_view_w: u16, _view_h: u16) {
                             text_color: ColorToken::OnSurface,
                             paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                         )
-                        Switch (width: 44, height: 24) [
+                        Switch (id: "widgets_switch", width: 44, height: 24) [
                             OffscreenRender::default(),
                         ]
                     }
@@ -173,6 +176,7 @@ pub fn build_widgets(_view_w: u16, _view_h: u16) {
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Slider (
+                        id: "widgets_slider",
                         width: Dimension::percent(100),
                         height: 20,
                         min: Fixed::ZERO,

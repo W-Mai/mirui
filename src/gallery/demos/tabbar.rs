@@ -213,10 +213,7 @@ mod tests {
         type Composition = fn(&mut UiScope<'_>);
         let demos: [(Composition, &str); 3] = [
             (
-                |cx| {
-                    let (width, height) = crate::gallery::demos::widgets::DEFAULT_VIEW;
-                    crate::gallery::demos::widgets::build_widgets(width, height)(cx);
-                },
+                |cx| crate::gallery::demos::widgets::build_widgets()(cx),
                 "widgets_list",
             ),
             (

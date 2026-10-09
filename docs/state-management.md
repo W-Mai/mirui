@@ -41,6 +41,8 @@ A composition can use the entity returned by `ui!` to initialize node-targeted r
 
 For targets already named by other compositions, `res!(IdMap).with(...)` reads the application's existing widget registry and can return copied entity IDs. Kinetic Console prepares its input sequence with `app.compose(root, kinetic_console::build_sim_timeline())`; the result is `None` if a required target is absent. The caller installs the returned `SimTimeline` with `app.add_resource` when autoplay is enabled.
 
+Widgets uses the same named-target lookup, so its automation does not select unrelated controls elsewhere in the application. `widgets::install(app, root, autoplay)` installs its composition, Model-bound theme timer, and optional input sequence on desktop and `no_std` targets. The caller supplies the clock, default widgets and systems, and backend-specific plugins. `widgets::build_widgets()` constructs only the widget tree, with layout determined by the parent size.
+
 | Operation | Expression | Result |
 | --- | --- | --- |
 | Read a required resource | `res!(T).with(read)` | `read` receives `&T` |
