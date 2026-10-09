@@ -1,4 +1,5 @@
 use super::geometry::text_path;
+use super::state::CompactCurveMotion;
 use super::style::{BACKGROUND, BORDER, CYAN, MUTED, PANEL, TEXT, bitmap_line};
 use crate::prelude::*;
 use crate::render::font::FontToken;
@@ -43,6 +44,7 @@ pub fn build_widgets(path: PathId) {
                     paragraph: bitmap_line(TextAlign::Start)
                 ) [
                     IgnoreHitTest,
+                    CompactCurveMotion::default(),
                 ]
             }
             View (

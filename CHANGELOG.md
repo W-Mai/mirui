@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- CompactCurveText keeps animation state on each animated Text and follows its current path.
 - Subpixel bars use their own parent container's live bounds instead of a shared arena resource.
 - LazyList initializes its runtime pool from declared children on first use, preserving explicit pools and removing manual pool installation from demos and snapshot tools.
 - Static component attachments are available during widget initialization, including attachments on layout Views. Reactive captures are prepared before attachment values can move Models, while static bounded content is seeded before consuming ordinary captures.

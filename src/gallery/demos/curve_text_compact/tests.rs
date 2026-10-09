@@ -16,6 +16,81 @@ fn run_compact_animation(world: &mut World) {
 }
 
 #[test]
+fn animation_uses_the_current_text_path() {
+    let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    install(&mut app, root);
+    let text = app.world.find_by_id("compact_curve_text_primary").unwrap();
+    assert!(app.world.has::<super::state::CompactCurveMotion>(text));
+
+    static REPLACEMENT: Path = path!("M 0 0 L 600 0");
+    let replacement = app.paths().insert_static(REPLACEMENT.commands()).unwrap();
+    let initial = super::geometry::text_path(replacement, Fixed::ZERO);
+    app.world.insert(text, initial);
+    app.add_resource(DeltaTimeMs(16));
+
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(compact_curve_animation_system::system());
+    scheduler.run_all(&mut app.world).unwrap();
+    let current = *app.world.get::<crate::text::TextPath>(text).unwrap();
+    assert_eq!(current.path(), replacement);
+    assert!(current.offset() > initial.offset());
+    assert_eq!(
+        current.end().unwrap() - current.offset(),
+        Fixed::from_int(TEXT_WINDOW)
+    );
+
+    let allocations = crate::test_support::tracked_allocations(|| {
+        for _ in 0..32 {
+            scheduler.run_all(&mut app.world).unwrap();
+        }
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
+fn attached_motion_is_independent_and_does_not_animate_plain_paths() {
+    use super::state::CompactCurveMotion;
+    use crate::text::TextPath;
+    use crate::ui::widgets::Text;
+
+    let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    let path = app.paths().insert_static(WAVE.commands()).unwrap();
+    let (first, plain) = app.compose(root, |tree| {
+        (
+            tree.spawn((
+                Text::label("First"),
+                TextPath::new(path),
+                CompactCurveMotion::default(),
+            )),
+            tree.spawn((Text::label("Plain"), TextPath::new(path))),
+        )
+    });
+    app.add_resource(DeltaTimeMs(16));
+    run_compact_animation(&mut app.world);
+    let second = app.compose(root, |tree| {
+        tree.spawn((
+            Text::label("Second"),
+            TextPath::new(path),
+            CompactCurveMotion::default(),
+        ))
+    });
+    run_compact_animation(&mut app.world);
+
+    let first = app.world.get::<TextPath>(first).unwrap();
+    let second = app.world.get::<TextPath>(second).unwrap();
+    assert!(first.offset() > second.offset());
+    assert!(second.offset() > Fixed::ZERO);
+    assert_eq!(
+        *app.world.get::<TextPath>(plain).unwrap(),
+        TextPath::new(path)
+    );
+}
+
+#[test]
 fn wave_has_fixed_topology_and_alternating_extrema() {
     let path = &WAVE;
     assert_eq!(path.commands().len(), 9);

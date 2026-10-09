@@ -303,6 +303,8 @@ the local mutable binding without requiring `mut rows` in the authored signature
 
 Related entities can be read through separate queries. The Subpixel demo iterates `query!(Entity, mut BarState, Parent)` and obtains each bar's container bounds with `rects.get(parent.0)`, where `rects` is declared as `query!(ComputedRect)`. The parent relation supplies the target; no global arena resource or ID lookup is needed.
 
+Entity-local animation state can be attached with `View(...) [component]` or the corresponding widget declaration. CompactCurveText attaches `CompactCurveMotion` to its Text and queries that state alongside `TextPath`; each instance advances independently and reads its current path from the same entity.
+
 ```rust
 #[system]
 fn update_selected(
