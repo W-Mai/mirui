@@ -32,8 +32,8 @@ macro_rules! split_demo_sources {
         )+
 
         #[cfg(test)]
-        pub(crate) const CASES: &[(&str, &[&str], &str)] = &[
-            $(($demo, &[$($part),+], $marker),)+
+        pub(crate) const CASES: &[(&str, &[&str], &str, &str)] = &[
+            $(($demo, &[$($part),+], $marker, $name),)+
         ];
     };
 }
@@ -496,7 +496,7 @@ split_demo_sources! {
     ORBITAL_MISSION => {
         demo: "orbital_mission",
         marker: "fn paint_map",
-        parts: ["style.rs", "state.rs", "render.rs", "input.rs", "shell.rs"]
+        parts: ["style.rs", "state.rs", "render.rs", "input.rs", "shell.rs", "tests.rs"]
     },
     LOGIC_CIRCUIT => {
         demo: "logic_circuit",
@@ -588,4 +588,27 @@ split_demo_sources! {
             "tests.rs",
         ]
     },
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn source_catalog_covers_split_module_files() {
+        let demos = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/gallery/demos");
+        for &(demo, parts, _, source) in super::CASES {
+            for file in std::fs::read_dir(demos.join(demo)).expect("split demo directory") {
+                let path = file.expect("split demo file").path();
+                if path.extension().is_none_or(|extension| extension != "rs") {
+                    continue;
+                }
+                let name = path.file_name().unwrap().to_str().unwrap();
+                assert!(parts.contains(&name), "{demo} source omits {name}");
+                let content = std::fs::read_to_string(&path).expect("split module source");
+                assert!(
+                    source.contains(&content),
+                    "{demo} source omits {name} content"
+                );
+            }
+        }
+    }
 }

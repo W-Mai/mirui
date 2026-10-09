@@ -571,10 +571,14 @@ mod tests {
     #[cfg(any(feature = "web-canvas", feature = "snapshot"))]
     #[test]
     fn split_demo_sources_include_child_modules() {
-        for &(slug, modules, implementation) in super::demo_sources::CASES {
+        for &(slug, modules, implementation, catalog_source) in super::demo_sources::CASES {
             let source = super::lookup_demo(slug)
                 .expect("split demo is registered")
                 .source;
+            assert_eq!(
+                source, catalog_source,
+                "{slug} source differs from its catalog"
+            );
             for module in modules {
                 assert!(source.contains(module), "{slug} source omits {module}");
             }

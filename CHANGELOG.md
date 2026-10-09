@@ -86,6 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Orbital Mission's complete source view includes its test module.
 - Changing an empty path registry's capacity preserves retired IDs and enforces the new live-path limit when reusing slots.
 
 - Offscreen capture, composition, culling, and dirty regions share visual bounds, including unclipped children and shadow or glow overflow. Fractional output dimensions round outward; transforms retain the layout pivot, and changed output mappings clear incompatible history.
