@@ -517,16 +517,9 @@ The generic Style pass uses `#[view]` with a required Theme resource and `paint!
 a body draw fails. Passing raw `PushClip` or `PopClip` commands to `draw` is
 rejected. Paint operations retain the first render error for the frame walker
 instead of requiring callbacks to forward backend results themselves.
-The generated adapter holds no model borrow after paint and rejects model
-writes inside the callback. Multiple model fields, including two fields that
-refer to the same instance, can be read together. `invalidation = Layout`
-promotes watched changes from visual to layout invalidation; visual
-invalidation is the default. `attach`, `gesture`, and static `systems` can be
-forwarded to the View builder. An optional `name = "..."` keeps a stable
-registration name when the paint function name differs from the widget name.
-Subscriptions reserve visual notification queue capacity when attached; model
-updates and notifications reuse that capacity. Component replacement and
-removal update bindings before the next paint.
+The generated adapter holds no model borrow after paint and rejects model writes inside the callback. Multiple model fields, including two fields that refer to the same instance, can be read together. `invalidation = Layout` promotes watched changes from visual to layout invalidation; visual invalidation is the default. `attach`, `gesture`, and static `systems` declare widget capabilities. An optional `name = "..."` keeps a stable registration name when the paint function name differs from the widget name. Subscriptions reserve visual notification queue capacity when attached; model updates and notifications reuse that capacity. Component replacement and removal update bindings before the next paint.
+
+`#[view]` constructs the descriptor returned by `function_name::view()`; `app.with_widget(...)` registers it. Raw descriptor assembly and observation collectors are confined to hidden macro support. The returned `View` supports `with_systems` and `with_invalidation` configuration.
 
 A View describes a widget kind, not just its paint function. Paint, attach,
 gesture, observation, and systems are independent capabilities.
@@ -1221,9 +1214,7 @@ separately when targeting a bounded-memory device.
 - **View dependencies**: `model!(component.field)` alone does not subscribe a
   View. Add observed fields, getters, or named revisions with `watch(...)`;
   replacing the component replaces its subscriptions.
-- **View rendering**: both generated and manually registered View renderers
-  may read models but cannot update them while painting. Use an input callback
-  or system to change model state before rendering.
+- **View rendering**: paint callbacks may read models but cannot update them while painting. Use an input callback or system to change model state before rendering.
 - **Computed ownership**: a computed created inside an App belongs to that
   App and cannot be read from another App or after that App ends. An ownerless computed may share
   ownerless signals but cannot read a registered model. Computed evaluation

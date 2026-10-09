@@ -1,0 +1,11 @@
+error[E0599]: no associated function or constant named `new` found for struct `View` in the current scope
+ --> tests/ui/view_raw_constructors.rs:7:19
+  |
+7 |     let _ = View::new("raw", 64, paint);
+  |                   ^^^ associated function or constant not found in `View`
+
+error[E0599]: no associated function or constant named `systems_only` found for struct `View` in the current scope
+ --> tests/ui/view_raw_constructors.rs:8:19
+  |
+8 |     let _ = View::systems_only("raw", &[]);
+  |                   ^^^^^^^^^^^^ associated function or constant not found in `View`

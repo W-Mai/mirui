@@ -6,7 +6,7 @@ use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::{Color, Dimension, Fixed};
 use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::layout::{FlexDirection, LayoutStyle};
-use mirui::ui::view::{PaintCtx, View};
+use mirui::ui::view::{PaintCtx, ViewInvalidation};
 use mirui::{component, model, view};
 use std::cell::Cell;
 use std::rc::Rc;
@@ -186,13 +186,22 @@ fn attempt_raw_view_write(
 
 #[test]
 fn raw_view_cannot_write_a_model_during_render() {
+    use mirui::__macro_support::{ViewDescriptor, assemble_view};
+
     let mut app = App::headless(32, 32);
     app.with_default_widgets();
     let root = app.spawn_root().id();
     let model = app.add_model(PaintModel { value: 1 });
-    app.with_widget(
-        View::new("attempt_raw_view_write", 64, attempt_raw_view_write).with_filter::<PaintTile>(),
-    );
+    app.with_widget(assemble_view::<PaintTile>(ViewDescriptor {
+        name: "attempt_raw_view_write",
+        paint: Some((64, attempt_raw_view_write)),
+        attach: None,
+        gesture: None,
+        observation: None,
+        query_dependencies: &[],
+        systems: &[],
+        invalidation: ViewInvalidation::Visual,
+    }));
     app.world.insert(
         root,
         PaintTile {

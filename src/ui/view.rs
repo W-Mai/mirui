@@ -30,7 +30,7 @@ pub(crate) enum FrameRequest {
     IfOutputChanged,
 }
 
-/// Drawing context supplied to one [`ViewRender`] invocation.
+/// Drawing context supplied to one View paint invocation.
 pub struct PaintCtx<'frame> {
     renderer: &'frame mut dyn Renderer,
     style: &'frame Style,
@@ -419,69 +419,89 @@ impl<'frame> PaintCtx<'frame> {
     }
 }
 
-pub type ViewRender = fn(world: &World, entity: Entity, ctx: &mut PaintCtx<'_>);
+pub(crate) type ViewRender = fn(world: &World, entity: Entity, ctx: &mut PaintCtx<'_>);
 
-pub type ViewAttach = fn(world: &mut World, entity: Entity);
+pub(crate) type ViewAttach = fn(world: &mut World, entity: Entity);
 
-pub type ViewInternalGesture =
+pub(crate) type ViewInternalGesture =
     fn(&mut World, Entity, &GestureEvent) -> Result<bool, crate::ecs::CommandError>;
 
-/// Collects subscriptions for one entity and one View registration.
-#[doc(hidden)]
-pub struct ViewObservationBindings {
-    subscriptions: Vec<crate::core::model::ModelSubscription>,
-    invalidation: crate::core::model::ModelInvalidation,
-    subscription_count: usize,
-}
+pub(crate) use generated::ViewObservationBindings;
 
-impl ViewObservationBindings {
-    pub fn watch(
-        &mut self,
-        subscribe: impl FnOnce(
-            crate::core::model::ModelInvalidation,
-        ) -> crate::core::model::ModelSubscription,
-    ) {
-        assert!(
-            self.subscriptions.len() < self.subscription_count,
-            "View observer exceeded its declared subscription count"
-        );
-        self.subscriptions.push(subscribe(self.invalidation));
+pub(crate) mod generated {
+    use super::*;
+
+    pub struct ViewDescriptor {
+        pub name: &'static str,
+        pub paint: Option<(u8, ViewRender)>,
+        pub attach: Option<ViewAttach>,
+        pub gesture: Option<ViewInternalGesture>,
+        pub observation: Option<(ViewObserve, usize)>,
+        pub query_dependencies: &'static [fn() -> TypeId],
+        pub systems: &'static [crate::ecs::System],
+        pub invalidation: ViewInvalidation,
     }
 
-    fn reset(&mut self, invalidation: ViewInvalidation, subscription_count: usize) {
-        self.subscriptions.clear();
-        if self.subscriptions.capacity() < subscription_count {
-            self.subscriptions
-                .try_reserve_exact(subscription_count)
-                .expect("View subscription capacity exhausted");
+    pub const fn assemble_view<C: crate::ecs::Component>(descriptor: ViewDescriptor) -> View {
+        View::from_descriptor(descriptor, Some(TypeId::of::<C>), C::OUTPUT_DEPENDENCIES)
+    }
+
+    /// Collects subscriptions for one entity and one View registration.
+    pub struct ViewObservationBindings {
+        pub(super) subscriptions: Vec<crate::core::model::ModelSubscription>,
+        invalidation: crate::core::model::ModelInvalidation,
+        subscription_count: usize,
+    }
+
+    impl ViewObservationBindings {
+        pub fn watch(
+            &mut self,
+            subscribe: impl FnOnce(
+                crate::core::model::ModelInvalidation,
+            ) -> crate::core::model::ModelSubscription,
+        ) {
+            assert!(
+                self.subscriptions.len() < self.subscription_count,
+                "View observer exceeded its declared subscription count"
+            );
+            self.subscriptions.push(subscribe(self.invalidation));
         }
-        self.invalidation = match invalidation {
-            ViewInvalidation::Visual => crate::core::model::ModelInvalidation::Visual,
-            ViewInvalidation::Layout => crate::core::model::ModelInvalidation::Layout,
-        };
-        self.subscription_count = subscription_count;
+
+        pub(super) fn reset(&mut self, invalidation: ViewInvalidation, subscription_count: usize) {
+            self.subscriptions.clear();
+            if self.subscriptions.capacity() < subscription_count {
+                self.subscriptions
+                    .try_reserve_exact(subscription_count)
+                    .expect("View subscription capacity exhausted");
+            }
+            self.invalidation = match invalidation {
+                ViewInvalidation::Visual => crate::core::model::ModelInvalidation::Visual,
+                ViewInvalidation::Layout => crate::core::model::ModelInvalidation::Layout,
+            };
+            self.subscription_count = subscription_count;
+        }
+
+        pub(super) fn assert_complete(&self) {
+            assert_eq!(
+                self.subscriptions.len(),
+                self.subscription_count,
+                "View observer did not create its declared subscription count"
+            );
+        }
     }
 
-    fn assert_complete(&self) {
-        assert_eq!(
-            self.subscriptions.len(),
-            self.subscription_count,
-            "View observer did not create its declared subscription count"
-        );
-    }
-}
-
-impl Default for ViewObservationBindings {
-    fn default() -> Self {
-        Self {
-            subscriptions: Vec::new(),
-            invalidation: crate::core::model::ModelInvalidation::Visual,
-            subscription_count: 0,
+    impl Default for ViewObservationBindings {
+        fn default() -> Self {
+            Self {
+                subscriptions: Vec::new(),
+                invalidation: crate::core::model::ModelInvalidation::Visual,
+                subscription_count: 0,
+            }
         }
     }
 }
 
-pub type ViewObserve = fn(&World, Entity, &mut ViewObservationBindings);
+pub(crate) type ViewObserve = fn(&World, Entity, &mut ViewObservationBindings);
 
 /// Dirty scope used for both filtered-component changes and model notifications.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -540,31 +560,53 @@ pub struct View {
 }
 
 impl View {
-    /// Create a painting View. Lower priorities paint first; equal priorities
-    /// retain registration order. Priority does not order gestures or systems.
-    pub const fn new(name: &'static str, priority: u8, render: ViewRender) -> Self {
-        Self {
-            name,
-            paint: Some(ViewPaint {
+    const fn from_descriptor(
+        descriptor: generated::ViewDescriptor,
+        component_filter: Option<fn() -> TypeId>,
+        output_dependencies: &'static [OutputDependency],
+    ) -> Self {
+        let paint = match descriptor.paint {
+            Some((priority, render)) => Some(ViewPaint {
                 priority,
                 render,
                 measurement: None,
             }),
-            auto_attach: None,
-            systems: &[],
-            component_filter: None,
-            query_dependencies: &[],
-            output_dependencies: &[],
-            internal_gesture: None,
-            observe: None,
-            observation_count: 0,
-            invalidation: ViewInvalidation::Visual,
+            None => None,
+        };
+        let (observe, observation_count) = match descriptor.observation {
+            Some((observe, count)) => (Some(observe), count),
+            None => (None, 0),
+        };
+        Self {
+            name: descriptor.name,
+            paint,
+            auto_attach: descriptor.attach,
+            systems: descriptor.systems,
+            component_filter,
+            query_dependencies: descriptor.query_dependencies,
+            output_dependencies,
+            internal_gesture: descriptor.gesture,
+            observe,
+            observation_count,
+            invalidation: descriptor.invalidation,
             registration_id: None,
             component_tracking_ready: false,
         }
     }
 
-    pub const fn with_attach(mut self, attach: ViewAttach) -> Self {
+    #[cfg(test)]
+    pub(crate) const fn new(name: &'static str, priority: u8, render: ViewRender) -> Self {
+        let mut view = Self::systems_only(name, &[]);
+        view.paint = Some(ViewPaint {
+            priority,
+            render,
+            measurement: None,
+        });
+        view
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn with_attach(mut self, attach: ViewAttach) -> Self {
         self.auto_attach = Some(attach);
         self
     }
@@ -585,15 +627,15 @@ impl View {
         self
     }
 
-    /// Restrict per-entity hooks to entities owning component `T`.
-    pub const fn with_filter<T: crate::ecs::Component>(mut self) -> Self {
+    #[cfg(test)]
+    pub(crate) const fn with_filter<T: crate::ecs::Component>(mut self) -> Self {
         self.component_filter = Some(TypeId::of::<T>);
         self.output_dependencies = T::OUTPUT_DEPENDENCIES;
         self
     }
 
-    #[doc(hidden)]
-    pub const fn with_query_dependencies(
+    #[cfg(test)]
+    pub(crate) const fn with_query_dependencies(
         mut self,
         dependencies: &'static [fn() -> TypeId],
     ) -> Self {
@@ -601,15 +643,14 @@ impl View {
         self
     }
 
-    /// Register an internal gesture hook before authored listeners. Returning `false` continues dispatch; submission errors stop the route and propagate to the input boundary.
-    pub const fn with_internal_gesture(mut self, f: ViewInternalGesture) -> Self {
+    #[cfg(test)]
+    pub(crate) const fn with_internal_gesture(mut self, f: ViewInternalGesture) -> Self {
         self.internal_gesture = Some(f);
         self
     }
 
-    /// Describe the instance sources to bind for each matching component.
-    /// Requires `with_filter::<Component>()` on the same View.
-    pub const fn with_observation(
+    #[cfg(test)]
+    pub(crate) const fn with_observation(
         mut self,
         observe: ViewObserve,
         subscription_count: usize,
@@ -634,25 +675,25 @@ impl View {
         self.registration_id.expect("View has not been registered")
     }
 
-    /// Create a widget descriptor without a paint hook.
-    /// Systems are installed through normal widget registration; attach,
-    /// gesture, and observation hooks can be added with the other builders.
-    pub const fn systems_only(name: &'static str, systems: &'static [crate::ecs::System]) -> Self {
-        Self {
-            name,
-            paint: None,
-            auto_attach: None,
-            systems,
-            component_filter: None,
-            query_dependencies: &[],
-            output_dependencies: &[],
-            internal_gesture: None,
-            observe: None,
-            observation_count: 0,
-            invalidation: ViewInvalidation::Visual,
-            registration_id: None,
-            component_tracking_ready: false,
-        }
+    #[cfg(test)]
+    pub(crate) const fn systems_only(
+        name: &'static str,
+        systems: &'static [crate::ecs::System],
+    ) -> Self {
+        Self::from_descriptor(
+            generated::ViewDescriptor {
+                name,
+                paint: None,
+                attach: None,
+                systems,
+                query_dependencies: &[],
+                gesture: None,
+                observation: None,
+                invalidation: ViewInvalidation::Visual,
+            },
+            None,
+            &[],
+        )
     }
 
     pub fn name(&self) -> &'static str {

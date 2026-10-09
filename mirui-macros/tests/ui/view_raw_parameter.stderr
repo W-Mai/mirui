@@ -1,4 +1,4 @@
-error: View parameters must use `component!`, `model!`, `res!`, `entity!`, `paint!`
+error: View parameters must use `component!`, `model!`, `res!`, `query!`, `entity!`, `paint!`
  --> tests/ui/view_raw_parameter.rs:7:16
   |
 7 | fn paint(tile: &Tile) {

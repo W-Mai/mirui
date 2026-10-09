@@ -470,34 +470,40 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
         .flat_map(callback_lowering::query_dependency_types)
         .map(ChildScope::ty)
         .collect::<Vec<_>>();
-    let with_query_dependencies = (!query_dependencies.is_empty()).then(|| {
-        quote! {
-            .with_query_dependencies(const {
-                &[#(::core::any::TypeId::of::<#query_dependencies> as fn() -> ::core::any::TypeId),*]
-            })
-        }
-    });
     let watch_count = bindings
         .iter()
         .map(|binding| binding.watch_selectors.len())
         .sum::<usize>();
     let observation = lower_observation(&bindings, &factory_component, &factory_generics)?;
     let observe_fn = quote!(observe #call_generics);
-    let with_observation =
-        (watch_count != 0).then(|| quote!(.with_observation(#observe_fn, #watch_count)));
-    let with_attach = args.attach.map(|path| {
-        let path = ChildScope::path(&path);
-        quote!(.with_attach(#path))
-    });
-    let with_gesture = args.gesture.map(|path| {
-        let path = ChildScope::path(&path);
-        quote!(.with_internal_gesture(#path))
-    });
+    let observation_slot = if watch_count == 0 {
+        quote!(::core::option::Option::None)
+    } else {
+        quote!(::core::option::Option::Some((#observe_fn, #watch_count)))
+    };
+    let attach = args.attach.map_or_else(
+        || quote!(::core::option::Option::None),
+        |path| {
+            let path = ChildScope::path(&path);
+            quote!(::core::option::Option::Some(#path))
+        },
+    );
+    let gesture = args.gesture.map_or_else(
+        || quote!(::core::option::Option::None),
+        |path| {
+            let path = ChildScope::path(&path);
+            quote!(::core::option::Option::Some(#path))
+        },
+    );
     let system_array = (!args.systems.is_empty()).then(|| {
         let systems = args.systems.iter().map(ChildScope::expression);
         quote!(const SYSTEMS: &[::mirui::ecs::System] = &[#(#systems),*];)
     });
-    let with_systems = (!args.systems.is_empty()).then(|| quote!(.with_systems(SYSTEMS)));
+    let systems = if args.systems.is_empty() {
+        quote!(&[])
+    } else {
+        quote!(SYSTEMS)
+    };
     let FunctionAttributes {
         helper,
         declaration,
@@ -530,10 +536,10 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
             }
         }
     });
-    let definition = if has_paint {
-        quote!(::mirui::ui::view::View::new(#view_name, #priority, #render_fn))
+    let paint = if has_paint {
+        quote!(::core::option::Option::Some((#priority, #render_fn)))
     } else {
-        quote!(::mirui::ui::view::View::systems_only(#view_name, &[]))
+        quote!(::core::option::Option::None)
     };
     let type_checks = if !has_paint && !bindings.is_empty() {
         let resources = bindings.iter().filter_map(|binding| match &binding.source {
@@ -571,14 +577,20 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
 
             pub fn view #factory_impl_generics () -> ::mirui::ui::view::View #factory_where_clause {
                 #type_checks
-                #definition
-                    .with_filter::<#factory_component>()
-                    .with_invalidation(#invalidation)
-                    #with_query_dependencies
-                    #with_observation
-                    #with_attach
-                    #with_gesture
-                    #with_systems
+                ::mirui::__macro_support::assemble_view::<#factory_component>(
+                    ::mirui::__macro_support::ViewDescriptor {
+                        name: #view_name,
+                        paint: #paint,
+                        attach: #attach,
+                        gesture: #gesture,
+                        observation: #observation_slot,
+                        query_dependencies: const {
+                            &[#(::core::any::TypeId::of::<#query_dependencies> as fn() -> ::core::any::TypeId),*]
+                        },
+                        systems: #systems,
+                        invalidation: #invalidation,
+                    },
+                )
             }
         }
     })
@@ -768,7 +780,7 @@ fn lower_observation(
         fn observe #impl_generics (
             __mirui_world: &::mirui::ecs::World,
             __mirui_entity: ::mirui::ecs::Entity,
-            __mirui_bindings: &mut ::mirui::ui::view::ViewObservationBindings,
+            __mirui_bindings: &mut ::mirui::__macro_support::ViewObservationBindings,
         ) #where_clause {
             let __mirui_component = __mirui_world
                 .get::<#component>(__mirui_entity)
@@ -812,17 +824,22 @@ mod tests {
                 ) {}
             },
         );
-        assert!(expanded.contains("View :: systems_only"));
-        assert!(expanded.contains("with_filter :: < Board >"));
-        assert!(expanded.contains("with_systems (SYSTEMS)"));
-        assert!(expanded.contains("with_attach (attach)"));
-        assert!(expanded.contains("with_internal_gesture (gesture)"));
-        assert!(expanded.contains("with_observation (observe , 1usize)"));
+        assert!(expanded.contains("__macro_support :: assemble_view :: < Board >"));
+        assert!(expanded.contains("__macro_support :: ViewDescriptor"));
+        assert!(expanded.contains("paint : :: core :: option :: Option :: None"));
+        assert!(expanded.contains("systems : SYSTEMS"));
+        assert!(expanded.contains("attach : :: core :: option :: Option :: Some (attach)"));
+        assert!(expanded.contains("gesture : :: core :: option :: Option :: Some (gesture)"));
+        assert!(
+            expanded
+                .contains("observation : :: core :: option :: Option :: Some ((observe , 1usize))")
+        );
+        assert!(expanded.contains("__macro_support :: ViewObservationBindings"));
         assert!(!expanded.contains("fn render"));
         assert!(!expanded.contains("fn __mirui_view_body"));
         assert!(!expanded.contains("resource ::"));
         assert!(!expanded.contains("with_model_read_only"));
-        assert!(!expanded.contains("query_dependencies"));
+        assert!(expanded.contains("query_dependencies : const { & [] }"));
     }
 
     #[test]
@@ -849,7 +866,7 @@ mod tests {
         assert_eq!(expanded.matches("read_shared (__mirui_world)").count(), 1);
         assert!(expanded.contains("rows . get (node)"));
         assert!(!expanded.contains("__mirui_world . get :: < Switch >"));
-        assert!(expanded.contains("with_query_dependencies (const {"));
+        assert!(expanded.contains("query_dependencies : const {"));
         for ty in ["Switch", "Background", "Position"] {
             assert!(expanded.contains(&format!("TypeId :: of :: < {ty} > as fn ()")));
         }
@@ -942,10 +959,11 @@ mod tests {
                 fn behavior(rows: query!(Entity, optional Motion; with Active;)) {}
             ),
         );
-        assert!(expanded.contains("View :: systems_only"));
+        assert!(expanded.contains("__macro_support :: assemble_view :: < Board >"));
+        assert!(expanded.contains("paint : :: core :: option :: Option :: None"));
         assert!(expanded.contains("QueryParam"));
         assert!(expanded.contains("OptionalRead < Motion >"));
-        assert!(expanded.contains("with_query_dependencies (const {"));
+        assert!(expanded.contains("query_dependencies : const {"));
         assert_eq!(expanded.matches("TypeId :: of").count(), 2);
         assert!(!expanded.contains("fn render"));
         assert!(!expanded.contains("fn __mirui_view_body"));
@@ -973,7 +991,9 @@ mod tests {
         assert!(expanded.contains("TypeId :: of :: < super :: Item < T > > as fn ()"));
         assert!(expanded.contains("TypeId :: of :: < super :: super :: Extra < T > > as fn ()"));
         assert!(expanded.contains("where T : super :: Tag + 'static"));
-        assert!(expanded.contains("with_query_dependencies (const {"));
+        assert!(expanded.contains("query_dependencies : const {"));
+        assert!(expanded.contains("assemble_view :: < super :: Board < T > >"));
+        assert!(expanded.contains("Some ((60u8 , render :: < T >))"));
     }
 
     #[test]
@@ -988,9 +1008,19 @@ mod tests {
             }),
         ] {
             let expanded = expand_ok(quote!(component = Board), quote!(fn behavior() #body));
-            assert!(expanded.contains("View :: new"));
+            assert!(expanded.contains("__macro_support :: assemble_view :: < Board >"));
+            assert!(
+                expanded.contains("paint : :: core :: option :: Option :: Some ((60u8 , render))")
+            );
             assert!(expanded.contains("fn render"));
             assert!(expanded.contains("fn __mirui_view_body"));
+            assert!(!expanded.contains("paint : :: core :: option :: Option :: None"));
+            assert_eq!(expanded.matches("assemble_view").count(), 1);
+            assert!(expanded.contains("attach : :: core :: option :: Option :: None"));
+            assert!(expanded.contains("gesture : :: core :: option :: Option :: None"));
+            assert!(expanded.contains("observation : :: core :: option :: Option :: None"));
+            assert!(expanded.contains("systems : & []"));
+            assert!(!expanded.contains("View :: new"));
             assert!(!expanded.contains("View :: systems_only"));
         }
     }
@@ -1024,9 +1054,15 @@ mod tests {
         assert!(expanded.contains("ModelHandle :: read (& __mirui_component . game"));
         assert!(expanded.contains("__mirui_subscribe_positions"));
         assert!(expanded.contains("__mirui_subscribe_selection"));
-        assert!(expanded.contains("with_observation (observe , 2usize)"));
+        assert!(
+            expanded
+                .contains("observation : :: core :: option :: Option :: Some ((observe , 2usize))")
+        );
         assert!(expanded.contains("ViewInvalidation :: Layout"));
-        assert!(expanded.contains("with_filter :: < Board >"));
+        assert!(expanded.contains("__macro_support :: assemble_view :: < Board >"));
+        assert!(expanded.contains("paint : :: core :: option :: Option :: Some ((61 , render))"));
+        assert!(expanded.contains("attach : :: core :: option :: Option :: Some (attach_board)"));
+        assert!(expanded.contains("gesture : :: core :: option :: Option :: Some (board_gesture)"));
         assert!(expanded.contains("self :: paint"));
         assert!(expanded.contains("& mut :: mirui :: ui :: view :: PaintCtx < '_ >"));
         assert!(!expanded.contains("__mirui_renderer"));
@@ -1050,7 +1086,10 @@ mod tests {
             expanded.contains("OptionalModelHandle :: read_optional (& __mirui_component . game")
         );
         assert!(expanded.contains("ModelSubscription :: inert"));
-        assert!(expanded.contains("with_observation (observe , 1usize)"));
+        assert!(
+            expanded
+                .contains("observation : :: core :: option :: Option :: Some ((observe , 1usize))")
+        );
     }
 
     #[test]
@@ -1103,7 +1142,7 @@ mod tests {
                 }
             },
         );
-        assert!(marker.contains("with_filter :: < Board >"));
+        assert!(marker.contains("__macro_support :: assemble_view :: < Board >"));
         assert!(!marker.contains("get :: < Board >"));
 
         let component = expand_ok(

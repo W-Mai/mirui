@@ -41,8 +41,8 @@ mod nested {
         _: &mut mirui::ecs::World,
         _: mirui::ecs::Entity,
         _: &mirui::input::event::gesture::GestureEvent,
-    ) -> bool {
-        false
+    ) -> Result<bool, mirui::ecs::CommandError> {
+        Ok(false)
     }
 
     fn local_offset() -> u8 {
@@ -56,7 +56,10 @@ mod nested {
         state: model!(component.state, watch(value)),
         optional: model!(optional component.optional, watch(value)),
         theme: res!(<T as super::Palette>::Theme),
-    ) where self::Marker: super::Palette {}
+    ) where
+        self::Marker: super::Palette,
+    {
+    }
 
     #[view(component = super::Tile, priority = self::PRIORITY, invalidation = Layout, attach = self::attach, gesture = self::gesture, systems = [self::update::system()])]
     #[allow(clippy::let_and_return)]
@@ -69,7 +72,9 @@ mod nested {
         fallback: res!(optional <T as super::Palette>::Theme),
         entity: entity!(),
         paint: paint!(),
-    ) where self::Marker: super::Palette {
+    ) where
+        self::Marker: super::Palette,
+    {
         let value = state.value + super::ROOT_OFFSET + self::local_offset() + OFFSET;
         let optional_value = optional.map(|state| state.value);
         let _: Option<&<T as super::Palette>::Theme> = fallback;

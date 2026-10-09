@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- View descriptor assembly and raw hook types use hidden macro support. `#[view]` and Niche declarations retain component filtering, optional painting, observations, and widget-scoped systems.
+
 - Caret overlays declare `TextGeometry` dependencies and use typed View parameters. World-based text geometry constructors are removed; cache replacement and trimming invalidate published geometry.
 - TextInput prepares its displayed text before painting and shares retained layout data with glyph and caret drawing. Placeholder changes, font replacement, and cache resets invalidate the prepared result; layout failures are reported before drawing.
 - Path glyph and caret placement is prepared after layout. Painting and geometry queries read completed placement without cache mutation; replacing the layout cache invalidates retained path frames.

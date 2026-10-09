@@ -181,9 +181,18 @@ fn expand_decl(name: syn::Ident, params: Vec<MoldParam>, children: &[DsTreeRef])
             }
 
             pub fn __view() -> ::mirui::ui::View {
-                ::mirui::ui::View::systems_only(stringify!(#name), &[])
-                    .with_filter::<Self>()
-                    .with_attach(Self::__attach)
+                ::mirui::__macro_support::assemble_view::<Self>(
+                    ::mirui::__macro_support::ViewDescriptor {
+                        name: stringify!(#name),
+                        paint: ::core::option::Option::None,
+                        attach: ::core::option::Option::Some(Self::__attach),
+                        gesture: ::core::option::Option::None,
+                        observation: ::core::option::Option::None,
+                        query_dependencies: &[],
+                        systems: &[],
+                        invalidation: ::mirui::ui::view::ViewInvalidation::Visual,
+                    },
+                )
             }
         }
     }

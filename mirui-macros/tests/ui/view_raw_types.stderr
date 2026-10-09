@@ -1,0 +1,59 @@
+error[E0603]: type alias `ViewAttach` is private
+ --> tests/ui/view_raw_types.rs:2:5
+  |
+2 |     ViewAttach, ViewInternalGesture, ViewObservationBindings, ViewObserve, ViewRender,
+  |     ^^^^^^^^^^ private type alias
+  |
+note: the type alias `ViewAttach` is defined here
+ --> $WORKSPACE/src/ui/view.rs
+  |
+  | pub(crate) type ViewAttach = fn(world: &mut World, entity: Entity);
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: type alias `ViewInternalGesture` is private
+ --> tests/ui/view_raw_types.rs:2:17
+  |
+2 |     ViewAttach, ViewInternalGesture, ViewObservationBindings, ViewObserve, ViewRender,
+  |                 ^^^^^^^^^^^^^^^^^^^ private type alias
+  |
+note: the type alias `ViewInternalGesture` is defined here
+ --> $WORKSPACE/src/ui/view.rs
+  |
+  | pub(crate) type ViewInternalGesture =
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: struct `ViewObservationBindings` is private
+ --> tests/ui/view_raw_types.rs:2:38
+  |
+2 |     ViewAttach, ViewInternalGesture, ViewObservationBindings, ViewObserve, ViewRender,
+  |                                      ^^^^^^^^^^^^^^^^^^^^^^^ private struct
+  |
+note: the struct `ViewObservationBindings` is defined here
+ --> $WORKSPACE/src/ui/view.rs
+  |
+  | pub(crate) use generated::ViewObservationBindings;
+  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: type alias `ViewObserve` is private
+ --> tests/ui/view_raw_types.rs:2:63
+  |
+2 |     ViewAttach, ViewInternalGesture, ViewObservationBindings, ViewObserve, ViewRender,
+  |                                                               ^^^^^^^^^^^ private type alias
+  |
+note: the type alias `ViewObserve` is defined here
+ --> $WORKSPACE/src/ui/view.rs
+  |
+  | pub(crate) type ViewObserve = fn(&World, Entity, &mut ViewObservationBindings);
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: type alias `ViewRender` is private
+ --> tests/ui/view_raw_types.rs:2:76
+  |
+2 |     ViewAttach, ViewInternalGesture, ViewObservationBindings, ViewObserve, ViewRender,
+  |                                                                            ^^^^^^^^^^ private type alias
+  |
+note: the type alias `ViewRender` is defined here
+ --> $WORKSPACE/src/ui/view.rs
+  |
+  | pub(crate) type ViewRender = fn(world: &World, entity: Entity, ctx: &mut PaintCtx<'_>);
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^
