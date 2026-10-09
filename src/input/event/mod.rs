@@ -574,7 +574,7 @@ mod tests {
 
     #[test]
     fn suspend_cancellation_clears_active_input_without_a_root() {
-        use crate::input::event::scroll::{ScrollOffset, ScrollSpring};
+        use crate::input::event::scroll::{ScrollMotion, ScrollOffset};
         use crate::ui::{InteractionState, dirty::Dirty};
 
         let mut world = World::new();
@@ -598,10 +598,9 @@ mod tests {
             active: true,
             resolved: true,
             target: node,
-            vel_y: Fixed::ONE,
             ..ScrollDragState::default()
         });
-        world.insert_resource(ScrollSpring::default());
+        world.insert_resource(ScrollMotion::default());
         world.insert_resource(GestureSystem::default());
 
         dispatch_input(&mut world, None, &InputEvent::AppSuspend, 10, 64, 64);
@@ -612,7 +611,13 @@ mod tests {
         let scroll = world.resource::<ScrollDragState>().unwrap();
         assert!(!scroll.active);
         assert!(!scroll.resolved);
-        assert_eq!(scroll.vel_y, Fixed::ZERO);
+        assert!(
+            world
+                .resource::<ScrollMotion>()
+                .unwrap()
+                .target_entity
+                .is_none()
+        );
         assert_eq!(world.get::<ScrollOffset>(node).unwrap().y, Fixed::ZERO);
         assert!(!world.has::<InteractionState>(node));
         assert!(world.has::<Dirty>(node));

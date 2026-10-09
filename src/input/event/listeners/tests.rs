@@ -1008,7 +1008,7 @@ struct ScrollFixture {
 impl ScrollFixture {
     fn new(steps: usize) -> Self {
         use crate::input::event::scroll::{
-            ScrollConfig, ScrollDragState, ScrollOffset, ScrollSpring,
+            ScrollConfig, ScrollDragState, ScrollMotion, ScrollOffset,
         };
         use crate::types::{Dimension, Viewport};
         use crate::ui::layout::LayoutStyle;
@@ -1039,7 +1039,7 @@ impl ScrollFixture {
             last_resolved_target: Some(root),
             ..ScrollDragState::default()
         });
-        world.insert_resource(ScrollSpring::default());
+        world.insert_resource(ScrollMotion::default());
         world.insert_resource(ScrollTrace {
             trace: RefCell::new(Trace::default()),
             wheel: Cell::new(None),
@@ -1095,7 +1095,7 @@ impl ScrollFixture {
 #[test]
 fn scroll_claim_precedes_app_and_does_not_require_fallback_capacity() {
     use crate::input::event::input::{Rotary, Wheel};
-    use crate::input::event::scroll::{ScrollDelta, ScrollOffset, ScrollSpring};
+    use crate::input::event::scroll::{ScrollDelta, ScrollMotion, ScrollOffset};
 
     let mut fixture = ScrollFixture::new(0);
     fixture.world.insert(fixture.root, ScrollDelta::default());
@@ -1135,7 +1135,7 @@ fn scroll_claim_precedes_app_and_does_not_require_fallback_capacity() {
         .get_mut::<ScrollOffset>(fixture.root)
         .unwrap()
         .y = 200.into();
-    fixture.world.insert_resource(ScrollSpring::default());
+    fixture.world.insert_resource(ScrollMotion::default());
     assert_eq!(fixture.wheel(&wheel), Ok(BubbleControl::Prevent));
     assert!(
         fixture
@@ -1242,7 +1242,7 @@ fn scroll_fallback_capacity_failure_runs_no_partial_listener_and_reuses_scratch(
 #[test]
 fn scroll_route_rejects_busy_or_foreign_owner_before_mutating_scroll() {
     use crate::input::event::input::Wheel;
-    use crate::input::event::scroll::{ScrollOffset, ScrollSpring};
+    use crate::input::event::scroll::{ScrollMotion, ScrollOffset};
     let mut fixture = ScrollFixture::new(3);
     let wheel = Wheel {
         dx: Fixed::ZERO,
@@ -1263,7 +1263,7 @@ fn scroll_route_rejects_busy_or_foreign_owner_before_mutating_scroll() {
     assert!(
         fixture
             .world
-            .resource::<ScrollSpring>()
+            .resource::<ScrollMotion>()
             .unwrap()
             .target_entity
             .is_none()
@@ -1279,7 +1279,7 @@ fn scroll_route_rejects_busy_or_foreign_owner_before_mutating_scroll() {
     assert!(
         foreign
             .world
-            .resource::<ScrollSpring>()
+            .resource::<ScrollMotion>()
             .unwrap()
             .target_entity
             .is_none()

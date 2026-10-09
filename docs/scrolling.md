@@ -2,11 +2,11 @@
 
 ## Input and viewport
 
-Scrolling does not snap to cell boundaries. Pointer-release inertia follows recent movement and expires after the pointer stops. Within scroll bounds, wheel input applies its fractional deltas directly, retaining platform-provided momentum. Scroll offsets invalidate painting and hit geometry, while cell reassignment or size changes still update layout. Framebuffer reuse is restricted to whole physical-pixel shifts in untransformed rectangular viewports without borders or rounded corners; other movement repaints the affected viewport.
+Scrolling does not snap to cell boundaries. Pointer and wheel input share elastic resistance and released motion; continued input controls the content without a concurrent rebound. Pointer-release inertia follows recent content movement and expires after the pointer stops. Within scroll bounds, wheel input applies its fractional deltas directly, retaining platform-provided momentum. Scroll offsets invalidate painting and hit geometry, while cell reassignment or size changes still update layout. Framebuffer reuse is restricted to whole physical-pixel shifts in untransformed rectangular viewports without borders or rounded corners; other movement repaints the affected viewport.
 
 `InputEvent::Wheel` and the typed `Wheel` payload use logical pixels for `dx`, `dy`, `x`, and `y`. Positive `dx` increases the horizontal scroll offset; positive `dy` decreases the vertical offset. Backends normalize displacement before converting it to fixed point. Custom surfaces and simulated wheel input must provide pixel displacement, not wheel ticks. `Rotary.delta` remains an encoder step count.
 
-Web pixel deltas follow the canvas's current CSS-to-logical scale; line deltas use 20 logical pixels per line, and page deltas use the surface's logical width and height. WGPU pixel deltas are divided by the window scale factor once. SDL precise wheel values and integer wheel ticks from Linux/NuttX use the same 20-pixel step. No additional momentum is applied to wheel input. Linux's integer wheel adapter does not consume high-resolution evdev wheel events.
+Web pixel deltas follow the canvas's current CSS-to-logical scale; line deltas use 20 logical pixels per line, and page deltas use the surface's logical width and height. WGPU pixel deltas are divided by the window scale factor once. SDL precise wheel values and integer wheel ticks from Linux/NuttX use the same 20-pixel step. No additional in-bounds momentum is applied to wheel input. Linux's integer wheel adapter does not consume high-resolution evdev wheel events.
 
 For SDL runtime requirements and macOS trackpad setup, see the [desktop setup](quickstart.md#desktop-sdl).
 

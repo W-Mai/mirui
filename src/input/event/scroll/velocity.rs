@@ -16,6 +16,10 @@ pub(crate) struct VelocityTracker {
 }
 
 impl VelocityTracker {
+    pub fn last_velocity(&self) -> Option<(Fixed, Fixed)> {
+        self.velocity(self.samples[..self.len].last()?.time)
+    }
+
     pub fn is_recent(&self, now: u32) -> bool {
         self.samples[..self.len]
             .last()
@@ -46,12 +50,10 @@ impl VelocityTracker {
         }
     }
 
-    pub fn velocity(&self, now: u32) -> (Fixed, Fixed) {
-        let Some(last) = self.samples[..self.len].last() else {
-            return (Fixed::ZERO, Fixed::ZERO);
-        };
+    pub fn velocity(&self, now: u32) -> Option<(Fixed, Fixed)> {
+        let last = self.samples[..self.len].last()?;
         if !self.is_recent(now) {
-            return (Fixed::ZERO, Fixed::ZERO);
+            return None;
         }
         let first = self.samples[..self.len]
             .iter()
@@ -59,14 +61,14 @@ impl VelocityTracker {
             .unwrap_or(last);
         let elapsed = last.time.wrapping_sub(first.time);
         if elapsed == 0 {
-            return (Fixed::ZERO, Fixed::ZERO);
+            return None;
         }
         let speed = |distance: Fixed| {
             let limit = Fixed::from_int(4000);
             let max_distance = limit * elapsed as i32 / 1000;
             distance.clamp(-max_distance, max_distance) * 1000 / elapsed as i32
         };
-        (speed(first.x - last.x), speed(first.y - last.y))
+        Some((speed(first.x - last.x), speed(first.y - last.y)))
     }
 }
 
@@ -75,13 +77,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn unknown_velocity_is_distinct_from_measured_zero() {
+        let mut samples = VelocityTracker::default();
+        assert_eq!(samples.velocity(0), None);
+        samples.record(Fixed::ZERO, Fixed::ZERO, 0);
+        assert_eq!(samples.velocity(0), None);
+        samples.record(Fixed::ZERO, Fixed::ZERO, 8);
+        assert_eq!(samples.velocity(8), Some((Fixed::ZERO, Fixed::ZERO)));
+    }
+
+    #[test]
     fn wheel_velocity_accumulates_batched_displacement_without_position_drift() {
         let mut samples = VelocityTracker::default();
         for time in 0..128 {
             samples.record_delta(4.into(), (-4).into(), time * 8);
             samples.record_delta(4.into(), (-4).into(), time * 8);
         }
-        assert_eq!(samples.velocity(127 * 8), (1000.into(), (-1000).into()));
+        assert_eq!(
+            samples.velocity(127 * 8),
+            Some((1000.into(), (-1000).into()))
+        );
         assert!(
             samples
                 .samples
@@ -102,13 +117,10 @@ mod tests {
                 );
             }
             assert_eq!(
-                samples.velocity((3 * interval) as u32).1,
+                samples.velocity((3 * interval) as u32).unwrap().1,
                 Fixed::from_int(1000)
             );
-            assert_eq!(
-                samples.velocity((3 * interval) as u32 + WINDOW_MS).1,
-                Fixed::ZERO
-            );
+            assert_eq!(samples.velocity((3 * interval) as u32 + WINDOW_MS), None);
         }
     }
 
@@ -117,8 +129,8 @@ mod tests {
         let mut samples = VelocityTracker::default();
         samples.record(Fixed::ZERO, 100.into(), u32::MAX - 7);
         samples.record(Fixed::ZERO, 90.into(), u32::MAX - 7);
-        assert_eq!(samples.velocity(u32::MAX - 7), (Fixed::ZERO, Fixed::ZERO));
+        assert_eq!(samples.velocity(u32::MAX - 7), None);
         samples.record(Fixed::ZERO, 82.into(), 0);
-        assert_eq!(samples.velocity(0).1, Fixed::from_int(1000));
+        assert_eq!(samples.velocity(0).unwrap().1, Fixed::from_int(1000));
     }
 }

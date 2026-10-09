@@ -1107,7 +1107,7 @@ mod tests {
     fn setup_world() -> World {
         let mut world = World::default();
         world.insert_resource(crate::input::event::scroll::ScrollDragState::default());
-        world.insert_resource(crate::input::event::scroll::ScrollSpring::default());
+        world.insert_resource(crate::input::event::scroll::ScrollMotion::default());
         world.insert_resource(GestureSystem::default());
         world.insert_resource(crate::input::event::focus::FocusState::default());
         world.insert_resource(crate::surface::DisplayInfo {

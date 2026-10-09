@@ -72,8 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Wheel overscroll retains entry velocity and settles without oscillation. Trailing wheel events cannot repeatedly restart the rebound; reverse input takes over immediately.
-- Wheel gestures starting at a resting boundary allow continuous elastic pulling.
+- Pointer and wheel scrolling share elastic resistance, content-velocity tracking, and released motion. Continuous input controls the content at both resting and moving boundaries.
 - SDL surfaces enable native macOS trackpad momentum when using sdl2-compat.
 - Scroll repainting preserves stationary borders and rounded backgrounds during elastic movement. Fractional movement repaints immediately unless it maps to whole physical pixels suitable for framebuffer reuse.
 - Scroll input invalidates visual geometry without forcing unchanged layouts to rebuild. Clipped retained rows consume their dirty markers instead of repeatedly scheduling layout work.

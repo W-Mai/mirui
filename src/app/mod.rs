@@ -11,7 +11,7 @@ use crate::input::event::PointerCursor;
 use crate::input::event::focus::FocusState;
 use crate::input::event::gesture::GestureSystem;
 use crate::input::event::multi_tap::MultiTapTracker;
-use crate::input::event::scroll::{ScrollDragState, ScrollSpring};
+use crate::input::event::scroll::{ScrollDragState, ScrollMotion};
 use crate::render::canvas::Canvas;
 use crate::render::renderer::Renderer;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
@@ -248,7 +248,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         install_default_log_sink_once();
         let mut world = World::new();
         world.insert_resource(ScrollDragState::default());
-        world.insert_resource(ScrollSpring::default());
+        world.insert_resource(ScrollMotion::default());
         world.insert_resource(PointerCursor::default());
         world.insert_resource(GestureSystem::default());
         world.insert_resource(MultiTapTracker::new());
