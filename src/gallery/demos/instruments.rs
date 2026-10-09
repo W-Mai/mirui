@@ -1,4 +1,4 @@
-use crate::ecs::World;
+use crate::compose;
 use crate::render::command::DrawCommand;
 use crate::render::font::{Font, FontManager, FontToken};
 use crate::render::path::Path;
@@ -9,20 +9,23 @@ use crate::ui::view::PaintCtx;
 
 const FONT_BYTES: &[u8] = include_bytes!("assets/misans_ui.mirx");
 
-pub(super) fn register_fonts(world: &mut World) {
-    let Some(manager) = world.resource::<FontManager>() else {
-        return;
-    };
-    let base = Font::from_mirx(
-        "Product Instruments",
-        24,
-        FONT_BYTES,
-        &mirx::reader::PayloadLimits::HOST,
-    )
-    .expect("product instrument font");
-    manager.add_static(FontToken::Default.cache_key(), base.clone());
-    manager.add_static(FontToken::Heading.cache_key(), base.clone());
-    manager.add_static(FontToken::Mono.cache_key(), base);
+#[compose]
+pub(super) fn register_fonts() {
+    res!(optional FontManager).with(|manager| {
+        let Some(manager) = manager else {
+            return;
+        };
+        let base = Font::from_mirx(
+            "Product Instruments",
+            24,
+            FONT_BYTES,
+            &mirx::reader::PayloadLimits::HOST,
+        )
+        .expect("product instrument font");
+        manager.add_static(FontToken::Default.cache_key(), base.clone());
+        manager.add_static(FontToken::Heading.cache_key(), base.clone());
+        manager.add_static(FontToken::Mono.cache_key(), base);
+    });
 }
 
 pub(super) struct InstrumentPainter<'paint, 'frame> {

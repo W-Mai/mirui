@@ -13,33 +13,34 @@ use super::visuals::{activity_render, backdrop_render, orbit_render, signal_rend
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::ecs::DeltaTimeMs;
 #[cfg(any(feature = "std", test))]
-use crate::ecs::World;
-#[cfg(any(feature = "std", test))]
 use crate::prelude::*;
 #[cfg(any(feature = "std", test))]
 use crate::render::font::{Font, FontManager};
 
 #[cfg(any(feature = "std", test))]
-pub(super) fn register_fonts(world: &mut World) {
-    let Some(manager) = world.resource::<FontManager>() else {
-        return;
-    };
-    let base = Font::from_mirx(
-        "Orbit Console",
-        14,
-        FONT_BYTES,
-        &mirx::reader::PayloadLimits::HOST,
-    )
-    .expect("Orbit Console font must decode");
-    let mut body = base.clone();
-    body.size = 14;
-    let mut heading = base.clone();
-    heading.size = 24;
-    let mut mono = base;
-    mono.size = 11;
-    manager.add_static(FontToken::Default.cache_key(), body);
-    manager.add_static(FontToken::Heading.cache_key(), heading);
-    manager.add_static(FontToken::Mono.cache_key(), mono);
+#[compose]
+pub(super) fn register_fonts() {
+    res!(optional FontManager).with(|manager| {
+        let Some(manager) = manager else {
+            return;
+        };
+        let base = Font::from_mirx(
+            "Orbit Console",
+            14,
+            FONT_BYTES,
+            &mirx::reader::PayloadLimits::HOST,
+        )
+        .expect("Orbit Console font must decode");
+        let mut body = base.clone();
+        body.size = 14;
+        let mut heading = base.clone();
+        heading.size = 24;
+        let mut mono = base;
+        mono.size = 11;
+        manager.add_static(FontToken::Default.cache_key(), body);
+        manager.add_static(FontToken::Heading.cache_key(), heading);
+        manager.add_static(FontToken::Mono.cache_key(), mono);
+    });
 }
 
 #[mirui_macros::system(order = Animation)]
@@ -59,7 +60,7 @@ where
         DemoRunMode::Capture => ConsoleState::capture(),
     };
     let model = app.add_model(initial_state);
-    register_fonts(&mut app.world);
+    app.compose(parent, register_fonts());
     if let Some(style) = app.world.get_mut::<Style>(parent) {
         style.set_bg_color(BG);
     }

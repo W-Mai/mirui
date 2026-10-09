@@ -656,7 +656,7 @@ where
     crate::gallery::showcase_theme::install(app);
     app.with_widget(caret_overlay_view());
     app.with_widget(raster_contour_view());
-    register_fonts(&mut app.world);
+    app.compose(parent, register_fonts());
     let wave_path = register_path(app.paths());
     let model = app.add_model(TypographyModel::default());
     app.compose(parent, build_widgets(model, wave_path));

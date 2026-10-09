@@ -22,7 +22,10 @@ where
     crate::gallery::showcase_theme::install(app);
     app.with_widget(stage::curve_stage_background_render::view())
         .with_widget(stage::curve_paths_view());
-    crate::gallery::demos::typography_lab::register_fonts(&mut app.world);
+    app.compose(
+        parent,
+        crate::gallery::demos::typography_lab::register_fonts(),
+    );
     let model = app.add_model(state::CurveModel::default());
     let paths = geometry::register_paths(app.paths());
     app.add_resource(paths);

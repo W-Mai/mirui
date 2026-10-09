@@ -1,5 +1,4 @@
 use super::{ARABIC_FONT, CJK_FONT, DEVANAGARI_FONT, ELLIPSIS_FONT, THAI_FONT, UI_FONT};
-use crate::ecs::World;
 use crate::prelude::*;
 #[cfg(any(feature = "std", test))]
 use crate::render::font::FontStack;
@@ -29,19 +28,22 @@ fn font(bytes: &'static [u8], family: &'static str) -> Font {
         .expect("Typography Lab font")
 }
 
-pub(crate) fn register_fonts(world: &mut World) {
-    let Some(manager) = world.resource::<FontManager>() else {
-        return;
-    };
-    manager.add_static(UI.cache_key(), font(UI_FONT, "MiSans UI"));
-    manager.add_static(CJK.cache_key(), font(CJK_FONT, "MiSans CJK"));
-    manager.add_static(ARABIC.cache_key(), font(ARABIC_FONT, "MiSans Arabic"));
-    manager.add_static(
-        DEVANAGARI.cache_key(),
-        font(DEVANAGARI_FONT, "Noto Sans Devanagari"),
-    );
-    manager.add_static(THAI.cache_key(), font(THAI_FONT, "Noto Sans Thai"));
-    manager.add_static(ELLIPSIS.cache_key(), font(ELLIPSIS_FONT, "Noto Sans"));
+#[compose]
+pub(crate) fn register_fonts() {
+    res!(optional FontManager).with(|manager| {
+        let Some(manager) = manager else {
+            return;
+        };
+        manager.add_static(UI.cache_key(), font(UI_FONT, "MiSans UI"));
+        manager.add_static(CJK.cache_key(), font(CJK_FONT, "MiSans CJK"));
+        manager.add_static(ARABIC.cache_key(), font(ARABIC_FONT, "MiSans Arabic"));
+        manager.add_static(
+            DEVANAGARI.cache_key(),
+            font(DEVANAGARI_FONT, "Noto Sans Devanagari"),
+        );
+        manager.add_static(THAI.cache_key(), font(THAI_FONT, "Noto Sans Thai"));
+        manager.add_static(ELLIPSIS.cache_key(), font(ELLIPSIS_FONT, "Noto Sans"));
+    });
 }
 
 #[cfg(any(feature = "std", test))]

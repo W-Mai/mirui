@@ -33,6 +33,8 @@ Application setup installs shared services with `app.add_resource(value)` and cr
 
 Within a `#[compose]` Rust body, resource expressions access that composition's existing application storage. Each `with` closure borrows only for its call and returns a value independent of the resource reference. Resources remain shared services or configuration; mutating one does not add Model observations.
 
+A composition can initialize resources without creating widgets. Gallery font registration uses `app.compose(parent, register_fonts())` to borrow the installed `FontManager` through `res!(optional FontManager).with(...)` before constructing text widgets; it does not replace the manager or require a World parameter.
+
 | Operation | Expression | Result |
 | --- | --- | --- |
 | Read a required resource | `res!(T).with(read)` | `read` receives `&T` |
