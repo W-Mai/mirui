@@ -1,12 +1,8 @@
 use super::view::diamond_render;
 use super::*;
-use crate::ecs::World;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::Children;
-use crate::ui::IdMap;
-use crate::ui::UiScope;
-use crate::ui::view::ViewRegistry;
 use core::any::TypeId;
 
 #[test]
@@ -19,21 +15,16 @@ fn diamond_view_keeps_its_dispatch_contract() {
 
 #[test]
 fn build_widgets_smoke() {
-    let mut world = World::new();
-    crate::input::event::runtime::configure(
-        &mut world,
+    let mut app = App::headless(64, 64);
+    app.with_event_capacity(
         EventCapacity::new().commands(CommandCapacity::new().insert::<super::view::Diamond>(1)),
-    )
-    .unwrap();
-    world.insert_resource(IdMap::new());
-    let mut reg = ViewRegistry::with_builtins();
-    reg.insert(diamond_render::view());
-    world.insert_resource(reg);
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets()(&mut cx);
+    );
+    app.with_default_widgets()
+        .with_widget(diamond_render::view());
+    let parent = app.spawn_root().id();
+    app.compose(parent, build_widgets());
     assert!(
-        world
+        app.world
             .get::<Children>(parent)
             .is_some_and(|c| !c.0.is_empty()),
     );
@@ -46,26 +37,22 @@ fn diamond_geometry_stays_in_static_storage() {
 
 #[test]
 fn tap_cycles_diamond_color() {
-    let mut world = World::new();
-    crate::input::event::runtime::configure(
-        &mut world,
+    let mut app = App::headless(64, 64);
+    app.with_event_capacity(
         EventCapacity::new().commands(CommandCapacity::new().insert::<super::view::Diamond>(1)),
-    )
-    .unwrap();
-    world.insert_resource(IdMap::new());
-    let mut reg = ViewRegistry::with_builtins();
-    reg.insert(diamond_render::view());
-    world.insert_resource(reg);
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets()(&mut cx);
+    );
+    app.with_default_widgets()
+        .with_widget(diamond_render::view());
+    let parent = app.spawn_root().id();
+    app.compose(parent, build_widgets());
+    let world = &mut app.world;
     let row = world.find_by_id("custom_view_tiles").unwrap();
     let d0 = world.get::<Children>(row).unwrap().0[0];
 
     assert_eq!(world.get::<Diamond>(d0).map(|d| d.color), Some(PALETTE[0]));
     {
         let decision = crate::__macro_support::dispatch_entity_gesture(
-            &mut world,
+            world,
             &GestureEvent::Tap {
                 x: Fixed::ZERO,
                 y: Fixed::ZERO,
@@ -74,7 +61,7 @@ fn tap_cycles_diamond_color() {
             0,
         )
         .unwrap();
-        crate::__macro_support::flush_entity_events(&mut world).unwrap();
+        crate::__macro_support::flush_entity_events(world).unwrap();
         assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
     };
     assert_eq!(world.get::<Diamond>(d0).map(|d| d.color), Some(PALETTE[1]));

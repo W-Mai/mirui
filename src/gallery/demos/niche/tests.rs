@@ -1,10 +1,8 @@
 use super::*;
-use crate::ecs::World;
 use crate::prelude::*;
 use crate::surface::FramebufferAccess;
-use crate::ui::UiScope;
 use crate::ui::widgets::Text;
-use crate::ui::{IdMap, NicheMap, Parent, ViewRegistry};
+use crate::ui::{NicheMap, Parent};
 
 #[test]
 fn dirty_text_inside_slots_matches_full_render() {
@@ -40,16 +38,11 @@ fn dirty_text_inside_slots_matches_full_render() {
 
 #[test]
 fn build_widgets_smoke() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let mut reg = ViewRegistry::default();
-    reg.insert(ui!(compose Card));
-    world.insert_resource(reg);
-    let parent = WidgetBuilder::new(&mut world).id();
-
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets()(&mut cx);
-    drop(cx);
+    let mut app = App::headless(64, 64);
+    app.with_widget(ui!(compose Card));
+    let parent = app.spawn_root().id();
+    app.compose(parent, build_widgets());
+    let world = &app.world;
 
     let cards: Vec<Entity> = world.query::<Card>().collect();
     assert_eq!(cards.len(), 2, "expected two Card widgets");

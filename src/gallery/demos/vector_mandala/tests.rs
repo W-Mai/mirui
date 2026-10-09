@@ -2,13 +2,9 @@ use super::composition::build_widgets;
 use super::render::vector_mandala_view;
 use super::scene::{EMBLEM_MIRX, decode_emblem, rebuild_frame};
 use super::state::VectorMandala;
-use crate::ecs::World;
 use crate::prelude::*;
 use crate::render::scene::{Scene, SceneOp};
 use crate::ui::Children;
-use crate::ui::IdMap;
-use crate::ui::UiScope;
-use crate::ui::view::ViewRegistry;
 
 fn build_frame(cx: Fixed, cy: Fixed, petals: u8, spin_deg: Fixed) -> Scene {
     let emblem = decode_emblem();
@@ -19,20 +15,15 @@ fn build_frame(cx: Fixed, cy: Fixed, petals: u8, spin_deg: Fixed) -> Scene {
 
 #[test]
 fn build_widgets_smoke() {
-    let mut world = World::new();
-    world.insert_resource(IdMap::new());
-    let mut reg = ViewRegistry::with_builtins();
-    reg.insert(vector_mandala_view());
-    world.insert_resource(reg);
-    let parent = WidgetBuilder::new(&mut world).id();
-    let mut cx = UiScope::new(&mut world, parent);
-    build_widgets()(&mut cx);
-    drop(cx);
-    world.insert_resource(MonoClock::new(|| 12_000_000));
-    {
-        let mut cx = UiScope::new(&mut world, parent);
-        build_widgets()(&mut cx);
-    }
+    let mut app = App::headless(64, 64);
+    app.with_default_widgets()
+        .with_widget(vector_mandala_view());
+    let parent = app.spawn_root().id();
+    assert!(app.world.resource::<MonoClock>().is_none());
+    app.compose(parent, build_widgets());
+    app.add_resource(MonoClock::new(|| 12_000_000));
+    app.compose(parent, build_widgets());
+    let world = &app.world;
     assert!(
         world
             .query::<VectorMandala>()
