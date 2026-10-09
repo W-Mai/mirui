@@ -413,3 +413,203 @@ fn business_events_preserve_fields_and_deferred_commands() {
     );
     assert_eq!(world.get::<Marker>(recipient), Some(&Marker(1)));
 }
+
+mod third_party_notifications {
+    use super::tracking_allocator::tracked_allocations;
+    use mirui::input::event::contract::{EntityNotification, Event, EventKey, WidgetSource};
+    use mirui::prelude::*;
+    use mirui::render::DrawCommand;
+    use mirui::surface::framebuf::FramebufSurface;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    #[component]
+    struct Pad {
+        strength: u8,
+    }
+
+    struct PadHit {
+        old: u8,
+        new: u8,
+    }
+
+    impl Event for PadHit {
+        type Route = EntityNotification;
+        type Source = WidgetSource<Pad>;
+        type Options = ();
+    }
+
+    impl Pad {
+        #[allow(non_upper_case_globals)]
+        const Hit: EventKey<PadHit> = PadHit::EVENT;
+    }
+
+    #[model]
+    struct Receipts {
+        entries: [(u8, u8, u8); 9],
+        len: usize,
+    }
+
+    #[model]
+    impl Receipts {
+        fn record(&mut self, entrance: u8, old: u8, new: u8) {
+            self.entries[self.len] = (entrance, old, new);
+            self.len += 1;
+        }
+
+        fn snapshot(&self) -> ([(u8, u8, u8); 9], usize) {
+            (self.entries, self.len)
+        }
+    }
+
+    #[model]
+    struct Drive {
+        pending: Option<(Entity, u8)>,
+    }
+
+    #[model]
+    impl Drive {
+        fn request(&mut self, node: Entity, strength: u8) {
+            assert!(self.pending.is_none());
+            self.pending = Some((node, strength));
+        }
+
+        fn pending(&self) -> Option<(Entity, u8)> {
+            self.pending
+        }
+
+        fn clear_request(&mut self) {
+            self.pending = None;
+        }
+    }
+
+    #[event]
+    fn record_hit(
+        receipts: model!(Receipts),
+        input: event!(PadHit),
+        node: entity!(),
+        pads: query!(Pad),
+    ) {
+        assert_eq!(
+            pads.get(node).expect("notification source").strength,
+            input.new
+        );
+        receipts.record(2, input.old, input.new);
+    }
+
+    #[system]
+    fn update_pad(drive: model!(Drive), pads: query!(mut Pad), commands: commands!()) {
+        let Some((node, new)) = drive.pending() else {
+            return;
+        };
+        drive.clear_request();
+        let hit = {
+            let pad = pads.get(node).expect("requested Pad");
+            let old = pad.strength;
+            pad.strength = new;
+            PadHit { old, new }
+        };
+        commands.emit(node, hit);
+    }
+
+    struct PaintProbe(Rc<Cell<usize>>);
+
+    #[view(component = Pad)]
+    fn paint_pad(pad: component!(), probe: res!(PaintProbe), paint: paint!()) {
+        probe.0.set(probe.0.get() + 1);
+        paint.draw(&DrawCommand::Fill {
+            area: paint.rect(),
+            transform: paint.transform(),
+            quad: paint.quad(),
+            color: Color::rgb(pad.strength, 0, 0),
+            radius: Fixed::ZERO,
+            opa: 255,
+        });
+        paint.set_background_handled(true);
+    }
+
+    #[test]
+    fn third_party_notifications_repaint_through_app_and_all_on_forms() {
+        let pixel = Rc::new(Cell::new([0_u8; 4]));
+        let paints = Rc::new(Cell::new(0_usize));
+        let flushes = Rc::new(Cell::new(0_usize));
+        let pixel_on_flush = pixel.clone();
+        let flushes_on_flush = flushes.clone();
+        let backend = FramebufSurface::new(8, 8, move |pixels, _| {
+            let offset = (4 * 8 + 4) * 4;
+            pixel_on_flush.set([
+                pixels[offset],
+                pixels[offset + 1],
+                pixels[offset + 2],
+                pixels[offset + 3],
+            ]);
+            flushes_on_flush.set(flushes_on_flush.get() + 1);
+        });
+        let mut app = App::new(backend);
+        app.with_event_capacity(
+            EventCapacity::new()
+                .notifications::<PadHit>(1)
+                .flush_limit(1),
+        );
+        app.with_default_widgets().with_widget(paint_pad::view());
+        app.add_resource(PaintProbe(paints.clone()));
+        let receipts = app.add_model(Receipts {
+            entries: [(0, 0, 0); 9],
+            len: 0,
+        });
+        let drive = app.add_model(Drive { pending: None });
+        let block_receipts = receipts.clone();
+        let closure_receipts = receipts.clone();
+        let root = app.spawn_root().id();
+        let node = app.compose(root, |cx| {
+            ui! {
+                View (width: 8, height: 8) [
+                    Pad { strength: 1 },
+                ] on Pad::Hit { block_receipts.record(0, event.old, event.new); } on Pad::Hit(|input: event!(PadHit), node: entity!(), pads: query!(Pad)| {
+                    assert_eq!(pads.get(node).expect("notification source").strength, input.new);
+                    closure_receipts.record(1, input.old, input.new);
+                }) on Pad::Hit(record_hit::callback(receipts.clone()))
+            }
+        });
+        app.add_system(update_pad::system(drive.clone()));
+
+        assert!(!app.tick());
+        assert_eq!(pixel.get(), [1, 0, 0, 255]);
+        assert_eq!(receipts.snapshot(), ([(0, 0, 0); 9], 0));
+        assert_eq!((paints.get(), flushes.get()), (1, 1));
+
+        assert!(!app.tick());
+        assert_eq!(receipts.snapshot(), ([(0, 0, 0); 9], 0));
+        assert_eq!((paints.get(), flushes.get()), (1, 1));
+
+        drive.request(node, 7);
+        assert!(!app.tick());
+        let mut expected = [(0, 0, 0); 9];
+        expected[..3].copy_from_slice(&[(0, 1, 7), (1, 1, 7), (2, 1, 7)]);
+        assert_eq!(receipts.snapshot(), (expected, 3));
+        assert_eq!(pixel.get(), [7, 0, 0, 255]);
+        assert_eq!((paints.get(), flushes.get()), (2, 2));
+
+        for (round, (old, new)) in [(7, 11), (11, 19)].into_iter().enumerate() {
+            let allocations = tracked_allocations(|| {
+                drive.request(node, new);
+                assert!(!app.tick());
+            });
+            assert_eq!(allocations, 0);
+            let offset = (round + 1) * 3;
+            expected[offset..offset + 3].copy_from_slice(&[
+                (0, old, new),
+                (1, old, new),
+                (2, old, new),
+            ]);
+            assert_eq!(receipts.snapshot(), (expected, offset + 3));
+            assert_eq!(pixel.get(), [new, 0, 0, 255]);
+            assert_eq!((paints.get(), flushes.get()), (round + 3, round + 3));
+        }
+
+        assert!(!app.tick());
+        assert_eq!(receipts.snapshot(), (expected, 9));
+        assert_eq!(pixel.get(), [19, 0, 0, 255]);
+        assert_eq!((paints.get(), flushes.get()), (4, 4));
+    }
+}
