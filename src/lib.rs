@@ -111,6 +111,10 @@ pub mod ui;
 /// Runtime types used only by generated authoring macros.
 #[doc(hidden)]
 pub mod __macro_support {
+    pub fn with_world<R>(f: impl FnOnce(&mut crate::ecs::World) -> R) -> Option<R> {
+        crate::core::reactive::with_world(f)
+    }
+
     pub trait ScopeWorldAccess {
         fn __mirui_world(&mut self) -> &mut crate::ecs::World;
     }

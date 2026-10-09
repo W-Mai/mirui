@@ -129,9 +129,7 @@ impl Localized {
         world.resource::<I18n>()?.translate(self.key)
     }
 
-    /// World-free fallback for `impl ToString` — call this in reactive
-    /// closures where `with_world` is available; static call sites use
-    /// `resolve(world)` directly.
+    /// Resolve against the supplied World's I18n resource, falling back to the key.
     pub fn resolve_or_key(self, world: &World) -> &'static str {
         self.resolve(world).unwrap_or(self.key)
     }

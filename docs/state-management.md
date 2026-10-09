@@ -1259,11 +1259,7 @@ separately when targeting a bounded-memory device.
   App and cannot be read from another App or after that App ends. An ownerless computed may share
   ownerless signals but cannot read a registered model. Computed evaluation
   cannot write models.
-- **Effect ownership**: an effect created outside an App remains worldless
-  until it first reads a registered model, then belongs to that model's App.
-  It cannot read models from two Apps. While unbound, `with_world()` returns
-  `None` even when a World flush triggers the effect; the binding run remains
-  worldless and later runs use the bound App.
+- **Effect ownership**: an effect created outside an App remains worldless until it first reads a registered model, then belongs to that model's App. It cannot read models from two Apps. While unbound, it has no structural World access, including during the run that first binds it; later runs use the bound App's internal execution window. Ordinary author code cannot obtain that World through `core::reactive`; generated tree updates use the hidden macro support boundary.
 - **Structural World access**: the internal ambient window is paired with its actual World identity. An owner-only composition scope cannot inherit another World's window; leaving that scope restores owner context without recreating an ended structural window. Generated reactive tree updates use explicit matching windows and retain the existing mutable-borrow checks.
 - **Effect delivery**: `#[effects]` extractors return fixed arrays of optional
   events. Consumers cannot start another model write during delivery.

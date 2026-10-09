@@ -610,9 +610,7 @@ pub fn with_world_scope<R>(world: &mut World, f: impl FnOnce() -> R) -> R {
 /// Reach the structural World window associated with the current reactive owner; return None when no matching window exists. An owner-only scope for another World cannot inherit that window.
 ///
 /// An ownerless Effect returns None even when a World flushes it. The run that binds it to a model also remains ownerless; later runs in the model's World can access that World.
-///
-/// This entry point supports `ui!`-generated reactive control flow in user crates.
-pub fn with_world<R>(f: impl FnOnce(&mut World) -> R) -> Option<R> {
+pub(crate) fn with_world<R>(f: impl FnOnce(&mut World) -> R) -> Option<R> {
     // Copy the window before deref so `f` may re-enter with_reactive.
     let window = with_reactive(|r| {
         let window = r

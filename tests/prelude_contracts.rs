@@ -24,3 +24,9 @@ fn composition_world_access_stays_in_macro_support() {
     let cases = trybuild::TestCases::new();
     cases.compile_fail("tests/prelude_contracts/scope_world.rs");
 }
+
+#[test]
+fn reactive_world_access_stays_in_macro_support() {
+    let cases = trybuild::TestCases::new();
+    cases.compile_fail("tests/prelude_contracts/reactive_world.rs");
+}

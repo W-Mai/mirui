@@ -1,0 +1,23 @@
+error[E0603]: function `with_world` is private
+ --> tests/prelude_contracts/reactive_world.rs:5:36
+  |
+5 |     let _ = mirui::core::reactive::with_world(|world| world.spawn_empty());
+  |                                    ^^^^^^^^^^ private function
+  |
+note: the function `with_world` is defined here
+ --> src/core/reactive/mod.rs
+  |
+  | pub(crate) fn with_world<R>(f: impl FnOnce(&mut World) -> R) -> Option<R> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: function `with_world` is private
+ --> tests/prelude_contracts/reactive_world.rs:9:36
+  |
+9 |     let _ = mirui::core::reactive::with_world(|world| world.spawn_empty());
+  |                                    ^^^^^^^^^^ private function
+  |
+note: the function `with_world` is defined here
+ --> src/core/reactive/mod.rs
+  |
+  | pub(crate) fn with_world<R>(f: impl FnOnce(&mut World) -> R) -> Option<R> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

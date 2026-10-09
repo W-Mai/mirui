@@ -382,7 +382,7 @@ fn ownerless_effect_first_model_branch_binds_its_source_even_if_another_app_flus
         if branch.get() {
             seen_in_effect.set(observed.count());
         }
-        world_in_effect.set(mirui::core::reactive::with_world(|_| ()).is_some());
+        world_in_effect.set(mirui::__macro_support::with_world(|_| ()).is_some());
         runs_in_effect.set(runs_in_effect.get() + 1);
     });
     assert_eq!(runs.get(), 1);
