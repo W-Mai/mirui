@@ -79,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Unclipped children remain visible when their parent's layout rectangle is outside the redraw region. Transformed widget culling includes border and text ink bounds.
 - RGBA integer-scale blits preserve straight-alpha colors when compositing into transparent targets.
 - Offscreen textures become readable only after successful rendering. Source preparation no longer writes to the parent target, and a failed subtree leaves completed sources intact.
 - Mutable component access records entity changes so registered View bindings follow the final component value.

@@ -20,6 +20,8 @@ use super::{Outputs, WidgetTexture};
 pub(crate) mod output_plan;
 
 #[cfg(test)]
+mod overflow_tests;
+#[cfg(test)]
 mod paint_request_tests;
 
 /// Stage at which a text widget failed to prepare its layout.
@@ -1295,13 +1297,23 @@ fn draw_tree_offset(
         projective_visual_bounds(world, entity, shifted_rect, tf_3d, renderer.output_scale())
             .unwrap_or(shifted_rect)
     } else {
-        quad.map(quad_bbox).unwrap_or_else(|| {
-            affine_visual_bounds(world, entity, shifted_rect, tf, renderer.output_scale())
-        })
+        affine_visual_bounds(world, entity, shifted_rect, tf, renderer.output_scale())
     };
-    // A zero-size layout wrapper may still contain painted children.
-    if !rects_intersect(&cull_rect, clip)
-        && (node.children.is_empty() || (cull_rect.w > Fixed::ZERO && cull_rect.h > Fixed::ZERO))
+    let visible = rects_intersect(&cull_rect, clip);
+    let scroll = world.get::<crate::input::event::scroll::ScrollOffset>(entity);
+    let clips_children = scroll.is_some()
+        || world
+            .get::<Style>(entity)
+            .is_some_and(|style| style.clip_children);
+    let child_clip = if clips_children {
+        transformed_clip_bounds(shifted_rect, tf, tf_3d)
+            .map(|bounds| intersect_with_self(clip, &bounds))
+            .unwrap_or(Rect::ZERO)
+    } else {
+        *clip
+    };
+    if !visible
+        && (node.children.is_empty() || child_clip.w <= Fixed::ZERO || child_clip.h <= Fixed::ZERO)
     {
         *idx += count_nodes(node);
         return Ok(());
@@ -1352,7 +1364,7 @@ fn draw_tree_offset(
         }
     }
 
-    if *idx < entities.len() {
+    if visible && *idx < entities.len() {
         if let Some(style) = world.get::<Style>(entity) {
             let state = resolve_widget_state(world, entity);
             let clip_x = !matches!(
@@ -1426,27 +1438,9 @@ fn draw_tree_offset(
     }
     *idx += 1;
 
-    let clips_children = world
-        .get::<Style>(entity)
-        .is_some_and(|style| style.clip_children);
-    let self_clip = || {
-        transformed_clip_bounds(shifted_rect, tf, tf_3d)
-            .map(|bounds| intersect_with_self(clip, &bounds))
-            .unwrap_or(Rect {
-                x: clip.x,
-                y: clip.y,
-                w: Fixed::ZERO,
-                h: Fixed::ZERO,
-            })
-    };
-    let (child_clip, sx, sy) =
-        if let Some(scroll) = world.get::<crate::input::event::scroll::ScrollOffset>(entity) {
-            (self_clip(), offset_x + scroll.x, offset_y + scroll.y)
-        } else if clips_children {
-            (self_clip(), offset_x, offset_y)
-        } else {
-            (*clip, offset_x, offset_y)
-        };
+    let (sx, sy) = scroll.map_or((offset_x, offset_y), |scroll| {
+        (offset_x + scroll.x, offset_y + scroll.y)
+    });
 
     for child in &node.children {
         draw_tree_offset(
