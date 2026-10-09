@@ -149,6 +149,7 @@ fn compact_tabs_keep_distinct_pages_and_a_bounded_virtual_pool() {
     let root = app.spawn_root().id();
     install(&mut app, root);
     app.set_root(root);
+    let timeline = app.compose(root, automation()).unwrap();
 
     let mut pages: alloc::vec::Vec<u8> = app
         .world
@@ -179,13 +180,30 @@ fn compact_tabs_keep_distinct_pages_and_a_bounded_virtual_pool() {
         .unwrap()
         .0
         .resolve(ColorToken::Surface);
-    let timeline = automation(&app.world).unwrap();
 
     assert_eq!(pages, [0, 1, 2]);
     assert_eq!(list_state.item_count, VIRTUAL_ITEM_COUNT);
     assert_eq!(pool.items.len(), POOL_SIZE);
     assert_ne!(light_surface, dark_surface);
     assert_eq!(timeline.total_ms, 9_000);
+}
+
+#[test]
+fn automation_requires_its_registered_targets() {
+    let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    assert!(app.compose(root, automation()).is_none());
+
+    install(&mut app, root);
+    let timeline = app.compose(root, automation()).unwrap();
+    assert_eq!(timeline.total_ms, 9_000);
+    assert!(timeline.is_running());
+    app.world
+        .resource_mut::<crate::ui::IdMap>()
+        .unwrap()
+        .remove("compact_theme_dark");
+    assert!(app.compose(root, automation()).is_none());
 }
 
 #[test]

@@ -5,10 +5,11 @@ use super::render::{orbit_render, wave_render};
 use super::state::{ConsoleModel, ConsoleMotion};
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
-use crate::ecs::{DeltaTimeMs, World};
+use crate::ecs::DeltaTimeMs;
 use crate::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use crate::prelude::*;
 use crate::types::DimPoint;
+use crate::ui::IdMap;
 
 #[crate::system(order = Animation)]
 pub(super) fn kinetic_animation_system(
@@ -19,13 +20,19 @@ pub(super) fn kinetic_animation_system(
     motion.advance(model.mode(), model.intensity(), model.paused(), delta.0);
 }
 
-pub fn build_sim_timeline(world: &World) -> Option<SimTimeline> {
-    let orbit = world.find_by_id("kinetic_console_orbit")?;
-    let flow = world.find_by_id("kinetic_console_flow")?;
-    let pulse = world.find_by_id("kinetic_console_pulse")?;
-    let orbit_layer = world.find_by_id("kinetic_console_orbit_layer")?;
-    let status = world.find_by_id("kinetic_console_status")?;
-    let slider = world.find_by_id("kinetic_console_intensity")?;
+/// Prepare the looping input sequence from the composition's registered widget IDs.
+#[compose]
+pub fn build_sim_timeline() -> Option<SimTimeline> {
+    let (orbit, flow, pulse, orbit_layer, status, slider) = res!(IdMap).with(|ids| {
+        Some((
+            ids.get("kinetic_console_orbit")?,
+            ids.get("kinetic_console_flow")?,
+            ids.get("kinetic_console_pulse")?,
+            ids.get("kinetic_console_orbit_layer")?,
+            ids.get("kinetic_console_status")?,
+            ids.get("kinetic_console_intensity")?,
+        ))
+    })?;
 
     Some(
         SimTimeline::new(vec![
@@ -81,7 +88,7 @@ where
     ));
     app.compose(parent, build_widgets(model, motion));
 
-    if autoplay && let Some(timeline) = build_sim_timeline(&app.world) {
+    if autoplay && let Some(timeline) = app.compose(parent, build_sim_timeline()) {
         app.add_resource(timeline);
         app.add_system(sim_timeline_system::system());
     }

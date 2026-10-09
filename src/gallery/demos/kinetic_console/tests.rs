@@ -113,7 +113,16 @@ fn model_and_motion_dirty_bound_views_without_node_sync() {
 
 #[test]
 fn composition_exposes_every_timeline_target_by_id() {
-    let world = fixture();
+    let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    assert!(app.compose(root, build_sim_timeline()).is_none());
+    install(&mut app, root, false);
+    assert!(
+        app.world
+            .resource::<crate::input::event::sim::SimTimeline>()
+            .is_none()
+    );
     for id in [
         "kinetic_console_shell",
         "kinetic_console_status",
@@ -125,9 +134,33 @@ fn composition_exposes_every_timeline_target_by_id() {
         "kinetic_console_pulse",
         "kinetic_console_intensity",
     ] {
-        assert!(world.find_by_id(id).is_some(), "missing {id}");
+        assert!(app.world.find_by_id(id).is_some(), "missing {id}");
     }
-    assert!(build_sim_timeline(&world).is_some_and(|timeline| timeline.total_ms >= 10_000));
+    assert!(
+        app.compose(root, build_sim_timeline())
+            .is_some_and(|timeline| timeline.total_ms >= 10_000)
+    );
+    app.world
+        .resource_mut::<crate::ui::IdMap>()
+        .unwrap()
+        .remove("kinetic_console_intensity");
+    assert!(app.compose(root, build_sim_timeline()).is_none());
+}
+
+#[test]
+fn autoplay_installs_the_composed_timeline() {
+    let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    install(&mut app, root, true);
+
+    let expected = app.compose(root, build_sim_timeline()).unwrap();
+    let installed = app
+        .world
+        .resource::<crate::input::event::sim::SimTimeline>()
+        .unwrap();
+    assert_eq!(installed.total_ms, expected.total_ms);
+    assert!(installed.is_running());
 }
 
 #[test]

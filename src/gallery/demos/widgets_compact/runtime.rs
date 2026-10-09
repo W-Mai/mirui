@@ -2,10 +2,10 @@ use alloc::vec;
 
 use super::composition::build_widgets;
 use crate::anim::ease;
-use crate::ecs::World;
 use crate::input::event::sim::{SimAction, SimTimeline};
 use crate::prelude::*;
 use crate::types::DimPoint;
+use crate::ui::IdMap;
 
 pub fn install<B, F>(app: &mut App<B, F>, parent: Entity)
 where
@@ -15,13 +15,18 @@ where
     app.compose(parent, build_widgets());
 }
 
-pub(super) fn automation(world: &World) -> Option<SimTimeline> {
-    let tabs = world.find_by_id("compact_widgets_tabs")?;
-    let list = world.find_by_id("compact_widgets_list")?;
-    let slider = world.find_by_id("compact_widgets_slider")?;
-    let switch = world.find_by_id("compact_widgets_switch")?;
-    let light = world.find_by_id("compact_theme_light")?;
-    let dark = world.find_by_id("compact_theme_dark")?;
+#[compose]
+pub(super) fn automation() -> Option<SimTimeline> {
+    let (tabs, list, slider, switch, light, dark) = res!(IdMap).with(|ids| {
+        Some((
+            ids.get("compact_widgets_tabs")?,
+            ids.get("compact_widgets_list")?,
+            ids.get("compact_widgets_slider")?,
+            ids.get("compact_widgets_switch")?,
+            ids.get("compact_theme_light")?,
+            ids.get("compact_theme_dark")?,
+        ))
+    })?;
 
     Some(
         SimTimeline::new(vec![
@@ -70,7 +75,7 @@ where
     if std::env::var("MIRUI_SIM_OFF").ok().as_deref() == Some("1") {
         return;
     }
-    if let Some(timeline) = automation(&app.world) {
+    if let Some(timeline) = app.compose(parent, automation()) {
         app.add_resource(timeline);
     }
 }

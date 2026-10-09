@@ -39,6 +39,8 @@ Optional initialization can check `res!(optional T)` and insert a default throug
 
 A composition can use the entity returned by `ui!` to initialize node-targeted resources before returning that entity. PinchRotate creates its gesture target, installs a `SimTimeline` anchored to it through `res!().insert(...)`, and returns the target for ordinary child composition. Simulation system and clock registration stay in the outer setup.
 
+For targets already named by other compositions, `res!(IdMap).with(...)` reads the application's existing widget registry and can return copied entity IDs. Kinetic Console prepares its input sequence with `app.compose(root, kinetic_console::build_sim_timeline())`; the result is `None` if a required target is absent. The caller installs the returned `SimTimeline` with `app.add_resource` when autoplay is enabled.
+
 | Operation | Expression | Result |
 | --- | --- | --- |
 | Read a required resource | `res!(T).with(read)` | `read` receives `&T` |
