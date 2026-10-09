@@ -1094,7 +1094,7 @@ Bare `width` and `height` resolve to the nearest ancestor marked `container: tru
 
 The macro generates the property application callback internally. Application code declares `@` dependencies and values; the generated callback constructor is exposed only through hidden macro support.
 
-The binding runs after layout and may request one additional layout pass when it changes a layout property. The pass count is bounded, and unchanged derived values do not invalidate the widget. Continuous geometry that cannot be expressed as a widget property can use `UiScope::bind_layout` with explicit `LayoutDependency` values and caller-owned state.
+The binding runs after layout and may request another layout pass when it changes a layout property. The pass count is bounded, and unchanged derived values do not invalidate the widget. Use [`SizeChanged`](#layout-size-events) callbacks to update Model state from a node's size.
 
 ## Reactive control flow
 
