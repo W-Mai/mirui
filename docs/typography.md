@@ -23,7 +23,9 @@ ui! {
 
 ## Layout failure reporting
 
-`App::render()` and `App::render_dirty()` return `RenderError::TextLayout` when text preparation fails. Drawing, scrolling, and framebuffer flush are skipped for that frame. `App::last_text_layout_failure()` identifies the text entity, preparation stage, and available capacity details; a successful layout clears the diagnostic.
+`App::render()` and `App::render_dirty()` return `RenderError::TextLayout` when text preparation fails, including `TextInput` content and placeholders. Drawing, scrolling, and framebuffer flush are skipped for that frame. `App::last_text_layout_failure()` identifies the text entity, preparation stage, and available capacity details; a successful layout clears the diagnostic.
+
+`TextInput` prepares its single-line layout after its final size is known. Glyphs and the cursor read that layout during painting; input edits, placeholder changes, font replacement through `App::with_fonts`, and cache resets prepare it again. Empty inputs keep the cursor at the start, and long content scrolls horizontally to keep the cursor visible.
 
 Low-level callers can use `render_system::try_update_layout` to receive the failure directly. The existing `update_layout` and dirty-region convenience functions retain their return types and record failures as a `TextLayoutFailure` World resource. A failed pass invalidates cached geometry for retry but does not restore text-cache entries already retired during preparation.
 

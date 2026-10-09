@@ -313,8 +313,14 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// The default manager falls back to the bundled 8x8 bitmap for any
     /// unregistered token; passing a custom manager replaces it.
+    ///
+    /// Replacement invalidates Text and TextInput layouts. Editing an installed manager directly does not automatically schedule layout or drawing.
     pub fn with_fonts(&mut self, fonts: crate::render::font::FontManager) -> &mut Self {
         self.world.insert_resource(fonts);
+        self.world
+            .invalidate_query_dependency::<crate::text::TextLayoutHandle>();
+        self.world
+            .invalidate_query_dependency::<crate::ui::widgets::text_input::TextInputLayoutHandle>();
         self
     }
 
@@ -365,6 +371,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         }
         self.world
             .invalidate_query_dependency::<crate::text::TextLayoutHandle>();
+        self.world
+            .invalidate_query_dependency::<crate::ui::widgets::text_input::TextInputLayoutHandle>();
         Ok(self)
     }
 
@@ -762,6 +770,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             layouts.trim_memory();
             self.world
                 .invalidate_query_dependency::<crate::text::TextLayoutHandle>();
+            self.world.invalidate_query_dependency::<
+                crate::ui::widgets::text_input::TextInputLayoutHandle,
+            >();
         }
         if let Some(paths) = self
             .world
@@ -2232,6 +2243,137 @@ mod app_invariant_tests {
                 assert_eq!(frame_counts(&app.world, key), (Some(4), Some(5)));
             }
         }
+    }
+
+    #[test]
+    fn input_layout_is_prepared_after_cache_replacement_without_manual_invalidation() {
+        use crate::text::layout::TextLayoutResource;
+        use crate::ui::widgets::TextInput;
+        use crate::ui::widgets::text_input::TextInputLayoutHandle;
+
+        let glyph_count = |world: &World, handle| {
+            world
+                .resource::<TextLayoutResource>()
+                .unwrap()
+                .borrow()
+                .get(handle)
+                .map(|layout| layout.glyphs().len())
+        };
+        let mut app = App::headless(64, 24);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        let input = app.compose(root, |cx| {
+            cx.spawn(
+                TextInput::build()
+                    .placeholder("ABC")
+                    .style(crate::ui::Style {
+                        layout: LayoutStyle {
+                            width: Dimension::Px(Fixed::from_int(48)),
+                            height: Dimension::Px(Fixed::from_int(16)),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }),
+            )
+        });
+        app.render().unwrap();
+        app.render_dirty().unwrap();
+        let handle = app.world.get::<TextInputLayoutHandle>(input).unwrap().0;
+        assert_eq!(glyph_count(&app.world, handle), Some(3));
+
+        app.try_with_text_layout_limits(crate::text::TextLayoutLimits::HOST)
+            .unwrap();
+        assert_eq!(glyph_count(&app.world, handle), None);
+        app.render_dirty().unwrap();
+        let replacement = app.world.get::<TextInputLayoutHandle>(input).unwrap().0;
+        assert_eq!(replacement, handle);
+        assert_eq!(glyph_count(&app.world, replacement), Some(3));
+
+        app.handle_memory_warning();
+        assert_eq!(glyph_count(&app.world, replacement), None);
+        app.render_dirty().unwrap();
+        let restored = app.world.get::<TextInputLayoutHandle>(input).unwrap().0;
+        assert_eq!(glyph_count(&app.world, restored), Some(3));
+    }
+
+    #[test]
+    fn font_manager_replacement_refreshes_input_layout_in_a_dirty_frame() {
+        use crate::render::font::{
+            Font, FontBackend, FontFaceId, FontMetrics, FontProvider, FontToken, GlyphId,
+            RasterGlyph, default_font_manager,
+        };
+        use crate::text::layout::TextLayoutResource;
+        use crate::ui::widgets::TextInput;
+        use crate::ui::widgets::text_input::TextInputLayoutHandle;
+
+        struct SizedFont;
+        impl FontProvider for SizedFont {
+            fn face_id(&self) -> FontFaceId {
+                FontFaceId::new(404)
+            }
+            fn map_char(&self, ch: char) -> Option<GlyphId> {
+                Some(GlyphId::new(ch as u16))
+            }
+            fn glyph_advance(&self, _: GlyphId, ppem: u16) -> Option<Fixed> {
+                Some(Fixed::from_int(i32::from(ppem)))
+            }
+            fn raster(&self, _: GlyphId, _: u16, _: u16) -> Option<RasterGlyph<'_>> {
+                None
+            }
+            fn metrics(&self, ppem: u16) -> FontMetrics {
+                FontMetrics {
+                    ascender: Fixed::from_int(i32::from(ppem)),
+                    descender: Fixed::ZERO,
+                    line_height: Fixed::from_int(i32::from(ppem)),
+                }
+            }
+        }
+        let provider = alloc::rc::Rc::new(SizedFont);
+        let fonts_at_size = |size| {
+            let fonts = default_font_manager();
+            fonts.add_static(
+                FontToken::Default.cache_key(),
+                Font {
+                    family: "input-metrics",
+                    size,
+                    backend: FontBackend::Custom(provider.clone()),
+                },
+            );
+            fonts
+        };
+        let mut app = App::headless(64, 32);
+        app.with_default_widgets().with_fonts(fonts_at_size(8));
+        let root = app.spawn_root().id();
+        let input = app.compose(root, |cx| {
+            cx.spawn(
+                TextInput::build()
+                    .placeholder("AB")
+                    .style(crate::ui::Style {
+                        layout: LayoutStyle {
+                            width: Dimension::Px(Fixed::from_int(56)),
+                            height: Dimension::Px(Fixed::from_int(24)),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    }),
+            )
+        });
+        let input_layout = |world: &World| {
+            let handle = world.get::<TextInputLayoutHandle>(input).unwrap().0;
+            let cache = world.resource::<TextLayoutResource>().unwrap().borrow();
+            (handle, cache.get(handle).unwrap().measure())
+        };
+        app.render().unwrap();
+        app.render_dirty().unwrap();
+        let (original, before) = input_layout(&app.world);
+        assert_eq!(before.width, 16 << 8);
+
+        app.with_fonts(fonts_at_size(16));
+        app.render_dirty().unwrap();
+        let (replacement, after) = input_layout(&app.world);
+        assert_ne!(replacement, original);
+        assert_eq!(after.width, before.width * 2);
+        assert_eq!(after.height, before.height * 2);
     }
 
     #[test]

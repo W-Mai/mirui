@@ -281,16 +281,89 @@ impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::Ent
 #[crate::component]
 pub struct Placeholder(pub &'static str);
 
+#[crate::component]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct TextInputLayoutHandle(pub crate::text::TextLayoutHandle);
+
+pub(crate) fn input_content_rect(rect: Rect) -> Rect {
+    let inset = Fixed::from_int(2);
+    Rect {
+        x: rect.x + inset,
+        y: rect.y + inset,
+        w: (rect.w - inset * Fixed::from_int(2)).max(Fixed::ZERO),
+        h: (rect.h - inset * Fixed::from_int(2)).max(Fixed::ZERO),
+    }
+}
+
+pub(crate) fn prepare_layout(
+    world: &World,
+    entity: Entity,
+    rect: Rect,
+) -> Result<Option<crate::text::TextLayoutHandle>, crate::ui::render_system::TextLayoutFailure> {
+    use crate::ui::render_system::{TextLayoutFailure, TextLayoutStage};
+
+    let Some(input) = world.get::<TextInput>(entity) else {
+        return Ok(None);
+    };
+    let Some(style) = world.get::<crate::ui::Style>(entity) else {
+        return Ok(None);
+    };
+    let Some(resource) = world.resource::<crate::text::layout::TextLayoutResource>() else {
+        return Ok(None);
+    };
+    let face_limit = resource.borrow().limits().fallback_faces;
+    let Some(fonts) = crate::render::font::ResolvedFontStack::resolve(
+        world.resource::<crate::render::font::FontManager>(),
+        &style.font_stack,
+        style.font_size,
+        face_limit,
+    )
+    .map_err(|error| {
+        TextLayoutFailure::font_stack(entity, TextLayoutStage::Layout, error.required, error.limit)
+    })?
+    else {
+        return Ok(None);
+    };
+    let metrics = fonts.primary().metrics(fonts.primary().size);
+    let content = if input.len == 0 {
+        world
+            .get::<Placeholder>(entity)
+            .map_or("", |placeholder| placeholder.0)
+    } else {
+        input.as_str()
+    };
+    let paragraph = super::ParagraphStyle {
+        wrap: super::TextWrap::NoWrap,
+        max_lines: Some(1),
+        ..super::ParagraphStyle::default()
+    };
+    let request = paragraph.layout_request(content, metrics, Some(input_content_rect(rect).w));
+    let font_fingerprint = fonts.layout_fingerprint(None, paragraph.shaping);
+    fonts
+        .with_typefaces(None, paragraph.shaping, |typefaces| {
+            resource.borrow_mut().layout_cached(
+                u64::from(entity.id) | (u64::from(entity.generation) << 32),
+                font_fingerprint,
+                request,
+                typefaces,
+            )
+        })
+        .map(Some)
+        .map_err(|error| TextLayoutFailure::text(entity, TextLayoutStage::Layout, error))
+}
+
 #[crate::view(
     component = TextInput,
     name = "TextInput",
+    invalidation = Layout,
     priority = 70,
     attach = text_input_attach,
     gesture = textinput_gesture_handler,
     systems = [cursor_blink_system::system()]
 )]
 fn text_input_render(
-    rows: query!(TextInput, optional Placeholder),
+    // Placeholder remains a dependency of the prepared layout.
+    rows: query!(TextInput, TextInputLayoutHandle, optional Placeholder),
     entity: entity!(),
     layouts: res!(optional crate::text::layout::TextLayoutResource),
     manager: res!(optional crate::render::font::FontManager),
@@ -298,7 +371,7 @@ fn text_input_render(
     phase: res!(optional CursorBlinkPhase),
     paint: paint!(),
 ) {
-    let Some((ti, placeholder)) = rows.get(entity) else {
+    let Some((ti, handle, _)) = rows.get(entity) else {
         return;
     };
     let Some(resource) = layouts else {
@@ -311,6 +384,10 @@ fn text_input_render(
         paint.style().font_size,
         face_limit,
     ) else {
+        return;
+    };
+    let cache = resource.borrow();
+    let Some(layout) = cache.get(handle.0) else {
         return;
     };
     let metrics = fonts.primary().metrics(fonts.primary().size);
@@ -335,44 +412,14 @@ fn text_input_render(
         });
     }
 
-    let inset = Fixed::from_int(2);
-    let content_rect = Rect {
-        x: rect.x + inset,
-        y: rect.y + inset,
-        w: (rect.w - inset * Fixed::from_int(2)).max(Fixed::ZERO),
-        h: (rect.h - inset * Fixed::from_int(2)).max(Fixed::ZERO),
-    };
+    let content_rect = input_content_rect(rect);
     let Some(content_clip) = paint.clip().intersect(&content_rect) else {
         return;
     };
-    let (content, color) = if ti.len == 0 {
-        (
-            placeholder.map(|placeholder| placeholder.0).unwrap_or(""),
-            placeholder_color,
-        )
+    let color = if ti.len == 0 {
+        placeholder_color
     } else {
-        (ti.as_str(), text_color)
-    };
-    let paragraph = super::ParagraphStyle {
-        wrap: super::TextWrap::NoWrap,
-        max_lines: Some(1),
-        ..super::ParagraphStyle::default()
-    };
-    let request = paragraph.layout_request(content, metrics, Some(content_rect.w));
-    let font_fingerprint = fonts.layout_fingerprint(None, paragraph.shaping);
-    let Ok(handle) = fonts.with_typefaces(None, paragraph.shaping, |typefaces| {
-        resource.borrow_mut().layout_cached(
-            u64::from(entity.id) | (u64::from(entity.generation) << 32),
-            font_fingerprint,
-            request,
-            typefaces,
-        )
-    }) else {
-        return;
-    };
-    let cache = resource.borrow();
-    let Some(layout) = cache.get(handle) else {
-        return;
+        text_color
     };
     let caret = if ti.len == 0 {
         Fixed::ZERO
@@ -681,11 +728,11 @@ mod tests {
         fn flush(&mut self) {}
     }
 
-    fn render_input(
+    fn input_fixture(
         text: &[u8],
         placeholder: Option<&'static str>,
         width: i32,
-    ) -> RecordingRenderer {
+    ) -> (World, Entity, Style, Rect) {
         let mut world = World::new();
         world.insert_resource(Theme::default());
         world.insert_resource(crate::text::layout::TextLayoutResource::new(
@@ -713,18 +760,25 @@ mod tests {
             world.insert(entity, Placeholder(placeholder));
         }
         let style = Style::default();
-        let clip = Rect {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            w: Fixed::from_int(100),
-            h: Fixed::from_int(30),
-        };
+        world.insert(entity, style.clone());
         let rect = Rect {
             x: Fixed::ZERO,
             y: Fixed::ZERO,
             w: Fixed::from_int(width),
             h: Fixed::from_int(20),
         };
+        (world, entity, style, rect)
+    }
+
+    fn render_input(
+        text: &[u8],
+        placeholder: Option<&'static str>,
+        width: i32,
+    ) -> RecordingRenderer {
+        let (mut world, entity, style, rect) = input_fixture(text, placeholder, width);
+        let handle = prepare_layout(&world, entity, rect).unwrap().unwrap();
+        world.insert(entity, TextInputLayoutHandle(handle));
+        let clip = Rect::new(0, 0, 100, 30);
         let mut renderer = RecordingRenderer::default();
         let mut paint = PaintCtx::new(
             &mut renderer,
@@ -779,6 +833,7 @@ mod tests {
         assert_eq!(systems, 1);
         let render = descriptor.render().unwrap();
         let style = Style::default();
+        world.insert(entity, style.clone());
         let rect = Rect::new(0, 0, 100, 20);
         for stage in 0..3 {
             match stage {
@@ -788,6 +843,7 @@ mod tests {
                 )),
                 _ => {}
             }
+            assert_eq!(prepare_layout(&world, entity, rect), Ok(None));
             let mut trace = Trace(0);
             {
                 let mut paint = PaintCtx::new(
@@ -811,6 +867,9 @@ mod tests {
             assert_eq!(trace.0, 0);
         }
         world.insert_resource(crate::render::font::default_font_manager());
+        world.insert(entity, Placeholder("A"));
+        let handle = prepare_layout(&world, entity, rect).unwrap().unwrap();
+        world.insert(entity, TextInputLayoutHandle(handle));
         let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let mut trace = Trace(0);
             let mut paint = PaintCtx::new(
@@ -827,7 +886,6 @@ mod tests {
         assert!(rejected.is_err(), "a drawable input requires Theme");
         world.insert_resource(Theme::default());
         world.get_mut::<TextInput>(entity).unwrap().focused = true;
-        world.insert(entity, Placeholder("A"));
         let mut trace = Trace(0);
         {
             let mut paint = PaintCtx::new(
@@ -859,6 +917,86 @@ mod tests {
                 0
             );
             assert_eq!(paint.error(), None);
+        }
+    }
+
+    #[test]
+    fn first_paint_borrows_prepared_input_layout_without_allocation_or_miss_production() {
+        #[derive(Default)]
+        struct Trace {
+            commands: usize,
+            glyphs: usize,
+            caret: Option<Rect>,
+        }
+
+        impl Renderer for Trace {
+            fn submit(
+                &mut self,
+                request: &crate::render::DrawRequest<'_, '_>,
+            ) -> Result<(), crate::render::RenderError> {
+                self.commands += 1;
+                match request.command {
+                    DrawCommand::GlyphRun { glyphs, .. } => self.glyphs += glyphs.len(),
+                    DrawCommand::Fill { area, .. } => self.caret = Some(*area),
+                    _ => {}
+                }
+                Ok(())
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        for (text, placeholder, caret_x) in [
+            (&b"Wi"[..], None, Fixed::from_int(15)),
+            (&b""[..], Some("Wi"), Fixed::from_int(2)),
+        ] {
+            let (mut world, entity, style, rect) = input_fixture(text, placeholder, 100);
+            let render = view().render().unwrap();
+            for stage in 0..3 {
+                if stage == 1 {
+                    let handle = prepare_layout(&world, entity, rect).unwrap().unwrap();
+                    world.insert(entity, TextInputLayoutHandle(handle));
+                } else if stage == 2 {
+                    world
+                        .resource::<crate::text::layout::TextLayoutResource>()
+                        .unwrap()
+                        .trim_memory();
+                }
+                let cache = world
+                    .resource::<crate::text::layout::TextLayoutResource>()
+                    .unwrap()
+                    .borrow();
+                let retained = world
+                    .get::<TextInputLayoutHandle>(entity)
+                    .and_then(|handle| cache.get(handle.0));
+                let mut trace = Trace::default();
+                {
+                    let mut paint = PaintCtx::new(
+                        &mut trace,
+                        &style,
+                        &rect,
+                        &rect,
+                        Transform::IDENTITY,
+                        None,
+                        WidgetState::Enabled,
+                    );
+                    assert_eq!(
+                        crate::test_support::tracked_allocations(|| {
+                            render(&world, entity, &mut paint);
+                        }),
+                        0
+                    );
+                    assert_eq!(paint.error(), None);
+                }
+                if let Some(layout) = retained {
+                    assert_eq!(layout.glyphs().len(), 2);
+                    assert_eq!(trace.glyphs, 2);
+                    assert_eq!(trace.caret.unwrap().x, caret_x);
+                } else {
+                    assert_eq!(trace.commands, 0);
+                    assert_eq!(world.has::<TextInputLayoutHandle>(entity), stage == 2);
+                }
+            }
         }
     }
 
