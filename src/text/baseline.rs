@@ -1,5 +1,4 @@
 use alloc::vec::Vec;
-use core::cell::RefCell;
 use core::ops::Range;
 
 use crate::ecs::Entity;
@@ -1649,44 +1648,40 @@ impl Default for PathPlacementCache {
     }
 }
 
-struct PathTextRuntime {
+pub(crate) struct PathTextRuntime {
     baselines: PathBaselineCache,
     placements: PathPlacementCache,
 }
 
-pub(crate) struct PathBaselineResource(RefCell<PathTextRuntime>);
-
-impl PathBaselineResource {
+impl PathTextRuntime {
     pub fn new(cache: PathBaselineCache) -> Self {
-        Self(RefCell::new(PathTextRuntime {
+        Self {
             baselines: cache,
             placements: PathPlacementCache::default(),
-        }))
+        }
     }
 
-    pub(crate) fn begin_layout(&self) {
-        self.0.borrow_mut().baselines.begin_frame();
+    pub(crate) fn begin_layout(&mut self) {
+        self.baselines.begin_frame();
     }
 
-    pub(crate) fn begin_placements(&self) {
-        self.0.borrow_mut().placements.begin_frame();
+    pub(crate) fn begin_placements(&mut self) {
+        self.placements.begin_frame();
     }
 
-    pub(crate) fn pin_placement(&self, key: PlacementKey) {
-        let runtime = &mut *self.0.borrow_mut();
-        runtime.placements.glyphs.pin(key);
-        runtime.placements.carets.pin(key);
+    pub(crate) fn pin_placement(&mut self, key: PlacementKey) {
+        self.placements.glyphs.pin(key);
+        self.placements.carets.pin(key);
     }
 
-    pub(crate) fn trim_memory(&self) {
-        let runtime = &mut *self.0.borrow_mut();
-        runtime.baselines.trim_memory();
-        runtime.placements.trim_memory();
+    pub(crate) fn trim_memory(&mut self) {
+        self.baselines.trim_memory();
+        self.placements.trim_memory();
     }
 
     #[cfg(test)]
     pub fn with<R>(
-        &self,
+        &mut self,
         store: &PathStore,
         text_path: crate::text::TextPath,
         tolerance: Fixed,
@@ -1704,13 +1699,12 @@ impl PathBaselineResource {
             subpath: text_path.subpath(),
             tolerance,
         };
-        let mut runtime = self.0.borrow_mut();
-        let baseline = runtime.baselines.resolve(key, path)?;
+        let baseline = self.baselines.resolve(key, path)?;
         Ok(inspect(&baseline))
     }
 
     pub fn with_lines<R>(
-        &self,
+        &mut self,
         store: &PathStore,
         text_path: TextPath,
         tolerance: Fixed,
@@ -1723,9 +1717,8 @@ impl PathBaselineResource {
         let revision = store
             .revision(text_path.path())
             .map_err(PathBaselineError::Store)?;
-        let runtime = &mut *self.0.borrow_mut();
         let lines = prepare_path_lines(
-            &mut runtime.baselines,
+            &mut self.baselines,
             path,
             text_path.path(),
             revision,
@@ -1737,7 +1730,7 @@ impl PathBaselineResource {
     }
 
     pub(crate) fn prepare_glyph_frames(
-        &self,
+        &mut self,
         store: &PathStore,
         key: PlacementKey,
         layout: &TextLayout<'_>,
@@ -1749,8 +1742,7 @@ impl PathBaselineResource {
         {
             return Err(PathBaselineError::Unavailable);
         }
-        let runtime = &mut *self.0.borrow_mut();
-        if runtime.placements.glyphs.pin(key) {
+        if self.placements.glyphs.pin(key) {
             return Ok(());
         }
         let path = store
@@ -1759,7 +1751,7 @@ impl PathBaselineResource {
         let PathTextRuntime {
             baselines,
             placements,
-        } = runtime;
+        } = self;
         let lines = prepare_path_lines(
             baselines,
             path,
@@ -1774,7 +1766,7 @@ impl PathBaselineResource {
     }
 
     pub(crate) fn prepare_caret_frames(
-        &self,
+        &mut self,
         store: &PathStore,
         key: PlacementKey,
         layout: &TextLayout<'_>,
@@ -1786,8 +1778,7 @@ impl PathBaselineResource {
         {
             return Err(PathBaselineError::Unavailable);
         }
-        let runtime = &mut *self.0.borrow_mut();
-        if runtime.placements.carets.pin(key) {
+        if self.placements.carets.pin(key) {
             return Ok(());
         }
         let path = store
@@ -1796,7 +1787,7 @@ impl PathBaselineResource {
         let PathTextRuntime {
             baselines,
             placements,
-        } = runtime;
+        } = self;
         let lines = prepare_path_lines(
             baselines,
             path,
@@ -1815,8 +1806,7 @@ impl PathBaselineResource {
         key: PlacementKey,
         inspect: impl FnOnce(&[textflow::placement::GlyphFrame]) -> R,
     ) -> Option<R> {
-        let runtime = self.0.borrow();
-        runtime.placements.glyphs.get(key).map(inspect)
+        self.placements.glyphs.get(key).map(inspect)
     }
 
     pub(crate) fn caret_frames<R>(
@@ -1824,12 +1814,11 @@ impl PathBaselineResource {
         key: PlacementKey,
         inspect: impl FnOnce(&[textflow::placement::CaretFrame]) -> R,
     ) -> Option<R> {
-        let runtime = self.0.borrow();
-        runtime.placements.carets.get(key).map(inspect)
+        self.placements.carets.get(key).map(inspect)
     }
 }
 
-impl Default for PathBaselineResource {
+impl Default for PathTextRuntime {
     fn default() -> Self {
         Self::new(PathBaselineCache::default())
     }
@@ -2270,8 +2259,7 @@ mod tests {
 
     #[test]
     fn idle_path_runtime_reserves_no_heap_storage() {
-        let resource = PathBaselineResource::default();
-        let runtime = resource.0.borrow();
+        let runtime = PathTextRuntime::default();
 
         assert_eq!(runtime.baselines.entries.capacity(), 0);
         assert_eq!(runtime.baselines.segments.capacity(), 0);
@@ -2288,46 +2276,40 @@ mod tests {
         let (layouts, handle, store, path) = placement_fixture();
         let layout = layouts.get(handle).unwrap();
         let key = placement_key(&store, path, handle);
-        let resource = PathBaselineResource::default();
-        resource.begin_layout();
-        resource.begin_placements();
+        let mut runtime = PathTextRuntime::default();
+        runtime.begin_layout();
+        runtime.begin_placements();
+        assert!(runtime.glyph_frames(key, |_| ()).is_none());
+        assert!(runtime.caret_frames(key, |_| ()).is_none());
+        assert!(runtime.placements.glyphs.entries.is_empty());
+        assert!(runtime.placements.carets.entries.is_empty());
+        runtime.prepare_glyph_frames(&store, key, &layout).unwrap();
+        runtime.prepare_caret_frames(&store, key, &layout).unwrap();
         {
-            let runtime = resource.0.borrow();
-            assert!(resource.glyph_frames(key, |_| ()).is_none());
-            assert!(resource.caret_frames(key, |_| ()).is_none());
-            assert!(runtime.placements.glyphs.entries.is_empty());
-            assert!(runtime.placements.carets.entries.is_empty());
-        }
-        resource.prepare_glyph_frames(&store, key, &layout).unwrap();
-        resource.prepare_caret_frames(&store, key, &layout).unwrap();
-        {
-            let runtime = resource.0.borrow();
             let used = runtime.placements.glyphs.entries[0].last_used;
             assert_eq!(
-                resource.glyph_frames(key, |glyphs| {
-                    resource.caret_frames(key, |carets| (glyphs.len(), carets.len()))
+                runtime.glyph_frames(key, |glyphs| {
+                    runtime.caret_frames(key, |carets| (glyphs.len(), carets.len()))
                 }),
                 Some(Some((2, 3)))
             );
             assert_eq!(runtime.placements.glyphs.entries[0].last_used, used);
         }
-        resource.begin_layout();
-        assert_eq!(resource.glyph_frames(key, <[_]>::len), Some(2));
-        resource.begin_placements();
+        runtime.begin_layout();
+        assert_eq!(runtime.glyph_frames(key, <[_]>::len), Some(2));
+        runtime.begin_placements();
         {
-            let runtime = resource.0.borrow();
             let used = runtime.placements.glyphs.entries[0].last_used;
-            assert!(resource.glyph_frames(key, |_| ()).is_none());
-            assert!(resource.caret_frames(key, |_| ()).is_none());
+            assert!(runtime.glyph_frames(key, |_| ()).is_none());
+            assert!(runtime.caret_frames(key, |_| ()).is_none());
             assert_eq!(runtime.placements.glyphs.entries[0].last_used, used);
         }
-        resource.pin_placement(key);
-        assert_eq!(resource.glyph_frames(key, <[_]>::len), Some(2));
-        assert_eq!(resource.caret_frames(key, <[_]>::len), Some(3));
-        resource.trim_memory();
-        assert!(resource.glyph_frames(key, |_| ()).is_none());
-        assert!(resource.caret_frames(key, |_| ()).is_none());
-        let runtime = resource.0.borrow();
+        runtime.pin_placement(key);
+        assert_eq!(runtime.glyph_frames(key, <[_]>::len), Some(2));
+        assert_eq!(runtime.caret_frames(key, <[_]>::len), Some(3));
+        runtime.trim_memory();
+        assert!(runtime.glyph_frames(key, |_| ()).is_none());
+        assert!(runtime.caret_frames(key, |_| ()).is_none());
         assert_eq!(runtime.placements.glyphs.values.capacity(), 0);
         assert_eq!(runtime.placements.carets.values.capacity(), 0);
     }
@@ -2358,51 +2340,50 @@ mod tests {
             },
             ..old
         };
-        let resource = PathBaselineResource::default();
-        resource.0.borrow_mut().placements = PathPlacementCache::new(4096, 4096, 2);
-        resource.begin_placements();
+        let mut runtime = PathTextRuntime {
+            placements: PathPlacementCache::new(4096, 4096, 2),
+            ..PathTextRuntime::default()
+        };
+        runtime.begin_placements();
         for key in [old, retained] {
-            resource.prepare_glyph_frames(&store, key, &layout).unwrap();
-            resource.prepare_caret_frames(&store, key, &layout).unwrap();
+            runtime.prepare_glyph_frames(&store, key, &layout).unwrap();
+            runtime.prepare_caret_frames(&store, key, &layout).unwrap();
         }
-        let glyph = resource.glyph_frames(retained, |frames| frames[0]).unwrap();
-        let caret = resource.caret_frames(retained, |frames| frames[0]).unwrap();
-        resource.begin_placements();
-        resource.pin_placement(retained);
-        resource
+        let glyph = runtime.glyph_frames(retained, |frames| frames[0]).unwrap();
+        let caret = runtime.caret_frames(retained, |frames| frames[0]).unwrap();
+        runtime.begin_placements();
+        runtime.pin_placement(retained);
+        runtime
             .prepare_glyph_frames(&store, incoming, &layout)
             .unwrap();
-        resource
+        runtime
             .prepare_caret_frames(&store, incoming, &layout)
             .unwrap();
-        assert!(resource.glyph_frames(old, |_| ()).is_none());
-        assert!(resource.caret_frames(old, |_| ()).is_none());
+        assert!(runtime.glyph_frames(old, |_| ()).is_none());
+        assert!(runtime.caret_frames(old, |_| ()).is_none());
         assert_eq!(
-            resource.glyph_frames(retained, |frames| frames[0]),
+            runtime.glyph_frames(retained, |frames| frames[0]),
             Some(glyph)
         );
         assert_eq!(
-            resource.caret_frames(retained, |frames| frames[0]),
+            runtime.caret_frames(retained, |frames| frames[0]),
             Some(caret)
         );
-        {
-            let runtime = resource.0.borrow();
-            assert_eq!(runtime.placements.glyphs.entries[0].key, retained);
-            assert_eq!(runtime.placements.glyphs.entries[0].values.start, 0);
-            assert_eq!(runtime.placements.carets.entries[0].key, retained);
-            assert_eq!(runtime.placements.carets.entries[0].values.start, 0);
-        }
+        assert_eq!(runtime.placements.glyphs.entries[0].key, retained);
+        assert_eq!(runtime.placements.glyphs.entries[0].values.start, 0);
+        assert_eq!(runtime.placements.carets.entries[0].key, retained);
+        assert_eq!(runtime.placements.carets.entries[0].values.start, 0);
         assert!(matches!(
-            resource.prepare_glyph_frames(&store, rejected, &layout),
+            runtime.prepare_glyph_frames(&store, rejected, &layout),
             Err(PathBaselineError::CacheBudget { .. })
         ));
         assert!(matches!(
-            resource.prepare_caret_frames(&store, rejected, &layout),
+            runtime.prepare_caret_frames(&store, rejected, &layout),
             Err(PathBaselineError::CacheBudget { .. })
         ));
         for key in [retained, incoming] {
-            assert_eq!(resource.glyph_frames(key, <[_]>::len), Some(2));
-            assert_eq!(resource.caret_frames(key, <[_]>::len), Some(3));
+            assert_eq!(runtime.glyph_frames(key, <[_]>::len), Some(2));
+            assert_eq!(runtime.caret_frames(key, <[_]>::len), Some(3));
         }
     }
 
@@ -2412,10 +2393,10 @@ mod tests {
         let different_layout = test_layout(&mut layouts, "abc");
         let layout = layouts.get(handle).unwrap();
         let key = placement_key(&store, path, handle);
-        let resource = PathBaselineResource::default();
-        resource.begin_placements();
-        resource.prepare_glyph_frames(&store, key, &layout).unwrap();
-        resource.prepare_caret_frames(&store, key, &layout).unwrap();
+        let mut runtime = PathTextRuntime::default();
+        runtime.begin_placements();
+        runtime.prepare_glyph_frames(&store, key, &layout).unwrap();
+        runtime.prepare_caret_frames(&store, key, &layout).unwrap();
         for different in [
             PlacementKey {
                 owner: Entity {
@@ -2444,8 +2425,8 @@ mod tests {
                 ..key
             },
         ] {
-            assert!(resource.glyph_frames(different, |_| ()).is_none());
-            assert!(resource.caret_frames(different, |_| ()).is_none());
+            assert!(runtime.glyph_frames(different, |_| ()).is_none());
+            assert!(runtime.caret_frames(different, |_| ()).is_none());
         }
         store
             .edit(path.path(), |path| {
@@ -2461,27 +2442,27 @@ mod tests {
             .unwrap();
         let revised = placement_key(&store, path, handle);
         assert_ne!(revised, key);
-        assert!(resource.glyph_frames(revised, |_| ()).is_none());
+        assert!(runtime.glyph_frames(revised, |_| ()).is_none());
         assert_eq!(
-            resource.prepare_glyph_frames(&store, key, &layout),
+            runtime.prepare_glyph_frames(&store, key, &layout),
             Err(PathBaselineError::Unavailable)
         );
         assert_eq!(
-            resource.prepare_caret_frames(&store, key, &layout),
+            runtime.prepare_caret_frames(&store, key, &layout),
             Err(PathBaselineError::Unavailable)
         );
-        resource.begin_layout();
-        resource.begin_placements();
-        resource
+        runtime.begin_layout();
+        runtime.begin_placements();
+        runtime
             .prepare_glyph_frames(&store, revised, &layout)
             .unwrap();
-        resource
+        runtime
             .prepare_caret_frames(&store, revised, &layout)
             .unwrap();
-        assert!(resource.glyph_frames(key, |_| ()).is_none());
-        assert!(resource.caret_frames(key, |_| ()).is_none());
-        assert_eq!(resource.glyph_frames(revised, <[_]>::len), Some(2));
-        assert_eq!(resource.caret_frames(revised, <[_]>::len), Some(3));
+        assert!(runtime.glyph_frames(key, |_| ()).is_none());
+        assert!(runtime.caret_frames(key, |_| ()).is_none());
+        assert_eq!(runtime.glyph_frames(revised, <[_]>::len), Some(2));
+        assert_eq!(runtime.caret_frames(revised, <[_]>::len), Some(3));
     }
 
     #[test]
@@ -2489,17 +2470,18 @@ mod tests {
         let (layouts, handle, store, path) = placement_fixture();
         let layout = layouts.get(handle).unwrap();
         let key = placement_key(&store, path, handle);
-        let resource = PathBaselineResource::default();
-        resource.0.borrow_mut().placements = PathPlacementCache::new(4096, 1, 4);
-        resource.begin_placements();
-        resource.prepare_glyph_frames(&store, key, &layout).unwrap();
+        let mut runtime = PathTextRuntime {
+            placements: PathPlacementCache::new(4096, 1, 4),
+            ..PathTextRuntime::default()
+        };
+        runtime.begin_placements();
+        runtime.prepare_glyph_frames(&store, key, &layout).unwrap();
         assert!(matches!(
-            resource.prepare_caret_frames(&store, key, &layout),
+            runtime.prepare_caret_frames(&store, key, &layout),
             Err(PathBaselineError::CacheBudget { budget: 1, .. })
         ));
-        assert_eq!(resource.glyph_frames(key, <[_]>::len), Some(2));
-        assert!(resource.caret_frames(key, |_| ()).is_none());
-        let runtime = resource.0.borrow();
+        assert_eq!(runtime.glyph_frames(key, <[_]>::len), Some(2));
+        assert!(runtime.caret_frames(key, |_| ()).is_none());
         assert!(runtime.placements.carets.entries.is_empty());
         assert!(runtime.placements.carets.values.is_empty());
     }
@@ -2577,20 +2559,20 @@ mod tests {
         let (layouts, handle, store, path) = placement_fixture();
         let layout = layouts.get(handle).unwrap();
         let key = placement_key(&store, path, handle);
-        let resource = PathBaselineResource::default();
-        resource.begin_layout();
-        resource.begin_placements();
-        resource.prepare_glyph_frames(&store, key, &layout).unwrap();
-        resource.prepare_caret_frames(&store, key, &layout).unwrap();
+        let mut runtime = PathTextRuntime::default();
+        runtime.begin_layout();
+        runtime.begin_placements();
+        runtime.prepare_glyph_frames(&store, key, &layout).unwrap();
+        runtime.prepare_caret_frames(&store, key, &layout).unwrap();
         let allocations = crate::test_support::tracked_allocations(|| {
             for _ in 0..16 {
-                resource.begin_layout();
-                resource.begin_placements();
-                resource.pin_placement(key);
-                resource.prepare_glyph_frames(&store, key, &layout).unwrap();
-                resource.prepare_caret_frames(&store, key, &layout).unwrap();
-                assert_eq!(resource.glyph_frames(key, <[_]>::len), Some(2));
-                assert_eq!(resource.caret_frames(key, <[_]>::len), Some(3));
+                runtime.begin_layout();
+                runtime.begin_placements();
+                runtime.pin_placement(key);
+                runtime.prepare_glyph_frames(&store, key, &layout).unwrap();
+                runtime.prepare_caret_frames(&store, key, &layout).unwrap();
+                assert_eq!(runtime.glyph_frames(key, <[_]>::len), Some(2));
+                assert_eq!(runtime.caret_frames(key, <[_]>::len), Some(3));
             }
         });
         assert_eq!(allocations, 0);
@@ -3173,11 +3155,11 @@ mod tests {
             ]))
             .unwrap();
         let text_path = TextPath::new(path).with_range(Fixed::ZERO..Fixed::from_int(100));
-        let resource = PathBaselineResource::default();
+        let mut runtime = PathTextRuntime::default();
 
         for frame in 0..64 {
-            resource.begin_layout();
-            resource.begin_placements();
+            runtime.begin_layout();
+            runtime.begin_placements();
             store
                 .edit(path, |path| {
                     path.set_command(
@@ -3191,11 +3173,10 @@ mod tests {
                 })
                 .unwrap();
             let key = placement_key(&store, text_path, handle);
-            resource.prepare_glyph_frames(&store, key, &layout).unwrap();
-            assert!(resource.glyph_frames(key, |_| ()).is_some());
+            runtime.prepare_glyph_frames(&store, key, &layout).unwrap();
+            assert!(runtime.glyph_frames(key, |_| ()).is_some());
         }
 
-        let runtime = resource.0.borrow();
         assert_eq!(runtime.baselines.entries.len(), 1);
         assert_eq!(runtime.placements.glyphs.entries.len(), 1);
     }
@@ -3433,12 +3414,12 @@ mod tests {
                 PathCmd::LineTo(point(110, 20)),
             ]))
             .unwrap();
-        let resource = PathBaselineResource::default();
+        let mut runtime = PathTextRuntime::default();
         let text_path = TextPath::new(path);
 
         let key = placement_key(&store, text_path, handle);
-        resource.prepare_glyph_frames(&store, key, &layout).unwrap();
-        resource
+        runtime.prepare_glyph_frames(&store, key, &layout).unwrap();
+        runtime
             .glyph_frames(key, |frames| {
                 assert_eq!(frames.len(), 2);
                 assert_eq!(
@@ -3459,15 +3440,12 @@ mod tests {
             })
             .unwrap();
 
-        {
-            let runtime = resource.0.borrow();
-            assert_eq!(runtime.placements.glyphs.entries.len(), 1);
-            assert!(runtime.placements.carets.entries.is_empty());
-            assert!(runtime.placements.carets.values.is_empty());
-        }
+        assert_eq!(runtime.placements.glyphs.entries.len(), 1);
+        assert!(runtime.placements.carets.entries.is_empty());
+        assert!(runtime.placements.carets.values.is_empty());
 
-        resource.prepare_caret_frames(&store, key, &layout).unwrap();
-        resource
+        runtime.prepare_caret_frames(&store, key, &layout).unwrap();
+        runtime
             .caret_frames(key, |frames| {
                 assert_eq!(frames.len(), 3);
                 assert_eq!(frames[0].local_origin.x, 10 << 8);
@@ -3481,7 +3459,6 @@ mod tests {
             })
             .unwrap();
 
-        let runtime = resource.0.borrow();
         assert_eq!(runtime.placements.glyphs.entries.len(), 1);
         assert_eq!(runtime.placements.carets.entries.len(), 1);
     }
@@ -3499,9 +3476,9 @@ mod tests {
                 PathCmd::LineTo(point(31, 40)),
             ]))
             .unwrap();
-        let resource = PathBaselineResource::default();
+        let mut runtime = PathTextRuntime::default();
         let text_path = TextPath::new(path);
-        let handle = resource
+        let handle = runtime
             .with_lines(&store, text_path, DEFAULT_TOLERANCE, 2, |widths| {
                 layouts.layout(
                     TextLayoutRequest {
@@ -3530,8 +3507,8 @@ mod tests {
         assert_eq!(layout.lines()[1].advance(), 1 << 8);
 
         let key = placement_key(&store, text_path, handle);
-        resource.prepare_glyph_frames(&store, key, &layout).unwrap();
-        resource
+        runtime.prepare_glyph_frames(&store, key, &layout).unwrap();
+        runtime
             .glyph_frames(key, |frames| {
                 assert_eq!(frames.len(), 3);
                 assert_eq!(
@@ -3570,9 +3547,9 @@ mod tests {
                 PathCmd::LineTo(point(13, 20)),
             ]))
             .unwrap();
-        let resource = PathBaselineResource::default();
+        let mut runtime = PathTextRuntime::default();
         let text_path = TextPath::new(path);
-        let handle = resource
+        let handle = runtime
             .with_lines(&store, text_path, DEFAULT_TOLERANCE, 2, |widths| {
                 layouts.layout(
                     TextLayoutRequest {
@@ -3604,8 +3581,8 @@ mod tests {
             GlyphId::new('\u{2026}' as u16)
         );
         let key = placement_key(&store, text_path, handle);
-        resource.prepare_glyph_frames(&store, key, &layout).unwrap();
-        resource
+        runtime.prepare_glyph_frames(&store, key, &layout).unwrap();
+        runtime
             .glyph_frames(key, |frames| assert_eq!(frames.len(), 3))
             .unwrap();
     }
@@ -3621,9 +3598,9 @@ mod tests {
                 PathCmd::LineTo(point(13, 20)),
             ]))
             .unwrap();
-        let resource = PathBaselineResource::default();
+        let mut runtime = PathTextRuntime::default();
         let text_path = TextPath::new(path);
-        let handle = resource
+        let handle = runtime
             .with_lines(&store, text_path, DEFAULT_TOLERANCE, 1, |widths| {
                 layouts.layout(
                     TextLayoutRequest {
@@ -3653,8 +3630,8 @@ mod tests {
             GlyphId::new('\u{2026}' as u16)
         );
         let key = placement_key(&store, text_path, handle);
-        resource.prepare_glyph_frames(&store, key, &layout).unwrap();
-        resource
+        runtime.prepare_glyph_frames(&store, key, &layout).unwrap();
+        runtime
             .glyph_frames(key, |frames| {
                 assert_eq!(frames[0].local_origin.x, 10 << 8);
                 assert!(

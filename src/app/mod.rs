@@ -15,6 +15,7 @@ use crate::input::event::scroll::{ScrollDragState, ScrollMotion};
 use crate::render::canvas::Canvas;
 use crate::render::renderer::Renderer;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
+use crate::text::TextGeometry;
 use crate::types::{PhysicalRect, Rect};
 use crate::ui::dirty::DirtyRegions;
 use crate::ui::offscreen::WidgetTexture;
@@ -261,11 +262,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(ThemeCatalog::default());
         world.insert_resource(Theme::default());
         world.insert_resource(crate::render::font::default_font_manager());
-        world.insert_resource(crate::text::layout::TextLayoutResource::new(
+        world.insert_resource(Outputs::<TextGeometry>::new_text(
             crate::text::TextLayoutLimits::default(),
         ));
         world.insert_resource(crate::render::path::PathStore::default());
-        world.insert_resource(crate::text::baseline::PathBaselineResource::default());
         world.insert_resource(crate::core::i18n::I18n::default());
         world.insert_resource(Outputs::<WidgetTexture>::with_budget(0));
         world.insert_resource(crate::ui::IdMap::new());
@@ -343,9 +343,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let bounded = {
             let resource = self
                 .world
-                .resource::<crate::text::layout::TextLayoutResource>()
+                .resource::<Outputs<TextGeometry>>()
                 .expect("the app owns a text-layout cache");
-            let cache = resource.borrow();
+            let storage = resource.storage();
+            let cache = &storage.layouts;
             if cache.is_in_use()
                 && (cache.bounded_capacity().is_some()
                     || matches!(
@@ -357,18 +358,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             }
             cache.bounded_capacity()
         };
-        let resource = if let Some(capacity) = bounded {
-            crate::text::layout::TextLayoutResource::try_new_bounded(limits, capacity)?
+        let cache = if let Some(capacity) = bounded {
+            crate::text::layout::TextLayoutCache::try_new_bounded(limits, capacity)?
         } else {
-            crate::text::layout::TextLayoutResource::new(limits)
+            crate::text::layout::TextLayoutCache::new(limits)
         };
-        self.world.insert_resource(resource);
-        if let Some(paths) = self
-            .world
-            .resource::<crate::text::baseline::PathBaselineResource>()
-        {
-            paths.trim_memory();
-        }
+        self.world
+            .resource::<Outputs<TextGeometry>>()
+            .expect("the app owns a text-layout cache")
+            .replace_text_layouts(cache);
         self.world
             .invalidate_query_dependency::<crate::text::TextLayoutHandle>();
         self.world
@@ -388,9 +386,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let limits = {
             let resource = self
                 .world
-                .resource::<crate::text::layout::TextLayoutResource>()
+                .resource::<Outputs<TextGeometry>>()
                 .expect("the app owns a text-layout cache");
-            let cache = resource.borrow();
+            let storage = resource.storage();
+            let cache = &storage.layouts;
             if cache.is_in_use() {
                 return Err(crate::text::TextLayoutError::InUse);
             }
@@ -402,8 +401,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             }
             cache.limits()
         };
-        let resource = crate::text::layout::TextLayoutResource::try_new_bounded(limits, capacity)?;
-        self.world.insert_resource(resource);
+        let cache = crate::text::layout::TextLayoutCache::try_new_bounded(limits, capacity)?;
+        self.world
+            .resource::<Outputs<TextGeometry>>()
+            .expect("the app owns a text-layout cache")
+            .replace_text_layouts(cache);
         self.text_layout_reservation = TextLayoutReservation::Absolute;
         Ok(self)
     }
@@ -419,9 +421,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         }
         let resource = self
             .world
-            .resource::<crate::text::layout::TextLayoutResource>()
+            .resource::<Outputs<TextGeometry>>()
             .expect("the app owns a text-layout cache");
-        if resource.borrow().is_in_use() {
+        if resource.storage().layouts.is_in_use() {
             return Err(crate::text::TextLayoutError::InUse);
         }
         let combined = match self.text_layout_reservation {
@@ -489,9 +491,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let limits = {
             let resource = self
                 .world
-                .resource::<crate::text::layout::TextLayoutResource>()
+                .resource::<Outputs<TextGeometry>>()
                 .expect("the app owns a text-layout cache");
-            let cache = resource.borrow();
+            let storage = resource.storage();
+            let cache = &storage.layouts;
             if cache.is_in_use() {
                 let error = crate::text::TextLayoutError::InUse;
                 self.text_layout_preparation_error = Some(error);
@@ -499,15 +502,17 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             }
             cache.limits()
         };
-        let resource =
-            match crate::text::layout::TextLayoutResource::try_new_bounded(limits, capacity) {
-                Ok(resource) => resource,
-                Err(error) => {
-                    self.text_layout_preparation_error = Some(error);
-                    return Err(error);
-                }
-            };
-        self.world.insert_resource(resource);
+        let cache = match crate::text::layout::TextLayoutCache::try_new_bounded(limits, capacity) {
+            Ok(cache) => cache,
+            Err(error) => {
+                self.text_layout_preparation_error = Some(error);
+                return Err(error);
+            }
+        };
+        self.world
+            .resource::<Outputs<TextGeometry>>()
+            .expect("the app owns a text-layout cache")
+            .replace_text_layouts(cache);
         self.text_layout_reservation = TextLayoutReservation::Prepared;
         self.text_layout_preparation_error = None;
         Ok(self)
@@ -763,22 +768,13 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         if let Some(outputs) = self.world.resource::<Outputs<WidgetTexture>>() {
             outputs.trim_memory();
         }
-        if let Some(layouts) = self
-            .world
-            .resource::<crate::text::layout::TextLayoutResource>()
-        {
-            layouts.trim_memory();
+        if let Some(outputs) = self.world.resource::<Outputs<TextGeometry>>() {
+            outputs.trim_text_memory();
             self.world
                 .invalidate_query_dependency::<crate::text::TextLayoutHandle>();
             self.world.invalidate_query_dependency::<
                 crate::ui::widgets::text_input::TextInputLayoutHandle,
             >();
-        }
-        if let Some(paths) = self
-            .world
-            .resource::<crate::text::baseline::PathBaselineResource>()
-        {
-            paths.trim_memory();
         }
         self.factory.trim_memory();
         for plugin in &mut self.plugins {
@@ -2029,9 +2025,10 @@ mod app_invariant_tests {
         assert_eq!(app.text_layout_reservation, TextLayoutReservation::Prepared);
         assert_eq!(
             app.world
-                .resource::<crate::text::layout::TextLayoutResource>()
+                .resource::<Outputs<TextGeometry>>()
                 .unwrap()
-                .borrow()
+                .storage()
+                .layouts
                 .bounded_capacity(),
             Some(combined)
         );
@@ -2084,9 +2081,10 @@ mod app_invariant_tests {
         assert_eq!(app.last_text_layout_failure(), None);
         assert_eq!(
             app.world
-                .resource::<crate::text::layout::TextLayoutResource>()
+                .resource::<Outputs<TextGeometry>>()
                 .unwrap()
-                .borrow()
+                .storage()
+                .layouts
                 .bounded_capacity(),
             None
         );
@@ -2108,9 +2106,10 @@ mod app_invariant_tests {
         assert_eq!(app.last_text_layout_preparation_error(), None);
         assert_eq!(
             app.world
-                .resource::<crate::text::layout::TextLayoutResource>()
+                .resource::<Outputs<TextGeometry>>()
                 .unwrap()
-                .borrow()
+                .storage()
+                .layouts
                 .bounded_capacity(),
             Some(first)
         );
@@ -2122,9 +2121,10 @@ mod app_invariant_tests {
         ));
         assert_eq!(
             app.world
-                .resource::<crate::text::layout::TextLayoutResource>()
+                .resource::<Outputs<TextGeometry>>()
                 .unwrap()
-                .borrow()
+                .storage()
+                .layouts
                 .bounded_capacity(),
             Some(first)
         );
@@ -2188,11 +2188,12 @@ mod app_invariant_tests {
 
     #[test]
     fn layout_limit_replacement_resets_path_frames_only_after_success() {
-        use crate::text::baseline::{DEFAULT_TOLERANCE, PathBaselineResource, PlacementKey};
+        use crate::text::baseline::{DEFAULT_TOLERANCE, PlacementKey};
         use crate::text::{TextLayoutHandle, TextPath};
 
         fn frame_counts(world: &World, key: PlacementKey) -> (Option<usize>, Option<usize>) {
-            let baselines = world.resource::<PathBaselineResource>().unwrap();
+            let storage = world.resource::<Outputs<TextGeometry>>().unwrap().storage();
+            let baselines = &storage.paths;
             (
                 baselines.glyph_frames(key, <[_]>::len),
                 baselines.caret_frames(key, <[_]>::len),
@@ -2247,15 +2248,15 @@ mod app_invariant_tests {
 
     #[test]
     fn input_layout_is_prepared_after_cache_replacement_without_manual_invalidation() {
-        use crate::text::layout::TextLayoutResource;
         use crate::ui::widgets::TextInput;
         use crate::ui::widgets::text_input::TextInputLayoutHandle;
 
         let glyph_count = |world: &World, handle| {
             world
-                .resource::<TextLayoutResource>()
+                .resource::<Outputs<TextGeometry>>()
                 .unwrap()
-                .borrow()
+                .storage()
+                .layouts
                 .get(handle)
                 .map(|layout| layout.glyphs().len())
         };
@@ -2302,7 +2303,6 @@ mod app_invariant_tests {
             Font, FontBackend, FontFaceId, FontMetrics, FontProvider, FontToken, GlyphId,
             RasterGlyph, default_font_manager,
         };
-        use crate::text::layout::TextLayoutResource;
         use crate::ui::widgets::TextInput;
         use crate::ui::widgets::text_input::TextInputLayoutHandle;
 
@@ -2360,8 +2360,8 @@ mod app_invariant_tests {
         });
         let input_layout = |world: &World| {
             let handle = world.get::<TextInputLayoutHandle>(input).unwrap().0;
-            let cache = world.resource::<TextLayoutResource>().unwrap().borrow();
-            (handle, cache.get(handle).unwrap().measure())
+            let storage = world.resource::<Outputs<TextGeometry>>().unwrap().storage();
+            (handle, storage.layouts.get(handle).unwrap().measure())
         };
         app.render().unwrap();
         app.render_dirty().unwrap();
@@ -2450,9 +2450,10 @@ mod app_invariant_tests {
         ));
         assert_eq!(
             app.world
-                .resource::<crate::text::layout::TextLayoutResource>()
+                .resource::<Outputs<TextGeometry>>()
                 .unwrap()
-                .borrow()
+                .storage()
+                .layouts
                 .bounded_capacity(),
             Some(capacity)
         );
@@ -2581,9 +2582,10 @@ mod app_invariant_tests {
         crate::ui::render_system::apply_text_intrinsic(&app.world, label, &mut node).unwrap();
         let measure_budget = app
             .world
-            .resource::<crate::text::layout::TextLayoutResource>()
+            .resource::<Outputs<TextGeometry>>()
             .unwrap()
-            .borrow()
+            .storage()
+            .layouts
             .resident_bytes();
         app.with_text_layout_limits(
             crate::text::TextLayoutLimits::HOST.with_cache_bytes(measure_budget),

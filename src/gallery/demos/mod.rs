@@ -83,16 +83,17 @@ pub(super) const PROJECTIVE_SPIN_PHASE: crate::types::Fixed = crate::types::Fixe
 pub(super) fn assert_text_layouts_fit(world: &crate::ecs::World) {
     use alloc::vec::Vec;
 
-    use crate::text::TextLayoutHandle;
+    use crate::text::{TextGeometry, TextLayoutHandle};
     use crate::types::fixed::from_textflow;
     use crate::ui::ComputedRect;
+    use crate::ui::outputs::Outputs;
     use crate::ui::widgets::{Text, TextOverflow, TextWrap};
 
     let entities: Vec<_> = world.query::<Text>().collect();
-    let layouts = world
-        .resource::<crate::text::layout::TextLayoutResource>()
-        .expect("text layout resource")
-        .borrow();
+    let storage = world
+        .resource::<Outputs<TextGeometry>>()
+        .expect("text geometry outputs")
+        .storage();
     for entity in entities {
         if world.has::<crate::text::TextPath>(entity) {
             continue;
@@ -104,7 +105,7 @@ pub(super) fn assert_text_layouts_fit(world: &crate::ecs::World) {
             continue;
         };
         let text = world.get::<Text>(entity).expect("text entity");
-        let layout = layouts.get(handle).expect("live text layout");
+        let layout = storage.layouts.get(handle).expect("live text layout");
         let paragraph = text.paragraph();
         if let Some(max_lines) = paragraph.max_lines {
             assert!(

@@ -173,6 +173,28 @@ impl OutputRelations {
         self.propagate_invalidations(world);
     }
 
+    pub(crate) fn propagate_publications(&mut self, world: &mut World) {
+        for binding in &mut self.bindings {
+            if !binding.active
+                || binding.dependency.retain_previous
+                || !world.is_alive(binding.consumer)
+            {
+                continue;
+            }
+            let source = binding.source.filter(|&source| world.is_alive(source));
+            let visible =
+                source.is_some_and(|source| !crate::ui::branch::is_hidden_in_tree(world, source));
+            let version = source
+                .filter(|_| visible)
+                .and_then(|source| (binding.dependency.descriptor.version)(world, source));
+            let changed = binding.visible != visible || binding.version.get() != version;
+            binding.visible = visible;
+            if changed && !world.has::<VisualDirty>(binding.consumer) {
+                world.invalidate_visual(binding.consumer);
+            }
+        }
+    }
+
     fn reconcile_demands(&mut self, world: &mut World) {
         // Apply final aggregate counts before any producer releases storage.
         for demand in &mut self.demands {
@@ -335,6 +357,100 @@ mod tests {
         world.insert(source, crate::ui::Hidden);
         relations.acknowledge(&world, first);
         assert_eq!(relations.bindings[0].version.get(), None);
+    }
+
+    #[test]
+    fn publication_propagation_preserves_producers_and_requires_successful_consumption() {
+        const PUBLISHED: OutputDependency = OutputDependency {
+            descriptor: OutputDescriptor {
+                kind: TypeId::of::<Cell<Option<u64>>>,
+                invalidate: |world, source| {
+                    if let Some(version) = world.get::<Cell<Option<u64>>>(source) {
+                        version.set(None);
+                    }
+                },
+                version: |world, source| world.get::<Cell<Option<u64>>>(source).and_then(Cell::get),
+                ..CURRENT.descriptor
+            },
+            ..CURRENT
+        };
+        const RETAINED: OutputDependency = OutputDependency {
+            retain_previous: true,
+            ..PUBLISHED
+        };
+        let mut world = World::default();
+        let source = world.spawn_empty();
+        let first = world.spawn_empty();
+        let second = world.spawn_empty();
+        let retained = world.spawn_empty();
+        world.insert(source, Cell::new(Some(1_u64)));
+        world.insert(source, Dirty);
+        let mut relations = OutputRelations::default();
+        for (consumer, dependency) in [
+            (first, &PUBLISHED),
+            (second, &PUBLISHED),
+            (retained, &RETAINED),
+        ] {
+            world.insert(consumer, source);
+            relations.bind(&world, consumer, 0, 0, dependency);
+        }
+
+        relations.propagate_publications(&mut world);
+        assert_eq!(
+            world.get::<Cell<Option<u64>>>(source).unwrap().get(),
+            Some(1)
+        );
+        assert!(world.has::<VisualDirty>(first));
+        assert!(world.has::<VisualDirty>(second));
+        assert!(!world.has::<VisualDirty>(retained));
+        assert!(
+            relations
+                .bindings
+                .iter()
+                .all(|binding| binding.version.get().is_none())
+        );
+        for consumer in [first, second] {
+            relations.acknowledge(&world, consumer);
+            world.remove::<VisualDirty>(consumer);
+        }
+
+        world.get::<Cell<Option<u64>>>(source).unwrap().set(Some(2));
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                relations.propagate_publications(&mut world);
+            }),
+            0
+        );
+        assert_eq!(
+            world.get::<Cell<Option<u64>>>(source).unwrap().get(),
+            Some(2)
+        );
+        assert_eq!(relations.bindings[0].version.get(), Some(1));
+        assert_eq!(relations.bindings[1].version.get(), Some(1));
+        assert!(world.has::<VisualDirty>(first));
+        assert!(world.has::<VisualDirty>(second));
+        assert!(!world.has::<VisualDirty>(retained));
+
+        relations.acknowledge(&world, first);
+        world.remove::<VisualDirty>(first);
+        relations.propagate_publications(&mut world);
+        assert!(!world.has::<VisualDirty>(first));
+        assert!(world.has::<VisualDirty>(second));
+        relations.acknowledge(&world, second);
+        world.remove::<VisualDirty>(second);
+
+        world.get::<Cell<Option<u64>>>(source).unwrap().set(None);
+        relations.propagate_publications(&mut world);
+        for consumer in [first, second] {
+            assert!(world.has::<VisualDirty>(consumer));
+            relations.acknowledge(&world, consumer);
+            world.remove::<VisualDirty>(consumer);
+        }
+        world.get::<Cell<Option<u64>>>(source).unwrap().set(Some(2));
+        relations.propagate_publications(&mut world);
+        assert!(world.has::<VisualDirty>(first));
+        assert!(world.has::<VisualDirty>(second));
+        assert!(!world.has::<VisualDirty>(retained));
     }
 
     #[test]

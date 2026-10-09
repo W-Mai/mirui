@@ -680,10 +680,9 @@ fn text_render(
     rows: query!(Text, optional crate::text::TextLayoutHandle, optional crate::text::TextPath),
     entity: entity!(),
     theme: res!(optional crate::ui::Theme),
-    layouts: res!(optional crate::text::layout::TextLayoutResource),
+    outputs: res!(optional crate::ui::Outputs<crate::text::TextGeometry>),
     manager: res!(optional crate::render::font::FontManager),
     paths: res!(optional crate::render::path::PathStore),
-    path_cache: res!(optional crate::text::baseline::PathBaselineResource),
     paint: paint!(),
 ) {
     let Some((text, handle, path)) = rows.get(entity) else {
@@ -692,10 +691,11 @@ fn text_render(
     let theme =
         theme.expect("App::new must insert Theme; missing means a test fixture skipped App");
     let color = paint.style().text_color.resolve_in(theme, paint.state());
-    let Some(resource) = layouts else {
+    let Some(outputs) = outputs else {
         return;
     };
-    let face_limit = resource.borrow().limits().fallback_faces;
+    let storage = outputs.storage();
+    let face_limit = storage.layouts.limits().fallback_faces;
     let Ok(Some(fonts)) = crate::render::font::ResolvedFontStack::resolve(
         manager,
         &paint.style().font_stack,
@@ -707,15 +707,11 @@ fn text_render(
     let Some(handle) = handle.copied() else {
         return;
     };
-    let cache = resource.borrow();
-    let Some(layout) = cache.get(handle) else {
+    let Some(layout) = storage.layouts.get(handle) else {
         return;
     };
     if let Some(path) = path.copied() {
         let Some(paths) = paths else {
-            return;
-        };
-        let Some(path_cache) = path_cache else {
             return;
         };
         let Ok(revision) = paths.revision(path.path()) else {
@@ -732,7 +728,7 @@ fn text_render(
         let rect = paint.rect();
         let transform = paint.transform();
         let clip = paint.clip();
-        let result = path_cache.glyph_frames(key, |frames| {
+        let result = storage.paths.glyph_frames(key, |frames| {
             draw_posed_text_layout(
                 paint,
                 &layout,
@@ -895,10 +891,10 @@ pub(crate) fn path_text_ink_bounds(
 ) -> Option<Rect> {
     let text_path = world.get::<crate::text::TextPath>(entity).copied()?;
     let paths = world.resource::<crate::render::path::PathStore>()?;
-    let path_cache = world.resource::<crate::text::baseline::PathBaselineResource>()?;
     let style = world.get::<crate::ui::Style>(entity)?;
-    let layouts = world.resource::<crate::text::layout::TextLayoutResource>()?;
-    let face_limit = layouts.borrow().limits().fallback_faces;
+    let outputs = world.resource::<crate::ui::Outputs<crate::text::TextGeometry>>()?;
+    let storage = outputs.storage();
+    let face_limit = storage.layouts.limits().fallback_faces;
     let fonts = crate::render::font::ResolvedFontStack::resolve(
         world.resource::<crate::render::font::FontManager>(),
         &style.font_stack,
@@ -909,8 +905,7 @@ pub(crate) fn path_text_ink_bounds(
     let handle = world
         .get::<crate::text::TextLayoutHandle>(entity)
         .copied()?;
-    let layouts = layouts.borrow();
-    let layout = layouts.get(handle)?;
+    let layout = storage.layouts.get(handle)?;
     let key = PlacementKey::new(
         entity,
         handle,
@@ -918,7 +913,8 @@ pub(crate) fn path_text_ink_bounds(
         paths.revision(text_path.path()).ok()?,
         crate::text::baseline::DEFAULT_TOLERANCE,
     );
-    path_cache
+    storage
+        .paths
         .glyph_frames(key, |frames| {
             let mut bounds: Option<Rect> = None;
             for_each_posed_run(
@@ -969,7 +965,7 @@ impl PathCaretHit {
     }
 }
 
-/// One projected caret segment on a path-text widget.
+/// One source-local caret segment on a path-text widget.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PathCaretGeometry {
     segment: [Point; 2],
@@ -1007,7 +1003,7 @@ impl PathCaretGeometry {
     }
 }
 
-/// One projected selection segment within a line and visual bidi run.
+/// One source-local selection segment within a line and visual bidi run.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PathSelectionRibbon {
     quad: [Point; 4],
@@ -1055,45 +1051,7 @@ pub enum PathTextGeometryError {
     InsufficientCapacity { required: usize, provided: usize },
 }
 
-/// Read-only access to the geometry used to render one retained path-text widget.
-pub struct PathTextGeometry<'a> {
-    world: &'a World,
-    entity: Entity,
-    rect: Rect,
-    transform: Transform3D,
-}
-
-impl<'a> PathTextGeometry<'a> {
-    /// Resolves the retained layout, scroll offsets, and transforms for a text widget.
-    pub fn for_widget(world: &'a World, entity: Entity) -> Option<Self> {
-        let (rect, affine, projective) =
-            crate::ui::render_system::widget_render_geometry(world, entity)?;
-        let transform = if projective.is_identity() {
-            Transform3D::from(affine)
-        } else {
-            projective
-        };
-        Self::with_transform(world, entity, rect, transform)
-    }
-
-    /// Creates geometry access with a caller-supplied final transform.
-    pub fn with_transform(
-        world: &'a World,
-        entity: Entity,
-        rect: Rect,
-        transform: impl Into<Transform3D>,
-    ) -> Option<Self> {
-        world.get::<Text>(entity)?;
-        world.get::<crate::text::TextPath>(entity)?;
-        world.get::<crate::text::TextLayoutHandle>(entity)?;
-        Some(Self {
-            world,
-            entity,
-            rect,
-            transform: transform.into(),
-        })
-    }
-
+impl crate::text::TextGeometryRead<'_> {
     /// Finds the nearest caret within `max_distance` of a projected point.
     pub fn hit_test(
         &self,
@@ -1101,10 +1059,10 @@ impl<'a> PathTextGeometry<'a> {
         max_distance: Fixed,
     ) -> Result<Option<PathCaretHit>, PathTextGeometryError> {
         let limit = square_wide(Fixed64::from_fixed(max_distance.max(Fixed::ZERO)));
-        self.with_carets(|layout, frames, metrics| {
+        self.with_path_carets(|layout, frames, metrics| {
             let mut nearest = None;
             for (index, (caret, frame)) in layout.carets().iter().zip(frames).enumerate() {
-                let (start, end) = caret_segment(self.rect, self.transform, *frame, metrics)
+                let (start, end) = caret_segment(Rect::ZERO, self.transform(), *frame, metrics)
                     .ok_or(PathTextGeometryError::InvalidProjection)?;
                 let distance = point_segment_distance_squared(point, start, end);
                 if distance > limit
@@ -1128,12 +1086,12 @@ impl<'a> PathTextGeometry<'a> {
         .ok_or(PathTextGeometryError::Unavailable)?
     }
 
-    /// Writes every projected caret segment into caller-provided storage.
+    /// Writes every source-local path caret segment into caller-provided storage.
     pub fn carets_into<'output>(
         &self,
         output: &'output mut [PathCaretGeometry],
     ) -> Result<&'output [PathCaretGeometry], PathTextGeometryError> {
-        self.with_carets(|layout, frames, metrics| {
+        self.with_path_carets(|layout, frames, metrics| {
             let required = layout.carets().len();
             if output.len() < required {
                 return Err(PathTextGeometryError::InsufficientCapacity {
@@ -1141,10 +1099,9 @@ impl<'a> PathTextGeometry<'a> {
                     provided: output.len(),
                 });
             }
-            if frames
-                .iter()
-                .any(|frame| caret_segment(self.rect, self.transform, *frame, metrics).is_none())
-            {
+            if frames.iter().any(|frame| {
+                caret_segment(Rect::ZERO, Transform3D::IDENTITY, *frame, metrics).is_none()
+            }) {
                 return Err(PathTextGeometryError::InvalidProjection);
             }
             for (index, (slot, (caret, frame))) in output
@@ -1153,7 +1110,7 @@ impl<'a> PathTextGeometry<'a> {
                 .enumerate()
             {
                 *slot = PathCaretGeometry {
-                    segment: caret_segment(self.rect, self.transform, *frame, metrics)
+                    segment: caret_segment(Rect::ZERO, Transform3D::IDENTITY, *frame, metrics)
                         .expect("caret projection was preflighted")
                         .into(),
                     index,
@@ -1166,13 +1123,13 @@ impl<'a> PathTextGeometry<'a> {
         .ok_or(PathTextGeometryError::Unavailable)?
     }
 
-    /// Writes projected selection ribbons into caller-provided storage.
+    /// Writes source-local path selection ribbons into caller-provided storage.
     pub fn selection_into<'output>(
         &self,
         selection: Range<u32>,
         output: &'output mut [PathSelectionRibbon],
     ) -> Result<&'output [PathSelectionRibbon], PathTextGeometryError> {
-        self.with_carets(|layout, frames, metrics| {
+        self.with_path_carets(|layout, frames, metrics| {
             let required = selected_caret_pairs(layout, frames, selection.clone()).count();
             if output.len() < required {
                 return Err(PathTextGeometryError::InsufficientCapacity {
@@ -1180,67 +1137,21 @@ impl<'a> PathTextGeometry<'a> {
                     provided: output.len(),
                 });
             }
-            if selected_caret_pairs(layout, frames, selection.clone())
-                .any(|pair| selection_ribbon(self.rect, self.transform, metrics, pair).is_none())
-            {
+            if selected_caret_pairs(layout, frames, selection.clone()).any(|pair| {
+                selection_ribbon(Rect::ZERO, Transform3D::IDENTITY, metrics, pair).is_none()
+            }) {
                 return Err(PathTextGeometryError::InvalidProjection);
             }
             for (slot, pair) in output
                 .iter_mut()
                 .zip(selected_caret_pairs(layout, frames, selection))
             {
-                *slot = selection_ribbon(self.rect, self.transform, metrics, pair)
+                *slot = selection_ribbon(Rect::ZERO, Transform3D::IDENTITY, metrics, pair)
                     .expect("selection projection was preflighted");
             }
             Ok(&output[..required])
         })
         .ok_or(PathTextGeometryError::Unavailable)?
-    }
-
-    fn with_carets<R>(
-        &self,
-        inspect: impl FnOnce(
-            &textflow::layout::ParagraphLayout<'_>,
-            &[textflow::placement::CaretFrame],
-            crate::render::font::FontMetrics,
-        ) -> R,
-    ) -> Option<R> {
-        let text_path = self
-            .world
-            .get::<crate::text::TextPath>(self.entity)
-            .copied()?;
-        let paths = self.world.resource::<crate::render::path::PathStore>()?;
-        let path_cache = self
-            .world
-            .resource::<crate::text::baseline::PathBaselineResource>()?;
-        let style = self.world.get::<crate::ui::Style>(self.entity)?;
-        let layouts = self
-            .world
-            .resource::<crate::text::layout::TextLayoutResource>()?;
-        let face_limit = layouts.borrow().limits().fallback_faces;
-        let fonts = crate::render::font::ResolvedFontStack::resolve(
-            self.world.resource::<crate::render::font::FontManager>(),
-            &style.font_stack,
-            style.font_size,
-            face_limit,
-        )
-        .ok()??;
-        let metrics = fonts.primary().metrics(fonts.primary().size);
-        let handle = self
-            .world
-            .get::<crate::text::TextLayoutHandle>(self.entity)
-            .copied()?;
-        let layouts = layouts.borrow();
-        let layout = layouts.get(handle)?;
-        let paragraph = layout.paragraph().ok()?;
-        let key = PlacementKey::new(
-            self.entity,
-            handle,
-            text_path,
-            paths.revision(text_path.path()).ok()?,
-            crate::text::baseline::DEFAULT_TOLERANCE,
-        );
-        path_cache.caret_frames(key, |frames| inspect(&paragraph, frames, metrics))
     }
 }
 
@@ -1375,7 +1286,11 @@ fn point_segment_distance_squared(point: Point, start: Point, end: Point) -> Fix
     square_wide(cross).div_wide(length_squared)
 }
 
-fn vertical_offset(align: TextVerticalAlign, box_height: Fixed, text_height: Fixed) -> Fixed {
+pub(crate) fn vertical_offset(
+    align: TextVerticalAlign,
+    box_height: Fixed,
+    text_height: Fixed,
+) -> Fixed {
     let free_height = (box_height - text_height).max(Fixed::ZERO);
     match align {
         TextVerticalAlign::Start => Fixed::ZERO,
@@ -1928,9 +1843,11 @@ mod tests {
         world.insert_resource(Theme::default());
         for stage in 0..3 {
             match stage {
-                1 => world.insert_resource(crate::text::layout::TextLayoutResource::new(
-                    crate::text::TextLayoutLimits::EMBEDDED,
-                )),
+                1 => world.insert_resource(
+                    crate::ui::Outputs::<crate::text::TextGeometry>::new_text(
+                        crate::text::TextLayoutLimits::EMBEDDED,
+                    ),
+                ),
                 2 => {
                     let fonts = default_font_manager();
                     fonts.prefetch(crate::render::font::FontToken::Default.cache_key());

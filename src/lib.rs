@@ -207,8 +207,8 @@ pub mod prelude {
     pub use crate::render::path::{Path, PathId};
     pub use crate::surface::{SafeAreaInsets, Surface};
     pub use crate::text::{
-        PathCaretHit, PathDirection, PathSelectionRibbon, PathTextGeometry, PathTextGeometryError,
-        TextPath,
+        PathCaretHit, PathDirection, PathSelectionRibbon, PathTextGeometryError, TextGeometry,
+        TextGeometryRead, TextPath,
     };
     pub use crate::types::{Color, Dimension, Fixed, PhysicalRect, Point, Rect};
     pub use crate::ui::builder::WidgetBuilder;

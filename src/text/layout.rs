@@ -1,5 +1,4 @@
 use alloc::vec::Vec;
-use core::cell::{Ref, RefCell, RefMut};
 use core::mem::size_of;
 
 use textflow::TextFlow;
@@ -236,39 +235,6 @@ pub struct TextLayoutCache {
     carets: Vec<CaretStop>,
 }
 
-pub(crate) struct TextLayoutResource(RefCell<TextLayoutCache>);
-
-impl TextLayoutResource {
-    pub const fn new(limits: TextLayoutLimits) -> Self {
-        Self(RefCell::new(TextLayoutCache::new(limits)))
-    }
-
-    pub fn try_new_bounded(
-        limits: TextLayoutLimits,
-        capacity: TextLayoutCapacity,
-    ) -> Result<Self, TextLayoutError> {
-        Ok(Self(RefCell::new(TextLayoutCache::try_new_bounded(
-            limits, capacity,
-        )?)))
-    }
-
-    pub fn borrow(&self) -> Ref<'_, TextLayoutCache> {
-        self.0.borrow()
-    }
-
-    pub fn borrow_mut(&self) -> RefMut<'_, TextLayoutCache> {
-        self.0.borrow_mut()
-    }
-
-    pub(crate) fn trim_memory(&self) {
-        let mut cache = self.0.borrow_mut();
-        if cache.bounded_capacity.is_none() {
-            let limits = cache.limits();
-            *cache = TextLayoutCache::new(limits);
-        }
-    }
-}
-
 impl TextLayoutCache {
     pub const fn new(limits: TextLayoutLimits) -> Self {
         Self {
@@ -353,6 +319,12 @@ impl TextLayoutCache {
             || !self.runs.is_empty()
             || !self.glyphs.is_empty()
             || !self.carets.is_empty()
+    }
+
+    pub(crate) fn trim_memory(&mut self) {
+        if self.bounded_capacity.is_none() {
+            *self = Self::new(self.limits());
+        }
     }
 
     fn reserve_buffer(
@@ -1817,14 +1789,13 @@ mod tests {
                 lines: 8,
             },
         };
-        let resource = TextLayoutResource::try_new_bounded(
+        let mut cache = TextLayoutCache::try_new_bounded(
             TextLayoutLimits::HOST.with_cache_bytes(64 * 1024),
             capacity,
         )
         .unwrap();
-        let resident = resource.borrow().resident_bytes();
+        let resident = cache.resident_bytes();
         let (first, second) = {
-            let mut cache = resource.borrow_mut();
             cache.begin_frame();
             let first = cache
                 .layout_cached(1, 0, request("AB", 16 * 256), &typefaces)
@@ -1845,12 +1816,32 @@ mod tests {
             assert_eq!(cache.resident_bytes(), resident);
             (first, second)
         };
-        resource.trim_memory();
-        let cache = resource.borrow();
+        cache.trim_memory();
         assert_eq!(cache.bounded_capacity, Some(capacity));
         assert_eq!(cache.resident_bytes(), resident);
         assert!(cache.get(first).is_some());
         assert!(cache.get(second).is_some());
+    }
+
+    #[test]
+    fn unbounded_cache_trim_releases_storage_and_preserves_limits() {
+        let source = Source;
+        let face = textflow::shaping::SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&face];
+        let limits = TextLayoutLimits::HOST.with_cache_bytes(64 * 1024);
+        let mut cache = TextLayoutCache::new(limits);
+        cache.begin_frame();
+        let handle = cache
+            .layout_cached(1, 0, request("AB", 16 * 256), &typefaces)
+            .unwrap();
+        assert!(cache.resident_bytes() > 0);
+
+        cache.trim_memory();
+
+        assert_eq!(cache.limits(), limits);
+        assert_eq!(cache.bounded_capacity(), None);
+        assert_eq!(cache.resident_bytes(), 0);
+        assert!(cache.get(handle).is_none());
     }
 
     #[test]

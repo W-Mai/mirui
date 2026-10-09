@@ -9,7 +9,9 @@ use crate::input::event::gesture::GestureEvent;
 use crate::input::event::scroll::scroll_bounds;
 use crate::prelude::*;
 use crate::render::font::FontManager;
+use crate::text::TextGeometry;
 use crate::types::Viewport;
+use crate::ui::outputs::Outputs;
 use crate::ui::view::ViewRegistry;
 use crate::ui::widgets::{LanguageTag, Text, TextAlign, TextDirection, TextOverflow, TextWrap};
 use crate::ui::{ComputedRect, Parent};
@@ -210,11 +212,8 @@ fn mixed_bidi_sample_ellipsizes_within_its_card() {
     assert!(sample_rect.x + sample_rect.w <= card_rect.x + card_rect.w);
 
     let handle = world.get::<crate::text::TextLayoutHandle>(sample).unwrap();
-    let layouts = world
-        .resource::<crate::text::layout::TextLayoutResource>()
-        .unwrap()
-        .borrow();
-    let layout = layouts.get(*handle).unwrap();
+    let storage = world.resource::<Outputs<TextGeometry>>().unwrap().storage();
+    let layout = storage.layouts.get(*handle).unwrap();
     let text = world.get::<Text>(sample).unwrap().resolve(&world);
     assert_eq!(layout.lines().len(), 1);
     assert!(layout.lines()[0].text().end < text.len() as u32);
@@ -306,9 +305,13 @@ fn path_sample_shares_curved_bidi_interaction_geometry() {
         &Viewport::new(VIEWPORT.0, VIEWPORT.1, Fixed::ONE),
     );
     let sample = world.find_by_id("typography_path_sample").unwrap();
-    let geometry = crate::ui::widgets::text::PathTextGeometry::for_widget(&world, sample).unwrap();
+    let geometry = world
+        .resource::<Outputs<TextGeometry>>()
+        .unwrap()
+        .get(sample)
+        .unwrap();
     let text = world.get::<Text>(sample).unwrap().resolve(&world);
-    let mut storage = [crate::ui::widgets::text::PathSelectionRibbon::default(); 32];
+    let mut storage = [crate::text::PathSelectionRibbon::default(); 32];
     let ribbons = geometry
         .selection_into(0..text.len() as u32, &mut storage)
         .unwrap();
@@ -328,9 +331,81 @@ fn path_sample_shares_curved_bidi_interaction_geometry() {
         x: (quad[0].x + quad[3].x) / Fixed::from_int(2),
         y: (quad[0].y + quad[3].y) / Fixed::from_int(2),
     };
+    let probe = geometry.transform().apply_point(probe).unwrap();
     let hit = geometry.hit_test(probe, Fixed::ONE).unwrap().unwrap();
     let range = ribbon.text_range();
     assert!(hit.text_offset() == range.start || hit.text_offset() == range.end);
+}
+
+#[test]
+fn caret_overlay_places_source_local_segments_in_the_current_paint_space() {
+    use crate::render::command::DrawCommand;
+    use crate::render::renderer::{DrawRequest, RenderError, Renderer};
+    use crate::types::Transform;
+    use crate::ui::view::PaintCtx;
+
+    #[derive(Default)]
+    struct Trace {
+        first_line: Option<([Point; 2], Transform)>,
+    }
+
+    impl Renderer for Trace {
+        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            if self.first_line.is_none()
+                && let DrawCommand::Line {
+                    p1, p2, transform, ..
+                } = request.command
+            {
+                self.first_line = Some(([*p1, *p2], *transform));
+            }
+            Ok(())
+        }
+
+        fn flush(&mut self) {}
+    }
+
+    let mut world = fixture();
+    let sample = world.find_by_id("typography_path_sample").unwrap();
+    let mut root = sample;
+    while let Some(parent) = world.get::<Parent>(root).map(|parent| parent.0) {
+        root = parent;
+    }
+    crate::ui::render_system::try_update_layout(
+        &mut world,
+        root,
+        &Viewport::new(VIEWPORT.0, VIEWPORT.1, Fixed::ONE),
+    )
+    .unwrap();
+    let geometry = world
+        .resource::<Outputs<TextGeometry>>()
+        .unwrap()
+        .get(sample)
+        .unwrap();
+    let mut carets = [crate::text::PathCaretGeometry::default(); 128];
+    let segment = geometry.carets_into(&mut carets).unwrap()[0].segment();
+    let rect = Rect::new(17, 19, 190, 78);
+    let transform = Transform::translate(Fixed::from_int(5), Fixed::from_int(7));
+    let mut trace = Trace::default();
+    {
+        let mut paint = PaintCtx::new(
+            &mut trace,
+            world.get::<crate::ui::Style>(sample).unwrap(),
+            &rect,
+            &rect,
+            transform,
+            None,
+            crate::ui::theme::WidgetState::Enabled,
+        );
+        super::caret::caret_overlay_view().render().unwrap()(&world, sample, &mut paint);
+        assert_eq!(paint.error(), None);
+    }
+    assert_eq!(
+        trace.first_line,
+        Some((
+            segment.map(|point| Point::new(rect.x + point.x, rect.y + point.y)),
+            transform,
+        )),
+    );
 }
 
 #[test]

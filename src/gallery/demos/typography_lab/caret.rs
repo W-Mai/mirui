@@ -1,14 +1,16 @@
 use super::state::TypographyModel;
 use super::style::{BLUE, BORDER, CYAN, GOLD, VIOLET};
-use crate::ecs::World;
 use crate::prelude::*;
 use crate::render::command::{DrawCommand, LineCap, LineJoin, Paint};
-use crate::render::font::ResolvedFontStack;
+use crate::render::path::PathStore;
+use crate::text::TextGeometry;
 use crate::types::Transform;
 use crate::ui::Theme;
-use crate::ui::view::{PaintCtx, View};
+use crate::ui::outputs::Outputs;
+use crate::ui::view::PaintCtx;
 
 #[crate::component]
+#[depends_on(TextGeometry)]
 pub(super) struct CaretOverlay {
     pub(super) model: model!(TypographyModel),
     pub(super) follows_probe: bool,
@@ -25,54 +27,38 @@ fn draw_line(paint: &mut PaintCtx<'_>, p1: Point, p2: Point, color: Color) {
     });
 }
 
-fn caret_overlay_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    let Some(overlay) = world.get::<CaretOverlay>(entity) else {
+#[crate::view(component = CaretOverlay, name = "CaretOverlay", priority = 61)]
+pub(super) fn caret_overlay_render(
+    component: component!(),
+    model: model!(component.model, watch(path_probe)),
+    outputs: res!(Outputs<TextGeometry>),
+    theme: res!(optional Theme),
+    paths: res!(optional PathStore),
+    entity: entity!(),
+    paint: paint!(),
+) {
+    let Some(geometry) = outputs.get(entity) else {
         return;
     };
-    let target = entity;
-    let (Some(style), Some(handle), Some(resource)) = (
-        world.get::<crate::ui::Style>(target),
-        world.get::<crate::text::TextLayoutHandle>(target).copied(),
-        world.resource::<crate::text::layout::TextLayoutResource>(),
-    ) else {
-        return;
-    };
-    let face_limit = resource.borrow().limits().fallback_faces;
-    let Ok(Some(fonts)) = ResolvedFontStack::resolve(
-        world.resource::<crate::render::font::FontManager>(),
-        &style.font_stack,
-        style.font_size,
-        face_limit,
-    ) else {
-        return;
-    };
-    let metrics = fonts.primary().metrics(fonts.primary().size);
-    let cache = resource.borrow();
-    let Some(layout) = cache.get(handle) else {
-        return;
-    };
+    let layout = geometry.layout();
+    let metrics = geometry.metrics();
     let default_theme = Theme::default();
-    let theme = world.resource::<Theme>().unwrap_or(&default_theme);
+    let theme = theme.unwrap_or(&default_theme);
     let border = theme.resolve(BORDER);
     let primary = theme.resolve(CYAN);
     let secondary = theme.resolve(BLUE);
     let tertiary = theme.resolve(VIOLET);
     let success = theme.resolve(GOLD);
     let rect = paint.rect();
-    if let Some(text_path) = world.get::<TextPath>(target).copied() {
-        let Some(geometry) = crate::text::PathTextGeometry::for_widget(world, target) else {
-            return;
-        };
-        let probe = if overlay.follows_probe {
-            crate::core::model::with_model_read_only(|| {
-                crate::core::model::ModelHandle::read(&overlay.model, |model| model.path_probe)
-            })
+    if let Some(text_path) = geometry.text_path() {
+        let probe = if component.follows_probe {
+            model.path_probe
         } else {
             None
         };
         let probe_hit =
             probe.and_then(|probe| geometry.hit_test(probe, Fixed::from_int(16)).ok().flatten());
-        let Some(paths) = world.resource::<crate::render::path::PathStore>() else {
+        let Some(paths) = paths else {
             return;
         };
         if let Ok(path) = paths.get(text_path.path()) {
@@ -97,8 +83,8 @@ fn caret_overlay_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>)
                 let [start, end] = caret.segment();
                 draw_line(
                     paint,
-                    start,
-                    end,
+                    Point::new(rect.x + start.x, rect.y + start.y),
+                    Point::new(rect.x + end.x, rect.y + end.y),
                     if probe_hit.is_some_and(|hit| hit.index() == caret.index()) {
                         success
                     } else if caret.bidi_level() & 1 == 0 {
@@ -111,27 +97,29 @@ fn caret_overlay_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>)
         }
         return;
     }
+    let content = geometry.content_rect();
+    let content = Rect::new(rect.x + content.x, rect.y + content.y, content.w, content.h);
     for line in layout.lines() {
-        let baseline = rect.y + crate::types::fixed::from_textflow(line.origin().y);
+        let baseline = content.y + crate::types::fixed::from_textflow(line.origin().y);
         draw_line(
             paint,
             Point {
-                x: rect.x,
+                x: content.x,
                 y: baseline,
             },
             Point {
-                x: rect.x + rect.w,
+                x: content.x + content.w,
                 y: baseline,
             },
             border,
         );
     }
     for caret in layout.carets() {
-        let x = rect.x + crate::types::fixed::from_textflow(caret.position.x);
-        if x < rect.x || x > rect.x + rect.w {
+        let x = content.x + crate::types::fixed::from_textflow(caret.position.x);
+        if x < content.x || x > content.x + content.w {
             continue;
         }
-        let baseline = rect.y + crate::types::fixed::from_textflow(caret.position.y);
+        let baseline = content.y + crate::types::fixed::from_textflow(caret.position.y);
         draw_line(
             paint,
             Point {
@@ -151,21 +139,4 @@ fn caret_overlay_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>)
     }
 }
 
-pub fn caret_overlay_view() -> View {
-    fn observe(
-        world: &World,
-        entity: Entity,
-        bindings: &mut crate::ui::view::ViewObservationBindings,
-    ) {
-        let overlay = world.get::<CaretOverlay>(entity).expect("caret overlay");
-        bindings.watch(|invalidation| {
-            overlay
-                .model
-                .__mirui_subscribe_path_probe(world, entity, invalidation)
-        });
-    }
-
-    View::new("CaretOverlay", 61, caret_overlay_render)
-        .with_filter::<CaretOverlay>()
-        .with_observation(observe, 1)
-}
+pub(super) use caret_overlay_render::view as caret_overlay_view;

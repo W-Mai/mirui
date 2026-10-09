@@ -246,6 +246,39 @@ impl<T: Output> Outputs<T> {
         Some(previous)
     }
 
+    /// Discard payload references after replacing or trimming the owned storage, retaining demand.
+    pub(crate) fn reset_all(&self) {
+        self.reset_where(|_| true);
+    }
+
+    pub(crate) fn reset_where(&self, mut reset: impl FnMut(Entity) -> bool) {
+        for (&entity, state) in self.records.borrow_mut().iter_mut() {
+            if !reset(entity) {
+                continue;
+            }
+            state.current = None;
+            state.previous = None;
+            state.current_available = false;
+            state.published_in_batch = false;
+        }
+    }
+
+    pub(crate) fn revalidate_current(&self, entity: Entity, input_version: u64) -> bool {
+        let mut records = self.records.borrow_mut();
+        let Some(state) = records.get_mut(&entity) else {
+            return false;
+        };
+        if state.input_version != input_version
+            || !state
+                .current
+                .is_some_and(|current| current.input_version == input_version)
+        {
+            return false;
+        }
+        state.current_available = true;
+        true
+    }
+
     /// Freeze history once for an outer production batch; nested rendering shares that history.
     pub(crate) fn begin_batch(&self) -> OutputBatch<'_, T> {
         let depth = self.batch_depth.get();

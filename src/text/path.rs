@@ -114,31 +114,36 @@ pub(crate) fn layout_width(
     world: &World,
     text_path: TextPath,
 ) -> Result<Fixed, crate::text::baseline::PathBaselineError> {
-    use crate::text::baseline::{DEFAULT_TOLERANCE, PathBaselineError, PathBaselineResource};
+    use crate::text::TextGeometry;
+    use crate::text::baseline::{DEFAULT_TOLERANCE, PathBaselineError};
+    use crate::ui::outputs::Outputs;
 
     let store = world
         .resource::<PathStore>()
         .ok_or(PathBaselineError::Unavailable)?;
-    let resource = world
-        .resource::<PathBaselineResource>()
+    let outputs = world
+        .resource::<Outputs<TextGeometry>>()
         .ok_or(PathBaselineError::Unavailable)?;
-    resource.with(store, text_path, DEFAULT_TOLERANCE, |baseline| {
-        let length = baseline.length();
-        let end = text_path.end().unwrap_or(length);
-        let start = to_textflow(text_path.start())
-            .checked_add(to_textflow(text_path.offset()))
-            .map(from_textflow)
-            .ok_or(PathBaselineError::InvalidRange)?;
-        if text_path.start() < Fixed::ZERO
-            || text_path.offset() < Fixed::ZERO
-            || end <= start
-            || end > length
-        {
-            Err(PathBaselineError::InvalidRange)
-        } else {
-            Ok(end - start)
-        }
-    })?
+    outputs
+        .storage_mut()
+        .paths
+        .with(store, text_path, DEFAULT_TOLERANCE, |baseline| {
+            let length = baseline.length();
+            let end = text_path.end().unwrap_or(length);
+            let start = to_textflow(text_path.start())
+                .checked_add(to_textflow(text_path.offset()))
+                .map(from_textflow)
+                .ok_or(PathBaselineError::InvalidRange)?;
+            if text_path.start() < Fixed::ZERO
+                || text_path.offset() < Fixed::ZERO
+                || end <= start
+                || end > length
+            {
+                Err(PathBaselineError::InvalidRange)
+            } else {
+                Ok(end - start)
+            }
+        })?
 }
 
 pub(crate) struct TextPathSubscription {
@@ -310,7 +315,11 @@ mod tests {
     fn layout_width_uses_the_selected_baseline_range() {
         let mut world = World::new();
         world.insert_resource(PathStore::new(1).unwrap());
-        world.insert_resource(crate::text::baseline::PathBaselineResource::default());
+        world.insert_resource(
+            crate::ui::outputs::Outputs::<crate::text::TextGeometry>::new_text(
+                crate::text::TextLayoutLimits::default(),
+            ),
+        );
         let id = world
             .resource_mut::<PathStore>()
             .unwrap()
@@ -426,7 +435,11 @@ mod tests {
     fn layout_width_rejects_ranges_outside_the_path() {
         let mut world = World::new();
         world.insert_resource(PathStore::new(1).unwrap());
-        world.insert_resource(crate::text::baseline::PathBaselineResource::default());
+        world.insert_resource(
+            crate::ui::outputs::Outputs::<crate::text::TextGeometry>::new_text(
+                crate::text::TextLayoutLimits::default(),
+            ),
+        );
         let id = world
             .resource_mut::<PathStore>()
             .unwrap()
@@ -447,7 +460,11 @@ mod tests {
     fn layout_width_rejects_invalid_offsets() {
         let mut world = World::new();
         world.insert_resource(PathStore::new(1).unwrap());
-        world.insert_resource(crate::text::baseline::PathBaselineResource::default());
+        world.insert_resource(
+            crate::ui::outputs::Outputs::<crate::text::TextGeometry>::new_text(
+                crate::text::TextLayoutLimits::default(),
+            ),
+        );
         let id = world
             .resource_mut::<PathStore>()
             .unwrap()

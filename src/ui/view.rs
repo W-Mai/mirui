@@ -781,6 +781,13 @@ impl ViewRegistry {
         Self::reconcile_observations(world);
     }
 
+    /// Mark consumers of newly published results without invalidating prepared producers.
+    pub(crate) fn propagate_output_publications(world: &mut World) {
+        world.with_resource_box::<OutputRelations, _>(|relations, world| {
+            relations.propagate_publications(world);
+        });
+    }
+
     fn invalidate_pending_queries(&self, world: &mut World) {
         world.drain_query_dependency_changes(|world, changed| {
             for view in &self.views {

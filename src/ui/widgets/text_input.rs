@@ -5,8 +5,10 @@ use crate::input::event::input::{
     InputEvent, KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RIGHT,
 };
 use crate::render::command::DrawCommand;
+use crate::text::TextGeometry;
 use crate::types::{Fixed, Point, Rect};
 use crate::ui::dirty::Dirty;
+use crate::ui::outputs::Outputs;
 use crate::ui::theme::{ColorToken, ThemedColor};
 
 /// Caret on/off, toggled by `cursor_blink_system` every ~500 ms.
@@ -308,10 +310,10 @@ pub(crate) fn prepare_layout(
     let Some(style) = world.get::<crate::ui::Style>(entity) else {
         return Ok(None);
     };
-    let Some(resource) = world.resource::<crate::text::layout::TextLayoutResource>() else {
+    let Some(outputs) = world.resource::<Outputs<TextGeometry>>() else {
         return Ok(None);
     };
-    let face_limit = resource.borrow().limits().fallback_faces;
+    let face_limit = outputs.storage().layouts.limits().fallback_faces;
     let Some(fonts) = crate::render::font::ResolvedFontStack::resolve(
         world.resource::<crate::render::font::FontManager>(),
         &style.font_stack,
@@ -341,7 +343,7 @@ pub(crate) fn prepare_layout(
     let font_fingerprint = fonts.layout_fingerprint(None, paragraph.shaping);
     fonts
         .with_typefaces(None, paragraph.shaping, |typefaces| {
-            resource.borrow_mut().layout_cached(
+            outputs.storage_mut().layouts.layout_cached(
                 u64::from(entity.id) | (u64::from(entity.generation) << 32),
                 font_fingerprint,
                 request,
@@ -365,7 +367,7 @@ fn text_input_render(
     // Placeholder remains a dependency of the prepared layout.
     rows: query!(TextInput, TextInputLayoutHandle, optional Placeholder),
     entity: entity!(),
-    layouts: res!(optional crate::text::layout::TextLayoutResource),
+    outputs: res!(optional Outputs<TextGeometry>),
     manager: res!(optional crate::render::font::FontManager),
     theme: res!(optional crate::ui::Theme),
     phase: res!(optional CursorBlinkPhase),
@@ -374,10 +376,10 @@ fn text_input_render(
     let Some((ti, handle, _)) = rows.get(entity) else {
         return;
     };
-    let Some(resource) = layouts else {
+    let Some(outputs) = outputs else {
         return;
     };
-    let face_limit = resource.borrow().limits().fallback_faces;
+    let face_limit = outputs.storage().layouts.limits().fallback_faces;
     let Ok(Some(fonts)) = crate::render::font::ResolvedFontStack::resolve(
         manager,
         &paint.style().font_stack,
@@ -386,8 +388,8 @@ fn text_input_render(
     ) else {
         return;
     };
-    let cache = resource.borrow();
-    let Some(layout) = cache.get(handle.0) else {
+    let storage = outputs.storage();
+    let Some(layout) = storage.layouts.get(handle.0) else {
         return;
     };
     let metrics = fonts.primary().metrics(fonts.primary().size);
@@ -735,7 +737,7 @@ mod tests {
     ) -> (World, Entity, Style, Rect) {
         let mut world = World::new();
         world.insert_resource(Theme::default());
-        world.insert_resource(crate::text::layout::TextLayoutResource::new(
+        world.insert_resource(Outputs::<TextGeometry>::new_text(
             crate::text::TextLayoutLimits::EMBEDDED,
         ));
         world.insert_resource(CursorBlinkPhase(true));
@@ -838,7 +840,7 @@ mod tests {
         for stage in 0..3 {
             match stage {
                 1 => world.insert(entity, TextInput::new()),
-                2 => world.insert_resource(crate::text::layout::TextLayoutResource::new(
+                2 => world.insert_resource(Outputs::<TextGeometry>::new_text(
                     crate::text::TextLayoutLimits::EMBEDDED,
                 )),
                 _ => {}
@@ -958,17 +960,14 @@ mod tests {
                     world.insert(entity, TextInputLayoutHandle(handle));
                 } else if stage == 2 {
                     world
-                        .resource::<crate::text::layout::TextLayoutResource>()
+                        .resource::<Outputs<TextGeometry>>()
                         .unwrap()
-                        .trim_memory();
+                        .trim_text_memory();
                 }
-                let cache = world
-                    .resource::<crate::text::layout::TextLayoutResource>()
-                    .unwrap()
-                    .borrow();
+                let storage = world.resource::<Outputs<TextGeometry>>().unwrap().storage();
                 let retained = world
                     .get::<TextInputLayoutHandle>(entity)
-                    .and_then(|handle| cache.get(handle.0));
+                    .and_then(|handle| storage.layouts.get(handle.0));
                 let mut trace = Trace::default();
                 {
                     let mut paint = PaintCtx::new(

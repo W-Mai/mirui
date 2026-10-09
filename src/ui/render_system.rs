@@ -3,6 +3,7 @@ use crate::ecs::{Entity, World};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::renderer::{DrawRequest, FallbackRegion, RenderError, RenderRoute, Renderer};
 use crate::render::texture::Texture;
+use crate::text::TextGeometry;
 use crate::types::{Dimension, Fixed, Point, Rect, Transform, Transform3D, Viewport};
 use crate::ui::layout::{LayoutNode, LayoutStyle, compute_layout};
 use crate::ui::widgets::transform::WidgetTransform;
@@ -40,6 +41,7 @@ pub enum TextLayoutFailureKind {
     PathBaselineAllocation,
     PathBaseline,
     MissingLayout,
+    OutputPublication,
 }
 
 /// The text widget and operation that stopped a layout pass.
@@ -831,7 +833,6 @@ fn layout_text(
     width: Fixed,
 ) -> Result<Option<LaidOutText>, TextLayoutFailure> {
     use crate::render::font::ResolvedFontStack;
-    use crate::text::layout::TextLayoutResource;
     use crate::ui::widgets::text::Text;
 
     let Some(text) = world.get::<Text>(entity) else {
@@ -840,10 +841,10 @@ fn layout_text(
     let Some(style) = world.get::<Style>(entity) else {
         return Ok(None);
     };
-    let Some(resource) = world.resource::<TextLayoutResource>() else {
+    let Some(resource) = world.resource::<Outputs<TextGeometry>>() else {
         return Ok(None);
     };
-    let face_limit = resource.borrow().limits().fallback_faces;
+    let face_limit = resource.storage().layouts.limits().fallback_faces;
     let Some(fonts) = ResolvedFontStack::resolve(
         world.resource::<crate::render::font::FontManager>(),
         &style.font_stack,
@@ -886,11 +887,12 @@ fn layout_text(
             let Some(paths) = world.resource::<crate::render::path::PathStore>() else {
                 return Ok(None);
             };
-            let Some(baselines) = world.resource::<crate::text::baseline::PathBaselineResource>()
-            else {
-                return Ok(None);
-            };
-            let line_limit = request.max_lines.min(resource.borrow().limits().lines);
+            let mut storage = resource.storage_mut();
+            let crate::text::geometry::TextGeometryStorage {
+                layouts,
+                paths: baselines,
+            } = &mut *storage;
+            let line_limit = request.max_lines.min(layouts.limits().lines);
             baselines
                 .with_lines(
                     paths,
@@ -902,7 +904,7 @@ fn layout_text(
                         request.max_lines = request.max_lines.min(widths.line_count());
                         request.line_widths = Some(widths);
                         fonts.with_typefaces(language, text.paragraph().shaping, |typefaces| {
-                            resource.borrow_mut().layout_cached(
+                            layouts.layout_cached(
                                 text_layout_owner(entity),
                                 font_fingerprint,
                                 request,
@@ -918,7 +920,7 @@ fn layout_text(
         }
         None => fonts
             .with_typefaces(language, text.paragraph().shaping, |typefaces| {
-                resource.borrow_mut().layout_cached(
+                resource.storage_mut().layouts.layout_cached(
                     text_layout_owner(entity),
                     font_fingerprint,
                     request,
@@ -928,7 +930,8 @@ fn layout_text(
             .map_err(|error| TextLayoutFailure::text(entity, TextLayoutStage::Layout, error))?,
     };
     let measure = resource
-        .borrow()
+        .storage()
+        .layouts
         .get(handle)
         .map(|layout| layout.measure())
         .ok_or(TextLayoutFailure {
@@ -965,7 +968,9 @@ fn prepare_input_layout(
 
 fn prepare_text_geometry(world: &mut World, entities: &[Entity]) -> Result<(), TextLayoutFailure> {
     for &entity in entities {
-        if !world.has::<super::widgets::TextInput>(entity) {
+        if !world.has::<super::widgets::TextInput>(entity)
+            || crate::ui::branch::is_hidden_in_tree(world, entity)
+        {
             continue;
         }
         let Some(rect) = world.get::<super::ComputedRect>(entity).map(|rect| rect.0) else {
@@ -976,29 +981,129 @@ fn prepare_text_geometry(world: &mut World, entities: &[Entity]) -> Result<(), T
     prepare_path_text_placements(world, entities)
 }
 
+fn publish_text_geometry(world: &World, entities: &[Entity]) -> Result<(), TextLayoutFailure> {
+    use crate::render::font::ResolvedFontStack;
+    use crate::text::baseline::{DEFAULT_TOLERANCE, PlacementKey};
+    use crate::text::geometry::TextGeometryRecord;
+    use crate::text::{TextLayoutHandle, TextPath};
+    use crate::ui::widgets::text::{Text, linear_text_content_rect, vertical_offset};
+
+    let Some(outputs) = world.resource::<Outputs<TextGeometry>>() else {
+        return Ok(());
+    };
+    for &entity in entities {
+        if !outputs.is_requested(entity) {
+            continue;
+        }
+        let record = (|| {
+            if crate::ui::branch::is_hidden_in_tree(world, entity) {
+                return None;
+            }
+            let text = world.get::<Text>(entity)?;
+            let style = world.get::<Style>(entity)?;
+            let handle = world.get::<TextLayoutHandle>(entity).copied()?;
+            let (rect, affine, projective) = widget_render_geometry(world, entity)?;
+            let storage = outputs.storage();
+            let layout = storage.layouts.get(handle)?;
+            let fonts = ResolvedFontStack::resolve(
+                world.resource::<crate::render::font::FontManager>(),
+                &style.font_stack,
+                style.font_size,
+                storage.layouts.limits().fallback_faces,
+            )
+            .ok()??;
+            let metrics = fonts.primary().metrics(fonts.primary().size);
+            let text_path = world.get::<TextPath>(entity).copied();
+            let placement = match text_path {
+                Some(path) => Some(PlacementKey::new(
+                    entity,
+                    handle,
+                    path,
+                    world
+                        .resource::<crate::render::path::PathStore>()?
+                        .revision(path.path())
+                        .ok()?,
+                    DEFAULT_TOLERANCE,
+                )),
+                None => None,
+            };
+            let local = Rect {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                w: rect.w,
+                h: rect.h,
+            };
+            let mut content_rect = if text_path.is_some() {
+                local
+            } else {
+                linear_text_content_rect(style, local)
+            };
+            if text_path.is_none() {
+                content_rect.y += vertical_offset(
+                    text.paragraph().vertical_align,
+                    content_rect.h,
+                    crate::types::fixed::from_textflow(layout.measure().height),
+                );
+            }
+            let transform = if projective.is_identity() {
+                Transform3D::from(affine)
+            } else {
+                projective
+            }
+            .compose(&Transform3D::from(Transform::translate(rect.x, rect.y)));
+            let caret_ready =
+                placement.is_some_and(|key| storage.paths.caret_frames(key, |_| ()).is_some());
+            Some(TextGeometryRecord {
+                layout: handle,
+                placement,
+                metrics,
+                content_rect,
+                transform,
+                text_path,
+                caret_ready,
+            })
+        })();
+        if let Some(record) = record {
+            outputs
+                .publish_text(entity, record)
+                .map_err(|_| TextLayoutFailure {
+                    entity,
+                    stage: TextLayoutStage::Layout,
+                    kind: TextLayoutFailureKind::OutputPublication,
+                })?;
+        } else {
+            outputs.reset(entity);
+        }
+    }
+    Ok(())
+}
+
 fn prepare_path_text_placements(
     world: &World,
     entities: &[Entity],
 ) -> Result<(), TextLayoutFailure> {
-    use crate::text::baseline::{
-        DEFAULT_TOLERANCE, PathBaselineError, PathBaselineResource, PlacementKey,
-    };
-    use crate::text::layout::TextLayoutResource;
+    use crate::text::baseline::{DEFAULT_TOLERANCE, PathBaselineError, PlacementKey};
     use crate::text::{TextLayoutHandle, TextPath};
 
-    let Some(baselines) = world.resource::<PathBaselineResource>() else {
+    let Some(outputs) = world.resource::<Outputs<TextGeometry>>() else {
         return Ok(());
     };
+    let mut storage = outputs.storage_mut();
+    let crate::text::geometry::TextGeometryStorage {
+        layouts,
+        paths: baselines,
+    } = &mut *storage;
     baselines.begin_placements();
-    let (Some(_fonts), Some(paths), Some(layouts)) = (
+    let (Some(_fonts), Some(paths)) = (
         world.resource::<crate::render::font::FontManager>(),
         world.resource::<crate::render::path::PathStore>(),
-        world.resource::<TextLayoutResource>(),
     ) else {
         return Ok(());
     };
     let key_for = |entity| -> Result<Option<(PlacementKey, TextLayoutHandle)>, TextLayoutFailure> {
-        if !world.has::<crate::ui::widgets::Text>(entity) {
+        if !world.has::<crate::ui::widgets::Text>(entity)
+            || crate::ui::branch::is_hidden_in_tree(world, entity)
+        {
             return Ok(None);
         }
         let (Some(path), Some(handle)) = (
@@ -1024,7 +1129,6 @@ fn prepare_path_text_placements(
             baselines.pin_placement(key);
         }
     }
-    let layouts = layouts.borrow();
     for &entity in entities {
         let Some((key, handle)) = key_for(entity)? else {
             continue;
@@ -1096,8 +1200,11 @@ fn compute_layout_snapshot(
     output_plan::invalidate_geometry(world);
     let mut previous = world.take_resource_box::<LayoutSnapshot>();
     if super::branch::is_effectively_hidden(world, root) {
-        if let Some(cache) = world.resource::<crate::text::layout::TextLayoutResource>() {
-            cache.borrow_mut().begin_frame_with_owner_filter(|_| false);
+        if let Some(cache) = world.resource::<Outputs<TextGeometry>>() {
+            cache
+                .storage_mut()
+                .layouts
+                .begin_frame_with_owner_filter(|_| false);
         }
         return Ok(None);
     }
@@ -1145,9 +1252,10 @@ fn compute_layout_snapshot(
     }
     collect_entities_preorder(world, root, &mut entities);
     entities.sort_unstable_by_key(|entity| (entity.id, entity.generation));
-    if let Some(cache) = world.resource::<crate::text::layout::TextLayoutResource>() {
+    if let Some(cache) = world.resource::<Outputs<TextGeometry>>() {
         cache
-            .borrow_mut()
+            .storage_mut()
+            .layouts
             .begin_frame_with_owner_filter(|owner| visible_text_owner(world, &entities, owner));
     }
     entities.clear();
@@ -1251,7 +1359,6 @@ pub(crate) fn apply_text_intrinsic(
     node: &mut LayoutNode,
 ) -> Result<(), TextLayoutFailure> {
     use crate::render::font::ResolvedFontStack;
-    use crate::text::layout::TextLayoutResource;
     use crate::types::fixed::from_textflow;
     use crate::ui::widgets::text::Text;
 
@@ -1259,10 +1366,10 @@ pub(crate) fn apply_text_intrinsic(
         return Ok(());
     };
     let style = world.get::<Style>(entity).expect("text widget style");
-    let Some(cache) = world.resource::<TextLayoutResource>() else {
+    let Some(cache) = world.resource::<Outputs<TextGeometry>>() else {
         return Ok(());
     };
-    let face_limit = cache.borrow().limits().fallback_faces;
+    let face_limit = cache.storage().layouts.limits().fallback_faces;
     let Some(fonts) = ResolvedFontStack::resolve(
         world.resource::<crate::render::font::FontManager>(),
         &style.font_stack,
@@ -1296,11 +1403,12 @@ pub(crate) fn apply_text_intrinsic(
             let Some(paths) = world.resource::<crate::render::path::PathStore>() else {
                 return Ok(());
             };
-            let Some(baselines) = world.resource::<crate::text::baseline::PathBaselineResource>()
-            else {
-                return Ok(());
-            };
-            let line_limit = request.max_lines.min(cache.borrow().limits().lines);
+            let mut storage = cache.storage_mut();
+            let crate::text::geometry::TextGeometryStorage {
+                layouts,
+                paths: baselines,
+            } = &mut *storage;
+            let line_limit = request.max_lines.min(layouts.limits().lines);
             baselines
                 .with_lines(
                     paths,
@@ -1312,7 +1420,7 @@ pub(crate) fn apply_text_intrinsic(
                         request.max_lines = request.max_lines.min(widths.line_count());
                         request.line_widths = Some(widths);
                         fonts.with_typefaces(language, text.paragraph().shaping, |faces| {
-                            cache.borrow_mut().measure_cached(
+                            layouts.measure_cached(
                                 text_layout_owner(entity),
                                 font_fingerprint,
                                 request,
@@ -1328,7 +1436,7 @@ pub(crate) fn apply_text_intrinsic(
         }
         None => fonts
             .with_typefaces(language, text.paragraph().shaping, |faces| {
-                cache.borrow_mut().measure_cached(
+                cache.storage_mut().layouts.measure_cached(
                     text_layout_owner(entity),
                     font_fingerprint,
                     request,
@@ -2361,8 +2469,8 @@ pub fn try_update_layout(
     super::view::ViewRegistry::invalidate_queries(world);
     let (logical_w, logical_h) = transform.logical_size();
 
-    if let Some(cache) = world.resource::<crate::text::baseline::PathBaselineResource>() {
-        cache.begin_layout();
+    if let Some(cache) = world.resource::<Outputs<TextGeometry>>() {
+        cache.storage_mut().paths.begin_layout();
     }
 
     let snapshot = match reconcile_layout_snapshot(world, root, logical_w, logical_h) {
@@ -2390,9 +2498,15 @@ pub fn try_update_layout(
         &snapshot.layout_tree,
         &snapshot.entities,
     );
+    super::view::ViewRegistry::invalidate_queries(world);
+    if let Err(failure) = publish_text_geometry(world, &snapshot.entities) {
+        world.put_resource_box(snapshot);
+        record_text_layout_failure(world, root, failure);
+        return Err(failure);
+    }
+    super::view::ViewRegistry::propagate_output_publications(world);
     world.put_resource_box(snapshot);
     world.remove_resource::<TextLayoutFailure>();
-    super::view::ViewRegistry::invalidate_queries(world);
     Ok(())
 }
 
@@ -3016,8 +3130,8 @@ pub(crate) fn try_collect_dirty_regions_into(
     let (logical_w, logical_h) = transform.logical_size();
     plan.clear();
 
-    if let Some(cache) = world.resource::<crate::text::baseline::PathBaselineResource>() {
-        cache.begin_layout();
+    if let Some(cache) = world.resource::<Outputs<TextGeometry>>() {
+        cache.storage_mut().paths.begin_layout();
     }
 
     if super::branch::is_effectively_hidden(world, root) {
@@ -3126,6 +3240,13 @@ pub(crate) fn try_collect_dirty_regions_into(
         return Err(failure);
     }
     super::view::ViewRegistry::invalidate_queries(world);
+    if let Err(failure) = publish_text_geometry(world, &snapshot.entities) {
+        world.put_resource_box(snapshot);
+        record_text_layout_failure(world, root, failure);
+        plan.clear();
+        return Err(failure);
+    }
+    super::view::ViewRegistry::propagate_output_publications(world);
     let output_plan =
         output_plan::measure_for_dirty(world, &snapshot.layout_tree, &snapshot.entities);
 
@@ -3283,7 +3404,6 @@ fn visit_overlay_rects(world: &World, mut visit: impl FnMut(Rect)) {
 #[cfg(test)]
 mod layout_snapshot_reuse_check {
     use super::*;
-    use crate::text::layout::TextLayoutResource;
     use crate::types::Dimension;
     use crate::ui::dirty::Dirty;
     use crate::ui::layout::LayoutStyle;
@@ -3673,9 +3793,10 @@ mod layout_snapshot_reuse_check {
 
     fn layout_is_live(world: &World, handle: crate::text::TextLayoutHandle) -> bool {
         world
-            .resource::<TextLayoutResource>()
+            .resource::<Outputs<TextGeometry>>()
             .unwrap()
-            .borrow()
+            .storage()
+            .layouts
             .get(handle)
             .is_some()
     }
@@ -4291,10 +4412,8 @@ mod text_layout_check {
         assert_eq!(rect.w, Fixed::from_int(24));
         assert_eq!(rect.h, Fixed::from_int(16));
         let handle = world.get::<crate::text::TextLayoutHandle>(label).unwrap();
-        let cache = world
-            .resource::<crate::text::layout::TextLayoutResource>()
-            .unwrap()
-            .borrow();
+        let storage = world.resource::<Outputs<TextGeometry>>().unwrap().storage();
+        let cache = &storage.layouts;
         assert_eq!(cache.get(*handle).unwrap().lines().len(), 2);
     }
 
@@ -4340,10 +4459,8 @@ mod text_layout_check {
         assert_eq!(rect.w, Fixed::from_int(32));
         assert_eq!(rect.h, Fixed::from_int(20));
         let handle = world.get::<crate::text::TextLayoutHandle>(label).unwrap();
-        let cache = world
-            .resource::<crate::text::layout::TextLayoutResource>()
-            .unwrap()
-            .borrow();
+        let storage = world.resource::<Outputs<TextGeometry>>().unwrap().storage();
+        let cache = &storage.layouts;
         assert_eq!(cache.get(*handle).unwrap().lines().len(), 2);
     }
 
@@ -4693,10 +4810,8 @@ mod text_layout_check {
         let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
         assert_eq!(rect.h, Fixed::from_int(16));
         let handle = world.get::<crate::text::TextLayoutHandle>(label).unwrap();
-        let cache = world
-            .resource::<crate::text::layout::TextLayoutResource>()
-            .unwrap()
-            .borrow();
+        let storage = world.resource::<Outputs<TextGeometry>>().unwrap().storage();
+        let cache = &storage.layouts;
         assert_eq!(cache.get(*handle).unwrap().lines().len(), 2);
     }
 
@@ -4779,10 +4894,8 @@ mod text_layout_check {
         let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
         assert_eq!(rect.w, Fixed::from_int(18));
         let handle = world.get::<crate::text::TextLayoutHandle>(label).unwrap();
-        let cache = world
-            .resource::<crate::text::layout::TextLayoutResource>()
-            .unwrap()
-            .borrow();
+        let storage = world.resource::<Outputs<TextGeometry>>().unwrap().storage();
+        let cache = &storage.layouts;
         let layout = cache.get(*handle).unwrap();
         assert_eq!(layout.runs().len(), 2);
         assert_eq!(layout.runs()[0].font_id(), FontFaceId::new(1));
@@ -4971,7 +5084,6 @@ mod text_layout_check {
     #[test]
     fn input_layout_is_prepared_before_paint_and_tracks_its_display_content() {
         use crate::prelude::*;
-        use crate::text::layout::TextLayoutResource;
         use crate::ui::ComputedRect;
         use crate::ui::widgets::TextInput;
         use crate::ui::widgets::text_input::{Placeholder, TextInputLayoutHandle};
@@ -4983,8 +5095,8 @@ mod text_layout_check {
 
         fn prepared(world: &World, input: Entity) -> (crate::text::TextLayoutHandle, usize) {
             let handle = world.get::<TextInputLayoutHandle>(input).unwrap().0;
-            let layouts = world.resource::<TextLayoutResource>().unwrap().borrow();
-            (handle, layouts.get(handle).unwrap().glyphs().len())
+            let storage = world.resource::<Outputs<TextGeometry>>().unwrap().storage();
+            (handle, storage.layouts.get(handle).unwrap().glyphs().len())
         }
 
         let mut app = crate::app::App::headless(96, 48);
@@ -5079,10 +5191,10 @@ mod text_layout_check {
             let handle = app.world.get::<TextInputLayoutHandle>(input).unwrap().0;
             let cache = app
                 .world
-                .resource::<crate::text::layout::TextLayoutResource>()
+                .resource::<Outputs<TextGeometry>>()
                 .unwrap()
-                .borrow();
-            assert_eq!(cache.get(handle).unwrap().glyphs().len(), 1);
+                .storage();
+            assert_eq!(cache.layouts.get(handle).unwrap().glyphs().len(), 1);
         }
     }
 
@@ -5116,14 +5228,25 @@ mod text_layout_check {
     #[test]
     fn path_placements_are_ready_before_paint_and_survive_idle_and_visual_updates() {
         use crate::render::path::{Path, PathId, PathStore};
-        use crate::text::baseline::{DEFAULT_TOLERANCE, PathBaselineResource, PlacementKey};
-        use crate::text::{TextLayoutHandle, TextPath};
-        use crate::ui::widgets::text::{PathCaretGeometry, PathTextGeometry};
+        use crate::text::baseline::{DEFAULT_TOLERANCE, PlacementKey};
+        use crate::text::{PathCaretGeometry, TextLayoutHandle, TextPath};
+
+        mod demand {
+            use super::*;
+
+            #[crate::component]
+            #[depends_on(TextGeometry)]
+            pub(super) struct GeometryDemand;
+
+            #[crate::view(component = GeometryDemand, name = "GeometryDemand")]
+            pub(super) fn geometry_demand() {}
+        }
 
         #[crate::compose]
         fn label(path: PathId) -> Entity {
             crate::ui!(Text("AB", width: 64, height: 16) [
                 TextPath::new(path).with_range(Fixed::ZERO..Fixed::from_int(64)),
+                demand::GeometryDemand,
             ] {} )
         }
 
@@ -5146,7 +5269,9 @@ mod text_layout_check {
         line.move_to(Point::new(0, 20)).line_to(Point::new(64, 20));
         let path = paths.insert(line).unwrap();
         let mut app = crate::app::App::headless(96, 96);
-        app.with_default_widgets().add_resource(paths);
+        app.with_default_widgets()
+            .with_widget(demand::geometry_demand::view())
+            .add_resource(paths);
         let root = app.spawn_root().id();
         let label = app.compose(root, label(path));
         let viewport = Viewport::new(96, 96, Fixed::ONE);
@@ -5154,15 +5279,22 @@ mod text_layout_check {
         let initial_key = key(&app.world, label, path);
         let initial_origin = app
             .world
-            .resource::<PathBaselineResource>()
+            .resource::<Outputs<TextGeometry>>()
             .unwrap()
+            .storage()
+            .paths
             .glyph_frames(initial_key, |frames| frames[0].local_origin)
             .unwrap();
         let initial_handle = *app.world.get::<TextLayoutHandle>(label).unwrap();
         let mut carets = [PathCaretGeometry::default(); 8];
         assert_eq!(
             crate::test_support::tracked_allocations(|| {
-                let geometry = PathTextGeometry::for_widget(&app.world, label).unwrap();
+                let geometry = app
+                    .world
+                    .resource::<Outputs<TextGeometry>>()
+                    .unwrap()
+                    .get(label)
+                    .unwrap();
                 assert!(!geometry.carets_into(&mut carets).unwrap().is_empty());
                 assert!(
                     crate::ui::widgets::text::path_text_ink_bounds(
@@ -5183,13 +5315,16 @@ mod text_layout_check {
 
         let mut damage = DirtyRegions::default();
         try_collect_dirty_regions_into(&mut app.world, root, &viewport, &mut damage).unwrap();
+        app.render().unwrap();
         for _ in 0..3 {
             try_collect_dirty_regions_into(&mut app.world, root, &viewport, &mut damage).unwrap();
             assert!(damage.rects.is_empty());
             assert!(
                 app.world
-                    .resource::<PathBaselineResource>()
+                    .resource::<Outputs<TextGeometry>>()
                     .unwrap()
+                    .storage()
+                    .paths
                     .glyph_frames(initial_key, |frames| !frames.is_empty())
                     .unwrap()
             );
@@ -5215,21 +5350,26 @@ mod text_layout_check {
             initial_handle
         );
         let current_key = key(&app.world, label, path);
-        let placements = app.world.resource::<PathBaselineResource>().unwrap();
-        assert!(placements.glyph_frames(initial_key, |_| ()).is_none());
-        assert_eq!(
-            placements
-                .glyph_frames(current_key, |frames| frames[0].local_origin.y)
-                .unwrap(),
-            initial_origin.y + (8 << 8)
-        );
-        assert!(
-            !PathTextGeometry::for_widget(&app.world, label)
-                .unwrap()
-                .carets_into(&mut carets)
-                .unwrap()
-                .is_empty()
-        );
+        {
+            let outputs = app.world.resource::<Outputs<TextGeometry>>().unwrap();
+            let storage = outputs.storage();
+            assert!(storage.paths.glyph_frames(initial_key, |_| ()).is_none());
+            assert_eq!(
+                storage
+                    .paths
+                    .glyph_frames(current_key, |frames| frames[0].local_origin.y)
+                    .unwrap(),
+                initial_origin.y + (8 << 8)
+            );
+            assert!(
+                !outputs
+                    .get(label)
+                    .unwrap()
+                    .carets_into(&mut carets)
+                    .unwrap()
+                    .is_empty()
+            );
+        }
 
         app.world
             .remove_resource::<crate::render::font::FontManager>();
@@ -5237,21 +5377,37 @@ mod text_layout_check {
         app.render().unwrap();
         assert!(
             app.world
-                .resource::<PathBaselineResource>()
+                .resource::<Outputs<TextGeometry>>()
                 .unwrap()
+                .storage()
+                .paths
                 .glyph_frames(current_key, |_| ())
                 .is_none()
         );
-        assert!(matches!(
-            PathTextGeometry::for_widget(&app.world, label)
+        assert!(
+            app.world
+                .resource::<Outputs<TextGeometry>>()
                 .unwrap()
-                .carets_into(&mut carets),
-            Err(crate::text::PathTextGeometryError::Unavailable)
-        ));
+                .get(label)
+                .is_none()
+        );
     }
 
     #[test]
     fn path_text_ink_drives_culling_and_damage_outside_layout_bounds() {
+        use crate::text::{PathSelectionRibbon, PathTextGeometryError};
+
+        mod demand {
+            use super::*;
+
+            #[crate::component]
+            #[depends_on(TextGeometry)]
+            pub(super) struct GeometryDemand;
+
+            #[crate::view(component = GeometryDemand, name = "GeometryDemand")]
+            pub(super) fn geometry_demand() {}
+        }
+
         #[derive(Default)]
         struct Recorder {
             posed_runs: usize,
@@ -5274,7 +5430,8 @@ mod text_layout_check {
         }
 
         let mut app = crate::app::App::headless(96, 96);
-        app.with_default_widgets();
+        app.with_default_widgets()
+            .with_widget(demand::geometry_demand::view());
         let mut world = app.world;
         let root = spawn(
             &mut world,
@@ -5302,6 +5459,7 @@ mod text_layout_check {
             },
         );
         world.insert(label, Text::from("ABCDEFG"));
+        world.insert(label, demand::GeometryDemand);
         let mut baseline = crate::render::path::Path::new();
         baseline
             .move_to(Point::new(0, 48))
@@ -5314,7 +5472,7 @@ mod text_layout_check {
         world.widget_mut(label).unwrap().text_path(path);
         let viewport = Viewport::new(96, 96, Fixed::ONE);
 
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
 
         let layout = world.get::<super::super::ComputedRect>(label).unwrap().0;
         let ink = crate::ui::widgets::text::path_text_ink_bounds(
@@ -5327,86 +5485,122 @@ mod text_layout_check {
         .unwrap();
         assert!(ink.y >= layout.y + layout.h);
 
-        let translated = Transform::translate(Fixed::from_int(10), Fixed::from_int(5));
-        let geometry = crate::ui::widgets::text::PathTextGeometry::with_transform(
-            &world, label, layout, translated,
-        )
-        .unwrap();
-        let hit = geometry
-            .hit_test(Point::new(26, 53), Fixed::from_int(2))
-            .unwrap()
-            .unwrap();
-        assert_eq!(hit.text_offset(), 2);
-        assert_eq!(hit.bidi_level(), 0);
-        assert!(
-            geometry
-                .hit_test(Point::new(26, 70), Fixed::from_int(2))
+        let mut ribbons = [PathSelectionRibbon::default(); 3];
+        let local_selection = {
+            let geometry = world
+                .resource::<Outputs<TextGeometry>>()
                 .unwrap()
-                .is_none()
-        );
-        let projective = Transform3D::from_affine(translated).compose(
-            &Transform3D::rotate_y_perspective(Fixed::from_int(12), Fixed::from_int(320)),
-        );
-        let projected_caret = projective.apply_point(Point::new(16, 48)).unwrap();
-        let projective_geometry = crate::ui::widgets::text::PathTextGeometry::with_transform(
-            &world, label, layout, projective,
-        )
-        .unwrap();
-        let projected_hit = projective_geometry
-            .hit_test(projected_caret, Fixed::from_int(2))
-            .unwrap()
-            .unwrap();
-        assert_eq!(projected_hit.text_offset(), 2);
-        let mut behind = Transform3D::IDENTITY;
-        behind.m22 = -crate::types::Fixed64::ONE;
-        let invalid_geometry = crate::ui::widgets::text::PathTextGeometry::with_transform(
-            &world, label, layout, behind,
-        )
-        .unwrap();
-        assert_eq!(
-            invalid_geometry.hit_test(Point::ZERO, Fixed::ONE),
-            Err(crate::ui::widgets::text::PathTextGeometryError::InvalidProjection)
-        );
-        let sentinel = crate::ui::widgets::text::PathSelectionRibbon::default();
-        let mut invalid_ribbons = [sentinel; 3];
-        assert_eq!(
-            invalid_geometry.selection_into(1..3, &mut invalid_ribbons),
-            Err(crate::ui::widgets::text::PathTextGeometryError::InvalidProjection)
-        );
-        assert_eq!(invalid_ribbons, [sentinel; 3]);
-        let mut ribbons = [crate::ui::widgets::text::PathSelectionRibbon::default(); 3];
-        let selection = geometry.selection_into(1..3, &mut ribbons).unwrap();
-        assert_eq!(selection.len(), 2);
-        assert_eq!(selection[0].text_range(), 1..2);
-        assert_eq!(selection[1].text_range(), 2..3);
-        assert!(
-            selection
-                .iter()
-                .all(|ribbon| ribbon.quad()[0] != ribbon.quad()[1])
-        );
-        let affine_quad = selection[0].quad();
-        let projected_selection = projective_geometry
-            .selection_into(1..3, &mut ribbons)
-            .unwrap();
-        assert_eq!(projected_selection.len(), 2);
-        assert_ne!(projected_selection[0].quad(), affine_quad);
-        let mut insufficient = [crate::ui::widgets::text::PathSelectionRibbon::default(); 1];
-        assert_eq!(
-            geometry.selection_into(1..3, &mut insufficient),
-            Err(
-                crate::ui::widgets::text::PathTextGeometryError::InsufficientCapacity {
+                .get(label)
+                .unwrap();
+            assert_eq!(geometry.transform(), Transform3D::IDENTITY);
+            let hit = geometry
+                .hit_test(Point::new(16, 48), Fixed::from_int(2))
+                .unwrap()
+                .unwrap();
+            assert_eq!(hit.text_offset(), 2);
+            assert_eq!(hit.bidi_level(), 0);
+            let selection = geometry.selection_into(1..3, &mut ribbons).unwrap();
+            assert_eq!(selection.len(), 2);
+            assert_eq!(selection[0].text_range(), 1..2);
+            assert_eq!(selection[1].text_range(), 2..3);
+            assert!(
+                selection
+                    .iter()
+                    .all(|ribbon| ribbon.quad()[0] != ribbon.quad()[1])
+            );
+            let sentinel = PathSelectionRibbon::default();
+            let mut insufficient = [sentinel; 1];
+            assert_eq!(
+                geometry.selection_into(1..3, &mut insufficient),
+                Err(PathTextGeometryError::InsufficientCapacity {
                     required: 2,
                     provided: 1,
-                }
-            )
-        );
-        world.insert(
-            label,
-            WidgetTransform3D(Transform3D::rotate_y_perspective(
-                Fixed::from_int(12),
-                Fixed::from_int(320),
-            )),
-        );
+                })
+            );
+            assert_eq!(insufficient, [sentinel; 1]);
+            [selection[0], selection[1]]
+        };
+
+        let translated = Transform::translate(Fixed::from_int(10), Fixed::from_int(5));
+        world.insert(label, WidgetTransform(translated));
+        try_update_layout(&mut world, root, &viewport).unwrap();
+        {
+            let geometry = world
+                .resource::<Outputs<TextGeometry>>()
+                .unwrap()
+                .get(label)
+                .unwrap();
+            let probe = geometry
+                .transform()
+                .apply_point(Point::new(16, 48))
+                .unwrap();
+            assert_eq!(probe, Point::new(26, 53));
+            let hit = geometry
+                .hit_test(probe, Fixed::from_int(2))
+                .unwrap()
+                .unwrap();
+            assert_eq!(hit.text_offset(), 2);
+            assert_eq!(hit.bidi_level(), 0);
+            let miss = geometry
+                .transform()
+                .apply_point(Point::new(16, 65))
+                .unwrap();
+            assert!(
+                geometry
+                    .hit_test(miss, Fixed::from_int(2))
+                    .unwrap()
+                    .is_none()
+            );
+            assert_eq!(
+                geometry.selection_into(1..3, &mut ribbons).unwrap(),
+                &local_selection
+            );
+        }
+        let projective =
+            Transform3D::rotate_y_perspective(Fixed::from_int(12), Fixed::from_int(320));
+        world.insert(label, WidgetTransform3D(projective));
+        try_update_layout(&mut world, root, &viewport).unwrap();
+        {
+            let geometry = world
+                .resource::<Outputs<TextGeometry>>()
+                .unwrap()
+                .get(label)
+                .unwrap();
+            let probe = geometry
+                .transform()
+                .apply_point(Point::new(16, 48))
+                .unwrap();
+            let hit = geometry
+                .hit_test(probe, Fixed::from_int(2))
+                .unwrap()
+                .unwrap();
+            assert_eq!(hit.text_offset(), 2);
+            assert_eq!(
+                geometry.selection_into(1..3, &mut ribbons).unwrap(),
+                &local_selection
+            );
+        }
+        let mut behind = Transform3D::IDENTITY;
+        behind.m22 = -crate::types::Fixed64::ONE;
+        world.insert(label, WidgetTransform3D(behind));
+        try_update_layout(&mut world, root, &viewport).unwrap();
+        {
+            let geometry = world
+                .resource::<Outputs<TextGeometry>>()
+                .unwrap()
+                .get(label)
+                .unwrap();
+            assert_eq!(
+                geometry.hit_test(Point::ZERO, Fixed::ONE),
+                Err(PathTextGeometryError::InvalidProjection)
+            );
+            assert_eq!(
+                geometry.selection_into(1..3, &mut ribbons).unwrap(),
+                &local_selection
+            );
+        }
+        world.remove::<WidgetTransform>(label);
+        world.insert(label, WidgetTransform3D(projective));
         world.insert(
             root,
             crate::input::event::scroll::ScrollOffset {
@@ -5414,6 +5608,7 @@ mod text_layout_check {
                 y: Fixed::from_int(2),
             },
         );
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let shifted_layout = Rect {
             x: layout.x - Fixed::from_int(3),
             y: layout.y - Fixed::from_int(2),
@@ -5422,18 +5617,32 @@ mod text_layout_check {
         let widget_projection =
             effective_transform_3d(&Transform3D::IDENTITY, &world, label, shifted_layout);
         let widget_probe = widget_projection.apply_point(Point::new(13, 46)).unwrap();
-        let widget_geometry =
-            crate::ui::widgets::text::PathTextGeometry::for_widget(&world, label).unwrap();
-        assert_eq!(
-            widget_geometry
-                .hit_test(widget_probe, Fixed::from_int(2))
+        {
+            let geometry = world
+                .resource::<Outputs<TextGeometry>>()
                 .unwrap()
-                .unwrap()
-                .text_offset(),
-            2
-        );
+                .get(label)
+                .unwrap();
+            assert_eq!(
+                geometry.transform().apply_point(Point::new(16, 48)),
+                Some(widget_probe)
+            );
+            assert_eq!(
+                geometry
+                    .hit_test(widget_probe, Fixed::from_int(2))
+                    .unwrap()
+                    .unwrap()
+                    .text_offset(),
+                2
+            );
+            assert_eq!(
+                geometry.selection_into(1..3, &mut ribbons).unwrap(),
+                &local_selection
+            );
+        }
         world.remove::<WidgetTransform3D>(label);
         world.remove::<crate::input::event::scroll::ScrollOffset>(root);
+        try_update_layout(&mut world, root, &viewport).unwrap();
 
         let mut recorder = Recorder::default();
         render_region(&world, root, &viewport, &ink, &mut recorder).unwrap();

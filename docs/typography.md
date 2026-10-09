@@ -275,39 +275,46 @@ fn bendable_label(path: PathId) {
 
 ## Query caret and selection geometry
 
-`PathTextGeometry::for_widget` resolves the text entity's computed rectangle, scroll offsets, and accumulated 2D or projective transform. Glyph and caret placement is prepared after layout; painting, hit testing, and selection read the completed geometry without filling placement caches.
+`Outputs<TextGeometry>` borrows completed geometry for entities with a `Text` component. A component's `#[depends_on(TextGeometry)]` declaration requests the result when its View is registered. Layout, glyph placement, and caret placement share retained storage with text painting; reads do not produce or copy geometry.
 
 ```rust
-use mirui::ecs::World;
 use mirui::prelude::*;
 
-fn inspect_path_text(
-    world: &World,
-    label: Entity,
-    pointer: Point,
-    mut visit: impl FnMut([Point; 4]),
+#[component]
+#[depends_on(TextGeometry)]
+struct CaretOverlay;
+
+#[view(component = CaretOverlay)]
+fn caret_overlay(
+    entity: entity!(),
+    geometries: res!(Outputs<TextGeometry>),
+    paint: paint!(),
 ) {
-    let Some(geometry) = PathTextGeometry::for_widget(world, label) else {
+    let Some(geometry) = geometries.get(entity) else {
         return;
     };
-
-    if let Some(hit) = geometry
-        .hit_test(pointer, Fixed::from_int(6))
-        .expect("valid projection")
-    {
-        let mut storage = [PathSelectionRibbon::default(); 16];
-        let selection = hit.text_offset()..hit.text_offset().saturating_add(4);
-        let ribbons = geometry
-            .selection_into(selection, &mut storage)
-            .expect("selection capacity");
-        for ribbon in ribbons {
-            visit(ribbon.quad());
-        }
+    let mut storage = [mirui::text::PathCaretGeometry::default(); 64];
+    let Ok(carets) = geometry.carets_into(&mut storage) else {
+        return;
+    };
+    let rect = paint.rect();
+    for caret in carets {
+        let [start, end] = caret.segment();
+        paint.draw(&mirui::render::DrawCommand::Line {
+            p1: Point::new(rect.x + start.x, rect.y + start.y),
+            p2: Point::new(rect.x + end.x, rect.y + end.y),
+            transform: paint.transform(),
+            color: Color::rgb(70, 160, 255),
+            width: Fixed::ONE,
+            opa: 255,
+        });
     }
 }
 ```
 
-Mixed-direction selections are split at visual-run and line boundaries. Active path text uses separate bounded glyph and caret caches. Exhausted caret storage makes interaction geometry unavailable without discarding prepared glyphs; selection ribbons use caller-provided storage. `PathTextGeometry::with_transform` accepts an explicit `Transform` or `Transform3D` for scene tools that already hold the final render transform. Projection through or behind the near plane returns `PathTextGeometryError::InvalidProjection`. Selection output remains unchanged when capacity or projection validation fails.
+Register `caret_overlay::view()` and attach `CaretOverlay` to the path-text node. `carets_into` and `selection_into` return source-local geometry into caller-provided buffers. The example adds the current paint origin and applies its transform once. `hit_test` accepts screen coordinates; `transform()` provides the prepared source-local-to-screen mapping, including ancestor transforms and scrolling. Linear text exposes its retained layout, font metrics, and local content rectangle through `layout()`, `metrics()`, and `content_rect()`.
+
+Mixed-direction selections are split at visual-run and line boundaries. Exhausted caret storage makes interaction geometry unavailable without discarding prepared glyphs. Selection output remains unchanged when capacity validation fails; hit testing through or behind the near plane returns `PathTextGeometryError::InvalidProjection`. Cache replacement, trimming, hidden sources, and removed text invalidate published geometry until preparation succeeds. TextInput shares layout storage but does not replace the Text result on the same entity.
 
 ## Backend behavior
 

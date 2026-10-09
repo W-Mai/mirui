@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Outputs<TextGeometry>` provides prepared text layouts, font metrics, local caret and selection geometry, and screen-space hit testing. Text painting and geometry readers borrow the same retained layout and path-placement storage.
 - `paint.request_frame()` schedules a visual update after successful output publication or main-target drawing. Failed drawing cancels its own requests; completed outputs retain theirs across downstream failures.
 - **Component output dependencies.** `#[depends_on(T)]` declares current-output sources, and `#[retain_previous(T)]` requests owner history. View registration activates declarations; source edits, component removal, and entity retirement reconcile requests without changing explicit offscreen settings or consumer transforms. Mirror, shadow, glow, and temporal effects use these declarations.
 - **Borrowed widget outputs.** `Outputs<WidgetTexture>` exposes completed pixels through `get(entity)` and owner-retained history through `previous(entity)`. Results publish after successful rendering, reuse pixel storage, and reject requests beyond the total stored and in-progress pixel budget before allocating pixels. Ordinary outputs use one slot; `TemporalMix` retains its own successful output across drawing batches.
@@ -37,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Caret overlays declare `TextGeometry` dependencies and use typed View parameters. World-based text geometry constructors are removed; cache replacement and trimming invalidate published geometry.
 - TextInput prepares its displayed text before painting and shares retained layout data with glyph and caret drawing. Placeholder changes, font replacement, and cache resets invalidate the prepared result; layout failures are reported before drawing.
 - Path glyph and caret placement is prepared after layout. Painting and geometry queries read completed placement without cache mutation; replacing the layout cache invalidates retained path frames.
 - TemporalMix uses typed View parameters and the shared pixel workspace. Blending requests further frames only until convergence, including quantized channel values, while frozen and unavailable outputs remain idle.
