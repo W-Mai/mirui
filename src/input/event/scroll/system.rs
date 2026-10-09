@@ -137,6 +137,13 @@ impl Default for ScrollDragState {
 
 const DIRECTION_THRESHOLD: Fixed = Fixed::from_int(5);
 
+fn scroll_time_ms(world: &World) -> u32 {
+    world.resource::<crate::ecs::MonoClock>().map_or_else(
+        || (crate::core::time::clock_now_ns() / 1_000_000) as u32,
+        |clock| clock.now_ms(),
+    )
+}
+
 pub fn scroll_system(
     world: &mut World,
     root: Entity,
@@ -148,10 +155,7 @@ pub fn scroll_system(
         InputEvent::PointerDown { x, y, .. } => hit_test(world, root, *x, *y, screen_w, screen_h),
         _ => None,
     };
-    let now_ms = world.resource::<crate::ecs::MonoClock>().map_or_else(
-        || (crate::core::time::clock_now_ns() / 1_000_000) as u32,
-        |clock| clock.now_ms(),
-    );
+    let now_ms = scroll_time_ms(world);
     scroll_system_with_target(
         world,
         root,
@@ -607,13 +611,14 @@ pub fn scroll_inertia_system(world: &mut World) -> Result<(), crate::ecs::Comman
         return Ok(());
     }
 
-    let (has_spring, target_entity) = {
+    let (has_spring, target_entity, pulling) = {
         let Some(ss) = world.resource::<ScrollSpring>() else {
             return Ok(());
         };
         (
             ss.x.is_some() || ss.y.is_some() || ss.wheel.active_target().is_some(),
             ss.wheel.active_target().or(ss.target_entity),
+            ss.wheel.is_pulling(),
         )
     };
 
@@ -637,16 +642,18 @@ pub fn scroll_inertia_system(world: &mut World) -> Result<(), crate::ecs::Comman
     };
     let (max_x, max_y) = (bounds.max_x, bounds.max_y);
 
+    let now_ms = if pulling { scroll_time_ms(world) } else { 0 };
+    let offset = world.get::<ScrollOffset>(target).copied();
     let (new_x, new_y, done) = {
         let Some(ss) = world.resource_mut::<ScrollSpring>() else {
             return Ok(());
         };
 
         if ss.wheel.active_target().is_some() {
-            let (mut x, mut y) = ss.wheel.tick(dt, bounds);
+            let (mut x, mut y) = ss.wheel.tick(dt, bounds, now_ms);
             if !elastic {
-                x = x.map(|value| value.clamp(Fixed::ZERO, max_x));
-                y = y.map(|value| value.clamp(Fixed::ZERO, max_y));
+                x = offset.map(|value| value.x.clamp(Fixed::ZERO, max_x));
+                y = offset.map(|value| value.y.clamp(Fixed::ZERO, max_y));
                 ss.wheel = super::wheel::WheelScroll::default();
             }
             (x, y, false)
@@ -1106,6 +1113,48 @@ mod tests {
                     .is_none()
             );
         }
+    }
+
+    #[test]
+    fn stationary_wheel_pull_releases_and_can_be_disabled_without_allocating() {
+        let _clock = crate::core::time::mock::install();
+        crate::core::time::mock::set_ms(0);
+        let (mut world, root) = fallback_scroll_world();
+        world.get_mut::<ScrollConfig>(root).unwrap().elastic = true;
+        world.insert_resource(crate::ecs::DeltaTimeMs(8));
+        let event = InputEvent::Wheel {
+            dx: Fixed::ZERO,
+            dy: Fixed::from_ratio(1, 4),
+            x: 20.into(),
+            y: 20.into(),
+        };
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for frame in 0..32 {
+                    crate::core::time::mock::set_ms(frame * 8);
+                    let before = world.get::<ScrollOffset>(root).unwrap().y;
+                    scroll_system(&mut world, root, &event, 100, 100);
+                    let after = world.get::<ScrollOffset>(root).unwrap().y;
+                    assert!(after < before);
+                    scroll_inertia_system(&mut world).unwrap();
+                    assert_eq!(world.get::<ScrollOffset>(root).unwrap().y, after);
+                }
+                for frame in 32..400 {
+                    crate::core::time::mock::set_ms(frame * 8);
+                    let before = world.get::<ScrollOffset>(root).unwrap().y;
+                    scroll_inertia_system(&mut world).unwrap();
+                    let after = world.get::<ScrollOffset>(root).unwrap().y;
+                    assert!(after >= before && after <= Fixed::ZERO);
+                }
+            }),
+            0
+        );
+        assert_eq!(world.get::<ScrollOffset>(root).unwrap().y, Fixed::ZERO);
+        scroll_system(&mut world, root, &event, 100, 100);
+        assert!(world.get::<ScrollOffset>(root).unwrap().y < Fixed::ZERO);
+        world.get_mut::<ScrollConfig>(root).unwrap().elastic = false;
+        scroll_inertia_system(&mut world).unwrap();
+        assert_eq!(world.get::<ScrollOffset>(root).unwrap().y, Fixed::ZERO);
     }
 
     #[test]

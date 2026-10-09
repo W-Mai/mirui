@@ -83,6 +83,10 @@ impl Rebound {
 enum WheelAxis {
     #[default]
     Idle,
+    Pulling {
+        edge: Edge,
+        position: Fixed,
+    },
     Rebounding {
         edge: Edge,
         motion: Rebound,
@@ -121,6 +125,15 @@ impl WheelAxis {
             } else {
                 Edge::End
             };
+            if matches!(self, Self::Pulling { .. })
+                || (!continuing && offset == target && !matches!(self, Self::Rebounding { .. }))
+            {
+                *self = Self::Pulling {
+                    edge,
+                    position: requested,
+                };
+                return requested;
+            }
             // A reversal must not inherit the old direction's sampled velocity.
             let velocity = if (velocity > Fixed::ZERO) == (delta > Fixed::ZERO) {
                 velocity
@@ -135,7 +148,20 @@ impl WheelAxis {
         requested
     }
 
-    fn tick(&mut self, dt_ms: u16, max: Fixed) -> Option<Fixed> {
+    fn tick(&mut self, dt_ms: u16, max: Fixed, receiving_input: bool) -> Option<Fixed> {
+        if let Self::Pulling { edge, position } = *self {
+            if position == position.clamp(Fixed::ZERO, max) {
+                *self = Self::Idle;
+                return Some(position);
+            }
+            if receiving_input {
+                return None;
+            }
+            *self = Self::Rebounding {
+                edge,
+                motion: Rebound::new(position, edge.position(max), Fixed::ZERO),
+            };
+        }
         let Self::Rebounding { edge, motion } = self else {
             return None;
         };
@@ -146,8 +172,8 @@ impl WheelAxis {
         Some(position)
     }
 
-    fn is_animating(&self) -> bool {
-        matches!(self, Self::Rebounding { .. })
+    fn is_active(&self) -> bool {
+        matches!(self, Self::Pulling { .. } | Self::Rebounding { .. })
     }
 }
 
@@ -200,13 +226,23 @@ impl WheelScroll {
 
     pub fn active_target(&self) -> Option<Entity> {
         self.target
-            .filter(|_| self.x.is_animating() || self.y.is_animating())
+            .filter(|_| self.x.is_active() || self.y.is_active())
     }
 
-    pub fn tick(&mut self, dt_ms: u16, bounds: ScrollBounds) -> (Option<Fixed>, Option<Fixed>) {
+    pub fn is_pulling(&self) -> bool {
+        matches!(self.x, WheelAxis::Pulling { .. }) || matches!(self.y, WheelAxis::Pulling { .. })
+    }
+
+    pub fn tick(
+        &mut self,
+        dt_ms: u16,
+        bounds: ScrollBounds,
+        now_ms: u32,
+    ) -> (Option<Fixed>, Option<Fixed>) {
+        let receiving_input = self.velocity.is_recent(now_ms);
         (
-            self.x.tick(dt_ms, bounds.max_x),
-            self.y.tick(dt_ms, bounds.max_y),
+            self.x.tick(dt_ms, bounds.max_x, receiving_input),
+            self.y.tick(dt_ms, bounds.max_y, receiving_input),
         )
     }
 }
@@ -276,12 +312,12 @@ mod tests {
     fn outward_tail_cannot_reenergize_or_restart_a_finished_rebound() {
         let mut axis = WheelAxis::default();
         let mut position = axis.input(
-            0.into(),
+            4.into(),
             (-8).into(),
             200.into(),
             100.into(),
             (-1000).into(),
-            false,
+            true,
         );
         let mut control = match axis {
             WheelAxis::Rebounding { motion, .. } => motion,
@@ -302,7 +338,7 @@ mod tests {
                 );
             }
             let expected = control.tick(8, Fixed::ZERO).0;
-            position = axis.tick(8, 200.into()).unwrap_or(position);
+            position = axis.tick(8, 200.into(), true).unwrap_or(position);
             assert_eq!(position, expected);
         }
         assert!(matches!(axis, WheelAxis::Held(Edge::Start)));
@@ -317,7 +353,7 @@ mod tests {
             ),
             Fixed::ZERO
         );
-        assert!(!axis.is_animating());
+        assert!(!axis.is_active());
         assert_eq!(
             axis.input(
                 position,
@@ -408,6 +444,94 @@ mod tests {
                 assert_eq!(wheel.active_target(), None);
             }
         }
+    }
+
+    #[test]
+    fn resting_edges_follow_continuous_pulls_and_allow_repeated_gestures() {
+        let target = Entity {
+            id: 1,
+            generation: 0,
+        };
+        for max in [Fixed::ZERO, Fixed::from_int(200)] {
+            let bounds = ScrollBounds {
+                viewport_width: 240.into(),
+                viewport_height: 240.into(),
+                max_x: max,
+                max_y: max,
+                ..ScrollBounds::default()
+            };
+            for horizontal in [false, true] {
+                for sign in [-1, 1] {
+                    for distance in [Fixed::from_ratio(1, 4), Fixed::from_int(8)] {
+                        let mut wheel = WheelScroll::default();
+                        let edge = if sign < 0 { Fixed::ZERO } else { max };
+                        let mut offset = (edge, edge);
+                        let delta = if horizontal {
+                            (distance * sign, Fixed::ZERO)
+                        } else {
+                            (Fixed::ZERO, distance * sign)
+                        };
+                        for gesture in 0..2 {
+                            let start = gesture * 5000;
+                            for frame in 0..32 {
+                                let now = start + frame * 8;
+                                let before = if horizontal { offset.0 } else { offset.1 };
+                                offset = wheel.input(target, offset, delta, bounds, now);
+                                let after = if horizontal { offset.0 } else { offset.1 };
+                                assert!((after - before) * sign > Fixed::ZERO);
+                                assert_eq!(wheel.tick(8, bounds, now), (None, None));
+                            }
+                            for frame in 0..400 {
+                                let previous = if horizontal { offset.0 } else { offset.1 };
+                                let (x, y) = wheel.tick(8, bounds, start + 32 * 8 + frame * 8);
+                                offset = (x.unwrap_or(offset.0), y.unwrap_or(offset.1));
+                                let position = if horizontal { offset.0 } else { offset.1 };
+                                assert!((position - edge) * sign >= Fixed::ZERO);
+                                assert!((position - edge) * sign <= (previous - edge) * sign);
+                            }
+                            assert_eq!(offset, (edge, edge));
+                            assert_eq!(wheel.active_target(), None);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn returning_inside_ends_direct_pull_without_changing_inertial_entry() {
+        let mut axis = WheelAxis::default();
+        let position = axis.input(
+            Fixed::ZERO,
+            (-20).into(),
+            200.into(),
+            100.into(),
+            Fixed::ZERO,
+            false,
+        );
+        assert!(matches!(axis, WheelAxis::Pulling { .. }));
+        let inside = axis.input(
+            position,
+            40.into(),
+            200.into(),
+            100.into(),
+            500.into(),
+            true,
+        );
+        assert_eq!(inside, position + Fixed::from_int(40));
+        assert!(matches!(axis, WheelAxis::Idle));
+        axis.input(
+            inside,
+            (-40).into(),
+            200.into(),
+            100.into(),
+            (-500).into(),
+            true,
+        );
+        let WheelAxis::Rebounding { motion, .. } = axis else {
+            panic!("inertial entry")
+        };
+        assert_eq!(motion.velocity, Fixed64::from_int(-500));
     }
 
     #[test]
