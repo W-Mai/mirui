@@ -115,6 +115,10 @@ pub mod __macro_support {
         crate::core::reactive::with_world(f)
     }
 
+    pub fn with_world_scope<R>(world: &mut crate::ecs::World, f: impl FnOnce() -> R) -> R {
+        crate::core::reactive::with_world_scope(world, f)
+    }
+
     pub trait ScopeWorldAccess {
         fn __mirui_world(&mut self) -> &mut crate::ecs::World;
     }

@@ -68,7 +68,7 @@ app.add_resource(PanelConfig { gap: 8 });
 app.compose(root, configured_panel());
 ```
 
-`App::compose` returns the composition's result, including entity IDs and owned values. Its construction scope does not escape the call; reactive ownership is restored and dirty storage is prepared before the result is returned.
+`App::compose` returns the composition's result, including entity IDs and owned values. `Computed` and `Effect` values created in that call belong to the application. Its construction scope does not escape the call; reactive ownership is restored and dirty storage is prepared before the result is returned. Structural World windows are internal to generated bindings and tree updates, not an authoring entry point.
 
 Keep visual styling on the nodes a composition creates. Orbit Console paints its background through its shell's backdrop component without changing the caller's parent background.
 

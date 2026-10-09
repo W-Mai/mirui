@@ -1,0 +1,11 @@
+error[E0603]: function `with_world_scope` is private
+ --> tests/prelude_contracts/reactive_scope.rs:5:28
+  |
+5 |     mirui::core::reactive::with_world_scope(&mut world, || {});
+  |                            ^^^^^^^^^^^^^^^^ private function
+  |
+note: the function `with_world_scope` is defined here
+ --> src/core/reactive/mod.rs
+  |
+  | pub(crate) fn with_world_scope<R>(world: &mut World, f: impl FnOnce() -> R) -> R {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

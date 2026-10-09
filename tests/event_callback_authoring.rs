@@ -2,7 +2,7 @@ use mirui::__macro_support::{
     AccessError, AppContext, EntityContext, ModelOwnerError, PreparationError,
 };
 use mirui::app::App;
-use mirui::core::reactive::{Computed, Signal, with_world_scope};
+use mirui::core::reactive::{Computed, Signal};
 use mirui::ecs::CommandCapacity;
 use mirui::input::event::contract::{EntityNotification, Event, WidgetSource};
 use mirui::input::event::input::Key;
@@ -242,7 +242,9 @@ fn app_callbacks_consume_optional_nested_and_shared_bindings_once() {
     let counter = app.add_model(Counter { value: 0 });
     let independent = app.add_model(Counter { value: 40 });
     let signal = Signal::new(5_i32);
-    let computed = with_world_scope(&mut app.world, || Computed::new(|| 7_i32));
+    // Keep the Computed app-owned while preserving the rootless Started lifecycle.
+    let computed =
+        mirui::__macro_support::with_world_scope(&mut app.world, || Computed::new(|| 7_i32));
     app.world.insert_resource(CaptureCalls::default());
 
     app.on_event(

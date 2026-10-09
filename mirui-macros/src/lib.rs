@@ -1050,7 +1050,7 @@ impl MiruiRune {
                     }
                 });
             tokens.extend(quote! {
-                mirui::core::reactive::with_world_scope(#world, || {
+                mirui::__macro_support::with_world_scope(#world, || {
                     #apply
                 });
             });
@@ -1295,7 +1295,7 @@ impl MiruiRune {
                 let __branches = [#(#build_branches),*];
                 mirui::ui::branch::prepare(#world, __parent_e, &__branches);
                 let __selected = mirui::__macro_support::__Cell::new(None::<usize>);
-                mirui::core::reactive::with_world_scope(#world, || {
+                mirui::__macro_support::with_world_scope(#world, || {
                     mirui::core::reactive::effect_with_widget(__parent_e, move || {
                         let __next = Some(match #read {
                             #(#select_arms)*
@@ -1334,7 +1334,7 @@ impl MiruiRune {
                 let __mount_index = (#world)
                     .get::<mirui::ui::Children>(__parent_e)
                     .map_or(0, |children| children.0.len());
-                mirui::core::reactive::with_world_scope(#world, || {
+                mirui::__macro_support::with_world_scope(#world, || {
                     mirui::core::reactive::effect_with_widget(__parent_e, move || {
                         let __sel = #read;
                         mirui::__macro_support::with_world(|__w| {
@@ -1679,7 +1679,7 @@ impl MiruiRune {
                 let __branches = [#(#build_branches),*];
                 mirui::ui::branch::prepare(#world, __parent_e, &__branches);
                 let __selected = mirui::__macro_support::__Cell::new(None::<usize>);
-                mirui::core::reactive::with_world_scope(#world, || {
+                mirui::__macro_support::with_world_scope(#world, || {
                     mirui::core::reactive::effect_with_widget(__parent_e, move || {
                         let __next: ::core::option::Option<usize> = #cascade;
                         let __previous = __selected.get();
@@ -1722,7 +1722,7 @@ impl MiruiRune {
                     mirui::__macro_support::__Vec::<mirui::ecs::Entity>::new(),
                 ));
                 let __parent_e = #parent_var;
-                mirui::core::reactive::with_world_scope(#world, || {
+                mirui::__macro_support::with_world_scope(#world, || {
                     mirui::core::reactive::effect_with_widget(__parent_e, move || {
                         let __items: mirui::__macro_support::__Vec<_> = (#iterable).into_iter().collect();
                         mirui::__macro_support::with_world(|__w| {
@@ -1777,7 +1777,7 @@ impl MiruiRune {
             {
                 let __rows = mirui::__macro_support::__Rc::new(mirui::__macro_support::__RefCell::new(mirui::__macro_support::__Vec::new()));
                 let __parent_e = #parent_var;
-                mirui::core::reactive::with_world_scope(#world, || {
+                mirui::__macro_support::with_world_scope(#world, || {
                     mirui::core::reactive::effect_with_widget(__parent_e, move || {
                         let __items: mirui::__macro_support::__Vec<_> = (#iterable).into_iter().collect();
                         mirui::__macro_support::with_world(|__w| {

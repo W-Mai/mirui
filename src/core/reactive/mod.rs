@@ -744,10 +744,8 @@ impl Drop for WorldlessEffectGuard {
     }
 }
 
-/// Make the World reachable by effect closures while `f` runs — applies a
-/// reactive binding's initial value at `ui!` construction, outside the flush.
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn with_world_scope<R>(world: &mut World, f: impl FnOnce() -> R) -> R {
+/// Make the World reachable by effect closures while `f` runs, including reactive bindings initialized during construction.
+pub(crate) fn with_world_scope<R>(world: &mut World, f: impl FnOnce() -> R) -> R {
     let _guard = WorldGuard::enter(world);
     f()
 }

@@ -1,6 +1,6 @@
 use mirui::app::App;
 use mirui::core::model::{BindType, ModelHandle, SharedValue};
-use mirui::core::reactive::{Computed, Effect, Signal, flush_signal_dirty, with_world_scope};
+use mirui::core::reactive::{Computed, Effect, Signal, flush_signal_dirty};
 use mirui::{model, system};
 use std::cell::Cell;
 use std::rc::Rc;
@@ -366,7 +366,8 @@ fn ownerless_effect_first_model_branch_binds_its_source_even_if_another_app_flus
         mode: Mode::Idle,
         untouched: 0,
     });
-    with_world_scope(&mut other.world, || ());
+    // Initialize the other owner without binding the ownerless effect below.
+    mirui::__macro_support::with_world_scope(&mut other.world, || ());
     let use_model = Signal::new(false);
     let seen = Rc::new(Cell::new(0));
     let runs = Rc::new(Cell::new(0));
@@ -594,17 +595,19 @@ fn ownerless_computed_cannot_capture_a_registered_model() {
 #[test]
 fn app_owned_computed_rejects_another_app_but_reads_its_model() {
     let mut owner = App::headless(32, 32);
+    let root = owner.spawn_root().id();
     let model = owner.add_model(ObservedCounter {
         count: 3,
         mode: Mode::Idle,
         untouched: 0,
     });
-    let computed = with_world_scope(&mut owner.world, || Computed::new(move || model.count()));
+    let computed = owner.compose(root, |_| Computed::new(move || model.count()));
     assert_eq!(computed.get(), 3);
 
     let mut other = App::headless(32, 32);
+    let other_root = other.spawn_root().id();
     let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        with_world_scope(&mut other.world, || computed.get())
+        other.compose(other_root, |_| computed.get())
     }));
     assert!(failure.is_err());
     assert_eq!(computed.get(), 3);
@@ -613,12 +616,13 @@ fn app_owned_computed_rejects_another_app_but_reads_its_model() {
 #[test]
 fn app_owned_computed_rejects_reads_after_owner_drop() {
     let mut app = App::headless(32, 32);
+    let root = app.spawn_root().id();
     let model = app.add_model(ObservedCounter {
         count: 3,
         mode: Mode::Idle,
         untouched: 0,
     });
-    let computed = with_world_scope(&mut app.world, || Computed::new(move || model.count()));
+    let computed = app.compose(root, |_| Computed::new(move || model.count()));
     assert_eq!(computed.get(), 3);
 
     drop(app);
@@ -629,13 +633,14 @@ fn app_owned_computed_rejects_reads_after_owner_drop() {
 #[test]
 fn computed_cannot_write_its_owner_model() {
     let mut app = App::headless(32, 32);
+    let root = app.spawn_root().id();
     let model = app.add_model(ObservedCounter {
         count: 3,
         mode: Mode::Idle,
         untouched: 0,
     });
     let captured = model.clone();
-    let computed = with_world_scope(&mut app.world, || {
+    let computed = app.compose(root, |_| {
         Computed::new(move || {
             captured.set_count(9);
             captured.count()
@@ -651,19 +656,18 @@ fn computed_cannot_write_its_owner_model() {
 #[test]
 fn model_computed_effect_propagation_reuses_registered_storage() {
     let mut app = App::headless(32, 32);
+    let root = app.spawn_root().id();
     let model = app.add_model(ObservedCounter {
         count: 1,
         mode: Mode::Idle,
         untouched: 0,
     });
     let source = model.clone();
-    let computed = with_world_scope(&mut app.world, || Computed::new(move || source.count() * 2));
+    let computed = app.compose(root, |_| Computed::new(move || source.count() * 2));
     let seen = Rc::new(Cell::new(0));
     let observed = computed.clone();
     let in_effect = seen.clone();
-    let _effect = with_world_scope(&mut app.world, || {
-        Effect::new(move || in_effect.set(observed.get()))
-    });
+    let _effect = app.compose(root, |_| Effect::new(move || in_effect.set(observed.get())));
     assert_eq!(seen.get(), 2);
 
     assert_eq!(
@@ -679,15 +683,14 @@ fn model_computed_effect_propagation_reuses_registered_storage() {
 #[test]
 fn shared_signal_computed_effect_notification_reuses_registered_storage() {
     let mut app = App::headless(32, 32);
+    let root = app.spawn_root().id();
     let source = Signal::new(1_u32);
     let observed = source.clone();
-    let computed = with_world_scope(&mut app.world, || Computed::new(move || observed.get() * 2));
+    let computed = app.compose(root, |_| Computed::new(move || observed.get() * 2));
     let value = Rc::new(Cell::new(0));
     let in_effect = value.clone();
     let read = computed.clone();
-    let _effect = with_world_scope(&mut app.world, || {
-        Effect::new(move || in_effect.set(read.get()))
-    });
+    let _effect = app.compose(root, |_| Effect::new(move || in_effect.set(read.get())));
     assert_eq!(value.get(), 2);
 
     assert_eq!(
@@ -703,6 +706,7 @@ fn shared_signal_computed_effect_notification_reuses_registered_storage() {
 #[test]
 fn computed_switches_model_dependencies_without_retaining_the_old_source() {
     let mut app = App::headless(32, 32);
+    let root = app.spawn_root().id();
     let first = app.add_model(ObservedCounter {
         count: 2,
         mode: Mode::Idle,
@@ -719,7 +723,7 @@ fn computed_switches_model_dependencies_without_retaining_the_old_source() {
     let second_read = second.clone();
     let evaluations = Rc::new(Cell::new(0));
     let visits = evaluations.clone();
-    let computed = with_world_scope(&mut app.world, || {
+    let computed = app.compose(root, |_| {
         Computed::new(move || {
             visits.set(visits.get() + 1);
             if branch.get() {
