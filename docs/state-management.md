@@ -541,6 +541,8 @@ Visible rows intersect the viewport with positive area, including partial rows a
 
 Cells already bound inside the retained range keep their entities when the viewport changes. Missing indices use free cells; unused cells remain hidden for reuse. `item_extent` specifies height for a vertical list and width for a horizontal list, selected by `ScrollConfig.direction`. The list derives the virtual content extent from its count and cell extent.
 
+Scrolling does not snap to cell boundaries. Pointer-release inertia follows recent movement and expires after the pointer stops; wheel input applies its fractional deltas directly, retaining platform-provided momentum. Scroll offsets invalidate painting and hit geometry, while cell reassignment or size changes still update layout. Framebuffer reuse is restricted to whole physical-pixel shifts in untransformed rectangular viewports without borders or rounded corners; other movement repaints the affected viewport.
+
 `CreateCell` runs only when a new physical cell is needed. Its `item` is a library-owned `ListItem` Model whose observed `index()` changes when that cell is reused. Property bindings read the current index and update through the normal reactive and dirty mechanisms. Input callbacks also read the index when invoked, rather than capturing a construction-time integer.
 
 ```rust,ignore

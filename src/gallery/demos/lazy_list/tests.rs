@@ -49,3 +49,63 @@ fn build_widgets_smoke() {
         Some(ColorToken::Surface.into())
     );
 }
+
+#[test]
+fn incremental_scroll_preserves_the_stationary_list_frame() {
+    use crate::input::event::scroll::ScrollDelta;
+    use crate::surface::{FramebufferAccess, framebuf::FramebufSurface};
+
+    for (scale, radius) in [(1, 0), (1, 12), (2, 0), (2, 12)] {
+        let backend = FramebufSurface::with_scale(
+            320 * scale,
+            320 * scale,
+            Fixed::from_int(scale as i32),
+            |_, _| {},
+        );
+        let mut app = App::new(backend);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.compose(root, build_widgets());
+        app.render_dirty().unwrap();
+        let list = app.world.find_by_id("lazy_list_view").unwrap();
+        let style = app.world.get_mut::<Style>(list).unwrap();
+        style.bg_color = Some(ColorToken::SurfaceVariant.into());
+        style.border_color = Some(ColorToken::Outline.into());
+        style.border_radius = Fixed::from_int(radius);
+        style.border_width = Fixed::from_int(if radius == 0 { 0 } else { 1 });
+        app.world.invalidate(list);
+        app.render_dirty().unwrap();
+        for position in [
+            12.0, 24.0, 8.0, 0.0, -12.0, -24.0, -40.0, -20.0, 0.0, 38.0, 76.0, 76.25, 76.5, 77.0,
+            0.0,
+        ] {
+            let old = app.world.get::<ScrollOffset>(list).unwrap().y;
+            let next = Fixed::from_f32(position);
+            app.world.get_mut::<ScrollOffset>(list).unwrap().y = next;
+            app.world.insert(
+                list,
+                ScrollDelta {
+                    dx: Fixed::ZERO,
+                    dy: next - old,
+                },
+            );
+            app.world.invalidate_visual(list);
+            app.render_dirty().unwrap();
+            assert!(
+                !crate::ui::dirty::has_visible_dirty::<crate::ui::dirty::Dirty>(&app.world, root),
+                "scrolling must consume offscreen row dirtiness"
+            );
+            let incremental = app.backend.framebuffer().buf.as_slice().to_vec();
+            app.render().unwrap();
+            let full = app.backend.framebuffer();
+            let mismatch = incremental
+                .iter()
+                .zip(full.buf.as_slice())
+                .position(|(a, b)| a != b);
+            assert_eq!(
+                mismatch, None,
+                "scale={scale}, offset={position}, differing byte={mismatch:?}"
+            );
+        }
+    }
+}

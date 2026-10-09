@@ -133,7 +133,7 @@ pub fn dispatch_input(
         return;
     }
 
-    scroll_system_with_target(world, root, event, lw, lh, pointer_down_target);
+    scroll_system_with_target(world, root, event, lw, lh, pointer_down_target, now_ms);
 
     let scroll_claimed = world
         .resource::<ScrollDragState>()

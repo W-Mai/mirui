@@ -71,6 +71,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Scroll repainting preserves stationary borders and rounded backgrounds during elastic movement. Fractional movement repaints immediately unless it maps to whole physical pixels suitable for framebuffer reuse.
+- Scroll input invalidates visual geometry without forcing unchanged layouts to rebuild. Clipped retained rows consume their dirty markers instead of repeatedly scheduling layout work.
+- Pointer-release inertia uses recent timestamped movement, ignores stale motion after a pause, and remains independent of list cell size.
+- SDL software and GPU backends preserve precise wheel deltas. Wheel input updates scroll offsets directly without adding a second inertia curve.
 - LazyList capacity changes preserve the entity of each retained cell instead of remapping indices by pool size. Unused cells are hidden and reused when needed.
 - LazyList preserves partially visible rows at fixed-point boundaries, separates overscan from the visible index, and hides rows outside the data viewport during elastic scrolling. Tail positions no longer move backward to fill the retained pool, and row positions use checked content geometry.
 - Widgets input simulation targets its own named controls rather than the first controls of each type in the application.

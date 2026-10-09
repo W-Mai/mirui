@@ -10,13 +10,9 @@ fn compose_list() -> Entity {
     ui! {
         LazyList (
             id: "lazy_list_view",
-            bg_color: ColorToken::SurfaceVariant,
-            border_color: ColorToken::Outline,
-            border_width: 1,
             width: Dimension::percent(100),
             max_width: 420,
             grow: 1.0,
-            border_radius: 12,
             item_count: ITEM_COUNT,
             item_extent: Fixed::from_int(ROW_H)
         ) [

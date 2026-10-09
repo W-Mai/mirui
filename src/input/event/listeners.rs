@@ -722,6 +722,7 @@ impl EventListeners {
             width,
             height,
             None,
+            (crate::core::time::clock_now_ns() / 1_000_000) as u32,
         ) {
             return Ok(BubbleControl::Prevent);
         }

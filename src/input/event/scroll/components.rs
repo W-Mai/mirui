@@ -46,10 +46,7 @@ pub struct ScrollOffset {
 
 impl crate::ecs::Component for ScrollOffset {}
 
-/// Per-frame `ScrollOffset` increment. Input / inertia systems write
-/// it; the dirty walker reads it to plan a framebuffer self-blit and
-/// subtracts the integer pixels it consumed, leaving any sub-pixel
-/// residue for the next frame.
+/// Per-frame `ScrollOffset` increment, consumed by the dirty walker. Whole physical-pixel movements can reuse framebuffer pixels; fractional movements repaint without deferring input to another frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ScrollDelta {
     pub dx: Fixed,

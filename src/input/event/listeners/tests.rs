@@ -1099,7 +1099,7 @@ fn scroll_claim_precedes_app_and_does_not_require_fallback_capacity() {
 
     let mut fixture = ScrollFixture::new(0);
     fixture.world.insert(fixture.root, ScrollDelta::default());
-    fixture.world.insert(fixture.root, crate::ui::dirty::Dirty);
+    fixture.world.invalidate_visual(fixture.root);
     let wheel = Wheel {
         dx: Fixed::ZERO,
         dy: -Fixed::ONE,
@@ -1127,7 +1127,7 @@ fn scroll_claim_precedes_app_and_does_not_require_fallback_capacity() {
     );
     assert_eq!(
         fixture.world.get::<ScrollOffset>(fixture.root).unwrap().y,
-        40.into()
+        60.into()
     );
     assert_eq!(crate::core::reactive::current_world_id(), owner);
     fixture
@@ -1151,10 +1151,10 @@ fn scroll_claim_precedes_app_and_does_not_require_fallback_capacity() {
 #[test]
 fn unaccepted_scroll_preserves_payload_and_consumes_in_app_installation_order() {
     use crate::input::event::input::{Rotary, Wheel};
-    use crate::input::event::scroll::{ScrollDragState, ScrollSpring};
+    use crate::input::event::scroll::{ScrollDragState, ScrollOffset};
 
     let mut fixture = ScrollFixture::new(3);
-    fixture.world.remove_resource::<ScrollSpring>();
+    fixture.world.remove::<ScrollOffset>(fixture.root);
     fixture
         .world
         .resource_mut::<ScrollDragState>()

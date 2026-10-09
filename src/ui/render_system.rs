@@ -2527,18 +2527,23 @@ fn collect_dirty_walk(
         .copied();
     let mut child_inside_scroll = inside_scroll;
     let mut my_scroll_op: Option<RegionShift> = None;
-    let mut sub_pixel_pending = false;
-    if let Some(sd) = scroll_delta {
-        // Sign flip: ScrollDelta is the ScrollOffset increment (positive
-        // dy = content scrolled up); the framebuffer must shift the
-        // opposite way. Quantise toward zero so a sub-pixel residue
-        // keeps the same sign as the original delta and accumulates
-        // across frames instead of bouncing.
-        let dx_int = sd.dx.trunc_to_int();
-        let dy_int = sd.dy.trunc_to_int();
-        let blit_dx = Fixed::from_int(-dx_int);
-        let blit_dy = Fixed::from_int(-dy_int);
-        if dx_int != 0 || dy_int != 0 {
+    if let Some(delta) = world.get_mut::<crate::input::event::scroll::ScrollDelta>(entity) {
+        *delta = Default::default();
+    }
+    if let Some(sd) = scroll_delta.filter(|sd| {
+        let physical_x = sd.dx * output_scale;
+        let physical_y = sd.dy * output_scale;
+        tf.is_identity()
+            && tf_3d.is_identity()
+            && world.get::<super::Style>(entity).is_none_or(|style| {
+                style.border_radius == Fixed::ZERO && style.border_width == Fixed::ZERO
+            })
+            && physical_x == Fixed::from_int(physical_x.trunc_to_int())
+            && physical_y == Fixed::from_int(physical_y.trunc_to_int())
+    }) {
+        let blit_dx = -sd.dx;
+        let blit_dy = -sd.dy;
+        if blit_dx != Fixed::ZERO || blit_dy != Fixed::ZERO {
             let area = Rect {
                 x: node.rect.x - scroll_offset.0,
                 y: node.rect.y - scroll_offset.1,
@@ -2553,13 +2558,6 @@ fn collect_dirty_walk(
                 });
                 child_inside_scroll = true;
             }
-            if let Some(sd_mut) = world.get_mut::<crate::input::event::scroll::ScrollDelta>(entity)
-            {
-                sd_mut.dx -= Fixed::from_int(dx_int);
-                sd_mut.dy -= Fixed::from_int(dy_int);
-            }
-        } else if sd.dx != Fixed::ZERO || sd.dy != Fixed::ZERO {
-            sub_pixel_pending = true;
         }
     }
 
@@ -2568,9 +2566,9 @@ fn collect_dirty_walk(
     {
         // Container's own Dirty is already expressed by the RegionShift;
         // unioning its full rect would re-stretch bounds over the area
-        // self-blit handles. Sub-pixel frames similarly skip the push
-        // until the delta crosses a pixel boundary.
-        if my_scroll_op.is_some() || sub_pixel_pending {
+        // self-blit handles. Non-integral physical movement is repainted
+        // immediately so content and hit geometry retain the same offset.
+        if my_scroll_op.is_some() {
             world.remove::<Dirty>(entity);
             world.remove::<super::dirty::VisualDirty>(entity);
         } else {
@@ -2597,7 +2595,14 @@ fn collect_dirty_walk(
             scroll_offset
         };
 
-    let child_scroll_clip = my_scroll_op.as_ref().map(|s| s.area).or(scroll_clip);
+    let child_scroll_clip = if world.has::<crate::input::event::scroll::ScrollOffset>(entity) {
+        let mut area = visual_bounds(world, entity, node.rect, tf, tf_3d, output_scale);
+        area.x -= scroll_offset.0;
+        area.y -= scroll_offset.1;
+        Some(scroll_clip.map_or(area, |clip| area.intersect(&clip).unwrap_or(Rect::ZERO)))
+    } else {
+        scroll_clip
+    };
 
     *idx += 1;
     for child in &node.children {
@@ -2714,6 +2719,13 @@ fn push_entity_dirty(
             None => curr,
         }
     };
+    let (cx0, cy0, cx1, cy1) = curr.pixel_bounds();
+    world.insert(
+        entity,
+        super::dirty::PrevRect(Rect::new(cx0, cy0, cx1 - cx0, cy1 - cy0)),
+    );
+    world.remove::<Dirty>(entity);
+    world.remove::<super::dirty::VisualDirty>(entity);
     if let Some(clip) = scroll_clip {
         if let Some(inter) = union_rect.intersect(&clip) {
             union_rect = inter;
@@ -2751,13 +2763,6 @@ fn push_entity_dirty(
             bounds.overflow = true;
         }
     }
-    let (cx0, cy0, cx1, cy1) = curr.pixel_bounds();
-    world.insert(
-        entity,
-        super::dirty::PrevRect(Rect::new(cx0, cy0, cx1 - cx0, cy1 - cy0)),
-    );
-    world.remove::<Dirty>(entity);
-    world.remove::<super::dirty::VisualDirty>(entity);
 }
 
 /// Sweep the subtree rooted at `node` (children of an OffscreenRender
@@ -2854,9 +2859,14 @@ pub(crate) fn try_collect_dirty_regions_into(
     // state without inserting Dirty (animation helpers, mainly) own
     // the responsibility to mark themselves.
     use super::dirty::Dirty;
-    let has_layout_dirty = super::dirty::has_visible_dirty::<Dirty>(world, root);
+    let mut has_layout_dirty = super::dirty::has_visible_dirty::<Dirty>(world, root);
     let has_visual_dirty =
         super::dirty::has_visible_dirty::<super::dirty::VisualDirty>(world, root);
+    if !has_layout_dirty && has_visual_dirty && super::widgets::lazy_list::reconcile(world) {
+        crate::core::reactive::flush_signal_dirty(world);
+        super::view::ViewRegistry::invalidate_queries(world);
+        has_layout_dirty = true;
+    }
     let has_exact_dirty = world
         .resource::<super::dirty::ExactDirtyRegions>()
         .is_some_and(|regions| !regions.is_empty());
@@ -8343,244 +8353,43 @@ mod scroll_plan_check {
     }
 
     #[test]
-    fn sub_pixel_delta_keeps_residue_emits_nothing() {
-        let mut world = World::new();
-        let root = spawn_widget(&mut world, None, px_style(128, 128));
-        world.insert(root, Dirty);
-        let list = spawn_widget(&mut world, Some(root), px_style(128, 100));
-        world.insert(
-            list,
-            ScrollOffset {
-                x: Fixed::ZERO,
-                y: Fixed::ZERO,
-            },
-        );
-        let half = Fixed::from_int(1) / Fixed::from_int(2);
-        world.insert(
-            list,
-            ScrollDelta {
-                dx: Fixed::ZERO,
-                dy: half,
-            },
-        );
-        world.insert(list, Dirty);
-
-        let viewport = Viewport::new(128, 128, Fixed::ONE);
-        let plan = collect_dirty_regions(&mut world, root, &viewport);
-        assert!(plan.shifts.is_empty(), "no integer pixel to shift yet");
-        // Residue stays in the component for the next frame to absorb.
-        let sd = world.get::<ScrollDelta>(list).copied().unwrap_or_default();
-        assert_eq!(sd.dy, half);
-    }
-
-    #[test]
-    fn sub_pixel_residue_accumulates_to_pixel() {
-        let mut world = World::new();
-        let root = spawn_widget(&mut world, None, px_style(128, 128));
-        world.insert(root, Dirty);
-        let list = spawn_widget(&mut world, Some(root), px_style(128, 100));
-        world.insert(
-            list,
-            ScrollOffset {
-                x: Fixed::ZERO,
-                y: Fixed::ZERO,
-            },
-        );
-        let half = Fixed::from_int(1) / Fixed::from_int(2);
-        world.insert(
-            list,
-            ScrollDelta {
-                dx: Fixed::ZERO,
-                dy: half,
-            },
-        );
-        world.insert(list, Dirty);
-        let viewport = Viewport::new(128, 128, Fixed::ONE);
-
-        let _ = collect_dirty_regions(&mut world, root, &viewport);
-        assert_eq!(
-            world
-                .get::<ScrollDelta>(list)
-                .copied()
-                .unwrap_or_default()
-                .dy,
-            half,
-        );
-
-        if let Some(sd) = world.get_mut::<ScrollDelta>(list) {
-            sd.dy += half;
-        }
-        world.insert(list, Dirty);
-
-        let plan = collect_dirty_regions(&mut world, root, &viewport);
-        assert_eq!(plan.shifts.len(), 1);
-        assert_eq!(plan.shifts[0].dy, Fixed::from_int(-1));
-        let sd = world.get::<ScrollDelta>(list).copied().unwrap_or_default();
-        assert_eq!(sd.dy, Fixed::ZERO, "residue should be consumed");
-    }
-
-    /// Negative sub-pixel deltas must quantise toward zero, not floor.
-    /// `Fixed::to_int` is arithmetic-shift floor (`-0.5 → -1`); using
-    /// it here would emit a `RegionShift.dy = +1` and leave a `+0.5`
-    /// residue with the wrong sign, so the next frame's `+0.5` input
-    /// would cancel it instead of accumulating. `trunc_to_int` keeps
-    /// the residue sign-aligned with the original delta.
-    #[test]
-    fn negative_sub_pixel_delta_quantises_toward_zero_not_floor() {
-        let mut world = World::new();
-        let root = spawn_widget(&mut world, None, px_style(128, 128));
-        world.insert(root, Dirty);
-        let list = spawn_widget(&mut world, Some(root), px_style(128, 100));
-        world.insert(
-            list,
-            ScrollOffset {
-                x: Fixed::ZERO,
-                y: Fixed::ZERO,
-            },
-        );
-        let neg_half = Fixed::ZERO - (Fixed::from_int(1) / Fixed::from_int(2));
-        world.insert(
-            list,
-            ScrollDelta {
-                dx: Fixed::ZERO,
-                dy: neg_half,
-            },
-        );
-        world.insert(list, Dirty);
-        let viewport = Viewport::new(128, 128, Fixed::ONE);
-
-        // Frame 1: -0.5 truncates to 0, no shift, residue stays at -0.5.
-        let plan = collect_dirty_regions(&mut world, root, &viewport);
-        assert!(
-            plan.shifts.is_empty(),
-            "sub-pixel delta must not emit a shift, got {:?}",
-            plan.shifts
-        );
-        let sd = world.get::<ScrollDelta>(list).copied().unwrap_or_default();
-        assert_eq!(
-            sd.dy, neg_half,
-            "residue should still be -0.5 (sign-preserving), got {:?}",
-            sd.dy
-        );
-
-        // Frame 2: another -0.5 of input. Residue accumulates to -1.0
-        // and emits one integer shift.
-        if let Some(sd) = world.get_mut::<ScrollDelta>(list) {
-            sd.dy += neg_half;
-        }
-        world.insert(list, Dirty);
-        let plan = collect_dirty_regions(&mut world, root, &viewport);
-        assert_eq!(
-            plan.shifts.len(),
-            1,
-            "two halves should accumulate to one whole pixel"
-        );
-        assert_eq!(
-            plan.shifts[0].dy,
-            Fixed::from_int(1),
-            "ScrollDelta.dy = -1 → RegionShift.dy = +1 (sign-flipped framebuffer shift)"
-        );
-        let sd = world.get::<ScrollDelta>(list).copied().unwrap_or_default();
-        assert_eq!(sd.dy, Fixed::ZERO, "residue should be cleanly consumed");
-    }
-
-    #[test]
-    fn negative_sub_pixel_delta_three_frame_accumulation() {
-        // Three -0.4 frames must accumulate over -1.2 total: shift -1
-        // emitted on frame 3 with residue -0.2 carrying into frame 4.
-        // Pins the residue-preserving direction so a future change
-        // can't silently revert to floor and pass the simpler 2-frame
-        // test by skipping a beat.
-        let mut world = World::new();
-        let root = spawn_widget(&mut world, None, px_style(128, 128));
-        world.insert(root, Dirty);
-        let list = spawn_widget(&mut world, Some(root), px_style(128, 100));
-        world.insert(
-            list,
-            ScrollOffset {
-                x: Fixed::ZERO,
-                y: Fixed::ZERO,
-            },
-        );
-        let neg_two_fifths = Fixed::ZERO - (Fixed::from_int(2) / Fixed::from_int(5));
-        let viewport = Viewport::new(128, 128, Fixed::ONE);
-
-        let mut shift_total = Fixed::ZERO;
-        for _frame in 0..3 {
-            if let Some(sd) = world.get_mut::<ScrollDelta>(list) {
-                sd.dy += neg_two_fifths;
-            } else {
-                world.insert(
-                    list,
-                    ScrollDelta {
-                        dx: Fixed::ZERO,
-                        dy: neg_two_fifths,
-                    },
-                );
-            }
-            world.insert(list, Dirty);
-            let plan = collect_dirty_regions(&mut world, root, &viewport);
-            for s in &plan.shifts {
-                shift_total += s.dy;
+    fn fractional_scroll_repaints_or_blits_whole_physical_pixels_without_residue() {
+        for scale in [Fixed::ONE, Fixed::from_int(2)] {
+            for delta in [
+                Fixed::from_f32(-0.5),
+                Fixed::from_f32(0.25),
+                Fixed::from_f32(0.5),
+            ] {
+                let mut world = World::new();
+                let root = spawn_widget(&mut world, None, px_style(128, 128));
+                let list = spawn_widget(&mut world, Some(root), px_style(128, 100));
+                world.insert(list, ScrollOffset::default());
+                let viewport = Viewport::new(128, 128, scale);
+                world.insert(root, Dirty);
+                let _ = collect_dirty_regions(&mut world, root, &viewport);
+                for _ in 0..3 {
+                    world.get_mut::<ScrollOffset>(list).unwrap().y += delta;
+                    world.insert(
+                        list,
+                        ScrollDelta {
+                            dx: Fixed::ZERO,
+                            dy: delta,
+                        },
+                    );
+                    world.invalidate_visual(list);
+                    let plan = collect_dirty_regions(&mut world, root, &viewport);
+                    assert!(!plan.rects.is_empty());
+                    if delta.abs() * scale == Fixed::ONE {
+                        assert_eq!(plan.shifts.len(), 1);
+                        assert_eq!(plan.shifts[0].dy, -delta);
+                    } else {
+                        assert!(plan.shifts.is_empty());
+                        assert!(plan.rects.iter().any(|rect| rect.h == Fixed::from_int(100)));
+                    }
+                    assert_eq!(world.get::<ScrollDelta>(list).unwrap().dy, Fixed::ZERO);
+                }
             }
         }
-        // Three -0.4 inputs sum to -1.2. After one integer shift of
-        // +1 (sign-flipped framebuffer direction), residue should be
-        // the same -0.2 we'd get from arithmetic in Q24.8 — match the
-        // residue against an explicitly-computed reference rather
-        // than against an integer literal that ignores fixed-point
-        // rounding.
-        assert_eq!(
-            shift_total,
-            Fixed::from_int(1),
-            "expected exactly +1 cumulative shift across 3 frames",
-        );
-        let sd = world.get::<ScrollDelta>(list).copied().unwrap_or_default();
-        let expected_residue = neg_two_fifths * Fixed::from_int(3) + Fixed::from_int(1);
-        assert_eq!(
-            sd.dy, expected_residue,
-            "residue must equal the Q24.8 sum of three -0.4 inputs minus the integer shift",
-        );
-    }
-
-    #[test]
-    fn negative_sub_pixel_delta_under_hidpi_quantises_in_logical_space() {
-        // HiDPI scale=2 means a logical -0.5 input must still trunc
-        // toward zero in logical-pixel space; the 2× physical mapping
-        // is the renderer's job, not the walker's.
-        let mut world = World::new();
-        let root = spawn_widget(&mut world, None, px_style(128, 128));
-        world.insert(root, Dirty);
-        let list = spawn_widget(&mut world, Some(root), px_style(128, 100));
-        world.insert(
-            list,
-            ScrollOffset {
-                x: Fixed::ZERO,
-                y: Fixed::ZERO,
-            },
-        );
-        let neg_half = Fixed::ZERO - (Fixed::from_int(1) / Fixed::from_int(2));
-        world.insert(
-            list,
-            ScrollDelta {
-                dx: Fixed::ZERO,
-                dy: neg_half,
-            },
-        );
-        world.insert(list, Dirty);
-
-        let hidpi_viewport = Viewport::new(128, 128, Fixed::from_int(2));
-        let plan = collect_dirty_regions(&mut world, root, &hidpi_viewport);
-        assert!(
-            plan.shifts.is_empty(),
-            "sub-pixel logical delta should still produce no shift under HiDPI, got {:?}",
-            plan.shifts,
-        );
-        let sd = world.get::<ScrollDelta>(list).copied().unwrap_or_default();
-        assert_eq!(
-            sd.dy, neg_half,
-            "residue must be preserved in logical space regardless of viewport scale",
-        );
     }
 
     fn absolute_style(left: i32, top: i32, w: i32, h: i32) -> Style {

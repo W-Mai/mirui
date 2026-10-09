@@ -342,13 +342,18 @@ impl Surface for SdlGpuSurface {
                         y: y.into(),
                     });
                 }
-                Event::MouseWheel { x, y, .. } => {
-                    self.pending.push_back(InputEvent::Wheel {
-                        dx: Fixed::from(x),
-                        dy: Fixed::from(y),
-                        x: Fixed::from(self.last_mouse_x),
-                        y: Fixed::from(self.last_mouse_y),
-                    });
+                Event::MouseWheel {
+                    precise_x,
+                    precise_y,
+                    ..
+                } => {
+                    self.pending
+                        .push_back(crate::surface::sdl_events::wheel_input(
+                            precise_x,
+                            precise_y,
+                            self.last_mouse_x,
+                            self.last_mouse_y,
+                        ));
                 }
                 Event::MultiGesture {
                     d_theta,
