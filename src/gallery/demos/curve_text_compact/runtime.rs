@@ -1,8 +1,6 @@
 use super::composition::build_widgets;
 use super::geometry::{WAVE, text_path};
 use super::state::{CompactCurveMotion, CompactCurveNodes};
-#[cfg(feature = "std")]
-use crate::app::plugins::StdInstantClockPlugin;
 use crate::ecs::DeltaTimeMs;
 use crate::prelude::*;
 use crate::ui::property::prop;
@@ -52,8 +50,6 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    if app.world.resource::<MonoClock>().is_none() {
-        app.add_plugin(StdInstantClockPlugin);
-    }
+    app.compose(parent, crate::gallery::demos::clock::ensure_clock());
     install(app, parent);
 }

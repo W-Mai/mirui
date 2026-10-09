@@ -35,6 +35,8 @@ Within a `#[compose]` Rust body, resource expressions access that composition's 
 
 A composition can initialize resources without creating widgets. Gallery font registration uses `app.compose(parent, register_fonts())` to borrow the installed `FontManager` through `res!(optional FontManager).with(...)` before constructing text widgets; it does not replace the manager or require a World parameter.
 
+Optional initialization can check `res!(optional T)` and insert a default through `res!().insert(...)` after the read closure returns. The Gallery clock composition uses this pattern to preserve a host-provided `MonoClock` and its timing state.
+
 | Operation | Expression | Result |
 | --- | --- | --- |
 | Read a required resource | `res!(T).with(read)` | `read` receives `&T` |

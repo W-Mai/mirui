@@ -5,6 +5,8 @@ pub mod book_flip;
 pub mod builder_form;
 pub mod butterfly;
 pub mod clip_path;
+#[cfg(feature = "std")]
+mod clock;
 mod compact_layout;
 pub mod composite;
 pub mod cover_flow;

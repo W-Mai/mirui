@@ -9,8 +9,6 @@ use super::state::ConsoleState;
 use super::style::BG;
 #[cfg(feature = "std")]
 use super::visuals::{activity_render, backdrop_render, orbit_render, signal_render};
-#[cfg(feature = "std")]
-use crate::app::plugins::StdInstantClockPlugin;
 use crate::ecs::DeltaTimeMs;
 #[cfg(any(feature = "std", test))]
 use crate::prelude::*;
@@ -68,8 +66,8 @@ where
         .with_widget(orbit_render::view())
         .with_widget(signal_render::view())
         .with_widget(activity_render::view());
-    if run_mode == DemoRunMode::Live && app.world.resource::<MonoClock>().is_none() {
-        app.add_plugin(StdInstantClockPlugin);
+    if run_mode == DemoRunMode::Live {
+        app.compose(parent, crate::gallery::demos::clock::ensure_clock());
     }
     app.add_system(console_animation_system::system(model.clone()));
     app.compose(parent, build_widgets(model));

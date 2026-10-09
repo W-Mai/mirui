@@ -8,8 +8,6 @@ mod style;
 #[cfg(test)]
 mod tests;
 
-#[cfg(feature = "std")]
-use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 
 pub const VIEWPORT: (u16, u16) = (960, 540);
@@ -39,9 +37,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    if app.world.resource::<MonoClock>().is_none() {
-        app.add_plugin(StdInstantClockPlugin);
-    }
+    app.compose(parent, super::clock::ensure_clock());
     install(app, parent);
 }
 
