@@ -135,6 +135,7 @@ impl Default for ScrollDragState {
 }
 
 const DIRECTION_THRESHOLD: Fixed = Fixed::from_int(5);
+const WHEEL_ELASTIC_RESPONSE: Fixed = Fixed::from_ratio(5, 4);
 
 pub fn scroll_system(
     world: &mut World,
@@ -1009,12 +1010,16 @@ mod tests {
         let position = spring.as_ref().unwrap().value();
         let velocity = spring.as_ref().unwrap().velocity;
         assert!(velocity > Fixed::ZERO);
-        assert_eq!(
-            update_wheel_rebound(&mut spring, position, position - Fixed::ONE, 200.into()),
-            position
-        );
-        assert!(spring.as_ref().unwrap().velocity < velocity);
-        assert_eq!(spring.as_ref().unwrap().value(), position);
+        let mut previous_velocity = velocity;
+        for _ in 0..4 {
+            assert_eq!(
+                update_wheel_rebound(&mut spring, position, position - Fixed::ONE, 200.into()),
+                position
+            );
+            assert!(spring.as_ref().unwrap().velocity < previous_velocity);
+            assert_eq!(spring.as_ref().unwrap().value(), position);
+            previous_velocity = spring.as_ref().unwrap().velocity;
+        }
         assert_eq!(
             update_wheel_rebound(&mut spring, position, 5.into(), 200.into()),
             5.into()
@@ -1641,7 +1646,7 @@ fn update_wheel_rebound(
         slot => slot.insert(Spring::preset(position, edge, BOUNCY)),
     };
     current.position = position;
-    current.absorb_displacement(requested - position);
+    current.absorb_displacement((requested - position) * WHEEL_ELASTIC_RESPONSE);
     position
 }
 
