@@ -347,7 +347,7 @@ in [Exact backend fallback](backend-fallback.md).
 - Path edits recompute affected line lengths and invalidate placement through the same path revision.
 - Ordinary text without a `TextPath` stays on the linear shaping and rendering path.
 
-Set the registry limit before inserting paths when the application needs a fixed budget:
+Set the registry's live-path limit while it is empty. Changing this limit preserves retired ID generations and does not release slot metadata:
 
 ```rust
 app.with_path_capacity(24)?;

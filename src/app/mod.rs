@@ -546,17 +546,17 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             .or_else(|| self.text_content_failure(false))
     }
 
+    /// Set the maximum number of live paths while the registry is empty. Retired slot generations remain allocated so removed IDs cannot resolve new paths.
     pub fn with_path_capacity(
         &mut self,
         capacity: usize,
     ) -> Result<&mut Self, crate::render::path::PathStoreError> {
-        if let Some(store) = self.world.resource::<crate::render::path::PathStore>() {
-            if !store.is_empty() {
-                return Err(crate::render::path::PathStoreError::InUse { paths: store.len() });
-            }
+        if let Some(store) = self.world.resource_mut::<crate::render::path::PathStore>() {
+            store.set_capacity_if_empty(capacity)?;
+        } else {
+            self.world
+                .insert_resource(crate::render::path::PathStore::new(capacity)?);
         }
-        self.world
-            .insert_resource(crate::render::path::PathStore::new(capacity)?);
         Ok(self)
     }
 
@@ -3052,6 +3052,46 @@ mod swap_tests {
                 .as_ref()
                 .expect("swap must restore the app, never leave None");
             assert!(app.root.is_some(), "rebuilt app must have a root");
+        }
+    }
+
+    #[test]
+    fn path_capacity_changes_preserve_retired_identities_and_enforce_limits() {
+        use crate::render::path::{Path, PathStoreError};
+
+        let mut app = App::headless(32, 32);
+        app.with_path_capacity(3).unwrap();
+        let retired = core::array::from_fn::<_, 3, _>(|_| app.paths().insert(Path::new()).unwrap());
+        for id in retired {
+            app.paths().remove(id).unwrap();
+        }
+        for capacity in [0, 1, 3, 1] {
+            app.with_path_capacity(capacity).unwrap();
+            let mut current = [None; 3];
+            for slot in current.iter_mut().take(capacity) {
+                *slot = Some(app.paths().insert(Path::new()).unwrap());
+            }
+            assert_eq!(
+                app.paths().insert(Path::new()),
+                Err(PathStoreError::Full { capacity }.into())
+            );
+            for id in retired {
+                assert_eq!(
+                    app.paths().with(id, |_| ()),
+                    Err(PathStoreError::Missing(id).into())
+                );
+                assert_eq!(
+                    app.paths().edit(id, |_| ()),
+                    Err(PathStoreError::Missing(id).into())
+                );
+                assert_eq!(
+                    app.paths().remove(id).unwrap_err(),
+                    PathStoreError::Missing(id).into()
+                );
+            }
+            for id in current.into_iter().flatten() {
+                app.paths().remove(id).unwrap();
+            }
         }
     }
 

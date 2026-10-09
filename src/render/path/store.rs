@@ -106,6 +106,17 @@ impl PathStore {
         Ok(store)
     }
 
+    pub(crate) fn set_capacity_if_empty(&mut self, capacity: usize) -> Result<(), PathStoreError> {
+        if !self.is_empty() {
+            return Err(PathStoreError::InUse { paths: self.len });
+        }
+        if capacity >= NO_SLOT as usize {
+            return Err(PathStoreError::CapacityOverflow);
+        }
+        self.capacity = capacity;
+        Ok(())
+    }
+
     pub const fn capacity(&self) -> usize {
         self.capacity
     }
@@ -239,6 +250,11 @@ impl PathStore {
         &mut self,
         make: impl FnOnce(u32) -> PathSlot,
     ) -> Result<PathId, PathStoreError> {
+        if self.len >= self.capacity {
+            return Err(PathStoreError::Full {
+                capacity: self.capacity,
+            });
+        }
         if self.free != NO_SLOT {
             let slot = self.free as usize;
             let (generation, next) = match self.slots[slot] {
@@ -251,11 +267,6 @@ impl PathStore {
             return Ok(PathId {
                 slot: slot as u32,
                 generation,
-            });
-        }
-        if self.slots.len() == self.capacity {
-            return Err(PathStoreError::Full {
-                capacity: self.capacity,
             });
         }
         if self.slots.len() == self.slots.capacity() {
@@ -369,6 +380,41 @@ mod tests {
         assert_ne!(old, current);
         assert_eq!(store.get(old).unwrap_err(), PathStoreError::Missing(old));
         assert!(store.get(current).is_ok());
+    }
+
+    #[test]
+    fn capacity_changes_preserve_slots_and_fail_without_mutation() {
+        let mut store = PathStore::try_with_capacity(2).unwrap();
+        let retired = store.insert_static(STATIC_COMMANDS).unwrap();
+        assert_eq!(
+            store.set_capacity_if_empty(usize::MAX),
+            Err(PathStoreError::InUse { paths: 1 })
+        );
+        assert_eq!(store.capacity(), 2);
+        assert_eq!(store.revision(retired), Ok(None));
+        store.remove(retired).unwrap();
+        assert_eq!(
+            store.set_capacity_if_empty(usize::MAX),
+            Err(PathStoreError::CapacityOverflow)
+        );
+        assert_eq!(store.capacity(), 2);
+        let allocations = crate::test_support::tracked_allocations(|| {
+            store.set_capacity_if_empty(0).unwrap();
+            assert_eq!(
+                store.insert_static(STATIC_COMMANDS),
+                Err(PathStoreError::Full { capacity: 0 })
+            );
+            store.set_capacity_if_empty(1).unwrap();
+            let current = store.insert_static(STATIC_COMMANDS).unwrap();
+            assert_ne!(current, retired);
+            assert_eq!(
+                store.revision(retired),
+                Err(PathStoreError::Missing(retired))
+            );
+            assert_eq!(store.capacity(), 1);
+            assert_eq!(store.slots.capacity(), 2);
+        });
+        assert_eq!(allocations, 0);
     }
 
     #[test]
