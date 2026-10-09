@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 use alloc::rc::{Rc, Weak};
 use core::any::{Any, TypeId};
+use core::cell::RefCell;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 use hashbrown::HashMap;
@@ -252,6 +253,11 @@ fn record_query_dependency_change(
     }
 }
 
+struct WorldDropHook {
+    kind: TypeId,
+    callback: fn(WorldId),
+}
+
 pub struct World {
     id: WorldId,
     allocator: EntityAllocator,
@@ -259,7 +265,7 @@ pub struct World {
     resources: HashMap<TypeId, Box<dyn Any>, FxBuildHasher>,
     watched_component_types: alloc::vec::Vec<WatchedComponentType>,
     component_changes: alloc::vec::Vec<ComponentChange>,
-    drop_hooks: alloc::vec::Vec<(TypeId, fn(WorldId))>,
+    drop_hooks: RefCell<alloc::vec::Vec<WorldDropHook>>,
     lifetime: Option<Rc<()>>,
 }
 
@@ -272,7 +278,7 @@ impl Default for World {
             resources: HashMap::default(),
             watched_component_types: alloc::vec::Vec::new(),
             component_changes: alloc::vec::Vec::new(),
-            drop_hooks: alloc::vec::Vec::new(),
+            drop_hooks: RefCell::new(alloc::vec::Vec::new()),
             lifetime: Some(Rc::new(())),
         }
     }
@@ -287,14 +293,14 @@ impl World {
         Rc::downgrade(self.lifetime.as_ref().expect("World has ended"))
     }
 
-    pub(crate) fn register_drop_hook<T: 'static>(&mut self, hook: fn(WorldId)) {
+    pub(crate) fn register_drop_hook<T: 'static>(&self, hook: fn(WorldId)) {
         let kind = TypeId::of::<T>();
-        if !self
-            .drop_hooks
-            .iter()
-            .any(|(registered, _)| *registered == kind)
-        {
-            self.drop_hooks.push((kind, hook));
+        let mut drop_hooks = self.drop_hooks.borrow_mut();
+        if !drop_hooks.iter().any(|registered| registered.kind == kind) {
+            drop_hooks.push(WorldDropHook {
+                kind,
+                callback: hook,
+            });
         }
     }
 
@@ -630,8 +636,8 @@ impl World {
 impl Drop for World {
     fn drop(&mut self) {
         self.lifetime.take();
-        for (_, hook) in &self.drop_hooks {
-            hook(self.id);
+        for hook in self.drop_hooks.get_mut() {
+            (hook.callback)(self.id);
         }
     }
 }

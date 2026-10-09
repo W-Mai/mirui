@@ -421,6 +421,25 @@ impl TextureWrite<'_> {
         self.texture.as_mut().expect("active output write")
     }
 
+    pub(crate) fn differs_from_previous(&self) -> bool {
+        let Some(previous) = self.outputs.previous(self.record.entity) else {
+            return false;
+        };
+        let previous = previous.texture();
+        let current = self.texture.as_ref().expect("active output write");
+        if current.width != previous.width
+            || current.height != previous.height
+            || current.format != previous.format
+        {
+            return false;
+        }
+        let row_bytes = usize::from(current.width) * current.format.bytes_per_pixel();
+        (0..usize::from(current.height)).any(|row| {
+            current.buf.as_slice()[row * current.stride..][..row_bytes]
+                != previous.buf.as_slice()[row * previous.stride..][..row_bytes]
+        })
+    }
+
     pub(crate) fn publish(mut self) -> bool {
         self.finish(true)
     }

@@ -8,6 +8,7 @@ use alloc::collections::{BTreeMap, VecDeque};
 use alloc::rc::{Rc, Weak};
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
+use core::num::NonZeroU64;
 use core::ptr::NonNull;
 
 use crate::ecs::world::WorldId;
@@ -61,6 +62,31 @@ enum WorldAccess {
     Suppressed(WorldId),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PaintRequestCondition {
+    Always,
+    OnChange,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct VisualInvalidation {
+    owner: Option<WorldId>,
+    entity: Entity,
+    pending: Option<NonZeroU64>,
+    condition: PaintRequestCondition,
+}
+
+impl VisualInvalidation {
+    fn ready(owner: Option<WorldId>, entity: Entity) -> Self {
+        Self {
+            owner,
+            entity,
+            pending: None,
+            condition: PaintRequestCondition::Always,
+        }
+    }
+}
+
 struct Reactive {
     scope: Option<Subscriber>,
     scope_graph_consumer: Option<ConsumerKey>,
@@ -71,7 +97,8 @@ struct Reactive {
     borrowed_worlds: [Option<WorldAccess>; 8],
     model_read_only_depth: u16,
     dirty_widgets: VecDeque<(Option<WorldId>, Entity)>,
-    dirty_visual_widgets: VecDeque<(Option<WorldId>, Entity)>,
+    dirty_visual_widgets: VecDeque<VisualInvalidation>,
+    next_paint_scope: u64,
     model_visual_subscriptions: usize,
     dirty_effects: VecDeque<EffectId>,
     effects: BTreeMap<EffectId, Rc<RefCell<EffectInner>>>,
@@ -94,6 +121,7 @@ impl Reactive {
             model_read_only_depth: 0,
             dirty_widgets: VecDeque::new(),
             dirty_visual_widgets: VecDeque::new(),
+            next_paint_scope: 1,
             model_visual_subscriptions: 0,
             dirty_effects: VecDeque::new(),
             effects: BTreeMap::new(),
@@ -296,10 +324,125 @@ fn enqueue_widget(owner: Option<WorldId>, entity: Entity) {
 
 fn enqueue_visual_widget(owner: Option<WorldId>, entity: Entity) {
     with_reactive(|r| {
-        if !r.dirty_visual_widgets.contains(&(owner, entity)) {
-            r.dirty_visual_widgets.push_back((owner, entity));
+        let ready = VisualInvalidation::ready(owner, entity);
+        if !r.dirty_visual_widgets.contains(&ready) {
+            r.dirty_visual_widgets.push_back(ready);
         }
     });
+}
+
+/// Prepare additional request slots before paint callbacks run. Existing work, including other Worlds' notifications, remains resident.
+pub(crate) fn reserve_paint_requests(additional: usize) -> bool {
+    with_reactive(|r| r.dirty_visual_widgets.try_reserve(additional).is_ok())
+}
+
+/// Pending visual invalidations owned by one independently successful paint operation.
+pub(crate) struct PaintRequestScope {
+    owner: WorldId,
+    token: Option<NonZeroU64>,
+}
+
+impl PaintRequestScope {
+    pub(crate) fn new(world: &World) -> Self {
+        world.register_drop_hook::<ReactiveOwnerCleanup>(release_graph_owner);
+        let token = with_reactive(|r| {
+            let token = NonZeroU64::new(r.next_paint_scope).expect("nonzero paint scope identity");
+            r.next_paint_scope = r
+                .next_paint_scope
+                .checked_add(1)
+                .expect("paint scope identity exhausted");
+            token
+        });
+        Self {
+            owner: world.id(),
+            token: Some(token),
+        }
+    }
+
+    /// Record a request without growing the queue. A committed notification for the same entity remains independent until this operation commits.
+    pub(crate) fn request(&self, entity: Entity) -> bool {
+        self.request_with_condition(entity, PaintRequestCondition::Always)
+    }
+
+    /// Record a request that is committed only when the completed output changed.
+    pub(crate) fn request_on_change(&self, entity: Entity) -> bool {
+        self.request_with_condition(entity, PaintRequestCondition::OnChange)
+    }
+
+    fn request_with_condition(&self, entity: Entity, condition: PaintRequestCondition) -> bool {
+        let pending = VisualInvalidation {
+            owner: Some(self.owner),
+            entity,
+            pending: self.token,
+            condition,
+        };
+        with_reactive(|r| {
+            if let Some(existing) = r.dirty_visual_widgets.iter_mut().find(|entry| {
+                entry.owner == pending.owner
+                    && entry.entity == pending.entity
+                    && entry.pending == pending.pending
+            }) {
+                if condition == PaintRequestCondition::Always {
+                    existing.condition = PaintRequestCondition::Always;
+                }
+                return true;
+            }
+            if r.dirty_visual_widgets.len() == r.dirty_visual_widgets.capacity() {
+                return false;
+            }
+            r.dirty_visual_widgets.push_back(pending);
+            true
+        })
+    }
+
+    pub(crate) fn has_change_requests(&self) -> bool {
+        with_reactive(|r| {
+            r.dirty_visual_widgets.iter().any(|entry| {
+                entry.owner == Some(self.owner)
+                    && entry.pending == self.token
+                    && entry.condition == PaintRequestCondition::OnChange
+            })
+        })
+    }
+
+    pub(crate) fn commit(self) {
+        self.commit_output(false);
+    }
+
+    pub(crate) fn commit_output(mut self, changed: bool) {
+        let token = self.token.take();
+        with_reactive(|r| {
+            let queue = &mut r.dirty_visual_widgets;
+            let mut index = 0;
+            while let Some(entry) = queue.get(index).copied() {
+                if entry.owner != Some(self.owner) || entry.pending != token {
+                    index += 1;
+                    continue;
+                }
+                if entry.condition == PaintRequestCondition::OnChange && !changed {
+                    queue.remove(index);
+                    continue;
+                }
+                let ready = VisualInvalidation::ready(entry.owner, entry.entity);
+                if queue.contains(&ready) {
+                    queue.remove(index);
+                } else {
+                    queue[index] = ready;
+                    index += 1;
+                }
+            }
+        });
+    }
+}
+
+impl Drop for PaintRequestScope {
+    fn drop(&mut self) {
+        let Some(token) = self.token else { return };
+        try_with_reactive(|r| {
+            r.dirty_visual_widgets
+                .retain(|entry| entry.owner != Some(self.owner) || entry.pending != Some(token));
+        });
+    }
 }
 
 fn enqueue_effect(id: EffectId) {
@@ -398,8 +541,9 @@ fn publish_graph_source(source: SourceKey) {
                         PartitionKey::Shared => None,
                         PartitionKey::Owner { world, .. } => Some(world),
                     };
-                    if !r.dirty_visual_widgets.contains(&(owner, entity)) {
-                        r.dirty_visual_widgets.push_back((owner, entity));
+                    let ready = VisualInvalidation::ready(owner, entity);
+                    if !r.dirty_visual_widgets.contains(&ready) {
+                        r.dirty_visual_widgets.push_back(ready);
                     }
                 }
                 Subscriber::Computed(_) => unreachable!("computed filtered from graph queue"),
@@ -451,7 +595,7 @@ pub(crate) fn release_graph_owner(world: WorldId) {
         r.graph.remove_owner(world);
         r.dirty_widgets.retain(|(owner, _)| *owner != Some(world));
         r.dirty_visual_widgets
-            .retain(|(owner, _)| *owner != Some(world));
+            .retain(|entry| entry.owner != Some(world));
     });
 }
 
@@ -647,6 +791,19 @@ fn pop_widget_for(
     }
 }
 
+fn pop_visual_widget_for(
+    queue: &mut VecDeque<VisualInvalidation>,
+    world_id: WorldId,
+) -> Option<Entity> {
+    let entry = queue.pop_front().expect("queued visual widget");
+    if entry.pending.is_none() && entry.owner.is_none_or(|owner| owner == world_id) {
+        Some(entry.entity)
+    } else {
+        queue.push_back(entry);
+        None
+    }
+}
+
 /// Drain queued reactive work once per frame, after systems and before render:
 /// re-run dirty effects (which may dirty more), then mark dirty widgets. Dead
 /// entities are skipped (no reverse index; subscriber lists may retain
@@ -711,7 +868,8 @@ pub fn flush_signal_dirty(world: &mut World) {
         let pending_visual_widgets = with_reactive(|r| r.dirty_visual_widgets.len());
         let mut marked_visual_widget = false;
         for _ in 0..pending_visual_widgets {
-            let entity = with_reactive(|r| pop_widget_for(&mut r.dirty_visual_widgets, world_id));
+            let entity =
+                with_reactive(|r| pop_visual_widget_for(&mut r.dirty_visual_widgets, world_id));
             if let Some(entity) = entity {
                 marked_visual_widget = true;
                 if world.is_alive(entity) {
@@ -1646,6 +1804,313 @@ mod tests {
 
     fn entity(id: u32) -> Entity {
         Entity { id, generation: 0 }
+    }
+
+    mod paint_requests {
+        use super::*;
+
+        #[test]
+        fn pending_requests_are_deduplicated_and_flush_only_after_commit() {
+            reset();
+            let mut world = World::new();
+            let entity = world.spawn_empty();
+            assert!(reserve_paint_requests(1));
+            let scope = PaintRequestScope::new(&world);
+            assert!(scope.request(entity));
+            assert!(scope.request(entity));
+            assert_eq!(with_reactive(|r| r.dirty_visual_widgets.len()), 1);
+            flush_signal_dirty(&mut world);
+            assert!(!world.has::<VisualDirty>(entity));
+            assert_eq!(with_reactive(|r| r.dirty_visual_widgets.len()), 1);
+
+            scope.commit();
+            assert!(!world.has::<VisualDirty>(entity));
+            flush_signal_dirty(&mut world);
+            assert!(world.has::<VisualDirty>(entity));
+            assert!(!world.has::<Dirty>(entity));
+            assert!(with_reactive(|r| r.dirty_visual_widgets.is_empty()));
+        }
+
+        #[test]
+        fn ordinary_requests_upgrade_conditional_requests_without_consuming_slots() {
+            reset();
+            let mut world = World::new();
+            let first_entity = world.spawn_empty();
+            let second_entity = world.spawn_empty();
+            assert!(reserve_paint_requests(2));
+            let scope = PaintRequestScope::new(&world);
+            assert!(!scope.has_change_requests());
+            assert!(scope.request_on_change(first_entity));
+            assert!(scope.request_on_change(first_entity));
+            assert!(scope.has_change_requests());
+            assert_eq!(with_reactive(|r| r.dirty_visual_widgets.len()), 1);
+
+            assert!(scope.request(first_entity));
+            assert!(!scope.has_change_requests());
+            assert!(scope.request_on_change(first_entity));
+            assert!(!scope.has_change_requests());
+            assert!(scope.request(second_entity));
+            assert!(scope.request_on_change(second_entity));
+            assert!(!scope.has_change_requests());
+            assert_eq!(with_reactive(|r| r.dirty_visual_widgets.len()), 2);
+
+            scope.commit_output(false);
+            flush_signal_dirty(&mut world);
+            assert!(world.has::<VisualDirty>(first_entity));
+            assert!(world.has::<VisualDirty>(second_entity));
+        }
+
+        #[test]
+        fn unchanged_outputs_discard_only_their_own_conditional_requests() {
+            reset();
+            let mut world = World::new();
+            let ordinary_entity = world.spawn_empty();
+            let unchanged_entity = world.spawn_empty();
+            let successful_entity = world.spawn_empty();
+            assert!(reserve_paint_requests(6));
+            let parent = PaintRequestScope::new(&world);
+            assert!(parent.request(ordinary_entity));
+            assert!(parent.request_on_change(unchanged_entity));
+            assert!(parent.request_on_change(successful_entity));
+            let child = PaintRequestScope::new(&world);
+            assert!(!child.has_change_requests());
+            assert!(child.request_on_change(successful_entity));
+            assert!(child.has_change_requests());
+            child.commit_output(true);
+            let failed = PaintRequestScope::new(&world);
+            assert!(failed.request_on_change(unchanged_entity));
+            assert!(failed.request_on_change(successful_entity));
+            drop(failed);
+            parent.commit_output(false);
+
+            assert_eq!(with_reactive(|r| r.dirty_visual_widgets.len()), 2);
+            flush_signal_dirty(&mut world);
+            assert!(world.has::<VisualDirty>(ordinary_entity));
+            assert!(!world.has::<VisualDirty>(unchanged_entity));
+            assert!(world.has::<VisualDirty>(successful_entity));
+            assert!(with_reactive(|r| r.dirty_visual_widgets.is_empty()));
+        }
+
+        #[test]
+        fn ordinary_commit_does_not_publish_conditional_requests() {
+            reset();
+            let mut world = World::new();
+            let ordinary_entity = world.spawn_empty();
+            let conditional_entity = world.spawn_empty();
+            assert!(reserve_paint_requests(2));
+            let scope = PaintRequestScope::new(&world);
+            assert!(scope.request(ordinary_entity));
+            assert!(scope.request_on_change(conditional_entity));
+            scope.commit();
+            flush_signal_dirty(&mut world);
+            assert!(world.has::<VisualDirty>(ordinary_entity));
+            assert!(!world.has::<VisualDirty>(conditional_entity));
+            assert!(with_reactive(|r| r.dirty_visual_widgets.is_empty()));
+        }
+
+        #[test]
+        fn successful_child_survives_parent_and_sibling_failure() {
+            reset();
+            let mut world = World::new();
+            let parent_entity = world.spawn_empty();
+            let child_entity = world.spawn_empty();
+            let sibling_entity = world.spawn_empty();
+            assert!(reserve_paint_requests(5));
+            let parent = PaintRequestScope::new(&world);
+            assert!(parent.request(parent_entity));
+            assert!(parent.request(child_entity));
+            let child = PaintRequestScope::new(&world);
+            assert!(child.request(child_entity));
+            child.commit();
+            let sibling = PaintRequestScope::new(&world);
+            assert!(sibling.request(sibling_entity));
+            assert!(sibling.request(child_entity));
+            drop(sibling);
+            drop(parent);
+
+            assert_eq!(with_reactive(|r| r.dirty_visual_widgets.len()), 1);
+            flush_signal_dirty(&mut world);
+            assert!(world.has::<VisualDirty>(child_entity));
+            assert!(!world.has::<VisualDirty>(parent_entity));
+            assert!(!world.has::<VisualDirty>(sibling_entity));
+        }
+
+        #[test]
+        fn signal_notifications_remain_ready_and_independent_from_paint_requests() {
+            reset();
+            let mut world = World::new();
+            let entity = world.spawn_empty();
+            let signal = Signal::new(0);
+            let _subscription = signal.subscribe_visual_widget(world.id(), entity);
+            assert!(reserve_paint_requests(2));
+            let failed = PaintRequestScope::new(&world);
+            assert!(failed.request(entity));
+            signal.set(1);
+            drop(failed);
+            flush_signal_dirty(&mut world);
+            assert!(world.remove::<VisualDirty>(entity).is_some());
+
+            signal.set(2);
+            let successful = PaintRequestScope::new(&world);
+            assert!(successful.request(entity));
+            flush_signal_dirty(&mut world);
+            assert!(world.remove::<VisualDirty>(entity).is_some());
+            successful.commit();
+            flush_signal_dirty(&mut world);
+            assert!(world.remove::<VisualDirty>(entity).is_some());
+
+            let first = PaintRequestScope::new(&world);
+            let second = PaintRequestScope::new(&world);
+            assert!(first.request(entity));
+            assert!(second.request(entity));
+            signal.set(3);
+            first.commit();
+            second.commit();
+            assert_eq!(with_reactive(|r| r.dirty_visual_widgets.len()), 1);
+            flush_signal_dirty(&mut world);
+            assert!(world.has::<VisualDirty>(entity));
+        }
+
+        #[test]
+        fn scopes_preserve_world_and_entity_generation_boundaries() {
+            reset();
+            let mut first_world = World::new();
+            let mut second_world = World::new();
+            let first_entity = first_world.spawn_empty();
+            let second_entity = second_world.spawn_empty();
+            assert_eq!(first_entity, second_entity);
+            assert!(reserve_paint_requests(2));
+            let first = PaintRequestScope::new(&first_world);
+            let second = PaintRequestScope::new(&second_world);
+            assert!(first.request(first_entity));
+            assert!(second.request(second_entity));
+            first.commit();
+            flush_signal_dirty(&mut second_world);
+            assert!(!second_world.has::<VisualDirty>(second_entity));
+            flush_signal_dirty(&mut first_world);
+            assert!(first_world.remove::<VisualDirty>(first_entity).is_some());
+            second.commit();
+            flush_signal_dirty(&mut second_world);
+            assert!(second_world.has::<VisualDirty>(second_entity));
+
+            let retired = PaintRequestScope::new(&first_world);
+            assert!(retired.request(first_entity));
+            assert!(first_world.despawn(first_entity));
+            let replacement = first_world.spawn_empty();
+            assert_eq!(replacement.id, first_entity.id);
+            assert_ne!(replacement.generation, first_entity.generation);
+            retired.commit();
+            flush_signal_dirty(&mut first_world);
+            assert!(!first_world.has::<VisualDirty>(replacement));
+            assert!(with_reactive(|r| r.dirty_visual_widgets.is_empty()));
+        }
+
+        #[test]
+        fn owner_cleanup_removes_ready_and_pending_requests_without_touching_other_worlds() {
+            reset();
+            let mut world = World::new();
+            let mut other_world = World::new();
+            let entity = world.spawn_empty();
+            let other_entity = other_world.spawn_empty();
+            assert!(reserve_paint_requests(3));
+            let pending = PaintRequestScope::new(&world);
+            assert!(pending.request(entity));
+            let committed = PaintRequestScope::new(&world);
+            assert!(committed.request(entity));
+            committed.commit();
+            let other = PaintRequestScope::new(&other_world);
+            assert!(other.request(other_entity));
+            other.commit();
+            assert!(!has_graph_owner(world.id()));
+            assert!(!has_graph_owner(other_world.id()));
+            drop(world);
+            assert_eq!(with_reactive(|r| r.dirty_visual_widgets.len()), 1);
+            pending.commit();
+            flush_signal_dirty(&mut other_world);
+            assert!(other_world.has::<VisualDirty>(other_entity));
+            assert!(with_reactive(|r| r.dirty_visual_widgets.is_empty()));
+        }
+
+        #[test]
+        fn capacity_exhaustion_rejects_requests_without_allocating_or_losing_entries() {
+            reset();
+            let world = World::new();
+            assert!(reserve_paint_requests(1));
+            let capacity = with_reactive(|r| r.dirty_visual_widgets.capacity());
+            let scope = PaintRequestScope::new(&world);
+            let allocations = crate::test_support::tracked_allocations(|| {
+                for index in 0..capacity {
+                    assert!(scope.request(entity(index as u32)));
+                }
+                assert!(scope.request(entity(0)));
+                assert!(!scope.request(entity(capacity as u32)));
+            });
+            assert_eq!(allocations, 0);
+            assert_eq!(with_reactive(|r| r.dirty_visual_widgets.len()), capacity);
+            assert!(!reserve_paint_requests(usize::MAX));
+            assert_eq!(with_reactive(|r| r.dirty_visual_widgets.len()), capacity);
+            drop(scope);
+            assert!(with_reactive(|r| r.dirty_visual_widgets.is_empty()));
+        }
+
+        #[test]
+        fn warmed_scopes_commit_cancel_and_flush_without_allocating() {
+            reset();
+            let mut world = World::new();
+            let first_entity = world.spawn_empty();
+            let second_entity = world.spawn_empty();
+            drop(PaintRequestScope::new(&world));
+            world.reserve_component_storage::<VisualDirty>(second_entity.id, 2);
+            assert!(reserve_paint_requests(4));
+            flush_signal_dirty(&mut world);
+            let allocations = crate::test_support::tracked_allocations(|| {
+                for _ in 0..16 {
+                    let parent = PaintRequestScope::new(&world);
+                    assert!(parent.request_on_change(first_entity));
+                    assert!(parent.request(second_entity));
+                    let child = PaintRequestScope::new(&world);
+                    assert!(child.request_on_change(second_entity));
+                    assert!(child.has_change_requests());
+                    assert!(child.request(second_entity));
+                    assert!(!child.has_change_requests());
+                    child.commit_output(true);
+                    drop(parent);
+                    flush_signal_dirty(&mut world);
+                    assert!(!world.has::<VisualDirty>(first_entity));
+                    assert!(world.remove::<VisualDirty>(second_entity).is_some());
+
+                    let unchanged = PaintRequestScope::new(&world);
+                    assert!(unchanged.request_on_change(first_entity));
+                    assert!(unchanged.request(second_entity));
+                    unchanged.commit_output(false);
+                    flush_signal_dirty(&mut world);
+                    assert!(!world.has::<VisualDirty>(first_entity));
+                    assert!(world.remove::<VisualDirty>(second_entity).is_some());
+                }
+            });
+            assert_eq!(allocations, 0);
+        }
+
+        #[test]
+        fn unwinding_a_scope_discards_only_its_unpublished_requests() {
+            reset();
+            let mut world = World::new();
+            let failed_entity = world.spawn_empty();
+            let successful_entity = world.spawn_empty();
+            assert!(reserve_paint_requests(2));
+            let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let failed = PaintRequestScope::new(&world);
+                assert!(failed.request(failed_entity));
+                let successful = PaintRequestScope::new(&world);
+                assert!(successful.request(successful_entity));
+                successful.commit();
+                panic!("paint operation failed");
+            }));
+            assert!(failure.is_err());
+            flush_signal_dirty(&mut world);
+            assert!(!world.has::<VisualDirty>(failed_entity));
+            assert!(world.has::<VisualDirty>(successful_entity));
+        }
     }
 
     fn drain_effects() {

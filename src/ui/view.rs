@@ -22,6 +22,14 @@ use crate::ui::outputs::workspace::PaintWorkspace;
 use crate::ui::outputs::{OutputDependency, relations::OutputRelations};
 use crate::ui::theme::WidgetState;
 
+#[derive(Clone, Copy, Default)]
+pub(crate) enum FrameRequest {
+    #[default]
+    None,
+    Next,
+    IfOutputChanged,
+}
+
 /// Drawing context supplied to one [`ViewRender`] invocation.
 pub struct PaintCtx<'frame> {
     renderer: &'frame mut dyn Renderer,
@@ -35,6 +43,7 @@ pub struct PaintCtx<'frame> {
     error: Option<RenderError>,
     workspace: Option<&'frame PaintWorkspace>,
     layout_offset: Point,
+    frame_request: FrameRequest,
 }
 
 impl<'frame> PaintCtx<'frame> {
@@ -59,11 +68,27 @@ impl<'frame> PaintCtx<'frame> {
             error: None,
             workspace: None,
             layout_offset: Point::new(0, 0),
+            frame_request: FrameRequest::None,
         }
     }
 
     pub fn style(&self) -> &Style {
         self.style
+    }
+
+    /// Request one more paint after this output or main-target drawing batch succeeds. Repeated requests for the same entity coalesce; failed drawing discards its requests. State and dependency changes already invalidate their Views without this call.
+    pub fn request_frame(&mut self) {
+        self.frame_request = FrameRequest::Next;
+    }
+
+    pub(crate) fn request_frame_on_change(&mut self) {
+        if matches!(self.frame_request, FrameRequest::None) {
+            self.frame_request = FrameRequest::IfOutputChanged;
+        }
+    }
+
+    pub(crate) fn frame_request(&self) -> FrameRequest {
+        self.frame_request
     }
 
     pub(crate) fn set_workspace(&mut self, workspace: &'frame PaintWorkspace) {

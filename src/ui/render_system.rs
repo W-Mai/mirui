@@ -1,3 +1,4 @@
+use crate::core::reactive::PaintRequestScope;
 use crate::ecs::{Entity, World};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::renderer::{DrawRequest, FallbackRegion, RenderError, RenderRoute, Renderer};
@@ -12,11 +13,14 @@ use alloc::vec::Vec;
 use super::dirty::{DirtyRegions, RegionShift};
 use super::state::{InteractionState, UserState};
 use super::theme::WidgetState;
-use super::view::{PaintCtx, ViewRegistry};
+use super::view::{FrameRequest, PaintCtx, ViewRegistry};
 use super::{Children, Parent, Style, Widget};
 use super::{Outputs, WidgetTexture};
 
 pub(crate) mod output_plan;
+
+#[cfg(test)]
+mod paint_request_tests;
 
 /// Stage at which a text widget failed to prepare its layout.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -1253,6 +1257,7 @@ fn draw_tree_offset(
     parent_transform: &Transform,
     parent_transform_3d: &Transform3D,
     output_plan: Option<&output_plan::TexturePlan>,
+    requests: &PaintRequestScope,
 ) -> Result<(), RenderError> {
     let shifted_rect = Rect {
         x: node.rect.x - offset_x,
@@ -1402,7 +1407,7 @@ fn draw_tree_offset(
                         ctx.set_workspace(&plan.workspace);
                     }
                     ctx.set_layout_offset(Point::new(offset_x, offset_y));
-                    render_views(world, entity, &mut ctx)
+                    render_views(world, entity, &mut ctx, requests)
                 };
                 if let Some(error) = scoped.error {
                     return Err(error);
@@ -1415,7 +1420,7 @@ fn draw_tree_offset(
                     ctx.set_workspace(&plan.workspace);
                 }
                 ctx.set_layout_offset(Point::new(offset_x, offset_y));
-                render_views(world, entity, &mut ctx)?;
+                render_views(world, entity, &mut ctx, requests)?;
             }
         }
     }
@@ -1456,12 +1461,18 @@ fn draw_tree_offset(
             &tf,
             &tf_3d,
             output_plan,
+            requests,
         )?;
     }
     Ok(())
 }
 
-fn render_views(world: &World, entity: Entity, ctx: &mut PaintCtx<'_>) -> Result<(), RenderError> {
+fn render_views(
+    world: &World,
+    entity: Entity,
+    ctx: &mut PaintCtx<'_>,
+    requests: &PaintRequestScope,
+) -> Result<(), RenderError> {
     let Some(registry) = world.resource::<ViewRegistry>() else {
         return Ok(());
     };
@@ -1479,6 +1490,14 @@ fn render_views(world: &World, entity: Entity, ctx: &mut PaintCtx<'_>) -> Result
         if let Some(error) = ctx.error() {
             return Err(error);
         }
+    }
+    let recorded = match ctx.frame_request() {
+        FrameRequest::None => true,
+        FrameRequest::Next => requests.request(entity),
+        FrameRequest::IfOutputChanged => requests.request_on_change(entity),
+    };
+    if !recorded {
+        return Err(RenderError::MissingWorkspace);
     }
     Ok(())
 }
@@ -1835,6 +1854,7 @@ fn prepare_offscreen(
     let Some(mut write) = outputs.prepare_texture(key) else {
         return Ok(false);
     };
+    let requests = PaintRequestScope::new(world);
     let texture = write.texture_mut();
 
     {
@@ -1870,7 +1890,7 @@ fn prepare_offscreen(
                 ctx.set_workspace(&plan.workspace);
             }
             ctx.set_layout_offset(Point::new(inner_offset_x, inner_offset_y));
-            render_views(world, entity, &mut ctx)?;
+            render_views(world, entity, &mut ctx, &requests)?;
         }
         *idx += 1;
 
@@ -1899,12 +1919,18 @@ fn prepare_offscreen(
                 &Transform::IDENTITY,
                 &Transform3D::IDENTITY,
                 output_plan,
+                &requests,
             )?;
         }
         Canvas::flush(&mut inner);
     }
 
-    Ok(write.publish())
+    let changed = requests.has_change_requests() && write.differs_from_previous();
+    let published = write.publish();
+    if published {
+        requests.commit_output(changed);
+    }
+    Ok(published)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2018,6 +2044,7 @@ fn render_full_with(
     logical_h: u16,
     renderer: &mut dyn Renderer,
 ) -> Result<(), RenderError> {
+    let requests = prepare_paint_requests(world)?;
     let clip = Rect {
         x: Fixed::ZERO,
         y: Fixed::ZERO,
@@ -2039,9 +2066,18 @@ fn render_full_with(
         &Transform::IDENTITY,
         &Transform3D::IDENTITY,
         prepared.as_ref().map(|prepared| &prepared.plan),
+        &requests,
     )?;
     output_plan::acknowledge(world, entities);
+    requests.commit();
     Ok(())
+}
+
+pub(crate) fn prepare_paint_requests(world: &World) -> Result<PaintRequestScope, RenderError> {
+    if !crate::core::reactive::reserve_paint_requests(world.live_entity_count()) {
+        return Err(RenderError::MissingWorkspace);
+    }
+    Ok(PaintRequestScope::new(world))
 }
 
 fn reconcile_layout_snapshot(
@@ -2199,6 +2235,20 @@ pub fn render_region(
     dirty_rect: &Rect,
     renderer: &mut dyn Renderer,
 ) -> Result<(), RenderError> {
+    let requests = prepare_paint_requests(world)?;
+    render_region_in_batch(world, root, transform, dirty_rect, renderer, &requests)?;
+    requests.commit();
+    Ok(())
+}
+
+pub(crate) fn render_region_in_batch(
+    world: &World,
+    root: Entity,
+    transform: &Viewport,
+    dirty_rect: &Rect,
+    renderer: &mut dyn Renderer,
+    requests: &PaintRequestScope,
+) -> Result<(), RenderError> {
     super::offscreen::reconcile_texture_outputs(world);
     let _outputs_batch = world
         .resource::<Outputs<WidgetTexture>>()
@@ -2214,6 +2264,7 @@ pub fn render_region(
             &snapshot.entities,
             dirty_rect,
             renderer,
+            requests,
         );
     }
     let Some(mut layout_tree) =
@@ -2230,7 +2281,14 @@ pub fn render_region(
     );
     let mut entities = Vec::new();
     collect_entities_preorder(world, root, &mut entities);
-    render_region_with(world, &layout_tree, &entities, dirty_rect, renderer)
+    render_region_with(
+        world,
+        &layout_tree,
+        &entities,
+        dirty_rect,
+        renderer,
+        requests,
+    )
 }
 
 pub(crate) fn acknowledge_rendered_outputs(world: &World) {
@@ -2252,6 +2310,7 @@ pub(crate) fn render_region_cached(
     snapshot: &LayoutSnapshot,
     dirty_rect: &Rect,
     renderer: &mut dyn Renderer,
+    requests: &PaintRequestScope,
 ) -> Result<(), RenderError> {
     let _outputs_batch = world
         .resource::<Outputs<WidgetTexture>>()
@@ -2262,6 +2321,7 @@ pub(crate) fn render_region_cached(
         &snapshot.entities,
         dirty_rect,
         renderer,
+        requests,
     )
 }
 
@@ -2271,6 +2331,7 @@ fn render_region_with(
     entities: &[Entity],
     dirty_rect: &Rect,
     renderer: &mut dyn Renderer,
+    requests: &PaintRequestScope,
 ) -> Result<(), RenderError> {
     let prepared = output_plan::prepare(world, layout_tree, entities, renderer)?;
 
@@ -2289,6 +2350,7 @@ fn render_region_with(
             &Transform::IDENTITY,
             &Transform3D::IDENTITY,
             prepared.as_ref().map(|prepared| &prepared.plan),
+            requests,
         )?;
     }
     Ok(())
@@ -8659,7 +8721,9 @@ mod scroll_plan_check {
             .resource::<LayoutSnapshot>()
             .expect("snapshot present after dirty walk");
         let mut cached_out = Recorder(std::vec::Vec::new());
-        render_region_cached(&world, snap, &dirty_rect, &mut cached_out).unwrap();
+        let requests = prepare_paint_requests(&world).unwrap();
+        render_region_cached(&world, snap, &dirty_rect, &mut cached_out, &requests).unwrap();
+        requests.commit();
 
         let mut fresh_out = Recorder(std::vec::Vec::new());
         render_region(&world, root, &viewport, &dirty_rect, &mut fresh_out).unwrap();

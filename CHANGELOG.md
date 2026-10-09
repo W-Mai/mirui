@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `paint.request_frame()` schedules a visual update after successful output publication or main-target drawing. Failed drawing cancels its own requests; completed outputs retain theirs across downstream failures.
 - **Component output dependencies.** `#[depends_on(T)]` declares current-output sources, and `#[retain_previous(T)]` requests owner history. View registration activates declarations; source edits, component removal, and entity retirement reconcile requests without changing explicit offscreen settings or consumer transforms. Mirror, shadow, glow, and temporal effects use these declarations.
 - **Borrowed widget outputs.** `Outputs<WidgetTexture>` exposes completed pixels through `get(entity)` and owner-retained history through `previous(entity)`. Results publish after successful rendering, reuse pixel storage, and reject requests beyond the total stored and in-progress pixel budget before allocating pixels. Ordinary outputs use one slot; `TemporalMix` retains its own successful output across drawing batches.
 - **Automatic LazyList cells.** `CreateCell` constructs retained cells through event blocks, typed callbacks, and builders. The observed `ListItem.index()` updates reactive content during reuse. Lists manage their own pools, support horizontal and vertical extents, suspend inactive cell bindings, and cancel stale cell interactions. Gallery lists and snapshot tools use the same lifecycle.
@@ -36,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- TemporalMix uses typed View parameters and the shared pixel workspace. Blending requests further frames only until convergence, including quantized channel values, while frozen and unavailable outputs remain idle.
 - Shadow and glow rendering use typed View parameters and the shared, budgeted pixel workspace. Published widget textures include logical geometry; effects retain their size at reduced source resolution and their position inside nested captures.
 - Mirror rendering uses typed View parameters and a reusable pixel workspace. Output pixels and the reflection workspace share one byte budget; fixed-size updates reuse storage without per-paint allocation.
 - Widget outputs are prepared in dependency order, including nested captures and dependencies inside captured subtrees. Full and dirty rendering share prepared results across damage regions. Cyclic dependencies skip affected output callbacks; successful consumers acknowledge published versions without an extra redraw. All widget outputs use local transparent RGBA pixels; `OffscreenAlphaMode` and parent-target initialization are removed.

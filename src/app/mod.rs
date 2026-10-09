@@ -559,7 +559,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
-    /// Set the widget output storage's byte budget. The budget must cover concurrently needed current outputs, retained history, writable slots, and the shared Mirror/Shadow/Glow workspace. A 128×64 RGBA texture occupies 32 KiB. Pass `0` to disable output storage; explicit `OffscreenRender` entities then fall through to inline rendering.
+    /// Set the widget output storage's byte budget. The budget must cover concurrently needed current outputs, retained history, writable slots, and the shared Mirror/Shadow/Glow/TemporalMix workspace. A 128×64 RGBA texture occupies 32 KiB. Pass `0` to disable output storage; explicit `OffscreenRender` entities then fall through to inline rendering.
     ///
     /// Replaces the existing output storage, so configure it before constructing widgets that request retained history or rendering an [`crate::ui::OffscreenRender`] entity.
     pub fn with_offscreen_pool_budget(&mut self, budget_bytes: usize) -> &mut Self {
@@ -935,6 +935,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             .reserve_component_storage::<crate::ui::dirty::Dirty>(
                 max_entity_id,
                 live_entities.saturating_sub(current),
+            );
+        let visual = self
+            .world
+            .storage::<crate::ui::dirty::VisualDirty>()
+            .map_or(0, |storage| storage.len());
+        self.world
+            .reserve_component_storage::<crate::ui::dirty::VisualDirty>(
+                max_entity_id,
+                live_entities.saturating_sub(visual),
             );
         self.dirty_reserved_slots = slots;
         self.dirty_reserved_live_entities = live_entities;
@@ -1412,6 +1421,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                     .insert_resource(crate::ui::render_system::LastDirtyRegions(plan.clone()));
             }
             let render_result = (|| {
+                let requests = render_system::prepare_paint_requests(&self.world)?;
                 let _outputs_batch = self
                     .world
                     .resource::<Outputs<WidgetTexture>>()
@@ -1423,7 +1433,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 let snapshot = self
                     .world
                     .resource::<crate::ui::render_system::LayoutSnapshot>();
-                if root_hidden {
+                let result = if root_hidden {
                     clear_hidden_root(&self.world, &transform, &mut renderer);
                     Ok(())
                 } else if plan.prefers_split_redraw() {
@@ -1435,14 +1445,16 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                                 snapshot,
                                 rect,
                                 &mut renderer,
+                                &requests,
                             )
                         } else {
-                            render_system::render_region(
+                            render_system::render_region_in_batch(
                                 &self.world,
                                 root,
                                 &transform,
                                 rect,
                                 &mut renderer,
+                                &requests,
                             )
                         };
                         if result.is_err() {
@@ -1462,19 +1474,24 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                             snapshot,
                             &union_rect,
                             &mut renderer,
+                            &requests,
                         )
                     } else {
-                        render_system::render_region(
+                        render_system::render_region_in_batch(
                             &self.world,
                             root,
                             &transform,
                             &union_rect,
                             &mut renderer,
+                            &requests,
                         )
                     }
                 } else {
                     Ok(())
-                }
+                };
+                result?;
+                requests.commit();
+                Ok(())
             })();
 
             drop(renderer);

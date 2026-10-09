@@ -5,6 +5,7 @@
 //!     -- /tmp/effect-snap.ppm
 //! ```
 
+use mirui::gallery::demos::effect_panels::{ColorFlash, animate_color_flash};
 use mirui::prelude::*;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::{Color, Dimension, Fixed, Transform};
@@ -50,25 +51,6 @@ fn animate_x(animations: query!(Entity, mut AnimX), commands: commands!()) {
             WidgetTransform(Transform::translate(tx, Fixed::ZERO)),
         );
         commands.insert(entity, Dirty);
-    }
-}
-
-#[mirui::component]
-struct ColorFlash {
-    frame: u32,
-}
-
-#[mirui::system(order = Animation)]
-fn animate_color_flash(flashes: query!(mut ColorFlash, mut Style)) {
-    for (flash, style) in flashes {
-        flash.frame = flash.frame.wrapping_add(1);
-        let phase = (flash.frame / 60) % 3;
-        let color = match phase {
-            0 => Color::rgb(220, 60, 60),
-            1 => Color::rgb(60, 200, 80),
-            _ => Color::rgb(40, 140, 220),
-        };
-        style.bg_color = Some(color.into());
     }
 }
 
