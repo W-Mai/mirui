@@ -33,6 +33,41 @@ fn build_widgets_smoke() {
 }
 
 #[test]
+fn composition_installs_a_timeline_for_its_gesture_target() {
+    use crate::input::event::sim::{SimTimeline, sim_timeline_system};
+    use crate::types::Viewport;
+    use crate::ui::render_system::update_layout;
+    use core::cell::Cell;
+
+    std::thread_local! {
+        static NOW_MS: Cell<u64> = const { Cell::new(0) };
+    }
+    fn now_ns() -> u64 {
+        NOW_MS.with(Cell::get) * 1_000_000
+    }
+
+    let mut app = App::headless(480, 360);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    let model = app.add_model(super::state::PinchModel::default());
+    app.compose(root, super::composition::build_widgets(model.clone()));
+    assert_eq!(
+        app.world.resource::<SimTimeline>().unwrap().total_ms,
+        13_800
+    );
+
+    app.add_resource(MonoClock::new(now_ns));
+    update_layout(&mut app.world, root, &Viewport::new(480, 360, Fixed::ONE));
+    for now in (0..=10_000).step_by(50) {
+        NOW_MS.with(|clock| clock.set(now));
+        sim_timeline_system(&mut app.world).unwrap();
+    }
+    assert!(model.status().pinch_events > 0);
+    assert!(model.status().rotate_events > 0);
+    assert!(app.world.resource::<SimTimeline>().unwrap().is_running());
+}
+
+#[test]
 fn pinch_updates_target_and_status() {
     let mut app = fixture(super::DEFAULT_VIEW.0, super::DEFAULT_VIEW.1);
     let target = app.world.find_by_id("pinch_target").expect("target id");

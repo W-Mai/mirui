@@ -354,6 +354,7 @@ split_demo_sources! {
         parts: [
             "state.rs",
             "gesture.rs",
+            "simulation.rs",
             "composition.rs",
             "runtime.rs",
             "tests.rs",

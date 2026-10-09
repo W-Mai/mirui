@@ -5,6 +5,8 @@ mod gesture;
 #[cfg(feature = "std")]
 mod runtime;
 #[cfg(any(feature = "std", test))]
+mod simulation;
+#[cfg(any(feature = "std", test))]
 mod state;
 
 #[cfg(test)]

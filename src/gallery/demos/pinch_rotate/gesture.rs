@@ -1,3 +1,4 @@
+use super::simulation::gesture_timeline;
 use super::state::{PinchModel, PinchTarget};
 use crate::prelude::*;
 use crate::ui::icons::ICON_PLUS;
@@ -10,7 +11,7 @@ const BASE_H: i32 = 120;
 #[compose]
 pub(super) fn pinch_target(model: model!(PinchModel)) -> Entity {
     //~focus-start
-    ui! {
+    let target = ui! {
         View (
             id: "pinch_target",
             width: BASE_W,
@@ -33,6 +34,8 @@ pub(super) fn pinch_target(model: model!(PinchModel)) -> Entity {
                 width: Dimension::percent(100)
             )
         } on Pinch { model.apply_pinch(event.scale_delta); } on Rotate { model.apply_rotation(event.angle); }
-    }
+    };
+    res!().insert(gesture_timeline(target));
+    target
     //~focus-end
 }

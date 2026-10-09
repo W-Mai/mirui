@@ -37,6 +37,8 @@ A composition can initialize resources without creating widgets. Gallery font re
 
 Optional initialization can check `res!(optional T)` and insert a default through `res!().insert(...)` after the read closure returns. The Gallery clock composition uses this pattern to preserve a host-provided `MonoClock` and its timing state.
 
+A composition can use the entity returned by `ui!` to initialize node-targeted resources before returning that entity. PinchRotate creates its gesture target, installs a `SimTimeline` anchored to it through `res!().insert(...)`, and returns the target for ordinary child composition. Simulation system and clock registration stay in the outer setup.
+
 | Operation | Expression | Result |
 | --- | --- | --- |
 | Read a required resource | `res!(T).with(read)` | `read` receives `&T` |
