@@ -559,7 +559,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
-    /// Set the widget output storage's byte budget. The budget must cover concurrently needed current outputs, retained history, writable slots, and the shared reflection workspace. A 128×64 RGBA texture occupies 32 KiB. Pass `0` to disable output storage; explicit `OffscreenRender` entities then fall through to inline rendering.
+    /// Set the widget output storage's byte budget. The budget must cover concurrently needed current outputs, retained history, writable slots, and the shared Mirror/Shadow/Glow workspace. A 128×64 RGBA texture occupies 32 KiB. Pass `0` to disable output storage; explicit `OffscreenRender` entities then fall through to inline rendering.
     ///
     /// Replaces the existing output storage, so configure it before constructing widgets that request retained history or rendering an [`crate::ui::OffscreenRender`] entity.
     pub fn with_offscreen_pool_budget(&mut self, budget_bytes: usize) -> &mut Self {

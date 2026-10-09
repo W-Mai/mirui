@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Shadow and glow rendering use typed View parameters and the shared, budgeted pixel workspace. Published widget textures include logical geometry; effects retain their size at reduced source resolution and their position inside nested captures.
 - Mirror rendering uses typed View parameters and a reusable pixel workspace. Output pixels and the reflection workspace share one byte budget; fixed-size updates reuse storage without per-paint allocation.
 - Widget outputs are prepared in dependency order, including nested captures and dependencies inside captured subtrees. Full and dirty rendering share prepared results across damage regions. Cyclic dependencies skip affected output callbacks; successful consumers acknowledge published versions without an extra redraw. All widget outputs use local transparent RGBA pixels; `OffscreenAlphaMode` and parent-target initialization are removed.
 - Wheel displacement uses logical pixels across Web, WGPU, SDL, and integer device adapters. Web honors pixel, line, and page units; pixel deltas follow CSS or window scaling once. Subpixel motion is retained through backend conversion, and wheel input keeps platform momentum without additional inertia.
@@ -76,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- RGBA integer-scale blits preserve straight-alpha colors when compositing into transparent targets.
 - Offscreen textures become readable only after successful rendering. Source preparation no longer writes to the parent target, and a failed subtree leaves completed sources intact.
 - Mutable component access records entity changes so registered View bindings follow the final component value.
 - Pointer and wheel scrolling share elastic resistance, content-velocity tracking, and released motion. Continuous input controls the content at both resting and moving boundaries.

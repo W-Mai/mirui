@@ -44,7 +44,7 @@ impl Point {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct Rect {
     pub x: Fixed,
     pub y: Fixed,

@@ -7,6 +7,8 @@ use crate::ui::outputs::workspace::PaintWorkspace;
 use core::any::TypeId;
 
 #[cfg(test)]
+mod drop_effect_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod workspace_tests;
@@ -144,7 +146,7 @@ impl TexturePlan {
             .any(|capture| capture.entity == entity && capture.state == CaptureState::Ready)
     }
 
-    fn output_layout(&self, entity: Entity) -> Option<PlaneLayout> {
+    fn output_layout(&self, entity: Entity) -> Option<(PlaneLayout, Rect)> {
         let capture = self
             .captures
             .iter()
@@ -155,7 +157,11 @@ impl TexturePlan {
         {
             return None;
         }
-        PlaneLayout::packed(capture.key.w, capture.key.h, capture.key.format).ok()
+        let plane = PlaneLayout::packed(capture.key.w, capture.key.h, capture.key.format).ok()?;
+        Some((
+            plane,
+            Rect::new(0, 0, capture.key.layout_rect.w, capture.key.layout_rect.h),
+        ))
     }
 
     fn measure_workspace(&mut self, world: &World, entities: &[Entity]) -> usize {

@@ -34,6 +34,7 @@ pub struct PaintCtx<'frame> {
     background_handled: bool,
     error: Option<RenderError>,
     workspace: Option<&'frame PaintWorkspace>,
+    layout_offset: Point,
 }
 
 impl<'frame> PaintCtx<'frame> {
@@ -57,6 +58,7 @@ impl<'frame> PaintCtx<'frame> {
             background_handled: false,
             error: None,
             workspace: None,
+            layout_offset: Point::new(0, 0),
         }
     }
 
@@ -66,6 +68,18 @@ impl<'frame> PaintCtx<'frame> {
 
     pub(crate) fn set_workspace(&mut self, workspace: &'frame PaintWorkspace) {
         self.workspace = Some(workspace);
+    }
+
+    pub(crate) fn set_layout_offset(&mut self, offset: Point) {
+        self.layout_offset = offset;
+    }
+
+    pub(crate) fn map_layout_rect(&self, rect: Rect) -> Rect {
+        Rect {
+            x: rect.x - self.layout_offset.x,
+            y: rect.y - self.layout_offset.y,
+            ..rect
+        }
     }
 
     pub(crate) fn with_workspace(
@@ -463,7 +477,7 @@ struct ViewPaint {
 }
 
 pub(crate) type WorkspaceMeasure =
-    fn(&World, Entity, &dyn Fn(Entity) -> Option<PlaneLayout>) -> Option<PlaneLayout>;
+    fn(&World, Entity, &dyn Fn(Entity) -> Option<(PlaneLayout, Rect)>) -> Option<PlaneLayout>;
 
 /// Widget-kind descriptor with optional painting and independent behavior hooks.
 pub struct View {
@@ -1611,6 +1625,7 @@ mod tests {
                     h: 2,
                     format: ColorFormat::RGBA8888,
                     generation,
+                    layout_rect: Rect::new(0, 0, 2, 2),
                 })
                 .expect("output write");
             assert!(write.publish());

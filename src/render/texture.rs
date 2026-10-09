@@ -165,6 +165,32 @@ pub enum AlphaMode {
     Blend,
 }
 
+#[inline(always)]
+pub(crate) fn blend_straight_source_over(source: &Color, destination: &Color, alpha: u8) -> Color {
+    if alpha == 0 {
+        return *destination;
+    }
+    if alpha == 255 {
+        return Color { a: 255, ..*source };
+    }
+    let source_alpha = u32::from(alpha);
+    let inverse = 255 - source_alpha;
+    let destination_alpha = u32::from(destination.a);
+    let denominator = source_alpha * 255 + destination_alpha * inverse;
+    let channel = |source: u8, destination: u8| {
+        ((u32::from(source) * source_alpha * 255
+            + u32::from(destination) * destination_alpha * inverse
+            + denominator / 2)
+            / denominator) as u8
+    };
+    Color {
+        r: channel(source.r, destination.r),
+        g: channel(source.g, destination.g),
+        b: channel(source.b, destination.b),
+        a: ((denominator + 127) / 255) as u8,
+    }
+}
+
 /// Pixel storage sampled with nearest-neighbor filtering when blitted.
 /// Glyph coverage and SDF atlases use their own interpolating samplers.
 pub struct Texture<'a> {
@@ -519,20 +545,7 @@ impl<'a> Texture<'a> {
                 b: blend(color.b, dst.b),
                 a: 255,
             },
-            AlphaMode::Blend => {
-                let dst_a = u32::from(dst.a);
-                let denominator = aa * 255 + dst_a * ia;
-                let channel = |src: u8, dst: u8| {
-                    ((u32::from(src) * aa * 255 + u32::from(dst) * dst_a * ia + denominator / 2)
-                        / denominator) as u8
-                };
-                Color {
-                    r: channel(color.r, dst.r),
-                    g: channel(color.g, dst.g),
-                    b: channel(color.b, dst.b),
-                    a: ((denominator + 127) / 255) as u8,
-                }
-            }
+            AlphaMode::Blend => blend_straight_source_over(color, &dst, a),
         };
         self.set_pixel(x, y, &out);
     }

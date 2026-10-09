@@ -1401,6 +1401,7 @@ fn draw_tree_offset(
                     if let Some(plan) = output_plan {
                         ctx.set_workspace(&plan.workspace);
                     }
+                    ctx.set_layout_offset(Point::new(offset_x, offset_y));
                     render_views(world, entity, &mut ctx)
                 };
                 if let Some(error) = scoped.error {
@@ -1413,6 +1414,7 @@ fn draw_tree_offset(
                 if let Some(plan) = output_plan {
                     ctx.set_workspace(&plan.workspace);
                 }
+                ctx.set_layout_offset(Point::new(offset_x, offset_y));
                 render_views(world, entity, &mut ctx)?;
             }
         }
@@ -1867,6 +1869,7 @@ fn prepare_offscreen(
             if let Some(plan) = output_plan {
                 ctx.set_workspace(&plan.workspace);
             }
+            ctx.set_layout_offset(Point::new(inner_offset_x, inner_offset_y));
             render_views(world, entity, &mut ctx)?;
         }
         *idx += 1;
@@ -7861,6 +7864,7 @@ mod offscreen_render_check {
             h: 32,
             format: ColorFormat::RGBA8888,
             generation: 0,
+            layout_rect: Rect::new(0, 0, 32, 32),
         };
         let same = BufferKey {
             entity: Entity {
@@ -7871,6 +7875,7 @@ mod offscreen_render_check {
             h: 32,
             format: ColorFormat::RGBA8888,
             generation: 0,
+            layout_rect: Rect::new(0, 0, 32, 32),
         };
         assert_eq!(k, same);
     }

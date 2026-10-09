@@ -1,6 +1,7 @@
 use super::BufferKey;
 use crate::ecs::Entity;
 use crate::render::texture::{ColorFormat, Texture};
+use crate::types::{Fixed, Rect};
 use crate::ui::outputs::{
     HistoryOutput, Output, Outputs,
     private::{HistoryKind, OutputKind},
@@ -12,14 +13,30 @@ use hashbrown::HashMap;
 /// The completed pixel output of a widget subtree.
 pub struct WidgetTexture;
 
-/// A shared borrow of completed widget pixels.
+/// A shared borrow of completed widget pixels and their published logical geometry.
 pub struct WidgetTextureRead<'a> {
     texture: Ref<'a, Texture<'static>>,
+    layout_rect: Rect,
 }
 
 impl WidgetTextureRead<'_> {
     pub fn texture(&self) -> &Texture<'static> {
         &self.texture
+    }
+
+    /// Source rectangle in root layout coordinates, excluding scrolling and external transforms.
+    pub fn layout_rect(&self) -> Rect {
+        self.layout_rect
+    }
+
+    /// Logical bounds relative to the source layout origin, without visual overflow.
+    pub fn local_bounds(&self) -> Rect {
+        Rect {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: self.layout_rect.w,
+            h: self.layout_rect.h,
+        }
     }
 }
 
@@ -70,7 +87,10 @@ impl Output for WidgetTexture {
             storage.textures.get(&record.entity)?.planes[record.slot].as_ref()
         })
         .ok()
-        .map(|texture| WidgetTextureRead { texture })
+        .map(|texture| WidgetTextureRead {
+            texture,
+            layout_rect: record.key.layout_rect,
+        })
     }
 }
 
@@ -194,11 +214,17 @@ impl Outputs<WidgetTexture> {
         {
             return None;
         }
-        if storage
+        let logical_size_changed = self.state(key.entity).is_some_and(|state| {
+            state.current.or(state.previous).is_some_and(|published| {
+                let previous = published.record.key.layout_rect;
+                previous.w != key.layout_rect.w || previous.h != key.layout_rect.h
+            })
+        });
+        let pixel_shape_changed = storage
             .textures
             .get(&key.entity)
-            .is_some_and(|slots| slots.shape != shape)
-        {
+            .is_some_and(|slots| slots.shape != shape);
+        if pixel_shape_changed {
             let old = storage.textures.remove(&key.entity)?;
             storage.allocated -= old
                 .planes
@@ -206,8 +232,12 @@ impl Outputs<WidgetTexture> {
                 .flatten()
                 .map(|plane| plane.buf.as_slice().len())
                 .sum::<usize>();
+        }
+        if pixel_shape_changed || logical_size_changed {
             self.reset(key.entity);
         }
+        // Geometry changes invalidate current even when generation is unchanged.
+        self.invalidate(key.entity);
         self.prepare(key.entity, key.generation as u64).ok()?;
         let state = self.state(key.entity)?;
         let slot = if state.retained {
@@ -455,10 +485,167 @@ mod tests {
     fn key(id: u32, generation: u32) -> BufferKey {
         BufferKey {
             entity: Entity { id, generation: 0 },
+            layout_rect: Rect {
+                w: Fixed::from_int(4),
+                h: Fixed::from_int(4),
+                ..Rect::ZERO
+            },
             w: 4,
             h: 4,
             format: ColorFormat::RGBA8888,
             generation,
+        }
+    }
+
+    #[test]
+    fn geometry_belongs_to_successful_pixels_and_position_changes_preserve_history() {
+        let outputs = Outputs::<WidgetTexture>::with_budget(2 * TEXTURE_BYTES);
+        let entity = key(1, 1).entity;
+        let original = BufferKey::for_widget(
+            entity,
+            Rect {
+                x: Fixed::from_int(11) + Fixed::HALF,
+                y: Fixed::from_int(-7),
+                w: Fixed::from_int(8) + Fixed::HALF,
+                h: Fixed::from_int(8) + Fixed::ONE / 4,
+            },
+            super::super::OffscreenRender::with_scale(Fixed::HALF),
+            1,
+        );
+        let moved = BufferKey {
+            layout_rect: Rect {
+                x: original.layout_rect.x + Fixed::from_int(19),
+                y: original.layout_rect.y - Fixed::HALF,
+                ..original.layout_rect
+            },
+            ..original
+        };
+        let local_bounds = Rect {
+            w: original.layout_rect.w,
+            h: original.layout_rect.h,
+            ..Rect::ZERO
+        };
+        let original_color = Color::rgb(17, 31, 47);
+        let moved_color = Color::rgb(53, 71, 97);
+        outputs.reserve(1).unwrap();
+        outputs.set_retained(entity, true).unwrap();
+        {
+            let _batch = outputs.begin_batch();
+            let mut write = outputs.prepare_texture(original).unwrap();
+            write.texture_mut().set_pixel(0, 0, &original_color);
+            assert!(write.publish());
+            let read = outputs.get(entity).unwrap();
+            assert_eq!(read.layout_rect(), original.layout_rect);
+            assert_eq!(read.local_bounds(), local_bounds);
+            assert_eq!((read.texture().width, read.texture().height), (4, 4));
+        }
+        let _batch = outputs.begin_batch();
+        assert!(outputs.texture_matches(original));
+        assert!(!outputs.texture_matches(moved));
+        assert!(outputs.reserve_texture(moved));
+        assert!(outputs.get(entity).is_none());
+        {
+            let previous = outputs.previous(entity).unwrap();
+            assert_eq!(previous.layout_rect(), original.layout_rect);
+            assert_eq!(previous.local_bounds(), local_bounds);
+            assert_eq!(previous.texture().get_pixel(0, 0), original_color);
+        }
+
+        let mut cancelled = outputs.prepare_texture(moved).unwrap();
+        cancelled.texture_mut().set_pixel(0, 0, &moved_color);
+        drop(cancelled);
+        assert!(outputs.get(entity).is_none());
+        assert_eq!(
+            outputs.previous(entity).unwrap().layout_rect(),
+            original.layout_rect
+        );
+
+        let mut write = outputs.prepare_texture(moved).unwrap();
+        write.texture_mut().set_pixel(0, 0, &moved_color);
+        assert!(write.publish());
+        assert!(outputs.texture_matches(moved));
+        assert!(!outputs.texture_matches(original));
+        let read = outputs.get(entity).unwrap();
+        assert_eq!(read.layout_rect(), moved.layout_rect);
+        assert_eq!(read.local_bounds(), local_bounds);
+        assert_eq!(read.texture().get_pixel(0, 0), moved_color);
+        let previous = outputs.previous(entity).unwrap();
+        assert_eq!(previous.layout_rect(), original.layout_rect);
+        assert_eq!(previous.local_bounds(), local_bounds);
+        assert_eq!(previous.texture().get_pixel(0, 0), original_color);
+        assert_eq!(outputs.storage().allocated, 2 * TEXTURE_BYTES);
+    }
+
+    #[test]
+    fn logical_size_changes_clear_history_without_reallocating_unchanged_pixel_shape() {
+        for change_width in [true, false] {
+            let outputs = Outputs::<WidgetTexture>::with_budget(2 * TEXTURE_BYTES);
+            let entity = key(1, 1).entity;
+            let original = BufferKey::for_widget(
+                entity,
+                Rect {
+                    x: Fixed::from_int(3),
+                    y: Fixed::from_int(5),
+                    w: Fixed::from_int(4) + Fixed::ONE / 4,
+                    h: Fixed::from_int(4) + Fixed::ONE / 4,
+                },
+                super::super::OffscreenRender::default(),
+                2,
+            );
+            outputs.reserve(1).unwrap();
+            outputs.set_retained(entity, true).unwrap();
+            for generation in [1, 2] {
+                let _batch = outputs.begin_batch();
+                assert!(
+                    outputs
+                        .prepare_texture(BufferKey {
+                            generation,
+                            ..original
+                        })
+                        .unwrap()
+                        .publish()
+                );
+            }
+            let mut resized_rect = original.layout_rect;
+            if change_width {
+                resized_rect.w += Fixed::ONE / 4;
+            } else {
+                resized_rect.h += Fixed::ONE / 4;
+            }
+            let resized = BufferKey::for_widget(
+                entity,
+                resized_rect,
+                super::super::OffscreenRender::default(),
+                original.generation,
+            );
+            assert_eq!((resized.w, resized.h), (original.w, original.h));
+            let _batch = outputs.begin_batch();
+            assert!(outputs.previous(entity).is_some());
+            assert!(!outputs.texture_matches(resized));
+
+            let allocations = tracked_allocations(|| {
+                assert!(outputs.reserve_texture(resized));
+                assert!(outputs.get(entity).is_none());
+                assert!(outputs.previous(entity).is_none());
+                assert!(outputs.state(entity).unwrap().retained);
+                drop(outputs.prepare_texture(resized).unwrap());
+                assert!(outputs.get(entity).is_none());
+                assert!(outputs.previous(entity).is_none());
+                assert!(outputs.prepare_texture(resized).unwrap().publish());
+                let read = outputs.get(entity).unwrap();
+                assert_eq!(read.layout_rect(), resized_rect);
+                assert_eq!(
+                    read.local_bounds(),
+                    Rect {
+                        w: resized_rect.w,
+                        h: resized_rect.h,
+                        ..Rect::ZERO
+                    }
+                );
+                assert!(outputs.previous(entity).is_none());
+            });
+            assert_eq!(allocations, 0);
+            assert_eq!(outputs.storage().allocated, 2 * TEXTURE_BYTES);
         }
     }
 

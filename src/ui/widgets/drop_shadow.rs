@@ -1,9 +1,10 @@
 use crate::ecs::{Entity, World};
+use crate::render::PlaneLayout;
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::sw::blur::{alpha_for_radius, iir_blur_inplace};
-use crate::render::texture::{ColorFormat, TexBuf, Texture};
-use crate::types::{Fixed, Point};
-use crate::ui::offscreen::WidgetTexture;
+use crate::render::texture::{AlphaMode, ColorFormat, Texture};
+use crate::types::{Color, Fixed, Fixed64, Point, Rect};
+use crate::ui::offscreen::{WidgetTexture, WidgetTextureRead};
 use crate::ui::outputs::Outputs;
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::view::{PaintCtx, View};
@@ -50,16 +51,21 @@ impl DropShadow {
     }
 }
 
-fn drop_shadow_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    let Some(shadow) = world.get::<DropShadow>(entity) else {
+#[crate::view(component = DropShadow, name = "DropShadow", priority = 60)]
+fn drop_shadow_render(
+    shadow: component!(),
+    outputs: res!(Outputs<WidgetTexture>),
+    theme: res!(crate::ui::Theme),
+    paint: paint!(),
+) {
+    let Some(source) = outputs.get(shadow.source) else {
         return;
     };
     render_drop_effect(
-        world,
-        shadow.source,
+        &source,
         shadow.blur_radius,
         shadow.offset,
-        shadow.color,
+        shadow.color.resolve(theme),
         shadow.opacity,
         CompositeMode::SourceOver,
         paint,
@@ -67,113 +73,180 @@ fn drop_shadow_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
 }
 
 pub fn view() -> View {
-    View::new("DropShadow", 60, drop_shadow_render).with_filter::<DropShadow>()
+    drop_shadow_render::view().with_workspace(shadow_workspace)
 }
 
-#[allow(clippy::too_many_arguments)]
-fn render_drop_effect(
+fn shadow_workspace(
     world: &World,
-    source: Entity,
+    entity: Entity,
+    source_layout: &dyn Fn(Entity) -> Option<(PlaneLayout, Rect)>,
+) -> Option<PlaneLayout> {
+    let shadow = world.get::<DropShadow>(entity)?;
+    let (source, bounds) = source_layout(shadow.source)?;
+    effect_plane(source, bounds, shadow.blur_radius, shadow.offset).map(|plane| plane.layout)
+}
+
+struct EffectPlane {
+    layout: PlaneLayout,
+    padding: (u16, u16),
+    bounds: Rect,
+    alpha: (Fixed, Fixed),
+}
+
+fn checked_fixed(value: Fixed64) -> Option<Fixed> {
+    (value >= Fixed64::from_fixed(Fixed::MIN) && value <= Fixed64::from_fixed(Fixed::MAX))
+        .then(|| value.to_fixed())
+}
+
+fn ceil_positive(value: Fixed64) -> i64 {
+    let floor = value.to_int();
+    floor + i64::from(value > Fixed64::from_int(floor))
+}
+
+fn effect_plane(
+    source: PlaneLayout,
+    bounds: Rect,
     blur_radius: Fixed,
     offset: (Fixed, Fixed),
-    color: ThemedColor,
+) -> Option<EffectPlane> {
+    if source.format() != ColorFormat::RGBA8888 || blur_radius <= Fixed::ZERO {
+        return None;
+    }
+    let radius = Fixed64::from_fixed(blur_radius);
+    let offset = Fixed64::from_fixed(offset.0)
+        .abs()
+        .max(Fixed64::from_fixed(offset.1).abs());
+    let padding = Fixed64::from_int(ceil_positive(radius) + ceil_positive(offset));
+    let axis = |pixels: u16, logical: Fixed| -> Option<(u16, Fixed, Fixed, Fixed)> {
+        if pixels == 0 || logical <= Fixed::ZERO {
+            return None;
+        }
+        let logical = Fixed64::from_fixed(logical);
+        let pixels_fixed = Fixed64::from_int(i64::from(pixels));
+        let scaled_padding = padding.mul_wide(pixels_fixed);
+        let limit = Fixed64::from_int(i64::from((u16::MAX - pixels) / 2));
+        // Bound the quotient before dividing, including subpixel logical sizes.
+        if scaled_padding > limit.mul_wide(logical) {
+            return None;
+        }
+        let floor = scaled_padding.div_wide(logical).to_int();
+        let pad = u16::try_from(
+            floor + i64::from(Fixed64::from_int(floor).mul_wide(logical) < scaled_padding),
+        )
+        .ok()?;
+        let logical_pad = logical
+            .mul_wide(Fixed64::from_int(i64::from(pad)))
+            .div_wide(pixels_fixed);
+        Some((
+            pad,
+            checked_fixed(logical_pad)?,
+            checked_fixed(logical + logical_pad + logical_pad)?,
+            alpha_for_radius(checked_fixed(
+                radius.mul_wide(pixels_fixed).div_wide(logical),
+            )?),
+        ))
+    };
+    let (pad_x, inset_x, width, alpha_x) = axis(source.width(), bounds.w)?;
+    let (pad_y, inset_y, height, alpha_y) = axis(source.height(), bounds.h)?;
+    Some(EffectPlane {
+        layout: PlaneLayout::packed(
+            source.width().checked_add(pad_x.checked_mul(2)?)?,
+            source.height().checked_add(pad_y.checked_mul(2)?)?,
+            ColorFormat::RGBA8888,
+        )
+        .ok()?,
+        padding: (pad_x, pad_y),
+        bounds: Rect::new(-inset_x, -inset_y, width, height),
+        alpha: (alpha_x, alpha_y),
+    })
+}
+
+fn blur_effect(texture: &mut Texture<'_>, alpha: (Fixed, Fixed)) {
+    let width = texture.width;
+    let height = texture.height;
+    if alpha.0 == alpha.1 {
+        let bounds = Rect::new(0, 0, width, height);
+        iir_blur_inplace(texture, alpha.0, bounds);
+    } else {
+        for y in 0..height {
+            iir_blur_inplace(texture, alpha.0, Rect::new(0, y, width, 1));
+        }
+        for x in 0..width {
+            iir_blur_inplace(texture, alpha.1, Rect::new(x, 0, 1, height));
+        }
+    }
+}
+
+fn render_drop_effect(
+    output: &WidgetTextureRead<'_>,
+    blur_radius: Fixed,
+    offset: (Fixed, Fixed),
+    color: Color,
     opacity: u8,
     composite: CompositeMode,
     paint: &mut PaintCtx<'_>,
 ) {
-    if blur_radius <= Fixed::ZERO {
-        return;
-    }
-    let Some(output) = world
-        .resource::<Outputs<WidgetTexture>>()
-        .and_then(|outputs| outputs.get(source))
-    else {
+    let src = output.texture();
+    let Ok(source_layout) = PlaneLayout::packed(src.width, src.height, src.format) else {
         return;
     };
-    let src = output.texture();
-
-    let theme = world
-        .resource::<crate::ui::Theme>()
-        .expect("App::new must insert Theme; missing means a test fixture skipped App");
-    let resolved = color.resolve(theme);
-    let r = resolved.r;
-    let g = resolved.g;
-    let b = resolved.b;
-
-    let padding = blur_radius.ceil() + offset.0.abs().max(offset.1.abs()).ceil();
-    let pad_i = padding.to_int().max(0) as u16;
-
-    let src_w = src.width;
-    let src_h = src.height;
-    let dst_w = src_w + 2 * pad_i;
-    let dst_h = src_h + 2 * pad_i;
-    if dst_w == 0 || dst_h == 0 {
+    let bounds = output.local_bounds();
+    let Some(plane) = effect_plane(source_layout, bounds, blur_radius, offset) else {
         return;
-    }
-
-    let mut work = Texture::owned(dst_w, dst_h, ColorFormat::RGBA8888);
-    if let TexBuf::Owned(ref mut buf) = work.buf {
-        for b in buf.iter_mut() {
-            *b = 0;
-        }
-        let dst_stride = dst_w as usize * 4;
+    };
+    let source_rect = output.layout_rect();
+    let origin = |layout: Fixed, local: Fixed, offset: Fixed, inset: Fixed| {
+        checked_fixed(
+            Fixed64::from_fixed(layout)
+                + Fixed64::from_fixed(local)
+                + Fixed64::from_fixed(offset)
+                + Fixed64::from_fixed(inset),
+        )
+    };
+    let (Some(x), Some(y)) = (
+        origin(source_rect.x, bounds.x, offset.0, plane.bounds.x),
+        origin(source_rect.y, bounds.y, offset.1, plane.bounds.y),
+    ) else {
+        return;
+    };
+    let rect = paint.map_layout_rect(Rect::new(x, y, plane.bounds.w, plane.bounds.h));
+    paint.with_workspace(plane.layout, |work, paint| {
+        work.alpha_mode = AlphaMode::Blend;
+        work.transient = true;
+        let dst_stride = work.stride;
         let src_stride = src.stride;
-        match src.format {
-            ColorFormat::RGBA8888 => {
-                for y in 0..src_h {
-                    let si = (y as usize) * src_stride;
-                    let di = ((y + pad_i) as usize) * dst_stride + (pad_i as usize) * 4;
-                    let copy_len = (src_w as usize) * 4;
-                    buf[di..di + copy_len].copy_from_slice(&src.buf.as_slice()[si..si + copy_len]);
-                }
-            }
-            _ => return,
+        let buf = work.buf.as_mut_slice();
+        buf.fill(0);
+        for y in 0..usize::from(src.height) {
+            let si = y * src_stride;
+            let di =
+                (y + usize::from(plane.padding.1)) * dst_stride + usize::from(plane.padding.0) * 4;
+            let copy_len = usize::from(src.width) * 4;
+            buf[di..di + copy_len].copy_from_slice(&src.buf.as_slice()[si..si + copy_len]);
         }
-    }
-
-    let alpha = alpha_for_radius(blur_radius);
-    {
-        let r = crate::types::Rect::new(
-            crate::types::Fixed::ZERO,
-            crate::types::Fixed::ZERO,
-            crate::types::Fixed::from_int(work.width as i32),
-            crate::types::Fixed::from_int(work.height as i32),
-        );
-        iir_blur_inplace(&mut work, alpha, r);
-    }
-
-    if let TexBuf::Owned(ref mut buf) = work.buf {
-        let stride = dst_w as usize * 4;
-        for y in 0..dst_h {
-            for x in 0..dst_w {
-                let i = (y as usize) * stride + (x as usize) * 4;
+        blur_effect(work, plane.alpha);
+        let buf = work.buf.as_mut_slice();
+        for y in 0..usize::from(work.height) {
+            for x in 0..usize::from(work.width) {
+                let i = y * dst_stride + x * 4;
                 let a = buf[i + 3] as u32;
                 let tinted_a = (a * opacity as u32 / 255).min(255) as u8;
-                buf[i] = r;
-                buf[i + 1] = g;
-                buf[i + 2] = b;
+                buf[i] = color.r;
+                buf[i + 1] = color.g;
+                buf[i + 2] = color.b;
                 buf[i + 3] = tinted_a;
             }
         }
-    }
-
-    let src_rect = world
-        .get::<crate::ui::ComputedRect>(source)
-        .map(|c| c.0)
-        .unwrap_or_else(|| paint.transform().apply_rect_bbox(paint.rect()));
-
-    let blit_x = src_rect.x + offset.0 - Fixed::from_int(pad_i as i32);
-    let blit_y = src_rect.y + offset.1 - Fixed::from_int(pad_i as i32);
-
-    paint.draw(&DrawCommand::Blit {
-        pos: Point::new(blit_x, blit_y),
-        size: Point::new(Fixed::from_int(dst_w as i32), Fixed::from_int(dst_h as i32)),
-        transform: paint.transform(),
-        quad: None,
-        texture: &work,
-        opa: 255,
-        radius: Fixed::ZERO,
-        composite,
+        paint.draw(&DrawCommand::Blit {
+            pos: Point::new(rect.x, rect.y),
+            size: Point::new(rect.w, rect.h),
+            transform: paint.transform(),
+            quad: None,
+            texture: work,
+            opa: 255,
+            radius: Fixed::ZERO,
+            composite,
+        });
     });
 }
 
@@ -212,16 +285,21 @@ impl DropGlow {
     }
 }
 
-fn drop_glow_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
-    let Some(glow) = world.get::<DropGlow>(entity) else {
+#[crate::view(component = DropGlow, name = "DropGlow", priority = 60)]
+fn drop_glow_render(
+    glow: component!(),
+    outputs: res!(Outputs<WidgetTexture>),
+    theme: res!(crate::ui::Theme),
+    paint: paint!(),
+) {
+    let Some(source) = outputs.get(glow.source) else {
         return;
     };
     render_drop_effect(
-        world,
-        glow.source,
+        &source,
         glow.blur_radius,
         (Fixed::ZERO, Fixed::ZERO),
-        glow.color,
+        glow.color.resolve(theme),
         glow.opacity,
         CompositeMode::Screen,
         paint,
@@ -229,7 +307,18 @@ fn drop_glow_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
 }
 
 pub fn glow_view() -> View {
-    View::new("DropGlow", 60, drop_glow_render).with_filter::<DropGlow>()
+    drop_glow_render::view().with_workspace(glow_workspace)
+}
+
+fn glow_workspace(
+    world: &World,
+    entity: Entity,
+    source_layout: &dyn Fn(Entity) -> Option<(PlaneLayout, Rect)>,
+) -> Option<PlaneLayout> {
+    let glow = world.get::<DropGlow>(entity)?;
+    let (source, bounds) = source_layout(glow.source)?;
+    effect_plane(source, bounds, glow.blur_radius, (Fixed::ZERO, Fixed::ZERO))
+        .map(|plane| plane.layout)
 }
 
 #[cfg(test)]
@@ -239,6 +328,98 @@ mod tests {
     use crate::types::Transform;
     use crate::ui::widgets::WidgetTransform;
     use crate::ui::{OffscreenRender, ViewRegistry};
+
+    #[test]
+    fn effect_planes_preserve_logical_extents_at_each_pixel_density() {
+        for pixels in [4, 8, 16] {
+            let source = PlaneLayout::packed(pixels, pixels, ColorFormat::RGBA8888).unwrap();
+            let plane = effect_plane(
+                source,
+                Rect::new(0, 0, 8, 8),
+                Fixed::from_int(2),
+                (Fixed::from_int(-2), Fixed::from_int(1)),
+            )
+            .unwrap();
+            assert_eq!(plane.layout.width(), pixels * 2);
+            assert_eq!(plane.layout.height(), pixels * 2);
+            assert_eq!(plane.bounds, Rect::new(-4, -4, 16, 16));
+            assert_eq!(plane.padding, (pixels / 2, pixels / 2));
+            assert_eq!(
+                plane.alpha.0,
+                alpha_for_radius(Fixed::from_ratio(pixels.into(), 4))
+            );
+            assert_eq!(plane.alpha.0, plane.alpha.1);
+        }
+
+        let source = PlaneLayout::packed(4, 2, ColorFormat::RGBA8888).unwrap();
+        let plane = effect_plane(
+            source,
+            Rect::new(0, 0, 8, 8),
+            Fixed::from_int(2),
+            (Fixed::from_int(-1), Fixed::ONE),
+        )
+        .unwrap();
+        assert_eq!(plane.padding, (2, 1));
+        assert_eq!(plane.bounds, Rect::new(-4, -4, 16, 16));
+        assert_eq!(
+            plane.alpha,
+            (alpha_for_radius(Fixed::ONE), alpha_for_radius(Fixed::HALF))
+        );
+    }
+
+    #[test]
+    fn effect_planes_reject_unrepresentable_padding_and_empty_sources() {
+        let source = PlaneLayout::packed(8, 8, ColorFormat::RGBA8888).unwrap();
+        for (bounds, radius, offset) in [
+            (
+                Rect::new(0, 0, 8, 8),
+                Fixed::MAX,
+                (Fixed::ZERO, Fixed::ZERO),
+            ),
+            (Rect::new(0, 0, 8, 8), Fixed::ONE, (Fixed::MIN, Fixed::ZERO)),
+            (
+                Rect::new(0, 0, Fixed::MAX, 8),
+                Fixed::ONE,
+                (Fixed::ZERO, Fixed::ZERO),
+            ),
+            (
+                Rect::new(0, 0, 0, 8),
+                Fixed::ONE,
+                (Fixed::ZERO, Fixed::ZERO),
+            ),
+        ] {
+            assert!(effect_plane(source, bounds, radius, offset).is_none());
+        }
+        let empty = PlaneLayout::packed(0, 8, ColorFormat::RGBA8888).unwrap();
+        assert!(
+            effect_plane(
+                empty,
+                Rect::new(0, 0, 8, 8),
+                Fixed::ONE,
+                (Fixed::ZERO, Fixed::ZERO)
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn effect_planes_accept_valid_shapes_with_wide_intermediate_values() {
+        let source = PlaneLayout::packed(8192, 8192, ColorFormat::RGBA8888).unwrap();
+        let plane = effect_plane(
+            source,
+            Rect::new(0, 0, 1_048_576, 1_048_576),
+            Fixed::from_int(1_048_576),
+            (Fixed::ZERO, Fixed::ZERO),
+        )
+        .unwrap();
+        assert_eq!(plane.padding, (8192, 8192));
+        assert_eq!(plane.layout.width(), 24576);
+        assert_eq!(plane.layout.height(), 24576);
+        assert_eq!(
+            plane.bounds,
+            Rect::new(-1_048_576, -1_048_576, 3_145_728, 3_145_728)
+        );
+    }
 
     #[crate::compose]
     fn effect_sources() {

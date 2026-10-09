@@ -1,14 +1,14 @@
 //! Retained widget output pixels. [`OffscreenRender`] renders an entity's subtree into a buffer sized at `ComputedRect × scale`, then composites the completed buffer at the entity's full rectangle. A scale below one reduces the buffer resolution; group opacity applies during composition.
 //!
-//! [`Outputs<WidgetTexture>`](crate::ui::Outputs) owns the pixel storage and published records for complete entity identities. The internal input key includes size, format, and dirty generation. An unchanged key reuses a completed result; rebuilding a same-size output reuses its allocated pixel slot.
+//! [`Outputs<WidgetTexture>`](crate::ui::Outputs) owns the pixel storage and published records for complete entity identities. The internal input key includes the source layout rectangle, pixel size, format, and dirty generation. An unchanged key reuses a completed result; rebuilding a same-size output reuses its allocated pixel slot.
 //!
 //! A texture becomes readable only after its subtree renders successfully. Preparing a referenced source does not composite it into the parent target; the main tree traversal determines composition order. An unfinished or failed write is unavailable through `get`, and failure of another output does not discard an already completed result.
 //!
-//! Typed callbacks read the resource with `textures: res!(Outputs<WidgetTexture>)`. `textures.get(entity)` returns a borrowed [`WidgetTextureRead`], whose `texture()` method exposes the completed CPU texture. Reads do not produce pixels or register a source dependency. [`App::snapshot_widget`](crate::app::App::snapshot_widget) provides an owned pixel copy when a result must outlive that borrow.
+//! Typed callbacks read the resource with `textures: res!(Outputs<WidgetTexture>)`. `textures.get(entity)` returns a borrowed [`WidgetTextureRead`] with the completed CPU texture, source layout rectangle, and local logical bounds from the same publication. The layout rectangle excludes scrolling and external transforms; local bounds cover the source's logical width and height without visual overflow. Reads do not produce pixels or register a source dependency. [`App::snapshot_widget`](crate::app::App::snapshot_widget) provides an owned pixel copy when a result must outlive that borrow.
 //!
-//! Outputs use one pixel slot by default. An owner that explicitly requests history, such as [`TemporalMix`](crate::ui::widgets::TemporalMix), uses two slots and reads its own frozen result through `previous(entity)`. History is the last successful output at the start of the drawing batch, remains fixed across dirty regions, and is independent of input-generation gaps. A first output or an owner without history has no previous result; incompatible dimensions or format clear old history.
+//! Outputs use one pixel slot by default. An owner that explicitly requests history, such as [`TemporalMix`](crate::ui::widgets::TemporalMix), uses two slots and reads its own frozen result through `previous(entity)`. History is the last successful output at the start of the drawing batch, remains fixed across dirty regions, and is independent of input-generation gaps. A first output or an owner without history has no previous result; changed logical dimensions, pixel dimensions, or format clear old history. Moving the source preserves its local history.
 //!
-//! The pixel budget includes retained slots, detached in-progress write buffers, and the shared reflection workspace. A request that exceeds it is rejected before allocating pixels, and other outputs remain resident. Metadata and other filters' scratch storage are additional costs. The default budget is zero; [`App::with_offscreen_pool_budget`](crate::app::App::with_offscreen_pool_budget) configures it before widget construction.
+//! The pixel budget includes retained slots, detached in-progress write buffers, and the shared Mirror/Shadow/Glow workspace. A request that exceeds it is rejected before allocating pixels, and other outputs remain resident. Metadata and other filters' scratch storage are additional costs. The default budget is zero; [`App::with_offscreen_pool_budget`](crate::app::App::with_offscreen_pool_budget) configures it before widget construction.
 //!
 //! # Usage
 //!
@@ -45,7 +45,7 @@
 
 use crate::ecs::{Entity, World};
 use crate::render::texture::ColorFormat;
-use crate::types::Fixed;
+use crate::types::{Fixed, Rect};
 
 /// Mark an entity for offscreen rendering. Insert / remove to toggle.
 ///
@@ -103,10 +103,11 @@ pub struct OffscreenGeneration(pub u32);
 
 impl crate::ecs::Component for OffscreenGeneration {}
 
-/// Input identity for one widget texture. Entity identity, pixel dimensions, format, and content generation determine whether the published result can be reused; historical output selection is independent of this key.
+/// Input identity for one widget texture. Entity identity, source layout rectangle, pixel dimensions, format, and content generation determine whether the published result can be reused; historical output selection is independent of this key.
 #[derive(Hash, PartialEq, Eq, Clone, Copy, Debug)]
 pub(crate) struct BufferKey {
     pub entity: Entity,
+    pub layout_rect: Rect,
     pub w: u16,
     pub h: u16,
     pub format: ColorFormat,
@@ -116,7 +117,7 @@ pub(crate) struct BufferKey {
 impl BufferKey {
     pub(crate) fn for_widget(
         entity: Entity,
-        rect: crate::types::Rect,
+        rect: Rect,
         offscreen: OffscreenRender,
         generation: u32,
     ) -> Self {
@@ -125,6 +126,7 @@ impl BufferKey {
         let height = Fixed::from_int(rect.h.to_int().max(1)) * scale;
         Self {
             entity,
+            layout_rect: rect,
             w: if rect.w > Fixed::ZERO {
                 width.to_int().max(1).min(u16::MAX as i32) as u16
             } else {
@@ -191,6 +193,11 @@ mod tests {
     fn texture_key(id: u32, generation: u32) -> BufferKey {
         BufferKey {
             entity: dummy_entity(id),
+            layout_rect: Rect {
+                w: Fixed::from_int(40),
+                h: Fixed::from_int(24),
+                ..Rect::ZERO
+            },
             w: 40,
             h: 24,
             format: ColorFormat::RGBA8888,
@@ -251,30 +258,18 @@ mod tests {
     fn buffer_key_distinguishes_entities() {
         let k1 = BufferKey {
             entity: dummy_entity(1),
-            w: 40,
-            h: 24,
-            format: ColorFormat::RGBA8888,
-            generation: 0,
+            ..texture_key(1, 0)
         };
         let k2 = BufferKey {
             entity: dummy_entity(2),
-            w: 40,
-            h: 24,
-            format: ColorFormat::RGBA8888,
-            generation: 0,
+            ..texture_key(2, 0)
         };
         assert_ne!(k1, k2);
     }
 
     #[test]
     fn buffer_key_distinguishes_generations() {
-        let k1 = BufferKey {
-            entity: dummy_entity(1),
-            w: 40,
-            h: 24,
-            format: ColorFormat::RGBA8888,
-            generation: 0,
-        };
+        let k1 = texture_key(1, 0);
         let k2 = BufferKey {
             generation: 1,
             ..k1
@@ -361,6 +356,11 @@ mod tests {
         outputs.reserve(1).expect("output metadata capacity");
         let key = BufferKey {
             entity: dummy_entity(1),
+            layout_rect: Rect {
+                w: Fixed::from_int(200),
+                h: Fixed::from_int(200),
+                ..Rect::ZERO
+            },
             w: 200,
             h: 200,
             format: ColorFormat::RGBA8888,

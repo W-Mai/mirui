@@ -39,10 +39,10 @@ fn mirror_render(mirror: component!(), outputs: res!(Outputs<WidgetTexture>), pa
 fn mirror_workspace(
     world: &World,
     entity: Entity,
-    source_layout: &dyn Fn(Entity) -> Option<PlaneLayout>,
+    source_layout: &dyn Fn(Entity) -> Option<(PlaneLayout, Rect)>,
 ) -> Option<PlaneLayout> {
     let mirror = world.get::<MirrorOf>(entity)?;
-    let source = source_layout(mirror.source)?;
+    let (source, _) = source_layout(mirror.source)?;
     match source.format() {
         ColorFormat::RGBA8888 | ColorFormat::RGB565 | ColorFormat::RGB565Swapped => {
             PlaneLayout::packed(source.width(), source.height(), ColorFormat::RGBA8888).ok()
