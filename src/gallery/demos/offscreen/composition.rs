@@ -1,4 +1,4 @@
-use super::state::{ForceDirty, FpsReadout, PanelTarget};
+use super::state::{FpsReadout, PanelTarget};
 use crate::prelude::*;
 use crate::ui::widgets::{ParagraphStyle, Text};
 
@@ -21,9 +21,6 @@ fn tile_color(idx: i32) -> ColorToken {
 
 #[compose]
 pub fn build_widgets() {
-    let root = cx.parent();
-    cx.world_mut().insert(root, ForceDirty);
-
     //~focus-start
     ui! {
         Column (

@@ -1,8 +1,8 @@
-use super::state::{ForceDirty, FpsReadout, ModeToggle, PanelTarget};
+use super::state::{FpsReadout, ModeToggle, PanelTarget};
 use crate::ecs::{Entity, FrameTimings};
-use crate::ui::OffscreenRender;
 use crate::ui::dirty::Dirty;
 use crate::ui::property::prop;
+use crate::ui::{OffscreenRender, WidgetRoot};
 
 const TOGGLE_NS: u64 = 5_000_000_000;
 pub(super) const UPDATE_EVERY: u32 = 30;
@@ -68,8 +68,7 @@ pub fn fps_readout_system(
 }
 
 #[mirui_macros::system(order = Animation)]
-pub fn force_dirty_system(targets: query!(Entity; with ForceDirty;), commands: commands!()) {
-    for entity in targets {
-        commands.insert(entity, Dirty);
-    }
+pub fn force_dirty_system(root: res!(WidgetRoot), commands: commands!()) {
+    // Redraw the window without invalidating the cached panel subtree.
+    commands.insert(root.0, Dirty);
 }
