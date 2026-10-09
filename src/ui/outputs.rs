@@ -6,8 +6,16 @@ use hashbrown::HashMap;
 
 use crate::ecs::Entity;
 
+mod dependency;
+pub(crate) use dependency::OutputDescriptor;
+pub use dependency::{OutputDependency, OutputSource};
+pub(crate) mod relations;
+
 pub(crate) mod private {
-    pub trait OutputKind {}
+    pub trait OutputKind {
+        fn install(world: &mut crate::ecs::World);
+        fn reconcile(world: &crate::ecs::World);
+    }
     pub trait HistoryKind {}
 }
 
@@ -46,6 +54,8 @@ pub(crate) struct OutputState<R: Copy> {
     pub(crate) current_available: bool,
     pub(crate) retained: bool,
     pub(crate) published_in_batch: bool,
+    requests: usize,
+    history_requests: usize,
 }
 
 impl<R: Copy> Default for OutputState<R> {
@@ -57,6 +67,8 @@ impl<R: Copy> Default for OutputState<R> {
             current_available: false,
             retained: false,
             published_in_batch: false,
+            requests: 0,
+            history_requests: 0,
         }
     }
 }
@@ -81,6 +93,42 @@ pub struct Outputs<T: Output> {
 }
 
 impl<T: Output> Outputs<T> {
+    pub(crate) fn is_requested(&self, entity: Entity) -> bool {
+        self.state(entity)
+            .is_some_and(|state| state.requests != 0 || state.history_requests != 0)
+    }
+
+    pub(crate) fn has_requests(&self) -> bool {
+        self.records
+            .borrow()
+            .values()
+            .any(|state| state.requests != 0 || state.history_requests != 0)
+    }
+
+    fn set_demand(
+        &self,
+        entity: Entity,
+        requests: usize,
+        history_requests: usize,
+    ) -> Result<(), OutputStoreError> {
+        if self.state(entity).is_none() {
+            if requests == 0 && history_requests == 0 {
+                return Ok(());
+            }
+            self.reserve(1)?;
+        }
+        let mut records = self.records.borrow_mut();
+        let state = Self::entry(&mut records, entity)?;
+        let requested = state.requests != 0 || state.history_requests != 0;
+        state.requests = requests;
+        state.history_requests = history_requests;
+        Self::retain_state(state, history_requests != 0);
+        if requested != (requests != 0 || history_requests != 0) {
+            state.current_available = false;
+        }
+        Ok(())
+    }
+
     pub(crate) fn new(storage: T::Storage) -> Self {
         Self {
             storage: RefCell::new(storage),
@@ -218,7 +266,19 @@ impl<T: Output> Outputs<T> {
     }
 
     pub(crate) fn retain_entities(&self, mut keep: impl FnMut(Entity) -> bool) {
-        self.records.borrow_mut().retain(|entity, _| keep(*entity));
+        self.records.borrow_mut().retain(|entity, state| {
+            state.requests != 0 || state.history_requests != 0 || keep(*entity)
+        });
+    }
+
+    fn retain_state(state: &mut OutputState<T::Record>, retained: bool) {
+        if state.retained != retained {
+            state.retained = retained;
+            state.previous = None;
+            if retained && !state.current_available {
+                state.current = None;
+            }
+        }
     }
 
     fn entry(
@@ -245,6 +305,7 @@ impl<T: HistoryOutput> Outputs<T> {
     }
 
     /// Change history demand and return the metadata whose payload pins may need reconciliation.
+    #[cfg(test)]
     pub(crate) fn set_retained(
         &self,
         entity: Entity,
@@ -253,15 +314,7 @@ impl<T: HistoryOutput> Outputs<T> {
         let mut records = self.records.borrow_mut();
         let state = Self::entry(&mut records, entity)?;
         let previous = *state;
-        if state.retained != retained {
-            state.retained = retained;
-            state.previous = None;
-            if retained && !state.current_available {
-                // An unretained producer may have overwritten its invalidated
-                // slot, so it cannot become newly retained history.
-                state.current = None;
-            }
-        }
+        Self::retain_state(state, retained);
         Ok(previous)
     }
 }
@@ -282,10 +335,14 @@ impl<T: Output> Drop for OutputBatch<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ecs::World;
 
     struct SampleOutput;
 
-    impl private::OutputKind for SampleOutput {}
+    impl private::OutputKind for SampleOutput {
+        fn install(_: &mut World) {}
+        fn reconcile(_: &World) {}
+    }
     impl private::HistoryKind for SampleOutput {}
     impl HistoryOutput for SampleOutput {}
 

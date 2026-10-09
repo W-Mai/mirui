@@ -7,14 +7,15 @@ use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::render_system::update_layout;
 use crate::ui::widgets::{DropGlow, DropShadow, WidgetTransform};
-use crate::ui::{Children, ComputedRect, OffscreenRender, Parent, Theme, WidgetTextureRef};
+use crate::ui::{Children, ComputedRect, OffscreenRender, Parent, Theme, ViewRegistry};
 
 #[test]
-fn effect_attachments_preserve_source_identity_and_paint_order() {
+fn effect_dependencies_preserve_source_identity_and_paint_order() {
     let mut app = App::headless(480, 320);
     app.with_default_widgets();
     let root = app.spawn_root().id();
     app.compose(root, build_widgets());
+    ViewRegistry::reconcile_observations(&mut app.world);
     let world = &app.world;
     for (effect_id, source_id) in [
         ("effect_shadow_fx", "effect_shadow_src"),
@@ -25,8 +26,13 @@ fn effect_attachments_preserve_source_identity_and_paint_order() {
         let parent = world.get::<Parent>(effect).unwrap().0;
         assert_eq!(world.get::<Parent>(source).unwrap().0, parent);
         assert_eq!(world.get::<Children>(parent).unwrap().0, [effect, source]);
-        assert_eq!(world.get::<WidgetTextureRef>(effect).unwrap().0, source);
-        assert!(world.has::<OffscreenRender>(source));
+        let declared_source = world
+            .get::<DropShadow>(effect)
+            .map(|shadow| shadow.source)
+            .or_else(|| world.get::<DropGlow>(effect).map(|glow| glow.source));
+        assert_eq!(declared_source, Some(source));
+        assert!(crate::ui::offscreen::texture_requested(world, source));
+        assert!(!world.has::<OffscreenRender>(source));
     }
     let shadow = world.find_by_id("effect_shadow_fx").unwrap();
     let glow = world.find_by_id("effect_glow_fx").unwrap();

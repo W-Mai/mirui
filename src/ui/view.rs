@@ -17,6 +17,7 @@ use crate::render::renderer::{DrawRequest, RenderError, Renderer, TextRunIdentit
 use crate::render::texture::Texture;
 use crate::types::{Point, Rect, Transform};
 use crate::ui::Style;
+use crate::ui::outputs::{OutputDependency, relations::OutputRelations};
 use crate::ui::theme::WidgetState;
 
 /// Drawing context supplied to one [`ViewRender`] invocation.
@@ -452,6 +453,7 @@ pub struct View {
     /// (e.g. the generic Style stage).
     component_filter: Option<fn() -> TypeId>,
     query_dependencies: &'static [fn() -> TypeId],
+    output_dependencies: &'static [OutputDependency],
     /// Component-internal gesture handler selected before authored listeners.
     /// Returning `true` consumes the input; `false` continues the frozen route.
     internal_gesture: Option<ViewInternalGesture>,
@@ -473,6 +475,7 @@ impl View {
             systems: &[],
             component_filter: None,
             query_dependencies: &[],
+            output_dependencies: &[],
             internal_gesture: None,
             observe: None,
             observation_count: 0,
@@ -495,6 +498,7 @@ impl View {
     /// Restrict per-entity hooks to entities owning component `T`.
     pub const fn with_filter<T: crate::ecs::Component>(mut self) -> Self {
         self.component_filter = Some(TypeId::of::<T>);
+        self.output_dependencies = T::OUTPUT_DEPENDENCIES;
         self
     }
 
@@ -551,6 +555,7 @@ impl View {
             systems,
             component_filter: None,
             query_dependencies: &[],
+            output_dependencies: &[],
             internal_gesture: None,
             observe: None,
             observation_count: 0,
@@ -600,6 +605,7 @@ pub struct ViewRegistry {
     next_registration: u64,
     bindings: Vec<ViewBinding>,
     owner: Option<crate::ecs::world::WorldId>,
+    output_registration: Option<u64>,
 }
 
 struct ViewBinding {
@@ -612,7 +618,7 @@ struct ViewBinding {
 impl ViewRegistry {
     /// Rebind changed components before layout and paint inspect their state.
     pub(crate) fn reconcile_observations(world: &mut World) {
-        world.with_resource_box::<Self, _>(|registry, world| {
+        let registered = world.with_resource_box::<Self, _>(|registry, world| {
             let owner = world.id();
             match registry.owner {
                 None => registry.owner = Some(owner),
@@ -620,8 +626,18 @@ impl ViewRegistry {
                     assert_eq!(registered, owner, "ViewRegistry belongs to a different App")
                 }
             }
+            let has_outputs = registry
+                .views
+                .iter()
+                .any(|view| !view.output_dependencies.is_empty());
+            if has_outputs && world.resource::<OutputRelations>().is_none() {
+                world.insert_resource(OutputRelations::default());
+            }
             for view in &mut registry.views {
                 if !view.component_tracking_ready {
+                    for dependency in view.output_dependencies {
+                        (dependency.descriptor.install)(world);
+                    }
                     if let Some(type_id) = view.component_filter() {
                         world.watch_component_type(type_id);
                     }
@@ -634,18 +650,45 @@ impl ViewRegistry {
                 }
                 view.component_tracking_ready = true;
             }
-            world.drain_component_changes(|world, change| registry.apply_change(world, change));
-            registry.invalidate_pending_queries(world);
+            if world.resource::<OutputRelations>().is_some() {
+                world.with_resource_box::<OutputRelations, _>(|relations, world| {
+                    if relations.activate(world, &mut registry.output_registration) {
+                        for view in &registry.views {
+                            if !view.output_dependencies.is_empty() {
+                                world.watch_component_type(
+                                    view.component_filter().expect("output component filter"),
+                                );
+                            }
+                        }
+                    }
+                    for view in &registry.views {
+                        for dependency in view.output_dependencies {
+                            relations.register(&dependency.descriptor);
+                        }
+                    }
+                    world.drain_component_changes(|world, change| {
+                        registry.apply_change(world, change, Some(relations));
+                    });
+                    registry.invalidate_pending_queries(world);
+                    relations.reconcile(world);
+                });
+            } else {
+                world.drain_component_changes(|world, change| {
+                    registry.apply_change(world, change, None);
+                });
+                registry.invalidate_pending_queries(world);
+            }
         });
+        if registered.is_none() {
+            world.with_resource_box::<OutputRelations, _>(|relations, world| {
+                relations.clear(world);
+                relations.reconcile(world);
+            });
+        }
     }
 
     pub(crate) fn invalidate_queries(world: &mut World) {
-        world.with_resource_box::<Self, _>(|registry, world| {
-            if let Some(owner) = registry.owner {
-                assert_eq!(owner, world.id(), "ViewRegistry belongs to a different App");
-            }
-            registry.invalidate_pending_queries(world);
-        });
+        Self::reconcile_observations(world);
     }
 
     fn invalidate_pending_queries(&self, world: &mut World) {
@@ -671,10 +714,30 @@ impl ViewRegistry {
         }
     }
 
-    fn apply_change(&mut self, world: &mut World, change: crate::ecs::world::ComponentChange) {
+    fn apply_change(
+        &mut self,
+        world: &mut World,
+        change: crate::ecs::world::ComponentChange,
+        mut relations: Option<&mut OutputRelations>,
+    ) {
         for view in &self.views {
             if view.component_filter() != Some(change.type_id) {
                 continue;
+            }
+            if let Some(relations) = relations.as_deref_mut() {
+                if world.is_alive(change.entity) && world.has_type(change.entity, change.type_id) {
+                    for (slot, dependency) in view.output_dependencies.iter().enumerate() {
+                        relations.bind(
+                            world,
+                            change.entity,
+                            view.registration_id(),
+                            slot,
+                            dependency,
+                        );
+                    }
+                } else {
+                    relations.remove(change.entity, view.registration_id());
+                }
             }
             if let Some(observe) = view.observation() {
                 let registration_id = view.registration_id();
@@ -1421,6 +1484,373 @@ mod tests {
 
     fn make_view(name: &'static str, priority: u8) -> View {
         View::new(name, priority, dummy_render)
+    }
+
+    mod output_contracts {
+        use super::*;
+        use crate::render::texture::ColorFormat;
+        use crate::ui::offscreen::{BufferKey, OffscreenRender, WidgetTexture};
+        use crate::ui::outputs::Outputs;
+        use crate::ui::widgets::WidgetTransform;
+        use crate::ui::{Hidden, Parent};
+
+        struct Sources {
+            first: Entity,
+            second: Option<Entity>,
+        }
+
+        impl crate::ecs::Component for Sources {
+            const OUTPUT_DEPENDENCIES: &'static [OutputDependency] = &[
+                OutputDependency::current::<WidgetTexture>(|world, owner| {
+                    Some(world.get::<Self>(owner)?.first)
+                }),
+                OutputDependency::current::<WidgetTexture>(|world, owner| {
+                    world.get::<Self>(owner)?.second
+                }),
+            ];
+        }
+
+        struct OtherSource(Entity);
+
+        impl crate::ecs::Component for OtherSource {
+            const OUTPUT_DEPENDENCIES: &'static [OutputDependency] =
+                &[OutputDependency::current::<WidgetTexture>(
+                    |world, owner| Some(world.get::<Self>(owner)?.0),
+                )];
+        }
+
+        struct RetainedSource(Entity);
+
+        impl crate::ecs::Component for RetainedSource {
+            const OUTPUT_DEPENDENCIES: &'static [OutputDependency] = &[
+                OutputDependency::current::<WidgetTexture>(|world, owner| {
+                    Some(world.get::<Self>(owner)?.0)
+                }),
+                OutputDependency::previous::<WidgetTexture>(),
+            ];
+        }
+
+        struct OwnerHistory;
+
+        impl crate::ecs::Component for OwnerHistory {
+            const OUTPUT_DEPENDENCIES: &'static [OutputDependency] =
+                &[OutputDependency::previous::<WidgetTexture>()];
+        }
+
+        struct OtherOwnerHistory;
+
+        impl crate::ecs::Component for OtherOwnerHistory {
+            const OUTPUT_DEPENDENCIES: &'static [OutputDependency] =
+                &[OutputDependency::previous::<WidgetTexture>()];
+        }
+
+        fn registry<C: crate::ecs::Component>() -> ViewRegistry {
+            let mut registry = ViewRegistry::default();
+            registry.insert(make_view("output-reader", 60).with_filter::<C>());
+            registry
+        }
+
+        fn requested(world: &World, entity: Entity) -> bool {
+            world
+                .resource::<Outputs<WidgetTexture>>()
+                .is_some_and(|outputs| outputs.is_requested(entity))
+        }
+
+        fn clear_dirty(world: &mut World, entities: &[Entity]) {
+            for &entity in entities {
+                world.remove::<Dirty>(entity);
+                world.remove::<VisualDirty>(entity);
+            }
+        }
+
+        fn publish(world: &World, entity: Entity, generation: u32) {
+            let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+            let _batch = outputs.begin_batch();
+            let write = outputs
+                .prepare_texture(BufferKey {
+                    entity,
+                    w: 2,
+                    h: 2,
+                    format: ColorFormat::RGBA8888,
+                    generation,
+                })
+                .expect("output write");
+            assert!(write.publish());
+        }
+
+        #[test]
+        fn output_declarations_are_cold_until_a_matching_view_is_registered() {
+            let mut world = World::default();
+            let source = world.spawn_empty();
+            let owner = world.spawn_empty();
+            world.insert(
+                owner,
+                Sources {
+                    first: source,
+                    second: None,
+                },
+            );
+            world.insert_resource(ViewRegistry::default());
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(world.resource::<Outputs<WidgetTexture>>().is_none());
+            assert!(world.resource::<OutputRelations>().is_none());
+
+            world
+                .resource_mut::<ViewRegistry>()
+                .unwrap()
+                .insert(View::systems_only("late-reader", &[]).with_filter::<Sources>());
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(requested(&world, source));
+            assert!(!world.has::<OffscreenRender>(source));
+        }
+
+        #[test]
+        fn independent_slots_components_and_registrations_share_only_source_storage() {
+            let mut world = World::default();
+            let first = world.spawn_empty();
+            let second = world.spawn_empty();
+            let third = world.spawn_empty();
+            let owner = world.spawn_empty();
+            world.insert(
+                owner,
+                Sources {
+                    first,
+                    second: Some(second),
+                },
+            );
+            world.insert(owner, OtherSource(third));
+            let transform = Transform::translate(Fixed::from_int(7), Fixed::from_int(11));
+            world.insert(owner, WidgetTransform(transform));
+            let explicit = OffscreenRender::default().with_opacity(73);
+            world.insert(first, explicit);
+            let mut views = registry::<Sources>();
+            views.insert(make_view("another-registration", 61).with_filter::<Sources>());
+            views.insert(make_view("another-component", 62).with_filter::<OtherSource>());
+            world.insert_resource(views);
+            ViewRegistry::reconcile_observations(&mut world);
+            for source in [first, second, third] {
+                assert!(requested(&world, source));
+            }
+            assert_eq!(world.get::<WidgetTransform>(owner).unwrap().0, transform);
+            assert_eq!(world.get::<OffscreenRender>(first).unwrap().opacity, 73);
+
+            world.remove::<Sources>(owner);
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(!requested(&world, first));
+            assert!(!requested(&world, second));
+            assert!(requested(&world, third));
+            assert_eq!(world.get::<OffscreenRender>(first).unwrap().opacity, 73);
+            assert_eq!(world.get::<WidgetTransform>(owner).unwrap().0, transform);
+        }
+
+        #[test]
+        fn final_source_swaps_do_not_transiently_release_shared_outputs() {
+            let mut world = World::default();
+            world.insert_resource(Outputs::<WidgetTexture>::with_budget(1024));
+            let first = world.spawn_empty();
+            let second = world.spawn_empty();
+            let left = world.spawn_empty();
+            let right = world.spawn_empty();
+            world.insert(left, OtherSource(first));
+            world.insert(right, OtherSource(second));
+            world.insert_resource(registry::<OtherSource>());
+            ViewRegistry::reconcile_observations(&mut world);
+            clear_dirty(&mut world, &[first, second, left, right]);
+            publish(&world, first, 0);
+            publish(&world, second, 0);
+
+            world.get_mut::<OtherSource>(left).unwrap().0 = second;
+            world.get_mut::<OtherSource>(right).unwrap().0 = first;
+            ViewRegistry::reconcile_observations(&mut world);
+            let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+            assert!(outputs.get(first).is_some());
+            assert!(outputs.get(second).is_some());
+        }
+
+        #[test]
+        fn source_subtree_changes_visibility_and_generation_invalidate_consumers() {
+            let mut world = World::default();
+            let source = world.spawn_empty();
+            let child = world.spawn_empty();
+            let owner = world.spawn_empty();
+            world.insert(child, Parent(source));
+            world.insert(owner, OtherSource(source));
+            world.insert_resource(registry::<OtherSource>());
+            ViewRegistry::reconcile_observations(&mut world);
+            clear_dirty(&mut world, &[source, child, owner]);
+            world.invalidate_visual(child);
+            ViewRegistry::invalidate_queries(&mut world);
+            assert!(world.has::<VisualDirty>(owner));
+
+            clear_dirty(&mut world, &[source, child, owner]);
+            world.insert(source, Hidden);
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(world.remove::<VisualDirty>(owner).is_some());
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(!world.has::<VisualDirty>(owner));
+
+            world.remove::<Hidden>(source);
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(world.remove::<VisualDirty>(owner).is_some());
+            assert!(world.despawn(source));
+            let replacement = world.spawn_empty();
+            assert_eq!(replacement.id, source.id);
+            assert_ne!(replacement.generation, source.generation);
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(world.has::<VisualDirty>(owner));
+            assert!(!requested(&world, source));
+            assert!(!requested(&world, replacement));
+        }
+
+        #[test]
+        fn source_identity_changes_reset_only_the_consumers_own_history() {
+            let mut world = World::default();
+            world.insert_resource(Outputs::<WidgetTexture>::with_budget(1024));
+            let first = world.spawn_empty();
+            let second = world.spawn_empty();
+            let owner = world.spawn_empty();
+            world.insert(owner, RetainedSource(first));
+            world.insert_resource(registry::<RetainedSource>());
+            ViewRegistry::reconcile_observations(&mut world);
+            clear_dirty(&mut world, &[first, second, owner]);
+            publish(&world, owner, 0);
+            publish(&world, owner, 1);
+            assert!(
+                world
+                    .resource::<Outputs<WidgetTexture>>()
+                    .unwrap()
+                    .previous(owner)
+                    .is_some()
+            );
+
+            world.invalidate_visual(first);
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(
+                world
+                    .resource::<Outputs<WidgetTexture>>()
+                    .unwrap()
+                    .previous(owner)
+                    .is_some()
+            );
+            world.get_mut::<RetainedSource>(owner).unwrap().0 = second;
+            ViewRegistry::reconcile_observations(&mut world);
+            let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+            assert!(outputs.previous(owner).is_none());
+            assert!(outputs.state(owner).unwrap().retained);
+            assert!(!requested(&world, first));
+            assert!(requested(&world, second));
+        }
+
+        #[test]
+        fn publication_invalidates_current_consumers_only_once() {
+            let mut world = World::default();
+            world.insert_resource(Outputs::<WidgetTexture>::with_budget(1024));
+            let source = world.spawn_empty();
+            let owner = world.spawn_empty();
+            world.insert(owner, OtherSource(source));
+            world.insert_resource(registry::<OtherSource>());
+            ViewRegistry::reconcile_observations(&mut world);
+            clear_dirty(&mut world, &[source, owner]);
+            publish(&world, source, 0);
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(world.remove::<VisualDirty>(owner).is_some());
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(!world.has::<VisualDirty>(owner));
+        }
+
+        #[test]
+        fn history_requests_share_storage_without_creating_self_invalidation() {
+            let mut world = World::default();
+            world.insert_resource(Outputs::<WidgetTexture>::with_budget(1024));
+            let owner = world.spawn_empty();
+            world.insert(owner, OwnerHistory);
+            world.insert(owner, OtherOwnerHistory);
+            let mut views = registry::<OwnerHistory>();
+            views.insert(make_view("other-history", 61).with_filter::<OtherOwnerHistory>());
+            world.insert_resource(views);
+            ViewRegistry::reconcile_observations(&mut world);
+            clear_dirty(&mut world, &[owner]);
+            publish(&world, owner, 0);
+            publish(&world, owner, 1);
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(!world.has::<VisualDirty>(owner));
+
+            world.remove::<OwnerHistory>(owner);
+            ViewRegistry::reconcile_observations(&mut world);
+            let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
+            assert!(outputs.state(owner).unwrap().retained);
+            assert!(outputs.previous(owner).is_some());
+            world.remove::<OtherOwnerHistory>(owner);
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(!requested(&world, owner));
+        }
+
+        #[test]
+        fn replacing_removing_and_reusing_registries_reconciles_old_demands() {
+            let mut world = World::default();
+            let first = world.spawn_empty();
+            let second = world.spawn_empty();
+            let owner = world.spawn_empty();
+            world.insert(
+                owner,
+                Sources {
+                    first,
+                    second: None,
+                },
+            );
+            world.insert(owner, OtherSource(second));
+            world.insert_resource(registry::<Sources>());
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(requested(&world, first));
+            world.insert_resource(registry::<OtherSource>());
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(!requested(&world, first));
+            assert!(requested(&world, second));
+
+            let views = world.remove_resource::<ViewRegistry>().unwrap();
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(!requested(&world, second));
+            world.insert_resource(views);
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(requested(&world, second));
+            clear_dirty(&mut world, &[first, second, owner]);
+            world.insert_resource(ViewRegistry::default());
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(!requested(&world, second));
+            assert!(world.has::<VisualDirty>(owner));
+
+            world.insert_resource(registry::<OtherSource>());
+            ViewRegistry::reconcile_observations(&mut world);
+            world.despawn(owner);
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(!requested(&world, second));
+        }
+
+        #[test]
+        fn output_rebinding_reads_final_fields_without_steady_allocations() {
+            let mut world = World::default();
+            let first = world.spawn_empty();
+            let intermediate = world.spawn_empty();
+            let final_source = world.spawn_empty();
+            let owner = world.spawn_empty();
+            world.insert(owner, OtherSource(first));
+            world.insert_resource(registry::<OtherSource>());
+            ViewRegistry::reconcile_observations(&mut world);
+            for source in [intermediate, final_source, first] {
+                world.get_mut::<OtherSource>(owner).unwrap().0 = source;
+                ViewRegistry::reconcile_observations(&mut world);
+            }
+            clear_dirty(&mut world, &[first, intermediate, final_source, owner]);
+            let allocations = tracked_allocations(|| {
+                world.get_mut::<OtherSource>(owner).unwrap().0 = intermediate;
+                world.get_mut::<OtherSource>(owner).unwrap().0 = final_source;
+                ViewRegistry::reconcile_observations(&mut world);
+            });
+            assert_eq!(allocations, 0);
+            assert!(!requested(&world, first));
+            assert!(!requested(&world, intermediate));
+            assert!(requested(&world, final_source));
+        }
     }
 
     #[test]

@@ -1303,7 +1303,7 @@ fn draw_tree_offset(
     // Offscreen-render branch — try to redirect the entity + its
     // subtree into a private buffer, blit the buffer back here.
     // Returns true when handled; false falls through to inline render.
-    if let Some(off) = world.get::<super::OffscreenRender>(entity).copied() {
+    if let Some(off) = crate::ui::offscreen::config(world, entity) {
         let has_3d = world.get::<WidgetTransform3D>(entity).is_some();
         debug_assert!(
             !has_3d,
@@ -1783,9 +1783,7 @@ fn prepare_offscreen(
         Some(f) => f,
         None => return Ok(false),
     };
-    let clear_transparent = world
-        .get::<super::OffscreenAlphaMode>(entity)
-        .is_some_and(|m| m.clear_transparent);
+    let clear_transparent = crate::ui::offscreen::clear_transparent(world, entity);
 
     // Preparation is independent of the parent clip: a visible consumer can
     // need a source outside the current damage region.
@@ -2031,28 +2029,9 @@ fn render_full_with(
         w: logical_w.into(),
         h: logical_h.into(),
     };
-    // Storage-existence gate so a tree with no effect widgets pays
-    // nothing for the prerender pass: `query` walks even when empty.
-    if world
-        .storage::<super::offscreen::WidgetTextureRef>()
-        .is_some()
-    {
-        let ref_sources: Vec<Entity> = world
-            .query::<super::offscreen::WidgetTextureRef>()
-            .iter()
-            .map(|(_, r)| r.0)
-            .collect();
-        if !ref_sources.is_empty() {
-            let mut idx = 0;
-            prerender_sources(
-                layout_tree,
-                world,
-                entities,
-                &mut idx,
-                renderer,
-                &ref_sources,
-            )?;
-        }
+    if crate::ui::offscreen::has_texture_requests(world) {
+        let mut idx = 0;
+        prerender_sources(layout_tree, world, entities, &mut idx, renderer)?;
     }
 
     let mut idx = 0;
@@ -2287,27 +2266,10 @@ fn render_region_with(
     dirty_rect: &Rect,
     renderer: &mut dyn Renderer,
 ) -> Result<(), RenderError> {
-    if world
-        .storage::<super::offscreen::WidgetTextureRef>()
-        .is_some()
-    {
-        let ref_sources: Vec<Entity> = world
-            .query::<super::offscreen::WidgetTextureRef>()
-            .iter()
-            .map(|(_, r)| r.0)
-            .collect();
-        if !ref_sources.is_empty() {
-            crate::trace_span!("render.prerender_sources");
-            let mut idx = 0;
-            prerender_sources(
-                layout_tree,
-                world,
-                entities,
-                &mut idx,
-                renderer,
-                &ref_sources,
-            )?;
-        }
+    if crate::ui::offscreen::has_texture_requests(world) {
+        crate::trace_span!("render.prerender_sources");
+        let mut idx = 0;
+        prerender_sources(layout_tree, world, entities, &mut idx, renderer)?;
     }
 
     {
@@ -2336,15 +2298,14 @@ fn prerender_sources(
     entities: &[Entity],
     idx: &mut usize,
     renderer: &dyn Renderer,
-    targets: &[Entity],
 ) -> Result<(), RenderError> {
     if *idx >= entities.len() {
         return Ok(());
     }
     let entity = entities[*idx];
 
-    if targets.contains(&entity) {
-        if let Some(off) = world.get::<super::OffscreenRender>(entity).copied() {
+    if crate::ui::offscreen::texture_requested(world, entity) {
+        if let Some(off) = crate::ui::offscreen::config(world, entity) {
             let _ = prepare_offscreen(
                 node,
                 world,
@@ -2359,7 +2320,7 @@ fn prerender_sources(
     }
     *idx += 1;
     for child in &node.children {
-        prerender_sources(child, world, entities, idx, renderer, targets)?;
+        prerender_sources(child, world, entities, idx, renderer)?;
     }
     Ok(())
 }
@@ -2440,7 +2401,7 @@ fn collect_dirty_walk(
     // re-renders entirely) and bump the buffer generation so the next
     // render misses the cache. Children's Dirty markers are cleared
     // here so the outer dirty bounds doesn't double-count them.
-    let is_offscreen = world.get::<super::OffscreenRender>(entity).is_some();
+    let is_offscreen = crate::ui::offscreen::config(world, entity).is_some();
     if is_offscreen {
         let self_was_dirty = world.get::<Dirty>(entity).is_some()
             || world.get::<super::dirty::VisualDirty>(entity).is_some();
@@ -5856,13 +5817,13 @@ mod offscreen_render_check {
         app.world
     }
 
+    #[crate::component]
     struct OffscreenReadProbe {
+        #[depends_on(WidgetTexture)]
         source: Entity,
         fail: bool,
         calls: core::cell::Cell<usize>,
     }
-
-    impl crate::ecs::Component for OffscreenReadProbe {}
 
     fn probe_offscreen_reads(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
         let probe = world.get::<OffscreenReadProbe>(entity).unwrap();
@@ -5920,6 +5881,7 @@ mod offscreen_render_check {
                 calls: core::cell::Cell::new(0),
             },
         );
+        ViewRegistry::reconcile_observations(&mut world);
         (world, source, consumer)
     }
 
@@ -5931,7 +5893,7 @@ mod offscreen_render_check {
         let texture = Texture::new(&mut pixels, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(texture);
         for entity in [source, consumer] {
-            super::update_layout(&mut world, entity, &viewport);
+            let _ = super::collect_dirty_regions(&mut world, entity, &viewport);
             super::render(&world, entity, &viewport, &mut renderer).unwrap();
         }
         assert_eq!(
@@ -5961,7 +5923,7 @@ mod offscreen_render_check {
         let mut pixels = [0; 64 * 64 * 4];
         let texture = Texture::new(&mut pixels, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(texture);
-        super::update_layout(&mut world, source, &viewport);
+        let _ = super::collect_dirty_regions(&mut world, source, &viewport);
         super::render(&world, source, &viewport, &mut renderer).unwrap();
         let revision = world
             .resource::<Outputs<WidgetTexture>>()
@@ -5970,7 +5932,7 @@ mod offscreen_render_check {
             .unwrap()
             .texture()
             .cache_revision;
-        super::update_layout(&mut world, consumer, &viewport);
+        let _ = super::collect_dirty_regions(&mut world, consumer, &viewport);
         assert_eq!(
             super::render(&world, consumer, &viewport, &mut renderer),
             Err(RenderError::BackendFailure)
@@ -6028,7 +5990,6 @@ mod offscreen_render_check {
                 &snapshot.entities,
                 &mut idx,
                 &PreparationTarget,
-                &[source],
             )
             .unwrap();
             assert_eq!(idx, snapshot.entities.len());
@@ -7373,14 +7334,11 @@ mod offscreen_render_check {
         );
     }
 
-    /// `App::snapshot_widget` returns an owned RGBA8888 texture and
-    /// does not leave OffscreenRender / OffscreenAutoAdded behind on
-    /// an entity that didn't have them before the call.
+    /// `App::snapshot_widget` returns an owned RGBA8888 texture without leaving a temporary output request behind.
     #[test]
     fn snapshot_widget_does_not_pollute_source_components() {
         use crate::app::App;
         use crate::types::{Color, Dimension};
-        use crate::ui::offscreen::OffscreenAutoAdded;
         use crate::ui::{OffscreenRender, Widget};
 
         let mut app = App::headless(64, 64);
@@ -7414,7 +7372,7 @@ mod offscreen_render_check {
         assert_eq!(snap.height, 16);
 
         assert!(app.world.get::<OffscreenRender>(panel).is_none());
-        assert!(app.world.get::<OffscreenAutoAdded>(panel).is_none());
+        assert!(crate::ui::offscreen::config(&app.world, panel).is_none());
     }
 
     #[test]
@@ -7838,11 +7796,11 @@ mod offscreen_render_check {
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         let _ = super::collect_dirty_region(&mut world, panel, &viewport);
 
-        // Nothing was Dirty so generation should stay at default (no
-        // OffscreenGeneration component inserted yet).
-        assert!(
-            world.get::<OffscreenGeneration>(panel).is_none(),
-            "no Dirty subtree should leave generation unchanged"
+        let generation = world.get::<OffscreenGeneration>(panel).unwrap().0;
+        assert!(super::collect_dirty_region(&mut world, panel, &viewport).is_none());
+        assert_eq!(
+            world.get::<OffscreenGeneration>(panel).unwrap().0,
+            generation
         );
     }
 
@@ -8007,99 +7965,63 @@ mod offscreen_render_check {
         assert!(outputs.state(panel).is_none());
     }
 
-    /// MirrorOf paints the source's flipped texture into the mirror
-    /// entity's rect after the source has rendered. Source = a 16×16
-    /// red panel; mirror = a 16×16 region directly below it.
-    /// Expectation: after rendering, the mirror's rect contains red
-    /// pixels (proves the view fn ran end-to-end).
+    /// A mirror reads a later sibling's declared source during the first composition.
     #[test]
     fn mirror_of_paints_into_its_own_rect() {
+        use crate::prelude::*;
+        use crate::surface::FramebufferAccess;
         use crate::ui::widgets::MirrorOf;
 
-        let mut world = make_world();
-        let root = spawn(
-            &mut world,
-            None,
-            Style {
-                bg_color: Some(Color::rgb(0, 0, 0).into()),
-                layout: LayoutStyle {
-                    width: Dimension::Px(Fixed::from_int(32)),
-                    height: Dimension::Px(Fixed::from_int(32)),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        );
-
-        let source = spawn(
-            &mut world,
-            Some(root),
-            Style {
-                bg_color: Some(Color::rgb(255, 0, 0).into()),
-                layout: LayoutStyle {
-                    position: crate::ui::layout::Position::Absolute,
-                    left: Dimension::Px(Fixed::ZERO),
-                    top: Dimension::Px(Fixed::ZERO),
-                    width: Dimension::Px(Fixed::from_int(16)),
-                    height: Dimension::Px(Fixed::from_int(16)),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        );
-
-        let mirror = spawn(
-            &mut world,
-            Some(root),
-            Style {
-                layout: LayoutStyle {
-                    position: crate::ui::layout::Position::Absolute,
-                    left: Dimension::Px(Fixed::ZERO),
-                    top: Dimension::Px(Fixed::from_int(16)),
-                    width: Dimension::Px(Fixed::from_int(16)),
-                    height: Dimension::Px(Fixed::from_int(16)),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        );
-        world.insert(mirror, MirrorOf::new(source));
-
-        // auto_attach won't run on its own outside the App lifecycle,
-        // so plant the WidgetTextureRef manually for the test.
-        world.insert(mirror, crate::ui::offscreen::WidgetTextureRef(source));
-        super::super::offscreen::maintain_widget_texture_refs(&mut world).unwrap();
-
-        let viewport = Viewport::new(32, 32, Fixed::ONE);
-        let mut buf = std::vec![0u8; 32 * 32 * 4];
-
-        // Drive two dirty renders: frame 1 fills the source's buffer;
-        // frame 2 lets the mirror's view fn read it.
-        for _ in 0..2 {
-            world.mark_subtree_dirty(root);
-            let dirty =
-                super::collect_dirty_region(&mut world, root, &viewport).expect("dirty region");
-            let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
-            let mut renderer = SwRenderer::new(tex);
-            super::render_region(&world, root, &viewport, &dirty, &mut renderer).unwrap();
-        }
-
-        // Sample the mirror's rect (y in 16..32, x in 0..16). Expect
-        // at least one red-dominant pixel.
-        let mut found = false;
-        for y in 16..32 {
-            for x in 0..16 {
-                let i = (y * 32 + x) * 4;
-                if buf[i] > 64 && buf[i + 1] < 32 && buf[i + 2] < 32 {
-                    found = true;
-                    break;
+        #[crate::compose]
+        fn mirrored_panel() {
+            ui! {
+                View (width: 32, height: 32, bg_color: Color::rgb(0, 0, 0)) {
+                    View (
+                        id: "mirror",
+                        position: Position::Absolute,
+                        left: 0,
+                        top: 16,
+                        width: 16,
+                        height: 16
+                    ) [
+                        MirrorOf::new(id("mirror_source")),
+                    ]
+                    View (
+                        id: "mirror_source",
+                        position: Position::Absolute,
+                        left: 0,
+                        top: 0,
+                        width: 16,
+                        height: 16,
+                        bg_color: Color::rgb(255, 0, 0)
+                    )
                 }
-            }
-            if found {
-                break;
-            }
+            };
         }
-        assert!(found, "mirror rect should contain red-tinted pixels");
+
+        let mut app = App::headless(32, 32);
+        app.with_default_widgets()
+            .with_offscreen_pool_budget(64 * 1024);
+        let root = app.spawn_root().id();
+        app.compose(root, mirrored_panel());
+        app.render().unwrap();
+
+        let source = app.world.find_by_id("mirror_source").unwrap();
+        assert!(crate::ui::offscreen::texture_requested(&app.world, source));
+        assert!(app.world.get::<OffscreenRender>(source).is_none());
+        assert_eq!(
+            app.world
+                .resource::<Outputs<WidgetTexture>>()
+                .unwrap()
+                .get(source)
+                .unwrap()
+                .texture()
+                .get_pixel(1, 1),
+            Color::rgb(255, 0, 0)
+        );
+        let mut backend = app.into_backend();
+        let pixels = backend.framebuffer();
+        assert_eq!(pixels.get_pixel(1, 17), Color::rgb(255, 0, 0));
     }
 
     /// With `OffscreenAlphaMode::clear_transparent`, an offscreen

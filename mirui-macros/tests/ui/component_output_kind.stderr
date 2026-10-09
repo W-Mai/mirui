@@ -1,0 +1,33 @@
+error[E0277]: the trait bound `u32: mirui::ui::Output` is not satisfied
+ --> tests/ui/component_output_kind.rs:4:14
+  |
+4 | #[depends_on(u32)]
+  |              ^^^ the trait `mirui::ui::Output` is not implemented for `u32`
+  |
+help: the trait `mirui::ui::Output` is implemented for `WidgetTexture`
+ --> $WORKSPACE/src/ui/offscreen/output.rs
+  |
+  | impl Output for WidgetTexture {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `mirui::ui::outputs::OutputDependency::current`
+ --> $WORKSPACE/src/ui/outputs/dependency.rs
+  |
+  |     pub const fn current<T: Output>(source: fn(&World, Entity) -> Option<Entity>) -> Self {
+  |                             ^^^^^^ required by this bound in `OutputDependency::current`
+
+error[E0277]: the trait bound `u32: HistoryOutput` is not satisfied
+ --> tests/ui/component_output_kind.rs:5:19
+  |
+5 | #[retain_previous(u32)]
+  |                   ^^^ the trait `HistoryOutput` is not implemented for `u32`
+  |
+help: the trait `HistoryOutput` is implemented for `WidgetTexture`
+ --> $WORKSPACE/src/ui/offscreen/output.rs
+  |
+  | impl HistoryOutput for WidgetTexture {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `mirui::ui::outputs::OutputDependency::previous`
+ --> $WORKSPACE/src/ui/outputs/dependency.rs
+  |
+  |     pub const fn previous<T: HistoryOutput>() -> Self {
+  |                              ^^^^^^^^^^^^^ required by this bound in `OutputDependency::previous`

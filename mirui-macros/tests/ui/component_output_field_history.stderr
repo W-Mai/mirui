@@ -1,0 +1,5 @@
+error: `retain_previous` describes the component owner and is only allowed on a component type
+ --> tests/ui/component_output_field_history.rs:5:7
+  |
+5 |     #[retain_previous(mirui::ui::WidgetTexture)]
+  |       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -41,8 +41,7 @@ pub use layout_binding::{
 };
 pub use niche::NicheMap;
 pub use offscreen::{
-    OffscreenAlphaMode, OffscreenAutoAdded, OffscreenGeneration, OffscreenRender, WidgetTexture,
-    WidgetTextureRead, WidgetTextureRef,
+    OffscreenAlphaMode, OffscreenGeneration, OffscreenRender, WidgetTexture, WidgetTextureRead,
 };
 pub use outputs::{Output, Outputs};
 pub use property::WidgetMut;

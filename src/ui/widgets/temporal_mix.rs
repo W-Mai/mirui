@@ -9,18 +9,17 @@ use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::sw::mix::mix_inplace;
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Fixed, Point};
-use crate::ui::offscreen::{
-    OffscreenAlphaMode, OffscreenAutoAdded, WidgetTexture, WidgetTextureRef,
-};
+use crate::ui::offscreen::WidgetTexture;
 use crate::ui::outputs::Outputs;
 use crate::ui::view::{PaintCtx, View};
 
+#[crate::component]
+#[retain_previous(WidgetTexture)]
 pub struct TemporalMix {
+    #[depends_on(WidgetTexture)]
     pub source: Entity,
     pub mix: u8,
 }
-
-impl crate::ecs::Component for TemporalMix {}
 
 impl TemporalMix {
     pub fn new(source: Entity) -> Self {
@@ -78,45 +77,8 @@ fn temporal_mix_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) 
     });
 }
 
-fn temporal_mix_attach(world: &mut World, entity: Entity) {
-    let Some(tm) = world.get::<TemporalMix>(entity) else {
-        return;
-    };
-    let source = tm.source;
-    if world.get::<WidgetTextureRef>(entity).is_none() {
-        world.insert(entity, WidgetTextureRef(source));
-    }
-    if world.get::<crate::ui::OffscreenRender>(source).is_none() {
-        world.insert(source, crate::ui::OffscreenRender::default());
-        world.insert(source, OffscreenAutoAdded);
-    }
-    if world.get::<OffscreenAlphaMode>(source).is_none() {
-        world.insert(source, OffscreenAlphaMode::clear_transparent());
-    }
-    // The widget's own offscreen buffer stores the previous output
-    // for the IIR feedback. clear_transparent keeps initialisation
-    // from picking up framebuffer pixels under the widget rect.
-    if world.get::<crate::ui::OffscreenRender>(entity).is_none() {
-        world.insert(entity, crate::ui::OffscreenRender::default());
-        world.insert(entity, OffscreenAutoAdded);
-    }
-    if world.get::<OffscreenAlphaMode>(entity).is_none() {
-        world.insert(entity, OffscreenAlphaMode::clear_transparent());
-    }
-    if let Some(outputs) = world.resource::<Outputs<WidgetTexture>>() {
-        outputs
-            .reserve(1)
-            .expect("temporal output metadata capacity");
-        outputs
-            .set_retained(entity, true)
-            .expect("prepared temporal output history");
-    }
-}
-
 pub fn view() -> View {
-    View::new("TemporalMix", 60, temporal_mix_render)
-        .with_filter::<TemporalMix>()
-        .with_attach(temporal_mix_attach)
+    View::new("TemporalMix", 60, temporal_mix_render).with_filter::<TemporalMix>()
 }
 
 #[cfg(test)]

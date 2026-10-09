@@ -618,7 +618,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         entity: crate::ecs::Entity,
     ) -> Result<Option<crate::render::texture::Texture<'static>>, crate::render::RenderError> {
         use crate::ui::OffscreenRender;
-        use crate::ui::offscreen::OffscreenAutoAdded;
 
         if let Some(output) = self
             .world
@@ -628,10 +627,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             return Ok(Some(clone_texture_owned(output.texture())));
         }
 
-        let already_explicit = self.world.get::<OffscreenRender>(entity).is_some();
-        if !already_explicit {
+        let already_requested = crate::ui::offscreen::config(&self.world, entity).is_some();
+        if !already_requested {
             self.world.insert(entity, OffscreenRender::default());
-            self.world.insert(entity, OffscreenAutoAdded);
         }
 
         let render_result = self.render();
@@ -642,9 +640,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             .and_then(|outputs| outputs.get(entity))
             .map(|output| clone_texture_owned(output.texture()));
 
-        if !already_explicit {
+        if !already_requested {
             self.world.remove::<OffscreenRender>(entity);
-            self.world.remove::<OffscreenAutoAdded>(entity);
             crate::ui::offscreen::reconcile_texture_outputs(&self.world);
         }
 
@@ -681,7 +678,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.add_system(crate::input::event::scroll::system::scroll_inertia_system::system());
         self.add_system(crate::ui::state::hover_system::system());
         self.add_system(crate::ui::state::press_system::system());
-        self.add_system(crate::ui::offscreen::maintain_widget_texture_refs::system());
         self
     }
 
@@ -1431,10 +1427,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                     clear_hidden_root(&self.world, &transform, &mut renderer);
                     Ok(())
                 } else if plan.prefers_split_redraw()
-                    && self
-                        .world
-                        .storage::<crate::ui::offscreen::WidgetTextureRef>()
-                        .is_none()
+                    && !crate::ui::offscreen::has_texture_requests(&self.world)
                 {
                     let mut result = Ok(());
                     for rect in &plan.rects {

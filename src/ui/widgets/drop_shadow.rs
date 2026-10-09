@@ -3,22 +3,20 @@ use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::sw::blur::{alpha_for_radius, iir_blur_inplace};
 use crate::render::texture::{ColorFormat, TexBuf, Texture};
 use crate::types::{Fixed, Point};
-use crate::ui::offscreen::{
-    OffscreenAlphaMode, OffscreenAutoAdded, OffscreenRender, WidgetTexture, WidgetTextureRef,
-};
+use crate::ui::offscreen::WidgetTexture;
 use crate::ui::outputs::Outputs;
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::view::{PaintCtx, View};
 
+#[crate::component]
 pub struct DropShadow {
+    #[depends_on(WidgetTexture)]
     pub source: Entity,
     pub blur_radius: Fixed,
     pub offset: (Fixed, Fixed),
     pub color: ThemedColor,
     pub opacity: u8,
 }
-
-impl crate::ecs::Component for DropShadow {}
 
 impl DropShadow {
     pub fn new(source: Entity) -> Self {
@@ -69,31 +67,7 @@ fn drop_shadow_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
 }
 
 pub fn view() -> View {
-    View::new("DropShadow", 60, drop_shadow_render)
-        .with_filter::<DropShadow>()
-        .with_attach(drop_effect_attach::<DropShadow>)
-}
-
-pub fn drop_effect_attach<T: 'static>(world: &mut World, entity: Entity) {
-    let source = {
-        if let Some(eff) = world.get::<DropShadow>(entity) {
-            eff.source
-        } else if let Some(eff) = world.get::<DropGlow>(entity) {
-            eff.source
-        } else {
-            return;
-        }
-    };
-    if world.get::<WidgetTextureRef>(entity).is_none() {
-        world.insert(entity, WidgetTextureRef(source));
-    }
-    if world.get::<OffscreenRender>(source).is_none() {
-        world.insert(source, OffscreenRender::default());
-        world.insert(source, OffscreenAutoAdded);
-    }
-    if world.get::<OffscreenAlphaMode>(source).is_none() {
-        world.insert(source, OffscreenAlphaMode::clear_transparent());
-    }
+    View::new("DropShadow", 60, drop_shadow_render).with_filter::<DropShadow>()
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -203,14 +177,14 @@ fn render_drop_effect(
     });
 }
 
+#[crate::component]
 pub struct DropGlow {
+    #[depends_on(WidgetTexture)]
     pub source: Entity,
     pub blur_radius: Fixed,
     pub color: ThemedColor,
     pub opacity: u8,
 }
-
-impl crate::ecs::Component for DropGlow {}
 
 impl DropGlow {
     pub fn new(source: Entity) -> Self {
@@ -255,7 +229,94 @@ fn drop_glow_render(world: &World, entity: Entity, paint: &mut PaintCtx<'_>) {
 }
 
 pub fn glow_view() -> View {
-    View::new("DropGlow", 60, drop_glow_render)
-        .with_filter::<DropGlow>()
-        .with_attach(drop_effect_attach::<DropGlow>)
+    View::new("DropGlow", 60, drop_glow_render).with_filter::<DropGlow>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prelude::*;
+    use crate::types::Transform;
+    use crate::ui::widgets::WidgetTransform;
+    use crate::ui::{OffscreenRender, ViewRegistry};
+
+    #[crate::compose]
+    fn effect_sources() {
+        ui! {
+            Row (width: 24, height: 8) {
+                View (id: "shadow_source", width: 8, height: 8)
+                View (id: "glow_source", width: 8, height: 8)
+                View (id: "effects", width: 8, height: 8) [
+                    DropShadow::new(id("shadow_source")),
+                    DropGlow::new(id("glow_source")),
+                    WidgetTransform(Transform::translate(Fixed::from_int(7), Fixed::from_int(11))),
+                ]
+            }
+        };
+    }
+
+    #[test]
+    fn effect_dependencies_keep_independent_sources_and_consumer_transform() {
+        let mut app = App::headless(24, 8);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.compose(root, effect_sources());
+        let shadow_source = app.world.find_by_id("shadow_source").unwrap();
+        let glow_source = app.world.find_by_id("glow_source").unwrap();
+        let effects = app.world.find_by_id("effects").unwrap();
+        let transform = app.world.get::<WidgetTransform>(effects).unwrap().0;
+
+        ViewRegistry::reconcile_observations(&mut app.world);
+        assert!(crate::ui::offscreen::texture_requested(
+            &app.world,
+            shadow_source
+        ));
+        assert!(crate::ui::offscreen::texture_requested(
+            &app.world,
+            glow_source
+        ));
+        assert_eq!(
+            app.world.get::<WidgetTransform>(effects).unwrap().0,
+            transform
+        );
+        assert!(app.world.get::<OffscreenRender>(shadow_source).is_none());
+        assert!(app.world.get::<OffscreenRender>(glow_source).is_none());
+
+        app.world
+            .insert(shadow_source, OffscreenRender::with_scale(Fixed::HALF));
+        app.world.get_mut::<DropShadow>(effects).unwrap().source = glow_source;
+        ViewRegistry::reconcile_observations(&mut app.world);
+        assert!(!crate::ui::offscreen::texture_requested(
+            &app.world,
+            shadow_source
+        ));
+        assert!(crate::ui::offscreen::texture_requested(
+            &app.world,
+            glow_source
+        ));
+        assert_eq!(
+            crate::ui::offscreen::config(&app.world, shadow_source)
+                .unwrap()
+                .scale,
+            Fixed::HALF
+        );
+
+        app.world.remove::<DropShadow>(effects);
+        ViewRegistry::reconcile_observations(&mut app.world);
+        assert!(crate::ui::offscreen::texture_requested(
+            &app.world,
+            glow_source
+        ));
+        app.world.remove::<DropGlow>(effects);
+        ViewRegistry::reconcile_observations(&mut app.world);
+        assert!(!crate::ui::offscreen::texture_requested(
+            &app.world,
+            glow_source
+        ));
+        assert!(crate::ui::offscreen::config(&app.world, glow_source).is_none());
+        assert_eq!(
+            app.world.get::<WidgetTransform>(effects).unwrap().0,
+            transform
+        );
+    }
 }

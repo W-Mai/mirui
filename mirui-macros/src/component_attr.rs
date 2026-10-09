@@ -1,16 +1,19 @@
 use crate::binding::{
     BindingCardinality, BindingSource, BindingSpec, COMPONENT_FIELD_ROLES, ModelSource, RoleKind,
 };
+use crate::function_attrs::cfg_attrs;
 use proc_macro2::TokenStream;
-use quote::{ToTokens, quote};
+use quote::{ToTokens, quote, quote_spanned};
 use syn::visit::Visit;
 use syn::{
-    Field, Fields, Generics, Item, Meta, Path, Type, punctuated::Punctuated, spanned::Spanned,
+    Attribute, Field, Fields, Generics, Item, Meta, Path, Type, punctuated::Punctuated,
+    spanned::Spanned,
 };
 
 pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
     reject_attribute_arguments(attr)?;
     let mut item = syn::parse2::<Item>(item)?;
+    let dependencies = lower_output_dependencies(&mut item)?;
     let (name, generics, clone_impl) = match &mut item {
         Item::Struct(item) => {
             let clone_impl = match &mut item.fields {
@@ -107,7 +110,19 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
             ));
         }
     };
-    Ok(component_output(item, &name, &generics, clone_impl))
+    let conditional = match &item {
+        Item::Struct(item) => cfg_attrs(&item.attrs),
+        Item::Enum(item) => cfg_attrs(&item.attrs),
+        _ => unreachable!("component shape was checked"),
+    };
+    Ok(component_output(
+        item,
+        &name,
+        &generics,
+        clone_impl,
+        &conditional,
+        &dependencies,
+    ))
 }
 
 fn component_output(
@@ -115,13 +130,202 @@ fn component_output(
     name: &syn::Ident,
     generics: &syn::Generics,
     clone_impl: Option<TokenStream>,
+    conditional: &[Attribute],
+    dependencies: &[TokenStream],
 ) -> TokenStream {
-    let marker = marker_impl(name, generics);
+    let marker = marker_impl(name, generics, dependencies);
+    let clone_impl = clone_impl.map(|clone_impl| quote!(#(#conditional)* #clone_impl));
     quote! {
         #item
+        #(#conditional)*
         #marker
         #clone_impl
     }
+}
+
+struct OutputDeclaration {
+    ty: Type,
+    previous: bool,
+    conditions: Vec<Meta>,
+}
+
+impl OutputDeclaration {
+    fn tokens(&self, conditional: &[Attribute], target: &TokenStream) -> TokenStream {
+        let ty = &self.ty;
+        let conditions = &self.conditions;
+        let condition = (!conditions.is_empty()).then(|| quote!(#[cfg(all(#(#conditions),*))]));
+        let dependency = if self.previous {
+            quote!(::mirui::ui::outputs::OutputDependency::previous::<#ty>())
+        } else {
+            quote!(::mirui::ui::outputs::OutputDependency::current::<#ty>(#target))
+        };
+        quote!(#(#conditional)* #condition #dependency)
+    }
+}
+
+fn lower_output_dependencies(item: &mut Item) -> syn::Result<Vec<TokenStream>> {
+    let (attrs, fields) = match item {
+        Item::Struct(item) => (&mut item.attrs, Some(&mut item.fields)),
+        Item::Enum(item) => (&mut item.attrs, None),
+        _ => return Ok(Vec::new()),
+    };
+    let owner = quote!(|_, owner| ::core::option::Option::Some(owner));
+    let mut dependencies: Vec<_> = take_output_declarations(attrs, true)?
+        .iter()
+        .map(|declaration| declaration.tokens(&[], &owner))
+        .collect();
+    if let Some(fields) = fields {
+        lower_output_fields(fields, None, &[], &mut dependencies)?;
+    } else if let Item::Enum(item) = item {
+        for variant in &mut item.variants {
+            lower_output_fields(
+                &mut variant.fields,
+                Some(&variant.ident),
+                &cfg_attrs(&variant.attrs),
+                &mut dependencies,
+            )?;
+        }
+    }
+    Ok(dependencies)
+}
+
+fn lower_output_fields(
+    fields: &mut Fields,
+    variant: Option<&syn::Ident>,
+    variant_conditions: &[Attribute],
+    dependencies: &mut Vec<TokenStream>,
+) -> syn::Result<()> {
+    let unnamed = matches!(fields, Fields::Unnamed(_));
+    let mut conditional_predecessor = false;
+    for (index, field) in fields.iter_mut().enumerate() {
+        let declarations = take_output_declarations(&mut field.attrs, false)?;
+        let mut conditional = variant_conditions.to_vec();
+        conditional.extend(cfg_attrs(&field.attrs));
+        if unnamed && conditional_predecessor && !declarations.is_empty() {
+            return Err(syn::Error::new_spanned(
+                field,
+                "`depends_on` on a tuple field cannot follow a field with `cfg` or conditional `cfg`; use a named field",
+            ));
+        }
+        conditional_predecessor |= field.attrs.iter().any(|attr| may_remove_field(&attr.meta));
+        if declarations.is_empty() {
+            continue;
+        }
+        let member = field.ident.clone().map_or_else(
+            || syn::Member::Unnamed(syn::Index::from(index)),
+            syn::Member::Named,
+        );
+        let source = if let Some(variant) = variant {
+            let binding = syn::Ident::new("__mirui_output_source", proc_macro2::Span::mixed_site());
+            quote_spanned! {field.ty.span()=>
+                match component {
+                    Self::#variant { #member: #binding, .. } =>
+                        ::mirui::ui::outputs::OutputSource::output_source(#binding),
+                    #[allow(unreachable_patterns)]
+                    _ => ::core::option::Option::None,
+                }
+            }
+        } else {
+            quote_spanned!(field.ty.span()=>
+                ::mirui::ui::outputs::OutputSource::output_source(&component.#member)
+            )
+        };
+        let target = quote! {
+            |world, owner| {
+                let component = world.get::<Self>(owner)?;
+                #source
+            }
+        };
+        dependencies.extend(
+            declarations
+                .iter()
+                .map(|declaration| declaration.tokens(&conditional, &target)),
+        );
+    }
+    Ok(())
+}
+
+fn take_output_declarations(
+    attrs: &mut Vec<Attribute>,
+    allow_previous: bool,
+) -> syn::Result<Vec<OutputDeclaration>> {
+    fn lower_meta(
+        meta: Meta,
+        conditions: &mut Vec<Meta>,
+        allow_previous: bool,
+        declarations: &mut Vec<OutputDeclaration>,
+    ) -> syn::Result<Option<Meta>> {
+        if meta.path().is_ident("depends_on") || meta.path().is_ident("retain_previous") {
+            let previous = meta.path().is_ident("retain_previous");
+            if previous && !allow_previous {
+                return Err(syn::Error::new_spanned(
+                    meta,
+                    "`retain_previous` describes the component owner and is only allowed on a component type",
+                ));
+            }
+            let Meta::List(list) = &meta else {
+                return Err(syn::Error::new_spanned(
+                    meta,
+                    "output declarations require a non-empty list of output types",
+                ));
+            };
+            let types =
+                list.parse_args_with(Punctuated::<Type, syn::Token![,]>::parse_terminated)?;
+            if types.is_empty() {
+                return Err(syn::Error::new_spanned(
+                    meta,
+                    "output declarations require a non-empty list of output types",
+                ));
+            }
+            declarations.extend(types.into_iter().map(|ty| OutputDeclaration {
+                ty,
+                previous,
+                conditions: conditions.clone(),
+            }));
+            return Ok(None);
+        }
+        if !meta.path().is_ident("cfg_attr") {
+            return Ok(Some(meta));
+        }
+        let Meta::List(list) = &meta else {
+            return Ok(Some(meta));
+        };
+        let nested = list.parse_args_with(Punctuated::<Meta, syn::Token![,]>::parse_terminated)?;
+        if nested.len() < 2 {
+            return Err(syn::Error::new_spanned(
+                meta,
+                "`cfg_attr` requires a condition and at least one attribute",
+            ));
+        }
+        let mut nested = nested.into_iter();
+        let condition = nested.next().expect("cfg_attr condition");
+        conditions.push(condition.clone());
+        let mut remaining = Vec::new();
+        for meta in nested {
+            if let Some(meta) = lower_meta(meta, conditions, allow_previous, declarations)? {
+                remaining.push(meta);
+            }
+        }
+        conditions.pop();
+        Ok((!remaining.is_empty())
+            .then(|| syn::parse_quote!(cfg_attr(#condition, #(#remaining),*))))
+    }
+
+    let mut declarations = Vec::new();
+    let mut retained = Vec::with_capacity(attrs.len());
+    for mut attr in attrs.drain(..) {
+        if let Some(meta) = lower_meta(
+            attr.meta,
+            &mut Vec::new(),
+            allow_previous,
+            &mut declarations,
+        )? {
+            attr.meta = meta;
+            retained.push(attr);
+        }
+    }
+    *attrs = retained;
+    Ok(declarations)
 }
 
 fn reject_attribute_arguments(attr: TokenStream) -> syn::Result<()> {
@@ -245,7 +449,11 @@ fn push_where_predicate_once(generics: &mut Generics, predicate: syn::WherePredi
     generics.make_where_clause().predicates.push(predicate);
 }
 
-pub(crate) fn marker_impl(name: &syn::Ident, generics: &syn::Generics) -> TokenStream {
+fn marker_impl(
+    name: &syn::Ident,
+    generics: &syn::Generics,
+    dependencies: &[TokenStream],
+) -> TokenStream {
     let (_, type_generics, _) = generics.split_for_impl();
     let mut component_generics = generics.clone();
     component_generics
@@ -254,7 +462,11 @@ pub(crate) fn marker_impl(name: &syn::Ident, generics: &syn::Generics) -> TokenS
         .push(syn::parse_quote!(#name #type_generics: 'static));
     let (impl_generics, _, where_clause) = component_generics.split_for_impl();
     quote! {
-        impl #impl_generics ::mirui::ecs::Component for #name #type_generics #where_clause {}
+        impl #impl_generics ::mirui::ecs::Component for #name #type_generics #where_clause {
+            const OUTPUT_DEPENDENCIES: &'static [::mirui::ui::outputs::OutputDependency] = &[
+                #(#dependencies),*
+            ];
+        }
     }
 }
 
@@ -547,5 +759,156 @@ mod tests {
                     .contains("is not available in `#[component]`")
             );
         }
+    }
+
+    #[test]
+    fn output_declarations_are_static_typed_projections() {
+        let output = expand(
+            quote!(),
+            quote! {
+                #[depends_on(Geometry, Pixels)]
+                #[retain_previous(Pixels)]
+                struct Consumer<T: Output, S: OutputSource> {
+                    #[depends_on(T, Pixels)]
+                    source: S,
+                    unrelated: Entity,
+                }
+            },
+        )
+        .unwrap();
+        syn::parse2::<syn::File>(output.clone()).unwrap();
+        let output = output.to_string();
+        assert_eq!(output.matches("OutputDependency :: current").count(), 4);
+        assert_eq!(output.matches("OutputDependency :: previous").count(), 1);
+        assert_eq!(output.matches("world . get :: < Self >").count(), 2);
+        assert!(output.contains("OutputSource :: output_source (& component . source)"));
+        assert!(!output.contains("component . unrelated"));
+        assert!(!output.contains("depends_on"));
+        assert!(!output.contains("retain_previous"));
+        assert!(!output.contains("S : :: mirui"));
+    }
+
+    #[test]
+    fn output_declarations_preserve_presence_and_nested_helper_conditions() {
+        let output = expand(
+            quote!(),
+            quote! {
+                #[cfg(all())]
+                #[cfg_attr(all(), retain_previous(Pixels), doc = "consumer")]
+                struct Consumer {
+                    #[cfg(any())]
+                    #[depends_on(Unavailable)]
+                    removed: UnavailableEntity,
+                    #[cfg_attr(all(), cfg_attr(all(), depends_on(Pixels)), doc = "source")]
+                    source: Entity,
+                    #[cfg_attr(all(), cfg(any()), depends_on(Unavailable))]
+                    alternate: UnavailableEntity,
+                }
+            },
+        )
+        .unwrap();
+        let parsed = syn::parse2::<syn::File>(output.clone()).unwrap();
+        let syn::Item::Struct(component) = &parsed.items[0] else {
+            panic!("component declaration");
+        };
+        let syn::Item::Impl(component_impl) = &parsed.items[1] else {
+            panic!("component implementation");
+        };
+        assert_eq!(component_impl.attrs.len(), 1);
+        assert!(
+            component
+                .attrs
+                .iter()
+                .any(|attr| attr.path().is_ident("cfg_attr"))
+        );
+        let output = output.to_string();
+        assert!(!output.contains("depends_on"));
+        assert!(!output.contains("retain_previous"));
+        assert!(output.contains("cfg (all (all () , all ()))"));
+        assert_eq!(output.matches("doc = \"source\"").count(), 1);
+        assert_eq!(
+            output.matches("cfg_attr (all () , cfg (any ()))").count(),
+            2
+        );
+        assert!(!output.contains("Unavailable :"));
+    }
+
+    #[test]
+    fn output_fields_cover_tuple_and_enum_components_without_type_spelling_checks() {
+        for item in [
+            quote!(
+                struct Consumer(#[depends_on(Pixels)] EntityAlias);
+            ),
+            quote! {
+                enum Consumer {
+                    Named { #[depends_on(Pixels)] source: MaybeEntity },
+                    Tuple(#[depends_on(Pixels)] EntityAlias, u8),
+                    Empty,
+                }
+            },
+        ] {
+            let output = expand(quote!(), item).unwrap();
+            syn::parse2::<syn::File>(output.clone()).unwrap();
+            assert!(output.to_string().contains("OutputSource :: output_source"));
+        }
+    }
+
+    #[test]
+    fn rejects_output_attributes_with_invalid_placement_or_empty_types() {
+        for item in [
+            quote!(
+                #[depends_on()]
+                struct Consumer;
+            ),
+            quote!(
+                #[retain_previous()]
+                struct Consumer;
+            ),
+            quote!(
+                struct Consumer {
+                    #[retain_previous(Pixels)]
+                    source: Entity,
+                }
+            ),
+            quote! {
+                struct Consumer {
+                    #[cfg_attr(all(), retain_previous(Pixels))]
+                    source: Entity,
+                }
+            },
+        ] {
+            assert!(expand(quote!(), item).is_err());
+        }
+    }
+
+    #[test]
+    fn rejects_only_tuple_projections_whose_index_depends_on_conditional_fields() {
+        let error = expand(
+            quote!(),
+            quote! {
+                struct Consumer(
+                    #[cfg_attr(all(), cfg(any()))] u8,
+                    #[depends_on(Pixels)] Entity,
+                );
+            },
+        )
+        .unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("cannot follow a field with `cfg`")
+        );
+
+        let output = expand(
+            quote!(),
+            quote! {
+                struct Consumer(
+                    #[cfg(all())] #[depends_on(Pixels)] Entity,
+                    #[cfg(any())] Unavailable,
+                );
+            },
+        )
+        .unwrap();
+        syn::parse2::<syn::File>(output).unwrap();
     }
 }

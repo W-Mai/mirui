@@ -1,0 +1,5 @@
+error: `depends_on` on a tuple field cannot follow a field with `cfg` or conditional `cfg`; use a named field
+ --> tests/ui/component_output_conditional_tuple.rs:6:45
+  |
+6 |     #[depends_on(mirui::ui::WidgetTexture)] Entity,
+  |                                             ^^^^^^

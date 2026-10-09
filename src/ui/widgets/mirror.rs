@@ -5,16 +5,16 @@
 use crate::ecs::{Entity, World};
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Fixed, Point, Rect};
-use crate::ui::offscreen::{WidgetTexture, WidgetTextureRef};
+use crate::ui::offscreen::WidgetTexture;
 use crate::ui::outputs::Outputs;
 use crate::ui::view::{PaintCtx, View};
 
+#[crate::component]
 pub struct MirrorOf {
+    #[depends_on(WidgetTexture)]
     pub source: Entity,
     pub fade: u8,
 }
-
-impl crate::ecs::Component for MirrorOf {}
 
 impl MirrorOf {
     pub fn new(source: Entity) -> Self {
@@ -124,30 +124,6 @@ fn flip_rgb565(src: &Texture, dst_buf: &mut [u8], dst_stride: usize, fade: u8, s
     }
 }
 
-fn mirror_attach(world: &mut World, entity: Entity) {
-    let Some(mir) = world.get::<MirrorOf>(entity) else {
-        return;
-    };
-    let source = mir.source;
-    if world.get::<WidgetTextureRef>(entity).is_none() {
-        world.insert(entity, WidgetTextureRef(source));
-    }
-    // Request the source before the initial render prepares its output.
-    use crate::ui::offscreen::{OffscreenAlphaMode, OffscreenAutoAdded};
-    if world.get::<crate::ui::OffscreenRender>(source).is_none() {
-        world.insert(source, crate::ui::OffscreenRender::default());
-        world.insert(source, OffscreenAutoAdded);
-    }
-    // Skip framebuffer pre-seed: pre-seeded pixels outside the
-    // source's drawn area would surface in the flipped blit (e.g.
-    // the mirror's own previous reflection from below).
-    if world.get::<OffscreenAlphaMode>(source).is_none() {
-        world.insert(source, OffscreenAlphaMode::clear_transparent());
-    }
-}
-
 pub fn view() -> View {
-    View::new("MirrorOf", 60, mirror_render)
-        .with_filter::<MirrorOf>()
-        .with_attach(mirror_attach)
+    View::new("MirrorOf", 60, mirror_render).with_filter::<MirrorOf>()
 }

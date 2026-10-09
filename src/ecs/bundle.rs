@@ -11,9 +11,11 @@ pub trait IntoBundle {
     fn spawn_into(self, world: &mut World, entity: Entity);
 }
 
-/// Opt-in marker for types that are a single component. Gates the blanket
-/// `IntoBundle` so builders (which impl `IntoBundle` directly) stay coherent.
-pub trait Component: 'static {}
+/// A single component type with static output dependencies. Gates the blanket `IntoBundle` so builders (which impl `IntoBundle` directly) stay coherent.
+pub trait Component: 'static {
+    #[doc(hidden)]
+    const OUTPUT_DEPENDENCIES: &'static [crate::ui::outputs::OutputDependency] = &[];
+}
 
 impl<C: Component> IntoBundle for C {
     fn spawn_into(self, world: &mut World, entity: Entity) {

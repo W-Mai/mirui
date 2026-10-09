@@ -25,6 +25,9 @@ mod model_attr;
 mod system_attr;
 mod timer_attr;
 
+/// Declare entity data with optional Model fields and output dependencies.
+///
+/// `#[depends_on(T)]` on an `Entity` or `Option<Entity>` field requests that source's current output. On the component type it refers to the owner. Type-level `#[retain_previous(T)]` requests owner history. Declarations activate when a View filtered by this component is registered; ordinary fields and component instances retain their authored types.
 #[proc_macro_attribute]
 pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr = proc_macro2::TokenStream::from(attr);

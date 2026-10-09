@@ -44,7 +44,17 @@ pub struct WidgetTextureStorage {
     allocated: usize,
 }
 
-impl OutputKind for WidgetTexture {}
+impl OutputKind for WidgetTexture {
+    fn install(world: &mut crate::ecs::World) {
+        if world.resource::<Outputs<Self>>().is_none() {
+            world.insert_resource(Outputs::<Self>::default());
+        }
+    }
+
+    fn reconcile(world: &crate::ecs::World) {
+        super::reconcile_texture_outputs(world);
+    }
+}
 impl HistoryKind for WidgetTexture {}
 
 impl Output for WidgetTexture {
@@ -131,7 +141,7 @@ impl Outputs<WidgetTexture> {
                 .previous
                 .map_or(0, |previous| 1 - previous.record.slot)
         } else {
-            0
+            state.current.map_or(0, |current| current.record.slot)
         };
         let reusable = storage
             .textures
@@ -198,7 +208,21 @@ impl Outputs<WidgetTexture> {
         let mut storage = self.storage_mut();
         let mut released = 0;
         storage.textures.retain(|entity, slots| {
-            if requested(*entity) && visible(*entity) {
+            let demanded = self.is_requested(*entity) || requested(*entity);
+            if demanded && visible(*entity) {
+                if let Some(state) = self.state(*entity)
+                    && !state.retained
+                    && !slots.writing
+                {
+                    let keep = state.current.map(|current| current.record.slot);
+                    for (index, plane) in slots.planes.iter_mut().enumerate() {
+                        if keep != Some(index)
+                            && let Some(plane) = plane.take()
+                        {
+                            released += plane.buf.as_slice().len();
+                        }
+                    }
+                }
                 return true;
             }
             released += slots
@@ -209,7 +233,7 @@ impl Outputs<WidgetTexture> {
                 .sum::<usize>();
             slots.planes = [None, None];
             slots.discard = true;
-            if requested(*entity) {
+            if demanded {
                 self.reset(*entity);
             } else {
                 self.release(*entity);
@@ -305,6 +329,32 @@ mod tests {
             format: ColorFormat::RGBA8888,
             generation,
         }
+    }
+
+    #[test]
+    fn releasing_history_keeps_current_and_reclaims_the_spare_pixel_slot() {
+        let outputs = Outputs::<WidgetTexture>::with_budget(2 * TEXTURE_BYTES);
+        let entity = key(1, 1).entity;
+        outputs.reserve(1).unwrap();
+        outputs.set_retained(entity, true).unwrap();
+        for generation in [1, 2] {
+            let _batch = outputs.begin_batch();
+            let mut write = outputs.prepare_texture(key(1, generation)).unwrap();
+            write
+                .texture_mut()
+                .set_pixel(0, 0, &Color::rgb(10, 20, generation as u8));
+            assert!(write.publish());
+        }
+        outputs.set_retained(entity, false).unwrap();
+        outputs.reconcile_textures(|candidate| candidate == entity, |_| true);
+        assert_eq!(
+            outputs.get(entity).unwrap().texture().get_pixel(0, 0),
+            Color::rgb(10, 20, 2)
+        );
+        assert!(outputs.previous(entity).is_none());
+        assert!(outputs.prepare_texture(key(2, 1)).unwrap().publish());
+        assert!(outputs.prepare_texture(key(1, 3)).unwrap().publish());
+        assert_eq!(outputs.storage().allocated, 2 * TEXTURE_BYTES);
     }
 
     #[test]

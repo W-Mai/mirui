@@ -109,4 +109,25 @@ Typed callbacks can declare `textures: res!(Outputs<WidgetTexture>)`, importing 
 
 Ordinary outputs reuse one pixel slot. `TemporalMix` requests a second slot for its own history and reads `textures.previous(owner)`, frozen at the start of the drawing batch. Multiple dirty regions share that history; failed production does not advance it. First use and owners without retained history return `None`. History tracks successful outputs rather than adjacent input generations.
 
-The output budget counts stored current and historical pixel slots together with in-progress writes. Admission rejects an oversized request before pixel allocation and preserves other outputs. For example, a 128×64 RGBA texture needs 32 KiB for one slot and 64 KiB for two retained slots. Source textures, the framebuffer, metadata, and filter scratch add to the application's total memory requirement. Unchanged inputs reuse completed pixels; changed outputs of the same size reuse their slots. `OffscreenAlphaMode` still selects transparent clearing or parent-target initialization, and nested offscreen nodes and projectively transformed sources remain unsupported.
+Output consumers declare their sources on components. Registering a View filtered by that component activates the declarations; editing a source field rebinds the request, and removing the component releases it. Several effects on one entity keep independent source declarations. Implicit requests do not insert `OffscreenRender` or replace the consumer's transform.
+
+```rust
+use mirui::{component, ecs::Entity, ui::WidgetTexture};
+
+#[component]
+struct Reflection {
+    #[depends_on(WidgetTexture)]
+    source: Entity,
+}
+
+#[component]
+#[retain_previous(WidgetTexture)]
+struct Feedback {
+    #[depends_on(WidgetTexture)]
+    source: Option<Entity>,
+}
+```
+
+Field declarations accept `Entity` or `Option<Entity>`. A type-level `#[depends_on(T)]` requests the owner's current output; `#[retain_previous(T)]` requests owner history without creating a self-dependency. Each attribute accepts multiple output types. Conditional named fields retain their configuration gates; a tuple-field declaration cannot follow a conditionally removed field because its numeric position is not fixed.
+
+The output budget counts stored current and historical pixel slots together with in-progress writes. Admission rejects an oversized request before pixel allocation and preserves other outputs. For example, a 128×64 RGBA texture needs 32 KiB for one slot and 64 KiB for two retained slots. Source textures, the framebuffer, metadata, and filter scratch add to the application's total memory requirement. Unchanged inputs reuse completed pixels; changed outputs of the same size reuse their slots. Dependency-requested textures clear to transparent. Explicit-only `OffscreenRender` nodes use `OffscreenAlphaMode` to select transparent clearing or parent-target initialization. Nested offscreen nodes and projectively transformed sources remain unsupported.

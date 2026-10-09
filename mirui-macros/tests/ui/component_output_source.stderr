@@ -1,0 +1,17 @@
+error[E0277]: the trait bound `u32: mirui::ui::outputs::OutputSource` is not satisfied
+ --> tests/ui/component_output_source.rs:7:5
+  |
+7 |     source: u32,
+  |     ^^^^^^^^---
+  |     |       |
+  |     |       required by a bound introduced by this call
+  |     the trait `mirui::ui::outputs::OutputSource` is not implemented for `u32`
+  |
+help: the following other types implement trait `mirui::ui::outputs::OutputSource`
+ --> $WORKSPACE/src/ui/outputs/dependency.rs
+  |
+  | impl OutputSource for Entity {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `mirui::ecs::Entity`
+...
+  | impl OutputSource for Option<Entity> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Option<mirui::ecs::Entity>`
