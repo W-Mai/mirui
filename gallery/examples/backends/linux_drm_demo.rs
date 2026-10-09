@@ -5,7 +5,7 @@
 #[cfg(all(feature = "linux-drm", target_os = "linux"))]
 fn main() {
     gallery::run("mirui linux drm", 800, 600, |setup| {
-        let parent = mirui::ui::builder::WidgetBuilder::new(&mut setup.app.world).id();
+        let parent = setup.app.spawn_root().id();
         mirui::gallery::demos::tabbar::setup_app(setup.app, parent);
         parent
     });
