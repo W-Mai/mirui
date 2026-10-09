@@ -461,7 +461,7 @@ impl World {
         self.storage::<T>()?.get(entity)
     }
 
-    /// In-place writes mark query dependencies but do not produce structural component-change records. Replace the component with `insert` when its bindings change.
+    /// Successful mutable access records a possible component change and marks query dependencies. Registered bindings reconcile the component's final value before layout and painting.
     pub fn get_mut<T: 'static>(&mut self, entity: Entity) -> Option<&mut T> {
         let type_id = TypeId::of::<T>();
         let component = self
@@ -471,7 +471,12 @@ impl World {
             .downcast_mut::<SparseSet<T>>()
             .expect("component storage type")
             .get_mut(entity)?;
-        record_query_dependency_change(&mut self.watched_component_types, type_id);
+        record_component_change(
+            &mut self.watched_component_types,
+            &mut self.component_changes,
+            entity,
+            type_id,
+        );
         Some(component)
     }
 
@@ -673,7 +678,7 @@ mod tests {
     }
 
     #[test]
-    fn component_value_borrows_only_mark_existing_query_dependencies() {
+    fn get_mut_records_only_successful_watched_component_access() {
         let mut world = World::new();
         let first = world.spawn_empty();
         let absent = world.spawn_empty();
@@ -682,25 +687,56 @@ mod tests {
         world.watch_query_dependency_type(kind);
         assert!(world.get_mut::<u16>(first).is_none());
         assert!(world.storages.is_empty());
+        assert!(world.component_changes.is_empty());
         world.drain_query_dependency_changes(|_, _| panic!("absent storage is not a write"));
 
         world.insert(first, 1u16);
+        let retired = world.spawn_empty();
+        world.insert(retired, 3u16);
+        assert!(world.despawn(retired));
+        let replacement = world.spawn_empty();
+        assert_eq!(replacement.id, retired.id);
+        assert_ne!(replacement.generation, retired.generation);
+        world.insert(replacement, 4u16);
         world.drain_component_changes(|_, _| {});
         world.drain_query_dependency_changes(|_, _| {});
         assert!(world.get_mut::<u16>(absent).is_none());
+        assert!(world.get_mut::<u16>(retired).is_none());
         assert_eq!(world.get::<u16>(first), Some(&1));
+        assert_eq!(world.get::<u16>(replacement), Some(&4));
+        assert!(world.component_changes.is_empty());
         world.drain_query_dependency_changes(|_, _| {
             panic!("reads and absent values are not writes")
         });
 
-        *world.get_mut::<u16>(first).unwrap() = 2;
-        assert!(world.component_changes.is_empty());
+        let changes = world.component_changes.as_ptr();
+        let capacity = world.component_changes.capacity();
         let mut notifications = 0;
-        world.drain_query_dependency_changes(|_, changed| {
-            assert_eq!(changed, kind);
-            notifications += 1;
+        let allocations = tracked_allocations(|| {
+            for value in 2..66 {
+                *world.get_mut::<u16>(first).unwrap() = value;
+                *world.get_mut::<u16>(first).unwrap() = value + 1;
+                assert_eq!(
+                    world.component_changes,
+                    [ComponentChange {
+                        entity: first,
+                        type_id: kind,
+                    }]
+                );
+                world.drain_component_changes(|world, change| {
+                    assert_eq!(world.get::<u16>(change.entity), Some(&(value + 1)));
+                });
+                world.drain_query_dependency_changes(|_, changed| {
+                    assert_eq!(changed, kind);
+                    notifications += 1;
+                });
+            }
         });
-        assert_eq!(notifications, 1);
+        assert_eq!(allocations, 0);
+        assert_eq!(notifications, 64);
+        assert_eq!(world.component_changes.as_ptr(), changes);
+        assert_eq!(world.component_changes.capacity(), capacity);
+        assert!(world.component_changes.is_empty());
     }
 
     #[test]

@@ -1984,6 +1984,49 @@ mod tests {
     }
 
     #[test]
+    fn raw_mutable_access_rebinds_view_to_final_model_without_allocating() {
+        let mut app = crate::app::App::headless(32, 32);
+        let first = app.add_model(BoundState { value: 0 });
+        let intermediate = app.add_model(BoundState { value: 0 });
+        let final_model = app.add_model(BoundState { value: 0 });
+        app.with_widget(
+            make_view("bound-mutable-access", 60)
+                .with_filter::<BoundTile>()
+                .with_observation(observe_bound_tile, 1),
+        );
+        let entity = app.world.spawn_empty();
+        app.world.insert(
+            entity,
+            BoundTile {
+                model: first.clone(),
+            },
+        );
+        ViewRegistry::reconcile_observations(&mut app.world);
+
+        for replacement in [intermediate.clone(), final_model.clone(), first.clone()] {
+            app.world.get_mut::<BoundTile>(entity).unwrap().model = replacement;
+            ViewRegistry::reconcile_observations(&mut app.world);
+        }
+        app.world.remove::<VisualDirty>(entity);
+
+        let allocations = tracked_allocations(|| {
+            app.world.get_mut::<BoundTile>(entity).unwrap().model = intermediate.clone();
+            app.world.get_mut::<BoundTile>(entity).unwrap().model = final_model.clone();
+            ViewRegistry::reconcile_observations(&mut app.world);
+        });
+        assert_eq!(allocations, 0);
+        assert!(app.world.remove::<VisualDirty>(entity).is_some());
+
+        first.set(1);
+        intermediate.set(1);
+        flush_signal_dirty(&mut app.world);
+        assert!(!app.world.has::<VisualDirty>(entity));
+        final_model.set(1);
+        flush_signal_dirty(&mut app.world);
+        assert!(app.world.has::<VisualDirty>(entity));
+    }
+
+    #[test]
     fn pending_model_notifications_do_not_allocate_during_batch_rebind() {
         const ENTITY_COUNT: usize = 65;
         type BoundTiles<'world> =
