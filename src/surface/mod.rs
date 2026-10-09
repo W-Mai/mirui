@@ -2,6 +2,7 @@
 pub(crate) mod backbuffer_invalidation;
 pub mod framebuf;
 #[cfg(any(
+    test,
     all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"),
     all(feature = "nuttx", target_os = "nuttx"),
 ))]
@@ -26,6 +27,8 @@ pub mod sdl_gpu;
 pub mod slow;
 #[cfg(all(feature = "web-canvas", target_arch = "wasm32"))]
 pub mod web_canvas;
+#[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
+mod web_input;
 #[cfg(feature = "wgpu")]
 pub mod wgpu_surface;
 #[cfg(all(feature = "wgpu", any(target_os = "android", target_os = "ios")))]
@@ -225,13 +228,6 @@ pub(crate) fn canvas_metrics(
 }
 
 #[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
-pub(crate) fn canvas_axis_scale(display_extent: Fixed, logical_extent: Option<u16>) -> Fixed {
-    logical_extent.map_or(Fixed::ONE, |logical_extent| {
-        Fixed::from(logical_extent) / display_extent.max(Fixed::ONE)
-    })
-}
-
-#[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
 pub(crate) fn canvas_axis_coordinate(
     display_coordinate: Fixed,
     display_extent: Fixed,
@@ -356,13 +352,14 @@ mod tests {
 
     #[test]
     fn fixed_canvas_input_maps_back_to_logical_coordinates() {
-        let scale = canvas_axis_scale(Fixed::from_int(360), Some(480));
-        assert_eq!(scale, Fixed::from_ratio(4, 3));
         assert_eq!(
             canvas_axis_coordinate(Fixed::from_int(180), Fixed::from_int(360), Some(480),),
             Fixed::from_int(240)
         );
-        assert_eq!(canvas_axis_scale(Fixed::from_int(360), None), Fixed::ONE);
+        assert_eq!(
+            canvas_axis_coordinate(Fixed::from_int(180), Fixed::from_int(360), None),
+            Fixed::from_int(180)
+        );
     }
 
     #[test]

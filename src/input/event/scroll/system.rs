@@ -501,13 +501,8 @@ pub(crate) fn scroll_system_with_target(
             let Some(hit) = hit_test(world, root, *x, *y, screen_w, screen_h) else {
                 return false;
             };
-            // Two-finger / wheel scroll feels right at "one tick = ~20 px"
-            // — same step constant as Rotary above.
-            // SDL flips dx vs dy sign on macOS natural-scroll: dy is
-            // negated (drag down = scroll up), dx is not. Match that.
-            let step = Fixed::from_int(20);
-            let delta_x = *dx * step;
-            let delta_y = -*dy * step;
+            let delta_x = *dx;
+            let delta_y = -*dy;
             let gesture_dir = if dy.abs() >= dx.abs() {
                 ScrollAxis::Vertical
             } else {
@@ -824,7 +819,7 @@ mod tests {
         let (mut world, root) = fallback_scroll_world();
         let event = InputEvent::Wheel {
             dx: Fixed::ZERO,
-            dy: -Fixed::ONE,
+            dy: Fixed::from_int(-20),
             x: 20.into(),
             y: 20.into(),
         };
@@ -885,7 +880,7 @@ mod tests {
         world.remove_resource::<ScrollSpring>();
         let event = InputEvent::Wheel {
             dx: Fixed::ZERO,
-            dy: -Fixed::ONE,
+            dy: Fixed::from_int(-20),
             x: 20.into(),
             y: 20.into(),
         };
@@ -977,17 +972,14 @@ mod tests {
             ));
             assert_eq!(
                 world.get::<ScrollOffset>(root).unwrap().x,
-                Fixed::from_int(i as i32 * 5)
+                Fixed::from_ratio(i as i32, 4)
             );
         }
         world.insert_resource(crate::ecs::DeltaTimeMs(16));
         for _ in 0..30 {
             scroll_inertia_system(&mut world).unwrap();
         }
-        assert_eq!(
-            world.get::<ScrollOffset>(root).unwrap().x,
-            Fixed::from_int(20)
-        );
+        assert_eq!(world.get::<ScrollOffset>(root).unwrap().x, Fixed::ONE);
     }
 
     #[test]

@@ -80,7 +80,8 @@ pub fn rotary_feedback_system(
 
     let input = input.copied().unwrap_or_default();
     if input.event_seq != feedback.rotary.last_input_seq {
-        let impulse = Fixed::from_int(input.rotary_delta as i32) - input.wheel_delta_y;
+        let impulse = Fixed::from_int(input.rotary_delta as i32)
+            - input.wheel_delta_y / crate::input::event::input::WHEEL_LINE_PIXELS;
         if impulse != Fixed::ZERO {
             let next_target =
                 (feedback.rotary.target + impulse * Fixed::from_int(10)).clamp(-max_pull, max_pull);
@@ -264,7 +265,7 @@ mod tests {
         let mut world = world_with_rotary_root();
         world.insert_resource(InputFeedbackInput {
             rotary_delta: 2,
-            wheel_delta_y: Fixed::from_int(1),
+            wheel_delta_y: Fixed::from_int(20),
             click_pulse: true,
             event_seq: 1,
         });
@@ -307,7 +308,7 @@ mod tests {
         let mut world = world_with_rotary_root();
         world.insert_resource(InputFeedbackInput {
             rotary_delta: 0,
-            wheel_delta_y: Fixed::from_int(100),
+            wheel_delta_y: Fixed::from_int(2000),
             click_pulse: false,
             event_seq: 1,
         });

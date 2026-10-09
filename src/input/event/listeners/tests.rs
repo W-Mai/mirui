@@ -1102,7 +1102,7 @@ fn scroll_claim_precedes_app_and_does_not_require_fallback_capacity() {
     fixture.world.invalidate_visual(fixture.root);
     let wheel = Wheel {
         dx: Fixed::ZERO,
-        dy: -Fixed::ONE,
+        dy: Fixed::from_int(-20),
         x: 20.into(),
         y: 20.into(),
     };

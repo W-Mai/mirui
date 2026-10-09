@@ -1,6 +1,6 @@
 use alloc::collections::VecDeque;
 
-use crate::input::event::input::InputEvent;
+use crate::input::event::input::{InputEvent, WHEEL_LINE_PIXELS};
 use crate::types::Fixed;
 
 /// Driver-agnostic axis events fed into [`PointerState`]. Each backend
@@ -153,8 +153,8 @@ impl PointerState {
                 if dx != 0 || dy != 0 {
                     let (x, y) = self.last_xy[0];
                     queue.push_back(InputEvent::Wheel {
-                        dx: Fixed::from_int(dx),
-                        dy: Fixed::from_int(dy),
+                        dx: wheel_ticks_to_pixels(dx),
+                        dy: wheel_ticks_to_pixels(dy),
                         x,
                         y,
                     });
@@ -162,6 +162,14 @@ impl PointerState {
             }
         }
     }
+}
+
+fn wheel_ticks_to_pixels(ticks: i32) -> Fixed {
+    Fixed::from_int(
+        ticks
+            .saturating_mul(WHEEL_LINE_PIXELS.to_int())
+            .clamp(Fixed::MIN.to_int(), Fixed::MAX.to_int()),
+    )
 }
 
 fn map_axis(value: i32, min: i32, max: i32, screen: i32) -> Fixed {
@@ -349,8 +357,8 @@ mod tests {
         assert_eq!(events.len(), 1);
         match &events[0] {
             InputEvent::Wheel { dx, dy, .. } => {
-                assert_eq!(dx.to_int(), -1);
-                assert_eq!(dy.to_int(), 3);
+                assert_eq!(dx.to_int(), -20);
+                assert_eq!(dy.to_int(), 60);
             }
             other => panic!("expected Wheel, got {other:?}"),
         }

@@ -2,6 +2,8 @@ use super::contract::{AppSource, Event, EventKey, InputFallback, InputSource};
 use crate::ecs::Component;
 use crate::types::Fixed;
 
+pub(crate) const WHEEL_LINE_PIXELS: Fixed = Fixed::from_int(20);
+
 /// Encoder/Digital Crown press button code.
 pub const KEY_ROTARY_PRESS: u32 = 0x0100;
 
@@ -31,7 +33,7 @@ pub trait InputPayload: Event<Route = InputFallback> + sealed::InputPayload {
 }
 
 macro_rules! typed_inputs {
-    ($($kind:ident($source:ty) { $($field:ident: $ty:ty),+ $(,)? }),+ $(,)?) => {
+    ($($(#[$doc:meta])* $kind:ident($source:ty) { $($(#[$field_doc:meta])* $field:ident: $ty:ty),+ $(,)? }),+ $(,)?) => {
         /// Raw input event produced by the platform layer.
         ///
         /// Pointer 0 is the first finger or mouse; other ids are additional
@@ -43,7 +45,7 @@ macro_rules! typed_inputs {
             PointerMove { id: u8, x: Fixed, y: Fixed },
             PointerUp { id: u8, x: Fixed, y: Fixed },
             PointerCancel { id: u8, x: Fixed, y: Fixed },
-            $($kind { $($field: $ty),+ },)+
+            $($(#[$doc])* $kind { $($(#[$field_doc])* $field: $ty),+ },)+
             AppSuspend,
             AppResume,
             Quit,
@@ -51,9 +53,10 @@ macro_rules! typed_inputs {
 
         $(
             /// A concrete input payload with its platform data.
+            $(#[$doc])*
             #[derive(Clone, Copy, Debug, PartialEq, Eq)]
             pub struct $kind {
-                $(pub $field: $ty),+
+                $($(#[$field_doc])* pub $field: $ty),+
             }
 
             impl Event for $kind {
@@ -86,7 +89,17 @@ macro_rules! typed_inputs {
 
 typed_inputs! {
     Rotary(AppSource) { id: u8, delta: i16 },
-    Wheel(AppSource) { dx: Fixed, dy: Fixed, x: Fixed, y: Fixed },
+    /// Wheel and trackpad displacement in logical pixels, including platform momentum.
+    Wheel(AppSource) {
+        /// Horizontal displacement; positive values increase the scroll offset.
+        dx: Fixed,
+        /// Vertical displacement; positive values decrease the scroll offset.
+        dy: Fixed,
+        /// Pointer anchor in logical surface coordinates.
+        x: Fixed,
+        /// Pointer anchor in logical surface coordinates.
+        y: Fixed,
+    },
     Key(InputSource) { code: u32, pressed: bool },
     CharInput(InputSource) { ch: char },
 }

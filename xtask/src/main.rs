@@ -247,8 +247,6 @@ fn cmd_build() -> Result {
 fn cmd_test() -> Result {
     // mock-clock mutex is `cfg(feature = "std")`-gated.
     cargo(&["test", "--workspace", "--features", "std"])?;
-    // `input_state` (PointerState) is gated on `linux-fb`/`linux-drm` +
-    // `target_os = "linux"`, so its tests only build on a Linux runner.
     if cfg!(target_os = "linux") {
         cargo(&["test", "--workspace", "--features", "std,linux-fb"])?;
     }

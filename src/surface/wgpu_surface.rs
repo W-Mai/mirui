@@ -106,6 +106,16 @@ fn physical_to_logical(x: f64, y: f64, scale: f64) -> (Fixed, Fixed) {
     )
 }
 
+fn wheel_delta(delta: MouseScrollDelta, scale: f64) -> (Fixed, Fixed) {
+    match delta {
+        MouseScrollDelta::LineDelta(x, y) => {
+            let step = crate::input::event::input::WHEEL_LINE_PIXELS.to_f32();
+            (Fixed::from_f32(-x * step), Fixed::from_f32(y * step))
+        }
+        MouseScrollDelta::PixelDelta(p) => physical_to_logical(-p.x, p.y, scale),
+    }
+}
+
 fn enqueue_text(queue: &mut VecDeque<InputEvent>, text: &str) {
     queue.extend(
         text.chars()
@@ -438,23 +448,12 @@ impl WgpuRuntime {
                 false
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                const PX_PER_LINE: f32 = 16.0;
                 let scale = self
                     .state
                     .as_ref()
                     .map(|s| s.window.scale_factor())
-                    .unwrap_or(1.0) as f32;
-                let (dx, dy) = match delta {
-                    MouseScrollDelta::LineDelta(x, y) => (Fixed::from_f32(-x), Fixed::from_f32(y)),
-                    MouseScrollDelta::PixelDelta(p) => {
-                        let lx = (p.x as f32) / scale;
-                        let ly = (p.y as f32) / scale;
-                        (
-                            Fixed::from_f32(-lx / PX_PER_LINE),
-                            Fixed::from_f32(ly / PX_PER_LINE),
-                        )
-                    }
-                };
+                    .unwrap_or(1.0);
+                let (dx, dy) = wheel_delta(delta, scale);
                 let (x, y) = self.last_cursor;
                 self.event_queue
                     .push_back(InputEvent::Wheel { dx, dy, x, y });
@@ -1411,6 +1410,22 @@ mod tests {
         assert_eq!(
             physical_to_logical(12.0, 20.0, 0.0),
             (Fixed::from_int(12), Fixed::from_int(20))
+        );
+    }
+
+    #[test]
+    fn wheel_units_preserve_pixels_and_normalize_lines_independently_of_dpi() {
+        use winit::dpi::PhysicalPosition;
+        assert_eq!(
+            wheel_delta(
+                MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.75, -0.375)),
+                1.5
+            ),
+            (Fixed::from_ratio(-1, 2), Fixed::from_ratio(-1, 4))
+        );
+        assert_eq!(
+            wheel_delta(MouseScrollDelta::LineDelta(0.125, -0.5), 2.0),
+            (Fixed::from_ratio(-5, 2), Fixed::from_int(-10))
         );
     }
 

@@ -232,7 +232,7 @@ fn pointer_listener(
         // coordinate. Fixed logical canvases then map that CSS position back
         // into the demo's retained viewport.
         let rect = canvas_for_rect.get_bounding_client_rect();
-        let (x, y, _, _) = map_event_coordinates(
+        let (x, y) = map_event_coordinates(
             &rect,
             evt.client_x() as f64,
             evt.client_y() as f64,
@@ -290,20 +290,22 @@ fn wheel_listener(
         let evt: WheelEvent = raw.unchecked_into();
         evt.prevent_default();
         let rect = canvas_for_rect.get_bounding_client_rect();
-        let (x, y, scale_x, scale_y) = map_event_coordinates(
+        let (x, y) = map_event_coordinates(
             &rect,
             evt.client_x() as f64,
             evt.client_y() as f64,
             logical_size.get(),
         );
-        // Wheel pixels → scroll-system detents (step = 20). Divisor 4
-        // lands an active drag at a comfortable magnitude.
-        let dx_units = evt.delta_x() * scale_x / 4.0;
-        let dy_units = evt.delta_y() * scale_y / 4.0;
-        let dx = Fixed::from_f32(dx_units as f32);
-        // DOM `deltaY > 0` = content scrolls down; flip to match
-        // `scroll_system`'s convention. `dx` keeps the browser sign.
-        let dy = Fixed::from_f32(-dy_units as f32);
+        let mode = evt.delta_mode();
+        let Some((dx, dy)) = super::web_input::wheel_delta(
+            evt.delta_x(),
+            evt.delta_y(),
+            mode,
+            (rect.width(), rect.height()),
+            logical_size.get(),
+        ) else {
+            return;
+        };
         q.borrow_mut().push_back(InputEvent::Wheel { dx, dy, x, y });
     });
     register_listener(canvas.clone().into(), "wheel", closure)
@@ -314,13 +316,9 @@ fn map_event_coordinates(
     client_x: f64,
     client_y: f64,
     logical_size: Option<(u16, u16)>,
-) -> (Fixed, Fixed, f64, f64) {
+) -> (Fixed, Fixed) {
     let (logical_width, logical_height) =
         logical_size.map_or((None, None), |(width, height)| (Some(width), Some(height)));
-    let scale_x =
-        crate::surface::canvas_axis_scale(Fixed::from_f32(rect.width() as f32), logical_width);
-    let scale_y =
-        crate::surface::canvas_axis_scale(Fixed::from_f32(rect.height() as f32), logical_height);
     (
         crate::surface::canvas_axis_coordinate(
             Fixed::from_f32((client_x - rect.left()) as f32),
@@ -332,8 +330,6 @@ fn map_event_coordinates(
             Fixed::from_f32(rect.height() as f32),
             logical_height,
         ),
-        f64::from(scale_x.to_f32()),
-        f64::from(scale_y.to_f32()),
     )
 }
 

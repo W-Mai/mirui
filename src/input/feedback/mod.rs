@@ -114,6 +114,7 @@ impl InputFeedback {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct InputFeedbackInput {
     pub rotary_delta: i16,
+    /// Accumulated vertical wheel displacement in logical pixels.
     pub wheel_delta_y: Fixed,
     pub click_pulse: bool,
     pub event_seq: u32,

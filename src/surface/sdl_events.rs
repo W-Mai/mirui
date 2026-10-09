@@ -15,9 +15,10 @@ pub(crate) fn wheel_input(
     y: i32,
 ) -> crate::input::event::input::InputEvent {
     use crate::types::Fixed;
+    let step = crate::input::event::input::WHEEL_LINE_PIXELS.to_f32();
     crate::input::event::input::InputEvent::Wheel {
-        dx: Fixed::from_f32(dx),
-        dy: Fixed::from_f32(dy),
+        dx: Fixed::from_f32(dx * step),
+        dy: Fixed::from_f32(dy * step),
         x: Fixed::from(x),
         y: Fixed::from(y),
     }
@@ -53,10 +54,14 @@ mod tests {
         let InputEvent::Wheel { dx, dy, x, y } = wheel_input(0.125, -0.375, 42, 71) else {
             panic!("wheel")
         };
-        assert_eq!(dx, Fixed::from_ratio(1, 8));
-        assert_eq!(dy, Fixed::from_ratio(-3, 8));
+        assert_eq!(dx, Fixed::from_ratio(5, 2));
+        assert_eq!(dy, Fixed::from_ratio(-15, 2));
         assert_eq!(x, Fixed::from_int(42));
         assert_eq!(y, Fixed::from_int(71));
+        let InputEvent::Wheel { dy, .. } = wheel_input(0.0, 0.001, 42, 71) else {
+            panic!("wheel")
+        };
+        assert_eq!(dy, Fixed::from_f32(0.02));
     }
 
     #[test]
