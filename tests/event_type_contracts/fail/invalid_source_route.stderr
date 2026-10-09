@@ -4,13 +4,14 @@ error[E0277]: the trait bound `mirui::input::event::contract::WidgetSource<Pad>:
 10 |     type Source = WidgetSource<Pad>;
    |                   ^^^^^^^^^^^^^^^^^ unsatisfied trait bound
    |
-help: the trait `EventSource<mirui::input::event::contract::AppNotification>` is not implemented for `mirui::input::event::contract::WidgetSource<Pad>`
-      but trait `EventSource<EntityNotification>` is implemented for it
+   = help: the trait `EventSource<mirui::input::event::contract::AppNotification>` is not implemented for `mirui::input::event::contract::WidgetSource<Pad>`
+help: `mirui::input::event::contract::WidgetSource<W>` implements trait `EventSource<R>`
   --> src/input/event/contract.rs
    |
    | impl<W: Component> EventSource<EntityNotification> for WidgetSource<W> {}
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   = help: for that trait implementation, expected `EntityNotification`, found `mirui::input::event::contract::AppNotification`
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EventSource<EntityNotification>`
+   | impl<W: Component> EventSource<WidgetUpdate> for WidgetSource<W> {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EventSource<WidgetUpdate>`
 note: required by a bound in `mirui::prelude::Event::Source`
   --> src/input/event/contract.rs
    |

@@ -537,6 +537,37 @@ Registration retains a shared snapshot of attachment and internal-gesture hooks 
 
 LazyList creates its missing runtime pool on the first system run from its declared direct children, then binds rows in that same run. The pool is a retained snapshot, not a live mirror of Children. An explicit `LazyListPool` selects custom slots and is preserved. Missing or insufficient children leave initialization pending until a later system run; row declarations do not require post-composition pool installation.
 
+`LazyList::BindItem` updates row content through the shared event executor. Its payload contains the retained row `item` and its data `index`; `entity!()` identifies the list. The event supports blocks, typed inline callbacks, named factories, and `tree.on_event`. It does not bubble, install input feedback, or use business notification records.
+
+```rust,ignore
+use mirui::ui::widgets::lazy_list::BindItem;
+
+#[event]
+fn bind_row(change: event!(BindItem), rows: query!(mut Text)) {
+    const LABELS: [&str; 4] = ["ALPHA", "BETA", "GAMMA", "DELTA"];
+    if let Some(text) = rows.get(change.item) {
+        text.set_content(LABELS[change.index as usize % LABELS.len()]);
+    }
+}
+
+#[compose]
+fn rows_panel() {
+    ui! {
+        LazyList (item_count: 100_u32, item_height: Fixed::from_int(24), pool_size: 6_u8) {
+            walk 0..6 with _slot {
+                Text ("", height: 24, position: Position::Absolute)
+            }
+        } on BindItem(bind_row::callback())
+    };
+}
+```
+
+All slot assignments and positions are updated before the first callback, within the list system and before layout. Each newly assigned data index produces one event; unchanged indices and late listener installation do not replay bindings. Lists without listeners still manage their slots. Node deletion, pool replacement, and data shrink invalidate pending items; callback changes are not overwritten by an older pool snapshot.
+
+Callback commands commit after query and resource borrows end. Business notifications emitted by those commands flush after the list binding batch. Callback failures warn and skip the remaining work in that invocation; completed mutations are retained, and an unchanged binding is not retried automatically. App listeners and `commands.emit` cannot produce framework row updates.
+
+The synchronous event dispatch reuses reserved listener storage and borrows its payload without heap allocation. Callback installation and the retained row pool allocate during setup; the list system's existing context snapshots and user-owned formatted strings have separate allocation costs.
+
 An empty `#[view]` function declares a widget without a paint hook:
 
 ```rust,ignore

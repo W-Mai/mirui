@@ -5,8 +5,7 @@ use crate::prelude::*;
 use crate::render::font::FontToken;
 use crate::ui::Theme;
 use crate::ui::widgets::{
-    Button, ButtonSize, LazyList, LazyListBinder, ProgressBar, Slider, Switch, TabBar, TabContent,
-    Text, TextAlign,
+    Button, ButtonSize, LazyList, ProgressBar, Slider, Switch, TabBar, TabContent, Text, TextAlign,
 };
 
 #[compose]
@@ -166,7 +165,6 @@ pub fn build_widgets() {
                             tab_bar: id("compact_widgets_tabs"),
                             index: 0,
                         },
-                        LazyListBinder { bind: bind_row },
                         ScrollOffset {
                             x: Fixed::ZERO,
                             y: Fixed::ZERO,
@@ -211,7 +209,7 @@ pub fn build_widgets() {
                                 )
                             }
                         }
-                    }
+                    } on BindItem(bind_row::callback())
                     Column (
                         position: Position::Absolute,
                         left: 0,

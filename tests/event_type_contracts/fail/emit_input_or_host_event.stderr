@@ -51,6 +51,9 @@ help: the following other types implement trait `mirui::input::event::contract::
    | impl EntityEventSource for EntitySource {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EntitySource`
 ...
+   | impl EntityEventSource for LayoutSource {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `mirui::input::event::contract::LayoutSource`
+...
    | impl EntityEventSource for InputSource {
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputSource`
 ...

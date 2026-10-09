@@ -44,6 +44,8 @@ help: the following other types implement trait `mirui::input::event::contract::
    |
    | impl<W: Component> EntitySourceFor<W> for EntitySource {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EntitySource`
+   | impl<W: Component> EntitySourceFor<W> for LayoutSource {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `mirui::input::event::contract::LayoutSource`
    | impl<W: Component> EntitySourceFor<W> for InputSource {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputSource`
    | impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {}

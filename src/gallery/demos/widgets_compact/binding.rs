@@ -1,7 +1,7 @@
-use crate::ecs::World;
-use crate::prelude::Entity;
+use crate::prelude::*;
 use crate::ui::Children;
 use crate::ui::widgets::Text;
+use crate::ui::widgets::lazy_list::BindItem;
 
 pub(super) const ROW_HEIGHT: i32 = 12;
 pub(super) const POOL_SIZE: usize = 9;
@@ -11,15 +11,15 @@ const ROW_LABELS: [&str; 8] = [
     "ALPHA", "BETA", "GAMMA", "DELTA", "EPS", "ZETA", "ETA", "THETA",
 ];
 
-pub(super) fn bind_row(world: &mut World, entity: Entity, index: u32) {
-    let Some(label) = world
-        .get::<Children>(entity)
+#[event]
+pub(super) fn bind_row(event: event!(BindItem), rows: query!(Children), labels: query!(mut Text)) {
+    let Some(label) = rows
+        .get(event.item)
         .and_then(|children| children.0.first().copied())
     else {
         return;
     };
-    if let Some(text) = world.get_mut::<Text>(label) {
-        text.set_content(ROW_LABELS[index as usize % ROW_LABELS.len()]);
-        world.invalidate_visual(label);
+    if let Some(text) = labels.get(label) {
+        text.set_content(ROW_LABELS[event.index as usize % ROW_LABELS.len()]);
     }
 }

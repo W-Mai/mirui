@@ -24,7 +24,7 @@ pub use checkbox::Checkbox;
 pub use drop_shadow::{DropGlow, DropShadow};
 pub use icon::Icon;
 pub use image::{Image, ImageSource};
-pub use lazy_list::{LazyList, LazyListBinder, LazyListPool};
+pub use lazy_list::{LazyList, LazyListPool};
 pub use mirror::MirrorOf;
 pub use progress_bar::ProgressBar;
 pub use slider::Slider;

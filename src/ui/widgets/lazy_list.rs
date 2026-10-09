@@ -1,4 +1,5 @@
 use crate::ecs::{Entity, World};
+use crate::input::event::contract::{Event, EventKey, WidgetSource, WidgetUpdate};
 use crate::input::event::scroll::ScrollOffset;
 use crate::types::Fixed;
 use crate::ui::ComputedRect;
@@ -13,8 +14,7 @@ pub struct LazyList {
     pub item_count: u32,
     pub item_height: Fixed,
     pub pool_size: u8,
-    /// Updated by lazy_list_system each frame; the leftmost (topmost)
-    /// row index currently bound to pool slot 0.
+    /// First data index in the current visible window.
     pub visible_start: u32,
 }
 
@@ -30,6 +30,9 @@ impl Default for LazyList {
 }
 
 impl LazyList {
+    #[allow(non_upper_case_globals)]
+    pub const BindItem: EventKey<BindItem> = BindItem::EVENT;
+
     pub fn new(item_count: u32, item_height: impl Into<Fixed>, pool_size: u8) -> Self {
         Self {
             item_count,
@@ -60,34 +63,35 @@ impl LazyListPool {
     }
 }
 
-/// User-supplied function called when a pool slot needs to display a
-/// new row index. The binder mutates the slot's components (Text,
-/// background, etc) — it does **not** spawn new entities.
-pub type ItemBinder = fn(&mut crate::ecs::World, Entity, u32);
-
-pub struct LazyListBinder {
-    pub bind: ItemBinder,
+/// Update a retained row's content before layout when its data index changes.
+///
+/// The event source is the list entity; `item` identifies its reused row slot. Callbacks run synchronously after the full pool's positions and bindings are updated. Unchanged indices are not replayed, including for listeners installed after binding. This event does not bubble or consume business notification storage.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BindItem {
+    pub item: Entity,
+    pub index: u32,
 }
 
-impl crate::ecs::Component for LazyListBinder {}
+impl Event for BindItem {
+    type Route = WidgetUpdate;
+    type Source = WidgetSource<LazyList>;
+    type Options = ();
+}
 
-/// Walk every list each frame, decide which row index each pool slot
-/// should display, call the binder for slots whose binding changed,
-/// and reposition pool entities. Equal-height rows + vertical scroll
-/// only.
-///
-/// The function reads `ScrollOffset.y` (negative or zero — scroll_system
-/// already clamps to bounds) to compute `visible_start`, then walks
-/// `pool_size` slots binding consecutive indices starting there.
 struct ListContext {
     item_count: u32,
     item_height: Fixed,
-    pool_size: u32,
+    pool_size: usize,
     visible_start: u32,
     visible_count: u32,
     items: Vec<Entity>,
     bound_indices: Vec<u32>,
-    binder: ItemBinder,
+}
+
+impl ListContext {
+    fn active_count(&self) -> u32 {
+        self.visible_count.min(self.item_count - self.visible_start)
+    }
 }
 
 fn ensure_missing_pool(world: &mut World, entity: Entity) {
@@ -111,13 +115,10 @@ fn ensure_missing_pool(world: &mut World, entity: Entity) {
     world.insert(entity, LazyListPool::new(items));
 }
 
-/// Read the list's components into a snapshot used by `apply_bindings`.
-/// Returns None if any required component is missing or the list has
-/// degenerate parameters (zero pool, zero item height).
 fn collect_list_context(world: &World, entity: Entity) -> Option<ListContext> {
-    let (item_count, item_height, pool_size) = world
-        .get::<LazyList>(entity)
-        .map(|l| (l.item_count, l.item_height, l.pool_size as u32))?;
+    let list = world.get::<LazyList>(entity)?;
+    let (item_count, item_height, pool_size) =
+        (list.item_count, list.item_height, list.pool_size as usize);
     if pool_size == 0 || item_height <= Fixed::ZERO {
         return None;
     }
@@ -125,22 +126,21 @@ fn collect_list_context(world: &World, entity: Entity) -> Option<ListContext> {
         .get::<ScrollOffset>(entity)
         .map(|s| s.y)
         .unwrap_or(Fixed::ZERO);
-    // ScrollOffset is added to children's y, so positive offset = list
-    // scrolled down. visible_start = floor(scroll_y / item_height).
     let raw_start = (scroll_y / item_height).to_int();
-    let visible_start = (raw_start.max(0) as u32).min(item_count.saturating_sub(pool_size));
+    let visible_start = (raw_start.max(0) as u32).min(item_count.saturating_sub(pool_size as u32));
 
-    // +2 overscan covers a partially-revealed row at each edge; before
-    // first layout (no ComputedRect) bind the full pool.
+    // Include partial rows at both edges; use the full pool before layout.
     let visible_count = match world.get::<ComputedRect>(entity).map(|r| r.0.h) {
         Some(h) if h > Fixed::ZERO => {
-            ((h / item_height).ceil().to_int().max(0) as u32 + 2).min(pool_size)
+            ((h / item_height).ceil().to_int().max(0) as u32 + 2).min(pool_size as u32)
         }
-        _ => pool_size,
+        _ => pool_size as u32,
     };
 
     let pool = world.get::<LazyListPool>(entity)?;
-    let binder = world.get::<LazyListBinder>(entity).map(|b| b.bind)?;
+    if pool.items.len() < pool_size || pool.bound_indices.len() < pool_size {
+        return None;
+    }
     Some(ListContext {
         item_count,
         item_height,
@@ -149,154 +149,117 @@ fn collect_list_context(world: &World, entity: Entity) -> Option<ListContext> {
         visible_count,
         items: pool.items.clone(),
         bound_indices: pool.bound_indices.clone(),
-        binder,
     })
 }
 
-/// Walk one list's pool and update both bindings and slot positions.
-/// Returns true if at least one slot's binding changed (so the caller
-/// can mark Dirty).
-fn apply_bindings(world: &mut World, entity: Entity, ctx: ListContext) -> bool {
-    let mut new_bindings = ctx.bound_indices;
-    let mut any_changed = false;
-    let pool_size = ctx.pool_size as usize;
-    if pool_size == 0 {
-        return false;
-    }
-    // Ring-buffer mapping `slot[target % pool_size] = target` so a
-    // one-row scroll only rebinds one slot; the rest keep their
-    // content and only their layout position moves.
-    let active = (ctx.visible_count as usize).min(pool_size);
-    for i in 0..active {
-        let target = ctx.visible_start + i as u32;
-        if target >= ctx.item_count {
+fn apply_bindings(world: &mut World, entity: Entity, ctx: &ListContext) -> bool {
+    let mut changed = false;
+    for slot_idx in 0..ctx.pool_size {
+        let relative_slot =
+            (slot_idx + ctx.pool_size - ctx.visible_start as usize % ctx.pool_size) % ctx.pool_size;
+        let active_slot = relative_slot < ctx.active_count() as usize;
+        if active_slot {
             continue;
         }
-        let slot_idx = (target as usize) % pool_size;
-        let slot = ctx.items[slot_idx];
-        let rebound = new_bindings[slot_idx] != target;
+        if ctx.bound_indices[slot_idx] != u32::MAX {
+            world.get_mut::<LazyListPool>(entity).unwrap().bound_indices[slot_idx] = u32::MAX;
+            changed = true;
+        }
+        let item = ctx.items[slot_idx];
+        if world.is_alive(item) && !world.has::<crate::ui::Hidden>(item) {
+            world.insert(item, crate::ui::Hidden);
+            changed = true;
+        }
+    }
+
+    // Ring mapping retains unchanged row content when the window advances.
+    for i in 0..ctx.active_count() {
+        let target = ctx.visible_start + i;
+        let slot_idx = target as usize % ctx.pool_size;
+        let item = ctx.items[slot_idx];
+        if !world.is_alive(item) {
+            continue;
+        }
+        let rebound = ctx.bound_indices[slot_idx] != target;
         if rebound {
-            (ctx.binder)(world, slot, target);
-            new_bindings[slot_idx] = target;
-            any_changed = true;
+            world.get_mut::<LazyListPool>(entity).unwrap().bound_indices[slot_idx] = target;
+            changed = true;
         }
-        // Reveal a slot that was previously Hidden (item_count grew
-        // back, or this slot was unbound at startup with
-        // pool_size > item_count and is now reused).
-        if world.get::<crate::ui::Hidden>(slot).is_some() {
-            world.remove::<crate::ui::Hidden>(slot);
-            any_changed = true;
+        if world.has::<crate::ui::Hidden>(item) {
+            world.remove::<crate::ui::Hidden>(item);
+            changed = true;
         }
-        // Reposition-only slots ride the container's self-blit; only
-        // rebound slots need a Dirty redraw at their new position.
         let y = ctx.item_height * Fixed::from_int(target as i32);
         if rebound {
-            crate::ui::set_position(world, slot, Fixed::ZERO, y);
+            crate::ui::set_position(world, item, Fixed::ZERO, y);
         } else {
-            crate::ui::set_position_quiet(world, slot, Fixed::ZERO, y);
+            crate::ui::set_position_quiet(world, item, Fixed::ZERO, y);
         }
     }
-    if let Some(pool) = world.get_mut::<LazyListPool>(entity) {
-        pool.bound_indices = new_bindings;
+    if world.get::<LazyList>(entity).unwrap().visible_start != ctx.visible_start {
+        world.get_mut::<LazyList>(entity).unwrap().visible_start = ctx.visible_start;
     }
-    if let Some(list) = world.get_mut::<LazyList>(entity) {
-        list.visible_start = ctx.visible_start;
-    }
-    any_changed
+    changed
 }
 
+fn binding_is_current(world: &World, entity: Entity, slot: usize, event: BindItem) -> bool {
+    if !world.is_alive(entity) || !world.is_alive(event.item) {
+        return false;
+    }
+    let Some(list) = world.get::<LazyList>(entity) else {
+        return false;
+    };
+    let Some(pool) = world.get::<LazyListPool>(entity) else {
+        return false;
+    };
+    list.pool_size > 0
+        && slot < list.pool_size as usize
+        && event.index < list.item_count
+        && event.index as usize % list.pool_size as usize == slot
+        && pool.items.get(slot) == Some(&event.item)
+        && pool.bound_indices.get(slot) == Some(&event.index)
+}
+
+/// Update retained row bindings and synchronously deliver changed items before layout.
 pub fn lazy_list_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     let lists: Vec<Entity> = world.query::<LazyList>().collect();
+    let mut published = false;
     for entity in lists {
         ensure_missing_pool(world, entity);
         let Some(ctx) = collect_list_context(world, entity) else {
             continue;
         };
-        // Always sweep slots whose target index is now beyond
-        // `item_count` (pool larger than data, or `item_count` shrank
-        // since the last bind). Those slots otherwise keep stale
-        // bindings and stale positions, even when the idle short-
-        // circuit below decides nothing has changed.
-        let stale_cleared = clear_extra_slots(world, entity, &ctx);
-
-        let prev_start = world
-            .get::<LazyList>(entity)
-            .map(|l| l.visible_start)
-            .unwrap_or(u32::MAX);
-        let pool_size = ctx.pool_size as usize;
-        if prev_start == ctx.visible_start && pool_size > 0 {
-            let active = (ctx.visible_count as usize).min(pool_size);
-            let mut all_bound = true;
-            for i in 0..active {
-                let target = ctx.visible_start + i as u32;
-                if target >= ctx.item_count {
-                    continue;
-                }
-                let slot_idx = (target as usize) % pool_size;
-                if ctx.bound_indices[slot_idx] != target {
-                    all_bound = false;
-                    break;
-                }
-            }
-            if all_bound {
-                if stale_cleared {
-                    world.insert(entity, Dirty);
-                }
-                continue;
-            }
-        }
-        let bindings_changed = apply_bindings(world, entity, ctx);
-        if bindings_changed || stale_cleared {
+        if apply_bindings(world, entity, &ctx) {
             world.insert(entity, Dirty);
         }
+        for i in 0..ctx.active_count() {
+            let index = ctx.visible_start + i;
+            let slot = index as usize % ctx.pool_size;
+            if ctx.bound_indices[slot] == index {
+                continue;
+            }
+            let event = BindItem {
+                item: ctx.items[slot],
+                index,
+            };
+            if !binding_is_current(world, entity, slot, event) {
+                continue;
+            }
+            published = true;
+            if let Err(error) =
+                crate::input::event::runtime::dispatch_widget_update(world, entity, &event)
+            {
+                crate::warn!(target: "mirui::lazy_list", "item callback skipped: {:?}", error);
+            }
+        }
+    }
+    if published && let Err(error) = crate::input::event::runtime::flush(world) {
+        crate::warn!(target: "mirui::lazy_list", "item callback notifications skipped: {:?}", error);
     }
     Ok(())
 }
 
 crate::ecs::system::framework_system!(pub lazy_list_system, LazyList, expect = [LazyList]);
-
-/// Returns true if any slot was newly hidden, so the caller marks Dirty.
-fn clear_extra_slots(world: &mut World, entity: Entity, ctx: &ListContext) -> bool {
-    let pool_size = ctx.pool_size as usize;
-    if pool_size == 0 {
-        return false;
-    }
-    let active = (ctx.visible_count as usize).min(pool_size);
-    let in_window = |row: u32| {
-        row >= ctx.visible_start && row < ctx.visible_start + active as u32 && row < ctx.item_count
-    };
-    let active_slot = |slot_idx: usize| {
-        (0..active).any(|i| {
-            let target = ctx.visible_start + i as u32;
-            target < ctx.item_count && (target as usize) % pool_size == slot_idx
-        })
-    };
-    let mut any_cleared = false;
-    let mut new_bindings = ctx.bound_indices.clone();
-    for (i, bound) in new_bindings.iter_mut().enumerate().take(pool_size) {
-        let needs_hide = match *bound {
-            u32::MAX => !active_slot(i),
-            n => !in_window(n),
-        };
-        if !needs_hide {
-            continue;
-        }
-        let slot = ctx.items[i];
-        if world.get::<crate::ui::Hidden>(slot).is_some() {
-            continue;
-        }
-        *bound = u32::MAX;
-        any_cleared = true;
-        // Hide via Hidden marker: layout / render / hit-test all skip.
-        world.insert(slot, crate::ui::Hidden);
-    }
-    if any_cleared {
-        if let Some(pool) = world.get_mut::<LazyListPool>(entity) {
-            pool.bound_indices = new_bindings;
-        }
-    }
-    any_cleared
-}
 
 #[crate::view(component = LazyList, name = "LazyList", systems = [lazy_list_system::system()])]
 fn lazy_list_view() {}
@@ -321,15 +284,20 @@ mod tests {
         assert!(pool.bound_indices.iter().all(|&i| i == u32::MAX));
     }
 
-    /// Records the (entity_id, row_index) pairs the binder is invoked
-    /// with, so a test can assert exactly which slots got rebound after
-    /// changing scroll position. The recording side-channel is keyed on
-    /// the row index alone — for a 5-slot pool that's enough.
     struct BindTrace(alloc::vec::Vec<u32>);
 
-    fn recording_binder(world: &mut World, _entity: Entity, index: u32) {
-        let trace = world.resource_mut::<BindTrace>().expect("trace resource");
-        trace.0.push(index);
+    #[crate::event]
+    fn record_binding(event: event!(BindItem), trace: res!(mut BindTrace)) {
+        trace.0.push(event.index);
+    }
+
+    fn install_recording(world: &mut World, list: Entity) {
+        crate::input::event::binding::install_entity_event(
+            world,
+            list,
+            LazyList::BindItem,
+            record_binding::callback::<crate::input::event::callback::NodeContext>(),
+        );
     }
 
     fn make_slot(world: &mut World, list: Entity) -> Entity {
@@ -362,12 +330,7 @@ mod tests {
         world.insert(list, Style::default());
         world.insert(list, LazyList::new(100, 40, 5));
         world.insert(list, LazyListPool::new(pool.clone()));
-        world.insert(
-            list,
-            LazyListBinder {
-                bind: recording_binder,
-            },
-        );
+        install_recording(&mut world, list);
         world.insert_resource(BindTrace(alloc::vec::Vec::new()));
 
         lazy_list_system(&mut world).unwrap();
@@ -386,12 +349,7 @@ mod tests {
         let children: Vec<Entity> = (0..5).map(|_| make_slot(&mut world, list)).collect();
         world.insert(list, LazyList::new(100, 40, 3));
         world.insert(list, crate::ui::Children(children.clone()));
-        world.insert(
-            list,
-            LazyListBinder {
-                bind: recording_binder,
-            },
-        );
+        install_recording(&mut world, list);
         world.insert_resource(BindTrace(Vec::new()));
 
         lazy_list_system(&mut world).unwrap();
@@ -415,12 +373,7 @@ mod tests {
         let items_ptr = pool.items.as_ptr();
         let bindings_ptr = pool.bound_indices.as_ptr();
         world.insert(list, pool);
-        world.insert(
-            list,
-            LazyListBinder {
-                bind: recording_binder,
-            },
-        );
+        install_recording(&mut world, list);
         world.insert_resource(BindTrace(Vec::new()));
 
         lazy_list_system(&mut world).unwrap();
@@ -440,12 +393,7 @@ mod tests {
         let children: Vec<Entity> = (0..3).map(|_| make_slot(&mut world, list)).collect();
         world.insert(list, LazyList::new(100, 40, 3));
         world.insert(list, crate::ui::Children(children.clone()));
-        world.insert(
-            list,
-            LazyListBinder {
-                bind: recording_binder,
-            },
-        );
+        install_recording(&mut world, list);
         world.insert_resource(BindTrace(Vec::new()));
         lazy_list_system(&mut world).unwrap();
         let pool = world.get::<LazyListPool>(list).unwrap();
@@ -471,12 +419,7 @@ mod tests {
         let mut world = World::default();
         let list = world.spawn_empty();
         world.insert(list, LazyList::new(100, 40, 3));
-        world.insert(
-            list,
-            LazyListBinder {
-                bind: recording_binder,
-            },
-        );
+        install_recording(&mut world, list);
         world.insert_resource(BindTrace(Vec::new()));
 
         lazy_list_system(&mut world).unwrap();
@@ -506,12 +449,7 @@ mod tests {
         world.insert(list, Style::default());
         world.insert(list, LazyList::new(100, 40, 5));
         world.insert(list, LazyListPool::new(pool.clone()));
-        world.insert(
-            list,
-            LazyListBinder {
-                bind: recording_binder,
-            },
-        );
+        install_recording(&mut world, list);
         world.insert_resource(BindTrace(alloc::vec::Vec::new()));
 
         lazy_list_system(&mut world).unwrap();
@@ -550,12 +488,7 @@ mod tests {
         world.insert(list, Style::default());
         world.insert(list, LazyList::new(3, 40, 5));
         world.insert(list, LazyListPool::new(pool.clone()));
-        world.insert(
-            list,
-            LazyListBinder {
-                bind: recording_binder,
-            },
-        );
+        install_recording(&mut world, list);
         world.insert_resource(BindTrace(alloc::vec::Vec::new()));
 
         lazy_list_system(&mut world).unwrap();
@@ -585,12 +518,7 @@ mod tests {
         world.insert(list, Style::default());
         world.insert(list, LazyList::new(5, 40, 5));
         world.insert(list, LazyListPool::new(pool.clone()));
-        world.insert(
-            list,
-            LazyListBinder {
-                bind: recording_binder,
-            },
-        );
+        install_recording(&mut world, list);
         world.insert_resource(BindTrace(alloc::vec::Vec::new()));
 
         lazy_list_system(&mut world).unwrap();
@@ -627,12 +555,7 @@ mod tests {
         world.insert(list, Style::default());
         world.insert(list, LazyList::new(3, 40, 5));
         world.insert(list, LazyListPool::new(pool.clone()));
-        world.insert(
-            list,
-            LazyListBinder {
-                bind: recording_binder,
-            },
-        );
+        install_recording(&mut world, list);
         world.insert_resource(BindTrace(alloc::vec::Vec::new()));
 
         lazy_list_system(&mut world).unwrap();
@@ -679,12 +602,7 @@ mod tests {
         world.insert(list, Style::default());
         world.insert(list, LazyList::new(1000, 32, 12));
         world.insert(list, LazyListPool::new(pool.clone()));
-        world.insert(
-            list,
-            LazyListBinder {
-                bind: recording_binder,
-            },
-        );
+        install_recording(&mut world, list);
         world.insert_resource(BindTrace(alloc::vec::Vec::new()));
 
         // Short canvas: 64 px / 32 px = 2 rows + 2 overscan = 4 visible.

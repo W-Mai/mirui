@@ -14,7 +14,7 @@ use super::callback::{AppContext, CallbackContext, EventCallback};
 use super::capacity::{EventCapacity, EventCapacityError, EventLimits};
 use super::contract::{
     AppEventSource, AppNotification, AppRoute, EntityBubble, EntityEventSource, EntityNotification,
-    Event, EventKey, EventRoute,
+    Event, EventKey, EventRoute, WidgetUpdate,
 };
 use super::emission::{
     enqueue_app_notice, flush_notifications_with, has_business_storage,
@@ -414,6 +414,28 @@ pub(crate) fn has_entity_listener<E: Event>(
     }
 }
 
+pub(crate) fn dispatch_widget_update<E>(
+    world: &mut World,
+    entity: Entity,
+    event: &E,
+) -> Result<(), ListenerError>
+where
+    E: Event<Route = WidgetUpdate>,
+    E::Source: EntityEventSource,
+{
+    if !world.is_alive(entity) || !E::Source::present(world, entity) {
+        return Ok(());
+    }
+    let Some(runtime) = runtime(world) else {
+        return Ok(());
+    };
+    runtime
+        .listeners
+        .snapshot(world, event, ListenerTarget::Entity(entity))?
+        .run(world)?;
+    Ok(())
+}
+
 pub(crate) fn emit_widget<E>(
     world: &mut World,
     entity: Entity,
@@ -594,6 +616,47 @@ mod tests {
     use crate::test_support::tracked_allocations;
     use crate::types::Fixed;
     use crate::ui::{Hidden, Parent, UserState};
+
+    struct UpdateCount(u32);
+
+    #[crate::event]
+    fn count_update(
+        change: event!(crate::ui::widgets::lazy_list::BindItem),
+        count: res!(mut UpdateCount),
+    ) {
+        count.0 += change.index + 1;
+    }
+
+    #[test]
+    fn widget_updates_borrow_payloads_without_allocating_or_reserving_business_records() {
+        use crate::ui::widgets::lazy_list::{BindItem, LazyList};
+        let mut app = crate::app::App::headless(10, 10);
+        app.with_event_capacity(EventCapacity::new())
+            .add_resource(UpdateCount(0));
+        let root = app.spawn_root().id();
+        let list = app.compose(root, |tree| {
+            let list = tree.spawn(LazyList::new(10, 1, 1));
+            tree.on_event(list, LazyList::BindItem, count_update::callback());
+            list
+        });
+        let change = BindItem {
+            item: list,
+            index: 2,
+        };
+        assert_eq!(
+            tracked_allocations(|| {
+                for _ in 0..32 {
+                    dispatch_widget_update(&mut app.world, list, &change).unwrap();
+                }
+            }),
+            0
+        );
+        assert_eq!(app.world.resource::<UpdateCount>().unwrap().0, 96);
+        assert!(!has_business_storage(&app.world));
+        app.world.remove::<LazyList>(list);
+        dispatch_widget_update(&mut app.world, list, &change).unwrap();
+        assert_eq!(app.world.resource::<UpdateCount>().unwrap().0, 96);
+    }
 
     #[derive(Default)]
     struct Trace {

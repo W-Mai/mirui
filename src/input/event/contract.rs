@@ -36,6 +36,8 @@ pub struct EntityBubble;
 pub struct EntityNotification;
 /// A direct layout notification emitted by the framework.
 pub struct LayoutNotification;
+/// A synchronous framework update for a widget, outside the business notification queue.
+pub struct WidgetUpdate;
 /// Input handled by the focus/scroll route before reaching App listeners.
 pub struct InputFallback;
 /// A non-consumable App lifecycle notification.
@@ -56,6 +58,7 @@ routes!(
     EntityBubble => BubbleControl,
     EntityNotification => (),
     LayoutNotification => (),
+    WidgetUpdate => (),
     InputFallback => BubbleControl,
     AppNotification => (),
 );
@@ -66,6 +69,7 @@ pub trait EntityRoute: EventRoute {}
 impl EntityRoute for EntityBubble {}
 impl EntityRoute for EntityNotification {}
 impl EntityRoute for LayoutNotification {}
+impl EntityRoute for WidgetUpdate {}
 impl EntityRoute for InputFallback {}
 
 /// A route accepted by an App event installer.
@@ -87,7 +91,7 @@ pub struct LayoutSource;
 pub struct InputSource;
 /// App notifications or input with only an App listener.
 pub struct AppSource;
-/// Notifications emitted by the widget component `W`.
+/// Events associated with the widget component `W`.
 pub struct WidgetSource<W: Component>(PhantomData<fn() -> W>);
 
 impl sealed::Source for EntitySource {}
@@ -102,6 +106,7 @@ impl EventSource<InputFallback> for InputSource {}
 impl EventSource<InputFallback> for AppSource {}
 impl EventSource<AppNotification> for AppSource {}
 impl<W: Component> EventSource<EntityNotification> for WidgetSource<W> {}
+impl<W: Component> EventSource<WidgetUpdate> for WidgetSource<W> {}
 
 /// A source checked against an entity's installed components.
 #[doc(hidden)]
@@ -261,7 +266,12 @@ macro_rules! notification_results {
     };
 }
 
-notification_results!(EntityNotification, LayoutNotification, AppNotification);
+notification_results!(
+    EntityNotification,
+    LayoutNotification,
+    WidgetUpdate,
+    AppNotification
+);
 
 macro_rules! widget_events {
     (

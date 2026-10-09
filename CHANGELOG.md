@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **LazyList row events.** `BindItem` updates retained row content through typed callbacks before layout. Full pool assignment precedes callbacks, stale items are skipped after structural changes, and framework row updates do not consume business notification storage. Gallery lists and snapshot tools use the shared event path; World-based item binders are removed.
 - **Layout size events.** `SizeChanged` supports event blocks, typed callbacks, and widget builders through the shared executor. Logical size changes update reactive properties in the same frame, without adding hit targets or consuming business notification storage. Layout feedback is bounded and warns on non-convergence. Curve Text updates its Model and reactive path ranges through size events; World-based layout callback APIs are removed.
 - **Forward widget identities.** Static sibling declarations support forward `id(...)` references without changing component initialization or child order. Effect panels declare shadow and glow attachments with their source identities during composition.
 - **Default event storage.** App prepares a small bounded notification and deferred-command preset on demand, with explicit typed overrides for larger payloads and batches.

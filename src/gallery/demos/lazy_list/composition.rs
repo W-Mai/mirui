@@ -3,7 +3,7 @@ use super::binding::{ITEM_COUNT, POOL_SIZE, ROW_H, row_binder};
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
-use crate::ui::widgets::{LazyList, LazyListBinder, ParagraphStyle, Text, TextAlign};
+use crate::ui::widgets::{LazyList, ParagraphStyle, Text, TextAlign};
 
 #[compose]
 fn compose_list() -> Entity {
@@ -21,7 +21,6 @@ fn compose_list() -> Entity {
             item_height: Fixed::from_int(ROW_H),
             pool_size: POOL_SIZE as u8
         ) [
-            LazyListBinder { bind: row_binder },
             ScrollOffset {
                 x: Fixed::ZERO,
                 y: Fixed::ZERO,
@@ -64,7 +63,7 @@ fn compose_list() -> Entity {
                     )
                 }
             }
-        }
+        } on BindItem(row_binder::callback())
     }
 }
 

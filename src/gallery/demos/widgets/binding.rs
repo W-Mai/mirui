@@ -1,23 +1,27 @@
 use alloc::format;
 
 use super::state::{FormProgress, FormSlider};
-use crate::ecs::World;
-use crate::prelude::Entity;
+use crate::prelude::*;
 use crate::ui::Children;
 use crate::ui::property::prop;
+use crate::ui::widgets::lazy_list::BindItem;
 use crate::ui::widgets::{ProgressBar, Slider, Text};
 
-pub(super) fn row_binder(world: &mut World, entity: Entity, index: u32) {
-    let label = format!("Row {index}");
-    let Some(label_entity) = world
-        .get::<Children>(entity)
+#[event]
+pub(super) fn row_binder(
+    event: event!(BindItem),
+    rows: query!(Children),
+    labels: query!(mut Text),
+) {
+    let label = format!("Row {}", event.index);
+    let Some(label_entity) = rows
+        .get(event.item)
         .and_then(|children| children.0.first().copied())
     else {
         return;
     };
-    if let Some(text) = world.get_mut::<Text>(label_entity) {
+    if let Some(text) = labels.get(label_entity) {
         text.set_content(label);
-        world.invalidate_visual(label_entity);
     }
 }
 

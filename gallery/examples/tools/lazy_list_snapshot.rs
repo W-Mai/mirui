@@ -9,12 +9,12 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
 
-use mirui::ecs::{SystemScheduler, World};
+use mirui::ecs::SystemScheduler;
 use mirui::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::ui::widgets::Text;
-use mirui::ui::widgets::lazy_list::{LazyList, LazyListBinder, lazy_list_system};
+use mirui::ui::widgets::lazy_list::{BindItem, LazyList, lazy_list_system};
 
 const ROW_H: i32 = 32;
 const POOL_SIZE: usize = 12;
@@ -22,12 +22,10 @@ const ITEM_COUNT: u32 = 200;
 const W: u16 = 320;
 const H: u16 = 320;
 
-fn row_binder(world: &mut World, entity: Entity, index: u32) {
-    let label = alloc::format!("Row {index}");
-    if let Some(t) = world.get_mut::<Text>(entity) {
-        *t = Text::from(label);
-    } else {
-        world.insert(entity, Text::from(label));
+#[event]
+fn row_binder(event: event!(BindItem), rows: query!(mut Text)) {
+    if let Some(text) = rows.get(event.item) {
+        text.set_content(alloc::format!("Row {}", event.index));
     }
 }
 
@@ -67,7 +65,6 @@ fn list_panel(scroll_y_int: i32) {
             height: H as i32
         ) [
             LazyList::new(ITEM_COUNT, ROW_H, POOL_SIZE as u8),
-            LazyListBinder { bind: row_binder },
             ScrollOffset {
                 x: Fixed::ZERO,
                 y: Fixed::from_int(scroll_y_int),
@@ -88,9 +85,11 @@ fn list_panel(scroll_y_int: i32) {
                     top: 0,
                     width: W as i32,
                     height: ROW_H
-                )
+                ) [
+                    Text::from(""),
+                ]
             }
-        }
+        } on LazyList::BindItem(row_binder::callback())
     };
 }
 

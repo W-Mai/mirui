@@ -1,0 +1,28 @@
+error[E0277]: the trait bound `bool: EventResult<WidgetUpdate>` is not satisfied
+ --> tests/event_type_contracts/fail/list_update_result.rs:6:5
+  |
+6 | /     ui! {
+7 | |         LazyList () on BindItem(|_| true)
+8 | |     };
+  | |_____^ the trait `EventResult<WidgetUpdate>` is not implemented for `bool`
+  |
+help: `bool` implements trait `EventResult<R>`
+ --> src/input/event/contract.rs
+  |
+  |             impl EventResult<$route> for bool {
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |             |
+  |             `EventResult<EntityBubble>`
+  |             `EventResult<InputFallback>`
+...
+  | consumable_results!(EntityBubble, InputFallback);
+  | ------------------------------------------------ in this macro invocation
+note: required by a bound in `mirui::input::event::callback::<impl EventKey<E>>::__bind_plain`
+ --> src/input/event/callback.rs
+  |
+  |     pub unsafe fn __bind_plain<C, R>(
+  |                   ------------ required by a bound in this associated function
+...
+  |         R: EventResult<E::Route>,
+  |            ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `mirui::input::event::callback::<impl EventKey<E>>::__bind_plain`
+  = note: this error originates in the macro `ui` which comes from the expansion of the macro `consumable_results` (in Nightly builds, run with -Z macro-backtrace for more info)

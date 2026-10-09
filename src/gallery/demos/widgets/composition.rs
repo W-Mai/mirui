@@ -4,8 +4,8 @@ use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 use crate::ui::OffscreenRender;
 use crate::ui::widgets::{
-    Button, Checkbox, Image, LazyList, LazyListBinder, ParagraphStyle, ProgressBar, Slider, Switch,
-    TabBar, TabContent, Text, TextAlign,
+    Button, Checkbox, Image, LazyList, ParagraphStyle, ProgressBar, Slider, Switch, TabBar,
+    TabContent, Text, TextAlign,
 };
 
 const POOL_SIZE: usize = 12;
@@ -102,7 +102,6 @@ pub fn build_widgets() {
                         tab_bar: id("widgets_tabs"),
                         index: 0,
                     },
-                    LazyListBinder { bind: row_binder },
                     ScrollOffset {
                         x: Fixed::ZERO,
                         y: Fixed::ZERO,
@@ -139,7 +138,7 @@ pub fn build_widgets() {
                             )
                         }
                     }
-                }
+                } on BindItem(row_binder::callback())
                 Column (
                     position: Position::Absolute,
                     left: 0,

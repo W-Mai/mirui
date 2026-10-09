@@ -9,26 +9,24 @@
 
 use mirui::anim::ease;
 use mirui::app::plugins::{PerfReportPlugin, StdInstantClockPlugin};
-use mirui::ecs::World;
 use mirui::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
 use mirui::surface::slow::SlowSurface;
 use mirui::types::{Color, DimPoint, Dimension, Fixed};
+use mirui::ui::widgets::LazyList;
 use mirui::ui::widgets::Text;
-use mirui::ui::widgets::{LazyList, LazyListBinder};
+use mirui::ui::widgets::lazy_list::BindItem;
 
 const ROW_H: i32 = 24;
 const POOL_SIZE: usize = 16; // 320 / 24 = 13.3 visible, +3 buffer
 const ITEM_COUNT: u32 = 200;
 
-fn row_binder(world: &mut World, entity: Entity, index: u32) {
-    let label = alloc::format!("Row {index}");
-    if let Some(t) = world.get_mut::<Text>(entity) {
-        *t = Text::from(label);
-    } else {
-        world.insert(entity, Text::from(label));
+#[event]
+fn row_binder(event: event!(BindItem), rows: query!(mut Text)) {
+    if let Some(text) = rows.get(event.item) {
+        text.set_content(alloc::format!("Row {}", event.index));
     }
 }
 
@@ -42,7 +40,6 @@ fn scroll_list() -> Entity {
             grow: 1.0
         ) [
             LazyList::new(ITEM_COUNT, ROW_H, POOL_SIZE as u8),
-            LazyListBinder { bind: row_binder },
             ScrollOffset {
                 x: Fixed::ZERO,
                 y: Fixed::ZERO,
@@ -63,9 +60,11 @@ fn scroll_list() -> Entity {
                     top: 0,
                     width: 320,
                     height: ROW_H
-                )
+                ) [
+                    Text::from(""),
+                ]
             }
-        }
+        } on LazyList::BindItem(row_binder::callback())
     }
 }
 

@@ -1,5 +1,5 @@
 use super::DEFAULT_VIEW;
-use super::binding::{row_binder, slider_to_progress_system};
+use super::binding::slider_to_progress_system;
 use super::composition::build_widgets;
 use super::state::{
     ACCENT, FormProgress, FormSlider, custom_theme, dark_with_accent, light_with_accent,
@@ -146,7 +146,7 @@ fn list_binding_updates_content_without_dropping_paragraph_style() {
     let list = world.find_by_id("widgets_list").expect("widgets list id");
     let row = world
         .get::<Children>(list)
-        .and_then(|children| children.0.first().copied())
+        .and_then(|children| children.0.get(7).copied())
         .expect("pooled row");
     let label = world
         .get::<Children>(row)
@@ -158,7 +158,7 @@ fn list_binding_updates_content_without_dropping_paragraph_style() {
         .paragraph()
         .clone();
 
-    row_binder(&mut world, row, 7);
+    crate::ui::widgets::lazy_list::lazy_list_system(&mut world).unwrap();
 
     let text = world.get::<Text>(label).expect("bound label");
     assert_eq!(text.resolve(&world), "Row 7");

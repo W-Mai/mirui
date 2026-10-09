@@ -1,0 +1,85 @@
+error[E0277]: the trait bound `WidgetUpdate: mirui::input::event::contract::AppRoute` is not satisfied
+  --> tests/event_type_contracts/fail/list_update_app.rs:11:9
+   |
+11 |     app.on_event(BindItem::EVENT, bind_row::callback());
+   |         ^^^^^^^^ the trait `mirui::input::event::contract::AppRoute` is not implemented for `WidgetUpdate`
+   |
+help: the following other types implement trait `mirui::input::event::contract::AppRoute`
+  --> src/input/event/contract.rs
+   |
+   | impl AppRoute for InputFallback {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputFallback`
+   | impl AppRoute for AppNotification {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `AppNotification`
+note: required by a bound in `mirui::app::App::<B, F>::on_event`
+  --> src/app/mod.rs
+   |
+   |     pub fn on_event<E>(
+   |            -------- required by a bound in this associated function
+...
+   |         E::Route: crate::input::event::contract::AppRoute,
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `App::<B, F>::on_event`
+
+error[E0277]: the trait bound `WidgetSource<mirui::ui::widgets::LazyList>: mirui::input::event::contract::AppEventSource` is not satisfied
+  --> tests/event_type_contracts/fail/list_update_app.rs:11:9
+   |
+11 |     app.on_event(BindItem::EVENT, bind_row::callback());
+   |         ^^^^^^^^ the trait `mirui::input::event::contract::AppEventSource` is not implemented for `WidgetSource<mirui::ui::widgets::LazyList>`
+   |
+help: the following other types implement trait `mirui::input::event::contract::AppEventSource`
+  --> src/input/event/contract.rs
+   |
+   | impl AppEventSource for InputSource {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputSource`
+   | impl AppEventSource for AppSource {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `AppSource`
+note: required by a bound in `mirui::app::App::<B, F>::on_event`
+  --> src/app/mod.rs
+   |
+   |     pub fn on_event<E>(
+   |            -------- required by a bound in this associated function
+...
+   |         E::Source: crate::input::event::contract::AppEventSource,
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `App::<B, F>::on_event`
+
+error[E0277]: the trait bound `WidgetUpdate: mirui::input::event::contract::AppRoute` is not satisfied
+  --> tests/event_type_contracts/fail/list_update_app.rs:11:35
+   |
+11 |     app.on_event(BindItem::EVENT, bind_row::callback());
+   |                                   ^^^^^^^^^^^^^^^^^^^^ the trait `mirui::input::event::contract::AppRoute` is not implemented for `WidgetUpdate`
+   |
+help: the following other types implement trait `mirui::input::event::contract::AppRoute`
+  --> src/input/event/contract.rs
+   |
+   | impl AppRoute for InputFallback {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputFallback`
+   | impl AppRoute for AppNotification {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `AppNotification`
+   = note: required for `mirui::__macro_support::AppContext` to implement `mirui::__macro_support::CallbackContext<mirui::ui::widgets::lazy_list::BindItem>`
+note: required by a bound in `callback`
+  --> tests/event_type_contracts/fail/list_update_app.rs:4:1
+   |
+ 4 | #[event]
+   | ^^^^^^^^ required by this bound in `callback`
+   = note: this error originates in the attribute macro `event` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `WidgetSource<mirui::ui::widgets::LazyList>: mirui::input::event::contract::AppEventSource` is not satisfied
+  --> tests/event_type_contracts/fail/list_update_app.rs:11:35
+   |
+11 |     app.on_event(BindItem::EVENT, bind_row::callback());
+   |                                   ^^^^^^^^^^^^^^^^^^^^ the trait `mirui::input::event::contract::AppEventSource` is not implemented for `WidgetSource<mirui::ui::widgets::LazyList>`
+   |
+help: the following other types implement trait `mirui::input::event::contract::AppEventSource`
+  --> src/input/event/contract.rs
+   |
+   | impl AppEventSource for InputSource {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputSource`
+   | impl AppEventSource for AppSource {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `AppSource`
+   = note: required for `mirui::__macro_support::AppContext` to implement `mirui::__macro_support::CallbackContext<mirui::ui::widgets::lazy_list::BindItem>`
+note: required by a bound in `callback`
+  --> tests/event_type_contracts/fail/list_update_app.rs:4:1
+   |
+ 4 | #[event]
+   | ^^^^^^^^ required by this bound in `callback`
+   = note: this error originates in the attribute macro `event` (in Nightly builds, run with -Z macro-backtrace for more info)
