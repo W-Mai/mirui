@@ -1,0 +1,23 @@
+error[E0271]: type mismatch resolving `<SizeChanged as Event>::Route == EntityNotification`
+  --> tests/event_type_contracts/fail/layout_notification_emit.rs:7:9
+   |
+ 5 |       commands.emit(
+   |                ---- required by a bound introduced by this call
+ 6 |           node,
+ 7 | /         SizeChanged {
+ 8 | |             old: None,
+ 9 | |             new: LayoutSize {
+10 | |                 width: Fixed::ONE,
+11 | |                 height: Fixed::ONE,
+12 | |             },
+13 | |         },
+   | |_________^ expected `EntityNotification`, found `LayoutNotification`
+   |
+note: required by a bound in `mirui::input::event::emission::<impl mirui::__macro_support::DeferredCommands<'_>>::emit`
+  --> src/input/event/emission.rs
+   |
+   |     pub fn emit<E>(&mut self, entity: Entity, payload: E)
+   |            ---- required by a bound in this associated function
+   |     where
+   |         E: Event<Route = EntityNotification>,
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `mirui::input::event::emission::<impl DeferredCommands<'_>>::emit`

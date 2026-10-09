@@ -339,6 +339,32 @@ impl EventListeners {
         }))
     }
 
+    pub(crate) fn contains(&self, id: ListenerId) -> bool {
+        self.entries
+            .borrow()
+            .listeners
+            .iter()
+            .any(|entry| entry.id == id)
+    }
+
+    pub(crate) fn snapshot_listener<'pool, 'event, E: Event>(
+        &'pool self,
+        world: &World,
+        event: &'event E,
+        id: ListenerId,
+    ) -> Result<ListenerSnapshot<'pool, 'event>, ListenerError> {
+        let mut snapshot =
+            self.empty_snapshot(world, BorrowedEvent::new(event), InternalEvent::None)?;
+        let entries = self.entries.try_borrow().map_err(|_| ListenerError::Busy)?;
+        if let Some(entry) = entries.listeners.iter().find(|entry| entry.id == id)
+            && entry.kind == TypeId::of::<E>()
+            && entry.callback.matches(&snapshot.event, None)
+        {
+            snapshot.push(DispatchStep::Listener(Rc::clone(&entry.callback)))?;
+        }
+        Ok(snapshot)
+    }
+
     pub(crate) fn has_app_notifications(&self, world: &World) -> Result<bool, ListenerError> {
         self.check_owner(world)?;
         self.prune_retired_entities(world)?;

@@ -7,6 +7,7 @@ pub mod focus;
 pub mod gesture;
 pub mod hit_test;
 pub mod input;
+pub mod layout;
 pub mod lifecycle;
 pub(crate) mod listeners;
 pub mod multi_tap;

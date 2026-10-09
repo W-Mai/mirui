@@ -1004,6 +1004,7 @@ fn compute_layout_snapshot(
                     logical_w,
                     logical_h,
                     valid: false,
+                    bindings_pending: false,
                     layout_tree,
                     parked,
                     entities,
@@ -2078,7 +2079,8 @@ fn reconcile_layout_snapshot(
         .map_or(0, |storage| storage.len())
         + world
             .storage::<super::layout_binding::SharedLayoutBinding>()
-            .map_or(0, |storage| storage.len());
+            .map_or(0, |storage| storage.len())
+        + crate::input::event::runtime::size_observer_count(world);
     let update_budget = binding_count
         .saturating_add(1)
         .min(MAX_LAYOUT_BINDING_UPDATES);
@@ -2091,15 +2093,32 @@ fn reconcile_layout_snapshot(
 
         let mut idx = 0;
         write_computed_rects(&snapshot.layout_tree, world, &snapshot.entities, &mut idx);
-        world.put_resource_box(snapshot);
         let invoke = pass < update_budget;
-        let changed = super::layout_binding::apply_layout_bindings(world, invoke);
+        let sizes =
+            match crate::input::event::runtime::capture_sizes(world, &snapshot.entities, invoke) {
+                Ok(sizes) => sizes,
+                Err(error) => {
+                    crate::warn!(target: "mirui::layout", "size observation skipped: {:?}", error);
+                    None
+                }
+            };
+        world.put_resource_box(snapshot);
+        let mut changed = super::layout_binding::apply_layout_bindings(world, invoke);
+        if let Some(sizes) = sizes {
+            changed |= sizes.changed;
+            if invoke {
+                sizes.dispatch(world);
+            }
+        }
         if !changed || !invoke {
-            debug_assert!(
-                !changed,
-                "layout bindings did not settle after {update_budget} updates"
-            );
-            return Ok(world.take_resource_box::<LayoutSnapshot>());
+            if changed {
+                crate::warn!(target: "mirui::layout", "layout bindings did not settle after {} updates", update_budget);
+            }
+            let mut snapshot = world.take_resource_box::<LayoutSnapshot>();
+            if let Some(snapshot) = &mut snapshot {
+                snapshot.bindings_pending = changed;
+            }
+            return Ok(snapshot);
         }
         crate::core::reactive::flush_signal_dirty(world);
     }
@@ -2380,6 +2399,7 @@ pub(crate) struct LayoutSnapshot {
     logical_w: u16,
     logical_h: u16,
     valid: bool,
+    bindings_pending: bool,
     pub(crate) layout_tree: LayoutNode,
     parked: Vec<LayoutNode>,
     pub(crate) entities: Vec<Entity>,
@@ -2829,9 +2849,9 @@ pub(crate) fn try_collect_dirty_regions_into(
         .is_some_and(|regions| !regions.is_empty());
     let hit_geometry_valid =
         crate::input::event::hit_test::geometry_matches(world, root, logical_w, logical_h);
-    let snapshot_stale = world
-        .resource::<LayoutSnapshot>()
-        .is_some_and(|snapshot| !snapshot.matches(root, logical_w, logical_h));
+    let snapshot_stale = world.resource::<LayoutSnapshot>().is_some_and(|snapshot| {
+        !snapshot.matches(root, logical_w, logical_h) || snapshot.bindings_pending
+    });
     if !has_layout_dirty
         && !has_visual_dirty
         && !has_exact_dirty
@@ -2844,6 +2864,7 @@ pub(crate) fn try_collect_dirty_regions_into(
 
     if !has_layout_dirty
         && !has_visual_dirty
+        && !snapshot_stale
         && world
             .resource::<LayoutSnapshot>()
             .is_some_and(|snapshot| snapshot.matches(root, logical_w, logical_h))
@@ -2854,7 +2875,7 @@ pub(crate) fn try_collect_dirty_regions_into(
         return Ok(());
     }
 
-    let visual_only = !has_layout_dirty;
+    let visual_only = !has_layout_dirty && !snapshot_stale;
     let existing = match world.take_resource_box::<LayoutSnapshot>() {
         Some(snapshot) if snapshot.matches(root, logical_w, logical_h) => Some(snapshot),
         Some(snapshot) => {

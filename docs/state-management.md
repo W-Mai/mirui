@@ -643,6 +643,33 @@ Active input simulation suppresses competing pointer, wheel, rotary, keyboard,
 and character input before widget and plugin input handlers. Suspend, resume,
 and quit requests remain available to the application lifecycle path.
 
+### Layout size events
+
+`SizeChanged` reports a node's first available logical size and subsequent width or height changes. `event.old` is `None` for a listener's first delivery; `event.new` is a `LayoutSize` with `width` and `height`. Position, scroll offsets, output scaling, and visual transforms are not size changes. Hidden or detached nodes are not measured for this notification.
+
+```rust,ignore
+View(width: Dimension::percent(100), height: 360) on SizeChanged {
+    model.set_stage_size(event.new.width, event.new.height);
+}
+
+View() on SizeChanged(|change: event!(SizeChanged)| {
+    model.set_stage_size(change.new.width, change.new.height);
+})
+
+#[event]
+fn resized(model: model!(PanelModel), change: event!(SizeChanged)) {
+    model.set_stage_size(change.new.width, change.new.height);
+}
+
+View() on SizeChanged(resized::callback(model.clone()))
+```
+
+`SizeChanged`, `LayoutSize`, and `LayoutSelectors` are exported by the ordinary prelude. Typed builders use `on_event(SizeChanged::EVENT, callback)`. Size notifications return `()`, do not bubble, and do not add hit targets or interaction feedback. They are produced by layout, cannot be submitted through `commands.emit`, and cannot be installed on App.
+
+All sizes in a pass are captured after computed rectangles are written, before callbacks run in installation order through the shared event executor. Query and resource parameters retain their existing access rules; commands apply after parameter borrows end. Reactive updates participate in the same frame's layout settling. A listener can receive several distinct sizes in one frame: this is not a final-layout event. Feedback is bounded; non-convergence logs a warning and retains pending layout work while rendering and hit testing use the last completed snapshot. Callback mutations are not rolled back.
+
+Observation storage is prepared from the actual number of installed size listeners and reused during capture and delivery. Size snapshots do not consume business notification payload capacity; notifications emitted by their callbacks still use `EventCapacity`. Callback registration and structural construction retain their normal allocations.
+
 ### App callbacks and event capacity
 
 `App::on_event(E::EVENT, callback)` installs a named callback for App lifecycle notifications or input fallback. The callback factory infers the installation context; authors do not name an internal context type or write a World callback.

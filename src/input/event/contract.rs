@@ -34,6 +34,8 @@ pub trait EventRoute: sealed::Route + 'static {
 pub struct EntityBubble;
 /// A direct, non-consumable notification from a widget.
 pub struct EntityNotification;
+/// A direct layout notification emitted by the framework.
+pub struct LayoutNotification;
 /// Input handled by the focus/scroll route before reaching App listeners.
 pub struct InputFallback;
 /// A non-consumable App lifecycle notification.
@@ -53,6 +55,7 @@ macro_rules! routes {
 routes!(
     EntityBubble => BubbleControl,
     EntityNotification => (),
+    LayoutNotification => (),
     InputFallback => BubbleControl,
     AppNotification => (),
 );
@@ -62,6 +65,7 @@ routes!(
 pub trait EntityRoute: EventRoute {}
 impl EntityRoute for EntityBubble {}
 impl EntityRoute for EntityNotification {}
+impl EntityRoute for LayoutNotification {}
 impl EntityRoute for InputFallback {}
 
 /// A route accepted by an App event installer.
@@ -77,6 +81,8 @@ pub trait EventSource<R: EventRoute>: sealed::Source + 'static {}
 
 /// Gestures attached to entity nodes.
 pub struct EntitySource;
+/// Node geometry produced by layout, independent of widget kind or input state.
+pub struct LayoutSource;
 /// Focused keyboard input with an App fallback.
 pub struct InputSource;
 /// App notifications or input with only an App listener.
@@ -85,11 +91,13 @@ pub struct AppSource;
 pub struct WidgetSource<W: Component>(PhantomData<fn() -> W>);
 
 impl sealed::Source for EntitySource {}
+impl sealed::Source for LayoutSource {}
 impl sealed::Source for InputSource {}
 impl sealed::Source for AppSource {}
 impl<W: Component> sealed::Source for WidgetSource<W> {}
 
 impl EventSource<EntityBubble> for EntitySource {}
+impl EventSource<LayoutNotification> for LayoutSource {}
 impl EventSource<InputFallback> for InputSource {}
 impl EventSource<InputFallback> for AppSource {}
 impl EventSource<AppNotification> for AppSource {}
@@ -104,6 +112,11 @@ pub trait EntityEventSource: sealed::Source {
 impl EntityEventSource for EntitySource {
     fn present(_world: &World, _entity: Entity) -> bool {
         true
+    }
+}
+impl EntityEventSource for LayoutSource {
+    fn present(world: &World, entity: Entity) -> bool {
+        world.has::<crate::ui::Widget>(entity)
     }
 }
 impl EntityEventSource for InputSource {
@@ -121,9 +134,11 @@ impl<W: Component> EntityEventSource for WidgetSource<W> {
 #[doc(hidden)]
 pub trait EntitySourceFor<W: Component>: EntityEventSource + sealed::EntitySourceFor<W> {}
 impl<W: Component> sealed::EntitySourceFor<W> for EntitySource {}
+impl<W: Component> sealed::EntitySourceFor<W> for LayoutSource {}
 impl<W: Component> sealed::EntitySourceFor<W> for InputSource {}
 impl<W: Component> sealed::EntitySourceFor<W> for WidgetSource<W> {}
 impl<W: Component> EntitySourceFor<W> for EntitySource {}
+impl<W: Component> EntitySourceFor<W> for LayoutSource {}
 impl<W: Component> EntitySourceFor<W> for InputSource {}
 impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {}
 
@@ -246,7 +261,7 @@ macro_rules! notification_results {
     };
 }
 
-notification_results!(EntityNotification, AppNotification);
+notification_results!(EntityNotification, LayoutNotification, AppNotification);
 
 macro_rules! widget_events {
     (

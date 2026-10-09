@@ -3,7 +3,7 @@ use crate::ecs::{Entity, World};
 use super::callback::{CallbackContext, EventCallback};
 use super::contract::{
     EntityBubble, EntityEventSource, EntityNotification, EntityRoute, Event, EventKey, EventRoute,
-    InputFallback,
+    InputFallback, LayoutNotification,
 };
 use super::gesture::GesturePayload;
 use super::listeners::{ListenerDecision, ListenerSelector};
@@ -40,7 +40,7 @@ macro_rules! unit_routes {
     };
 }
 
-unit_routes!(EntityNotification, InputFallback);
+unit_routes!(EntityNotification, LayoutNotification, InputFallback);
 
 /// One uninstalled binding stored by a widget builder.
 #[doc(hidden)]

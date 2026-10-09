@@ -1,0 +1,18 @@
+error[E0277]: the trait bound `bool: EventResult<LayoutNotification>` is not satisfied
+ --> tests/event_type_contracts/fail/layout_notification_result.rs:3:1
+  |
+3 | #[event]
+  | ^^^^^^^^ the trait `EventResult<LayoutNotification>` is not implemented for `bool`
+  |
+help: `bool` implements trait `EventResult<R>`
+ --> src/input/event/contract.rs
+  |
+  |             impl EventResult<$route> for bool {
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |             |
+  |             `EventResult<EntityBubble>`
+  |             `EventResult<InputFallback>`
+...
+  | consumable_results!(EntityBubble, InputFallback);
+  | ------------------------------------------------ in this macro invocation
+  = note: this error originates in the attribute macro `event` which comes from the expansion of the macro `consumable_results` (in Nightly builds, run with -Z macro-backtrace for more info)

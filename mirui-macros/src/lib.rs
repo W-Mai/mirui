@@ -889,6 +889,8 @@ impl MiruiRune {
                     use ::mirui::input::event::gesture::GestureSelectors as _;
                     #[allow(unused_imports)]
                     use ::mirui::input::event::input::InputSelectors as _;
+                    #[allow(unused_imports)]
+                    use ::mirui::input::event::layout::LayoutSelectors as _;
                     #binding
                 }
             });

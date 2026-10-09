@@ -22,6 +22,7 @@ use super::emission::{
 };
 use super::focus::{FocusState, KeyHandler};
 use super::input::{CharInput, InputEvent, Key, Rotary, Wheel};
+use super::layout::{SizeChanged, SizeObservers};
 use super::lifecycle::AppNotice;
 use super::listeners::{
     EventListeners, InputBranch, ListenerCapacity, ListenerDecision, ListenerError,
@@ -53,6 +54,7 @@ struct EventRuntime {
     owner: WorldId,
     listeners: EventListeners,
     configuration: Cell<Configuration>,
+    sizes: SizeObservers,
 }
 
 impl EventRuntime {
@@ -196,6 +198,7 @@ pub(crate) fn initialize(world: &mut World) {
     world.insert_resource(Rc::new(EventRuntime {
         owner: world.id(),
         listeners,
+        sizes: SizeObservers::default(),
         configuration: Cell::new(Configuration::Open(
             EventCapacity::default()
                 .resolve()
@@ -311,14 +314,94 @@ where
     runtime.prepare(world, 1)?;
     let app_slot = runtime.listeners.has_app_notifications(world)?;
     runtime.prepare_notifications::<E>(world, callback.uses_commands(), app_slot)?;
-    runtime
-        .listeners
-        .install_entity(world, entity, E::Route::selector(key), callback, commands)?;
+    let observes_size = TypeId::of::<E>() == TypeId::of::<SizeChanged>();
+    if observes_size {
+        runtime.sizes.reserve(&runtime.listeners, world)?;
+    }
+    let listener = runtime.listeners.install_entity(
+        world,
+        entity,
+        E::Route::selector(key),
+        callback,
+        commands,
+    )?;
+    if observes_size {
+        runtime.sizes.insert(listener, entity);
+        world.insert(entity, crate::ui::dirty::Dirty);
+    }
     if TypeId::of::<E::Route>() == TypeId::of::<EntityBubble>() {
         world.insert(entity, crate::ui::HitTarget);
     }
     runtime.configuration.set(configuration.freeze());
     Ok(())
+}
+
+pub(crate) fn size_observer_count(world: &World) -> usize {
+    runtime(world).map_or(0, |runtime| runtime.sizes.len())
+}
+
+pub(crate) struct SizeChangeBatch {
+    runtime: Rc<EventRuntime>,
+    length: usize,
+    pub(crate) changed: bool,
+}
+
+impl SizeChangeBatch {
+    pub(crate) fn dispatch(self, world: &mut World) {
+        for index in 0..self.length {
+            let Some((listener, entity, event)) = self.runtime.sizes.take(index) else {
+                continue;
+            };
+            if !world.is_alive(entity) {
+                continue;
+            }
+            let result = self
+                .runtime
+                .listeners
+                .snapshot_listener(world, &event, listener)
+                .and_then(|snapshot| snapshot.run(world));
+            if let Err(error) = result {
+                crate::warn!(target: "mirui::layout", "size callback skipped: {:?}", error);
+            }
+        }
+        if self.changed {
+            let limit = self
+                .runtime
+                .configuration
+                .get()
+                .limits()
+                .flush_limit
+                .unwrap_or(0);
+            if let Err(error) = self.runtime.flush(world, limit) {
+                crate::warn!(target: "mirui::layout", "size callback notifications skipped: {:?}", error);
+            }
+        }
+    }
+}
+
+impl Drop for SizeChangeBatch {
+    fn drop(&mut self) {
+        self.runtime.sizes.finish();
+    }
+}
+
+pub(crate) fn capture_sizes(
+    world: &World,
+    laid_out: &[Entity],
+    invoke: bool,
+) -> Result<Option<SizeChangeBatch>, ListenerError> {
+    let Some(runtime) = runtime(world).filter(|runtime| runtime.sizes.len() != 0) else {
+        return Ok(None);
+    };
+    runtime.check_owner(world)?;
+    let (length, changed) = runtime
+        .sizes
+        .capture(&runtime.listeners, world, laid_out, invoke)?;
+    Ok(Some(SizeChangeBatch {
+        runtime,
+        length,
+        changed,
+    }))
 }
 
 pub(crate) fn has_entity_listener<E: Event>(

@@ -454,8 +454,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "layout bindings did not settle")]
-    fn cyclic_binding_is_reported() {
+    fn cyclic_binding_stops_with_a_completed_snapshot() {
         let mut world = World::new();
         world.insert_resource(Probe::default());
         let root = widget(&mut world, 100, 100);
@@ -473,6 +472,11 @@ mod tests {
             &mut world,
             root,
             &Viewport::new(300, 200, Fixed::ONE),
+        );
+        assert_eq!(world.resource::<Probe>().unwrap().calls, 2);
+        assert_eq!(
+            world.get::<ComputedRect>(root).unwrap().0.w,
+            Fixed::from_int(100)
         );
     }
 
