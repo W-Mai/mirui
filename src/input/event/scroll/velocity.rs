@@ -16,6 +16,16 @@ pub(crate) struct VelocityTracker {
 }
 
 impl VelocityTracker {
+    pub fn record_delta(&mut self, dx: Fixed, dy: Fixed, time: u32) {
+        if let Some(origin) = self.samples[..self.len].last().copied() {
+            for sample in &mut self.samples[..self.len] {
+                sample.x -= origin.x;
+                sample.y -= origin.y;
+            }
+        }
+        self.record(-dx, -dy, time);
+    }
+
     pub fn record(&mut self, x: Fixed, y: Fixed, time: u32) {
         let sample = Sample { x, y, time };
         if self.len > 0 && self.samples[self.len - 1].time == time {
@@ -57,6 +67,22 @@ impl VelocityTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wheel_velocity_accumulates_batched_displacement_without_position_drift() {
+        let mut samples = VelocityTracker::default();
+        for time in 0..128 {
+            samples.record_delta(4.into(), (-4).into(), time * 8);
+            samples.record_delta(4.into(), (-4).into(), time * 8);
+        }
+        assert_eq!(samples.velocity(127 * 8), (1000.into(), (-1000).into()));
+        assert!(
+            samples
+                .samples
+                .iter()
+                .all(|sample| sample.x.abs() < Fixed::from_int(32))
+        );
+    }
 
     #[test]
     fn release_velocity_uses_time_and_expires_after_a_pause() {
