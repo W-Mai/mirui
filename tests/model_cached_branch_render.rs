@@ -14,7 +14,7 @@ use mirui::types::{Color, Dimension, Fixed, Viewport};
 use mirui::ui;
 use mirui::ui::render_system;
 use mirui::ui::widgets::Text;
-use mirui::ui::{ComputedRect, IdMap, branch};
+use mirui::ui::{ComputedRect, branch};
 
 #[path = "support/tracking_allocator.rs"]
 mod tracking_allocator;
@@ -133,13 +133,11 @@ fn rendered_fills_and_hit(world: &mut World, root: Entity) -> (Vec<Color>, Optio
 fn observed_model_switches_cached_match_paint_and_hit_target_in_both_directions() {
     let mut app = App::headless(64, 64);
     app.with_default_widgets();
-    app.world.insert_resource(IdMap::new());
     let root = app.spawn_root().id();
     let mode = app.add_model(Mode { selected: 0 });
     let selection = mode.share();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+    app.compose(root, |cx| {
         ui! {
             Column (width: Dimension::px(64), height: Dimension::px(64)) {
                 match ${ selection.selected() } {
@@ -167,8 +165,8 @@ fn observed_model_switches_cached_match_paint_and_hit_target_in_both_directions(
                     }
                 }
             }
-        }
-    };
+        };
+    });
 
     let first = app.world.find_by_id("first").unwrap();
     let second = app.world.find_by_id("second").unwrap();
@@ -248,14 +246,12 @@ fn first_nested_bounded_text_branch_switch_reuses_full_frame_storage() {
         },
     })
     .unwrap();
-    app.world.insert_resource(IdMap::new());
     let root = app.spawn_root().id();
     let mode = app.add_model(Mode { selected: 0 });
     let selection = mode.share();
     let deep_label = mode.share();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+    app.compose(root, |cx| {
         ui! {
             Column (width: 128, height: 96) {
                 match ${ selection.selected() } {
@@ -295,8 +291,8 @@ fn first_nested_bounded_text_branch_switch_reuses_full_frame_storage() {
                 }
                 Text ("TAIL", id: "tail_text", width: 128, height: 16, font_size: 8)
             }
-        }
-    };
+        };
+    });
 
     let shallow = app.world.find_by_id("shallow_text").unwrap();
     let deep = app.world.find_by_id("deep_text").unwrap();
@@ -390,7 +386,6 @@ fn cached_branch_routes_taps_and_reveals_hidden_state_without_rebuilding() {
         },
     })
     .unwrap();
-    app.world.insert_resource(IdMap::new());
     let root = app.spawn_root().id();
     let state = app.add_model(BranchState {
         selected: false,
@@ -403,8 +398,7 @@ fn cached_branch_routes_taps_and_reveals_hidden_state_without_rebuilding() {
     let first_action = state.share();
     let second_action = state.share();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+    app.compose(root, |cx| {
         ui! {
             Column (width: 128, height: 96) {
                 match ${ selection.selected() } {
@@ -432,8 +426,8 @@ fn cached_branch_routes_taps_and_reveals_hidden_state_without_rebuilding() {
                     }
                 }
             }
-        }
-    };
+        };
+    });
 
     let first = app.world.find_by_id("branch_first").unwrap();
     let second = app.world.find_by_id("branch_second").unwrap();

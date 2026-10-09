@@ -58,8 +58,7 @@ fn bounded_text_match_switches_without_layout_allocations_and_reports_overflow()
     let mode = app.add_model(Mode { selected: 0 });
     let selection = mode.share();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+    app.compose(root, |cx| {
         ui! {
             Column (width: Dimension::px(64), height: Dimension::px(64)) {
                 Text ("HEADER", id: "header")
@@ -74,7 +73,7 @@ fn bounded_text_match_switches_without_layout_allocations_and_reports_overflow()
                 }
             }
         }
-    };
+    });
 
     app.render().unwrap();
     let initial = app.backend.framebuffer().buf.as_slice().to_vec();
@@ -160,12 +159,11 @@ fn failed_bounded_reservation_preserves_existing_app_cache() {
         Err(TextLayoutError::CacheBudget { .. })
     ));
     let root = app.spawn_root().id();
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+    app.compose(root, |cx| {
         ui! {
             Text ("PRESERVED")
         }
-    };
+    });
     app.render().unwrap();
     assert_eq!(
         app.try_with_text_layout_limits(TextLayoutLimits::HOST)

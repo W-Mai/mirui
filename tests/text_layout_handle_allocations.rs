@@ -49,8 +49,7 @@ fn retained_text_branch_switch_reuses_prepared_handle_storage() {
     let mode = app.add_model(Mode { deep: false });
     let branch = mode.share();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+    app.compose(root, |cx| {
         ui! {
             Column (width: 128, height: 80) {
                 match ${ branch.deep() } {
@@ -93,7 +92,7 @@ fn retained_text_branch_switch_reuses_prepared_handle_storage() {
                 Button (text: "007", width: 128, height: 16, font_size: 8) on Tap { }
             }
         }
-    };
+    });
 
     let shallow = app.world.find_by_id("shallow_hit").unwrap();
     let deep = app.world.find_by_id("deep_hit").unwrap();

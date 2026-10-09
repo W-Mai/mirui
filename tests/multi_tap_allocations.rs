@@ -13,15 +13,14 @@ fn installed_tap_options_dispatch_without_allocating_or_reevaluating_arguments()
     use std::rc::Rc;
 
     let mut app = App::headless(8, 8);
-    let root = app.world.spawn_empty();
+    let root = app.spawn_root().id();
     let calls = Rc::new(Cell::new(0_u32));
     let evaluations = Rc::new(Cell::new(0_u32));
     let called = Rc::clone(&calls);
     let plain_calls = Rc::new(Cell::new(0_u32));
     let plain_called = plain_calls.clone();
     let evaluated = Rc::clone(&evaluations);
-    let target = {
-        let mut cx = mirui::ui::UiScope::new(&mut app.world, root);
+    let target = app.compose(root, |cx| {
         mirui::ui! {
             View () on Tap {
                 plain_called.set(plain_called.get() + 1);
@@ -31,7 +30,7 @@ fn installed_tap_options_dispatch_without_allocating_or_reevaluating_arguments()
                 2
             }) { called.set(called.get() + 1); }
         }
-    };
+    });
     assert_eq!(evaluations.get(), 1);
     let tap = GestureEvent::Tap {
         x: Fixed::ZERO,

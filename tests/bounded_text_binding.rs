@@ -49,8 +49,7 @@ fn bounded_text_and_button_bindings_keep_storage_and_recover_after_overflow() {
     let bound = reading.share();
     let bound_button = reading.share();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+    app.compose(root, |cx| {
         ui! {
             Column () {
                 Text (
@@ -71,7 +70,7 @@ fn bounded_text_and_button_bindings_keep_storage_and_recover_after_overflow() {
                 )
             }
         }
-    };
+    });
 
     let reading_entity = app.world.find_by_id("reading").unwrap();
     let button_entity = app.world.find_by_id("button").unwrap();
@@ -168,8 +167,7 @@ fn bounded_text_formats_locals_inside_static_and_reactive_blocks() {
     let reading = app.add_model(Reading { value: 7 });
     let bound = reading.share();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+    app.compose(root, |cx| {
         ui! {
             Column () {
                 Text (
@@ -190,7 +188,7 @@ fn bounded_text_formats_locals_inside_static_and_reactive_blocks() {
                 )
             }
         }
-    };
+    });
 
     let reactive = app.world.find_by_id("reactive_block").unwrap();
     let static_text = app.world.find_by_id("static_block").unwrap();
@@ -231,12 +229,11 @@ fn custom_component_keeps_its_own_text_capacity_field() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+    app.compose(root, |cx| {
         ui! {
             CustomCard (text_capacity: 8usize, id: "custom")
         }
-    };
+    });
 
     let entity = app.world.find_by_id("custom").unwrap();
     assert_eq!(
@@ -281,12 +278,11 @@ fn first_bounded_value_overflow_has_no_valid_content_until_recovery() {
     app.with_default_widgets();
     let root = app.spawn_root().id();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+    app.compose(root, |cx| {
         ui! {
             Text ("OVER", text_capacity: 3, id: "label")
         }
-    };
+    });
 
     let entity = app.world.find_by_id("label").unwrap();
     let text = app.world.get::<Text>(entity).unwrap();
@@ -344,12 +340,11 @@ fn property_binding_preserves_bounded_content_after_overflow() {
     app.with_default_widgets();
     let root = app.spawn_root().id();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+    app.compose(root, |cx| {
         ui! {
             Text ("OK", text_capacity: 3, id: "bounded")
         }
-    };
+    });
 
     let entity = app.world.find_by_id("bounded").unwrap();
     assert_eq!(
@@ -376,8 +371,7 @@ fn reactive_initial_overflow_recovers_without_rebuilding_widgets() {
     let reading = app.add_model(Reading { value: 10000 });
     let bound = reading.share();
 
-    {
-        let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
+    app.compose(root, |cx| {
         ui! {
             Text (
                 text: ${ format_args!("{:03}", bound.value()) },
@@ -385,7 +379,7 @@ fn reactive_initial_overflow_recovers_without_rebuilding_widgets() {
                 id: "reading"
             )
         }
-    };
+    });
 
     let entity = app.world.find_by_id("reading").unwrap();
     assert_eq!(app.render_dirty(), Err(RenderError::TextContent));
