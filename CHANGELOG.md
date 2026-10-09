@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Composition scopes no longer expose `world_mut`. Generated UI and Niche construction access the same storage through hidden macro support.
 - Kinetic Console, Widgets, and Compact Widgets construct their simulation timelines through resource compositions instead of World parameters. Widgets uses named targets and shares its composition, theme timer, and input sequence across desktop and embedded setup.
 - Generated layout property callbacks are confined to macro support. Layout dependency descriptors and the dependency capacity remain available from `mirui::ui`.
 - State List derives its scroll extent from retained children, including row spacing and padding, and clips overflow to the list viewport. Its composition no longer writes scroll configuration through a World callback.

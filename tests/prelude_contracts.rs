@@ -18,3 +18,9 @@ fn layout_callbacks_stay_in_macro_support() {
     cases.pass("mirui-macros/tests/ui/layout_responsive.rs");
     cases.compile_fail("tests/prelude_contracts/raw_layout.rs");
 }
+
+#[test]
+fn composition_world_access_stays_in_macro_support() {
+    let cases = trybuild::TestCases::new();
+    cases.compile_fail("tests/prelude_contracts/scope_world.rs");
+}

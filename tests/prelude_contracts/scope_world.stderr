@@ -1,0 +1,21 @@
+error[E0624]: method `world_mut` is private
+ --> tests/prelude_contracts/scope_world.rs:5:16
+  |
+5 |     let _ = cx.world_mut();
+  |                ^^^^^^^^^ private method
+  |
+ ::: src/ui/scope.rs
+  |
+  |     pub(crate) fn world_mut(&mut self) -> &mut World {
+  |     ------------------------------------------------ private method defined here
+
+error[E0624]: method `world_mut` is private
+  --> tests/prelude_contracts/scope_world.rs:12:22
+   |
+12 |         let _ = tree.world_mut();
+   |                      ^^^^^^^^^ private method
+   |
+  ::: src/ui/scope.rs
+   |
+   |     pub(crate) fn world_mut(&mut self) -> &mut World {
+   |     ------------------------------------------------ private method defined here

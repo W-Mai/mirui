@@ -2275,7 +2275,7 @@ pub fn ui(input: TokenStream) -> TokenStream {
     };
     let mut rune = MiruiRune::new();
 
-    rune.world_expr = quote! { cx.world_mut() };
+    rune.world_expr = scope_world_expr();
     rune.parent_expr = quote! { __mirui_parent };
 
     decipher(&tree, &mut rune);
@@ -2793,6 +2793,13 @@ fn try_parse_fn_call_form(input: &proc_macro2::TokenStream) -> Option<syn::ExprC
     }
 }
 
+fn scope_world_expr() -> proc_macro2::TokenStream {
+    quote! {{
+        use ::mirui::__macro_support::ScopeWorldAccess as _;
+        cx.__mirui_world()
+    }}
+}
+
 fn expand_ui_fn_call(call: syn::ExprCall) -> proc_macro2::TokenStream {
     let func = &call.func;
     let args = &call.args;
@@ -2966,7 +2973,7 @@ mod typed_on_tests {
         let (captures, input) = strip_bound_captures(input).unwrap();
         let tree = syn::parse2::<DsTree>(input).unwrap().into_ref();
         let mut rune = MiruiRune::new();
-        rune.world_expr = quote!(cx.world_mut());
+        rune.world_expr = scope_world_expr();
         rune.parent_expr = quote!(__parent);
         decipher(&tree, &mut rune);
         let body = rune.seal();

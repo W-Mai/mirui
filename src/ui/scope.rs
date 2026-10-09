@@ -92,8 +92,7 @@ impl<'w> UiScope<'w> {
         super::resource_access::Resources::new(self.world)
     }
 
-    #[doc(hidden)]
-    pub fn world_mut(&mut self) -> &mut World {
+    pub(crate) fn world_mut(&mut self) -> &mut World {
         self.world
     }
 

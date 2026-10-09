@@ -111,6 +111,16 @@ pub mod ui;
 /// Runtime types used only by generated authoring macros.
 #[doc(hidden)]
 pub mod __macro_support {
+    pub trait ScopeWorldAccess {
+        fn __mirui_world(&mut self) -> &mut crate::ecs::World;
+    }
+
+    impl ScopeWorldAccess for crate::ui::UiScope<'_> {
+        fn __mirui_world(&mut self) -> &mut crate::ecs::World {
+            self.world_mut()
+        }
+    }
+
     pub use crate::anim::MotionComponent;
     pub use crate::anim::generated::{MotionFrame, advance_motion};
     pub use crate::core::model::{BindingOwner, ModelOwnerError};
