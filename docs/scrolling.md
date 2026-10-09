@@ -1,0 +1,46 @@
+# Scrolling
+
+## Input and viewport
+
+Scrolling does not snap to cell boundaries. Pointer-release inertia follows recent movement and expires after the pointer stops; wheel input applies its fractional deltas directly, retaining platform-provided momentum. Scroll offsets invalidate painting and hit geometry, while cell reassignment or size changes still update layout. Framebuffer reuse is restricted to whole physical-pixel shifts in untransformed rectangular viewports without borders or rounded corners; other movement repaints the affected viewport.
+
+For SDL runtime requirements and macOS trackpad setup, see the [desktop setup](quickstart.md#desktop-sdl).
+
+## Virtualized cells
+
+`LazyList` creates cells after its first nonempty layout and retains them across scrolling. Declare the data count, the cell extent, and one `on CreateCell` callback returning a new cell root. The list owns pool sizing, positions, and recycling; authors do not prebuild slots or maintain a pool.
+
+Visible rows intersect the viewport with positive area, including partial rows at either edge. `visible_start` is the first intersecting data index, not the start of the retained buffer. Spare slots hold up to two extra rows on either side without displacing visible rows or filling past the data range. Elastic offsets remain unchanged; empty viewports and offsets entirely outside the data hide retained rows. The total content extent must fit layout coordinates.
+
+Cells already bound inside the retained range keep their entities when the viewport changes. Missing indices use free cells; unused cells remain hidden for reuse. `item_extent` specifies height for a vertical list and width for a horizontal list, selected by `ScrollConfig.direction`. The list derives the virtual content extent from its count and cell extent.
+
+`CreateCell` runs only when a new physical cell is needed. Its `item` is a library-owned `ListItem` Model whose observed `index()` changes when that cell is reused. Property bindings read the current index and update through the normal reactive and dirty mechanisms. Input callbacks also read the index when invoked, rather than capturing a construction-time integer.
+
+```rust,ignore
+use mirui::ui::widgets::lazy_list::CreateCell;
+
+#[event]
+fn create_row(event: event!(CreateCell)) -> Entity {
+    const LABELS: [&str; 4] = ["ALPHA", "BETA", "GAMMA", "DELTA"];
+    let item = event.item.clone();
+    ui! {
+        Text(text: ${ LABELS[item.index() as usize % LABELS.len()] })
+    }
+}
+
+#[compose]
+fn rows_panel() {
+    ui! {
+        LazyList (height: 240, item_count: 100_u32, item_extent: Fixed::from_int(24))
+        on CreateCell(create_row::callback())
+    };
+}
+```
+
+Blocks, typed inline callbacks, named callback factories, and `tree.on_event` use the same construction route. `entity!()` identifies the list. Cell attachment sees the list as its parent. The callback returns exactly one new root; duplicate providers, existing roots, and construction of multiple roots are rejected. Invalid construction, unwinding, and failed deferred command submission dispose the newly created subtree. The request does not bubble, add input feedback, or consume business notification records; App listeners and `commands.emit` cannot produce it.
+
+Construction callbacks use Model and value captures, event/entity roles, and deferred commands. They cannot retain `query!` or parameter `res!` borrows while creating nodes. Short resource operations use the same `res!(T).with(...)` expressions as composition, so the borrow ends before construction continues. Ordinary input and notification callbacks retain their typed query/resource capabilities.
+
+Complex cells can call a `#[compose]` function with `item: model!(ListItem)` and a separate business Model. Bind `item_count` to the business data count. Ancestor property updates precede retained-cell effects, and cells with invalid or inactive indices stop evaluating their properties. Restoring data wakes those bindings without rebuilding cells. Rebinding cancels the cell's old pointer capture and focus, without cancelling an ancestor list's scroll drag. Persistent selection or editing state belongs in the business Model, keyed by data identity rather than the recycled Entity.
+
+First layout and resize settle cell creation, positions, and reactive properties before drawing and hit testing. List and cell snapshots retain their capacity; warmed scrolling, including hiding and restoring cells, adds no framework heap allocations. Callback installation, Model registration, and pool growth allocate during construction. User-owned formatted strings have separate allocation costs. Removing a list releases its cells, Model registrations, and owned effects.

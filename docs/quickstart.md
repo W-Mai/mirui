@@ -38,13 +38,14 @@ Rust; browser and mobile targets need their respective toolchains.
 
 ## Desktop SDL
 
-The SDL backend is the fastest way to see mirui render anything. SDL2 is
-linked dynamically; install it with the platform package manager:
+The SDL backend links SDL2 dynamically; install the runtime and headers with the platform package manager:
 
 ```bash
-brew install sdl2          # macOS
+brew install sdl2-compat sdl3 # macOS
 apt-get install libsdl2-dev   # Debian / Ubuntu
 ```
+
+On macOS, use sdl2-compat with SDL 3.4.14 or newer for high-resolution trackpad scrolling. Mirui enables native momentum on this runtime; the original SDL2 runtime does not support that setting. The Rust `sdl2` crate version is independent of the native library version. After upgrading the native libraries, restart the application.
 
 Create a fresh project:
 
