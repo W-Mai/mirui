@@ -1,0 +1,113 @@
+error[E0423]: expected function, found module `mirui::input::event::scroll::scroll_inertia_system`
+  --> tests/prelude_contracts/framework_system_callbacks.rs:14:13
+   |
+14 |     let _ = mirui::input::event::scroll::scroll_inertia_system(&mut world);
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not a function
+
+error[E0603]: function `timer_system` is private
+ --> tests/prelude_contracts/framework_system_callbacks.rs:5:33
+  |
+5 |     let _ = mirui::core::timer::timer_system(&mut world);
+  |                                 ^^^^^^^^^^^^ private function
+  |
+note: the function `timer_system` is defined here
+ --> src/core/timer/mod.rs
+  |
+  | pub(crate) fn timer_system(world: &mut World) -> Result<(), CommandError> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: function `hover_system` is private
+ --> tests/prelude_contracts/framework_system_callbacks.rs:6:31
+  |
+6 |     let _ = mirui::ui::state::hover_system(&mut world);
+  |                               ^^^^^^^^^^^^ private function
+  |
+note: the function `hover_system` is defined here
+ --> src/ui/state.rs
+  |
+  | pub(crate) fn hover_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: function `press_system` is private
+ --> tests/prelude_contracts/framework_system_callbacks.rs:7:31
+  |
+7 |     let _ = mirui::ui::state::press_system(&mut world);
+  |                               ^^^^^^^^^^^^ private function
+  |
+note: the function `press_system` is defined here
+ --> src/ui/state.rs
+  |
+  | pub(crate) fn press_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: function `lazy_list_system` is private
+ --> tests/prelude_contracts/framework_system_callbacks.rs:8:44
+  |
+8 |     let _ = mirui::ui::widgets::lazy_list::lazy_list_system(&mut world);
+  |                                            ^^^^^^^^^^^^^^^^ private function
+  |
+note: the function `lazy_list_system` is defined here
+ --> src/ui/widgets/lazy_list.rs
+  |
+  | pub(crate) fn lazy_list_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: function `tab_pages_system` is private
+ --> tests/prelude_contracts/framework_system_callbacks.rs:9:44
+  |
+9 |     let _ = mirui::ui::widgets::tab_pages::tab_pages_system(&mut world);
+  |                                            ^^^^^^^^^^^^^^^^ private function
+  |
+note: the function `tab_pages_system` is defined here
+ --> src/ui/widgets/tab_pages.rs
+  |
+  | pub(crate) fn tab_pages_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: function `sim_input_system` is private
+  --> tests/prelude_contracts/framework_system_callbacks.rs:10:39
+   |
+10 |     let _ = mirui::input::event::sim::sim_input_system(&mut world);
+   |                                       ^^^^^^^^^^^^^^^^ private function
+   |
+note: the function `sim_input_system` is defined here
+  --> src/input/event/sim.rs
+   |
+   | pub(crate) fn sim_input_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: function `sim_timeline_system` is private
+  --> tests/prelude_contracts/framework_system_callbacks.rs:11:39
+   |
+11 |     let _ = mirui::input::event::sim::sim_timeline_system(&mut world);
+   |                                       ^^^^^^^^^^^^^^^^^^^ private function
+   |
+note: the function `sim_timeline_system` is defined here
+  --> src/input/event/sim.rs
+   |
+   | pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: function `scroll_inertia_system` is private
+  --> tests/prelude_contracts/framework_system_callbacks.rs:12:50
+   |
+12 |     let _ = mirui::input::event::scroll::system::scroll_inertia_system(&mut world);
+   |                                                  ^^^^^^^^^^^^^^^^^^^^^ private function
+   |
+note: the function `scroll_inertia_system` is defined here
+  --> src/input/event/scroll/system.rs
+   |
+   | pub(crate) fn scroll_inertia_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: function `cursor_feedback_system` is private
+  --> tests/prelude_contracts/framework_system_callbacks.rs:13:45
+   |
+13 |     let _ = mirui::input::feedback::cursor::cursor_feedback_system(&mut world);
+   |                                             ^^^^^^^^^^^^^^^^^^^^^^ private function
+   |
+note: the function `cursor_feedback_system` is defined here
+  --> src/input/feedback/cursor.rs
+   |
+   | pub(crate) fn cursor_feedback_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -209,7 +209,7 @@ fn resolve_timings(commands: &[SimCommand]) -> Vec<u32> {
     resolved
 }
 
-pub fn sim_input_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
+pub(crate) fn sim_input_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     let clock_fn = world.resource::<crate::ecs::MonoClock>().map(|fc| fc.clock);
     let now_ms = clock_fn.map(|f| (f() / 1_000_000) as u32).unwrap_or(0);
 
@@ -538,7 +538,7 @@ impl SimTimeline {
     }
 }
 
-pub fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
+pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     let clock_fn = world.resource::<crate::ecs::MonoClock>().map(|fc| fc.clock);
     let now_ms = clock_fn.map(|f| (f() / 1_000_000) as u32).unwrap_or(0);
 
@@ -2542,7 +2542,7 @@ mod tests {
 
         for frame in 0..total_frames {
             sim_timeline_system(&mut world).unwrap();
-            crate::input::event::scroll::scroll_inertia_system(&mut world).unwrap();
+            crate::input::event::scroll::system::scroll_inertia_system(&mut world).unwrap();
             tab_pages_system(&mut world).unwrap();
             switch_systems.run_all(&mut world).unwrap();
             crate::ui::render_system::update_layout(&mut world, _root, &viewport);

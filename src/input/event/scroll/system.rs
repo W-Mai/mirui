@@ -487,7 +487,7 @@ pub(crate) fn scroll_system_with_target(
 }
 
 /// Advances released scroll motion and completes inactive wheel streams.
-pub fn scroll_inertia_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
+pub(crate) fn scroll_inertia_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     let Some(motion) = world.resource::<ScrollMotion>() else {
         return Ok(());
     };

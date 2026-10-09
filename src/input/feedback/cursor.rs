@@ -82,7 +82,7 @@ fn world_has_layout_motion(world: &World) -> bool {
     shifted || pending_scroll
 }
 
-pub fn cursor_feedback_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
+pub(crate) fn cursor_feedback_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     let Some(mut feedback) = world.resource::<InputFeedback>().copied() else {
         return Ok(());
     };

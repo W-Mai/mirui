@@ -53,9 +53,11 @@ fn timeline_ignores_other_lists_and_controls() {
         root,
         &crate::types::Viewport::new(320, 480, Fixed::ONE),
     );
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(crate::input::event::sim::sim_timeline_system::system());
     for now in (0..=1_000).step_by(50) {
         crate::core::time::mock::set_ms(now);
-        crate::input::event::sim::sim_timeline_system(&mut app.world).unwrap();
+        scheduler.run_all(&mut app.world).unwrap();
     }
     let tabs = app.world.find_by_id("widgets_tabs").unwrap();
     assert_eq!(app.world.get::<TabBar>(tabs).unwrap().selected, 1);
@@ -163,7 +165,9 @@ fn list_binding_updates_content_without_dropping_paragraph_style() {
         .paragraph()
         .clone();
 
-    crate::ui::widgets::lazy_list::lazy_list_system(&mut world).unwrap();
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(crate::ui::widgets::lazy_list::lazy_list_system::system());
+    scheduler.run_all(&mut world).unwrap();
 
     let text = world.get::<Text>(label).expect("bound label");
     assert_eq!(text.resolve(&world), "Row 0");

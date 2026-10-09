@@ -299,7 +299,7 @@ pub(crate) fn install(world: &mut World, timer: Timer) -> Entity {
 /// Advance every installed timer. Missing [`MonoClock`] or runtime state is a no-op.
 ///
 /// A completed callback advances or ends its schedule even if command submission fails. The first failure stops the remaining timers and preserves completed updates.
-pub fn timer_system(world: &mut World) -> Result<(), CommandError> {
+pub(crate) fn timer_system(world: &mut World) -> Result<(), CommandError> {
     let Some(now_ms) = world.resource::<MonoClock>().map(MonoClock::now_ms) else {
         return Ok(());
     };

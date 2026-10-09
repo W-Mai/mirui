@@ -1,4 +1,5 @@
 use mirui::core::reactive::flush_signal_dirty;
+use mirui::ecs::SystemScheduler;
 use mirui::input::event::scroll::ScrollOffset;
 use mirui::prelude::*;
 use mirui::types::Rect;
@@ -65,10 +66,15 @@ fn list(data: model!(Catalog)) -> Entity {
     }
 }
 
-fn geometry(world: &mut mirui::ecs::World, list: Entity, offset: i32) {
+fn geometry(
+    world: &mut mirui::ecs::World,
+    scheduler: &mut SystemScheduler,
+    list: Entity,
+    offset: i32,
+) {
     world.insert(list, ComputedRect(Rect::new(0, 0, 200, 80)));
     world.get_mut::<ScrollOffset>(list).unwrap().y = offset.into();
-    lazy_list_system(world).unwrap();
+    scheduler.run_all(world).unwrap();
     flush_signal_dirty(world);
 }
 
@@ -76,6 +82,8 @@ fn geometry(world: &mut mirui::ecs::World, list: Entity, offset: i32) {
 fn data_shrink_suspends_expired_cells_before_property_evaluation_and_reuses_them() {
     let mut app = App::headless(200, 200);
     app.with_default_widgets();
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(lazy_list_system::system());
     let data = app.add_model(Catalog {
         revision: 0,
         count: 100,
@@ -83,11 +91,11 @@ fn data_shrink_suspends_expired_cells_before_property_evaluation_and_reuses_them
     });
     let root = app.spawn_root().id();
     let list = app.compose(root, list(data.clone()));
-    geometry(&mut app.world, list, 800);
+    geometry(&mut app.world, &mut scheduler, list, 800);
     let cells = app.world.get::<Children>(list).unwrap().0.clone();
     data.resize(0);
     flush_signal_dirty(&mut app.world);
-    lazy_list_system(&mut app.world).unwrap();
+    scheduler.run_all(&mut app.world).unwrap();
     assert_eq!(app.world.get::<LazyList>(list).unwrap().item_count, 0);
     assert!(
         cells
@@ -96,7 +104,7 @@ fn data_shrink_suspends_expired_cells_before_property_evaluation_and_reuses_them
     );
     data.resize(100);
     flush_signal_dirty(&mut app.world);
-    geometry(&mut app.world, list, 800);
+    geometry(&mut app.world, &mut scheduler, list, 800);
     assert_eq!(data.creations() as usize, cells.len());
     assert_eq!(app.world.get::<Children>(list).unwrap().0, cells);
     for &cell in &cells {
@@ -120,6 +128,8 @@ fn data_shrink_suspends_expired_cells_before_property_evaluation_and_reuses_them
 fn creation_is_unique_and_rejects_an_existing_root() {
     let mut app = App::headless(200, 200);
     app.with_default_widgets();
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(lazy_list_system::system());
     let data = app.add_model(Catalog {
         revision: 0,
         count: 100,
@@ -130,7 +140,7 @@ fn creation_is_unique_and_rejects_an_existing_root() {
     app.compose(root, |tree| {
         tree.on_event(good, LazyList::CreateCell, existing::callback(root))
     });
-    geometry(&mut app.world, good, 0);
+    geometry(&mut app.world, &mut scheduler, good, 0);
     assert_eq!(data.creations(), 4);
     let invalid = app.compose(root, |tree| {
         let list = tree.spawn(LazyList::new(100, 40));
@@ -138,7 +148,7 @@ fn creation_is_unique_and_rejects_an_existing_root() {
         list
     });
     let before = app.world.query::<mirui::ui::Widget>().iter().count();
-    geometry(&mut app.world, invalid, 0);
+    geometry(&mut app.world, &mut scheduler, invalid, 0);
     assert_eq!(
         app.world.query::<mirui::ui::Widget>().iter().count(),
         before
@@ -151,6 +161,8 @@ fn creation_is_unique_and_rejects_an_existing_root() {
 fn multiple_roots_are_disposed_instead_of_leaking_partial_cells() {
     let mut app = App::headless(200, 200);
     app.with_default_widgets();
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(lazy_list_system::system());
     let root = app.spawn_root().id();
     let list = app.compose(root, |tree| {
         let list = tree.spawn(LazyList::new(10, 40));
@@ -158,7 +170,7 @@ fn multiple_roots_are_disposed_instead_of_leaking_partial_cells() {
         list
     });
     let before = app.world.query::<mirui::ui::Widget>().iter().count();
-    geometry(&mut app.world, list, 0);
+    geometry(&mut app.world, &mut scheduler, list, 0);
     assert_eq!(
         app.world.query::<mirui::ui::Widget>().iter().count(),
         before
@@ -193,6 +205,8 @@ fn rejected_commands(_event: event!(CreateCell), commands: commands!()) -> Entit
 fn failed_command_submission_discards_the_new_cell() {
     let mut app = App::headless(200, 200);
     app.with_default_widgets();
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(lazy_list_system::system());
     app.with_event_capacity(
         mirui::input::event::EventCapacity::new().commands(mirui::ecs::CommandCapacity::new()),
     );
@@ -204,7 +218,7 @@ fn failed_command_submission_discards_the_new_cell() {
         list
     });
     let before = app.world.query::<mirui::ui::Widget>().iter().count();
-    geometry(&mut app.world, list, 0);
+    geometry(&mut app.world, &mut scheduler, list, 0);
     assert_eq!(
         app.world.query::<mirui::ui::Widget>().iter().count(),
         before
@@ -229,12 +243,18 @@ fn mounted_view() {}
 
 #[event]
 fn mounted(_event: event!(CreateCell)) -> Entity {
-    ui! { Text("mounted") [Mounted] }
+    ui! {
+        Text ("mounted") [
+            Mounted,
+        ]
+    }
 }
 
 #[event]
 fn panicking(_event: event!(CreateCell)) -> Entity {
-    ui! { Text("discard on unwind") };
+    ui! {
+        Text ("discard on unwind")
+    };
     panic!("construction stopped");
 }
 
@@ -242,13 +262,15 @@ fn panicking(_event: event!(CreateCell)) -> Entity {
 fn cell_attachment_uses_the_real_parent_and_unwinding_cleans_new_roots() {
     let mut app = App::headless(200, 200);
     app.with_default_widgets().with_widget(mounted_view::view());
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(lazy_list_system::system());
     let root = app.spawn_root().id();
     let good = app.compose(root, |tree| {
         let list = tree.spawn(LazyList::new(10, 40));
         tree.on_event(list, LazyList::CreateCell, mounted::callback());
         list
     });
-    geometry(&mut app.world, good, 0);
+    geometry(&mut app.world, &mut scheduler, good, 0);
     assert_eq!(app.world.get::<Children>(good).unwrap().0.len(), 4);
     let failing = app.compose(root, |tree| {
         let list = tree.spawn(LazyList::new(10, 40));
@@ -259,6 +281,7 @@ fn cell_attachment_uses_the_real_parent_and_unwinding_cleans_new_roots() {
     assert!(
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| geometry(
             &mut app.world,
+            &mut scheduler,
             failing,
             0
         )))

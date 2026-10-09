@@ -6,7 +6,6 @@ mod velocity;
 
 pub use components::{ScrollAxis, ScrollConfig, ScrollDelta, ScrollOffset, TouchAction};
 pub use controller::ScrollMotion;
+pub use system::scroll_inertia_system::{self};
 pub(crate) use system::scroll_system_with_target;
-pub use system::{
-    ScrollBounds, ScrollDragState, scroll_bounds, scroll_inertia_system, scroll_system,
-};
+pub use system::{ScrollBounds, ScrollDragState, scroll_bounds, scroll_system};

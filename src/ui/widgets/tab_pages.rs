@@ -16,7 +16,7 @@ pub struct TabContent {
 
 impl crate::ecs::Component for TabContent {}
 
-pub fn tab_pages_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
+pub(crate) fn tab_pages_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     drive_indicator_tweens(world);
     detect_programmatic_selection_changes(world);
     apply_visibility(world);

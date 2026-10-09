@@ -375,7 +375,7 @@ pub(crate) fn reconcile(world: &mut World) -> bool {
     changed
 }
 
-pub fn lazy_list_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
+pub(crate) fn lazy_list_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     reconcile(world);
     Ok(())
 }

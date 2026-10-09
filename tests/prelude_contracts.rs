@@ -36,3 +36,10 @@ fn reactive_scope_creation_stays_in_macro_support() {
     let cases = trybuild::TestCases::new();
     cases.compile_fail("tests/prelude_contracts/reactive_scope.rs");
 }
+
+#[test]
+fn framework_systems_expose_descriptors_not_raw_callbacks() {
+    let cases = trybuild::TestCases::new();
+    cases.pass("tests/prelude_contracts/framework_system_descriptors.rs");
+    cases.compile_fail("tests/prelude_contracts/framework_system_callbacks.rs");
+}

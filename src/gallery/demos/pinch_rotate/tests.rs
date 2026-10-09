@@ -34,6 +34,7 @@ fn build_widgets_smoke() {
 
 #[test]
 fn composition_installs_a_timeline_for_its_gesture_target() {
+    use crate::ecs::SystemScheduler;
     use crate::input::event::sim::{SimTimeline, sim_timeline_system};
     use crate::types::Viewport;
     use crate::ui::render_system::update_layout;
@@ -58,9 +59,11 @@ fn composition_installs_a_timeline_for_its_gesture_target() {
 
     app.add_resource(MonoClock::new(now_ns));
     update_layout(&mut app.world, root, &Viewport::new(480, 360, Fixed::ONE));
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(sim_timeline_system::system());
     for now in (0..=10_000).step_by(50) {
         NOW_MS.with(|clock| clock.set(now));
-        sim_timeline_system(&mut app.world).unwrap();
+        scheduler.run_all(&mut app.world).unwrap();
     }
     assert!(model.status().pinch_events > 0);
     assert!(model.status().rotate_events > 0);

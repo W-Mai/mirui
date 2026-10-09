@@ -53,7 +53,7 @@ pub enum InteractionState {
 
 impl crate::ecs::Component for InteractionState {}
 
-pub fn hover_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
+pub(crate) fn hover_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     let snap = cursor_snapshot(world);
     let last = world
         .resource::<HoverSnapshot>()
@@ -79,7 +79,7 @@ pub fn hover_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
 
 crate::ecs::system::framework_system!(pub hover_system, InteractionState);
 
-pub fn press_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
+pub(crate) fn press_system(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     let snap = cursor_snapshot(world);
     let last = world
         .resource::<PressSnapshot>()

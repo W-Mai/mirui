@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Wheel displacement uses logical pixels across Web, WGPU, SDL, and integer device adapters. Web honors pixel, line, and page units; pixel deltas follow CSS or window scaling once. Subpixel motion is retained through backend conversion, and wheel input keeps platform momentum without additional inertia.
 - LazyList reuses list and cell snapshots across updates. Hidden-cell storage is prepared during creation; warmed scrolling and property updates reuse capacity. Callback-driven deletions remain generation-checked, and recursive updates cannot replace an active batch.
 - Structural World access for generated reactive bindings, branches, and lists is confined to hidden macro support; `core::reactive::with_world` and `with_world_scope` are no longer public authoring APIs.
+- Built-in systems retain their `name::system()` registration descriptors; raw World callbacks are crate-private.
 - Composition scopes no longer expose `world_mut`. Generated UI and Niche construction access the same storage through hidden macro support.
 - Kinetic Console, Widgets, and Compact Widgets construct their simulation timelines through resource compositions instead of World parameters. Widgets uses named targets and shares its composition, theme timer, and input sequence across desktop and embedded setup.
 - Generated layout property callbacks are confined to macro support. Layout dependency descriptors and the dependency capacity remain available from `mirui::ui`.

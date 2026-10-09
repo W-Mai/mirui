@@ -1,5 +1,6 @@
 extern crate alloc;
 
+use mirui::ecs::SystemScheduler;
 use mirui::prelude::*;
 use std::env;
 use std::fs::File;
@@ -123,10 +124,11 @@ fn main() {
     use mirui::types::Viewport;
     use mirui::ui::render_system;
 
-    // Tick once so tab_pages_system applies the initial Hidden flags +
-    // seeds indicator_offset for the chosen selected tab.
+    // Run TabPages once to apply initial visibility and seed the selected indicator.
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(mirui::ui::widgets::tab_pages::tab_pages_system::system());
     let world = &mut app.world;
-    mirui::ui::widgets::tab_pages::tab_pages_system(world).unwrap();
+    scheduler.run_all(world).unwrap();
 
     let viewport = Viewport::new(width, height, Fixed::ONE);
     render_system::update_layout(world, root, &viewport);
