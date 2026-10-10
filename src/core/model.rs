@@ -394,9 +394,8 @@ impl<M: Model> ModelRoot<M> {
                 root,
                 BindingOwner(OwnerState::Bound(owner)),
                 projection::RootPath,
+                Some(&mut value),
             );
-            metadata.finish(&mut value, M::pending_watches(), false);
-            metadata.discard();
             Self {
                 owner,
                 active: Cell::new(true),

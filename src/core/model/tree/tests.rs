@@ -366,6 +366,28 @@ fn initial_binding_discards_pending_without_extracting_or_publishing() {
 }
 
 #[test]
+fn metadata_preparation_does_not_require_default_or_live_business_data() {
+    use crate::core::model::{BindingOwner, OwnerState, projection::RootPath};
+    let world = crate::ecs::World::new();
+    let metadata = ModelMetadata::<Pair>::register::<Pair, RootPath>(
+        &alloc::rc::Weak::new(),
+        BindingOwner(OwnerState::Bound(world.id())),
+        RootPath,
+        None,
+    );
+    for child in [&metadata.children().left, &metadata.children().right] {
+        assert!(matches!(
+            child.access.binding_owner().0,
+            OwnerState::Invalid(_)
+        ));
+        let transaction = child.metadata().transaction.borrow();
+        assert!(transaction.before.is_none());
+        assert!(transaction.after.is_none());
+        assert!(transaction.events.is_none());
+    }
+}
+
+#[test]
 fn child_adapters_do_not_retain_their_root() {
     let mut app = crate::app::App::headless(32, 32);
     let model = app.add_model(Pair::new());

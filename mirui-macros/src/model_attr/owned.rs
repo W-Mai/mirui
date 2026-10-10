@@ -145,7 +145,7 @@ pub(super) fn expand(
         let path = field_type(name, field.index);
         let attrs = &field.cfg_attrs;
         quote! {
-            #(#attrs)* #field_name: ::mirui::core::model::ChildNode::new::<__MiruiRoot, ::mirui::core::model::ModelPathThen<__MiruiPath, #path #args>>(__root, __owner, ::mirui::core::model::ModelPathThen::new(__path)),
+            #(#attrs)* #field_name: ::mirui::core::model::ChildNode::new::<__MiruiRoot, ::mirui::core::model::ModelPathThen<__MiruiPath, #path #args>>(__root, __owner, ::mirui::core::model::ModelPathThen::new(__path), __value.as_deref_mut().map(|__value| ::mirui::core::model::OwnedModel::storage_mut(&mut __value.#field_name))),
         }
     });
     let begins = fields.iter().map(|field| {
@@ -221,7 +221,7 @@ pub(super) fn expand(
         #visibility struct #children #model_generics #bounds { #(#metadata_fields)* __mirui_marker: ::core::marker::PhantomData<fn() -> #raw> }
         #(#paths)*
         impl #params ::mirui::core::model::ModelChildren<#raw> for #children #args #bounds {
-            fn register<__MiruiRoot, __MiruiPath>(__root: &::mirui::__macro_support::__Weak<::mirui::core::model::ModelRoot<__MiruiRoot>>, __owner: ::mirui::core::model::BindingOwner, __path: __MiruiPath) -> Self
+            fn register<__MiruiRoot, __MiruiPath>(__root: &::mirui::__macro_support::__Weak<::mirui::core::model::ModelRoot<__MiruiRoot>>, __owner: ::mirui::core::model::BindingOwner, __path: __MiruiPath, __value: &mut ::core::option::Option<&mut #raw>) -> Self
             where __MiruiRoot: ::mirui::core::model::Model, __MiruiPath: ::mirui::core::model::ModelPath<__MiruiRoot, Target = #raw> {
                 Self { #(#registrations)* __mirui_marker: ::core::marker::PhantomData }
             }

@@ -11,6 +11,7 @@ pub trait ModelChildren<M: Model>: Sized {
         root: &Weak<ModelRoot<R>>,
         owner: BindingOwner,
         path: P,
+        value: &mut Option<&mut M>,
     ) -> Self;
     fn begin(&self, value: &M);
     fn extract(&self, value: &mut M);
@@ -27,6 +28,7 @@ impl<M: Model> ModelChildren<M> for () {
         _: &Weak<ModelRoot<R>>,
         _: BindingOwner,
         _: P,
+        _: &mut Option<&mut M>,
     ) {
     }
     fn begin(&self, _: &M) {}
@@ -83,14 +85,25 @@ impl<M: Model> ChildNode<M> {
         root: &Weak<ModelRoot<R>>,
         owner: BindingOwner,
         path: P,
+        mut storage: Option<&mut OwnedStorage<M>>,
     ) -> Self {
-        Self {
-            metadata: ModelMetadata::register::<R, P>(root, owner, path),
+        let node = Self {
+            metadata: ModelMetadata::register::<R, P>(
+                root,
+                owner,
+                path,
+                storage.as_deref_mut().map(|storage| &mut storage.value),
+            ),
             access: Rc::new(super::projection::Projection::<R, P> {
                 root: root.clone(),
                 path,
             }),
+        };
+        if let Some(storage) = storage {
+            storage.identity = Some(Rc::downgrade(&node.access));
+            storage.pending = M::pending_watches();
         }
+        node
     }
 
     pub fn metadata(&self) -> &ModelMetadata<M> {
@@ -149,6 +162,7 @@ impl<M: Model> ModelMetadata<M> {
         root: &Weak<ModelRoot<R>>,
         owner: BindingOwner,
         path: P,
+        value: Option<&mut M>,
     ) -> Self {
         let OwnerState::Bound(world) = owner.0 else {
             panic!("model metadata requires a registered owner");
@@ -167,7 +181,7 @@ impl<M: Model> ModelMetadata<M> {
             derived_sources,
             watches,
             routes: M::routes(),
-            children: M::Children::register::<R, P>(root, owner, path),
+            children: M::Children::register::<R, P>(root, owner, path, &mut { value }),
             transaction: RefCell::new(ModelTransaction::new()),
         }
     }
