@@ -402,3 +402,38 @@ fn child_adapters_do_not_retain_their_root() {
     ));
     assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| child.value())).is_err());
 }
+
+#[test]
+fn registration_retirement_disconnects_the_complete_retained_tree() {
+    use crate::core::model::{ModelInvalidation, register};
+    use crate::core::reactive::flush_signal_dirty;
+    use crate::ui::dirty::VisualDirty;
+    let mut world = crate::ecs::World::new();
+    let entity = world.spawn_empty();
+    let (registration, handle) = register(&mut world, Pair::new());
+    let retained = registration.root.clone();
+    let left = handle.left();
+    let right = handle.right();
+    let _subscriptions = [
+        handle.subscribe_derived(0, &world, entity, ModelInvalidation::Visual),
+        left.subscribe_observed(0, &world, entity, ModelInvalidation::Visual),
+        left.subscribe_watch(0, &world, entity, ModelInvalidation::Visual),
+        right.subscribe_observed(0, &world, entity, ModelInvalidation::Visual),
+        right.subscribe_watch(0, &world, entity, ModelInvalidation::Visual),
+    ];
+    let observed = left.clone();
+    let computed = with_world_scope(&mut world, || Computed::new(move || observed.value()));
+    assert_eq!(computed.get(), 1);
+    assert_eq!(tracked_allocations(|| drop(registration)), 0);
+    retained.metadata.derived_sources[0].notify();
+    for child in [
+        &retained.metadata.children.left,
+        &retained.metadata.children.right,
+    ] {
+        child.metadata.sources[0].notify();
+        child.metadata.watches[0].publish();
+    }
+    flush_signal_dirty(&mut world);
+    assert!(world.get::<VisualDirty>(entity).is_none());
+    assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| computed.get())).is_err());
+}

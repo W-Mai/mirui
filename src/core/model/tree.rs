@@ -20,7 +20,7 @@ pub trait ModelChildren<M: Model>: Sized {
     fn publish(&self);
     fn deliver(&self);
     fn discard(&self);
-    fn invalidate(&self);
+    fn retire(&self);
 }
 
 impl<M: Model> ModelChildren<M> for () {
@@ -38,7 +38,7 @@ impl<M: Model> ModelChildren<M> for () {
     fn publish(&self) {}
     fn deliver(&self) {}
     fn discard(&self) {}
-    fn invalidate(&self) {}
+    fn retire(&self) {}
 }
 
 struct ModelSnapshot<M: Model> {
@@ -152,8 +152,8 @@ impl<M: Model> ChildNode<M> {
         self.metadata.discard();
     }
 
-    pub fn invalidate(&self) {
-        self.metadata.invalidate_computeds();
+    pub fn retire(&self) {
+        self.metadata.retire();
     }
 }
 
@@ -259,19 +259,19 @@ impl<M: Model> ModelMetadata<M> {
         self.children.discard();
     }
 
-    pub(super) fn invalidate_computeds(&self) {
+    pub(super) fn retire(&self) {
         for source in self
             .sources
             .as_ref()
             .iter()
             .chain(self.derived_sources.as_ref())
         {
-            source.invalidate_computeds();
+            source.retire();
         }
         for watch in self.watches.as_ref() {
-            watch.invalidate_computeds();
+            watch.retire();
         }
-        self.children.invalidate();
+        self.children.retire();
     }
 }
 

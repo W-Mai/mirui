@@ -1304,31 +1304,37 @@ impl ModelSource {
         }
     }
 
-    pub(crate) fn invalidate_computeds(&self) {
+    fn invalidate_computeds(&self) {
         if let Some(source) = self.graph_source.get() {
             invalidate_computed_source(source);
+        }
+    }
+    pub(crate) fn retire(&self) {
+        self.invalidate_computeds();
+        let source = self.graph_source.take();
+        let remaining_visuals = {
+            let mut subscribers = self.subscribers.borrow_mut();
+            let visuals = subscribers
+                .iter()
+                .filter(|entry| matches!(entry.subscriber, Subscriber::VisualWidget(_)))
+                .count();
+            subscribers.clear();
+            visuals
+        };
+        if remaining_visuals != 0 || source.is_some() {
+            try_with_reactive(|r| {
+                if let Some(source) = source {
+                    let _ = r.graph.remove_source(source);
+                }
+                r.model_visual_subscriptions -= remaining_visuals;
+            });
         }
     }
 }
 
 impl Drop for ModelSource {
     fn drop(&mut self) {
-        self.invalidate_computeds();
-        let source = self.graph_source.get();
-        let remaining_legacy_visuals = self
-            .subscribers
-            .get_mut()
-            .iter()
-            .filter(|entry| matches!(entry.subscriber, Subscriber::VisualWidget(_)))
-            .count();
-        if remaining_legacy_visuals != 0 || source.is_some() {
-            try_with_reactive(|r| {
-                if let Some(source) = source {
-                    let _ = r.graph.remove_source(source);
-                }
-                r.model_visual_subscriptions -= remaining_legacy_visuals;
-            });
-        }
+        self.retire();
     }
 }
 
@@ -2792,6 +2798,99 @@ mod tests {
             failure.is_err(),
             "removed source cannot leave a valid cache"
         );
+    }
+
+    #[test]
+    fn retired_model_source_reuses_storage_without_inheriting_subscribers() {
+        reset();
+        let mut world = World::new();
+        drop(OwnerGuard::enter(&mut world));
+        let source = Rc::new(ModelSource::new());
+        source.register_owner(world.id());
+        let old_key = source.graph_source.get().unwrap();
+        let observed = source.clone();
+        let computed = with_world_scope(&mut world, || {
+            Computed::new(move || {
+                observed.track();
+                9_u8
+            })
+        });
+        let upstream = computed.clone();
+        let downstream = with_world_scope(&mut world, || Computed::new(move || upstream.get()));
+        assert_eq!(downstream.get(), 9);
+        let old_view = source.subscribe_visual_widget(world.id(), entity(1));
+        let runs = Rc::new(Cell::new(0));
+        let (observed, count) = (source.clone(), runs.clone());
+        let _effect = with_world_scope(&mut world, || {
+            Effect::new(move || {
+                observed.track();
+                count.set(count.get() + 1);
+            })
+        });
+
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                source.retire();
+                source.retire();
+                source.register_owner(world.id());
+            }),
+            0
+        );
+        let new_key = source.graph_source.get().unwrap();
+        assert_ne!(old_key, new_key);
+        assert_eq!(old_key.slot.slot, new_key.slot.slot);
+        assert!(computed.inner.borrow().dirty);
+        assert!(downstream.inner.borrow().dirty);
+        assert!(with_reactive(|r| r.graph.publish(old_key)).is_err());
+        source.notify();
+        flush_signal_dirty(&mut world);
+        assert_eq!(runs.get(), 1);
+        assert!(with_reactive(|r| r.dirty_visual_widgets.is_empty()));
+
+        let new_view = source.subscribe_visual_widget(world.id(), entity(2));
+        drop(old_view);
+        source.notify();
+        with_reactive(|r| {
+            assert_eq!(r.dirty_visual_widgets.len(), 1);
+            assert!(
+                r.dirty_visual_widgets
+                    .contains(&VisualInvalidation::ready(Some(world.id()), entity(2),))
+            );
+        });
+        drop(new_view);
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for _ in 0..32 {
+                    source.retire();
+                    source.register_owner(world.id());
+                }
+            }),
+            0
+        );
+    }
+
+    #[test]
+    fn retired_unregistered_model_source_releases_fallback_subscriptions_once() {
+        reset();
+        let source = ModelSource::new();
+        with_scope(Subscriber::VisualWidget(entity(1)), || source.track());
+        assert_eq!(with_reactive(|r| r.model_visual_subscriptions), 1);
+        let capacity = source.subscribers.borrow().capacity();
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                source.retire();
+                source.retire();
+            }),
+            0
+        );
+        assert_eq!(with_reactive(|r| r.model_visual_subscriptions), 0);
+        assert_eq!(source.subscribers.borrow().capacity(), capacity);
+        source.notify();
+        assert!(with_reactive(|r| r.dirty_visual_widgets.is_empty()));
+        with_scope(Subscriber::VisualWidget(entity(2)), || source.track());
+        assert_eq!(with_reactive(|r| r.model_visual_subscriptions), 1);
+        drop(source);
+        assert_eq!(with_reactive(|r| r.model_visual_subscriptions), 0);
     }
 
     #[test]

@@ -187,10 +187,10 @@ pub(super) fn expand(
         let attrs = &field.cfg_attrs;
         quote!(#(#attrs)* self.#name.discard();)
     });
-    let invalidations = fields.iter().map(|field| {
+    let retirements = fields.iter().map(|field| {
         let name = &field.name;
         let attrs = &field.cfg_attrs;
-        quote!(#(#attrs)* self.#name.invalidate();)
+        quote!(#(#attrs)* self.#name.retire();)
     });
     let paths = fields.iter().map(|field| {
         let field_name = &field.name;
@@ -232,7 +232,7 @@ pub(super) fn expand(
             fn publish(&self) { #(#publications)* }
             fn deliver(&self) { #(#deliveries)* }
             fn discard(&self) { #(#discards)* }
-            fn invalidate(&self) { #(#invalidations)* }
+            fn retire(&self) { #(#retirements)* }
         }
     }
 }

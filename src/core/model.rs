@@ -313,8 +313,8 @@ impl ModelWatch {
         self.source.register_owner(owner);
     }
 
-    fn invalidate_computeds(&self) {
-        self.source.invalidate_computeds();
+    fn retire(&self) {
+        self.source.retire();
     }
 
     fn subscribe_view(
@@ -419,7 +419,7 @@ pub(crate) struct RegisteredModel<M: Model> {
 impl<M: Model> Drop for RegisteredModel<M> {
     fn drop(&mut self) {
         self.root.active.set(false);
-        self.root.metadata.invalidate_computeds();
+        self.root.metadata.retire();
     }
 }
 
