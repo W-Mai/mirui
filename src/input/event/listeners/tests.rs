@@ -13,6 +13,72 @@ use core::cell::Cell;
 struct RouteMarker;
 impl Component for RouteMarker {}
 
+#[crate::event]
+fn record_current_target(
+    target: entity!(),
+    input: event!(Tap),
+    targets: res!(RefCell<[Option<Entity>; 2]>),
+) -> bool {
+    *targets.borrow_mut() = [Some(target), Some(input.target)];
+    false
+}
+
+#[test]
+fn prepared_listener_uses_each_invocation_target_without_repreparing() {
+    let mut world = World::new();
+    let first = world.spawn_empty();
+    let second = world.spawn_empty();
+    world.insert_resource(RefCell::new([None::<Entity>; 2]));
+    let callback = record_current_target::callback::<NodeContext>()
+        .prepare(&mut world, CommandCapacity::default())
+        .unwrap();
+    let listener = InstalledListener {
+        callback,
+        selector: ListenerSelector::gesture(Tap::EVENT),
+    };
+    let payload = Tap {
+        x: Fixed::ZERO,
+        y: Fixed::ZERO,
+        target: first,
+    };
+    let event = BorrowedEvent::new(&payload);
+    assert_eq!(
+        tracked_allocations(|| {
+            for target in [first, second, first] {
+                assert_eq!(
+                    listener
+                        .invoke(&mut world, &event, ListenerTarget::Entity(target))
+                        .unwrap(),
+                    BubbleControl::Allow
+                );
+                assert_eq!(
+                    *world
+                        .resource::<RefCell<[Option<Entity>; 2]>>()
+                        .unwrap()
+                        .borrow(),
+                    [Some(target), Some(first)]
+                );
+            }
+        }),
+        0
+    );
+    assert!(world.despawn(first));
+    *world
+        .resource::<RefCell<[Option<Entity>; 2]>>()
+        .unwrap()
+        .borrow_mut() = [None; 2];
+    for target in [ListenerTarget::Entity(first), ListenerTarget::App] {
+        listener.invoke(&mut world, &event, target).unwrap();
+        assert_eq!(
+            *world
+                .resource::<RefCell<[Option<Entity>; 2]>>()
+                .unwrap()
+                .borrow(),
+            [None; 2]
+        );
+    }
+}
+
 #[test]
 fn retained_input_snapshot_stops_after_a_handler_rebinds_the_cell() {
     use crate::core::reactive::retained::RetainedEffects;

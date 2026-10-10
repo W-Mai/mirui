@@ -141,12 +141,12 @@ trait ErasedListener {
         &self,
         world: &mut World,
         event: &BorrowedEvent<'_>,
+        target: ListenerTarget,
     ) -> Result<BubbleControl, CommandError>;
 }
 
 struct InstalledListener<E: Event, C: CallbackContext<E>> {
     callback: PreparedEvent<E, C>,
-    target: C::Target,
     selector: ListenerSelector<E>,
 }
 
@@ -201,13 +201,17 @@ where
         &self,
         world: &mut World,
         event: &BorrowedEvent<'_>,
+        target: ListenerTarget,
     ) -> Result<BubbleControl, CommandError> {
+        let Some(target) = C::resolve_target(target) else {
+            return Ok(BubbleControl::Allow);
+        };
         let payload = event
             .payload::<E>()
             .expect("listener snapshot preserves event identity");
         Ok(self
             .callback
-            .invoke(world, payload, self.target)?
+            .invoke(world, payload, target)?
             .map_or(BubbleControl::Allow, ListenerDecision::control))
     }
 }
@@ -235,7 +239,10 @@ enum DispatchStep {
         entity: Entity,
         callback: fn(&mut World, Entity, &InputEvent) -> Result<bool, CommandError>,
     },
-    Listener(Rc<dyn ErasedListener>),
+    Listener {
+        target: ListenerTarget,
+        callback: Rc<dyn ErasedListener>,
+    },
 }
 
 enum InternalEvent {
@@ -361,7 +368,10 @@ impl EventListeners {
             && entry.kind == TypeId::of::<E>()
             && entry.callback.matches(&snapshot.event, None)
         {
-            snapshot.push(DispatchStep::Listener(Rc::clone(&entry.callback)))?;
+            snapshot.push(DispatchStep::Listener {
+                target: entry.target,
+                callback: Rc::clone(&entry.callback),
+            })?;
         }
         Ok(snapshot)
     }
@@ -494,11 +504,7 @@ impl EventListeners {
         let callback = callback.prepare(world, capacity)?;
         Ok(self.insert::<E>(
             ListenerTarget::Entity(entity),
-            InstalledListener {
-                callback,
-                target: entity,
-                selector,
-            },
+            InstalledListener { callback, selector },
         ))
     }
 
@@ -519,11 +525,7 @@ impl EventListeners {
         let callback = callback.prepare(world, capacity)?;
         Ok(self.insert::<E>(
             ListenerTarget::App,
-            InstalledListener {
-                callback,
-                target: (),
-                selector,
-            },
+            InstalledListener { callback, selector },
         ))
     }
 
@@ -803,7 +805,10 @@ impl ListenerSnapshot<'_, '_> {
                 && entry.target == target
                 && entry.callback.matches(&self.event, tap_count)
             {
-                self.push(DispatchStep::Listener(Rc::clone(&entry.callback)))?;
+                self.push(DispatchStep::Listener {
+                    target: entry.target,
+                    callback: Rc::clone(&entry.callback),
+                })?;
             }
         }
         Ok(())
@@ -819,7 +824,9 @@ impl ListenerSnapshot<'_, '_> {
                 break;
             }
             let result = match step {
-                DispatchStep::Listener(callback) => callback.invoke(world, &self.event)?,
+                DispatchStep::Listener { target, callback } => {
+                    callback.invoke(world, &self.event, *target)?
+                }
                 DispatchStep::Internal { entity, callback } => {
                     if !world.is_alive(*entity) {
                         continue;

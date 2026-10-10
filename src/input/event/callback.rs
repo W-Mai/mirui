@@ -38,6 +38,8 @@ pub struct AppContext;
 pub trait CallbackContext<E: Event>: sealed::Context<E> + 'static {
     type Target: Copy;
 
+    fn resolve_target(target: super::listeners::ListenerTarget) -> Option<Self::Target>;
+
     fn is_live(world: &World, target: Self::Target) -> bool;
 }
 
@@ -54,6 +56,13 @@ where
     E::Source: EntitySourceFor<W>,
 {
     type Target = Entity;
+
+    fn resolve_target(target: super::listeners::ListenerTarget) -> Option<Entity> {
+        match target {
+            super::listeners::ListenerTarget::Entity(entity) => Some(entity),
+            super::listeners::ListenerTarget::App => None,
+        }
+    }
 
     fn is_live(world: &World, target: Entity) -> bool {
         world.is_alive(target)
@@ -74,6 +83,13 @@ where
 {
     type Target = Entity;
 
+    fn resolve_target(target: super::listeners::ListenerTarget) -> Option<Entity> {
+        match target {
+            super::listeners::ListenerTarget::Entity(entity) => Some(entity),
+            super::listeners::ListenerTarget::App => None,
+        }
+    }
+
     fn is_live(world: &World, target: Entity) -> bool {
         world.is_alive(target)
     }
@@ -92,6 +108,13 @@ where
     E::Source: AppEventSource,
 {
     type Target = ();
+
+    fn resolve_target(target: super::listeners::ListenerTarget) -> Option<()> {
+        match target {
+            super::listeners::ListenerTarget::App => Some(()),
+            super::listeners::ListenerTarget::Entity(_) => None,
+        }
+    }
 
     fn is_live(_world: &World, (): ()) -> bool {
         true
