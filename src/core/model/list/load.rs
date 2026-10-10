@@ -1,6 +1,11 @@
 use super::{Entry, ModelList, Slot};
 use crate::core::model::{CollectionError, CollectionLoadError, Model, collection::collect_input};
 
+pub(in crate::core::model) struct PreparedLoad<M: Model> {
+    replacement: ModelList<M>,
+    len: usize,
+}
+
 impl<M: Model> ModelList<M> {
     /// Install a dataset, retiring every old item while retaining the collection's capacity and hard limit.
     ///
@@ -10,12 +15,22 @@ impl<M: Model> ModelList<M> {
         items: I,
     ) -> Result<(), CollectionLoadError<I::IntoIter>> {
         let (input, remaining) = collect_input(items.into_iter(), self.limit)?;
+        let plan = match self.prepare_load(input.len()) {
+            Ok(plan) => plan,
+            Err(error) => return Err(CollectionLoadError::staged(error, input, remaining)),
+        };
+        plan.install(self, input.into_iter());
+        Ok(())
+    }
+
+    pub(in crate::core::model) fn prepare_load(
+        &self,
+        len: usize,
+    ) -> Result<PreparedLoad<M>, CollectionError> {
         let mut replacement = Self::new();
         replacement.limit = self.limit;
-        let capacity = self.capacity().max(input.len());
-        if let Err(error) = replacement.reserve(capacity) {
-            return Err(CollectionLoadError::staged(error, input, remaining));
-        }
+        let capacity = self.capacity().max(len);
+        replacement.reserve(capacity)?;
         let binding = self.live_binding();
         for (index, slot) in replacement.slots.iter_mut().enumerate() {
             slot.generation = binding
@@ -29,25 +44,33 @@ impl<M: Model> ModelList<M> {
             .iter()
             .filter(|slot| slot.generation < u64::MAX)
             .count()
-            < input.len()
+            < len
         {
-            return Err(CollectionLoadError::staged(
-                CollectionError::IdentityExhausted,
-                input,
-                remaining,
-            ));
+            return Err(CollectionError::IdentityExhausted);
         }
         replacement.identity = self.identity;
         replacement.revision = self
             .revision
             .checked_add(1)
             .expect("model list revision exhausted");
+        Ok(PreparedLoad { replacement, len })
+    }
+}
+
+impl<M: Model> PreparedLoad<M> {
+    pub(in crate::core::model) fn install(
+        self,
+        target: &mut ModelList<M>,
+        input: impl ExactSizeIterator<Item = M>,
+    ) {
+        assert_eq!(input.len(), self.len, "prepared model load length");
+        let mut replacement = self.replacement;
         let mut available = replacement
             .slots
             .iter_mut()
             .enumerate()
             .filter(|(_, slot)| slot.generation < u64::MAX);
-        for (position, value) in input.into_iter().enumerate() {
+        for (position, value) in input.enumerate() {
             let (index, slot) = available.next().expect("preflighted model slot");
             *slot = Slot {
                 generation: slot.generation + 1,
@@ -58,10 +81,9 @@ impl<M: Model> ModelList<M> {
                 value: value.into(),
             });
         }
-        if let Some(binding) = binding {
+        if let Some(binding) = target.live_binding() {
             binding.ensure_binding(&mut replacement);
         }
-        *self = replacement;
-        Ok(())
+        *target = replacement;
     }
 }

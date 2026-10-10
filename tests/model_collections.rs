@@ -96,6 +96,22 @@ fn loading_a_list_retires_declared_callbacks_and_accepts_owned_input() {
 }
 
 #[test]
+fn loading_keyed_data_retires_callbacks_even_when_business_keys_match() {
+    let mut app = App::headless(32, 32);
+    let map = app.add_model(
+        ModelMap::from_entries([(7, Task { done: false })])
+            .ok()
+            .unwrap(),
+    );
+    app.on_event(Started::EVENT, toggle::callback(map.get(&7).unwrap()));
+    map.load([(8, Task { done: true }), (7, Task { done: false })])
+        .unwrap();
+    app.tick();
+    assert!(!map.get(&7).unwrap().done());
+    assert!(map.get(&8).unwrap().done());
+}
+
+#[test]
 fn reconciled_members_keep_declared_callbacks_after_reordering() {
     let mut app = App::headless(32, 32);
     let items = app.add_model(ModelList::from([Task { done: false }, Task { done: true }]));

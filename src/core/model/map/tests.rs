@@ -114,6 +114,55 @@ fn duplicate_import_returns_all_non_clone_data() {
     assert_eq!(items.iter().map(|(_, item)| item.value).sum::<u32>(), 6);
 }
 
+#[test]
+fn map_load_preflight_returns_original_order_and_leaves_old_members_untouched() {
+    #[derive(Eq, PartialEq, Ord, PartialOrd)]
+    struct Key(u8);
+    let mut map = ModelMap::bounded(3);
+    let old = map.try_insert(Key(9), Item { value: 9 }).ok().unwrap().0;
+    let error = map
+        .load([
+            (Key(2), Item { value: 2 }),
+            (Key(1), Item { value: 1 }),
+            (Key(2), Item { value: 3 }),
+        ])
+        .unwrap_err();
+    assert_eq!(error.error(), CollectionError::DuplicateKey);
+    assert!(
+        error
+            .into_input()
+            .map(|(key, item)| (key.0, item.value))
+            .eq([(2, 2), (1, 1), (2, 3)])
+    );
+    assert_eq!(map.get_by_id(old).unwrap().value(), 9);
+    let consumed = core::cell::Cell::new(0);
+    let error = map
+        .load((0..6).map(|key| {
+            consumed.set(consumed.get() + 1);
+            (
+                Key(key),
+                Item {
+                    value: u32::from(key),
+                },
+            )
+        }))
+        .unwrap_err();
+    assert_eq!(error.error(), CollectionError::Limit);
+    assert_eq!(consumed.get(), 4);
+    assert!(error.into_input().map(|(key, _)| key.0).eq(0..6));
+    assert_eq!(map.get_by_id(old).unwrap().value(), 9);
+    map.load([(Key(2), Item { value: 2 }), (Key(1), Item { value: 1 })])
+        .unwrap();
+    assert!(map.iter().map(|(key, _)| key.0).eq([1, 2]));
+    assert!(map.get_by_id(old).is_none());
+    assert_eq!(map.capacity(), 3);
+    assert_eq!(map.limit(), Some(3));
+    assert_eq!(
+        tracked_allocations(|| assert!(map.try_insert(Key(3), Item { value: 3 }).is_ok())),
+        0
+    );
+}
+
 #[crate::model]
 struct Group {
     items: model!(owned ModelMap<u32, Item>),
@@ -132,6 +181,60 @@ impl Group {
             .unwrap()
             .into();
     }
+
+    fn load(&mut self) {
+        self.items
+            .load([(8, Item { value: 80 }), (3, Item { value: 30 })])
+            .unwrap();
+    }
+}
+
+#[test]
+fn map_load_keeps_field_observers_and_retires_children_in_parent_transactions() {
+    use crate::core::{
+        model::ModelHandle,
+        reactive::{Computed, with_world_scope},
+    };
+    let mut app = App::headless(32, 32);
+    let group = app.add_model(Group {
+        items: ModelMap::from_entries([(3, Item { value: 3 })])
+            .ok()
+            .unwrap()
+            .into(),
+    });
+    let map = group.items();
+    let watched = group.clone();
+    let total = with_world_scope(&mut app.world, || Computed::new(move || watched.total()));
+    assert_eq!(total.get(), 3);
+    let (old_id, old) = map.entries().next().unwrap();
+    let held = map.values();
+    let consumed = core::cell::Cell::new(0);
+    let input = [(7, Item { value: 7 })]
+        .into_iter()
+        .inspect(|_| consumed.set(consumed.get() + 1));
+    let error = map.load(input).unwrap_err();
+    assert_eq!(error.error(), CollectionError::Iterating);
+    assert_eq!(consumed.get(), 0);
+    drop(held);
+    group.load();
+    assert_eq!(total.get(), 110);
+    assert_eq!(map.get(&3).unwrap().value(), 30);
+    assert_eq!(map.get(&8).unwrap().value(), 80);
+    assert!(!ModelHandle::callback_ready(&old));
+    assert!(map.get_by_id(old_id).is_none());
+    map.load(error.into_input()).unwrap();
+    assert_eq!(total.get(), 7);
+    assert_eq!(map.get(&7).unwrap().value(), 7);
+    assert_eq!(
+        tracked_allocations(|| {
+            map.get(&7).unwrap().increment();
+            assert_eq!(total.get(), 8);
+            assert!(map.try_insert(9, Item { value: 9 }).is_ok());
+            map.retain(|key, _| *key == 9).unwrap();
+            assert_eq!(map.get(&9).unwrap().value(), 9);
+        }),
+        0
+    );
 }
 
 #[test]

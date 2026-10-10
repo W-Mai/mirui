@@ -5,6 +5,7 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
+mod load;
 mod registered;
 
 struct KeyEntry<K> {

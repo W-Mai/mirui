@@ -1,5 +1,5 @@
 use super::{CollectionError, Model, ModelItemId, ModelMap, ModelMapHandle};
-use crate::core::model::{ModelHandle, ModelListEntries, update_model};
+use crate::core::model::{CollectionLoadError, ModelHandle, ModelListEntries, update_model};
 use core::borrow::Borrow;
 
 impl<K: Ord + 'static, M: Model> ModelMapHandle<K, M> {
@@ -69,6 +69,20 @@ impl<K: Ord + 'static, M: Model> ModelMapHandle<K, M> {
         update_model(
             self,
             |map| map.reserve(additional),
+            |result| result.as_ref().ok().copied(),
+        )
+    }
+
+    pub fn load<I: IntoIterator<Item = (K, M)>>(
+        &self,
+        items: I,
+    ) -> Result<(), CollectionLoadError<I::IntoIter>> {
+        if let Err(error) = self.available() {
+            return Err(CollectionLoadError::untouched(error, items.into_iter()));
+        }
+        update_model(
+            self,
+            |map| map.load(items),
             |result| result.as_ref().ok().copied(),
         )
     }
