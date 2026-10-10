@@ -15,7 +15,7 @@ mod projection;
 mod set;
 mod tree;
 
-pub use collection::{CollectionError, ModelItemId};
+pub use collection::{CollectionError, CollectionLoadError, ModelItemId};
 pub use list::ModelList;
 #[doc(hidden)]
 pub use list::{ModelListEntries, ModelListHandle, ModelListOwned};

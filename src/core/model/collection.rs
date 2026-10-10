@@ -1,3 +1,4 @@
+use alloc::vec::Vec;
 use core::cell::Cell;
 
 /// Stable identity of a member, independent of its position or business key.
@@ -20,6 +21,91 @@ pub enum CollectionError {
     UnpreparedShape,
     Iterating,
     DuplicateKey,
+}
+
+/// A rejected batch and its unconsumed input.
+///
+/// `into_input` yields the staged prefix, the item that stopped loading, and the remaining iterator in input order. No input value needs `Clone`. Iterator panics follow the enclosing Model transaction's panic contract.
+pub struct CollectionLoadError<I: Iterator> {
+    error: CollectionError,
+    staged: Vec<I::Item>,
+    pending: Option<I::Item>,
+    remaining: I,
+}
+
+impl<I: Iterator> CollectionLoadError<I> {
+    pub fn error(&self) -> CollectionError {
+        self.error
+    }
+
+    pub fn into_input(self) -> impl Iterator<Item = I::Item> {
+        self.staged
+            .into_iter()
+            .chain(self.pending)
+            .chain(self.remaining)
+    }
+
+    pub(super) fn untouched(error: CollectionError, remaining: I) -> Self {
+        Self {
+            error,
+            staged: Vec::new(),
+            pending: None,
+            remaining,
+        }
+    }
+
+    pub(super) fn staged(error: CollectionError, staged: Vec<I::Item>, remaining: I) -> Self {
+        Self {
+            error,
+            staged,
+            pending: None,
+            remaining,
+        }
+    }
+}
+
+impl<I: Iterator> core::fmt::Debug for CollectionLoadError<I> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("CollectionLoadError")
+            .field("error", &self.error)
+            .field("staged_len", &self.staged.len())
+            .field("pending", &self.pending.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+pub(super) fn collect_input<I: Iterator>(
+    mut remaining: I,
+    limit: Option<usize>,
+) -> Result<(Vec<I::Item>, I), CollectionLoadError<I>> {
+    let mut staged = Vec::new();
+    while let Some(item) = remaining.next() {
+        let error = if limit.is_some_and(|limit| staged.len() == limit) {
+            Some(CollectionError::Limit)
+        } else if staged.len() == staged.capacity() {
+            let capacity = staged
+                .len()
+                .saturating_mul(2)
+                .max(1)
+                .min(limit.unwrap_or(usize::MAX));
+            staged
+                .try_reserve_exact(capacity - staged.len())
+                .err()
+                .map(|_| CollectionError::Allocation)
+        } else {
+            None
+        };
+        if let Some(error) = error {
+            return Err(CollectionLoadError {
+                error,
+                staged,
+                pending: Some(item),
+                remaining,
+            });
+        }
+        staged.push(item);
+    }
+    Ok((staged, remaining))
 }
 
 pub(super) fn next_collection_id() -> u64 {

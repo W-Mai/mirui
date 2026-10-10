@@ -69,6 +69,79 @@ impl Group {
         self.items.remove(id);
         Err(())
     }
+    fn load_reject(&mut self) -> Result<(), ()> {
+        self.items.load([Item::new(6)]).unwrap();
+        Err(())
+    }
+}
+
+#[test]
+fn load_joins_parent_transactions_and_retires_members_without_reviving_routes() {
+    let mut app = App::headless(32, 32);
+    let parent = app.add_model(Group::new());
+    let list = parent.items();
+    let watched = parent.clone();
+    let total = with_world_scope(&mut app.world, || Computed::new(move || watched.total()));
+    assert_eq!(total.get(), 3);
+    let (id, old) = list.entries().next().unwrap();
+    let notices = Rc::new(Cell::new(0));
+    let count = notices.clone();
+    app.on_effect(&old, move |_: Notice| count.set(count.get() + 1))
+        .unwrap();
+    list.load([Item::new(7), Item::new(8)]).unwrap();
+    assert_eq!(total.get(), 15);
+    assert_eq!(list.limit(), Some(4));
+    assert_eq!(list.capacity(), 4);
+    assert!(list.get_by_id(id).is_none());
+    assert!(!ModelHandle::callback_ready(&old));
+    assert_eq!(tracked_allocations(|| list.get(0).unwrap().increment()), 0);
+    assert_eq!(notices.get(), 0);
+    assert_eq!(total.get(), 16);
+    let replaced = list.get(0).unwrap();
+    assert_eq!(parent.load_reject(), Err(()));
+    assert!(!ModelHandle::callback_ready(&replaced));
+    assert_eq!(parent.total(), 6);
+    assert_eq!(total.get(), 16);
+    list.get(0).unwrap().increment();
+    assert_eq!(total.get(), 7);
+}
+
+#[test]
+fn load_rejects_leases_before_consuming_input_and_prepares_new_nested_shapes() {
+    let mut app = App::headless(32, 32);
+    let list = app.add_model(ModelList::from([NestedItem::new(1, 1)]));
+    let held = list.iter();
+    let reads = Cell::new(0);
+    let input = [NestedItem::new(8, 3)]
+        .into_iter()
+        .inspect(|_| reads.set(reads.get() + 1));
+    let error = list.load(input).unwrap_err();
+    assert_eq!(error.error(), CollectionError::Iterating);
+    assert_eq!(reads.get(), 0);
+    drop(held);
+    let old = list.get(0).unwrap();
+    let old_child = old.children().get(0).unwrap();
+    list.load(error.into_input()).unwrap();
+    assert!(!ModelHandle::callback_ready(&old));
+    assert!(!ModelHandle::callback_ready(&old_child));
+    assert_eq!(list.get(0).unwrap().children().capacity(), 3);
+    let input = NestedItem::new(10, 3);
+    assert_eq!(
+        tracked_allocations(|| {
+            list.clear().unwrap();
+            let id = list
+                .try_push(input)
+                .unwrap_or_else(|_| panic!("prepared shape"));
+            list.get_by_id(id)
+                .unwrap()
+                .children()
+                .get(0)
+                .unwrap()
+                .increment();
+        }),
+        0
+    );
+    assert_eq!(list.get(0).unwrap().children().get(0).unwrap().value(), 11);
 }
 
 #[test]

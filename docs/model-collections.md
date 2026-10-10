@@ -74,6 +74,22 @@ Nested collection shapes are prepared from the installed data. Free outer capaci
 
 Map lookup uses binary search. Insertion and removal can move ordered entries; stable retention is linear. The key index and member storage are retained, and capacity-bounded edits and registered item updates reuse their framework storage.
 
+## Loading list data
+
+`items.load(records)` installs an owned iterator of Model data and retires all previous item identities. The collection field, capacity, hard limit, and its observers remain in place. Loading can prepare larger nested collection shapes; it is an explicit allocating operation, not an ordinary capacity-bounded edit. Existing event, System, and Timer bindings to retired items stop executing.
+
+Preflight failure leaves the previous dataset intact. `CollectionLoadError::error()` reports the reason; `into_input()` yields the staged prefix, the item that stopped loading, and the remaining iterator in original order, without cloning values. A hard-limit failure stops consuming at the first excess item. An active registered iterator rejects loading before any input item is consumed.
+
+```rust,ignore
+if let Err(failure) = todo.items().load(records) {
+    let reason = failure.error();
+    let recovered = failure.into_input();
+    handle_rejected_import(reason, recovered);
+}
+```
+
+Loading inside a parent Model method shares that parent's transaction. An outer `Err` does not undo installed data or revive retired item references; it suppresses that transaction's observations and effects. Iterator or user-code panics follow the existing Model panic contract.
+
 ## Membership sets
 
 Declare `selected: model!(owned ModelSet<UserId>)` for selected IDs, enabled options, or tags. `ModelSet::from_iter(values)` moves and deduplicates input into sorted order; `bounded(n)` prepares an empty set with a hard limit. Members are not Models and do not have individual handles. Use a Map when the stored objects need mutable fields or methods.

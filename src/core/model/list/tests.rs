@@ -100,6 +100,49 @@ fn capacity_failures_preserve_input_and_existing_data() {
 }
 
 #[test]
+fn loading_recovers_non_clone_input_in_order_without_clearing_old_data() {
+    let mut list = ModelList::bounded(2);
+    let old = push(&mut list, 9);
+    let read = core::cell::Cell::new(0);
+    let input = (0..5).map(|value| {
+        read.set(read.get() + 1);
+        item(value)
+    });
+    let error = list.load(input).unwrap_err();
+    assert_eq!(error.error(), CollectionError::Limit);
+    assert_eq!(read.get(), 3);
+    assert_eq!(list.get_by_id(old).unwrap().value(), 9);
+    assert_values(&list, &[9]);
+    assert_eq!(
+        error
+            .into_input()
+            .map(|item| item.value)
+            .collect::<Vec<_>>(),
+        [0, 1, 2, 3, 4]
+    );
+    list.load([item(1), item(2)]).unwrap();
+    assert!(list.get_by_id(old).is_none());
+    assert_eq!(list.limit(), Some(2));
+    assert_eq!(list.capacity(), 2);
+    assert_values(&list, &[1, 2]);
+    list.load([]).unwrap();
+    assert!(list.is_empty());
+    assert_eq!(list.capacity(), 2);
+}
+
+#[test]
+fn loading_preflights_exhausted_slots_without_losing_input() {
+    let mut list = ModelList::bounded(1);
+    list.slots[0].generation = u64::MAX - 1;
+    let old = push(&mut list, 9);
+    let error = list.load([item(1)]).unwrap_err();
+    assert_eq!(error.error(), CollectionError::IdentityExhausted);
+    assert_eq!(error.into_input().next().unwrap().value, 1);
+    assert_eq!(list.get_by_id(old).unwrap().value(), 9);
+    assert_values(&list, &[9]);
+}
+
+#[test]
 fn foreign_and_exhausted_identities_cannot_alias_live_members() {
     let mut a = ModelList::with_capacity(1);
     let id = push(&mut a, 1);

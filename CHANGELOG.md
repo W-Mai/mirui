@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Model lists load owned iterators with recoverable batch errors, retained collection limits, and explicit nested capacity preparation. Loading retires old member identities; rejected preflight preserves the previous dataset and returns consumed and remaining input without cloning.
 - `ModelSet` provides observable membership, sorted borrowed traversal, duplicate-free imports, and explicit capacity limits. Duplicate insertion and absent removal do not publish changes; owned fields share parent transactions without per-value Models.
 - `ModelMap` provides sorted business keys, borrowed lookup, stable member identities, same-key replacement, and duplicate-checked input imports. Owned Map fields use the Model transaction and observation system; registered iteration permits item updates while guarding structural changes.
 - `ModelList` stores ordered Model data with runtime capacity, stable item IDs, and capacity-bounded edits. Owned list fields share parent transactions, separate structural observations from item changes, and reject structural changes during registered iteration. Arrays, vectors, and iterators transfer data without requiring item clones; explicit reservation prepares data and observation storage.

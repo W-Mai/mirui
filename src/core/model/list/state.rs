@@ -37,6 +37,13 @@ impl<M: Model> ListState<M> {
         self.nodes.borrow()[index].generation.set(generation);
     }
 
+    pub(super) fn generation(&self, index: usize) -> Option<u64> {
+        self.nodes
+            .borrow()
+            .get(index)
+            .map(|slot| slot.generation.get())
+    }
+
     pub(super) fn prepare(&self, value: &mut ModelList<M>) {
         let capacity = value.capacity();
         {
@@ -117,7 +124,7 @@ impl<M: Model> ListState<M> {
         }
     }
 
-    fn ensure_binding(self: &Rc<Self>, value: &mut ModelList<M>) {
+    pub(super) fn ensure_binding(self: &Rc<Self>, value: &mut ModelList<M>) {
         if value
             .binding
             .as_ref()

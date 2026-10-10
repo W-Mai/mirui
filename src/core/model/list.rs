@@ -2,6 +2,7 @@ use super::{CollectionError, Model, ModelItemId, OwnedModel, collection::next_co
 use alloc::rc::Rc;
 use alloc::vec::Vec;
 
+mod load;
 mod registered;
 mod state;
 pub use registered::{ModelListEntries, ModelListHandle, ModelListOwned};

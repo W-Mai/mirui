@@ -1,4 +1,4 @@
-use mirui::core::model::ModelSet;
+use mirui::core::model::{ModelList, ModelSet};
 use mirui::input::event::contract::Event;
 use mirui::input::event::lifecycle::Started;
 use mirui::{app::App, core::model::ModelMap, event, model};
@@ -80,6 +80,19 @@ fn removed_map_member_is_not_invoked_after_reinsertion_of_the_same_key() {
     app.tick();
     assert!(!tasks.items().get(&7).unwrap().done());
     assert_eq!(tasks.remaining(), 1);
+}
+
+#[test]
+fn loading_a_list_retires_declared_callbacks_and_accepts_owned_input() {
+    let mut app = App::headless(32, 32);
+    let items = app.add_model(ModelList::from([Task { done: false }]));
+    app.on_event(Started::EVENT, toggle::callback(items.get(0).unwrap()));
+    items
+        .load([Task { done: false }, Task { done: true }])
+        .unwrap();
+    app.tick();
+    assert!(!items.get(0).unwrap().done());
+    assert!(items.get(1).unwrap().done());
 }
 
 #[model]

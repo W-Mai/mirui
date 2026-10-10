@@ -3,8 +3,8 @@ use super::{
     state::{ListChildren, ListState},
 };
 use crate::core::model::{
-    BindType, BindingOwner, Model, ModelHandle, ModelMethods, ModelRef, ModelWatch, OwnedModel,
-    OwnedStorage, SharedValue, read_model, update_model,
+    BindType, BindingOwner, CollectionLoadError, Model, ModelHandle, ModelMethods, ModelRef,
+    ModelWatch, OwnedModel, OwnedStorage, SharedValue, read_model, update_model,
 };
 use crate::core::reactive::ModelSource;
 use alloc::{rc::Rc, vec::Vec};
@@ -283,6 +283,20 @@ impl<M: Model> ModelListHandle<M> {
         update_model(
             self,
             |list| list.reserve(additional),
+            |result| result.as_ref().ok().copied(),
+        )
+    }
+
+    pub fn load<I: IntoIterator<Item = M>>(
+        &self,
+        items: I,
+    ) -> Result<(), CollectionLoadError<I::IntoIter>> {
+        if let Err(error) = self.available() {
+            return Err(CollectionLoadError::untouched(error, items.into_iter()));
+        }
+        update_model(
+            self,
+            |list| list.load(items),
             |result| result.as_ref().ok().copied(),
         )
     }
