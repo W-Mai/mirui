@@ -35,7 +35,8 @@ mod nested {
     #[mirui::system]
     fn update() {}
 
-    fn attach(_: &mut mirui::ecs::World, _: mirui::ecs::Entity) {}
+    #[mirui::event]
+    fn attach() {}
 
     #[mirui::event]
     fn gesture(_tap: event!(mirui::input::event::gesture::Tap)) -> bool { false }
@@ -44,7 +45,7 @@ mod nested {
         3
     }
 
-    #[view(component = super::Tile, name = "Behavior", attach = self::attach,
+    #[view(component = super::Tile, name = "Behavior", attach = self::attach::callback(),
         input = self::gesture::callback(), systems = [self::update::system()])]
     #[cfg_attr(all(), cfg(all()), doc = "A behavior-only widget.")]
     pub fn behavior<T: super::Palette>(
@@ -56,7 +57,7 @@ mod nested {
     {
     }
 
-    #[view(component = super::Tile, priority = self::PRIORITY, invalidation = Layout, attach = self::attach, input = self::gesture::callback(), systems = [self::update::system()])]
+    #[view(component = super::Tile, priority = self::PRIORITY, invalidation = Layout, attach = self::attach::callback(), input = self::gesture::callback(), systems = [self::update::system()])]
     #[allow(clippy::let_and_return)]
     #[cfg_attr(all(), cfg(all()), doc = "A typed paint callback.", inline)]
     pub fn paint<T: super::Palette, const OFFSET: u8>(

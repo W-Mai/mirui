@@ -15,6 +15,7 @@ pub(crate) mod notification;
 pub(crate) mod runtime;
 pub mod scroll;
 pub mod sim;
+pub(crate) mod view_attach;
 pub(crate) mod view_input;
 pub mod widget_input;
 

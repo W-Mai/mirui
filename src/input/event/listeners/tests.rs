@@ -1021,7 +1021,9 @@ fn unchanged_editor_actions_are_accepted_without_reaching_app_fallback() {
     fixture.world.insert(fixture.leaf, TextInput::new());
     let view = crate::ui::widgets::text_input::view();
     fixture.world.remove::<DefaultEditor>(fixture.leaf);
-    view.auto_attach().unwrap()(&mut fixture.world, fixture.leaf);
+    view.auto_attach()
+        .unwrap()
+        .invoke(&mut fixture.world, fixture.leaf);
     super::super::view_input::fixture_inputs(view, &mut fixture.world);
     let changes = Rc::new(Cell::new(0));
     let called = changes.clone();

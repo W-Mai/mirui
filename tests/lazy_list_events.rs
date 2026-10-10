@@ -200,7 +200,9 @@ fn invalid(_event: event!(CreateCell)) -> Entity {
 
 #[event]
 fn rejected_commands(_event: event!(CreateCell), commands: commands!()) -> Entity {
-    commands.remove_resource::<u32>();
+    for _ in 0..5 {
+        commands.remove_resource::<u32>();
+    }
     ui! {
         Text ("discarded")
     }
@@ -212,9 +214,6 @@ fn failed_command_submission_discards_the_new_cell() {
     app.with_default_widgets();
     let mut scheduler = SystemScheduler::new();
     scheduler.add(lazy_list_system::system());
-    app.with_event_capacity(
-        mirui::input::event::EventCapacity::new().commands(mirui::ecs::CommandCapacity::new()),
-    );
     app.add_resource(7_u32);
     let root = app.spawn_root().id();
     let list = app.compose(root, |tree| {
@@ -235,15 +234,16 @@ fn failed_command_submission_discards_the_new_cell() {
 #[component]
 struct Mounted;
 
-fn check_parent(world: &mut mirui::ecs::World, cell: Entity) {
-    let parent = world.get::<mirui::ui::Parent>(cell).unwrap().0;
+#[event]
+fn check_parent(cell: entity!(), parents: query!(mirui::ui::Parent), lists: query!(LazyList)) {
+    let parent = parents.get(cell).unwrap().0;
     assert!(
-        world.has::<LazyList>(parent),
+        lists.get(parent).is_some(),
         "attachment must see the actual list parent"
     );
 }
 
-#[view(component = Mounted, attach = check_parent)]
+#[view(component = Mounted, attach = check_parent::callback())]
 fn mounted_view() {}
 
 #[event]

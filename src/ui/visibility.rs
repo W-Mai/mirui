@@ -10,6 +10,7 @@ impl crate::ecs::Component for Hidden {}
 /// deepest marked widget under the pointer becomes the event target.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct HitTarget;
+impl crate::ecs::Component for HitTarget {}
 
 /// Opts an input target into hover and press visual state.
 ///

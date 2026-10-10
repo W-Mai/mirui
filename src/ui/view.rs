@@ -426,8 +426,6 @@ impl<'frame> PaintCtx<'frame> {
 
 pub(crate) type ViewRender = fn(world: &World, entity: Entity, ctx: &mut PaintCtx<'_>);
 
-pub(crate) type ViewAttach = fn(world: &mut World, entity: Entity);
-
 pub(crate) use generated::ViewObservationBindings;
 
 pub(crate) mod generated {
@@ -443,7 +441,7 @@ pub(crate) mod generated {
     pub struct ViewDescriptor {
         pub name: &'static str,
         pub paint: Option<(u8, ViewRender)>,
-        pub attach: Option<ViewAttach>,
+        pub attach: Option<crate::input::event::view_attach::AttachDefinition>,
         pub input: Option<crate::input::event::view_input::InputFactory>,
         pub observation: Option<(ViewObserve, usize)>,
         pub query_dependencies: &'static [fn() -> TypeId],
@@ -555,7 +553,7 @@ pub struct View<Systems = &'static [crate::ecs::System]> {
 struct ViewDefinition {
     name: &'static str,
     paint: Option<ViewPaint>,
-    auto_attach: Option<ViewAttach>,
+    auto_attach: Option<crate::input::event::view_attach::Attachment>,
     /// When set, the walker only invokes `render` on entities that
     /// own a component of this type. `None` runs on every entity
     /// (e.g. the generic Style stage).
@@ -597,7 +595,7 @@ impl View {
             definition: ViewDefinition {
                 name: descriptor.name,
                 paint,
-                auto_attach: descriptor.attach,
+                auto_attach: descriptor.attach.map(Into::into),
                 component_filter,
                 query_dependencies: descriptor.query_dependencies,
                 query_scope: Cell::new(QueryScope::Unobserved),
@@ -649,8 +647,10 @@ impl View {
 
 impl<Systems> View<Systems> {
     #[cfg(test)]
-    pub(crate) const fn with_attach(mut self, attach: ViewAttach) -> Self {
-        self.definition.auto_attach = Some(attach);
+    pub(crate) fn with_attach(mut self, attach: fn(&mut crate::ui::UiScope<'_>)) -> Self {
+        self.definition.auto_attach = Some(
+            crate::input::event::view_attach::Attachment::Composition(attach),
+        );
         self
     }
 
@@ -761,8 +761,8 @@ impl<Systems> View<Systems> {
             self.definition.query_scope.set(QueryScope::Local);
         }
     }
-    pub(crate) fn auto_attach(&self) -> Option<ViewAttach> {
-        self.definition.auto_attach
+    pub(crate) fn auto_attach(&self) -> Option<&crate::input::event::view_attach::Attachment> {
+        self.definition.auto_attach.as_ref()
     }
     pub(crate) fn component_filter(&self) -> Option<TypeId> {
         self.definition.component_filter.map(|f| f())
@@ -1668,7 +1668,8 @@ mod tests {
         component.model.set(7);
     }
 
-    fn options_attach(_: &mut World, _: Entity) {}
+    #[crate::event]
+    fn options_attach() {}
 
     #[crate::event]
     fn options_gesture(_tap: event!(crate::input::event::gesture::Tap)) -> bool {
@@ -1682,7 +1683,7 @@ mod tests {
     #[crate::view(
         component = GenericTile<u8>,
         priority = 42,
-        attach = options_attach,
+        attach = options_attach::callback(),
         input = options_gesture::callback(),
         systems = [crate::ecs::System::new("options", 100, options_system)]
     )]

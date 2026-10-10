@@ -117,16 +117,18 @@ fn static_bounded_value_precedes_consuming_binding_capture() {
     );
 }
 
-fn inspect_static_attachment(world: &mut World, entity: Entity) {
-    let seed = world.get::<MountSeed>(entity).unwrap().0;
-    let on = world
-        .get::<mirui::ui::widgets::Switch>(entity)
-        .map(|switch| switch.on);
-    let parent = world.get::<Parent>(entity).map(|parent| parent.0);
-    let registered = world
-        .get::<mirui::ui::NamedId>(entity)
-        .is_some_and(|id| world.find_by_id(id.0) == Some(entity));
-    let probe = world.resource_mut::<MountProbe>().unwrap();
+#[mirui::event]
+fn inspect_static_attachment(
+    entity: entity!(),
+    mounted: query!(MountSeed, optional Switch, optional Parent, optional mirui::ui::NamedId),
+    ids: res!(mirui::ui::IdMap),
+    probe: res!(mut MountProbe),
+) {
+    let (seed, switch, parent, name) = mounted.get(entity).unwrap();
+    let seed = seed.0;
+    let on = switch.map(|switch| switch.on);
+    let parent = parent.map(|parent| parent.0);
+    let registered = name.is_some_and(|id| ids.get(id.0) == Some(entity));
     probe.entries[probe.count] = Some(MountEntry {
         seed,
         on,
@@ -137,7 +139,7 @@ fn inspect_static_attachment(world: &mut World, entity: Entity) {
     probe.count += 1;
 }
 
-#[mirui::view(component = MountSeed, name = "MountSeed", attach = inspect_static_attachment)]
+#[mirui::view(component = MountSeed, name = "MountSeed", attach = inspect_static_attachment::callback())]
 fn mount_seed_view() {}
 
 #[compose]

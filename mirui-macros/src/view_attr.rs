@@ -5,7 +5,7 @@ use quote::{ToTokens, format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
-use syn::{Expr, FnArg, Ident, ItemFn, LitStr, Pat, Path, ReturnType, Token, Type, bracketed};
+use syn::{Expr, FnArg, Ident, ItemFn, LitStr, Pat, ReturnType, Token, Type, bracketed};
 
 use crate::binding::{
     BindingAccess, BindingCapability, BindingCardinality, BindingInvalidation, BindingSource,
@@ -21,7 +21,7 @@ struct ViewArgs {
     name: Option<LitStr>,
     priority: Expr,
     invalidation: BindingInvalidation,
-    attach: Option<Path>,
+    attach: Option<Expr>,
     input: Option<Expr>,
     systems: Vec<Expr>,
 }
@@ -481,11 +481,21 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
     } else {
         quote!(::core::option::Option::Some((#observe_fn, #watch_count)))
     };
-    let attach = args.attach.map_or_else(
-        || quote!(::core::option::Option::None),
-        |path| {
-            let path = ChildScope::path(&path);
-            quote!(::core::option::Option::Some(#path))
+    let (attach_definition, attach) = args.attach.map_or_else(
+        || (TokenStream::new(), quote!(::core::option::Option::None)),
+        |callback| {
+            let callback = ChildScope::expression(&callback);
+            (
+                quote! {
+                    fn prepare_attachment #factory_impl_generics (
+                        world: &mut ::mirui::ecs::World,
+                    ) -> ::core::result::Result<::mirui::__macro_support::PreparedAttach, ::mirui::__macro_support::RuntimeInstallError>
+                    #factory_where_clause {
+                        ::mirui::__macro_support::prepare_attach(world, #callback)
+                    }
+                },
+                quote!(::core::option::Option::Some(::mirui::__macro_support::AttachDefinition::Callback(prepare_attachment #call_generics))),
+            )
         },
     );
     let system_array = (!args.systems.is_empty()).then(|| {
@@ -583,6 +593,7 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
             use super::*;
 
             #system_array
+            #attach_definition
             #input_definition
             #render_definition
 
@@ -825,7 +836,7 @@ mod tests {
                 component = Board,
                 name = "Behavior",
                 priority = 42,
-                attach = attach,
+                attach = attach::callback(),
                 input = gesture::callback(),
                 systems = [update::system()]
             ),
@@ -841,7 +852,7 @@ mod tests {
         assert!(expanded.contains("__macro_support :: ViewDescriptor"));
         assert!(expanded.contains("paint : :: core :: option :: Option :: None"));
         assert!(expanded.contains("systems : SYSTEMS"));
-        assert!(expanded.contains("attach : :: core :: option :: Option :: Some (attach)"));
+        assert!(expanded.contains("prepare_attach (world , attach :: callback ())"));
         assert!(expanded.contains("prepare_inputs"));
         assert!(
             expanded
@@ -1052,7 +1063,7 @@ mod tests {
                 name = "board",
                 priority = 61,
                 invalidation = Layout,
-                attach = attach_board,
+                attach = attach_board::callback(),
                 input = board_gesture::callback(),
                 systems = [tick::system()]
             ),
@@ -1080,7 +1091,7 @@ mod tests {
         assert!(expanded.contains("ViewInvalidation :: Layout"));
         assert!(expanded.contains("__macro_support :: assemble_view :: < Board >"));
         assert!(expanded.contains("paint : :: core :: option :: Option :: Some ((61 , render))"));
-        assert!(expanded.contains("attach : :: core :: option :: Option :: Some (attach_board)"));
+        assert!(expanded.contains("prepare_attach (world , attach_board :: callback ())"));
         assert!(expanded.contains("board_gesture :: callback"));
         assert!(expanded.contains("self :: paint"));
         assert!(expanded.contains("& mut :: mirui :: ui :: view :: PaintCtx < '_ >"));

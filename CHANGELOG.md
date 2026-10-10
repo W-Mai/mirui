@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- View `attach` accepts typed event callbacks for initialization, sharing prepared callbacks across matching entities and committing commands before subsequent attachments.
 - View `input` accepts typed event callbacks for gestures, keys, and character input, sharing prepared callbacks across matching widget instances.
 - `commands.emit_always` queues notifications independently of listener presence. `commands.emit` skips notifications without a matching entity listener at command commit time.
 - `LazyList.items` accepts a row count or a registered ModelList/ModelMap. Collection-backed cells observe membership and expose stable member IDs through `ListItem.id()`.

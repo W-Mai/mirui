@@ -97,16 +97,21 @@ mod tests {
     #[derive(Default)]
     struct Attachments(Vec<mirui::ecs::Entity>);
 
-    fn record_attachment(world: &mut mirui::ecs::World, entity: mirui::ecs::Entity) {
-        use mirui::ui::{NamedId, Parent};
-        assert!(world.has::<Parent>(entity));
-        if let Some(name) = world.get::<NamedId>(entity) {
-            assert_eq!(world.find_by_id(name.0), Some(entity));
+    #[mirui::event]
+    fn record_attachment(
+        entity: entity!(),
+        nodes: query!(mirui::ui::Parent, optional mirui::ui::NamedId),
+        ids: res!(mirui::ui::IdMap),
+        attachments: res!(mut Attachments),
+    ) {
+        let (_, name) = nodes.get(entity).unwrap();
+        if let Some(name) = name {
+            assert_eq!(ids.get(name.0), Some(entity));
         }
-        world.resource_mut::<Attachments>().unwrap().0.push(entity);
+        attachments.0.push(entity);
     }
 
-    #[mirui::view(component = mirui::ui::Widget, attach = record_attachment)]
+    #[mirui::view(component = mirui::ui::Widget, attach = record_attachment::callback())]
     fn attachment_probe() {}
 
     #[mirui::component]

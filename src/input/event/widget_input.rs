@@ -3,13 +3,13 @@ use crate::ecs::{Entity, World};
 #[derive(Clone)]
 pub(crate) struct InputAttach {
     component_filter: Option<core::any::TypeId>,
-    attach: Option<crate::ui::view::ViewAttach>,
+    attach: Option<super::view_attach::Attachment>,
     inputs: Option<super::view_input::SharedInputs>,
 }
 
 impl InputAttach {
     pub(crate) fn for_view(view: &crate::ui::view::View) -> Option<Self> {
-        let attach = view.auto_attach();
+        let attach = view.auto_attach().cloned();
         (attach.is_some() || view.inputs().is_some()).then(|| Self {
             component_filter: view.component_filter(),
             attach,
@@ -33,8 +33,8 @@ fn apply_input_attach_plan(world: &mut World, entity: Entity, plan: &[InputAttac
         {
             continue;
         }
-        if let Some(attach) = hook.attach {
-            attach(world, entity);
+        if let Some(attach) = &hook.attach {
+            attach.invoke(world, entity);
         }
         if let Some(inputs) = &hook.inputs {
             super::view_input::prepare(inputs, world);
@@ -312,7 +312,8 @@ mod tests {
             append: bool,
             replace: bool,
         }
-        fn first(world: &mut World, _: Entity) {
+        fn first(scope: &mut crate::ui::UiScope<'_>) {
+            let world = scope.world_mut();
             let calls = world.resource_mut::<Calls>().unwrap();
             calls.first += 1;
             if calls.replace {
@@ -325,10 +326,12 @@ mod tests {
                     .insert(View::systems_only("third", &[]).with_attach(third));
             }
         }
-        fn second(world: &mut World, _: Entity) {
+        fn second(scope: &mut crate::ui::UiScope<'_>) {
+            let world = scope.world_mut();
             world.resource_mut::<Calls>().unwrap().second += 1;
         }
-        fn third(world: &mut World, _: Entity) {
+        fn third(scope: &mut crate::ui::UiScope<'_>) {
+            let world = scope.world_mut();
             world.resource_mut::<Calls>().unwrap().third += 1;
         }
         let mut world = World::default();
@@ -338,6 +341,7 @@ mod tests {
         registry.insert(View::systems_only("second", &[]).with_attach(second));
         world.insert_resource(registry);
         world.insert_resource(Calls::default());
+        drop(crate::ui::UiScope::new(&mut world, node));
         assert_eq!(
             tracked_allocations(|| attach_handlers_for(&mut world, node)),
             0

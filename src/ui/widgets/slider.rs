@@ -159,7 +159,7 @@ fn knob_center_offset(ratio: Fixed, track_w: Fixed, thumb_size: Fixed) -> Fixed 
     component = Slider,
     name = "Slider",
     priority = 60,
-    attach = slider_attach,
+    attach = slider_attach::callback(),
     input = (slider_tap::callback(), slider_drag::callback(), slider_start::callback(), slider_end::callback())
 )]
 fn slider_render(component: component!(), paint: paint!(), theme: res!(crate::ui::Theme)) {
@@ -281,8 +281,9 @@ fn slider_end(node: entity!(), _input: event!(DragEnd), commands: commands!()) {
     commands.emit(node, DragEnded);
 }
 
-fn slider_attach(world: &mut World, entity: Entity) {
-    world.insert(entity, crate::input::event::scroll::TouchAction::PanY);
+#[crate::event]
+fn slider_attach(entity: entity!(), commands: commands!()) {
+    commands.insert(entity, crate::input::event::scroll::TouchAction::PanY);
 }
 
 pub use slider_render::view;
@@ -787,7 +788,7 @@ mod tests {
     fn attach_keeps_horizontal_drag_for_the_slider() {
         let mut world = World::new();
         let entity = world.spawn_empty();
-        slider_attach(&mut world, entity);
+        view().auto_attach().unwrap().invoke(&mut world, entity);
         assert_eq!(
             world.get::<crate::input::event::scroll::TouchAction>(entity),
             Some(&crate::input::event::scroll::TouchAction::PanY)

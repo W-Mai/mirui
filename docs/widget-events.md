@@ -1,4 +1,24 @@
-# Widget input and notifications
+# Widget initialization, input, and notifications
+
+## Initialization
+
+Use `attach = initialize::callback()` for initialization during widget assembly. The callback uses `#[event]` with the same entity, query, resource, Model, and command roles as other callbacks. It does not require an event payload.
+
+```rust,ignore
+#[event]
+fn initialize(node: entity!(), commands: commands!()) {
+    commands.insert(node, TouchAction::PanY);
+}
+
+#[view(component = Slider, attach = initialize::callback())]
+fn slider_behavior() {}
+```
+
+Static components, parent links, and IDs are installed before initialization runs. Callback borrows end and deferred commands commit before the next attachment executes. Reactive properties, authored event bindings, and children follow their normal assembly order. Initialization does not bubble, add pointer feedback, or consume business notification storage.
+
+Each registered View prepares its initializer on the first matching entity and reuses it for later instances in that App. Configure event capacity before constructing widgets. Preparation failure logs a warning and disables that initializer; execution failure skips the failed invocation without rolling back completed mutations. Niche declarations retain their composition lifecycle and slot construction.
+
+## Input
 
 Declare a widget's default input behavior with `#[view(input = ...)]`. Each handler uses the existing `#[event]` parameters; `entity!()` identifies the current widget and the gesture payload retains the original hit target.
 
@@ -39,6 +59,6 @@ Gesture hooks run before authored listeners on the same node. Keyboard hooks run
 
 Both methods use `CommandCapacity::emit::<Payload>(count)` for command records and payload storage. Notifications that are actually enqueued also use the App's business notification budget. Recording or submission errors are handled by the common executor; completed mutations are not rolled back. Commands run in order after callback borrows end, so a property update recorded before a notification is applied before that notification is dispatched.
 
-An explicit `EventCapacity` replaces the App's default preset. Its command budget also applies to registered widget input callbacks, including their property changes, animation commands, and emitted notifications; it is not limited to authored `on` handlers.
+An explicit `EventCapacity` replaces the App's default preset. Its command budget also applies to registered widget initialization and input callbacks, including component insertion, property changes, animation commands, and emitted notifications; it is not limited to authored `on` handlers.
 
 Use a Model subscription when a later subscriber needs current state. A notification describes an occurrence; neither emission method stores past occurrences for future subscribers.

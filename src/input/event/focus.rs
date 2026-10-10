@@ -4,12 +4,14 @@ use crate::ecs::World;
 
 /// Marker component: this entity can receive keyboard/char input.
 pub struct Focusable;
+impl crate::ecs::Component for Focusable {}
 
 /// Marker for a focusable entity that accepts native text input.
 ///
 /// Mobile hosts use this to show or hide the software keyboard without
 /// coupling custom text editors to a concrete widget implementation.
 pub struct TextEditable;
+impl crate::ecs::Component for TextEditable {}
 
 /// World resource tracking which entity currently has keyboard focus.
 #[derive(Default)]

@@ -56,6 +56,8 @@ pub fn model(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// A nonempty function body supplies the paint callback. An empty body omits painting while retaining declared systems, attachment, input, and model subscriptions. The generated `function_name::view()` factory creates its widget descriptor.
 ///
+/// `attach = initialize::callback()` invokes a typed `#[event]` callback during entity assembly, after static components, parent links, and IDs are installed. Initialization needs no event payload; `entity!()` identifies the new node. Deferred commands commit before the next attachment runs.
+///
 /// `input = handler::callback()` registers a typed `#[event]` callback; a tuple registers multiple callbacks. Gesture callbacks precede authored node listeners, while Key and CharInput callbacks follow authored node listeners. Prepared callbacks are shared by matching entities in the registering App.
 ///
 /// Read-only `query!` parameters share system query syntax and can fetch other entities. Required items, optional items, and presence filters declare static component dependencies; changes invalidate this widget's instances according to its policy. Queries need a required item or `with` filter as their driver and cannot request mutable component access.

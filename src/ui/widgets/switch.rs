@@ -179,7 +179,7 @@ pub(crate) fn switch_init_system(
     component = Switch,
     name = "Switch",
     priority = 60,
-    attach = switch_attach,
+    attach = switch_attach::callback(),
     input = switch_tap::callback(),
     systems = [switch_init_system::system(), AnimateSwitchBgT::system(), AnimateThumbX::system()]
 )]
@@ -311,13 +311,14 @@ pub(crate) fn set_switch_on(
     Some(PropertyChange::Visual)
 }
 
-fn switch_attach(world: &mut World, entity: Entity) {
-    if world.get::<Switch>(entity).is_none() {
+#[crate::event]
+fn switch_attach(entity: entity!(), switches: query!(Switch), commands: commands!()) {
+    let Some(switch) = switches.get(entity) else {
         return;
-    }
-    let on = world.get::<Switch>(entity).map(|s| s.on).unwrap_or(false);
+    };
+    let on = switch.on;
     let initial_t = if on { Fixed::ONE } else { Fixed::ZERO };
-    world.insert(entity, SwitchBgT(initial_t));
+    commands.insert(entity, SwitchBgT(initial_t));
     // AnimatedThumbX seeded later by switch_init_system once
     // ComputedRect exists.
 }

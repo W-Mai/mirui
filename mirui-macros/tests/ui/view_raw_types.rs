@@ -1,3 +1,3 @@
-use mirui::ui::view::{ViewAttach, ViewObservationBindings, ViewObserve, ViewRender};
+use mirui::ui::view::{ViewObservationBindings, ViewObserve, ViewRender};
 
 fn main() {}

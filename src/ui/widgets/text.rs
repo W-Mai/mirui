@@ -671,7 +671,7 @@ impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::Ent
     }
 }
 
-#[crate::view(component = Text, name = "Text", priority = 80, invalidation = Layout, attach = crate::text::path::attach_text_path)]
+#[crate::view(component = Text, name = "Text", priority = 80, invalidation = Layout, attach = crate::text::path::attach_text_path::callback())]
 #[allow(
     clippy::too_many_arguments,
     reason = "Each parameter declares an independent paint dependency."

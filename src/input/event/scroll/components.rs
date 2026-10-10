@@ -25,6 +25,7 @@ pub enum TouchAction {
     /// Allow vertical scrolling while keeping horizontal drags for the widget.
     PanY,
 }
+impl crate::ecs::Component for TouchAction {}
 
 impl TouchAction {
     pub(crate) const fn allows_scroll(self, axis: ScrollAxis) -> bool {

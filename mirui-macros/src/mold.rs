@@ -161,12 +161,6 @@ fn expand_decl(name: syn::Ident, params: Vec<MoldParam>, children: &[DsTreeRef])
             #( #slot_methods )*
 
             #[doc(hidden)]
-            pub fn __attach(world: &mut ::mirui::ecs::World, entity: ::mirui::ecs::Entity) {
-                let mut cx = ::mirui::__macro_support::new_scope(world, entity);
-                Self::__attach_scoped(&mut cx);
-            }
-
-            #[doc(hidden)]
             pub fn __attach_scoped(cx: &mut ::mirui::ui::UiScope<'_>) {
                 let __mirui_parent: ::mirui::ecs::Entity = cx.parent();
                 #existence_check
@@ -185,7 +179,7 @@ fn expand_decl(name: syn::Ident, params: Vec<MoldParam>, children: &[DsTreeRef])
                     ::mirui::__macro_support::ViewDescriptor {
                         name: stringify!(#name),
                         paint: ::core::option::Option::None,
-                        attach: ::core::option::Option::Some(Self::__attach),
+                        attach: ::core::option::Option::Some(::mirui::__macro_support::AttachDefinition::Composition(Self::__attach_scoped)),
                         input: ::core::option::Option::None,
                         observation: ::core::option::Option::None,
                         query_dependencies: &[],

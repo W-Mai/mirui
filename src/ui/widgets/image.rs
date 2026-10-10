@@ -128,19 +128,21 @@ pub struct ImageBuilder<P = (), B = ()> {
 #[crate::component]
 struct ImageResource(RefCell<Option<ResourceHandle<Texture<'static>>>>);
 
-pub(crate) fn attach_image_resource(world: &mut World, entity: Entity) {
-    if !world.has::<Image>(entity) || world.has::<ImageResource>(entity) {
+#[crate::event]
+pub(crate) fn attach_image_resource(
+    entity: entity!(),
+    images: query!(Image, optional ImageResource),
+    manager: res!(optional ResourceManager<Texture<'static>>),
+    commands: commands!(),
+) {
+    let Some((image, None)) = images.get(entity) else {
         return;
-    }
-    let handle = world
-        .get::<Image>(entity)
-        .and_then(|image| match &image.src {
-            ImageSource::Texture(token) => world
-                .resource::<ResourceManager<Texture<'static>>>()
-                .map(|manager| manager.load(token.clone())),
-            ImageSource::Vector(_) => None,
-        });
-    world.insert(entity, ImageResource(RefCell::new(handle)));
+    };
+    let handle = match &image.src {
+        ImageSource::Texture(token) => manager.map(|manager| manager.load(token.clone())),
+        ImageSource::Vector(_) => None,
+    };
+    commands.insert(entity, ImageResource(RefCell::new(handle)));
 }
 
 fn resolve_image(
@@ -242,7 +244,7 @@ impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::Ent
     }
 }
 
-#[crate::view(component = Image, name = "Image", priority = 70, attach = attach_image_resource)]
+#[crate::view(component = Image, name = "Image", priority = 70, attach = attach_image_resource::callback())]
 fn image_render(
     rows: query!(Image, optional ImageResource),
     entity: entity!(),
@@ -357,7 +359,11 @@ mod tests {
         app.add_resource(image_manager());
         let root = app.spawn_root().id();
         let (dsl, builder) = app.compose(root, |cx| {
-            let dsl = crate::ui! { Image("unused") [Image::new("blue")] };
+            let dsl = crate::ui! {
+                Image ("unused") [
+                    Image::new("blue"),
+                ]
+            };
             let builder = cx.spawn((Image::build("unused"), Image::new("blue")));
             (dsl, builder)
         });
@@ -381,7 +387,7 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(image_manager());
         let entity = world.spawn(Image::new("blue"));
-        attach_image_resource(&mut world, entity);
+        view().auto_attach().unwrap().invoke(&mut world, entity);
 
         let image = world.get::<Image>(entity).unwrap();
         let cache = world.get::<ImageResource>(entity);
@@ -603,10 +609,7 @@ mod tests {
             descriptor.component_filter(),
             Some(core::any::TypeId::of::<Image>())
         );
-        assert!(core::ptr::fn_addr_eq(
-            descriptor.auto_attach().unwrap(),
-            attach_image_resource as crate::ui::view::ViewAttach,
-        ));
+        assert!(descriptor.auto_attach().is_some());
         let render = descriptor.render().unwrap();
         let style = Style::default();
         let rect = Rect::new(5, 7, 40, 20);
@@ -631,7 +634,6 @@ mod tests {
             );
             assert_eq!(
                 tracked_allocations(|| {
-                    let _ = view();
                     render(&world, entity, &mut paint);
                 }),
                 0
@@ -699,7 +701,7 @@ mod tests {
         };
         for cached in [false, true] {
             if cached {
-                attach_image_resource(&mut world, entity);
+                view().auto_attach().unwrap().invoke(&mut world, entity);
                 let image = world.get::<Image>(entity).unwrap();
                 resolve_image(
                     image,
@@ -792,7 +794,7 @@ mod tests {
         app.world.get_mut::<Image>(root).unwrap().src = ImageSource::from("red");
         app.render_dirty().unwrap();
         assert_eq!(&app.backend.framebuffer().buf.as_slice()[..4], &RED);
-        attach_image_resource(&mut app.world, root);
+        view().auto_attach().unwrap().invoke(&mut app.world, root);
         app.render_dirty().unwrap();
         assert_eq!(&app.backend.framebuffer().buf.as_slice()[..4], &RED);
         app.world.get_mut::<Image>(root).unwrap().src = ImageSource::from("blue");

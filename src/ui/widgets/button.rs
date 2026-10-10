@@ -145,7 +145,7 @@ impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::Ent
     component = Button,
     name = "Button",
     priority = 40,
-    attach = button_attach
+    attach = button_attach::callback()
 )]
 fn button_render(component: component!(), paint: paint!(), theme: res!(crate::ui::Theme)) {
     let state = paint.state();
@@ -165,16 +165,22 @@ fn button_render(component: component!(), paint: paint!(), theme: res!(crate::ui
     paint.set_background_handled(true);
 }
 
-fn button_attach(world: &mut World, entity: Entity) {
-    let Some(button) = world.get::<Button>(entity) else {
+#[crate::event]
+fn button_attach(
+    entity: entity!(),
+    buttons: query!(Button),
+    styles: query!(mut Style),
+    commands: commands!(),
+) {
+    let Some(button) = buttons.get(entity) else {
         return;
     };
     let Some(metrics) = button.size.metrics() else {
-        world.insert(entity, HitTarget);
-        world.insert(entity, InteractionFeedback);
+        commands.insert(entity, HitTarget);
+        commands.insert(entity, InteractionFeedback);
         return;
     };
-    if let Some(style) = world.get_mut::<Style>(entity) {
+    if let Some(style) = styles.get(entity) {
         if style.layout.padding == Padding::default() {
             style.layout.padding = metrics.padding;
         }
@@ -188,8 +194,8 @@ fn button_attach(world: &mut World, entity: Entity) {
             style.layout.align = AlignItems::Center;
         }
     }
-    world.insert(entity, HitTarget);
-    world.insert(entity, InteractionFeedback);
+    commands.insert(entity, HitTarget);
+    commands.insert(entity, InteractionFeedback);
 }
 
 pub use button_render::view;
@@ -202,7 +208,7 @@ mod tests {
         let entity = world.spawn_empty();
         world.insert(entity, button);
         world.insert(entity, style);
-        button_attach(world, entity);
+        view().auto_attach().unwrap().invoke(world, entity);
         entity
     }
 
@@ -240,7 +246,7 @@ mod tests {
         let entity = world.spawn_empty();
         world.insert(entity, Style::default());
 
-        button_attach(&mut world, entity);
+        view().auto_attach().unwrap().invoke(&mut world, entity);
 
         assert!(!world.has::<HitTarget>(entity));
         assert!(!world.has::<InteractionFeedback>(entity));
@@ -320,7 +326,7 @@ mod tests {
                 ..Style::default()
             },
         );
-        button_attach(&mut app.world, button);
+        view().auto_attach().unwrap().invoke(&mut app.world, button);
 
         let label = app.world.spawn_empty();
         app.world.insert(label, crate::ui::Widget);
@@ -369,7 +375,7 @@ mod tests {
                 ..Style::default()
             },
         );
-        button_attach(&mut app.world, button);
+        view().auto_attach().unwrap().invoke(&mut app.world, button);
 
         let label = app.world.spawn_empty();
         app.world.insert(label, crate::ui::Widget);

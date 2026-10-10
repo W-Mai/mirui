@@ -360,7 +360,7 @@ pub(crate) fn prepare_layout(
     name = "TextInput",
     invalidation = Layout,
     priority = 70,
-    attach = text_input_attach,
+    attach = text_input_attach::callback(),
     input = (textinput_tap::callback(), textinput_key::callback(), textinput_character::callback()),
     systems = [cursor_blink_system::system()]
 )]
@@ -581,15 +581,20 @@ fn textinput_key(
     true
 }
 
-fn text_input_attach(world: &mut World, entity: Entity) {
-    if world.get::<TextInput>(entity).is_none() {
+#[crate::event]
+fn text_input_attach(
+    entity: entity!(),
+    inputs: query!(TextInput, optional Focusable, optional TextEditable),
+    commands: commands!(),
+) {
+    let Some((_, focusable, editable)) = inputs.get(entity) else {
         return;
+    };
+    if focusable.is_none() {
+        commands.insert(entity, Focusable);
     }
-    if world.get::<Focusable>(entity).is_none() {
-        world.insert(entity, Focusable);
-    }
-    if world.get::<TextEditable>(entity).is_none() {
-        world.insert(entity, TextEditable);
+    if editable.is_none() {
+        commands.insert(entity, TextEditable);
     }
 }
 
@@ -847,10 +852,7 @@ mod tests {
         let descriptor = view();
         assert_eq!(descriptor.name(), "TextInput");
         assert_eq!(descriptor.priority(), Some(70));
-        assert!(core::ptr::fn_addr_eq(
-            descriptor.auto_attach().unwrap(),
-            text_input_attach as crate::ui::view::ViewAttach
-        ));
+        assert!(descriptor.auto_attach().is_some());
         assert!(descriptor.inputs().is_some());
         let mut systems = 0;
         let descriptor = descriptor.install(|_| systems += 1);
@@ -1295,7 +1297,7 @@ mod tests {
         let mut world = World::new();
         let builder_parent = world.spawn_empty();
         let entity = crate::ui::UiScope::new(&mut world, builder_parent).spawn(TextInput::build());
-        text_input_attach(&mut world, entity);
+        view().auto_attach().unwrap().invoke(&mut world, entity);
         assert!(world.has::<Focusable>(entity));
         assert!(world.has::<TextEditable>(entity));
         assert!(view().inputs().is_some());

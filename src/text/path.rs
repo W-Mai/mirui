@@ -149,12 +149,22 @@ pub(crate) fn layout_width(
 pub(crate) struct TextPathSubscription {
     pub(crate) _inner: crate::render::path::PathSubscription,
 }
+impl crate::ecs::Component for TextPathSubscription {}
 
-pub(crate) fn attach_text_path(world: &mut World, entity: crate::ecs::Entity) {
-    if !world.has::<TextPathSubscription>(entity)
-        && let Some(path) = world.get::<TextPath>(entity).copied()
+#[crate::event]
+pub(crate) fn attach_text_path(
+    entity: entity!(),
+    paths: query!(TextPath, optional TextPathSubscription),
+    store: res!(optional PathStore),
+    commands: commands!(),
+) {
+    let Some((path, None)) = paths.get(entity) else {
+        return;
+    };
+    if let Some(store) = store
+        && let Some(inner) = store.subscribe_scoped(path.path(), entity, path.end().is_some())
     {
-        subscribe_text_path(world, entity, path);
+        commands.insert(entity, TextPathSubscription { _inner: inner });
     }
 }
 
@@ -271,6 +281,58 @@ mod tests {
         assert_eq!(path.offset(), Fixed::ZERO);
         assert_eq!(path.direction(), PathDirection::Forward);
         assert_eq!(path.seam(), None);
+    }
+
+    #[test]
+    fn typed_attachment_scopes_path_subscriptions_to_the_current_app() {
+        use crate::app::App;
+        use crate::core::reactive::{current_world_id, flush_signal_dirty};
+        use crate::ui::dirty::VisualDirty;
+        use crate::ui::widgets::{Text, text};
+
+        let mut first = App::headless(32, 32);
+        let mut second = App::headless(32, 32);
+        let mut nodes = alloc::vec::Vec::new();
+        for app in [&mut first, &mut second] {
+            let mut store = PathStore::new(1).unwrap();
+            let path = store.insert(Path::new()).unwrap();
+            app.add_resource(store);
+            app.with_widget(text::view());
+            let root = app.spawn_root().id();
+            let node = app.compose(root, |tree| {
+                tree.spawn((
+                    Text::label("path"),
+                    TextPath::new(path).with_range(Fixed::ZERO..Fixed::ONE),
+                ))
+            });
+            assert!(app.world.has::<TextPathSubscription>(node));
+            app.world.remove::<Dirty>(node);
+            app.world.remove::<VisualDirty>(node);
+            nodes.push((node, path));
+        }
+        assert_eq!(current_world_id(), None);
+        first
+            .world
+            .resource_mut::<PathStore>()
+            .unwrap()
+            .edit(nodes[0].1, |_| {})
+            .unwrap();
+        flush_signal_dirty(&mut second.world);
+        assert!(!second.world.has::<VisualDirty>(nodes[1].0));
+        flush_signal_dirty(&mut first.world);
+        assert!(first.world.has::<VisualDirty>(nodes[0].0));
+        assert!(!first.world.has::<Dirty>(nodes[0].0));
+
+        first.world.remove::<TextPathSubscription>(nodes[0].0);
+        first.world.remove::<VisualDirty>(nodes[0].0);
+        first
+            .world
+            .resource_mut::<PathStore>()
+            .unwrap()
+            .edit(nodes[0].1, |_| {})
+            .unwrap();
+        flush_signal_dirty(&mut first.world);
+        assert!(!first.world.has::<VisualDirty>(nodes[0].0));
     }
 
     #[test]

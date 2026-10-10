@@ -159,6 +159,7 @@ borrowed_invocation!(
     super::contract::EntityBubble,
     super::contract::EntityNotification,
     super::contract::LayoutNotification,
+    super::contract::Initialization,
     super::contract::InputFallback,
     super::contract::AppNotification,
 );

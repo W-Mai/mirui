@@ -18,12 +18,6 @@ impl ChildScope {
         expression
     }
 
-    pub(crate) fn path(original: &Path) -> Path {
-        let mut path = original.clone();
-        Self.visit_path_mut(&mut path);
-        path
-    }
-
     pub(crate) fn generics(original: &Generics) -> Generics {
         let mut generics = original.clone();
         Self.visit_generics_mut(&mut generics);
@@ -113,10 +107,12 @@ mod tests {
             expected.into_token_stream().to_string(),
         );
 
-        let path: Path = syn::parse_quote!(self::install);
-        let expected_path: Path = syn::parse_quote!(super::install);
+        let path: Expr = syn::parse_quote!(self::install::callback());
+        let expected_path: Expr = syn::parse_quote!(super::install::callback());
         assert_eq!(
-            ChildScope::path(&path).into_token_stream().to_string(),
+            ChildScope::expression(&path)
+                .into_token_stream()
+                .to_string(),
             expected_path.into_token_stream().to_string(),
         );
 

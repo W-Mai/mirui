@@ -1,5 +1,5 @@
 use mirui::app::App;
-use mirui::ecs::{Entity, World};
+use mirui::ecs::Entity;
 use mirui::types::{Color, Dimension};
 use mirui::ui::layout::LayoutStyle;
 use mirui::ui::{Children, IgnoreHitTest, RespectSafeArea, Style, Widget, WidgetRoot};
@@ -8,11 +8,12 @@ use mirui::{compose, ui, view};
 #[derive(Default)]
 struct Attachments(Vec<Entity>);
 
-fn record_attachment(world: &mut World, entity: Entity) {
-    world.resource_mut::<Attachments>().unwrap().0.push(entity);
+#[mirui::event]
+fn record_attachment(entity: entity!(), attachments: res!(mut Attachments)) {
+    attachments.0.push(entity);
 }
 
-#[view(component = Widget, name = "AttachmentProbe", attach = record_attachment)]
+#[view(component = Widget, name = "AttachmentProbe", attach = record_attachment::callback())]
 fn attachment_probe() {}
 
 ui!(compose Card {
@@ -54,20 +55,26 @@ fn selecting_roots_does_not_repeat_widget_attachment() {
 #[derive(Default)]
 struct RootAppearance(Option<(Color, Dimension, bool, bool)>);
 
-fn record_root_appearance(world: &mut World, entity: Entity) {
-    let style = world.get::<Style>(entity).unwrap();
+#[mirui::event]
+fn record_root_appearance(
+    entity: entity!(),
+    widgets: query!(Style, optional RespectSafeArea, optional IgnoreHitTest),
+    theme: res!(mirui::ui::Theme),
+    result: res!(mut RootAppearance),
+) {
+    let (style, safe_area, ignore_hit) = widgets.get(entity).unwrap();
     let appearance = (
-        style.bg_color.unwrap().resolve(world.resource().unwrap()),
+        style.bg_color.unwrap().resolve(theme),
         style.layout.width,
-        world.has::<RespectSafeArea>(entity),
-        world.has::<IgnoreHitTest>(entity),
+        safe_area.is_some(),
+        ignore_hit.is_some(),
     );
-    let recorded = &mut world.resource_mut::<RootAppearance>().unwrap().0;
+    let recorded = &mut result.0;
     assert!(recorded.is_none(), "root is attached once");
     *recorded = Some(appearance);
 }
 
-#[view(component = Widget, name = "RootAppearance", attach = record_root_appearance)]
+#[view(component = Widget, name = "RootAppearance", attach = record_root_appearance::callback())]
 fn root_appearance() {}
 
 #[test]

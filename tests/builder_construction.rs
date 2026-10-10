@@ -41,17 +41,22 @@ fn reset(controls: model!(Controls)) {
 #[component]
 struct Mounted(Rc<Cell<u8>>);
 
-fn inspect_mount(world: &mut World, entity: Entity) {
-    let parent = world.get::<Parent>(entity).expect("parent before attach").0;
-    assert!(world.get::<Children>(parent).unwrap().0.contains(&entity));
-    assert_eq!(world.find_by_id("final"), Some(entity));
-    assert_eq!(world.find_by_id("overwritten"), None);
-    assert!(world.has::<Text>(entity));
-    let count = &world.get::<Mounted>(entity).unwrap().0;
+#[mirui::event]
+fn inspect_mount(
+    entity: entity!(),
+    mounted: query!(Mounted, Parent, Text),
+    children: query!(Children),
+    ids: res!(mirui::ui::IdMap),
+) {
+    let (mounted, parent, _) = mounted.get(entity).unwrap();
+    assert!(children.get(parent.0).unwrap().0.contains(&entity));
+    assert_eq!(ids.get("final"), Some(entity));
+    assert_eq!(ids.get("overwritten"), None);
+    let count = &mounted.0;
     count.set(count.get() + 1);
 }
 
-#[mirui::view(component = Mounted, attach = inspect_mount)]
+#[mirui::view(component = Mounted, attach = inspect_mount::callback())]
 fn mounted_view() {}
 
 #[test]

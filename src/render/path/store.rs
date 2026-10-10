@@ -1,4 +1,5 @@
 use alloc::vec::Vec;
+use core::cell::OnceCell;
 
 use super::{Path, PathCmd};
 use crate::core::reactive::{Signal, SignalSubscription};
@@ -48,7 +49,7 @@ enum PathSlot {
     Mutable {
         generation: u32,
         revision: PathRevision,
-        changed: Option<Signal<PathRevision>>,
+        changed: OnceCell<Signal<PathRevision>>,
         path: Path,
     },
 }
@@ -143,7 +144,7 @@ impl PathStore {
         self.insert_slot(|generation| PathSlot::Mutable {
             generation,
             revision: PathRevision::default(),
-            changed: None,
+            changed: OnceCell::new(),
             path,
         })
     }
@@ -182,7 +183,7 @@ impl PathStore {
             } => {
                 let output = edit(path);
                 revision.advance();
-                (output, *revision, changed.clone())
+                (output, *revision, changed.get().cloned())
             }
             PathSlot::Static { .. } => return Err(PathStoreError::Immutable(id)),
             PathSlot::Vacant { .. } => return Err(PathStoreError::Missing(id)),
@@ -194,18 +195,18 @@ impl PathStore {
     }
 
     pub(crate) fn subscribe(
-        &mut self,
+        &self,
         id: PathId,
         world: WorldId,
         entity: Entity,
         visual_only: bool,
     ) -> Result<Option<PathSubscription>, PathStoreError> {
-        match self.resolve_mut(id)? {
+        match self.resolve(id)? {
             PathSlot::Static { .. } => Ok(None),
             PathSlot::Mutable {
                 revision, changed, ..
             } => {
-                let signal = changed.get_or_insert_with(|| Signal::new(*revision));
+                let signal = changed.get_or_init(|| Signal::new(*revision));
                 Ok(Some(PathSubscription {
                     _inner: if visual_only {
                         signal.subscribe_visual_widget(world, entity)
@@ -216,6 +217,18 @@ impl PathStore {
             }
             PathSlot::Vacant { .. } => Err(PathStoreError::Missing(id)),
         }
+    }
+
+    pub(crate) fn subscribe_scoped(
+        &self,
+        id: PathId,
+        entity: Entity,
+        visual_only: bool,
+    ) -> Option<PathSubscription> {
+        let owner = crate::core::reactive::current_world_id()?;
+        self.subscribe(id, owner, entity, visual_only)
+            .ok()
+            .flatten()
     }
 
     pub fn remove(&mut self, id: PathId) -> Result<Path, PathStoreError> {
@@ -237,7 +250,7 @@ impl PathStore {
                 ..
             } => {
                 revision.advance();
-                if let Some(changed) = changed {
+                if let Some(changed) = changed.into_inner() {
                     changed.set(revision);
                 }
                 Ok(path)
@@ -469,6 +482,13 @@ mod tests {
                 .subscribe(id, world.id(), widget, false)
                 .unwrap()
                 .is_none()
+        );
+    }
+    #[test]
+    fn lazy_subscription_storage_has_the_same_size_as_an_optional_signal() {
+        assert_eq!(
+            core::mem::size_of::<OnceCell<Signal<PathRevision>>>(),
+            core::mem::size_of::<Option<Signal<PathRevision>>>(),
         );
     }
 }

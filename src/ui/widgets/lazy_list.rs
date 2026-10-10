@@ -101,15 +101,23 @@ pub(crate) fn content_extent(world: &World, entity: Entity) -> Option<(bool, Fix
     Some((horizontal(world, entity), extent))
 }
 
-fn attach_list(world: &mut World, entity: Entity) {
-    if !world.has::<ScrollOffset>(entity) {
-        world.insert(entity, ScrollOffset::default());
+#[crate::event]
+fn attach_list(
+    entity: entity!(),
+    lists: query!(LazyList, optional ScrollOffset, optional ScrollConfig, optional CellPool),
+    commands: commands!(),
+) {
+    let Some((_, offset, config, pool)) = lists.get(entity) else {
+        return;
+    };
+    if offset.is_none() {
+        commands.insert(entity, ScrollOffset::default());
     }
-    if !world.has::<ScrollConfig>(entity) {
-        world.insert(entity, ScrollConfig::default());
+    if config.is_none() {
+        commands.insert(entity, ScrollConfig::default());
     }
-    if !world.has::<CellPool>(entity) {
-        world.insert(entity, CellPool::default());
+    if pool.is_none() {
+        commands.insert(entity, CellPool::default());
     }
 }
 
@@ -501,7 +509,7 @@ pub(crate) fn lazy_list_system(world: &mut World) -> Result<(), crate::ecs::Comm
 }
 
 crate::ecs::system::framework_system!(pub lazy_list_system, LazyList, expect = [LazyList]);
-#[crate::view(component = LazyList, name = "LazyList", attach = attach_list, systems = [lazy_list_system::system()])]
+#[crate::view(component = LazyList, name = "LazyList", attach = attach_list::callback(), systems = [lazy_list_system::system()])]
 fn lazy_list_view() {}
 pub use lazy_list_view::view;
 
