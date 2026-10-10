@@ -465,12 +465,12 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
         #snapshot_definition
 
         #visibility struct #handle #generics #where_clause {
-            cell: ::mirui::__macro_support::__Weak<::mirui::core::model::ModelCell<#name #type_generics>>,
+            access: ::mirui::__macro_support::__Weak<dyn ::mirui::core::model::ModelAccess<#name #type_generics>>,
         }
 
         impl #impl_generics ::core::clone::Clone for #handle #type_generics #where_clause {
             fn clone(&self) -> Self {
-                Self { cell: self.cell.clone() }
+                Self { access: self.access.clone() }
             }
         }
 
@@ -482,9 +482,9 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
             type Watches = [::mirui::core::model::ModelWatch; #watch_count];
 
             fn handle(
-                cell: ::mirui::__macro_support::__Weak<::mirui::core::model::ModelCell<Self>>,
+                access: ::mirui::__macro_support::__Weak<dyn ::mirui::core::model::ModelAccess<Self>>,
             ) -> Self::Handle {
-                #handle { cell }
+                #handle { access }
             }
 
             fn snapshot(&self) -> Self::Snapshot {
@@ -511,8 +511,8 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
         impl #impl_generics ::mirui::core::model::ModelHandle for #handle #type_generics #model_where {
             type Data = #name #type_generics;
 
-            fn cell(&self) -> &::mirui::__macro_support::__Weak<::mirui::core::model::ModelCell<Self::Data>> {
-                &self.cell
+            fn access(&self) -> &::mirui::__macro_support::__Weak<dyn ::mirui::core::model::ModelAccess<Self::Data>> {
+                &self.access
             }
         }
 

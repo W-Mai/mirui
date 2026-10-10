@@ -385,7 +385,7 @@ fn ended_model_capture_returns_an_owner_error_without_allocating_or_running_body
         let (model, retained) = {
             let mut app = crate::app::App::headless(32, 32);
             let model = app.add_model(Counter { value: 1 });
-            let retained = retain_cell.then(|| model.cell().upgrade().unwrap());
+            let retained = retain_cell.then(|| model.access().upgrade().unwrap());
             (model, retained)
         };
         let mut world = World::new();

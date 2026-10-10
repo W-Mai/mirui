@@ -117,7 +117,7 @@ pub trait Model: ModelMethods + Sized + 'static {
     type Watches: AsRef<[ModelWatch]>;
 
     #[doc(hidden)]
-    fn handle(cell: Weak<ModelCell<Self>>) -> Self::Handle;
+    fn handle(access: Weak<dyn ModelAccess<Self>>) -> Self::Handle;
 
     #[doc(hidden)]
     fn snapshot(&self) -> Self::Snapshot;
@@ -333,21 +333,17 @@ impl<T: 'static> SharedValue for crate::core::reactive::Computed<T> {
     }
 }
 
-/// Storage owned by a model's registration entity.
+/// Observation and effect state belonging to one registered model identity.
 #[doc(hidden)]
-pub struct ModelCell<M: Model> {
-    owner: WorldId,
-    active: Cell<bool>,
-    value: RefCell<M>,
+pub struct ModelMetadata<M: Model> {
     sources: M::Sources,
     derived_sources: M::DerivedSources,
     watches: M::Watches,
     routes: M::Routes,
-    poisoned: Cell<bool>,
 }
 
-impl<M: Model> ModelCell<M> {
-    pub(crate) fn new(owner: WorldId, value: M) -> Self {
+impl<M: Model> ModelMetadata<M> {
+    fn new(owner: WorldId) -> Self {
         let sources = M::sources();
         let derived_sources = M::derived_sources();
         let watches = M::watches();
@@ -358,19 +354,58 @@ impl<M: Model> ModelCell<M> {
             watch.register_owner(owner);
         }
         Self {
-            owner,
-            active: Cell::new(true),
-            value: RefCell::new(value),
             sources,
             derived_sources,
             watches,
             routes: M::routes(),
-            poisoned: Cell::new(false),
         }
     }
 
-    pub(crate) fn owner(&self) -> WorldId {
-        self.owner
+    fn invalidate_computeds(&self) {
+        for source in self
+            .sources
+            .as_ref()
+            .iter()
+            .chain(self.derived_sources.as_ref())
+        {
+            source.invalidate_computeds();
+        }
+        for watch in self.watches.as_ref() {
+            watch.invalidate_computeds();
+        }
+    }
+}
+
+/// Borrowed access to a registered model's data and identity.
+/// Each callback runs synchronously once while its references remain borrowed.
+#[doc(hidden)]
+pub trait ModelAccess<M: Model> {
+    fn binding_owner(&self) -> BindingOwner;
+
+    fn read(&self, read: &mut dyn FnMut(&M, &ModelMetadata<M>));
+
+    fn update(&self, update: &mut dyn FnMut(&mut M) -> Option<M::Change>);
+
+    fn metadata(&self, read: &mut dyn FnMut(&ModelMetadata<M>));
+}
+
+struct ModelCell<M: Model> {
+    owner: WorldId,
+    active: Cell<bool>,
+    value: RefCell<M>,
+    metadata: ModelMetadata<M>,
+    poisoned: Cell<bool>,
+}
+
+impl<M: Model> ModelCell<M> {
+    fn new(owner: WorldId, value: M) -> Self {
+        Self {
+            owner,
+            active: Cell::new(true),
+            value: RefCell::new(value),
+            metadata: ModelMetadata::new(owner),
+            poisoned: Cell::new(false),
+        }
     }
 
     fn assert_active(&self) {
@@ -385,18 +420,7 @@ pub(crate) struct RegisteredModel<M: Model> {
 impl<M: Model> Drop for RegisteredModel<M> {
     fn drop(&mut self) {
         self.cell.active.set(false);
-        for source in self
-            .cell
-            .sources
-            .as_ref()
-            .iter()
-            .chain(self.cell.derived_sources.as_ref())
-        {
-            source.invalidate_computeds();
-        }
-        for watch in self.cell.watches.as_ref() {
-            watch.invalidate_computeds();
-        }
+        self.cell.metadata.invalidate_computeds();
     }
 }
 
@@ -413,58 +437,80 @@ impl Drop for UpdateGuard<'_> {
     }
 }
 
-fn update_transaction<H, R>(
-    handle: &H,
-    update: impl FnOnce(&mut H::Data) -> R,
-    accepted_change: impl FnOnce(&R) -> Option<<H::Data as Model>::Change>,
-) -> R
-where
-    H: ModelHandle,
-{
-    assert!(
-        crate::core::reactive::model_writes_allowed(),
-        "model updates are not allowed in a read-only callback"
-    );
-    let cell = handle
-        .cell()
-        .upgrade()
-        .expect("model registration is no longer alive");
-    cell.assert_active();
-    if let Some(active) = crate::core::reactive::current_world_id() {
-        assert_eq!(active, cell.owner(), "model belongs to a different App");
+impl<M: Model> ModelAccess<M> for ModelCell<M> {
+    fn binding_owner(&self) -> BindingOwner {
+        if self.active.get() {
+            BindingOwner(OwnerState::Bound(self.owner))
+        } else {
+            BindingOwner(OwnerState::Invalid(ModelOwnerError::RegistrationEnded))
+        }
     }
-    assert!(
-        !cell.poisoned.get(),
-        "model was poisoned by a failed update"
-    );
-    let mut value = cell
-        .value
-        .try_borrow_mut()
-        .expect("model is already borrowed");
-    let mut guard = UpdateGuard {
-        poisoned: &cell.poisoned,
-        committed: false,
-    };
-    let before = value.snapshot();
-    let derived_before = value.derived_snapshot();
-    let result = update(&mut value);
-    let change = accepted_change(&result);
-    let events = value.take_events();
-    let Some(change) = change else {
-        drop(events);
+
+    fn read(&self, read: &mut dyn FnMut(&M, &ModelMetadata<M>)) {
+        self.assert_active();
+        if let Some(active) = crate::core::reactive::current_model_read_owner() {
+            assert_eq!(active, self.owner, "model belongs to a different App");
+        }
+        assert!(
+            !self.poisoned.get(),
+            "model was poisoned by a failed update"
+        );
+        let value = self
+            .value
+            .try_borrow()
+            .expect("model is already mutably borrowed");
+        read(&value, &self.metadata);
+    }
+
+    fn update(&self, update: &mut dyn FnMut(&mut M) -> Option<M::Change>) {
+        assert!(
+            crate::core::reactive::model_writes_allowed(),
+            "model updates are not allowed in a read-only callback"
+        );
+        self.assert_active();
+        if let Some(active) = crate::core::reactive::current_world_id() {
+            assert_eq!(active, self.owner, "model belongs to a different App");
+        }
+        assert!(
+            !self.poisoned.get(),
+            "model was poisoned by a failed update"
+        );
+        let mut value = self
+            .value
+            .try_borrow_mut()
+            .expect("model is already borrowed");
+        let mut guard = UpdateGuard {
+            poisoned: &self.poisoned,
+            committed: false,
+        };
+        let before = value.snapshot();
+        let derived_before = value.derived_snapshot();
+        let change = update(&mut value);
+        let events = value.take_events();
+        let Some(change) = change else {
+            drop(events);
+            drop(value);
+            guard.committed = true;
+            return;
+        };
+        let after = value.snapshot();
+        let derived_after = value.derived_snapshot();
         drop(value);
+        M::publish(&self.metadata.sources, before, after);
+        M::publish_derived(
+            &self.metadata.derived_sources,
+            derived_before,
+            derived_after,
+        );
+        M::publish_change(&self.metadata.watches, change);
         guard.committed = true;
-        return result;
-    };
-    let after = value.snapshot();
-    let derived_after = value.derived_snapshot();
-    drop(value);
-    H::Data::publish(&cell.sources, before, after);
-    H::Data::publish_derived(&cell.derived_sources, derived_before, derived_after);
-    H::Data::publish_change(&cell.watches, change);
-    guard.committed = true;
-    H::Data::deliver_events(&cell.routes, events);
-    result
+        M::deliver_events(&self.metadata.routes, events);
+    }
+
+    fn metadata(&self, read: &mut dyn FnMut(&ModelMetadata<M>)) {
+        self.assert_active();
+        read(&self.metadata);
+    }
 }
 
 /// A handle to one registered model instance.
@@ -472,7 +518,7 @@ pub trait ModelHandle: Clone {
     type Data: Model<Handle = Self>;
 
     #[doc(hidden)]
-    fn cell(&self) -> &Weak<ModelCell<Self::Data>>;
+    fn access(&self) -> &Weak<dyn ModelAccess<Self::Data>>;
 
     #[doc(hidden)]
     fn subscribe_observed(
@@ -523,56 +569,30 @@ pub trait ModelHandle: Clone {
 
     #[doc(hidden)]
     fn read<R>(&self, read: impl FnOnce(&Self::Data) -> R) -> R {
-        let cell = self
-            .cell()
-            .upgrade()
-            .expect("model registration is no longer alive");
-        cell.assert_active();
-        if let Some(active) = crate::core::reactive::current_model_read_owner() {
-            assert_eq!(active, cell.owner(), "model belongs to a different App");
-        }
-        assert!(
-            !cell.poisoned.get(),
-            "model was poisoned by a failed update"
-        );
-        let value = cell
-            .value
-            .try_borrow()
-            .expect("model is already mutably borrowed");
-        read(&value)
+        read_model(self, |value, _| read(value))
     }
 
     #[doc(hidden)]
     fn read_observed<R>(&self, index: usize, read: impl FnOnce(&Self::Data) -> R) -> R {
-        let cell = self
-            .cell()
-            .upgrade()
-            .expect("model registration is no longer alive");
-        self.read(|value| {
-            cell.sources.as_ref()[index].track();
+        read_model(self, |value, metadata| {
+            metadata.sources.as_ref()[index].track();
             read(value)
         })
     }
 
     #[doc(hidden)]
     fn read_derived<R>(&self, index: usize, read: impl FnOnce(&Self::Data) -> R) -> R {
-        let cell = self
-            .cell()
-            .upgrade()
-            .expect("model registration is no longer alive");
-        self.read(|value| {
-            cell.derived_sources.as_ref()[index].track();
+        read_model(self, |value, metadata| {
+            metadata.derived_sources.as_ref()[index].track();
             read(value)
         })
     }
 
     #[doc(hidden)]
     fn watch_revision(&self, index: usize) -> u64 {
-        let cell = self
-            .cell()
-            .upgrade()
-            .expect("model registration is no longer alive");
-        self.read(|_| cell.watches.as_ref()[index].revision())
+        read_model(self, |_, metadata| {
+            metadata.watches.as_ref()[index].revision()
+        })
     }
 
     #[doc(hidden)]
@@ -580,7 +600,7 @@ pub trait ModelHandle: Clone {
         &self,
         update: impl FnOnce(&mut Self::Data) -> <Self::Data as Model>::Change,
     ) -> <Self::Data as Model>::Change {
-        update_transaction(self, update, |change| Some(*change))
+        update_model(self, update, |change| Some(*change))
     }
 
     #[doc(hidden)]
@@ -588,8 +608,71 @@ pub trait ModelHandle: Clone {
         &self,
         update: impl FnOnce(&mut Self::Data) -> Result<<Self::Data as Model>::Change, E>,
     ) -> Result<<Self::Data as Model>::Change, E> {
-        update_transaction(self, update, |result| result.as_ref().ok().copied())
+        update_model(self, update, |result| result.as_ref().ok().copied())
     }
+}
+
+fn read_model<H: ModelHandle, R>(
+    handle: &H,
+    read: impl FnOnce(&H::Data, &ModelMetadata<H::Data>) -> R,
+) -> R {
+    let access = handle
+        .access()
+        .upgrade()
+        .expect("model registration is no longer alive");
+    let mut read = Some(read);
+    let mut result = None;
+    access.read(&mut |value, metadata| {
+        result = Some(read.take().expect("model access called more than once")(
+            value, metadata,
+        ));
+    });
+    result.expect("model access did not call its reader")
+}
+
+fn update_model<H: ModelHandle, R>(
+    handle: &H,
+    update: impl FnOnce(&mut H::Data) -> R,
+    accepted_change: impl FnOnce(&R) -> Option<<H::Data as Model>::Change>,
+) -> R {
+    let access = handle
+        .access()
+        .upgrade()
+        .expect("model registration is no longer alive");
+    let mut update = Some((update, accepted_change));
+    let mut result = None;
+    access.update(&mut |value| {
+        let (update, accepted_change) = update.take().expect("model access called more than once");
+        let updated = update(value);
+        let change = accepted_change(&updated);
+        result = Some(updated);
+        change
+    });
+    result.expect("model access did not call its updater")
+}
+
+fn read_metadata<H: ModelHandle, R>(
+    handle: &H,
+    owner: WorldId,
+    read: impl FnOnce(&ModelMetadata<H::Data>) -> R,
+) -> R {
+    let access = handle
+        .access()
+        .upgrade()
+        .expect("model registration is no longer alive");
+    let actual = match access.binding_owner().0 {
+        OwnerState::Bound(owner) => owner,
+        _ => panic!("model registration is no longer alive"),
+    };
+    assert_eq!(actual, owner, "model belongs to a different App");
+    let mut read = Some(read);
+    let mut result = None;
+    access.metadata(&mut |metadata| {
+        result = Some(read.take().expect("model access called more than once")(
+            metadata,
+        ));
+    });
+    result.expect("model access did not call its metadata reader")
 }
 
 /// Read a component field that may hold one registered model facade.
@@ -650,29 +733,23 @@ fn subscribe_view<H: ModelHandle>(
         world.is_alive(entity),
         "visual subscription entity is not alive"
     );
-    let cell = handle
-        .cell()
-        .upgrade()
-        .expect("model registration is no longer alive");
-    cell.assert_active();
-    assert_eq!(cell.owner(), world.id(), "model belongs to a different App");
-    let consumer = match kind {
+    let consumer = read_metadata(handle, world.id(), |metadata| match kind {
         SourceKind::Observed => subscribe_source(
-            &cell.sources.as_ref()[index],
+            &metadata.sources.as_ref()[index],
             world.id(),
             entity,
             invalidation,
         ),
         SourceKind::Derived => subscribe_source(
-            &cell.derived_sources.as_ref()[index],
+            &metadata.derived_sources.as_ref()[index],
             world.id(),
             entity,
             invalidation,
         ),
         SourceKind::Watch => {
-            cell.watches.as_ref()[index].subscribe_view(world.id(), entity, invalidation)
+            metadata.watches.as_ref()[index].subscribe_view(world.id(), entity, invalidation)
         }
-    };
+    });
     ModelSubscription {
         _consumer: Some(consumer),
     }
@@ -684,7 +761,8 @@ pub(crate) fn register<M: Model>(
 ) -> (RegisteredModel<M>, M::Handle) {
     let _owner = crate::core::reactive::OwnerGuard::enter(world);
     let cell = Rc::new(ModelCell::new(world.id(), value));
-    let handle = M::handle(Rc::downgrade(&cell));
+    let access: Rc<dyn ModelAccess<M>> = cell.clone();
+    let handle = M::handle(Rc::downgrade(&access));
     (RegisteredModel { cell }, handle)
 }
 
@@ -693,8 +771,11 @@ pub(crate) fn registered_owner<H: ModelHandle>(handle: &H) -> WorldId {
 }
 
 pub(crate) fn try_registered_owner<H: ModelHandle>(handle: &H) -> Option<WorldId> {
-    let cell = handle.cell().upgrade()?;
-    cell.active.get().then_some(cell.owner())
+    let access = handle.access().upgrade()?;
+    match access.binding_owner().0 {
+        OwnerState::Bound(owner) => Some(owner),
+        _ => None,
+    }
 }
 
 pub(crate) fn register_effect<H, E>(
@@ -706,19 +787,15 @@ where
     H: ModelHandle,
     H::Data: Produces<E>,
 {
-    let cell = handle
-        .cell()
-        .upgrade()
-        .expect("model registration is no longer alive");
-    cell.assert_active();
-    assert_eq!(cell.owner(), owner, "model belongs to a different App");
-    <H::Data as Produces<E>>::route(&cell.routes).register(handler)
+    read_metadata(handle, owner, |metadata| {
+        <H::Data as Produces<E>>::route(&metadata.routes).register(handler)
+    })
 }
 
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::{
-        BindingOwner, Model, ModelCell, ModelHandle, ModelInvalidation, ModelMethods,
+        BindingOwner, Model, ModelAccess, ModelHandle, ModelInvalidation, ModelMethods,
         ModelOwnerError, SharedValue,
     };
     use crate::core::reactive::{Computed, Effect, Signal, flush_signal_dirty, with_world_scope};
@@ -729,7 +806,7 @@ mod tests {
 
     struct Counter(u32);
 
-    struct CounterHandle(Weak<ModelCell<Counter>>);
+    struct CounterHandle(Weak<dyn ModelAccess<Counter>>);
 
     impl ModelMethods for Counter {
         type DerivedSnapshot = ();
@@ -770,8 +847,8 @@ mod tests {
         type Change = ();
         type Watches = [super::ModelWatch; 0];
 
-        fn handle(cell: Weak<ModelCell<Self>>) -> Self::Handle {
-            CounterHandle(cell)
+        fn handle(access: Weak<dyn ModelAccess<Self>>) -> Self::Handle {
+            CounterHandle(access)
         }
 
         fn snapshot(&self) -> Self::Snapshot {
@@ -798,7 +875,7 @@ mod tests {
     impl ModelHandle for CounterHandle {
         type Data = Counter;
 
-        fn cell(&self) -> &Weak<ModelCell<Counter>> {
+        fn access(&self) -> &Weak<dyn ModelAccess<Counter>> {
             &self.0
         }
     }
@@ -833,6 +910,43 @@ mod tests {
         assert_eq!(first.value(), 3);
         assert_eq!(first_copy.value(), 3);
         assert_eq!(second.value(), 9);
+    }
+
+    #[test]
+    fn access_callbacks_consume_stack_captures_once_without_allocating() {
+        struct Payload<'a>(&'a Cell<u32>);
+
+        impl Drop for Payload<'_> {
+            fn drop(&mut self) {
+                self.0.set(self.0.get() + 1);
+            }
+        }
+
+        let mut app = crate::app::App::headless(32, 32);
+        let model = app.add_model(Counter(2));
+        let reads = Cell::new(0);
+        let updates = Cell::new(0);
+        let read_payload = Payload(&reads);
+        let update_payload = Payload(&updates);
+        assert_eq!(
+            tracked_allocations(|| {
+                let returned = model.read(move |value| {
+                    assert_eq!(value.0, 2);
+                    read_payload
+                });
+                assert_eq!(reads.get(), 0);
+                drop(returned);
+                let result = model.try_update(move |value| {
+                    value.0 += 1;
+                    Err(update_payload)
+                });
+                assert_eq!(updates.get(), 0);
+                drop(result.unwrap_err());
+                assert_eq!(model.value(), 3);
+                assert_eq!((reads.get(), updates.get()), (1, 1));
+            }),
+            0
+        );
     }
 
     #[test]
@@ -946,7 +1060,7 @@ mod tests {
         let (handle, retained_cell, owner) = {
             let mut app = crate::app::App::headless(32, 32);
             let handle = app.add_model(Counter(4));
-            let retained_cell = handle.cell().upgrade().unwrap();
+            let retained_cell = handle.access().upgrade().unwrap();
             (handle, retained_cell, app.world.id())
         };
         assert_eq!(
@@ -962,7 +1076,7 @@ mod tests {
     fn despawning_registration_invalidates_retained_handles() {
         let mut app = crate::app::App::headless(32, 32);
         let handle = app.add_model(Counter(4));
-        let retained_cell = handle.cell().upgrade().unwrap();
+        let retained_cell = handle.access().upgrade().unwrap();
         let registration = app
             .world
             .query::<super::RegisteredModel<Counter>>()
@@ -983,7 +1097,7 @@ mod tests {
     fn despawned_model_invalidates_cached_computeds_without_rerunning_effects() {
         let mut app = crate::app::App::headless(32, 32);
         let handle = app.add_model(Counter(4));
-        let retained_cell = handle.cell().upgrade().unwrap();
+        let retained_cell = handle.access().upgrade().unwrap();
         let source = handle.clone();
         let computed = with_world_scope(&mut app.world, || Computed::new(move || source.value()));
         let upstream = computed.clone();

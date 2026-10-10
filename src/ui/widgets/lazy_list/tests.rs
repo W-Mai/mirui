@@ -237,7 +237,7 @@ fn removing_the_list_releases_cell_model_registrations() {
     let handle = app.world.get::<CellItem>(cell).unwrap().handle.clone();
     crate::ui::despawn_subtree(&mut app.world, list);
     assert!(!app.world.is_alive(cell));
-    assert!(handle.cell().upgrade().is_none());
+    assert!(handle.access().upgrade().is_none());
 }
 
 #[crate::event]
