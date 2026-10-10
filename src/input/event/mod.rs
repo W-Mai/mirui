@@ -171,6 +171,7 @@ pub(crate) fn retire_subtree_interaction(world: &mut World, root: Entity) {
     } else {
         None
     };
+    gesture::system::discard_pending_in_subtree(world, root);
     let mut index = 0;
     while let Some(target) = world
         .resource::<GestureSystem>()

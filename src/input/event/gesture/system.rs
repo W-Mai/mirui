@@ -38,6 +38,35 @@ pub(crate) enum GestureDrainError<E> {
     Dispatch(E),
 }
 
+struct PendingGestures {
+    buffer: Vec<GestureEvent>,
+    next: Option<usize>,
+}
+
+struct ActiveBatch<'a>(&'a RefCell<PendingGestures>);
+
+impl Drop for ActiveBatch<'_> {
+    fn drop(&mut self) {
+        let mut pending = self.0.borrow_mut();
+        pending.buffer.clear();
+        pending.next = None;
+    }
+}
+
+pub(crate) fn discard_pending_in_subtree(world: &World, root: crate::ecs::Entity) {
+    let Some(system) = world.resource::<GestureSystem>() else {
+        return;
+    };
+    let mut pending = system.pending.borrow_mut();
+    let next = pending.next.unwrap_or(0);
+    let mut index = 0;
+    pending.buffer.retain(|event| {
+        let keep = index < next || !crate::ui::branch::is_in_subtree(world, root, event.target());
+        index += 1;
+        keep
+    });
+}
+
 pub(crate) fn drain_gestures<E>(
     world: &mut World,
     mut dispatch: impl FnMut(&mut World, &GestureEvent) -> Result<(), E>,
@@ -48,16 +77,33 @@ pub(crate) fn drain_gestures<E>(
     else {
         return Ok(0);
     };
-    let mut pending = pending
-        .try_borrow_mut()
-        .map_err(|_| GestureDrainError::Busy)?;
-    let system = world
-        .resource_mut::<GestureSystem>()
-        .expect("gesture resource remains installed before dispatch");
-    core::mem::swap(&mut *pending, &mut system.events.buffer);
-    let count = pending.len();
-    for event in pending.drain(..) {
+    {
+        let mut batch = pending
+            .try_borrow_mut()
+            .map_err(|_| GestureDrainError::Busy)?;
+        if batch.next.is_some() {
+            return Err(GestureDrainError::Busy);
+        }
+        let system = world
+            .resource_mut::<GestureSystem>()
+            .expect("gesture resource remains installed before dispatch");
+        core::mem::swap(&mut batch.buffer, &mut system.events.buffer);
+        batch.next = Some(0);
+    }
+    let _active = ActiveBatch(&pending);
+    let mut count = 0;
+    loop {
+        let event = {
+            let mut batch = pending.borrow_mut();
+            let next = batch.next.expect("active gesture batch");
+            let Some(event) = batch.buffer.get(next).cloned() else {
+                break;
+            };
+            batch.next = Some(next + 1);
+            event
+        };
         dispatch(world, &event).map_err(GestureDrainError::Dispatch)?;
+        count += 1;
     }
     Ok(count)
 }
@@ -68,7 +114,7 @@ pub(crate) fn drain_gestures<E>(
 pub struct GestureSystem {
     pub recognizer: GestureRecognizer,
     pub events: GestureEvents,
-    pending: Rc<RefCell<Vec<GestureEvent>>>,
+    pending: Rc<RefCell<PendingGestures>>,
 }
 
 impl Default for GestureSystem {
@@ -76,7 +122,10 @@ impl Default for GestureSystem {
         Self {
             recognizer: GestureRecognizer::default(),
             events: GestureEvents::new(),
-            pending: Rc::new(RefCell::new(Vec::with_capacity(4))),
+            pending: Rc::new(RefCell::new(PendingGestures {
+                buffer: Vec::with_capacity(4),
+                next: None,
+            })),
         }
     }
 }
