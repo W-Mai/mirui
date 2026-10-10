@@ -6,7 +6,7 @@ use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
 use crate::ui::icons::ICON_CHECK;
 use crate::ui::widgets::{Icon, Text};
-use crate::ui::{Children, Hidden};
+use crate::ui::{Children, Hidden, Parent};
 
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
@@ -25,9 +25,17 @@ fn todo_app() -> (TestApp, Entity, [Entity; 3]) {
     let root = world.get::<Children>(parent).unwrap().0[0];
     let (summary, rows) = {
         let children = &world.get::<Children>(root).unwrap().0;
-        (children[0], [children[1], children[2], children[3]])
+        let rows = &world.get::<Children>(children[2]).unwrap().0;
+        (children[0], [rows[0], rows[1], rows[2]])
     };
     (app, summary, rows)
+}
+
+fn list_and_controls(world: &World, summary: Entity) -> (Entity, [Entity; 3]) {
+    let root = world.get::<Parent>(summary).unwrap().0;
+    let children = &world.get::<Children>(root).unwrap().0;
+    let controls = &world.get::<Children>(children[1]).unwrap().0;
+    (children[2], [controls[0], controls[1], controls[2]])
 }
 
 fn tap_row(world: &mut World, row: Entity) {
@@ -104,4 +112,106 @@ fn row_states_update_independently() {
     assert!(row_completed(world, rows[1]));
     assert!(row_completed(world, rows[2]));
     assert_eq!(label_text(world, summary), "1 REMAINING");
+}
+
+#[test]
+fn collection_controls_preserve_row_identity_and_remove_completed_members() {
+    let (mut app, summary, original) = todo_app();
+    let world = &mut app.world;
+    let (list, [add, rotate, clear]) = list_and_controls(world, summary);
+
+    tap_row(world, original[0]);
+    tap_row(world, rotate);
+    assert_eq!(
+        world.get::<Children>(list).unwrap().0,
+        [original[1], original[2], original[0]]
+    );
+    assert!(row_completed(world, original[0]));
+    assert_eq!(row_label(world, original[0]), "Buy milk");
+    assert_eq!(label_text(world, summary), "2 REMAINING");
+
+    tap_row(world, clear);
+    assert!(!world.is_alive(original[0]));
+    assert_eq!(
+        world.get::<Children>(list).unwrap().0,
+        [original[1], original[2]]
+    );
+    tap_row(world, add);
+    let added = world.get::<Children>(list).unwrap().0[2];
+    assert_ne!(added, original[0]);
+    assert_eq!(row_label(world, added), "Read a book");
+    assert!(!row_completed(world, added));
+    assert_eq!(label_text(world, summary), "3 REMAINING");
+    tap_row(world, added);
+    assert!(row_completed(world, added));
+    assert!(!row_completed(world, original[1]));
+    assert_eq!(label_text(world, summary), "2 REMAINING");
+}
+
+#[test]
+fn collection_controls_handle_capacity_emptying_and_refilling() {
+    let (mut app, summary, _) = todo_app();
+    let world = &mut app.world;
+    let (list, [add, rotate, clear]) = list_and_controls(world, summary);
+    for _ in 0..4 {
+        tap_row(world, add);
+    }
+    let full = world.get::<Children>(list).unwrap().0.clone();
+    assert_eq!(full.len(), 6);
+    assert_eq!(label_text(world, summary), "6 REMAINING");
+    for row in &full {
+        tap_row(world, *row);
+    }
+    assert_eq!(label_text(world, summary), "0 REMAINING");
+    tap_row(world, clear);
+    assert!(world.get::<Children>(list).unwrap().0.is_empty());
+    assert!(full.iter().all(|row| !world.is_alive(*row)));
+    tap_row(world, rotate);
+    tap_row(world, clear);
+    tap_row(world, add);
+    let rows = &world.get::<Children>(list).unwrap().0;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(row_label(world, rows[0]), "Buy milk");
+    assert!(!row_completed(world, rows[0]));
+    assert_eq!(label_text(world, summary), "1 REMAINING");
+}
+
+#[test]
+fn collection_changes_relayout_rows_and_keep_overflow_scrollable() {
+    use crate::input::event::scroll::scroll_bounds;
+    use crate::ui::ComputedRect;
+
+    let (mut app, summary, original) = todo_app();
+    app.with_default_widgets();
+    app.render_dirty().unwrap();
+    let (list, [add, rotate, _]) = list_and_controls(&app.world, summary);
+    let positions: [Rect; 3] =
+        core::array::from_fn(|index| app.world.get::<ComputedRect>(original[index]).unwrap().0);
+    assert!(positions.windows(2).all(|pair| pair[0].y < pair[1].y));
+    tap_row(&mut app.world, rotate);
+    app.render_dirty().unwrap();
+    for (index, position) in positions.iter().enumerate() {
+        assert_eq!(
+            app.world
+                .get::<ComputedRect>(original[(index + 1) % original.len()])
+                .unwrap()
+                .0,
+            *position
+        );
+    }
+    for _ in 0..3 {
+        tap_row(&mut app.world, add);
+    }
+    app.render_dirty().unwrap();
+    let list_rect = app.world.get::<ComputedRect>(list).unwrap().0;
+    let last = *app.world.get::<Children>(list).unwrap().0.last().unwrap();
+    let last_rect = app.world.get::<ComputedRect>(last).unwrap().0;
+    let bounds = scroll_bounds(&app.world, list).unwrap();
+    assert!(bounds.max_y > Fixed::ZERO);
+    assert_eq!(
+        bounds.content_height,
+        last_rect.y + last_rect.h - list_rect.y
+    );
+    assert!(app.world.get::<Style>(list).unwrap().clip_children);
+    assert!(list_rect.y + list_rect.h <= Fixed::from_int(280));
 }

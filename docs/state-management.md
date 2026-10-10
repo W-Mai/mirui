@@ -257,9 +257,9 @@ Effects are extracted in parent-first, declaration-order depth-first traversal a
 
 An outer `Err` keeps data changes but discards the whole tree's pending notifications and effects from that call. An inner child call has no separate transaction or rollback: if the parent handles its error and succeeds, final observed values and effects still present in the data are committed. The failed child return does not match that child's change masks; successful deeper calls retain their pending masks.
 
-Owned fields form a static, finite tree. Construction with `.into()` and warm reads, writes, resets, and swaps add no framework heap allocation. Registration allocates root storage, one projection per child, and observation storage; effect consumers retain their registration-time allocation. Each write snapshots the current tree, so stack and CPU costs scale with its observations and fixed-capacity effects. Business constructors and method bodies keep their own allocation costs.
+Declared owned fields form a finite tree; owned Model collections add dynamic members with explicit capacity preparation. Static-tree construction with `.into()` and warm reads, writes, resets, and swaps add no framework heap allocation. Registration prepares root storage, child projections, observations, and retained transaction snapshots; effect consumers retain their registration-time allocation. Each write compares the active tree, so transaction work scales with its observations and effects. Business constructors and method bodies keep their own allocation costs.
 
-The [State Todo model](../src/gallery/demos/state_todo/model.rs) owns three item models. Each row binds its item directly, and the parent derives the remaining count from the children's observed completion values.
+The [State Todo model](../src/gallery/demos/state_todo/model.rs) owns a `ModelList` of tasks. Keyed rows retain their item bindings during reordering, completed tasks can be removed, and the parent derives the remaining count from current members. See [Model collections](model-collections.md) for data sources, identity, and capacity rules.
 
 ### Model roles
 

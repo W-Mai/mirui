@@ -1,10 +1,11 @@
 use super::model::{TodoItemModel, TodoModel};
+use crate::input::event::scroll::{ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 use crate::ui::icons::ICON_CHECK;
 use crate::ui::widgets::{Button, Icon, ParagraphStyle, Text};
 
 #[compose]
-fn todo_row(label: &'static str, item: model!(TodoItemModel)) -> Entity {
+fn todo_row(item: model!(TodoItemModel)) -> Entity {
     ui! {
         Button (
             width: Dimension::percent(100),
@@ -16,7 +17,7 @@ fn todo_row(label: &'static str, item: model!(TodoItemModel)) -> Entity {
             text_color: ColorToken::OnSurface
         ) {
             Text (
-                label,
+                text: ${ item.title() },
                 grow: 1.0,
                 paragraph: ParagraphStyle::label()
             )
@@ -36,30 +37,69 @@ fn todo_row(label: &'static str, item: model!(TodoItemModel)) -> Entity {
 
 #[compose]
 pub fn build_widgets(todo: model!(TodoModel)) {
-    let rows = [
-        ("Buy milk", todo.milk()),
-        ("Write docs", todo.docs()),
-        ("Ship release", todo.release()),
-    ];
     ui! {
         Column (
             grow: 1.0,
             align: AlignItems::Center,
-            justify: JustifyContent::Center,
-            padding: Padding::all(20),
+            padding: Padding::all(16),
             row_gap: 8
         ) {
             Text (
                 text: ${ alloc::format!("{} REMAINING", todo.remaining()) },
                 width: Dimension::percent(100),
                 max_width: 280,
-                height: 38,
+                height: 30,
                 font_size: 18,
                 text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label()
             )
-            walk rows with row {
-                todo_row (row.0, row.1)
+            Row (
+                width: Dimension::percent(100),
+                max_width: 280,
+                height: 32,
+                column_gap: 6
+            ) {
+                Button (
+                    grow: 1.0,
+                    font_size: 12,
+                    border_radius: 8,
+                    text_color: ColorToken::OnPrimary,
+                    normal_color: ColorToken::Primary
+                ) [
+                    Text::label("+ ADD"),
+                ] on Tap {
+                    if let Err(error) = todo.add() {
+                        crate::warn!("cannot add task: {:?}", error);
+                    }
+                }
+                Button (
+                    grow: 1.0,
+                    font_size: 12,
+                    border_radius: 8
+                ) [
+                    Text::label("ROTATE"),
+                ] on Tap { todo.rotate(); }
+                Button (
+                    grow: 1.0,
+                    font_size: 12,
+                    border_radius: 8
+                ) [
+                    Text::label("CLEAR"),
+                ] on Tap { todo.clear_completed(); }
+            }
+            Column (
+                grow: 1.0,
+                width: Dimension::percent(100),
+                max_width: 280,
+                row_gap: 8,
+                clip_children: true
+            ) [
+                ScrollOffset::default(),
+                ScrollConfig::default(),
+            ] {
+                walk ${ todo.items().entries() } with row by row.0 {
+                    todo_row (row.1)
+                }
             }
         }
     };

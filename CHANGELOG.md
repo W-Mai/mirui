@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- State Todo uses a Model collection with task insertion, keyed reordering, completion icons, completed-task removal, and a derived remaining count.
 - Model sets load and reconcile owned values with duplicate-aware limits and recoverable input. Reconciliation retains equal stored values and publishes only membership changes.
 - Model lists and maps reconcile input by business key while preserving matching identities, subscriptions, and effect routes. Duplicate keys are rejected before merging and missing members are retired. Lists adopt input order; maps retain sorted key order and use their existing keys without a separate extractor.
 - Model lists and maps load owned iterators with recoverable batch errors, retained collection limits, and explicit nested capacity preparation. Loading retires old member identities; rejected preflight preserves the previous dataset and returns consumed and remaining input without cloning. Map loads reject duplicate keys before installation.
