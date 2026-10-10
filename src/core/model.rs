@@ -6,19 +6,25 @@ use core::cell::{Cell, RefCell};
 
 use crate::ecs::world::WorldId;
 
+mod collection;
 mod identity;
 mod list;
 mod map;
 mod owned;
 mod projection;
+mod set;
 mod tree;
 
-pub use list::{CollectionError, ModelItemId, ModelList};
+pub use collection::{CollectionError, ModelItemId};
+pub use list::ModelList;
 #[doc(hidden)]
 pub use list::{ModelListEntries, ModelListHandle, ModelListOwned};
 pub use map::ModelMap;
 #[doc(hidden)]
 pub use map::{ModelMapHandle, ModelMapOwned};
+pub use set::ModelSet;
+#[doc(hidden)]
+pub use set::{ModelSetHandle, ModelSetOwned};
 
 #[doc(hidden)]
 pub use identity::ModelRef;

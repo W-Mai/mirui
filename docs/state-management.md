@@ -206,7 +206,7 @@ cannot start another model write transaction during delivery.
 
 Declare `child: model!(owned Child)` inside a `#[model]` struct to store child data in its parent. Construct the field from raw data with `.into()` and register only the parent. The field getter returns the child's registered instance for existing Component, Compose, System, Event, and View roles.
 
-Use `model!(owned ModelList<Item>)` for ordered child models or `model!(owned ModelMap<Key, Item>)` for keyed child models. See [Model collections](model-collections.md) for initialization, identity, capacity, and iteration rules.
+Use `model!(owned ModelList<Item>)` for ordered child models, `model!(owned ModelMap<Key, Item>)` for keyed child models, or `model!(owned ModelSet<Key>)` for observable membership. See [Model collections](model-collections.md) for initialization, identity, capacity, and iteration rules.
 
 ```rust
 #[model]

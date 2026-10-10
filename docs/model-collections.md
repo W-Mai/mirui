@@ -1,6 +1,6 @@
 # Model collections
 
-`ModelList<T>` stores an ordered sequence of Models. `ModelMap<K, T>` associates sorted business keys with Models. Both live in `mirui::core::model` and can be declared as owned Model fields. Register the parent once; its collection members share the same transaction, observations, and effect delivery.
+`ModelList<T>` stores an ordered sequence of Models. `ModelMap<K, T>` associates sorted business keys with Models. `ModelSet<K>` tracks membership of immutable values. All live in `mirui::core::model` and can be declared as owned Model fields. Register the parent once; collection changes share the same transaction and observation lifecycle.
 
 ## Keyed data
 
@@ -73,3 +73,11 @@ Positions and business keys are not item identities. Removing an item invalidate
 Nested collection shapes are prepared from the installed data. Free outer capacity alone does not cover a larger nested collection shape: ordinary insertion or replacement returns `CollectionError::UnpreparedShape` when the prepared slot is insufficient. Business allocations, such as constructing a new `String`, are separate from collection storage.
 
 Map lookup uses binary search. Insertion and removal can move ordered entries; stable retention is linear. The key index and member storage are retained, and capacity-bounded edits and registered item updates reuse their framework storage.
+
+## Membership sets
+
+Declare `selected: model!(owned ModelSet<UserId>)` for selected IDs, enabled options, or tags. `ModelSet::from_iter(values)` moves and deduplicates input into sorted order; `bounded(n)` prepares an empty set with a hard limit. Members are not Models and do not have individual handles. Use a Map when the stored objects need mutable fields or methods.
+
+`contains(&key)`, `len()`, and `is_empty()` observe membership. `try_insert(value)` returns `Ok(true)` for a new value, `Ok(false)` for a duplicate, or `Err((error, value))` when capacity is insufficient. `remove(&key)` returns whether a value was removed; removing an absent value and inserting a duplicate do not publish changes. `clear` and `retain` preserve prepared capacity.
+
+`for_each` borrows each value in sorted order. Its callback cannot mutate the same Model root while values are borrowed. `to_vec()` requires `K: Clone` and creates an explicit owned snapshot; it is not a zero-allocation iteration API. Borrowed lookup supports `String` keys queried with `&str`.

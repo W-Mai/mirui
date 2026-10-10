@@ -1,3 +1,4 @@
+use mirui::core::model::ModelSet;
 use mirui::input::event::contract::Event;
 use mirui::input::event::lifecycle::Started;
 use mirui::{app::App, core::model::ModelMap, event, model};
@@ -79,4 +80,43 @@ fn removed_map_member_is_not_invoked_after_reinsertion_of_the_same_key() {
     app.tick();
     assert!(!tasks.items().get(&7).unwrap().done());
     assert_eq!(tasks.remaining(), 1);
+}
+
+#[model]
+struct Selection {
+    keys: model!(owned ModelSet<u64>),
+}
+
+#[model]
+impl Selection {
+    #[observe]
+    fn selected(&self) -> usize {
+        self.keys.len()
+    }
+}
+
+#[event]
+fn select_key(selected: model!(ModelSet<u64>)) {
+    assert_eq!(selected.try_insert(7), Ok(true));
+}
+
+#[test]
+fn set_fields_and_direct_event_roles_publish_parent_derived_values() {
+    let mut app = App::headless(32, 32);
+    let selection = app.add_model(Selection {
+        keys: ModelSet::bounded(4).into(),
+    });
+    app.on_event(Started::EVENT, select_key::callback(selection.keys()));
+    assert_eq!(selection.selected(), 0);
+    app.tick();
+    assert!(selection.keys().contains(&7));
+    assert_eq!(selection.selected(), 1);
+    assert_eq!(
+        tracked_allocations(|| {
+            assert_eq!(selection.keys().try_insert(7), Ok(false));
+            assert!(selection.keys().remove(&7));
+            assert_eq!(selection.selected(), 0);
+        }),
+        0
+    );
 }

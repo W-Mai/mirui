@@ -1,46 +1,10 @@
-use super::{Model, OwnedModel};
+use super::{CollectionError, Model, ModelItemId, OwnedModel, collection::next_collection_id};
 use alloc::rc::Rc;
 use alloc::vec::Vec;
-use core::cell::Cell;
 
 mod registered;
 mod state;
 pub use registered::{ModelListEntries, ModelListHandle, ModelListOwned};
-
-/// Stable identity of a member, independent of its list position.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ModelItemId {
-    collection: u64,
-    pub(super) slot: usize,
-    generation: u64,
-}
-
-/// A collection operation that could not be completed.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CollectionError {
-    Capacity,
-    Limit,
-    Allocation,
-    Index,
-    Missing,
-    IdentityExhausted,
-    UnpreparedShape,
-    Iterating,
-    DuplicateKey,
-}
-
-fn next_collection_id() -> u64 {
-    static NEXT: critical_section::Mutex<Cell<u64>> = critical_section::Mutex::new(Cell::new(1));
-    critical_section::with(|section| {
-        let counter = NEXT.borrow(section);
-        let id = counter.get();
-        counter.set(
-            id.checked_add(1)
-                .expect("model collection identity exhausted"),
-        );
-        id
-    })
-}
 
 struct Slot {
     generation: u64,
