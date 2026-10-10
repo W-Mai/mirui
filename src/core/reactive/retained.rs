@@ -83,6 +83,18 @@ pub(crate) fn enabled(world: &World, entity: Entity) -> bool {
     enabled_at(world, entity, u64::MAX)
 }
 
+pub(crate) fn invalid_root(world: &World, mut entity: Entity) -> Option<Entity> {
+    for _ in 0..=world.live_entity_count() {
+        if let Some(gate) = world.get::<RetainedEffects>(entity)
+            && (!gate.active || gate.incarnation == u64::MAX || !(gate.valid)(world, entity))
+        {
+            return Some(entity);
+        }
+        entity = world.get::<crate::ui::Parent>(entity)?.0;
+    }
+    None
+}
+
 fn enabled_at(world: &World, mut entity: Entity, issued: u64) -> bool {
     for _ in 0..=world.live_entity_count() {
         if let Some(gate) = world.get::<RetainedEffects>(entity)

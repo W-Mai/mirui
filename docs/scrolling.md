@@ -12,7 +12,7 @@ For SDL runtime requirements and macOS trackpad setup, see the [desktop setup](q
 
 ## Virtualized cells
 
-`LazyList` creates cells after its first nonempty layout and retains them across scrolling. Declare the data count, the cell extent, and one `on CreateCell` callback returning a new cell root. The list owns pool sizing, positions, and recycling; authors do not prebuild slots or maintain a pool.
+`LazyList` creates cells after its first nonempty layout and retains them across scrolling. Supply `items`, the cell extent, and one `on CreateCell` callback returning a new cell root. `items` accepts a row count (`u32`) or a registered ModelList/ModelMap instance through automatic `Into` conversion. A count generates indexed rows without creating Models. The list owns pool sizing, positions, and recycling; authors do not prebuild slots or maintain a pool.
 
 Visible rows intersect the viewport with positive area, including partial rows at either edge. `visible_start` is the first intersecting data index, not the start of the retained buffer. Spare slots hold up to two extra rows on either side without displacing visible rows or filling past the data range. Elastic offsets remain unchanged; empty viewports and offsets entirely outside the data hide retained rows. The total content extent must fit layout coordinates.
 
@@ -35,16 +35,20 @@ fn create_row(event: event!(CreateCell)) -> Entity {
 #[compose]
 fn rows_panel() {
     ui! {
-        LazyList (height: 240, item_count: 100_u32, item_extent: Fixed::from_int(24))
+        LazyList (height: 240, items: 100_u32, item_extent: Fixed::from_int(24))
         on CreateCell(create_row::callback())
     };
 }
 ```
 
-Blocks, typed inline callbacks, named callback factories, and `tree.on_event` use the same construction route. `entity!()` identifies the list. Cell attachment sees the list as its parent. The callback returns exactly one new root; duplicate providers, existing roots, and construction of multiple roots are rejected. Invalid construction, unwinding, and failed deferred command submission dispose the newly created subtree. The request does not bubble, add input feedback, or consume business notification records; App listeners and `commands.emit` cannot produce it.
+Blocks, typed inline callbacks, named callback factories, and `tree.on_event` use the same construction route. `entity!()` identifies the list. Cell attachment sees the list as its parent. The callback returns exactly one new root; existing roots and construction of multiple roots are rejected. Invalid construction, unwinding, and failed deferred command submission dispose the newly created subtree. Replacing the callback retires the old pool and constructs cells with the new callback. The request does not bubble, add input feedback, or consume business notification records; App listeners and `commands.emit` cannot produce it.
 
 Construction callbacks use Model and value captures, event/entity roles, and deferred commands. They cannot retain `query!` or parameter `res!` borrows while creating nodes. Short resource operations use the same `res!(T).with(...)` expressions as composition, so the borrow ends before construction continues. Ordinary input and notification callbacks retain their typed query/resource capabilities.
 
-Complex cells can call a `#[compose]` function with `item: model!(ListItem)` and a separate business Model. Bind `item_count` to the business data count. Ancestor property updates precede retained-cell effects, and cells with invalid or inactive indices stop evaluating their properties. Restoring data wakes those bindings without rebuilding cells. Rebinding cancels the cell's old pointer capture and focus, without cancelling an ancestor list's scroll drag. Persistent selection or editing state belongs in the business Model, keyed by data identity rather than the recycled Entity.
+Complex cells can call a `#[compose]` function with `item: model!(ListItem)` and a separate business Model. Pass the collection directly: `LazyList(items: todo.items(), item_extent: 40)`. The list subscribes to membership changes; `item.id()` supplies the current stable member identity, and `collection.get_by_id(id)` reads that member. Maps follow key order. Read the current ID inside properties and callbacks instead of capturing a member once during cell creation. Generated lists can bind a changing count with `items: ${data.count()}`.
+
+Ancestor property updates precede retained-cell effects. Inactive or mismatched cells stop evaluating properties and accepting input until rebound. Index and ID update together. Rebinding cancels old pointer capture, focus, and pending input without cancelling an ancestor list's scroll drag. Appending unrelated members and editing member fields preserve a cell's current press. Persistent selection and editing state belong in the business Model, keyed by data identity rather than the recycled Entity.
+
+Changing the source instance or switching between generated and collection-backed rows retires the old pool. Replace any creation callback that captured the old source as well; ordinary Rust captures are not rewritten. Collection sources must belong to the same App. A retired source cannot supply rows. Source conversion, subscription, callback replacement, and pool construction are cold operations; repeated cell rebinding reuses prepared storage.
 
 First layout and resize settle cell creation, positions, and reactive properties before drawing and hit testing. List and cell snapshots retain their capacity; warmed scrolling, including hiding and restoring cells, adds no framework heap allocations. Callback installation, Model registration, and pool growth allocate during construction. User-owned formatted strings have separate allocation costs. Removing a list releases its cells, Model registrations, and owned effects.

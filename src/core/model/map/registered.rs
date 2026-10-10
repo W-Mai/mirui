@@ -16,6 +16,10 @@ impl<K: Ord + 'static, M: Model + ItemEffectSource<E>, E> Produces<ModelItemEffe
 }
 
 impl<K: Ord + 'static, M: Model> ModelMapHandle<K, M> {
+    pub(crate) fn members_handle(&self) -> crate::core::model::ModelListHandle<M> {
+        self.members()
+    }
+
     pub fn len(&self) -> usize {
         self.members().len()
     }

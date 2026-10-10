@@ -83,7 +83,7 @@ impl<M: Model> ModelRef<M> {
         ready
     }
 
-    pub(super) fn same_identity(&self, other: &Self) -> bool {
+    pub(crate) fn same_identity(&self, other: &Self) -> bool {
         self.generation == other.generation && Weak::ptr_eq(&self.access, &other.access)
     }
 

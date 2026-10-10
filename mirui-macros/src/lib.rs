@@ -279,7 +279,7 @@ fn reactive_property(widget: &str, attr: &str) -> Option<&'static str> {
         "path" if widget == "Text" => Some("TextPath"),
         "value" if widget == "ProgressBar" => Some("ProgressValue"),
         "value" if widget == "Slider" => Some("SliderValue"),
-        "item_count" if widget == "LazyList" => Some("LazyListCount"),
+        "items" if widget == "LazyList" => Some("LazyListItems"),
         "item_extent" if widget == "LazyList" => Some("LazyListExtent"),
         "on" if widget == "Switch" => Some("SwitchOn"),
         "checked" if widget == "Checkbox" => Some("CheckboxChecked"),

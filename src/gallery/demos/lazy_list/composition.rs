@@ -13,7 +13,7 @@ fn compose_list() -> Entity {
             width: Dimension::percent(100),
             max_width: 420,
             grow: 1.0,
-            item_count: ITEM_COUNT,
+            items: ITEM_COUNT,
             item_extent: Fixed::from_int(ROW_H)
         ) [
             ScrollOffset {

@@ -62,7 +62,7 @@ fn create(data: model!(Catalog), event: event!(CreateCell)) -> Entity {
 #[compose]
 fn list(data: model!(Catalog)) -> Entity {
     ui! {
-        LazyList (item_count: ${ data.count() }, item_extent: Fixed::from_int(40)) on CreateCell(create::callback(data.clone()))
+        LazyList (items: ${ data.count() }, item_extent: Fixed::from_int(40)) on CreateCell(create::callback(data.clone()))
     }
 }
 
@@ -96,7 +96,7 @@ fn data_shrink_suspends_expired_cells_before_property_evaluation_and_reuses_them
     data.resize(0);
     flush_signal_dirty(&mut app.world);
     scheduler.run_all(&mut app.world).unwrap();
-    assert_eq!(app.world.get::<LazyList>(list).unwrap().item_count, 0);
+    assert_eq!(app.world.get::<LazyList>(list).unwrap().items.len(), 0);
     assert!(
         cells
             .iter()
@@ -125,7 +125,7 @@ fn data_shrink_suspends_expired_cells_before_property_evaluation_and_reuses_them
 }
 
 #[test]
-fn creation_is_unique_and_rejects_an_existing_root() {
+fn replacing_a_creation_callback_rebuilds_cells_and_rejects_an_existing_root() {
     let mut app = App::headless(200, 200);
     app.with_default_widgets();
     let mut scheduler = SystemScheduler::new();
@@ -137,11 +137,16 @@ fn creation_is_unique_and_rejects_an_existing_root() {
     });
     let root = app.spawn_root().id();
     let good = app.compose(root, list(data.clone()));
+    geometry(&mut app.world, &mut scheduler, good, 0);
+    assert_eq!(data.creations(), 4);
+    let previous = app.world.get::<Children>(good).unwrap().0.clone();
     app.compose(root, |tree| {
         tree.on_event(good, LazyList::CreateCell, existing::callback(root))
     });
     geometry(&mut app.world, &mut scheduler, good, 0);
     assert_eq!(data.creations(), 4);
+    assert!(app.world.get::<Children>(good).unwrap().0.is_empty());
+    assert!(previous.iter().all(|&entity| !app.world.is_alive(entity)));
     let invalid = app.compose(root, |tree| {
         let list = tree.spawn(LazyList::new(100, 40));
         tree.on_event(list, LazyList::CreateCell, existing::callback(root));

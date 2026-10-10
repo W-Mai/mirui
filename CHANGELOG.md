@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `LazyList.items` accepts a row count or a registered ModelList/ModelMap. Collection-backed cells observe membership and expose stable member IDs through `ListItem.id()`.
 - Model lists and maps aggregate direct member effects through `on_effect`, carrying stable item IDs and borrowing the same payload after individual delivery. Collection consumers persist across member removal, loading, reconciliation, and owned-field replacement.
 - Model effect extractors accept `Option<E>` for a single optional event as well as fixed-capacity arrays.
 - State Todo uses a Model collection with task insertion, keyed reordering, completion icons, completed-task removal, and a derived remaining count.
@@ -21,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `LazyList` uses `items` instead of `item_count`. Replacing its data source or creation callback retires the old cell pool; membership changes reuse cells and cancel input only when their bindings change.
 - Effect consumers register on Model instances with `model.on_effect(handler)` and borrow each event. The App registration entry point has been removed.
 
 ### Fixed

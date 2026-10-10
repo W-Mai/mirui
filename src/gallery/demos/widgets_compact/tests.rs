@@ -189,7 +189,7 @@ fn compact_tabs_keep_distinct_pages_and_a_bounded_virtual_pool() {
         .resolve(ColorToken::Surface);
 
     assert_eq!(pages, [0, 1, 2]);
-    assert_eq!(list_state.item_count, VIRTUAL_ITEM_COUNT);
+    assert_eq!(list_state.items.len(), VIRTUAL_ITEM_COUNT as usize);
     assert!(cells.len() < 32);
     assert_ne!(light_surface, dark_surface);
     assert_eq!(timeline.total_ms, 9_000);

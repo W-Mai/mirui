@@ -187,6 +187,12 @@ impl<M: Model> ModelListHandle<M> {
         })
     }
 
+    pub(crate) fn item_id(&self, index: usize) -> Option<ModelItemId> {
+        self.read_observed(0, |list| {
+            list.entries.get(index).map(|entry| list.id(entry.slot))
+        })
+    }
+
     pub fn get_by_id(&self, id: ModelItemId) -> Option<M::Handle> {
         read_model(self, |value, metadata| {
             metadata.sources[0].track();

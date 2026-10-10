@@ -12,9 +12,11 @@ use crate::ui::{ComputedRect, Hidden, Style};
 
 mod geometry;
 mod item;
+mod items;
 use geometry::ItemGeometry;
 pub use item::ListItem;
 use item::{CellItem, ItemHandle};
+pub use items::ListItems;
 
 /// A virtual list whose cells are created on demand and retained across scrolling.
 ///
@@ -22,7 +24,7 @@ use item::{CellItem, ItemHandle};
 #[crate::component]
 #[derive(Default)]
 pub struct LazyList {
-    pub item_count: u32,
+    pub items: ListItems,
     pub item_extent: Fixed,
     /// First data index in the visible interval.
     pub visible_start: u32,
@@ -32,9 +34,9 @@ impl LazyList {
     #[allow(non_upper_case_globals)]
     pub const CreateCell: EventKey<CreateCell> = CreateCell::EVENT;
 
-    pub fn new(item_count: u32, item_extent: impl Into<Fixed>) -> Self {
+    pub fn new(items: impl Into<ListItems>, item_extent: impl Into<Fixed>) -> Self {
         Self {
-            item_count,
+            items: items.into(),
             item_extent: item_extent.into(),
             visible_start: 0,
         }
@@ -59,8 +61,16 @@ struct Slot {
     entity: Entity,
     index: Option<u32>,
 }
+struct ListBinding {
+    items: ListItems,
+    provider: Option<ConstructionProvider<CreateCell>>,
+    _subscription: Option<crate::core::model::ModelSubscription>,
+}
 #[derive(Default)]
-struct CellPool(Vec<Slot>);
+struct CellPool {
+    slots: Vec<Slot>,
+    binding: Option<ListBinding>,
+}
 impl crate::ecs::Component for CellPool {}
 #[derive(Clone, Copy)]
 struct PlannedSlot {
@@ -85,8 +95,9 @@ fn horizontal(world: &World, entity: Entity) -> bool {
 
 pub(crate) fn content_extent(world: &World, entity: Entity) -> Option<(bool, Fixed)> {
     let list = world.get::<LazyList>(entity)?;
-    let extent = ItemGeometry::new(list.item_count, list.item_extent)
-        .map_or(Fixed::ZERO, |geometry| geometry.position(list.item_count));
+    let count = list.items.count(world).unwrap_or(0);
+    let extent = ItemGeometry::new(count, list.item_extent)
+        .map_or(Fixed::ZERO, |geometry| geometry.position(count));
     Some((horizontal(world, entity), extent))
 }
 
@@ -100,28 +111,127 @@ fn attach_list(world: &mut World, entity: Entity) {
     if !world.has::<CellPool>(entity) {
         world.insert(entity, CellPool::default());
     }
+    if let Some(config) = ListConfig::read(world, entity) {
+        prepare_binding(world, entity, &config);
+    }
 }
 
 fn cell_is_valid(world: &World, cell: Entity) -> bool {
     world.get::<CellItem>(cell).is_some_and(|item| {
         world.get::<LazyList>(item.list).is_some_and(|list| {
-            item.handle.index() < list.item_count
-                && ItemGeometry::new(list.item_count, list.item_extent).is_some()
+            list.items.count(world).is_ok_and(|count| {
+                item.handle.index() < count
+                    && list.items.id(item.handle.index()) == item.handle.id()
+                    && ItemGeometry::new(count, list.item_extent).is_some()
+                    && world
+                        .get::<CellPool>(item.list)
+                        .and_then(|pool| pool.binding.as_ref())
+                        .is_some_and(|binding| binding.matches(world, item.list, &list.items))
+            })
         })
     })
 }
 
-fn configuration_matches(
-    world: &World,
-    entity: Entity,
+fn same_provider(
+    left: Option<&ConstructionProvider<CreateCell>>,
+    right: Option<&ConstructionProvider<CreateCell>>,
+) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => left.same_instance(right),
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+impl ListBinding {
+    fn matches(&self, world: &World, entity: Entity, items: &ListItems) -> bool {
+        self.items.same_source(items)
+            && same_provider(
+                self.provider.as_ref(),
+                world.get::<ConstructionProvider<CreateCell>>(entity),
+            )
+    }
+}
+
+struct ListConfig {
+    items: ListItems,
     count: u32,
     extent: Fixed,
-    is_horizontal: bool,
-) -> bool {
-    world
-        .get::<LazyList>(entity)
-        .is_some_and(|list| list.item_count == count && list.item_extent == extent)
-        && horizontal(world, entity) == is_horizontal
+    horizontal: bool,
+    provider: Option<ConstructionProvider<CreateCell>>,
+}
+
+impl ListConfig {
+    fn read(world: &World, entity: Entity) -> Option<Self> {
+        let list = world.get::<LazyList>(entity)?;
+        let count = match list.items.count(world) {
+            Ok(count) => count,
+            Err(error) => {
+                crate::warn!("list source rejected: {}", error);
+                return None;
+            }
+        };
+        Some(Self {
+            items: list.items.clone(),
+            count,
+            extent: list.item_extent,
+            horizontal: horizontal(world, entity),
+            provider: world
+                .get::<ConstructionProvider<CreateCell>>(entity)
+                .cloned(),
+        })
+    }
+
+    fn matches(&self, world: &World, entity: Entity) -> bool {
+        world.get::<LazyList>(entity).is_some_and(|list| {
+            list.items == self.items
+                && list.items.count(world).ok() == Some(self.count)
+                && list.item_extent == self.extent
+        }) && horizontal(world, entity) == self.horizontal
+            && same_provider(
+                self.provider.as_ref(),
+                world.get::<ConstructionProvider<CreateCell>>(entity),
+            )
+    }
+}
+
+fn dispose_cells(world: &mut World, entity: Entity) {
+    while let Some(slot) = world
+        .get_mut::<CellPool>(entity)
+        .and_then(|pool| pool.slots.pop())
+    {
+        crate::input::event::retire_subtree_interaction(world, slot.entity);
+        crate::ui::despawn_subtree(world, slot.entity);
+    }
+    if let Some(pool) = world.get_mut::<CellPool>(entity) {
+        pool.binding = None;
+    }
+}
+
+fn prepare_binding(world: &mut World, entity: Entity, config: &ListConfig) -> bool {
+    if world
+        .get::<CellPool>(entity)
+        .and_then(|pool| pool.binding.as_ref())
+        .is_some_and(|binding| binding.matches(world, entity, &config.items))
+    {
+        return false;
+    }
+    let changed = world
+        .get::<CellPool>(entity)
+        .is_some_and(|pool| !pool.slots.is_empty());
+    dispose_cells(world, entity);
+    if !config.matches(world, entity) {
+        return true;
+    }
+    let binding = ListBinding {
+        _subscription: config.items.subscribe(world, entity),
+        items: config.items.clone(),
+        provider: config.provider.clone(),
+    };
+    if let Some(pool) = world.get_mut::<CellPool>(entity) {
+        pool.binding = Some(binding);
+    }
+    changed
 }
 
 fn update_list(
@@ -130,13 +240,21 @@ fn update_list(
     slots: &mut Vec<PlannedSlot>,
     targets: &mut Vec<usize>,
 ) -> bool {
-    let Some(list) = world.get::<LazyList>(entity) else {
-        return false;
+    let Some(config) = ListConfig::read(world, entity) else {
+        let changed = world
+            .get::<CellPool>(entity)
+            .is_some_and(|pool| !pool.slots.is_empty());
+        dispose_cells(world, entity);
+        return changed;
     };
-    let (count, extent) = (list.item_count, list.item_extent);
+    let mut changed = prepare_binding(world, entity, &config);
+    if !config.matches(world, entity) {
+        return true;
+    }
+    let (count, extent) = (config.count, config.extent);
     let geometry = ItemGeometry::new(count, extent)
         .unwrap_or_else(|| ItemGeometry::new(0, Fixed::ONE).expect("empty geometry"));
-    let is_horizontal = horizontal(world, entity);
+    let is_horizontal = config.horizontal;
     let viewport = world
         .get::<ComputedRect>(entity)
         .map_or(Fixed::ZERO, |rect| {
@@ -162,7 +280,7 @@ fn update_list(
         return false;
     };
     slots.clear();
-    slots.extend(pool.0.iter().map(|&slot| PlannedSlot {
+    slots.extend(pool.slots.iter().map(|&slot| PlannedSlot {
         slot,
         next: None,
         alive: world.is_alive(slot.entity),
@@ -181,7 +299,6 @@ fn update_list(
         }
     }
     let mut free = 0;
-    let mut changed = false;
     for (offset, target) in targets.iter_mut().enumerate() {
         if *target != usize::MAX {
             continue;
@@ -196,26 +313,24 @@ fn update_list(
             free += 1;
             continue;
         }
-        let Some(provider) = world
-            .get::<ConstructionProvider<CreateCell>>(entity)
-            .cloned()
-        else {
+        let Some(provider) = &config.provider else {
             break;
         };
-        let item = CellItem::new(world, entity, index);
+        let id = config.items.id(index);
+        let item = CellItem::new(world, entity, index, id);
         let request = CreateCell {
             item: item.handle.clone(),
         };
-        let Some(cell) = provider.invoke(world, &request, entity) else {
-            break;
-        };
-        if !world.is_alive(entity) || !world.is_alive(cell) {
-            break;
-        }
-        if !configuration_matches(world, entity, count, extent, is_horizontal) {
-            crate::ui::despawn_subtree(world, cell);
+        let cell = provider.invoke(world, &request, entity);
+        if !config.matches(world, entity) || config.items.id(index) != id {
+            if let Some(cell) = cell {
+                crate::ui::despawn_subtree(world, cell);
+            }
             return true;
         }
+        let Some(cell) = cell else {
+            break;
+        };
         world.insert(cell, item);
         world.reserve_component_storage::<Hidden>(
             cell.id,
@@ -233,14 +348,17 @@ fn update_list(
             alive: true,
         };
         if let Some(dead) = slots.iter().position(|slot| !slot.alive) {
-            world.get_mut::<CellPool>(entity).expect("attached pool").0[dead] = slot;
+            world
+                .get_mut::<CellPool>(entity)
+                .expect("attached pool")
+                .slots[dead] = slot;
             slots[dead] = plan;
             *target = dead;
         } else {
             world
                 .get_mut::<CellPool>(entity)
                 .expect("attached pool")
-                .0
+                .slots
                 .push(slot);
             *target = slots.len();
             slots.push(plan);
@@ -253,15 +371,24 @@ fn update_list(
         if !planned.alive {
             continue;
         }
-        let rebound = planned.slot.index != planned.next;
+        let id = planned.next.and_then(|index| config.items.id(index));
+        let rebound = planned.slot.index != planned.next
+            || world
+                .get::<CellItem>(cell)
+                .is_some_and(|item| item.handle.id() != id);
         if rebound {
             crate::input::event::retire_subtree_interaction(world, cell);
             if !world.is_alive(cell)
-                || !configuration_matches(world, entity, count, extent, is_horizontal)
+                || !config.matches(world, entity)
+                || planned.next.and_then(|index| config.items.id(index)) != id
             {
                 return true;
             }
-            world.get_mut::<CellPool>(entity).expect("attached pool").0[i].index = planned.next;
+            world
+                .get_mut::<CellPool>(entity)
+                .expect("attached pool")
+                .slots[i]
+                .index = planned.next;
             changed = true;
         }
         let Some(index) = planned.next else {
@@ -289,7 +416,7 @@ fn update_list(
             }
         }
         if rebound && let Some(item) = world.get::<CellItem>(cell).map(|item| item.handle.clone()) {
-            item.set_index(index);
+            item.rebind(index, id);
         }
         let position = geometry.position(index);
         if let Some(style) = world.get_mut::<Style>(cell) {

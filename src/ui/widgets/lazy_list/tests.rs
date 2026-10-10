@@ -4,6 +4,8 @@ use crate::types::Rect;
 use crate::ui::widgets::Text;
 use crate::ui::{Children, Parent};
 
+mod collection;
+
 #[crate::event]
 fn row(event: event!(CreateCell)) -> Entity {
     let item = event.item.clone();
@@ -12,7 +14,7 @@ fn row(event: event!(CreateCell)) -> Entity {
 
 #[crate::compose]
 fn panel(count: u32) -> Entity {
-    ui! { LazyList(item_count: count, item_extent: Fixed::from_int(40)) on CreateCell(row::callback()) }
+    ui! { LazyList(items: count, item_extent: Fixed::from_int(40)) on CreateCell(row::callback()) }
 }
 
 type TestApp =
@@ -64,9 +66,9 @@ fn cells_wait_for_geometry_then_rebind_without_reconstruction() {
 fn resizing_keeps_intersecting_cell_identities() {
     let (mut app, list) = setup(100);
     viewport(&mut app.world, list, 200, 80, 820);
-    let before = app.world.get::<CellPool>(list).unwrap().0.clone();
+    let before = app.world.get::<CellPool>(list).unwrap().slots.clone();
     viewport(&mut app.world, list, 200, 160, 820);
-    let after = &app.world.get::<CellPool>(list).unwrap().0;
+    let after = &app.world.get::<CellPool>(list).unwrap().slots;
     for slot in before {
         assert!(
             after
@@ -80,11 +82,11 @@ fn resizing_keeps_intersecting_cell_identities() {
 fn three_creation_forms_and_typed_builder_share_the_same_lifecycle() {
     #[crate::compose]
     fn forms() -> (Entity, Entity) {
-        let block = ui! { LazyList(item_count: 10_u32, item_extent: Fixed::from_int(40)) on CreateCell {
+        let block = ui! { LazyList(items: 10_u32, item_extent: Fixed::from_int(40)) on CreateCell {
             let item = event.item.clone();
             ui! { Text(text: ${ if item.index() == 0 { "first" } else { "next" } }) }
         }};
-        let inline = ui! { LazyList(item_count: 10_u32, item_extent: Fixed::from_int(40)) on CreateCell(|event: event!(CreateCell)| {
+        let inline = ui! { LazyList(items: 10_u32, item_extent: Fixed::from_int(40)) on CreateCell(|event: event!(CreateCell)| {
             let item = event.item.clone();
             ui! { Text(text: ${ if item.index() == 0 { "first" } else { "next" } }) }
         }) };
@@ -141,7 +143,7 @@ fn horizontal_partial_cells_and_elastic_bounds_use_the_same_axis_contract() {
     app.world.get_mut::<ScrollConfig>(list).unwrap().direction = ScrollAxis::Horizontal;
     app.world.get_mut::<ScrollOffset>(list).unwrap().x = 20.into();
     viewport(&mut app.world, list, 80, 200, 0);
-    let pool = &app.world.get::<CellPool>(list).unwrap().0;
+    let pool = &app.world.get::<CellPool>(list).unwrap().slots;
     assert!(pool.iter().any(|slot| slot.index == Some(0)));
     assert!(pool.iter().any(|slot| slot.index == Some(2)));
     for slot in pool {
@@ -158,7 +160,7 @@ fn horizontal_partial_cells_and_elastic_bounds_use_the_same_axis_contract() {
         app.world
             .get::<CellPool>(list)
             .unwrap()
-            .0
+            .slots
             .iter()
             .all(|slot| slot.index.is_none())
     );
@@ -166,7 +168,7 @@ fn horizontal_partial_cells_and_elastic_bounds_use_the_same_axis_contract() {
         app.world.get::<ScrollOffset>(list).unwrap().x,
         Fixed::from_int(420)
     );
-    app.world.get_mut::<LazyList>(list).unwrap().item_count = 0;
+    app.world.get_mut::<LazyList>(list).unwrap().items = 0_u32.into();
     assert_eq!(
         crate::input::event::scroll::scroll_bounds(&app.world, list)
             .unwrap()
@@ -250,7 +252,7 @@ fn clipped_list() -> Entity {
     ui! {
         View(position: Position::Absolute, left: 30, top: 30, width: 80, height: 80, clip_children: true) {
             LazyList(position: Position::Absolute, left: -20, top: -20, width: 120, height: 120,
-                item_count: 100_u32, item_extent: Fixed::from_int(40)) on CreateCell(interactive_row::callback())
+                items: 100_u32, item_extent: Fixed::from_int(40)) on CreateCell(interactive_row::callback())
         }
     }
 }
@@ -290,7 +292,7 @@ fn first_layout_and_both_axes_share_clipping_with_pointer_hits() {
 
 #[crate::event]
 fn nested_row(_event: event!(CreateCell)) -> Entity {
-    ui! { LazyList(item_count: 3_u32, item_extent: Fixed::from_int(20)) on CreateCell(interactive_row::callback()) }
+    ui! { LazyList(items: 3_u32, item_extent: Fixed::from_int(20)) on CreateCell(interactive_row::callback()) }
 }
 
 #[test]

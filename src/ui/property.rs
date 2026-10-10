@@ -182,19 +182,19 @@ pub mod prop {
     pub struct Padding;
     pub struct ProgressValue;
     pub struct SliderValue;
-    pub struct LazyListCount;
+    pub struct LazyListItems;
     pub struct LazyListExtent;
 
-    impl Property for LazyListCount {
-        type Value = u32;
-        fn apply(world: &mut World, entity: Entity, value: u32) -> PropertyChange {
+    impl Property for LazyListItems {
+        type Value = crate::ui::widgets::ListItems;
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
             let Some(list) = world.get_mut::<crate::ui::widgets::LazyList>(entity) else {
                 return PropertyChange::Unchanged;
             };
-            if list.item_count == value {
+            if list.items == value {
                 return PropertyChange::Unchanged;
             }
-            list.item_count = value;
+            list.items = value;
             PropertyChange::Layout
         }
     }

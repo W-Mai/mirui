@@ -93,7 +93,7 @@ pub fn build_widgets() {
                     width: Dimension::percent(100),
                     height: Dimension::percent(100),
                     bg_color: ColorToken::SurfaceVariant,
-                    item_count: ITEM_COUNT,
+                    items: ITEM_COUNT,
                     item_extent: Fixed::from_int(ROW_HEIGHT)
                 ) [
                     TabContent {

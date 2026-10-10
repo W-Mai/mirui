@@ -157,9 +157,6 @@ pub enum RuntimeInstallError {
     Capacity(EventCapacityError),
     Listener(ListenerError),
     MissingCommandCapacity,
-    DuplicateProvider {
-        entity: Entity,
-    },
     NotificationPayload {
         event: &'static str,
         error: NotificationError,
@@ -224,6 +221,10 @@ impl<E: Event> Clone for ConstructionProvider<E> {
     }
 }
 impl<E: Event> ConstructionProvider<E> {
+    pub(crate) fn same_instance(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+
     pub(crate) fn invoke(&self, world: &mut World, event: &E, target: Entity) -> Option<Entity> {
         match (self.0)(world, event, target) {
             Ok(result) => result.flatten().filter(|&entity| {
@@ -257,9 +258,6 @@ where
 {
     if !world.is_alive(entity) || !E::Source::present(world, entity) {
         return Err(ListenerError::MissingSource { entity }.into());
-    }
-    if world.has::<ConstructionProvider<E>>(entity) {
-        return Err(RuntimeInstallError::DuplicateProvider { entity });
     }
     initialize(world);
     let runtime = runtime(world).expect("initialized event runtime");
@@ -533,7 +531,7 @@ pub fn dispatch_gesture(
         DragCancel, DragEnd, DragMove, DragStart, GesturePayload, LongPress, Pinch, Rotate, Tap,
     };
     let branch = InputBranch::scan(world, event.target())?;
-    if branch.is_hidden() {
+    if branch.is_hidden() || !crate::core::reactive::retained::enabled(world, event.target()) {
         return Ok(super::BubbleControl::Allow);
     }
     let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);

@@ -83,6 +83,13 @@ pub fn dispatch_input(
         return;
     }
     runtime::initialize(world);
+    if let Some(invalid) = world
+        .resource::<GestureSystem>()
+        .and_then(|system| system.recognizer.captured_target())
+        .and_then(|target| crate::core::reactive::retained::invalid_root(world, target))
+    {
+        retire_subtree_interaction(world, invalid);
+    }
     if let Err(error) = runtime::prepare(world) {
         crate::warn!("input route preparation failed: {:?}", error);
         return;
@@ -129,7 +136,10 @@ pub fn dispatch_input(
         InputEvent::PointerDown { x, y, .. } => hit_test(world, root, *x, *y, lw, lh),
         _ => None,
     };
-    if pointer_down_target.is_some_and(|target| entity_or_ancestor_disabled(world, target)) {
+    if pointer_down_target.is_some_and(|target| {
+        entity_or_ancestor_disabled(world, target)
+            || !crate::core::reactive::retained::enabled(world, target)
+    }) {
         return;
     }
 
