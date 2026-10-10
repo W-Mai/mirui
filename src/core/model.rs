@@ -330,6 +330,15 @@ impl ModelWatch {
         self.source.retire();
     }
 
+    fn can_reactivate(&self, owner: WorldId) -> bool {
+        self.source.can_reactivate(owner)
+    }
+
+    fn reactivate(&self, owner: WorldId) {
+        self.revision.set(0);
+        self.source.register_owner(owner);
+    }
+
     fn subscribe_view(
         &self,
         owner: WorldId,
@@ -366,6 +375,7 @@ impl<T: 'static> SharedValue for crate::core::reactive::Computed<T> {
 /// Observation and effect state belonging to one registered model identity.
 #[doc(hidden)]
 pub struct ModelMetadata<M: Model> {
+    owner: WorldId,
     lifetime: identity::ModelLifetime,
     sources: M::Sources,
     derived_sources: M::DerivedSources,
@@ -395,7 +405,6 @@ pub trait ModelAccess<M: Model> {
 /// The registered owner of one statically declared model tree.
 #[doc(hidden)]
 pub struct ModelRoot<M: Model> {
-    owner: WorldId,
     value: RefCell<M>,
     metadata: ModelMetadata<M>,
     poisoned: Cell<bool>,
@@ -412,7 +421,6 @@ impl<M: Model> ModelRoot<M> {
                 Some(&mut value),
             );
             Self {
-                owner,
                 value: RefCell::new(value),
                 metadata,
                 poisoned: Cell::new(false),
@@ -463,7 +471,7 @@ impl<M: Model> ModelAccess<M> for ModelRoot<M> {
 
     fn binding_owner(&self) -> BindingOwner {
         if self.generation().is_some() {
-            BindingOwner(OwnerState::Bound(self.owner))
+            BindingOwner(OwnerState::Bound(self.metadata.owner))
         } else {
             BindingOwner(OwnerState::Invalid(ModelOwnerError::RegistrationEnded))
         }
@@ -472,7 +480,10 @@ impl<M: Model> ModelAccess<M> for ModelRoot<M> {
     fn read(&self, read: &mut dyn FnMut(&M, &ModelMetadata<M>)) {
         self.assert_active();
         if let Some(active) = crate::core::reactive::current_model_read_owner() {
-            assert_eq!(active, self.owner, "model belongs to a different App");
+            assert_eq!(
+                active, self.metadata.owner,
+                "model belongs to a different App"
+            );
         }
         assert!(
             !self.poisoned.get(),
@@ -503,7 +514,10 @@ impl<M: Model> ModelRoot<M> {
         );
         self.assert_active();
         if let Some(active) = crate::core::reactive::current_world_id() {
-            assert_eq!(active, self.owner, "model belongs to a different App");
+            assert_eq!(
+                active, self.metadata.owner,
+                "model belongs to a different App"
+            );
         }
         assert!(
             !self.poisoned.get(),

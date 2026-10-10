@@ -155,6 +155,21 @@ pub(super) fn expand(
             #(#attrs)* self.#name.begin(::mirui::core::model::OwnedModel::storage(&__value.#name));
         }
     });
+    let activation_checks = fields.iter().map(|field| {
+        let name = &field.name;
+        let attrs = &field.cfg_attrs;
+        quote! {
+            #(#attrs)*
+            if !self.#name.can_activate(::mirui::core::model::OwnedModel::storage(&__value.#name), __owner) { return false; }
+        }
+    });
+    let activations = fields.iter().map(|field| {
+        let name = &field.name;
+        let attrs = &field.cfg_attrs;
+        quote! {
+            #(#attrs)* self.#name.activate_prepared(::mirui::core::model::OwnedModel::storage_mut(&mut __value.#name), __owner);
+        }
+    });
     let extracts = fields.iter().map(|field| {
         let name = &field.name;
         let attrs = &field.cfg_attrs;
@@ -226,6 +241,8 @@ pub(super) fn expand(
                 Self { #(#registrations)* __mirui_marker: ::core::marker::PhantomData }
             }
             fn begin(&self, __value: &#raw) { #(#begins)* }
+            fn can_activate(&self, __value: &#raw, __owner: ::mirui::core::model::BindingOwner) -> bool { #(#activation_checks)* true }
+            fn activate(&self, __value: &mut #raw, __owner: ::mirui::core::model::BindingOwner) { #(#activations)* }
             fn extract(&self, __value: &mut #raw) { #(#extracts)* }
             fn finish(&self, __value: &mut #raw, __reset: bool) { #(#finishes)* }
             fn capture_after(&self, __value: &#raw) { #(#afters)* }

@@ -15,6 +15,8 @@ pub trait ModelChildren<M: Model>: Sized {
         value: &mut Option<&mut M>,
     ) -> Self;
     fn begin(&self, value: &M);
+    fn can_activate(&self, value: &M, owner: BindingOwner) -> bool;
+    fn activate(&self, value: &mut M, owner: BindingOwner);
     fn extract(&self, value: &mut M);
     fn finish(&self, value: &mut M, reset: bool);
     fn capture_after(&self, value: &M);
@@ -33,6 +35,10 @@ impl<M: Model> ModelChildren<M> for () {
     ) {
     }
     fn begin(&self, _: &M) {}
+    fn can_activate(&self, _: &M, _: BindingOwner) -> bool {
+        true
+    }
+    fn activate(&self, _: &mut M, _: BindingOwner) {}
     fn extract(&self, _: &mut M) {}
     fn finish(&self, _: &mut M, _: bool) {}
     fn capture_after(&self, _: &M) {}
@@ -115,6 +121,25 @@ impl<M: Model> ChildNode<M> {
         M::handle(self.reference())
     }
 
+    pub fn can_activate(&self, storage: &OwnedStorage<M>, owner: BindingOwner) -> bool {
+        self.metadata.can_activate(&storage.value, owner)
+    }
+
+    pub fn activate(&self, storage: &mut OwnedStorage<M>, owner: BindingOwner) -> bool {
+        if !self.can_activate(storage, owner) {
+            return false;
+        }
+        self.activate_prepared(storage, owner);
+        self.metadata.begin(&storage.value);
+        true
+    }
+
+    pub fn activate_prepared(&self, storage: &mut OwnedStorage<M>, owner: BindingOwner) {
+        self.metadata.activate(&mut storage.value, owner);
+        storage.identity = Some(self.reference());
+        storage.pending = M::pending_watches();
+    }
+
     fn reference(&self) -> ModelRef<M> {
         ModelRef::new(
             &self.access,
@@ -192,6 +217,7 @@ impl<M: Model> ModelMetadata<M> {
             watch.register_owner(world);
         }
         Self {
+            owner: world,
             lifetime,
             sources,
             derived_sources,
@@ -205,6 +231,50 @@ impl<M: Model> ModelMetadata<M> {
     #[doc(hidden)]
     pub fn children(&self) -> &M::Children {
         &self.children
+    }
+
+    fn can_activate(&self, value: &M, owner: BindingOwner) -> bool {
+        let OwnerState::Bound(world) = owner.0 else {
+            return false;
+        };
+        self.owner == world
+            && self.lifetime.can_activate()
+            && self
+                .sources
+                .as_ref()
+                .iter()
+                .chain(self.derived_sources.as_ref())
+                .all(|source| source.can_reactivate(world))
+            && self
+                .watches
+                .as_ref()
+                .iter()
+                .all(|watch| watch.can_reactivate(world))
+            && self.children.can_activate(value, owner)
+    }
+
+    fn activate(&self, value: &mut M, owner: BindingOwner) {
+        let OwnerState::Bound(world) = owner.0 else {
+            panic!("model activation requires a registered owner");
+        };
+        assert_eq!(world, self.owner, "model belongs to a different App");
+        assert!(
+            self.lifetime.can_activate(),
+            "model activation was not prepared"
+        );
+        assert!(self.lifetime.activate(), "model identity is exhausted");
+        for source in self
+            .sources
+            .as_ref()
+            .iter()
+            .chain(self.derived_sources.as_ref())
+        {
+            source.register_owner(world);
+        }
+        for watch in self.watches.as_ref() {
+            watch.reactivate(world);
+        }
+        self.children.activate(value, owner);
     }
 
     pub(super) fn begin(&self, value: &M) {

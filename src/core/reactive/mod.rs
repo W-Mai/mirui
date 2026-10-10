@@ -1219,6 +1219,13 @@ impl ModelSource {
         self.lifecycle.set(ModelSourceLifecycle::Active);
     }
 
+    pub(crate) fn can_reactivate(&self, owner: WorldId) -> bool {
+        self.lifecycle.get() != ModelSourceLifecycle::Exhausted
+            && self.graph_source.get().is_some_and(|source| {
+                matches!(source.partition, PartitionKey::Owner { world, .. } if world == owner)
+            })
+    }
+
     pub fn track(&self) {
         if self.lifecycle.get() != ModelSourceLifecycle::Active {
             return;

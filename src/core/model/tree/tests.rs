@@ -477,8 +477,14 @@ fn stale_incarnations_reject_every_facade_entry_before_accessing_a_reused_path()
     }
     assert!(old.access().upgrade().is_none());
 
-    // Exercise reference validation independently of collection storage.
-    assert!(node.metadata.lifetime.activate());
+    let owner = BindingOwner::registered(&parent);
+    assert_eq!(
+        tracked_allocations(|| {
+            let mut value = registration.root.value.borrow_mut();
+            assert!(node.activate(value.left.storage_mut(), owner));
+        }),
+        0
+    );
     let replacement = node.handle();
     assert!(!old_identity.same_identity(replacement.access()));
     assert!(old_identity.same_identity(old.clone().access()));
@@ -532,17 +538,123 @@ fn ancestor_retirement_invalidates_descendants_before_reactivation() {
     let old_left = parent.left();
     let old_right = parent.right();
     let root = &registration.root;
+    let owner = crate::core::model::BindingOwner::registered(&parent);
     root.metadata.retire();
-    assert!(root.metadata.lifetime.activate());
     assert!(old_left.access().upgrade().is_none());
     assert!(old_right.access().upgrade().is_none());
-    for node in [&root.metadata.children.left, &root.metadata.children.right] {
-        assert!(node.metadata.lifetime.activate());
-    }
+    assert_eq!(
+        tracked_allocations(|| {
+            let mut value = root.value.borrow_mut();
+            assert!(root.metadata.can_activate(&value, owner));
+            root.metadata.activate(&mut value, owner);
+            root.metadata.begin(&value);
+        }),
+        0
+    );
     let access: Rc<dyn ModelAccess<Pair>> = root.clone();
     let renewed = Pair::handle(ModelRef::new(&access, root.generation().unwrap()));
     assert_eq!((renewed.left().value(), renewed.right().value()), (1, 10));
     assert!(parent.access().upgrade().is_none());
     assert!(old_left.access().upgrade().is_none());
     assert!(old_right.access().upgrade().is_none());
+}
+
+#[test]
+fn subtree_activation_preflights_all_descendants_before_changing_identity() {
+    use crate::core::model::{BindingOwner, ModelAccess, OwnerState, register};
+    let mut world = crate::ecs::World::new();
+    let other = crate::ecs::World::new();
+    let (registration, parent) = register(&mut world, Pair::new());
+    let root = &registration.root;
+    let owner = BindingOwner::registered(&parent);
+    let metadata = &root.metadata;
+    let left = &metadata.children.left;
+    let right = &metadata.children.right;
+    metadata.retire();
+    let mut value = root.value.borrow_mut();
+    assert!(!left.activate(
+        value.left.storage_mut(),
+        BindingOwner(OwnerState::Bound(other.id()))
+    ));
+    assert_eq!(left.metadata.lifetime.current(), None);
+    assert!(left.activate(value.left.storage_mut(), owner));
+    assert!(!metadata.can_activate(&value, owner));
+    assert!(left.metadata.lifetime.current().is_some());
+    assert_eq!(right.metadata.lifetime.current(), None);
+    assert_eq!(root.generation(), None);
+    left.retire();
+    assert!(metadata.can_activate(&value, owner));
+    metadata.activate(&mut value, owner);
+    assert!(root.generation().is_some());
+    assert!(left.metadata.lifetime.current().is_some());
+    assert!(right.metadata.lifetime.current().is_some());
+}
+
+#[test]
+fn source_free_metadata_still_requires_its_registered_owner() {
+    #[crate::model]
+    struct Empty {}
+    #[crate::model]
+    impl Empty {}
+
+    use crate::core::model::{BindingOwner, OwnerState, projection::RootPath};
+    let world = crate::ecs::World::new();
+    let other = crate::ecs::World::new();
+    let owner = BindingOwner(OwnerState::Bound(world.id()));
+    let metadata = ModelMetadata::<Empty>::register::<Empty, RootPath>(
+        &alloc::rc::Weak::new(),
+        owner,
+        RootPath,
+        None,
+    );
+    let value = Empty {};
+    assert!(metadata.can_activate(&value, owner));
+    assert!(!metadata.can_activate(&value, BindingOwner(OwnerState::Bound(other.id()))));
+    assert!(!metadata.can_activate(&value, BindingOwner::unbound()));
+    assert_eq!(metadata.lifetime.current(), None);
+}
+
+#[test]
+fn reactivated_member_publishes_parent_and_new_subscriptions_only() {
+    use crate::core::model::{BindingOwner, ModelInvalidation, register};
+    use crate::core::reactive::flush_signal_dirty;
+    use crate::ui::dirty::VisualDirty;
+    let mut world = crate::ecs::World::new();
+    let old_entity = world.spawn_empty();
+    let new_entity = world.spawn_empty();
+    let (registration, parent) = register(&mut world, Pair::new());
+    let old_left = parent.left();
+    let _old_view = old_left.subscribe_observed(0, &world, old_entity, ModelInvalidation::Visual);
+    let read = parent.clone();
+    let total = with_world_scope(&mut world, || Computed::new(move || read.total()));
+    assert_eq!(total.get(), 11);
+    let owner = BindingOwner::registered(&parent);
+    let node = &registration.root.metadata.children.left;
+    let replacement = Leaf::new(30).into();
+    assert_eq!(
+        tracked_allocations(|| {
+            parent.update(|value| {
+                node.retire();
+                value.left = replacement;
+                assert!(node.activate(value.left.storage_mut(), owner));
+            });
+        }),
+        0
+    );
+    assert_eq!(total.get(), 40);
+    let current = parent.left();
+    assert_eq!(current.value_revision(), 0);
+    let _new_view = current.subscribe_observed(0, &world, new_entity, ModelInvalidation::Visual);
+    assert_eq!(
+        tracked_allocations(|| {
+            current.change(1, 1);
+        }),
+        0
+    );
+    flush_signal_dirty(&mut world);
+    assert_eq!(total.get(), 41);
+    assert_eq!(current.value_revision(), 1);
+    assert!(old_left.access().upgrade().is_none());
+    assert!(world.get::<VisualDirty>(old_entity).is_none());
+    assert!(world.get::<VisualDirty>(new_entity).is_some());
 }
