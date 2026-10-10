@@ -3,6 +3,7 @@
 //! Timer callbacks receive only the capabilities declared by `#[timer]`.
 //! Model handles are captured when a timer is installed, structural changes
 //! are deferred, and the runtime reuses its entity and command buffers.
+//! Unavailable declared Model bindings skip the body and retain normal schedule advancement.
 
 use alloc::rc::Rc;
 use alloc::vec::Vec;
@@ -111,12 +112,21 @@ impl Timer {
         }
     }
 
-    fn require_model<H: ModelHandle>(self, model: &H) -> Self {
+    fn require_model<H: ModelHandle>(mut self, model: &H) -> Self {
         assert_eq!(
             self.owner,
             Some(crate::core::model::registered_owner(model)),
             "bound timer models belong to different Apps"
         );
+        let binding = model.access().clone();
+        let callback = self.callback;
+        self.callback = TimerCallback::Bound(Rc::new(move |entity, commands| {
+            if !binding.callback_ready() {
+                crate::warn!(target: "mirui::timer", "timer callback skipped: unavailable model binding");
+                return;
+            }
+            callback.invoke(entity, commands);
+        }));
         self
     }
 }
@@ -187,9 +197,16 @@ pub(crate) mod generated {
         model: &H,
         run: impl for<'commands> Fn(Entity, DeferredCommands<'commands>) + 'static,
     ) -> Timer {
+        let binding = model.access().clone();
         Timer::new(
             schedule,
-            TimerCallback::Bound(Rc::new(run)),
+            TimerCallback::Bound(Rc::new(move |entity, commands| {
+                if !binding.callback_ready() {
+                    crate::warn!(target: "mirui::timer", "timer callback skipped: unavailable model binding");
+                    return;
+                }
+                run(entity, commands);
+            })),
             Some(crate::core::model::registered_owner(model)),
         )
     }

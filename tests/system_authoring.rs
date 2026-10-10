@@ -52,6 +52,70 @@ struct Settings {
 
 struct Missing;
 
+#[system]
+fn guarded_pair(first: model!(Counter), second: model!(Counter), _missing: res!(Missing)) {
+    first.add(1);
+    second.add(1);
+}
+
+#[system]
+fn guarded_deferred_pair(
+    first: model!(Counter),
+    second: model!(Counter),
+    _missing: res!(Missing),
+    commands: commands!(),
+) {
+    first.add(1);
+    second.add(1);
+    commands.insert_resource(Settings { ticks: 100 });
+}
+
+#[test]
+fn retired_primary_or_secondary_binding_skips_system_fetch_and_commands() {
+    use mirui::core::model::ModelList;
+    for retired_index in 0..2 {
+        let mut app = App::headless(32, 32);
+        let list = app.add_model(ModelList::from([
+            Counter { value: 0 },
+            Counter { value: 0 },
+        ]));
+        let id = list.entries().nth(retired_index).unwrap().0;
+        let first = list.get(0).unwrap();
+        let second = list.get(1).unwrap();
+        app.add_system(guarded_pair::system(first.clone(), second.clone()));
+        app.add_system(guarded_deferred_pair::system(first, second));
+        list.remove(id).unwrap();
+        assert!(list.try_push(Counter { value: 40 }).is_ok());
+        app.systems.run_all(&mut app.world).unwrap();
+        assert_eq!(list.get(0).unwrap().value(), 0);
+        assert_eq!(list.get(1).unwrap().value(), 40);
+        assert!(app.world.resource::<Settings>().is_none());
+    }
+}
+
+#[system]
+fn guarded_list(list: model!(mirui::core::model::ModelList<Counter>), _missing: res!(Missing)) {
+    list.clear().unwrap();
+}
+
+#[test]
+fn system_waits_for_collection_lease_without_poisoning_model() {
+    use mirui::core::model::ModelList;
+    let mut app = App::headless(32, 32);
+    let list = app.add_model(ModelList::from([Counter { value: 0 }]));
+    app.add_system(guarded_list::system(list.clone()));
+    let lease = list.iter();
+    app.systems.run_all(&mut app.world).unwrap();
+    assert_eq!(list.len(), 1);
+    drop(lease);
+    app.add_resource(Missing);
+    assert_eq!(
+        tracked_allocations(|| app.systems.run_all(&mut app.world).unwrap()),
+        0
+    );
+    assert!(list.is_empty());
+}
+
 mod nested {
     #[mirui::system(order = Animation, expect = super::Active)]
     pub fn integrate(

@@ -73,6 +73,16 @@ impl<M: Model> ModelRef<M> {
         (access.generation() == Some(self.generation)).then_some(access)
     }
 
+    pub(crate) fn callback_ready(&self) -> bool {
+        use super::ModelChildren;
+        let Some(access) = self.upgrade() else {
+            return false;
+        };
+        let mut ready = false;
+        access.metadata(&mut |metadata| ready = metadata.children().is_writable());
+        ready
+    }
+
     pub(super) fn same_identity(&self, other: &Self) -> bool {
         self.generation == other.generation && Weak::ptr_eq(&self.access, &other.access)
     }

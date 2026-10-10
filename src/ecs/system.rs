@@ -286,10 +286,17 @@ impl System {
         run: impl Fn(&mut World) -> Result<(), CommandError> + 'static,
     ) -> Self {
         let owner = crate::core::model::registered_owner(model);
+        let binding = model.access().clone();
         Self {
             name,
             priority,
-            callback: SystemCallback::Bound(Rc::new(run)),
+            callback: SystemCallback::Bound(Rc::new(move |world| {
+                if !binding.callback_ready() {
+                    crate::warn!(target: "mirui::system", "system {name} skipped: unavailable model binding");
+                    return Ok(());
+                }
+                run(world)
+            })),
             owner: Some(owner),
             metadata: &[],
             last_us: 0,
@@ -309,10 +316,17 @@ impl System {
         + 'static,
     ) -> Self {
         let owner = crate::core::model::registered_owner(model);
+        let binding = model.access().clone();
         Self {
             name,
             priority,
-            callback: SystemCallback::BoundDeferred(Rc::new(run)),
+            callback: SystemCallback::BoundDeferred(Rc::new(move |world, commands| {
+                if !binding.callback_ready() {
+                    crate::warn!(target: "mirui::system", "system {name} skipped: unavailable model binding");
+                    return Ok(());
+                }
+                run(world, commands)
+            })),
             owner: Some(owner),
             metadata: &[],
             last_us: 0,
@@ -321,13 +335,34 @@ impl System {
         }
     }
 
-    /// Require another bound model to belong to the same application.
-    pub(crate) fn with_model<H: crate::core::model::ModelHandle>(self, model: &H) -> Self {
+    /// Validate another Model's ownership at installation and availability before execution.
+    pub(crate) fn with_model<H: crate::core::model::ModelHandle>(mut self, model: &H) -> Self {
         assert_eq!(
             self.owner,
             Some(crate::core::model::registered_owner(model)),
             "bound models belong to different Apps"
         );
+        let binding = model.access().clone();
+        let name = self.name;
+        self.callback = match self.callback {
+            SystemCallback::Bound(run) => SystemCallback::Bound(Rc::new(move |world| {
+                if !binding.callback_ready() {
+                    crate::warn!(target: "mirui::system", "system {name} skipped: unavailable model binding");
+                    return Ok(());
+                }
+                run(world)
+            })),
+            SystemCallback::BoundDeferred(run) => {
+                SystemCallback::BoundDeferred(Rc::new(move |world, commands| {
+                    if !binding.callback_ready() {
+                        crate::warn!(target: "mirui::system", "system {name} skipped: unavailable model binding");
+                        return Ok(());
+                    }
+                    run(world, commands)
+                }))
+            }
+            _ => unreachable!("model binding requires a bound system"),
+        };
         self
     }
 

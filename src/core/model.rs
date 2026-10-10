@@ -582,12 +582,7 @@ pub trait ModelHandle: Clone {
 
     #[doc(hidden)]
     fn callback_ready(&self) -> bool {
-        let Some(access) = self.access().upgrade() else {
-            return false;
-        };
-        let mut ready = false;
-        access.metadata(&mut |metadata| ready = metadata.children.is_writable());
-        ready
+        self.access().callback_ready()
     }
 
     #[doc(hidden)]

@@ -136,6 +136,75 @@ fn after_schedule_fires_once_and_applies_commands() {
 }
 
 #[test]
+fn retired_bindings_skip_timer_bodies_without_replaying_or_retargeting() {
+    use mirui::core::model::ModelList;
+    let _guard = mock::install();
+    for retired_index in 0..2 {
+        let mut app = fresh();
+        let list = app.add_model(ModelList::from([
+            Counter {
+                fires: 0,
+                last_timer: None,
+            },
+            Counter {
+                fires: 0,
+                last_timer: None,
+            },
+        ]));
+        let (id, retired) = list.entries().nth(retired_index).unwrap();
+        let once = app.add_timer(capture_pair::timer(
+            list.get(0).unwrap(),
+            list.get(1).unwrap(),
+        ));
+        let periodic = app.add_timer(every_tick::timer(retired));
+        tick(&mut app, 0);
+        list.remove(id).unwrap();
+        assert!(
+            list.try_push(Counter {
+                fires: 40,
+                last_timer: None
+            })
+            .is_ok()
+        );
+        tick(&mut app, 10);
+        assert!(app.world.get::<Timer>(once).is_none());
+        for now in [250, 500] {
+            tick(&mut app, now);
+        }
+        assert!(app.world.get::<Timer>(periodic).is_some());
+        assert!(app.world.get::<Fired>(periodic).is_none());
+        assert_eq!(list.get(0).unwrap().fires(), 0);
+        assert_eq!(list.get(1).unwrap().fires(), 40);
+    }
+}
+
+#[timer(every = 10)]
+fn clear_list(list: model!(mirui::core::model::ModelList<Counter>)) {
+    list.clear().unwrap();
+}
+
+#[test]
+fn timer_advances_after_a_lease_skip_and_resumes_on_the_next_due_time() {
+    use mirui::core::model::ModelList;
+    let _guard = mock::install();
+    let mut app = fresh();
+    let list = app.add_model(ModelList::from([Counter {
+        fires: 0,
+        last_timer: None,
+    }]));
+    app.add_timer(clear_list::timer(list.clone()));
+    tick(&mut app, 0);
+    let lease = list.iter();
+    tick(&mut app, 10);
+    assert_eq!(list.len(), 1);
+    drop(lease);
+    tick(&mut app, 11);
+    assert_eq!(list.len(), 1);
+    assert_eq!(tracked_allocations(|| tick(&mut app, 20)), 0);
+    assert!(list.is_empty());
+}
+
+#[test]
 fn every_schedule_captures_the_selected_model_instance_and_timer_entity() {
     let _guard = mock::install();
     let mut app = fresh();
