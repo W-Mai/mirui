@@ -413,12 +413,12 @@ split_demo_sources! {
     },
     LAZY_LIST => {
         demo: "lazy_list",
-        marker: "fn row_binder",
+        marker: "fn create_row",
         parts: ["binding.rs", "composition.rs", "tests.rs"]
     },
     WIDGETS => {
         demo: "widgets",
-        marker: "fn row_binder",
+        marker: "fn create_row",
         parts: [
             "state.rs",
             "binding.rs",
@@ -429,7 +429,7 @@ split_demo_sources! {
     },
     WIDGETS_COMPACT => {
         demo: "widgets_compact",
-        marker: "fn bind_row",
+        marker: "fn create_row",
         parts: [
             "style.rs",
             "binding.rs",

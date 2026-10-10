@@ -4,11 +4,16 @@ error[E0277]: the trait bound `u32: mirui::ui::Output` is not satisfied
 4 | #[depends_on(u32)]
   |              ^^^ the trait `mirui::ui::Output` is not implemented for `u32`
   |
-help: the trait `mirui::ui::Output` is implemented for `WidgetTexture`
- --> $WORKSPACE/src/ui/offscreen/output.rs
+help: the following other types implement trait `mirui::ui::Output`
+ --> $WORKSPACE/src/text/geometry.rs
+  |
+  | impl Output for TextGeometry {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `TextGeometry`
+  |
+ ::: $WORKSPACE/src/ui/offscreen/output.rs
   |
   | impl Output for WidgetTexture {
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `WidgetTexture`
 note: required by a bound in `mirui::ui::outputs::OutputDependency::current`
  --> $WORKSPACE/src/ui/outputs/dependency.rs
   |

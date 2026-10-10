@@ -109,8 +109,7 @@ pub(super) fn marble_scenes_page(model: model!(MarbleModel)) -> Entity {
                 height: SCENE_CARD_HEIGHT
             ) [
                 TouchAction::None,
-            ] on Tap { model.reset_scene(0); }
-            {
+            ] {
                 Text (
                     "DAYDREAM",
                     id: "marble_scene_0_name",
@@ -135,7 +134,7 @@ pub(super) fn marble_scenes_page(model: model!(MarbleModel)) -> Entity {
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
-            }
+            } on Tap { model.reset_scene(0); }
             View (
                 id: "marble_scene_card_1",
                 position: Position::Absolute,
@@ -145,8 +144,7 @@ pub(super) fn marble_scenes_page(model: model!(MarbleModel)) -> Entity {
                 height: SCENE_CARD_HEIGHT
             ) [
                 TouchAction::None,
-            ] on Tap { model.reset_scene(1); }
-            {
+            ] {
                 Text (
                     "AFTER HOURS",
                     id: "marble_scene_1_name",
@@ -171,7 +169,7 @@ pub(super) fn marble_scenes_page(model: model!(MarbleModel)) -> Entity {
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
-            }
+            } on Tap { model.reset_scene(1); }
             View (
                 id: "marble_scene_card_2",
                 position: Position::Absolute,
@@ -181,8 +179,7 @@ pub(super) fn marble_scenes_page(model: model!(MarbleModel)) -> Entity {
                 height: SCENE_CARD_HEIGHT
             ) [
                 TouchAction::None,
-            ] on Tap { model.reset_scene(2); }
-            {
+            ] {
                 Text (
                     "ZERO GRAVITY",
                     id: "marble_scene_2_name",
@@ -207,7 +204,7 @@ pub(super) fn marble_scenes_page(model: model!(MarbleModel)) -> Entity {
                     text_color: MUTED,
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
-            }
+            } on Tap { model.reset_scene(2); }
         }
     }
 }

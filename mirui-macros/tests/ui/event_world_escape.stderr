@@ -9,14 +9,18 @@ error[E0631]: type mismatch in closure arguments
    | |_________expected due to this
    |           found signature defined here
    |
-   = note: expected closure signature `for<'event> fn(&'event mirui::prelude::Tap) -> _`
-              found closure signature `fn(&mut World) -> _`
+   = note: expected closure signature `for<'a, 'event> fn(&'event mirui::prelude::Tap, &'a mut ()) -> _`
+              found closure signature `fn(&mut World, _) -> _`
 note: required by a bound in `mirui::input::event::callback::<impl EventKey<E>>::__bind_plain`
   --> $WORKSPACE/src/input/event/callback.rs
    |
    |     pub unsafe fn __bind_plain<C, R>(
    |                   ------------ required by a bound in this associated function
 ...
-   |         body: impl for<'event> Fn(&'event E) -> R + 'static,
-   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `mirui::input::event::callback::<impl EventKey<E>>::__bind_plain`
+   |         body: impl for<'event, 'world> Fn(&'event E, &mut Scope<'world, E>) -> R + 'static,
+   |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ required by this bound in `mirui::input::event::callback::<impl EventKey<E>>::__bind_plain`
    = note: this error originates in the macro `ui` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: consider adjusting the signature so it borrows its argument
+   |
+ 9 |         &mut ui! {
+   |         ++++

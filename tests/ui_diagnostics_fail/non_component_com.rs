@@ -1,10 +1,8 @@
 use mirui::prelude::*;
 
-struct PlainState;
-
 #[compose]
-fn panel(source: Entity) {
-    let _ = com!(source, PlainState);
+fn panel<T>(source: Entity) {
+    let _ = com!(source, T);
 
     ui! {
         View()

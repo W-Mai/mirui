@@ -74,4 +74,5 @@ fixed_storage_paths = [
   "src/render/backends/sw/quad_aa.rs",
   "src/render/mirx_convert.rs",
   "src/types/transform_3d.rs",
+  "src/ui/widgets/lazy_list/geometry.rs",
 ]

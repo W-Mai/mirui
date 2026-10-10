@@ -1,28 +1,28 @@
-error[E0599]: no method named `with_attach` found for struct `View` in the current scope
+error[E0599]: no method named `with_attach` found for struct `View<Systems>` in the current scope
   --> tests/ui/view_raw_configuration.rs:20:26
    |
 20 |     let _ = tile::view().with_attach(attach);
    |                          ^^^^^^^^^^^ method not found in `View`
 
-error[E0599]: no method named `with_internal_gesture` found for struct `View` in the current scope
+error[E0599]: no method named `with_internal_gesture` found for struct `View<Systems>` in the current scope
   --> tests/ui/view_raw_configuration.rs:21:26
    |
 21 |     let _ = tile::view().with_internal_gesture(gesture);
    |                          ^^^^^^^^^^^^^^^^^^^^^ method not found in `View`
 
-error[E0599]: no method named `with_filter` found for struct `View` in the current scope
+error[E0599]: no method named `with_filter` found for struct `View<Systems>` in the current scope
   --> tests/ui/view_raw_configuration.rs:22:26
    |
 22 |     let _ = tile::view().with_filter::<Tile>();
    |                          ^^^^^^^^^^^ method not found in `View`
 
-error[E0599]: no method named `with_observation` found for struct `View` in the current scope
+error[E0599]: no method named `with_observation` found for struct `View<Systems>` in the current scope
   --> tests/ui/view_raw_configuration.rs:23:26
    |
 23 |     let _ = tile::view().with_observation(observe, 0);
    |                          ^^^^^^^^^^^^^^^^ method not found in `View`
 
-error[E0599]: no method named `with_query_dependencies` found for struct `View` in the current scope
+error[E0599]: no method named `with_query_dependencies` found for struct `View<Systems>` in the current scope
   --> tests/ui/view_raw_configuration.rs:24:26
    |
 24 |     let _ = tile::view().with_query_dependencies(&[]);
