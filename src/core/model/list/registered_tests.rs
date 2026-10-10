@@ -145,6 +145,139 @@ fn load_rejects_leases_before_consuming_input_and_prepares_new_nested_shapes() {
 }
 
 #[test]
+fn reconcile_keeps_member_subscriptions_and_effect_routes_in_the_parent_commit() {
+    let mut app = App::headless(32, 32);
+    let parent = app.add_model(Group::new());
+    let list = parent.items();
+    let (id, first) = list.entries().next().unwrap();
+    let second = list.get(1).unwrap();
+    let watched = parent.clone();
+    let total = with_world_scope(&mut app.world, || Computed::new(move || watched.total()));
+    let watched = first.clone();
+    let value = with_world_scope(&mut app.world, || Computed::new(move || watched.value()));
+    let runs = Rc::new(Cell::new(0));
+    let count = runs.clone();
+    let watched = list.clone();
+    let len = with_world_scope(&mut app.world, || {
+        Computed::new(move || {
+            count.set(count.get() + 1);
+            watched.len()
+        })
+    });
+    assert_eq!(total.get(), 3);
+    assert_eq!(value.get(), 1);
+    assert_eq!(len.get(), 2);
+    let notices = Rc::new(Cell::new(0));
+    let count = notices.clone();
+    let published = total.clone();
+    app.on_effect(&first, move |notice: Notice| {
+        assert_eq!(published.get(), 30);
+        count.set(notice.0);
+    })
+    .unwrap();
+    list.reconcile(
+        [Item::new(1), Item::new(2)],
+        |item| item.value,
+        |current, incoming| {
+            current.value = incoming.value * 10;
+            current.notice = Some(Notice(current.value));
+        },
+    )
+    .unwrap();
+    assert_eq!(value.get(), 10);
+    assert_eq!(total.get(), 30);
+    assert_eq!(notices.get(), 10);
+    assert_eq!(len.get(), 2);
+    assert_eq!(runs.get(), 1);
+    assert!(ModelHandle::callback_ready(&first));
+    assert!(ModelHandle::callback_ready(&second));
+    list.reconcile([Item::new(30), Item::new(10)], |item| item.value, |_, _| {})
+        .unwrap();
+    assert_eq!(list.entries().nth(1).unwrap().0, id);
+    assert!(!ModelHandle::callback_ready(&second));
+    assert_eq!(value.get(), 10);
+    assert_eq!(len.get(), 2);
+    assert_eq!(runs.get(), 2);
+}
+
+#[test]
+fn reconcile_rejects_leases_and_prepares_nested_changes_without_replacing_matched_models() {
+    let mut app = App::headless(32, 32);
+    let list = app.add_model(ModelList::from([NestedItem::new(1, 1)]));
+    let (id, matched) = list.entries().next().unwrap();
+    let child = matched.children().get(0).unwrap();
+    let held = list.iter();
+    let reads = Cell::new(0);
+    let input = [NestedItem::new(1, 4), NestedItem::new(2, 3)]
+        .into_iter()
+        .inspect(|_| reads.set(reads.get() + 1));
+    let error = list
+        .reconcile(
+            input,
+            |item| item.children.get(0).unwrap().value(),
+            |_, _| panic!("leased collection"),
+        )
+        .unwrap_err();
+    assert_eq!(error.error(), CollectionError::Iterating);
+    assert_eq!(reads.get(), 0);
+    drop(held);
+    list.reconcile(
+        error.into_input(),
+        |item| item.children.get(0).unwrap().value(),
+        |current, incoming| current.children = incoming.children,
+    )
+    .unwrap();
+    assert_eq!(list.entries().next().unwrap().0, id);
+    assert!(ModelHandle::callback_ready(&matched));
+    assert!(!ModelHandle::callback_ready(&child));
+    assert_eq!(matched.children().capacity(), 4);
+    assert_eq!(list.get(1).unwrap().children().capacity(), 3);
+    assert_eq!(
+        tracked_allocations(|| {
+            matched.children().get(0).unwrap().increment();
+            list.get(1).unwrap().children().get(0).unwrap().increment();
+        }),
+        0
+    );
+}
+
+#[derive(Clone, Copy)]
+struct MergeChange;
+impl MergeChange {
+    const VALUE: Self = Self;
+    fn contains(self, _: Self) -> bool {
+        true
+    }
+}
+
+#[crate::model(change = MergeChange, watch(content = MergeChange::VALUE))]
+struct WatchedItem {
+    value: u16,
+}
+#[crate::model]
+impl WatchedItem {
+    fn value(&self) -> u16 {
+        self.value
+    }
+}
+
+#[test]
+fn raw_data_merge_invalidates_explicit_watches_without_a_business_change_token() {
+    let mut app = App::headless(32, 32);
+    let list = app.add_model(ModelList::from([WatchedItem { value: 1 }]));
+    let item = list.get(0).unwrap();
+    let before = item.content_revision();
+    list.reconcile(
+        [WatchedItem { value: 8 }],
+        |_| 0,
+        |old, new| old.value = new.value,
+    )
+    .unwrap();
+    assert_eq!(item.value(), 8);
+    assert_eq!(item.content_revision(), before + 1);
+}
+
+#[test]
 fn list_items_share_the_parent_transaction_and_distinct_observation_sources() {
     let mut app = App::headless(32, 32);
     let parent = app.add_model(Group::new());

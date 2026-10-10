@@ -95,6 +95,26 @@ fn loading_a_list_retires_declared_callbacks_and_accepts_owned_input() {
     assert!(items.get(1).unwrap().done());
 }
 
+#[test]
+fn reconciled_members_keep_declared_callbacks_after_reordering() {
+    let mut app = App::headless(32, 32);
+    let items = app.add_model(ModelList::from([Task { done: false }, Task { done: true }]));
+    let (id, captured) = items.entries().next().unwrap();
+    app.on_event(Started::EVENT, toggle::callback(captured));
+    items
+        .reconcile(
+            [Task { done: true }, Task { done: false }],
+            |task| task.done,
+            |current, incoming| current.done = !incoming.done,
+        )
+        .unwrap();
+    assert_eq!(items.entries().nth(1).unwrap().0, id);
+    assert!(items.get(1).unwrap().done());
+    app.tick();
+    assert!(!items.get(0).unwrap().done());
+    assert!(!items.get(1).unwrap().done());
+}
+
 #[model]
 struct Selection {
     keys: model!(owned ModelSet<u64>),

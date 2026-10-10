@@ -44,6 +44,17 @@ impl<M: Model> ListState<M> {
             .map(|slot| slot.generation.get())
     }
 
+    pub(super) fn activate_loaded(&self, index: usize, storage: &mut OwnedStorage<M>) {
+        let node = self.node(index);
+        if node.can_activate(storage, self.owner) {
+            assert!(node.activate(storage, self.owner));
+        } else {
+            let node = Rc::new((self.factory)(index, Some(storage)));
+            self.nodes.borrow_mut()[index].node = node.clone();
+            node.begin(storage);
+        }
+    }
+
     pub(super) fn prepare(&self, value: &mut ModelList<M>) {
         let capacity = value.capacity();
         {
@@ -157,14 +168,7 @@ impl<M: Model> ListState<M> {
                     .expect("model item identity exhausted");
                 value.slots[entry.slot].generation = generation;
                 self.set_generation(entry.slot, generation);
-                let node = self.node(entry.slot);
-                if node.can_activate(entry.value.storage(), self.owner) {
-                    assert!(node.activate(entry.value.storage_mut(), self.owner));
-                } else {
-                    let node = Rc::new((self.factory)(entry.slot, Some(entry.value.storage_mut())));
-                    self.nodes.borrow_mut()[entry.slot].node = node.clone();
-                    node.begin(entry.value.storage());
-                }
+                self.activate_loaded(entry.slot, entry.value.storage_mut());
             } else {
                 self.node(entry.slot).begin(entry.value.storage());
             }

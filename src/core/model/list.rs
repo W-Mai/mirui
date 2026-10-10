@@ -3,6 +3,7 @@ use alloc::rc::Rc;
 use alloc::vec::Vec;
 
 mod load;
+mod reconcile;
 mod registered;
 mod state;
 pub use registered::{ModelListEntries, ModelListHandle, ModelListOwned};

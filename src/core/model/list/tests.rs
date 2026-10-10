@@ -143,6 +143,66 @@ fn loading_preflights_exhausted_slots_without_losing_input() {
 }
 
 #[test]
+fn reconcile_freezes_keys_preserves_identity_and_returns_duplicate_input() {
+    let mut list = ModelList::from([item(1), item(2), item(3)]);
+    let ids = list.entries().map(|entry| entry.0).collect::<Vec<_>>();
+    list.reconcile(
+        [item(3), item(1), item(4)],
+        |item| item.value,
+        |current, incoming| current.value = incoming.value * 10,
+    )
+    .unwrap();
+    assert_values(&list, &[30, 10, 4]);
+    assert_eq!(list.entries().next().unwrap().0, ids[2]);
+    assert_eq!(list.entries().nth(1).unwrap().0, ids[0]);
+    assert!(list.get_by_id(ids[1]).is_none());
+    assert_ne!(list.entries().nth(2).unwrap().0, ids[1]);
+    let error = list
+        .reconcile(
+            [item(30), item(30)],
+            |item| item.value,
+            |_, _| panic!("duplicate batch must not merge"),
+        )
+        .unwrap_err();
+    assert_eq!(error.error(), CollectionError::DuplicateKey);
+    assert_eq!(
+        error
+            .into_input()
+            .map(|item| item.value)
+            .collect::<Vec<_>>(),
+        [30, 30]
+    );
+    assert_values(&list, &[30, 10, 4]);
+    list.get_mut(1).unwrap().storage_mut().value.value = 30;
+    let error = list
+        .reconcile(
+            [item(30)],
+            |item| item.value,
+            |_, _| panic!("duplicate old keys must not merge"),
+        )
+        .unwrap_err();
+    assert_eq!(error.error(), CollectionError::DuplicateKey);
+    assert_eq!(error.into_input().next().unwrap().value, 30);
+    assert_values(&list, &[30, 30, 4]);
+}
+
+#[test]
+fn reconcile_preflight_keeps_retained_exhausted_ids_but_rejects_new_ones() {
+    let mut list = ModelList::bounded(1);
+    list.slots[0].generation = u64::MAX - 1;
+    let id = push(&mut list, 1);
+    list.reconcile([item(1)], |item| item.value, |_, _| {})
+        .unwrap();
+    assert_eq!(list.entries().next().unwrap().0, id);
+    let error = list
+        .reconcile([item(2)], |item| item.value, |_, _| {})
+        .unwrap_err();
+    assert_eq!(error.error(), CollectionError::IdentityExhausted);
+    assert_eq!(error.into_input().next().unwrap().value, 2);
+    assert_values(&list, &[1]);
+}
+
+#[test]
 fn foreign_and_exhausted_identities_cannot_alias_live_members() {
     let mut a = ModelList::with_capacity(1);
     let id = push(&mut a, 1);

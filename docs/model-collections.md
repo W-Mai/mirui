@@ -90,6 +90,24 @@ if let Err(failure) = todo.items().load(records) {
 
 Loading inside a parent Model method shares that parent's transaction. An outer `Err` does not undo installed data or revive retired item references; it suppresses that transaction's observations and effects. Iterator or user-code panics follow the existing Model panic contract.
 
+## Merging list data
+
+`items.reconcile(records, key_of, merge)` matches incoming data against existing Models using `K: Ord` business keys. Matching Models keep their identities, observers, and effect handlers. Missing Models are retired, new keys receive new identities, and incoming order becomes list order. Duplicate keys in either dataset reject the batch before the merge closure runs; errors return the input through `CollectionLoadError`.
+
+```rust,ignore
+todo.items().reconcile(
+    records,
+    |item| item.id,
+    |current, incoming| {
+        current.title = incoming.title;
+    },
+)?;
+```
+
+`merge` receives `&mut Item` and an owned incoming `Item`. The closure decides which business fields to overwrite; omitted fields keep their existing values. Keys are extracted before any merge, so changing a key field does not change the current matching plan. Observed fields and parent derived values publish through the root transaction before effects. Explicit change watches on merged Models are invalidated conservatively because the closure edits raw data without returning a business change token.
+
+Reconciliation stages input and matching indices and may prepare nested storage. It is not a zero-allocation edit. Matching items with unchanged order do not publish a structural change merely because their fields were merged. A merge panic does not roll back previously executed business changes and follows the Model transaction's panic contract.
+
 ## Membership sets
 
 Declare `selected: model!(owned ModelSet<UserId>)` for selected IDs, enabled options, or tags. `ModelSet::from_iter(values)` moves and deduplicates input into sorted order; `bounded(n)` prepares an empty set with a hard limit. Members are not Models and do not have individual handles. Use a Map when the stored objects need mutable fields or methods.

@@ -300,6 +300,26 @@ impl<M: Model> ModelListHandle<M> {
             |result| result.as_ref().ok().copied(),
         )
     }
+
+    pub fn reconcile<I, K>(
+        &self,
+        items: I,
+        key_of: impl FnMut(&M) -> K,
+        merge: impl FnMut(&mut M, M),
+    ) -> Result<(), CollectionLoadError<I::IntoIter>>
+    where
+        I: IntoIterator<Item = M>,
+        K: Ord,
+    {
+        if let Err(error) = self.available() {
+            return Err(CollectionLoadError::untouched(error, items.into_iter()));
+        }
+        update_model(
+            self,
+            |list| list.reconcile(items, key_of, merge),
+            |result| result.as_ref().ok().copied(),
+        )
+    }
 }
 
 /// A structural lease that permits updates to the yielded model items.
