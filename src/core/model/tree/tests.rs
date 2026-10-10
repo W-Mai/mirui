@@ -165,12 +165,17 @@ impl ModelPath<Pair> for LeafPath {
         }
     }
 
-    fn metadata<'a>(&self, root: &'a ModelMetadata<Pair>) -> &'a ModelMetadata<Leaf> {
-        if self.0 {
-            root.children().right.metadata()
+    fn metadata<O>(
+        &self,
+        root: &ModelMetadata<Pair>,
+        read: impl FnOnce(&ModelMetadata<Leaf>) -> O,
+    ) -> O {
+        let node = if self.0 {
+            &root.children().right
         } else {
-            root.children().left.metadata()
-        }
+            &root.children().left
+        };
+        read(node.metadata())
     }
 
     fn update(

@@ -22,7 +22,11 @@ pub trait ModelPath<R: Model>: Copy + 'static {
 
     fn read<'a>(&self, value: &'a R) -> &'a Self::Target;
     fn write<'a>(&self, value: &'a mut R) -> &'a mut Self::Target;
-    fn metadata<'a>(&self, root: &'a ModelMetadata<R>) -> &'a ModelMetadata<Self::Target>;
+    fn metadata<O>(
+        &self,
+        root: &ModelMetadata<R>,
+        read: impl FnOnce(&ModelMetadata<Self::Target>) -> O,
+    ) -> O;
     fn update(
         &self,
         value: &mut R,
@@ -43,8 +47,8 @@ impl<M: Model> ModelPath<M> for RootPath {
     fn write<'a>(&self, value: &'a mut M) -> &'a mut M {
         value
     }
-    fn metadata<'a>(&self, root: &'a ModelMetadata<M>) -> &'a ModelMetadata<M> {
-        root
+    fn metadata<O>(&self, root: &ModelMetadata<M>, read: impl FnOnce(&ModelMetadata<M>) -> O) -> O {
+        read(root)
     }
 
     fn update(
@@ -98,8 +102,13 @@ impl<R: Model, P: ModelPath<R>, F: ModelChildField<P::Target>> ModelPath<R>
         &mut F::storage_mut(self.parent.write(value)).value
     }
 
-    fn metadata<'a>(&self, root: &'a ModelMetadata<R>) -> &'a ModelMetadata<Self::Target> {
-        F::node(self.parent.metadata(root)).metadata()
+    fn metadata<O>(
+        &self,
+        root: &ModelMetadata<R>,
+        read: impl FnOnce(&ModelMetadata<Self::Target>) -> O,
+    ) -> O {
+        self.parent
+            .metadata(root, |parent| read(F::node(parent).metadata()))
     }
 
     fn update(
@@ -134,7 +143,8 @@ impl<R: Model, P: ModelPath<R>> ModelAccess<P::Target> for Projection<R, P> {
     fn generation(&self) -> Option<u64> {
         let root = self.root.upgrade()?;
         root.generation()?;
-        self.path.metadata(&root.metadata).lifetime.current()
+        self.path
+            .metadata(&root.metadata, |metadata| metadata.lifetime.current())
     }
 
     fn binding_owner(&self) -> BindingOwner {
@@ -149,7 +159,8 @@ impl<R: Model, P: ModelPath<R>> ModelAccess<P::Target> for Projection<R, P> {
 
     fn read(&self, read: &mut dyn FnMut(&P::Target, &ModelMetadata<P::Target>)) {
         self.root().read(&mut |value, metadata| {
-            read(self.path.read(value), self.path.metadata(metadata));
+            self.path
+                .metadata(metadata, |metadata| read(self.path.read(value), metadata));
         });
     }
 
@@ -159,6 +170,6 @@ impl<R: Model, P: ModelPath<R>> ModelAccess<P::Target> for Projection<R, P> {
 
     fn metadata(&self, read: &mut dyn FnMut(&ModelMetadata<P::Target>)) {
         self.root()
-            .metadata(&mut |metadata| read(self.path.metadata(metadata)));
+            .metadata(&mut |metadata| self.path.metadata(metadata, &mut *read));
     }
 }
