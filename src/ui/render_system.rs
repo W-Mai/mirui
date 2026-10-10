@@ -1762,10 +1762,7 @@ fn render_views(
         {
             continue;
         }
-        let render = view
-            .render()
-            .expect("paint order contains a non-paint View");
-        crate::core::model::with_model_read_only(|| render(world, entity, ctx));
+        view.paint(world, entity, ctx);
         if let Some(error) = ctx.error() {
             return Err(error);
         }

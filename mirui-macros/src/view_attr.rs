@@ -528,11 +528,13 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
                 __mirui_entity: ::mirui::ecs::Entity,
                 __mirui_paint: &mut ::mirui::ui::view::PaintCtx<'_>,
             ) #factory_where_clause {
+                let __mirui_query_reads = ::mirui::__macro_support::QueryReadScope::new(__mirui_entity);
                 ::mirui::core::model::with_model_read_only(|| {
                     #render_component_fetch
                     #(#render_fetches)*
                     #helper_fn(#(#helper_arguments),*);
                 });
+                ::mirui::__macro_support::report_query_reads(__mirui_paint, &__mirui_query_reads);
             }
         }
     });
@@ -680,7 +682,7 @@ fn lower_render_fetch(
             let marker = callback_lowering::lower_fetched_parameter(binding)?.0;
             let marker = ChildScope::ty(&syn::parse2::<Type>(marker)?);
             let local = fetched_name(&binding.name);
-            Ok(quote!(let #local = <#marker>::read_shared(__mirui_world);))
+            Ok(quote!(let #local = <#marker>::read_for_view(__mirui_world, &__mirui_query_reads);))
         })()),
         BindingSource::Model(_) | BindingSource::Capability(_) => None,
         _ => Some(Err(syn::Error::new(
@@ -863,7 +865,13 @@ mod tests {
         assert!(
             expanded.contains("as :: mirui :: __macro_support :: SystemParam > :: Item < '_ >")
         );
-        assert_eq!(expanded.matches("read_shared (__mirui_world)").count(), 1);
+        assert_eq!(
+            expanded
+                .matches("read_for_view (__mirui_world , & __mirui_query_reads)")
+                .count(),
+            1
+        );
+        assert!(expanded.contains("report_query_reads"));
         assert!(expanded.contains("rows . get (node)"));
         assert!(!expanded.contains("__mirui_world . get :: < Switch >"));
         assert!(expanded.contains("query_dependencies : const {"));
@@ -967,7 +975,7 @@ mod tests {
         assert_eq!(expanded.matches("TypeId :: of").count(), 2);
         assert!(!expanded.contains("fn render"));
         assert!(!expanded.contains("fn __mirui_view_body"));
-        assert!(!expanded.contains("read_shared"));
+        assert!(!expanded.contains("read_for_view"));
     }
 
     #[test]

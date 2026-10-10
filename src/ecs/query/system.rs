@@ -1,4 +1,5 @@
 use core::any::{TypeId, type_name};
+use core::cell::Cell;
 use core::marker::PhantomData;
 
 use crate::ecs::bundle::Component;
@@ -34,6 +35,27 @@ impl QueryMutability for ReadWrite {
 }
 
 pub struct EntityItem;
+
+/// Records the access footprint of one generated paint callback.
+#[doc(hidden)]
+pub struct QueryReadScope {
+    entity: Entity,
+    global: Cell<bool>,
+}
+
+impl QueryReadScope {
+    pub fn new(entity: Entity) -> Self {
+        Self {
+            entity,
+            global: Cell::new(false),
+        }
+    }
+
+    pub(crate) fn is_global(&self) -> bool {
+        self.global.get()
+    }
+}
+
 pub struct Read<T>(PhantomData<fn() -> T>);
 pub struct Write<T>(PhantomData<fn() -> T>);
 pub struct OptionalRead<T>(PhantomData<fn() -> T>);
@@ -732,6 +754,7 @@ pub struct SystemQuery<
     driver: D::State<'world>,
     data: Q::State<'world>,
     filters: F::State<'world>,
+    read_scope: Option<&'world QueryReadScope>,
     _world: PhantomData<(&'world World, M)>,
 }
 
@@ -762,6 +785,7 @@ impl<'world, D: QueryDriver, Q: QueryData, F: QueryFilter> SystemQuery<'world, D
             data: unsafe { Q::init(cell) },
             // SAFETY: filters only inspect structural metadata.
             filters: unsafe { F::init(cell) },
+            read_scope: None,
             _world: PhantomData,
         }
     }
@@ -791,17 +815,28 @@ where
             driver: <D as SharedQueryDriver>::init_shared(world),
             data: <Q as SharedQueryData>::init_shared(world),
             filters: <F as SharedQueryFilter>::init_shared(world),
+            read_scope: None,
             _world: PhantomData,
         }
     }
 
     /// Read one matching row for the lifetime of this query borrow.
     pub fn get(&self, entity: Entity) -> Option<Q::Item<'_>> {
+        if let Some(scope) = self.read_scope
+            && entity != scope.entity
+        {
+            scope.global.set(true);
+        }
         if !self.matches(entity) {
             return None;
         }
         // SAFETY: the row matches; sealed read-only data cannot yield writes.
         Some(unsafe { Q::fetch(&self.data, entity) })
+    }
+
+    pub(crate) fn track_reads(mut self, scope: &'world QueryReadScope) -> Self {
+        self.read_scope = Some(scope);
+        self
     }
 }
 
@@ -859,6 +894,9 @@ impl<'world, D: QueryDriver, Q: QueryData, F: QueryFilter> IntoIterator
     type IntoIter = SystemQueryIter<'world, D, Q, F>;
 
     fn into_iter(self) -> Self::IntoIter {
+        if let Some(scope) = self.read_scope {
+            scope.global.set(true);
+        }
         SystemQueryIter {
             query: self,
             cursor: 0,
@@ -898,6 +936,30 @@ mod tests {
     struct Marker;
 
     impl Component for Marker {}
+
+    #[test]
+    fn paint_query_reads_track_missing_targets_and_empty_iteration_without_allocations() {
+        let mut world = World::new();
+        let current = world.spawn_empty();
+        let other = world.spawn_empty();
+        world.insert(current, Position(1));
+        type Rows<'a> = SystemQuery<'a, ComponentDriver<Position>, Read<Position>, ()>;
+        let allocations = tracked_allocations(|| {
+            let scope = QueryReadScope::new(current);
+            let rows = Rows::from_shared(&world).track_reads(&scope);
+            assert_eq!(rows.get(current), Some(&Position(1)));
+            assert!(!scope.is_global());
+            assert!(rows.get(other).is_none());
+            assert!(scope.is_global());
+
+            type Empty<'a> = SystemQuery<'a, ComponentDriver<Marker>, Read<Marker>, ()>;
+            let scope = QueryReadScope::new(current);
+            let rows = Empty::from_shared(&world).track_reads(&scope);
+            assert_eq!(rows.into_iter().count(), 0);
+            assert!(scope.is_global());
+        });
+        assert_eq!(allocations, 0);
+    }
 
     #[test]
     fn shared_query_traits_keep_the_readonly_data_contract() {

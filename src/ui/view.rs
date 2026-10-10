@@ -7,6 +7,7 @@
 use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::any::TypeId;
+use core::cell::Cell;
 
 use crate::ecs::{Entity, World};
 use crate::input::event::gesture::GestureEvent;
@@ -21,6 +22,9 @@ use crate::ui::Style;
 use crate::ui::outputs::workspace::PaintWorkspace;
 use crate::ui::outputs::{OutputDependency, relations::OutputRelations};
 use crate::ui::theme::WidgetState;
+
+#[cfg(test)]
+mod query_tests;
 
 #[derive(Clone, Copy, Default)]
 pub(crate) enum FrameRequest {
@@ -44,6 +48,7 @@ pub struct PaintCtx<'frame> {
     workspace: Option<&'frame PaintWorkspace>,
     layout_offset: Point,
     frame_request: FrameRequest,
+    query_reads_global: bool,
 }
 
 impl<'frame> PaintCtx<'frame> {
@@ -69,6 +74,7 @@ impl<'frame> PaintCtx<'frame> {
             workspace: None,
             layout_offset: Point::new(0, 0),
             frame_request: FrameRequest::None,
+            query_reads_global: true,
         }
     }
 
@@ -431,6 +437,13 @@ pub(crate) use generated::ViewObservationBindings;
 pub(crate) mod generated {
     use super::*;
 
+    pub fn report_query_reads(
+        paint: &mut PaintCtx<'_>,
+        scope: &crate::ecs::query::system::QueryReadScope,
+    ) {
+        paint.query_reads_global = scope.is_global();
+    }
+
     pub struct ViewDescriptor {
         pub name: &'static str,
         pub paint: Option<(u8, ViewRender)>,
@@ -552,6 +565,7 @@ struct ViewDefinition {
     /// (e.g. the generic Style stage).
     component_filter: Option<fn() -> TypeId>,
     query_dependencies: &'static [fn() -> TypeId],
+    query_scope: Cell<QueryScope>,
     output_dependencies: &'static [OutputDependency],
     /// Component-internal gesture handler selected before authored listeners.
     /// Returning `true` consumes the input; `false` continues the frozen route.
@@ -561,6 +575,13 @@ struct ViewDefinition {
     invalidation: ViewInvalidation,
     registration_id: Option<u64>,
     component_tracking_ready: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum QueryScope {
+    Unobserved,
+    Local,
+    Global,
 }
 
 impl View {
@@ -588,6 +609,7 @@ impl View {
                 auto_attach: descriptor.attach,
                 component_filter,
                 query_dependencies: descriptor.query_dependencies,
+                query_scope: Cell::new(QueryScope::Unobserved),
                 output_dependencies,
                 internal_gesture: descriptor.gesture,
                 observe,
@@ -727,6 +749,18 @@ impl<Systems> View<Systems> {
     pub(crate) fn render(&self) -> Option<ViewRender> {
         self.definition.paint.map(|paint| paint.render)
     }
+
+    pub(crate) fn paint(&self, world: &World, entity: Entity, ctx: &mut PaintCtx<'_>) {
+        let previous = self.definition.query_scope.replace(QueryScope::Global);
+        ctx.query_reads_global = true;
+        let render = self
+            .render()
+            .expect("paint order contains a non-paint View");
+        crate::core::model::with_model_read_only(|| render(world, entity, ctx));
+        if previous != QueryScope::Global && !ctx.query_reads_global && ctx.error().is_none() {
+            self.definition.query_scope.set(QueryScope::Local);
+        }
+    }
     pub(crate) fn auto_attach(&self) -> Option<ViewAttach> {
         self.definition.auto_attach
     }
@@ -801,6 +835,9 @@ impl ViewRegistry {
                     }
                     for dependency in view.definition.query_dependencies {
                         world.watch_query_dependency_type(dependency());
+                        if view.component_filter() != Some(dependency()) {
+                            world.watch_component_type(dependency());
+                        }
                     }
                     if !view.definition.query_dependencies.is_empty() {
                         Self::invalidate_instances(world, view);
@@ -857,13 +894,15 @@ impl ViewRegistry {
     }
 
     fn invalidate_pending_queries(&self, world: &mut World) {
-        world.drain_query_dependency_changes(|world, changed, _| {
+        world.drain_query_dependency_changes(|world, changed, cause| {
             for view in &self.views {
-                if view
-                    .definition
-                    .query_dependencies
-                    .iter()
-                    .any(|dependency| dependency() == changed)
+                if (cause == crate::ecs::world::QueryDependencyCause::Source
+                    || view.definition.query_scope.get() != QueryScope::Local)
+                    && view
+                        .definition
+                        .query_dependencies
+                        .iter()
+                        .any(|dependency| dependency() == changed)
                 {
                     Self::invalidate_instances(world, view);
                 }
@@ -888,6 +927,22 @@ impl ViewRegistry {
     ) {
         for view in &self.views {
             if view.component_filter() != Some(change.type_id) {
+                if view.definition.query_scope.get() == QueryScope::Local
+                    && view
+                        .definition
+                        .query_dependencies
+                        .iter()
+                        .any(|kind| kind() == change.type_id)
+                    && world.is_alive(change.entity)
+                    && view
+                        .component_filter()
+                        .is_some_and(|kind| world.has_type(change.entity, kind))
+                {
+                    match view.invalidation() {
+                        ViewInvalidation::Visual => world.invalidate_visual(change.entity),
+                        ViewInvalidation::Layout => world.invalidate(change.entity),
+                    }
+                }
                 continue;
             }
             if let Some(relations) = relations.as_deref_mut() {

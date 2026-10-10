@@ -2,8 +2,8 @@ use core::any::type_name;
 use core::marker::PhantomData;
 
 use crate::ecs::query::system::{
-    QueryData, QueryDriver, QueryFilter, SharedQueryData, SharedQueryDriver, SharedQueryFilter,
-    SystemQuery,
+    QueryData, QueryDriver, QueryFilter, QueryReadScope, SharedQueryData, SharedQueryDriver,
+    SharedQueryFilter, SystemQuery,
 };
 use crate::ecs::world::{SystemWorldCell, World};
 
@@ -28,8 +28,11 @@ where
     F: SharedQueryFilter,
 {
     #[doc(hidden)]
-    pub fn read_shared(world: &World) -> SystemQuery<'_, D, Q, F> {
-        SystemQuery::from_shared(world)
+    pub fn read_for_view<'world>(
+        world: &'world World,
+        scope: &'world QueryReadScope,
+    ) -> SystemQuery<'world, D, Q, F> {
+        SystemQuery::from_shared(world).track_reads(scope)
     }
 }
 

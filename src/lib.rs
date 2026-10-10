@@ -144,6 +144,7 @@ pub mod __macro_support {
         TimerSchedule, bound_timer, require_timer_model, static_timer,
     };
     pub use crate::ecs::commands::{CommandCommitError, CommandError, DeferredCommands};
+    pub use crate::ecs::query::system::QueryReadScope;
     pub use crate::ecs::query::system::{
         ComponentDriver, EntityItem, OptionalRead, Read, With, Without, Write,
     };
@@ -178,7 +179,9 @@ pub mod __macro_support {
     pub use crate::ui::construction::{ReservedWidget, finish_widget_static};
     pub use crate::ui::layout_binding::LayoutBinding;
     pub use crate::ui::recipe::{PropertyBindings, WidgetRecipe};
-    pub use crate::ui::view::generated::{ViewDescriptor, ViewObservationBindings, assemble_view};
+    pub use crate::ui::view::generated::{
+        ViewDescriptor, ViewObservationBindings, assemble_view, report_query_reads,
+    };
     pub use ::core::cell::{Cell as __Cell, RefCell as __RefCell};
     pub use alloc::borrow::Cow as __Cow;
     pub use alloc::rc::{Rc as __Rc, Weak as __Weak};
