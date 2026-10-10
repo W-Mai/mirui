@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `ModelList` stores ordered Model data with runtime capacity, stable item IDs, and capacity-bounded edits. Arrays, vectors, and iterators transfer data without requiring item clones; explicit reservation controls storage growth.
+
 ### Fixed
 
 - View queries that only read their current entity invalidate local consumers instead of every instance of the same widget. Cross-entity reads and iteration retain descriptor-wide invalidation; font and text cache replacement still refresh all dependent Views.

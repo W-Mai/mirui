@@ -7,9 +7,12 @@ use core::cell::{Cell, RefCell};
 use crate::ecs::world::WorldId;
 
 mod identity;
+mod list;
 mod owned;
 mod projection;
 mod tree;
+
+pub use list::{CollectionError, ModelItemId, ModelList};
 
 #[doc(hidden)]
 pub use identity::ModelRef;
@@ -899,6 +902,10 @@ mod tests {
 
         fn storage_mut(&mut self) -> &mut super::OwnedStorage<Counter> {
             &mut self.0
+        }
+
+        fn into_data(self) -> Counter {
+            self.0.into_data()
         }
     }
 

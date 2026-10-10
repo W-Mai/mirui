@@ -126,6 +126,7 @@ pub(super) fn expand(
             type Data = #raw;
             fn storage(&self) -> &::mirui::core::model::OwnedStorage<#raw> { &self.__mirui_storage }
             fn storage_mut(&mut self) -> &mut ::mirui::core::model::OwnedStorage<#raw> { &mut self.__mirui_storage }
+            fn into_data(self) -> #raw { self.__mirui_storage.into_data() }
         }
 
         impl #params #handle #args #bounds { #(#shared_getters)* }

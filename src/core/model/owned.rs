@@ -17,6 +17,10 @@ impl<M: Model> OwnedStorage<M> {
         }
     }
 
+    pub fn into_data(self) -> M {
+        self.value
+    }
+
     pub fn read<R>(&self, read: impl FnOnce(&M) -> R) -> R {
         read(&self.value)
     }
@@ -44,6 +48,7 @@ pub trait OwnedModel {
 
     fn storage(&self) -> &OwnedStorage<Self::Data>;
     fn storage_mut(&mut self) -> &mut OwnedStorage<Self::Data>;
+    fn into_data(self) -> Self::Data;
 
     fn read<R>(&self, read: impl FnOnce(&Self::Data) -> R) -> R {
         self.storage().read(read)
