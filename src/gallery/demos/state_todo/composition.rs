@@ -32,7 +32,7 @@ pub fn build_widgets(todo: model!(TodoModel)) {
     let milk = todo.milk();
     let docs = todo.docs();
     let release = todo.release();
-    let _ = ui! {
+    ui! {
         Column (
             grow: 1.0,
             align: AlignItems::Center,
