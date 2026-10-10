@@ -93,6 +93,10 @@ Keyed row tables retain their allocated storage. Pure reordering does not alloca
 
 Nested collection shapes are prepared from the installed data. Free outer capacity alone does not cover a larger nested collection shape: ordinary insertion or replacement returns `CollectionError::UnpreparedShape` when the prepared slot is insufficient. Business allocations, such as constructing a new `String`, are separate from collection storage.
 
+List and Map capacity reserves member identities, access paths, observation sources, and transaction storage as well as values. Budget nested collections recursively; a vacant prepared slot still retains its metadata. Set stores immutable values without per-member Model metadata. Virtualizing rows reduces widget storage, not the storage of the underlying Models.
+
+Observation storage also depends on installed consumers. Within each reactive graph partition, the dependency bitmap occupies `source_capacity * ceil(consumer_capacity / 64) * 8` bytes, in addition to source records, consumer records, and pending queues. Collection capacity alone therefore does not determine total RAM. Explicit preparation and loading may temporarily hold old and new buffers at once.
+
 Map lookup uses binary search. Insertion and removal can move ordered entries; stable retention is linear. The key index and member storage are retained, and capacity-bounded edits and registered item updates reuse their framework storage.
 
 ## Loading list and map data
