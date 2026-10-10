@@ -317,13 +317,10 @@ fn clock_ms(world: &World) -> u32 {
 }
 
 fn flush_and_stamp(world: &mut World, now_ms: u32) {
-    let mut taken = match world.remove_resource::<PersistenceRegistry>() {
-        Some(reg) => reg,
-        None => return,
-    };
-    taken.save_all(world);
-    taken.last_save_ms = now_ms;
-    world.insert_resource(taken);
+    world.with_resource_box::<PersistenceRegistry, _>(|registry, world| {
+        registry.save_all(world);
+        registry.last_save_ms = now_ms;
+    });
 }
 
 #[cfg(test)]
@@ -467,5 +464,54 @@ mod tests {
         let v = Signal::new(7i32);
         reg.signal("k", v.clone());
         assert_eq!(v.get_untracked(), 7);
+    }
+
+    #[test]
+    fn flush_retains_the_registry_allocation() {
+        let (mut world, mut registry) = fresh_world();
+        registry.bytes("unchanged", || None, |_| {});
+        world.insert_resource(registry);
+        let address = world.resource::<PersistenceRegistry>().unwrap() as *const _;
+
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for now_ms in 1..=16 {
+                flush_and_stamp(&mut world, now_ms);
+            }
+        });
+
+        assert_eq!(allocations, 0);
+        let registry = world.resource::<PersistenceRegistry>().unwrap();
+        assert_eq!(registry as *const _, address);
+        assert_eq!(registry.last_save_ms, 16);
+        assert_eq!(registry.items.len(), 1);
+    }
+
+    #[test]
+    fn flush_restores_the_registry_when_a_save_callback_unwinds() {
+        let (mut world, mut registry) = fresh_world();
+        let mut first = true;
+        registry.bytes(
+            "custom",
+            move || {
+                assert!(!core::mem::replace(&mut first, false), "save failed");
+                Some(vec![7])
+            },
+            |_| {},
+        );
+        world.insert_resource(registry);
+        let address = world.resource::<PersistenceRegistry>().unwrap() as *const _;
+
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            flush_and_stamp(&mut world, 12);
+        }));
+        assert!(result.is_err());
+        let registry = world.resource::<PersistenceRegistry>().unwrap();
+        assert_eq!(registry as *const _, address);
+        assert_eq!(registry.last_save_ms, 0);
+
+        flush_and_stamp(&mut world, 20);
+        let registry = world.resource::<PersistenceRegistry>().unwrap();
+        assert_eq!(registry.storage.read("custom"), Some(vec![7]));
+        assert_eq!(registry.last_save_ms, 20);
     }
 }

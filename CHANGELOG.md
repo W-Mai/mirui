@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Persistence flushes retain their registry allocation and restore the registry if a save callback unwinds.
 - Hidden collection cells remain idle after the data becomes empty and resume their bindings when members return.
 - Input callback snapshots stop when a retained ancestor is rebound, including nested cells and repeated reuse of the same entity.
 - Retiring a reused list cell discards its unread gestures from the active dispatch batch as well as queued input, while preserving later input and buffer capacity.
