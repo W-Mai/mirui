@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-10-10
+
 ### Added
 
 - Owned Model fields use `model!(owned Child)` and register with their parent. Parent and child mutations share a tree transaction, publish observations before effects, and preserve field-bound subscriptions and consumers across replacement or swaps. Owned construction and warm updates require no framework heap allocation. State Todo binds rows directly to owned item models and derives its remaining count in the parent.
