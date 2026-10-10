@@ -8,6 +8,7 @@ use crate::ecs::world::WorldId;
 
 mod identity;
 mod list;
+mod map;
 mod owned;
 mod projection;
 mod tree;
@@ -15,6 +16,9 @@ mod tree;
 pub use list::{CollectionError, ModelItemId, ModelList};
 #[doc(hidden)]
 pub use list::{ModelListEntries, ModelListHandle, ModelListOwned};
+pub use map::ModelMap;
+#[doc(hidden)]
+pub use map::{ModelMapHandle, ModelMapOwned};
 
 #[doc(hidden)]
 pub use identity::ModelRef;

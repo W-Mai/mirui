@@ -141,6 +141,9 @@ impl<M: Model> BindType for ModelListHandle<M> {
 }
 
 impl<M: Model> ModelListHandle<M> {
+    pub(in crate::core::model) fn observe_structure(&self) {
+        self.read_observed(0, |_| ());
+    }
     pub fn len(&self) -> usize {
         self.read_observed(0, ModelList::len)
     }

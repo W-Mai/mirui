@@ -11,7 +11,7 @@ pub use registered::{ModelListEntries, ModelListHandle, ModelListOwned};
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ModelItemId {
     collection: u64,
-    slot: usize,
+    pub(super) slot: usize,
     generation: u64,
 }
 
@@ -26,6 +26,7 @@ pub enum CollectionError {
     IdentityExhausted,
     UnpreparedShape,
     Iterating,
+    DuplicateKey,
 }
 
 fn next_collection_id() -> u64 {
@@ -99,6 +100,12 @@ impl<M: Model> ModelList<M> {
 
     pub fn len(&self) -> usize {
         self.entries.len()
+    }
+
+    pub(super) fn contains_slot(&self, slot: usize) -> bool {
+        self.slots
+            .get(slot)
+            .is_some_and(|slot| slot.position.is_some())
     }
 
     pub fn is_empty(&self) -> bool {
