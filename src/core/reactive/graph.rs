@@ -331,6 +331,23 @@ impl BitGraph {
         Ok(())
     }
 
+    fn renew_source(&mut self, id: SlotId) -> Result<SlotId, GraphError> {
+        if !self.source_is_live(id) {
+            return Err(GraphError::StaleSource);
+        }
+        self.row_mut(id.slot as usize).fill(0);
+        let node = &mut self.sources[id.slot as usize];
+        let Some(generation) = node.generation.checked_add(1) else {
+            node.live = false;
+            return Err(GraphError::IdentityExhausted);
+        };
+        node.generation = generation;
+        Ok(SlotId {
+            slot: id.slot,
+            generation,
+        })
+    }
+
     fn remove_consumer(&mut self, id: SlotId) -> Result<(), GraphError> {
         self.clear_consumer(id)?;
         let node = &mut self.consumers[id.slot as usize];
@@ -871,6 +888,17 @@ impl ReactiveGraph {
         let slot = owner.graph.add_source(owner.key)?;
         Ok(SourceKey {
             partition: owner.key,
+            slot,
+        })
+    }
+
+    pub fn renew_owner_source(&mut self, source: SourceKey) -> Result<SourceKey, GraphError> {
+        let owner = self
+            .owner_by_key_mut(source.partition)
+            .ok_or(GraphError::StaleSource)?;
+        let slot = owner.graph.renew_source(source.slot)?;
+        Ok(SourceKey {
+            partition: source.partition,
             slot,
         })
     }
@@ -1581,6 +1609,66 @@ pub(super) mod tests {
         graph.subscribe(current, consumer).unwrap();
         graph.publish(current).unwrap();
         assert_eq!(graph.take_pending(owner).unwrap().unwrap().0, consumer);
+    }
+
+    #[test]
+    fn owner_source_renewal_disconnects_edges_without_donating_capacity() {
+        let mut graph = ReactiveGraph::try_new(GraphCapacity::new(0, 0, 1, 1, 1)).unwrap();
+        let world = World::new();
+        let owner = graph.add_owner(world.id()).unwrap();
+        let source = graph.register_owner_source(world.id()).unwrap();
+        let consumer = graph
+            .register_consumer(owner, Subscriber::Widget(entity(0)))
+            .unwrap();
+        graph.subscribe(source, consumer).unwrap();
+        let mut renewed = None;
+        assert_eq!(
+            tracked_allocations(|| renewed = Some(graph.renew_owner_source(source).unwrap())),
+            0
+        );
+        let renewed = renewed.unwrap();
+        assert_eq!(source.slot.slot, renewed.slot.slot);
+        assert_ne!(source.slot.generation, renewed.slot.generation);
+        assert_eq!(graph.publish(source), Err(GraphError::StaleSource));
+        graph.publish(renewed).unwrap();
+        assert_eq!(graph.take_pending(owner).unwrap(), None);
+        assert!(matches!(
+            graph.register_owner_source(world.id()),
+            Err(GraphError::Full {
+                kind: CapacityKind::Sources,
+                ..
+            })
+        ));
+        graph.remove_source(renewed).unwrap();
+        assert!(graph.register_owner_source(world.id()).is_ok());
+    }
+
+    #[test]
+    fn exhausted_owner_source_is_disconnected_and_never_wraps() {
+        let mut graph = ReactiveGraph::try_new(GraphCapacity::new(0, 0, 1, 1, 1)).unwrap();
+        let world = World::new();
+        let owner = graph.add_owner(world.id()).unwrap();
+        let mut source = graph.register_owner_source(world.id()).unwrap();
+        graph.owner_by_key_mut(owner).unwrap().graph.sources[source.slot.slot as usize]
+            .generation = u32::MAX;
+        source.slot.generation = u32::MAX;
+        let consumer = graph
+            .register_consumer(owner, Subscriber::Widget(entity(0)))
+            .unwrap();
+        graph.subscribe(source, consumer).unwrap();
+        assert_eq!(
+            graph.renew_owner_source(source),
+            Err(GraphError::IdentityExhausted)
+        );
+        assert_eq!(graph.publish(source), Err(GraphError::StaleSource));
+        assert_eq!(graph.take_pending(owner).unwrap(), None);
+        assert!(matches!(
+            graph.register_owner_source(world.id()),
+            Err(GraphError::Full {
+                kind: CapacityKind::Sources,
+                ..
+            })
+        ));
     }
 
     #[test]

@@ -1155,6 +1155,14 @@ fn propagate(sub: OwnedSubscriber) {
 pub struct ModelSource {
     subscribers: RefCell<Vec<OwnedSubscriber>>,
     graph_source: Cell<Option<SourceKey>>,
+    lifecycle: Cell<ModelSourceLifecycle>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ModelSourceLifecycle {
+    Active,
+    Retired,
+    Exhausted,
 }
 
 /// One graph consumer owned by a View observation binding.
@@ -1181,15 +1189,21 @@ impl ModelSource {
         Self {
             subscribers: RefCell::new(Vec::new()),
             graph_source: Cell::new(None),
+            lifecycle: Cell::new(ModelSourceLifecycle::Active),
         }
     }
 
     pub(crate) fn register_owner(&self, owner: WorldId) {
+        assert!(
+            self.lifecycle.get() != ModelSourceLifecycle::Exhausted,
+            "model source identity is exhausted"
+        );
         if let Some(source) = self.graph_source.get() {
             assert!(
                 matches!(source.partition, PartitionKey::Owner { world, .. } if world == owner),
                 "model source is already registered to another App"
             );
+            self.lifecycle.set(ModelSourceLifecycle::Active);
             return;
         }
         register_graph_owner(owner);
@@ -1202,9 +1216,13 @@ impl ModelSource {
                 .expect("reactive model source registration failed")
         });
         self.graph_source.set(Some(source));
+        self.lifecycle.set(ModelSourceLifecycle::Active);
     }
 
     pub fn track(&self) {
+        if self.lifecycle.get() != ModelSourceLifecycle::Active {
+            return;
+        }
         let Some(subscriber) = current_scope() else {
             return;
         };
@@ -1234,6 +1252,10 @@ impl ModelSource {
     }
 
     fn subscribe_view(&self, world: WorldId, target: Subscriber) -> ModelViewSubscription {
+        assert!(
+            self.lifecycle.get() == ModelSourceLifecycle::Active,
+            "model source is retired"
+        );
         let source = self
             .graph_source
             .get()
@@ -1294,6 +1316,9 @@ impl ModelSource {
     }
 
     pub fn notify(&self) {
+        if self.lifecycle.get() != ModelSourceLifecycle::Active {
+            return;
+        }
         if let Some(source) = self.graph_source.get() {
             publish_graph_source(source);
         }
@@ -1310,8 +1335,12 @@ impl ModelSource {
         }
     }
     pub(crate) fn retire(&self) {
+        if self.lifecycle.get() != ModelSourceLifecycle::Active {
+            return;
+        }
+        self.lifecycle.set(ModelSourceLifecycle::Retired);
         self.invalidate_computeds();
-        let source = self.graph_source.take();
+        let source = self.graph_source.get();
         let remaining_visuals = {
             let mut subscribers = self.subscribers.borrow_mut();
             let visuals = subscribers
@@ -1324,7 +1353,14 @@ impl ModelSource {
         if remaining_visuals != 0 || source.is_some() {
             try_with_reactive(|r| {
                 if let Some(source) = source {
-                    let _ = r.graph.remove_source(source);
+                    match r.graph.renew_owner_source(source) {
+                        Ok(renewed) => self.graph_source.set(Some(renewed)),
+                        Err(graph::GraphError::IdentityExhausted) => {
+                            self.lifecycle.set(ModelSourceLifecycle::Exhausted)
+                        }
+                        Err(graph::GraphError::StaleSource) => {}
+                        Err(error) => panic!("model source retirement failed: {error:?}"),
+                    }
                 }
                 r.model_visual_subscriptions -= remaining_visuals;
             });
@@ -1335,6 +1371,11 @@ impl ModelSource {
 impl Drop for ModelSource {
     fn drop(&mut self) {
         self.retire();
+        if let Some(source) = self.graph_source.take() {
+            try_with_reactive(|r| {
+                let _ = r.graph.remove_source(source);
+            });
+        }
     }
 }
 
@@ -2888,9 +2929,46 @@ mod tests {
         source.notify();
         assert!(with_reactive(|r| r.dirty_visual_widgets.is_empty()));
         with_scope(Subscriber::VisualWidget(entity(2)), || source.track());
-        assert_eq!(with_reactive(|r| r.model_visual_subscriptions), 1);
+        assert_eq!(with_reactive(|r| r.model_visual_subscriptions), 0);
         drop(source);
         assert_eq!(with_reactive(|r| r.model_visual_subscriptions), 0);
+    }
+
+    #[test]
+    fn retired_model_source_keeps_its_reserved_slot_until_drop() {
+        reset();
+        let mut world = World::new();
+        drop(OwnerGuard::enter(&mut world));
+        let first = ModelSource::new();
+        first.register_owner(world.id());
+        let original = first.graph_source.get().unwrap();
+        first.retire();
+        let reserved = first.graph_source.get().unwrap();
+        first.retire();
+        assert_eq!(first.graph_source.get(), Some(reserved));
+        let second = ModelSource::new();
+        second.register_owner(world.id());
+        assert_ne!(
+            second.graph_source.get().unwrap().slot.slot,
+            original.slot.slot
+        );
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| first.register_owner(world.id())),
+            0
+        );
+        assert_eq!(first.graph_source.get(), Some(reserved));
+        drop(first);
+        let replacement = ModelSource::new();
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| replacement.register_owner(world.id())),
+            0
+        );
+        assert_eq!(
+            replacement.graph_source.get().unwrap().slot.slot,
+            original.slot.slot
+        );
+        assert!(with_reactive(|r| r.graph.publish(original)).is_err());
+        assert!(with_reactive(|r| r.graph.publish(reserved)).is_err());
     }
 
     #[test]
