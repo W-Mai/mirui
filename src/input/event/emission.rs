@@ -265,7 +265,12 @@ where
             }))?;
     pending
         .queue
-        .push_business(entity, payload, capacity)
+        .push_business(
+            entity,
+            crate::core::reactive::retained::InputLease::capture(world, entity),
+            payload,
+            capacity,
+        )
         .map_err(|(error, _payload)| storage_error(error))
 }
 

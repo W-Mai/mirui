@@ -719,11 +719,17 @@ impl EventListeners {
             |(world, before_dispatch)| before_dispatch(world),
             |(world, before_dispatch), notification| {
                 before_dispatch(world)?;
+                let input = notification.input_lease();
+                if input.is_some_and(|lease| !lease.valid(world)) {
+                    return Ok(());
+                }
                 let target = notification
                     .entity()
                     .map_or(ListenerTarget::App, ListenerTarget::Entity);
-                self.snapshot_borrowed(world, notification.borrowed_event(), target)?
-                    .run(world)?;
+                let mut snapshot =
+                    self.snapshot_borrowed(world, notification.borrowed_event(), target)?;
+                snapshot.input = input;
+                snapshot.run(world)?;
                 Ok(())
             },
         )

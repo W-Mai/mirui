@@ -44,6 +44,10 @@ pub(crate) struct InputLease {
 }
 
 impl InputLease {
+    pub(crate) fn target(self) -> Entity {
+        self.target
+    }
+
     pub(crate) fn capture(world: &World, target: Entity) -> Option<Self> {
         let mut entity = target;
         for _ in 0..=world.live_entity_count() {

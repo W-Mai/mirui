@@ -151,10 +151,12 @@ fn business_quotas_and_single_app_records_ignore_physical_slack_and_reuse_after_
     for _ in 0..2 {
         assert_eq!(
             tracked_allocations(|| {
-                queue.push_business(entity(), Value(1), business).unwrap();
+                queue
+                    .push_business(entity(), None, Value(1), business)
+                    .unwrap();
                 queue.push_app_notice(Started).unwrap();
                 assert!(matches!(
-                    queue.push_business(entity(), Value(2), business),
+                    queue.push_business(entity(), None, Value(2), business),
                     Err((NotificationError::RecordCapacity { available: 1 }, Value(2)))
                 ));
                 assert!(matches!(
@@ -181,7 +183,9 @@ fn business_quotas_and_single_app_records_ignore_physical_slack_and_reuse_after_
     );
     queue.push_app_notice(Resumed).unwrap();
     queue.clear().unwrap();
-    queue.push_business(entity(), Value(3), business).unwrap();
+    queue
+        .push_business(entity(), None, Value(3), business)
+        .unwrap();
     queue.push_app_notice(Started).unwrap();
     assert_eq!(flush(&queue, 2, |_| {}), Ok(2));
 }

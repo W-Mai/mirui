@@ -4,6 +4,7 @@ use core::cell::{Cell, RefCell};
 use core::mem::{self, size_of};
 use core::ptr::NonNull;
 
+use crate::core::reactive::retained::InputLease;
 use crate::ecs::Entity;
 use crate::ecs::payload::{PayloadArena, PayloadError, drop_stored};
 
@@ -78,9 +79,26 @@ impl<E> From<NotificationError> for NotificationFlushError<E> {
 }
 
 #[derive(Clone, Copy)]
+enum NotificationTarget {
+    App,
+    Entity(Entity),
+    Retained(InputLease),
+}
+
+impl NotificationTarget {
+    fn entity(self) -> Option<Entity> {
+        match self {
+            Self::App => None,
+            Self::Entity(entity) => Some(entity),
+            Self::Retained(lease) => Some(lease.target()),
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 struct NotificationRecord {
     kind: TypeId,
-    entity: Option<Entity>,
+    target: NotificationTarget,
     offset: usize,
     drop_payload: unsafe fn(*mut u8),
 }
@@ -105,7 +123,7 @@ impl NotificationBuffer {
 
     fn push<E: Event>(
         &mut self,
-        entity: Option<Entity>,
+        target: NotificationTarget,
         value: E,
         capacity: NotificationCapacity,
     ) -> Result<(), (NotificationError, E)> {
@@ -145,11 +163,11 @@ impl NotificationBuffer {
         };
         self.records.push(NotificationRecord {
             kind: TypeId::of::<E>(),
-            entity,
+            target,
             offset,
             drop_payload: drop_stored::<E>,
         });
-        self.entity_records += usize::from(entity.is_some());
+        self.entity_records += usize::from(target.entity().is_some());
         Ok(())
     }
 
@@ -198,7 +216,14 @@ impl Notification<'_> {
     }
 
     pub fn entity(&self) -> Option<Entity> {
-        self.record.entity
+        self.record.target.entity()
+    }
+
+    pub(crate) fn input_lease(&self) -> Option<InputLease> {
+        match self.record.target {
+            NotificationTarget::Retained(lease) => Some(lease),
+            _ => None,
+        }
     }
 
     pub fn payload<E: Event>(&self) -> Option<&E> {
@@ -291,19 +316,20 @@ impl NotificationQueue {
         entity: Entity,
         value: E,
     ) -> Result<(), (NotificationError, E)> {
-        self.push(Some(entity), value)
+        self.push(NotificationTarget::Entity(entity), value)
     }
 
     pub fn push_app<E: Event<Route = AppNotification>>(
         &self,
         value: E,
     ) -> Result<(), (NotificationError, E)> {
-        self.push(None, value)
+        self.push(NotificationTarget::App, value)
     }
 
     pub(crate) fn push_business<E: Event<Route = EntityNotification>>(
         &self,
         entity: Entity,
+        lease: Option<InputLease>,
         value: E,
         capacity: NotificationCapacity,
     ) -> Result<(), (NotificationError, E)> {
@@ -323,7 +349,11 @@ impl NotificationQueue {
             records: state.capacity.records,
             ..capacity
         };
-        state.write.push(Some(entity), value, capacity)
+        let target = lease.map_or(
+            NotificationTarget::Entity(entity),
+            NotificationTarget::Retained,
+        );
+        state.write.push(target, value, capacity)
     }
 
     pub(crate) fn push_app_notice<E: AppNotice>(
@@ -336,14 +366,14 @@ impl NotificationQueue {
         if self.app_notice_pending.get() {
             return Err((NotificationError::RecordCapacity { available: 1 }, value));
         }
-        self.push(None, value)?;
+        self.push(NotificationTarget::App, value)?;
         self.app_notice_pending.set(true);
         Ok(())
     }
 
     fn push<E: Event>(
         &self,
-        entity: Option<Entity>,
+        target: NotificationTarget,
         value: E,
     ) -> Result<(), (NotificationError, E)> {
         if self.phase.get() == QueuePhase::Discarding {
@@ -351,7 +381,7 @@ impl NotificationQueue {
         }
         let mut state = self.state.borrow_mut();
         let capacity = state.capacity;
-        state.write.push(entity, value, capacity)
+        state.write.push(target, value, capacity)
     }
 
     pub fn clear(&self) -> Result<(), NotificationError> {
