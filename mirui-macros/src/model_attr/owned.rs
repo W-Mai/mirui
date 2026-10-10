@@ -167,7 +167,7 @@ pub(super) fn expand(
     let writable_checks = fields.iter().map(|field| {
         let name = &field.name;
         let attrs = &field.cfg_attrs;
-        quote! { #(#attrs)* self.#name.assert_writable(); }
+        quote! { #(#attrs)* if !self.#name.is_writable() { return false; } }
     });
     let shape_checks = fields.iter().map(|field| {
         let name = &field.name;
@@ -263,7 +263,7 @@ pub(super) fn expand(
                 Self { #(#registrations)* __mirui_marker: ::core::marker::PhantomData }
             }
             fn begin(&self, __value: &#raw) { #(#begins)* }
-            fn assert_writable(&self) { #(#writable_checks)* }
+            fn is_writable(&self) -> bool { #(#writable_checks)* true }
             fn accepts(&self, __value: &#raw) -> bool { #(#shape_checks)* true }
             fn can_rebind(&self, __value: &#raw, __owner: ::mirui::core::model::BindingOwner) -> bool { #(#rebind_checks)* true }
             fn can_activate(&self, __value: &#raw, __owner: ::mirui::core::model::BindingOwner) -> bool { #(#activation_checks)* true }

@@ -15,7 +15,7 @@ pub trait ModelChildren<M: Model>: Sized {
         value: &mut Option<&mut M>,
     ) -> Self;
     fn begin(&self, value: &M);
-    fn assert_writable(&self);
+    fn is_writable(&self) -> bool;
     fn accepts(&self, value: &M) -> bool;
     fn can_rebind(&self, value: &M, owner: BindingOwner) -> bool;
     fn can_activate(&self, value: &M, owner: BindingOwner) -> bool;
@@ -38,7 +38,9 @@ impl<M: Model> ModelChildren<M> for () {
     ) {
     }
     fn begin(&self, _: &M) {}
-    fn assert_writable(&self) {}
+    fn is_writable(&self) -> bool {
+        true
+    }
     fn accepts(&self, _: &M) -> bool {
         true
     }
@@ -164,8 +166,8 @@ impl<M: Model> ChildNode<M> {
         self.metadata.begin(&storage.value);
     }
 
-    pub fn assert_writable(&self) {
-        self.metadata.children.assert_writable();
+    pub fn is_writable(&self) -> bool {
+        self.metadata.children.is_writable()
     }
 
     pub fn accepts(&self, value: &M) -> bool {

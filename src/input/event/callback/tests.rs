@@ -302,15 +302,16 @@ fn shared_capture_preparation_and_first_repeated_invocation_do_not_allocate() {
             captured.as_ref().unwrap().as_ref().unwrap().increment();
         })
     };
+    let callback = callback
+        .require_binding(&nested)
+        .require_binding(&missing)
+        .require_binding(&signal)
+        .require_binding(&computed);
     let mut prepared = None;
     assert_eq!(
         tracked_allocations(|| {
             prepared = Some(
                 callback
-                    .require_binding(&nested)
-                    .require_binding(&missing)
-                    .require_binding(&signal)
-                    .require_binding(&computed)
                     .prepare(&mut app.world, CommandCapacity::new())
                     .unwrap(),
             );
@@ -343,6 +344,119 @@ fn shared_capture_preparation_and_first_repeated_invocation_do_not_allocate() {
         0
     );
     assert_eq!(model.value(), 65);
+}
+
+#[test]
+fn retired_model_bindings_skip_plain_and_deferred_parameter_fetch() {
+    use crate::core::model::ModelList;
+
+    let mut app = crate::app::App::headless(32, 32);
+    let list = app.add_model(ModelList::from([Counter { value: 0 }]));
+    let (id, item) = list.entries().next().unwrap();
+    let target = app.world.spawn_empty();
+    const ACCESS: &[SystemAccess] = &[SystemAccess::read_resource::<Missing>()];
+    // SAFETY: ACCESS describes Params, and both callbacks declare their binding.
+    let plain = unsafe {
+        event_callback::<Changed, EntityContext<Widget>, (Res<Missing>,), ()>(
+            "retired",
+            ACCESS,
+            |_, _, _, _| panic!("retired callback executed"),
+        )
+    }
+    .require_binding(&Some(Some(item.clone())))
+    .prepare(&mut app.world, CommandCapacity::new())
+    .unwrap();
+    // SAFETY: ACCESS describes Params; the unavailable binding must be checked
+    // before either fetching the missing resource or executing the body.
+    let deferred = unsafe {
+        deferred_event_callback::<Changed, EntityContext<Widget>, (Res<Missing>,), ()>(
+            "retired deferred",
+            ACCESS,
+            |_, _, _, _, _| panic!("retired callback executed"),
+        )
+    }
+    .require_binding(&item)
+    .prepare(&mut app.world, CommandCapacity::new())
+    .unwrap();
+    list.remove(id).unwrap();
+    assert!(list.try_push(Counter { value: 9 }).is_ok());
+    assert_eq!(
+        tracked_allocations(|| {
+            for _ in 0..8 {
+                assert!(!ModelHandle::callback_ready(&item));
+                assert!(item.binding_owner().check(app.world.id()).is_err());
+            }
+        }),
+        0
+    );
+    for _ in 0..8 {
+        assert_eq!(plain.invoke(&mut app.world, &Changed(1), target), Ok(None));
+        assert_eq!(
+            deferred.invoke(&mut app.world, &Changed(1), target),
+            Ok(None)
+        );
+    }
+    assert_eq!(list.get(0).unwrap().value(), 9);
+}
+
+#[test]
+fn collection_lease_skips_collection_callback_but_allows_member_callback() {
+    use crate::core::model::ModelList;
+
+    let mut app = crate::app::App::headless(32, 32);
+    let list = app.add_model(ModelList::from([Counter { value: 0 }]));
+    let target = app.world.spawn_empty();
+    let captured = list.clone();
+    const ACCESS: &[SystemAccess] = &[SystemAccess::read_resource::<Missing>()];
+    // SAFETY: ACCESS describes Params and the collection binding is declared.
+    let collection = unsafe {
+        event_callback::<Changed, EntityContext<Widget>, (Res<Missing>,), ()>(
+            "collection",
+            ACCESS,
+            move |_, _, _, _| {
+                captured.clear().unwrap();
+            },
+        )
+    }
+    .require_binding(&list)
+    .prepare(&mut app.world, CommandCapacity::new())
+    .unwrap();
+    let item = list.get(0).unwrap();
+    let captured = item.clone();
+    // SAFETY: Params is empty and the member binding is declared.
+    let member = unsafe {
+        event_callback::<Changed, EntityContext<Widget>, (), ()>(
+            "member",
+            &[],
+            move |(), _, _, _| captured.increment(),
+        )
+    }
+    .require_binding(&item)
+    .prepare(&mut app.world, CommandCapacity::new())
+    .unwrap();
+    let lease = list.iter();
+    assert_eq!(
+        collection.invoke(&mut app.world, &Changed(1), target),
+        Ok(None)
+    );
+    assert_eq!(
+        tracked_allocations(|| {
+            assert!(!ModelHandle::callback_ready(&list));
+            assert_eq!(
+                member.invoke(&mut app.world, &Changed(1), target),
+                Ok(Some(()))
+            );
+        }),
+        0
+    );
+    assert_eq!(item.value(), 1);
+    drop(lease);
+    app.world.insert_resource(Missing);
+    assert_eq!(
+        collection.invoke(&mut app.world, &Changed(1), target),
+        Ok(Some(()))
+    );
+    assert!(list.is_empty());
 }
 
 #[test]

@@ -126,6 +126,9 @@ impl<M: Model> ModelHandle for ModelListHandle<M> {
     }
 }
 impl<M: Model> SharedValue for ModelListHandle<M> {
+    fn callback_ready(&self) -> bool {
+        ModelHandle::callback_ready(self)
+    }
     fn binding_owner(&self) -> BindingOwner {
         BindingOwner::registered(self)
     }
@@ -196,7 +199,7 @@ impl<M: Model> ModelListHandle<M> {
 
     fn available(&self) -> Result<(), CollectionError> {
         read_model(self, |_, metadata| {
-            if metadata.children().0.leases.get() == 0 {
+            if crate::core::model::ModelChildren::is_writable(metadata.children()) {
                 Ok(())
             } else {
                 Err(CollectionError::Iterating)

@@ -226,9 +226,9 @@ impl<M: Model> ModelChildren<ModelList<M>> for ListChildren<M> {
             self.0.node(entry.slot).begin(entry.value.storage());
         }
     }
-    fn assert_writable(&self) {
-        assert_eq!(self.0.leases.get(), 0, "model list is being iterated");
-        self.0.each_node(|node| node.assert_writable());
+    fn is_writable(&self) -> bool {
+        self.0.leases.get() == 0
+            && (0..self.0.nodes.borrow().len()).all(|index| self.0.node(index).is_writable())
     }
     fn accepts(&self, value: &ModelList<M>) -> bool {
         self.0.accepts(value)

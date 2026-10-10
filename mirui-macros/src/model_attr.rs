@@ -554,6 +554,9 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
         }
 
         impl #impl_generics ::mirui::core::model::SharedValue for #handle #type_generics #model_where {
+            fn callback_ready(&self) -> bool {
+                ::mirui::core::model::ModelHandle::callback_ready(self)
+            }
             fn binding_owner(&self) -> ::mirui::core::model::BindingOwner {
                 ::mirui::core::model::BindingOwner::registered(self)
             }

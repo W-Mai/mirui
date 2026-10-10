@@ -230,12 +230,21 @@ impl BindingOwner {
             OwnerState::Unbound | OwnerState::Bound(_) => Ok(()),
         }
     }
+
+    pub(crate) fn is_invalid(self) -> bool {
+        matches!(self.0, OwnerState::Invalid(_))
+    }
 }
 
 /// A cheap, instance-preserving value accepted by generated binding captures.
 pub trait SharedValue: Clone {
     #[doc(hidden)]
     fn binding_owner(&self) -> BindingOwner;
+
+    #[doc(hidden)]
+    fn callback_ready(&self) -> bool {
+        true
+    }
 
     #[doc(hidden)]
     fn assert_registered_owner(&self) {
@@ -268,6 +277,9 @@ impl<T: BindType> BindType for Option<T> {
 }
 
 impl<T: SharedValue> SharedValue for Option<T> {
+    fn callback_ready(&self) -> bool {
+        self.as_ref().is_none_or(SharedValue::callback_ready)
+    }
     fn binding_owner(&self) -> BindingOwner {
         self.as_ref()
             .map_or(BindingOwner::unbound(), SharedValue::binding_owner)
@@ -528,9 +540,10 @@ impl<M: Model> ModelRoot<M> {
             !self.poisoned.get(),
             "model was poisoned by a failed update"
         );
-        path.metadata(&self.metadata, |metadata| {
-            metadata.children.assert_writable()
-        });
+        assert!(
+            path.metadata(&self.metadata, |metadata| metadata.children.is_writable()),
+            "model list is being iterated"
+        );
         let mut value = self
             .value
             .try_borrow_mut()
@@ -566,6 +579,16 @@ pub trait ModelHandle: Clone {
 
     #[doc(hidden)]
     fn access(&self) -> &ModelRef<Self::Data>;
+
+    #[doc(hidden)]
+    fn callback_ready(&self) -> bool {
+        let Some(access) = self.access().upgrade() else {
+            return false;
+        };
+        let mut ready = false;
+        access.metadata(&mut |metadata| ready = metadata.children.is_writable());
+        ready
+    }
 
     #[doc(hidden)]
     fn child<F: ModelChildField<Self::Data>>(&self) -> <F::Child as Model>::Handle {

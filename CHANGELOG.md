@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Event callbacks revalidate declared Model bindings before parameter access. Removed collection members and active collection iteration conflicts skip the callback without running its body or applying commands.
 - View queries that only read their current entity invalidate local consumers instead of every instance of the same widget. Cross-entity reads and iteration retain descriptor-wide invalidation; font and text cache replacement still refresh all dependent Views.
 
 ## [0.48.0] - 2026-10-10

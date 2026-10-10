@@ -353,13 +353,13 @@ impl<E: Event> EventKey<E> {
         unsafe { deferred_event_callback::<E, C, P, R>(name, metadata, body) }
     }
 }
-type Run<E, C> = dyn Fn(&mut World, &E, <C as CallbackContext<E>>::Target) -> Decision<E>;
+type Run<E, C> = dyn Fn(&mut World, &E, <C as CallbackContext<E>>::Target) -> Option<Decision<E>>;
 type DeferredRun<E, C> = dyn for<'commands> Fn(
     &mut World,
     &E,
     <C as CallbackContext<E>>::Target,
     DeferredCommands<'commands>,
-) -> Decision<E>;
+) -> Option<Decision<E>>;
 
 enum CallbackRun<E: Event, C: CallbackContext<E>, D> {
     Plain(Rc<Run<E, C>>),
@@ -382,6 +382,8 @@ impl<E: Event, C: CallbackContext<E>, D: Clone> Clone for CallbackRun<E, C, D> {
 }
 
 /// Uninstalled callback description emitted by an event authoring macro.
+///
+/// Declared bindings are retained for invocation-time validation. Expired Model bindings and collection iteration conflicts warn and skip the callback before parameter access. Binding checks allocate during callback construction and reuse their storage during execution; ordinary opaque captures are not inspected.
 #[doc(hidden)]
 pub struct EventCallback<E: Event, C: CallbackContext<E>> {
     name: &'static str,
@@ -414,8 +416,45 @@ impl<E: Event, C: CallbackContext<E>> EventCallback<E, C> {
         matches!(self.run, CallbackRun::Deferred { .. })
     }
 
-    pub fn require_binding<T: SharedValue>(mut self, value: &T) -> Self {
+    pub fn require_binding<T: SharedValue + 'static>(mut self, value: &T) -> Self {
         self.owner = self.owner.merge(value.binding_owner());
+        if self.owner.is_invalid() {
+            return self;
+        }
+        let value = value.clone();
+        let name = self.name;
+        let ready = move |world: &World| {
+            if let Err(error) = value.binding_owner().check(world.id()) {
+                crate::warn!(target: "mirui::event", "callback {name} skipped: {error:?}");
+                false
+            } else if !value.callback_ready() {
+                crate::warn!(target: "mirui::event", "callback {name} skipped: model is being iterated");
+                false
+            } else {
+                true
+            }
+        };
+        self.run = match self.run {
+            CallbackRun::Plain(run) => {
+                CallbackRun::Plain(Rc::new(move |world, payload, target| {
+                    if ready(world) {
+                        run(world, payload, target)
+                    } else {
+                        None
+                    }
+                }))
+            }
+            CallbackRun::Deferred { run, commands } => CallbackRun::Deferred {
+                run: Rc::new(move |world, payload, target, commands| {
+                    if ready(world) {
+                        run(world, payload, target, commands)
+                    } else {
+                        None
+                    }
+                }),
+                commands,
+            },
+        };
         self
     }
 
@@ -497,13 +536,15 @@ impl<E: Event, C: CallbackContext<E>> PreparedEvent<E, C> {
                 let mut batch = queue.begin();
                 let decision = run(world, payload, target, batch.commands());
                 if let Err(error) = batch.finish(world) {
-                    E::Route::discard(world, decision);
+                    if let Some(decision) = decision {
+                        E::Route::discard(world, decision);
+                    }
                     return Err(error);
                 }
                 decision
             }
         };
-        Ok(Some(decision))
+        Ok(decision)
     }
 }
 
@@ -536,11 +577,11 @@ where
         run: CallbackRun::Plain(Rc::new(move |world, payload, target| {
             // SAFETY: prepare validated the complete immutable metadata before
             // this closure can run. The body cannot access World directly.
-            unsafe {
+            Some(unsafe {
                 E::Route::invoke::<R>(world, target, name, |params, scope| {
                     body(params, payload, target, scope)
                 })
-            }
+            })
         })),
     }
 }
@@ -581,11 +622,11 @@ where
                 // SAFETY: prepare validated the immutable complete access plan.
                 // These references are released when the body returns, before the
                 // executor commits any recorded structural changes.
-                unsafe {
+                Some(unsafe {
                     E::Route::invoke::<R>(world, target, name, |params, scope| {
                         body(params, payload, target, scope, commands)
                     })
-                }
+                })
             }),
         },
     }
