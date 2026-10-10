@@ -309,7 +309,7 @@ fn map_reconcile_preserves_effect_routes_and_observations_and_rejects_leases() {
     let calls = alloc::rc::Rc::new(core::cell::Cell::new(0));
     let count = calls.clone();
     let published = value.clone();
-    app.on_effect(&item, move |notice: MergeNotice| {
+    item.on_effect(move |notice: &MergeNotice| {
         assert_eq!(published.get(), notice.0);
         count.set(notice.0);
     })

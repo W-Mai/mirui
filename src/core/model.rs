@@ -81,7 +81,7 @@ pub enum EffectRegistrationError {
     AlreadyRegistered,
 }
 
-type EffectHandler<E> = Box<dyn Fn(E)>;
+type EffectHandler<E> = Box<dyn Fn(&E)>;
 
 /// One callback slot for one effect type on one model instance.
 #[doc(hidden)]
@@ -104,7 +104,7 @@ impl<E> EffectRoute<E> {
         }
     }
 
-    pub fn register(&self, handler: impl Fn(E) + 'static) -> Result<(), EffectRegistrationError> {
+    pub fn register(&self, handler: impl Fn(&E) + 'static) -> Result<(), EffectRegistrationError> {
         if self.active.get() || self.handler.borrow().is_some() {
             return Err(EffectRegistrationError::AlreadyRegistered);
         }
@@ -118,7 +118,7 @@ impl<E> EffectRoute<E> {
         drop(handler);
     }
 
-    pub fn deliver(&self, event: E) {
+    pub fn deliver(&self, event: &E) {
         assert!(
             !self.active.get(),
             "effect consumer cannot recursively deliver"
@@ -587,6 +587,22 @@ impl<M: Model> ModelRoot<M> {
 pub trait ModelHandle: Clone {
     type Data: Model<Handle = Self>;
 
+    /// Register one consumer for an effect type on this instance.
+    ///
+    /// Events are borrowed for the duration of the callback. Registration belongs to the Model, not to the composition that installs it. A second consumer for the same type is rejected.
+    fn on_effect<E>(&self, handler: impl Fn(&E) + 'static) -> Result<(), EffectRegistrationError>
+    where
+        Self::Data: Produces<E>,
+    {
+        let owner = registered_owner(self);
+        if let Some(active) = crate::core::reactive::current_world_id() {
+            assert_eq!(active, owner, "model belongs to a different App");
+        }
+        read_metadata(self, owner, |metadata| {
+            <Self::Data as Produces<E>>::route(&metadata.routes).register(handler)
+        })
+    }
+
     #[doc(hidden)]
     fn access(&self) -> &ModelRef<Self::Data>;
 
@@ -861,20 +877,6 @@ pub(crate) fn try_registered_owner<H: ModelHandle>(handle: &H) -> Option<WorldId
     }
 }
 
-pub(crate) fn register_effect<H, E>(
-    owner: WorldId,
-    handle: &H,
-    handler: impl Fn(E) + 'static,
-) -> Result<(), EffectRegistrationError>
-where
-    H: ModelHandle,
-    H::Data: Produces<E>,
-{
-    read_metadata(handle, owner, |metadata| {
-        <H::Data as Produces<E>>::route(&metadata.routes).register(handler)
-    })
-}
-
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::{
@@ -908,12 +910,12 @@ mod tests {
                 })
                 .unwrap();
             let result =
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| route.deliver(())));
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| route.deliver(&())));
             assert_eq!(result.is_err(), unwind);
-            route.deliver(());
+            route.deliver(&());
             assert_eq!(deliveries.get(), 1);
             route.retire();
-            route.deliver(());
+            route.deliver(&());
             assert_eq!(deliveries.get(), 1);
         }
     }

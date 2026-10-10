@@ -41,12 +41,13 @@ fn extraction_finishes_before_after_snapshots_and_replacement_detection() {
     });
     let child_calls = Rc::new(Cell::new(0));
     let recorded = Rc::clone(&child_calls);
-    app.on_effect(&child, move |_note: Note| recorded.set(recorded.get() + 1))
+    child
+        .on_effect(move |_note: &Note| recorded.set(recorded.get() + 1))
         .unwrap();
     let seen = Rc::new(Cell::new(None));
     let recorded = Rc::clone(&seen);
     let final_state = root.clone();
-    app.on_effect(&root, move |note: Note| {
+    root.on_effect(move |note: &Note| {
         recorded.set(Some((
             note.0,
             final_state.version(),

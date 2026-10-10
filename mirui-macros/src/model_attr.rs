@@ -20,6 +20,7 @@ struct EffectExtractor {
     name: syn::Ident,
     event: Type,
     array: Type,
+    single: bool,
     cfg_attrs: Vec<Attribute>,
 }
 
@@ -178,30 +179,34 @@ fn parse_options(attr: TokenStream) -> syn::Result<ModelOptions> {
     Ok(options)
 }
 
-fn effect_item_type(output: &syn::ReturnType) -> syn::Result<syn::Type> {
+fn effect_item_type(output: &syn::ReturnType) -> syn::Result<(syn::Type, bool)> {
     let syn::ReturnType::Type(_, result) = output else {
         return Err(syn::Error::new_spanned(
             output,
-            "#[effects] requires [Option<Event>; N]",
+            "#[effects] requires Option<Event> or [Option<Event>; N]",
         ));
     };
-    let syn::Type::Array(array) = &**result else {
-        return Err(syn::Error::new_spanned(
-            result,
-            "#[effects] requires [Option<Event>; N]",
-        ));
+    let (element, single) = match &**result {
+        syn::Type::Array(array) => (&*array.elem, false),
+        element => (element, true),
     };
-    let syn::Type::Path(option) = &*array.elem else {
+    let syn::Type::Path(option) = element else {
         return Err(syn::Error::new_spanned(
-            &array.elem,
-            "#[effects] requires Option<Event> elements",
+            element,
+            "#[effects] requires Option<Event> or [Option<Event>; N]",
         ));
     };
     let Some(segment) = option.path.segments.last() else {
-        return Err(syn::Error::new_spanned(option, "expected Option<Event>"));
+        return Err(syn::Error::new_spanned(
+            option,
+            "#[effects] requires Option<Event> or [Option<Event>; N]",
+        ));
     };
     if segment.ident != "Option" {
-        return Err(syn::Error::new_spanned(option, "expected Option<Event>"));
+        return Err(syn::Error::new_spanned(
+            option,
+            "#[effects] requires Option<Event> or [Option<Event>; N]",
+        ));
     }
     let syn::PathArguments::AngleBracketed(args) = &segment.arguments else {
         return Err(syn::Error::new_spanned(option, "expected Option<Event>"));
@@ -212,7 +217,7 @@ fn effect_item_type(output: &syn::ReturnType) -> syn::Result<syn::Type> {
     if args.args.len() != 1 {
         return Err(syn::Error::new_spanned(option, "expected Option<Event>"));
     }
-    Ok(event.clone())
+    Ok((event.clone(), single))
 }
 
 pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
@@ -545,6 +550,19 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
             }
         }
 
+        impl #impl_generics #handle #type_generics #model_where {
+            /// Register one borrowed effect consumer on this Model instance.
+            pub fn on_effect<__MiruiEffect>(
+                &self,
+                handler: impl ::core::ops::Fn(&__MiruiEffect) + 'static,
+            ) -> ::core::result::Result<(), ::mirui::core::model::EffectRegistrationError>
+            where
+                #name #type_generics: ::mirui::core::model::Produces<__MiruiEffect>,
+            {
+                ::mirui::core::model::ModelHandle::on_effect(self, handler)
+            }
+        }
+
         impl #impl_generics ::mirui::core::model::BindType for #name #type_generics #model_where {
             type Shared = #handle #type_generics;
         }
@@ -770,7 +788,8 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
                     "effect extractors require &mut self, no arguments, and no generics",
                 ));
             }
-            let event = methods::lower_type(&effect_item_type(&method.sig.output)?, self_type);
+            let (event, single) = effect_item_type(&method.sig.output)?;
+            let event = methods::lower_type(&event, self_type);
             if effects.iter().any(|existing: &EffectExtractor| {
                 let existing_event = &existing.event;
                 existing.cfg_attrs.len() == method_cfg_attrs.len()
@@ -788,10 +807,16 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             let syn::ReturnType::Type(_, array) = &method.sig.output else {
                 unreachable!();
             };
+            let array = if single {
+                parse_quote!([::core::option::Option<#event>; 1])
+            } else {
+                methods::lower_type(array, self_type)
+            };
             effects.push(EffectExtractor {
                 name: method.sig.ident.clone(),
                 event,
-                array: methods::lower_type(array, self_type),
+                array,
+                single,
                 cfg_attrs: method_cfg_attrs,
             });
             continue;
@@ -950,14 +975,19 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             quote! {
                 #(#attrs)*
                 for event in events.#name.into_iter().flatten() {
-                    routes.#name.deliver(event);
+                    routes.#name.deliver(&event);
                 }
             }
         });
         let take_fields = effects.iter().map(|effect| {
             let name = &effect.name;
             let attrs = &effect.cfg_attrs;
-            quote!(#(#attrs)* #name: self.#name(),)
+            let value = if effect.single {
+                quote!([self.#name()])
+            } else {
+                quote!(self.#name())
+            };
+            quote!(#(#attrs)* #name: #value,)
         });
         let route_values = effects.iter().map(|effect| {
             let name = &effect.name;
@@ -1504,13 +1534,32 @@ mod tests {
     }
 
     #[test]
+    fn optional_effect_uses_one_slot_and_the_same_borrowed_delivery() {
+        let expanded = expand(
+            quote!(),
+            quote! {
+                impl Player {
+                    #[effects]
+                    fn take_note(&mut self) -> core::option::Option<Note> { None }
+                }
+            },
+        )
+        .unwrap()
+        .to_string();
+        assert!(expanded.contains("take_note : [:: core :: option :: Option < Note > ; 1]"));
+        assert!(expanded.contains("take_note : [self . take_note ()]"));
+        assert!(expanded.contains("deliver (& event)"));
+        assert!(!expanded.contains("fn take_note (& self"));
+    }
+
+    #[test]
     fn rejects_duplicate_effect_types() {
         let error = expand(
             quote!(),
             quote! {
                 impl Player {
                     #[effects]
-                    fn first(&mut self) -> [Option<Note>; 2] { [None; 2] }
+                    fn first(&mut self) -> Option<Note> { None }
                     #[effects]
                     fn second(&mut self) -> [Option<Note>; 4] { [None; 4] }
                 }

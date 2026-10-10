@@ -198,19 +198,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         handle
     }
 
-    /// Register the consumer for one effect type produced by a model instance.
-    pub fn on_effect<H, E>(
-        &mut self,
-        model: &H,
-        handler: impl Fn(E) + 'static,
-    ) -> Result<(), crate::core::model::EffectRegistrationError>
-    where
-        H: crate::core::model::ModelHandle,
-        H::Data: crate::core::model::Produces<E>,
-    {
-        crate::core::model::register_effect(self.world.id(), model, handler)
-    }
-
     /// Override the bounded UI event preset before installing callbacks. Invalid changes log a warning and retain the installed configuration.
     ///
     /// Ordinary callbacks use [`EventCapacity::default`] automatically. Supply an explicit declaration for larger payloads, operation batches, or smaller limits; dispatch never expands these capacities.

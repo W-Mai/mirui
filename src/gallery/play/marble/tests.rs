@@ -14,10 +14,11 @@ fn registered_model_forwards_actions_observations_and_sound() {
     let model = app.add_model(MarbleModel::new());
     let sounds = Rc::new(Cell::new(0));
     let received = sounds.clone();
-    app.on_effect(&model, move |_sound: MarbleSound| {
-        received.set(received.get() + 1);
-    })
-    .unwrap();
+    model
+        .on_effect(move |_sound: &MarbleSound| {
+            received.set(received.get() + 1);
+        })
+        .unwrap();
 
     let visual = model.visual_revision();
     assert_eq!(model.bpm(), 96);

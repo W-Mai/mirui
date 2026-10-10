@@ -75,7 +75,7 @@ pub(super) fn submit_pad_sound(
 }
 
 #[cfg(feature = "audio")]
-pub(super) fn submit_sound(audio: &AudioHandle, sound: MarbleSound) {
+pub(super) fn submit_sound(audio: &AudioHandle, sound: &MarbleSound) {
     let MarbleSound::Pad {
         pitch,
         timbre,
@@ -83,7 +83,7 @@ pub(super) fn submit_sound(audio: &AudioHandle, sound: MarbleSound) {
         delay_ms,
         ..
     } = sound;
-    submit_pad_sound(audio, pitch, timbre, gain, delay_ms);
+    submit_pad_sound(audio, *pitch, *timbre, *gain, *delay_ms);
 }
 
 #[cfg(feature = "audio")]

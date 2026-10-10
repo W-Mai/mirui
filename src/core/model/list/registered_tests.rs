@@ -86,7 +86,7 @@ fn load_joins_parent_transactions_and_retires_members_without_reviving_routes() 
     let (id, old) = list.entries().next().unwrap();
     let notices = Rc::new(Cell::new(0));
     let count = notices.clone();
-    app.on_effect(&old, move |_: Notice| count.set(count.get() + 1))
+    old.on_effect(move |_: &Notice| count.set(count.get() + 1))
         .unwrap();
     list.load([Item::new(7), Item::new(8)]).unwrap();
     assert_eq!(total.get(), 15);
@@ -170,11 +170,12 @@ fn reconcile_keeps_member_subscriptions_and_effect_routes_in_the_parent_commit()
     let notices = Rc::new(Cell::new(0));
     let count = notices.clone();
     let published = total.clone();
-    app.on_effect(&first, move |notice: Notice| {
-        assert_eq!(published.get(), 30);
-        count.set(notice.0);
-    })
-    .unwrap();
+    first
+        .on_effect(move |notice: &Notice| {
+            assert_eq!(published.get(), 30);
+            count.set(notice.0);
+        })
+        .unwrap();
     list.reconcile(
         [Item::new(1), Item::new(2)],
         |item| item.value,
@@ -299,7 +300,7 @@ fn list_items_share_the_parent_transaction_and_distinct_observation_sources() {
     let delivered = Rc::new(Cell::new(0));
     let count = delivered.clone();
     let watched = total.clone();
-    app.on_effect(&item, move |notice: Notice| {
+    item.on_effect(move |notice: &Notice| {
         count.set(notice.0);
         assert_eq!(watched.get(), 4);
     })
@@ -333,7 +334,7 @@ fn retirement_invalidates_old_handles_and_reuses_only_prepared_capacity() {
     let (id, old) = list.entries().next().unwrap();
     let delivered = Rc::new(Cell::new(0));
     let count = delivered.clone();
-    app.on_effect(&old, move |_: Notice| count.set(count.get() + 1))
+    old.on_effect(move |_: &Notice| count.set(count.get() + 1))
         .unwrap();
     assert_eq!(
         tracked_allocations(|| {

@@ -69,15 +69,16 @@ fn child_owner_and_registration_lifetime_follow_the_parent() {
         }))
         .is_err()
     );
+    let root = foreign.spawn_root().id();
     assert!(
-        catch_unwind(AssertUnwindSafe(
-            || foreign.on_effect(&child, |_note: Note| {})
-        ))
+        catch_unwind(AssertUnwindSafe(|| {
+            foreign.compose(root, |_| child.on_effect(|_note: &Note| {}))
+        }))
         .is_err()
     );
     let captured = workspace.clone();
-    owner
-        .on_effect(&child, move |_note: Note| {
+    child
+        .on_effect(move |_note: &Note| {
             let _ = captured.total();
         })
         .unwrap();
@@ -106,10 +107,9 @@ fn owned_construction_and_warm_tree_operations_do_not_allocate() {
     });
     let count = Rc::new(Cell::new(0_u16));
     let delivered = Rc::clone(&count);
-    app.on_effect(&child, move |_note: Note| {
-        delivered.set(delivered.get() + 1)
-    })
-    .unwrap();
+    child
+        .on_effect(move |_note: &Note| delivered.set(delivered.get() + 1))
+        .unwrap();
     workspace.emit_reverse();
     flush_signal_dirty(&mut app.world);
     assert_eq!(

@@ -22,18 +22,19 @@ impl Trace {
 }
 
 macro_rules! record_route {
-    ($app:expr, $handle:expr, $root:expr, $trace:expr, $route:expr, $event:ident, $audit:expr) => {{
+    ($handle:expr, $root:expr, $trace:expr, $route:expr, $event:ident, $audit:expr) => {{
         let root = $root.clone();
         let trace = Rc::clone(&$trace);
-        $app.on_effect(&$handle, move |event: $event| {
-            trace.borrow_mut().record(Delivery {
-                route: $route,
-                audit: $audit,
-                value: event.0,
-                total: root.total(),
-            });
-        })
-        .unwrap();
+        ($handle)
+            .on_effect(move |event: &$event| {
+                trace.borrow_mut().record(Delivery {
+                    route: $route,
+                    audit: $audit,
+                    value: event.0,
+                    total: root.total(),
+                });
+            })
+            .unwrap();
     }};
 }
 
@@ -43,11 +44,11 @@ fn effects_read_final_tree_in_declared_depth_first_order() {
     let workspace = app.add_model(Workspace::new());
     let pair = workspace.pair();
     let trace = Rc::new(RefCell::new(Trace::default()));
-    record_route!(app, workspace, workspace, trace, 0, Note, false);
-    record_route!(app, pair, workspace, trace, 1, Note, false);
+    record_route!(workspace, workspace, trace, 0, Note, false);
+    record_route!(pair, workspace, trace, 1, Note, false);
     for (route, child) in [(2, pair.left()), (3, pair.right()), (4, workspace.spare())] {
-        record_route!(app, child, workspace, trace, route, Note, false);
-        record_route!(app, child, workspace, trace, route, Audit, true);
+        record_route!(child, workspace, trace, route, Note, false);
+        record_route!(child, workspace, trace, route, Audit, true);
     }
 
     assert_eq!(tracked_allocations(|| workspace.emit_reverse()), 0);
@@ -91,8 +92,8 @@ fn external_error_keeps_data_without_notifying_or_replaying_effects() {
         let _ = read.total();
     });
     let trace = Rc::new(RefCell::new(Trace::default()));
-    record_route!(app, left, workspace, trace, 0, Note, false);
-    record_route!(app, right, workspace, trace, 1, Note, false);
+    record_route!(left, workspace, trace, 0, Note, false);
+    record_route!(right, workspace, trace, 1, Note, false);
 
     assert_eq!(pair.reject_after_success(), Err(Rejected));
     flush_signal_dirty(&mut app.world);
@@ -132,8 +133,8 @@ fn handled_inner_errors_use_outer_result_without_independent_savepoints() {
     let left = pair.left();
     let right = pair.right();
     let trace = Rc::new(RefCell::new(Trace::default()));
-    record_route!(app, left, workspace, trace, 0, Note, false);
-    record_route!(app, right, workspace, trace, 1, Note, false);
+    record_route!(left, workspace, trace, 0, Note, false);
+    record_route!(right, workspace, trace, 1, Note, false);
     assert_eq!(pair.handle_child_error(), Ok(ParentChange::None));
     assert_eq!(
         (
@@ -167,8 +168,8 @@ fn reset_discards_replaced_effects_and_swap_routes_moved_data_at_final_field() {
     let left = pair.left();
     let right = pair.right();
     let trace = Rc::new(RefCell::new(Trace::default()));
-    record_route!(app, left, workspace, trace, 0, Note, false);
-    record_route!(app, right, workspace, trace, 1, Note, false);
+    record_route!(left, workspace, trace, 0, Note, false);
+    record_route!(right, workspace, trace, 1, Note, false);
     pair.replace_pending();
     assert_eq!(left.value(), 1);
     assert_eq!(trace.borrow().len, 0);
@@ -213,7 +214,7 @@ fn effect_consumers_can_read_the_tree_but_cannot_reenter_writes() {
     let workspace = app.add_model(Workspace::new());
     let left = workspace.pair().left();
     let root = workspace.clone();
-    app.on_effect(&left, move |_note: Note| {
+    left.on_effect(move |_note: &Note| {
         assert_eq!(root.total(), 112);
         root.spare().add(1);
     })

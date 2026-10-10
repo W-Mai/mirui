@@ -213,10 +213,11 @@ fn rejected_update_does_not_publish_or_leak_effects() {
     });
     let accepted_total = Rc::new(Cell::new(0));
     let recorded = Rc::clone(&accepted_total);
-    app.on_effect(&model, move |value: AcceptedValue| {
-        recorded.set(recorded.get() + value.0);
-    })
-    .unwrap();
+    model
+        .on_effect(move |value: &AcceptedValue| {
+            recorded.set(recorded.get() + value.0);
+        })
+        .unwrap();
 
     assert_eq!(
         model.reject_with_pending_effect(),

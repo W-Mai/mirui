@@ -185,22 +185,22 @@ increments `model.visual_revision()` and notifies its readers. A result with
 no matching mask still publishes changed `#[observe]` values. The change type
 must provide `contains(mask)`; each named mask is checked independently.
 
-Fixed-size effect arrays can be drained after a model method completes:
+Declare an effect extractor in the marked Model impl. Return `Option<E>` for at most one event or `[Option<E>; N]` for a bounded batch:
 
 ```rust
 #[effects]
-fn take_notes(&mut self) -> [Option<Note>; 4] {
-    core::mem::take(&mut self.notes)
+fn take_note(&mut self) -> Option<Note> {
+    self.pending_note.take()
 }
 
-app.on_effect(&player, move |note: Note| play_note(note))?;
+player.on_effect(move |note: &Note| play_note(note.pitch))?;
 ```
 
-The extractor lives in the marked model impl and is not exposed as a handle
-method. One consumer may be registered per effect type and model instance.
-Events are drained even when no consumer is installed; delivery runs after
-the model borrow is released. Consumers can read committed model state, but
-cannot start another model write transaction during delivery.
+Application code calls business methods; the framework calls the extractor at the end of the outer Model transaction. Extractors are not exposed on the registered instance. Each `Some(event)` is delivered separately to its registered consumer; `None` is skipped. A single optional event uses the same delivery path as a batch of capacity one.
+
+`model.on_effect(handler)` installs one consumer per effect type and Model instance. A duplicate registration returns `AlreadyRegistered`; it does not append or replace a handler. Registration belongs to the Model rather than the composition that installs it. Events are drained even without a consumer. Delivery occurs after state publication and release of the Model data borrow; consumers can read committed state but cannot start another Model write transaction.
+
+The callback borrows each event only for its invocation. Events do not require `Copy` or `Clone`; retaining owned event data for later use requires an explicit application copy. Extractors must move their pending events out of the Model, for example with `Option::take` or `core::mem::take`, to avoid delivering the same business event again.
 
 ### Owned child models
 
@@ -1286,8 +1286,7 @@ separately when targeting a bounded-memory device.
   cannot write models.
 - **Effect ownership**: an effect created outside an App remains worldless until it first reads a registered model, then belongs to that model's App. It cannot read models from two Apps. While unbound, it has no structural World access, including during the run that first binds it; later runs use the bound App's internal execution window. Ordinary author code cannot obtain that World through `core::reactive`; generated tree updates use the hidden macro support boundary.
 - **Structural World access**: the internal ambient window is paired with its actual World identity. An owner-only composition scope cannot inherit another World's window; leaving that scope restores owner context without recreating an ended structural window. Generated reactive tree updates use explicit matching windows and retain the existing mutable-borrow checks.
-- **Effect delivery**: `#[effects]` extractors return fixed arrays of optional
-  events. Consumers cannot start another model write during delivery.
+- **Effect delivery**: `#[effects]` extractors return `Option<E>` or `[Option<E>; N]`. Instance consumers registered with `model.on_effect` borrow each present event and cannot start another model write during delivery.
 - **Reactive `if` branches**: every branch body is constructed once when
   its parent is composed, even when initially hidden. Multiple top-level
   widgets keep their component state and source order across selections.

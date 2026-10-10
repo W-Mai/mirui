@@ -52,11 +52,12 @@ mod tests {
 
         let pulses = Rc::new(Cell::new(0));
         let recorded = Rc::clone(&pulses);
-        app.on_effect(&meter, move |pulse: Pulse| {
-            assert_eq!(pulse.0, 1);
-            recorded.set(recorded.get() + 1);
-        })
-        .unwrap();
+        meter
+            .on_effect(move |pulse: &Pulse| {
+                assert_eq!(pulse.0, 1);
+                recorded.set(recorded.get() + 1);
+            })
+            .unwrap();
         assert!(matches!(shared.set_checked(3), Err(MeterError::Unchanged)));
         assert_eq!(meter.value(), 3);
         assert_eq!(meter.visual_revision(), 0);

@@ -63,12 +63,13 @@ where
     #[cfg(feature = "audio")]
     {
         let audio = app.audio();
-        app.on_effect(&model, move |sound: MarbleSound| {
-            if let Some(audio) = &audio {
-                audio::submit_sound(audio, sound);
-            }
-        })
-        .expect("Marble sound consumer is registered once");
+        model
+            .on_effect(move |sound: &MarbleSound| {
+                if let Some(audio) = &audio {
+                    audio::submit_sound(audio, sound);
+                }
+            })
+            .expect("Marble sound consumer is registered once");
     }
     app.add_system(marble_tick_system::system(model.clone()));
     #[cfg(feature = "audio")]

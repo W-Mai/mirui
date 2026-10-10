@@ -106,20 +106,20 @@ fn child_sources_publish_before_any_effect_and_extractor_writes_are_observed() {
         let total = total.clone();
         let left = left.clone();
         let order = order.clone();
-        let consumer = move |notice: Notice| {
+        let consumer = move |notice: &Notice| {
             assert_eq!(total.get(), source.total());
             assert_eq!(left.get(), source.left().value());
             order.set(order.get() * 10 + u32::from(notice.0));
         };
         if node == 0 {
-            app.on_effect(&model, consumer).unwrap();
+            model.on_effect(consumer).unwrap();
         } else {
             let child = if node == 1 {
                 model.left()
             } else {
                 model.right()
             };
-            app.on_effect(&child, consumer).unwrap();
+            child.on_effect(consumer).unwrap();
         }
     }
 
@@ -219,10 +219,11 @@ fn path_values_select_data_observations_and_effect_routes_without_hot_allocation
     let right_value = with_world_scope(&mut world, || Computed::new(move || tracked.value()));
     let delivered = Rc::new(Cell::new(0));
     let counter = delivered.clone();
-    super::super::register_effect(world.id(), &right, move |notice: Notice| {
-        counter.set(counter.get() + u16::from(notice.0));
-    })
-    .unwrap();
+    right
+        .on_effect(move |notice: &Notice| {
+            counter.set(counter.get() + u16::from(notice.0));
+        })
+        .unwrap();
     assert_eq!((left.value(), right_value.get()), (1, 10));
     assert_eq!(
         tracked_allocations(|| {
@@ -254,7 +255,8 @@ fn rejected_updates_clear_child_events_and_pending_without_publication() {
     let total = with_world_scope(&mut app.world, || Computed::new(move || observed.total()));
     let delivered = Rc::new(Cell::new(0));
     let count = delivered.clone();
-    app.on_effect(&model, move |_: Notice| count.set(count.get() + 1))
+    model
+        .on_effect(move |_: &Notice| count.set(count.get() + 1))
         .unwrap();
     assert_eq!(total.get(), 11);
     let result = model.try_update(|value| {
@@ -292,16 +294,20 @@ fn interrupted_effect_delivery_discards_all_retained_transaction_state() {
     let mut app = crate::app::App::headless(32, 32);
     let model = app.add_model(Pair::new());
     let panic_once = Cell::new(true);
-    app.on_effect(&model.left(), move |_: Notice| {
-        assert!(!panic_once.replace(false), "consumer interrupted");
-    })
-    .unwrap();
+    model
+        .left()
+        .on_effect(move |_: &Notice| {
+            assert!(!panic_once.replace(false), "consumer interrupted");
+        })
+        .unwrap();
     let delivered = Rc::new(Cell::new(0));
     let counter = delivered.clone();
-    app.on_effect(&model.right(), move |notice: Notice| {
-        counter.set(counter.get() + u16::from(notice.0));
-    })
-    .unwrap();
+    model
+        .right()
+        .on_effect(move |notice: &Notice| {
+            counter.set(counter.get() + u16::from(notice.0));
+        })
+        .unwrap();
 
     let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| model.change()));
     assert!(interrupted.is_err());
@@ -366,7 +372,7 @@ fn initial_binding_discards_pending_without_extracting_or_publishing() {
     assert!(model.read(|value| value.left.storage().identity.is_some()));
     let delivered = Rc::new(Cell::new(0));
     let count = delivered.clone();
-    app.on_effect(&left, move |notice: Notice| count.set(notice.0))
+    left.on_effect(move |notice: &Notice| count.set(notice.0))
         .unwrap();
     model.update(|_| {});
     assert_eq!(left.value_revision(), 0);
@@ -448,9 +454,7 @@ fn registration_retirement_disconnects_the_complete_retained_tree() {
 
 #[test]
 fn stale_incarnations_reject_every_facade_entry_before_accessing_a_reused_path() {
-    use crate::core::model::{
-        BindingOwner, ModelInvalidation, ModelOwnerError, register, register_effect,
-    };
+    use crate::core::model::{BindingOwner, ModelInvalidation, ModelOwnerError, register};
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     let mut world = crate::ecs::World::new();
@@ -461,10 +465,8 @@ fn stale_incarnations_reject_every_facade_entry_before_accessing_a_reused_path()
     let node = &registration.root.metadata.children.left;
     let old_deliveries = Rc::new(Cell::new(0));
     let counter = old_deliveries.clone();
-    register_effect(world.id(), &old, move |_: Notice| {
-        counter.set(counter.get() + 1)
-    })
-    .unwrap();
+    old.on_effect(move |_: &Notice| counter.set(counter.get() + 1))
+        .unwrap();
     let mut staged = Leaf::new(1);
     node.metadata.begin(&staged);
     staged.change(1, 4);
@@ -503,19 +505,13 @@ fn stale_incarnations_reject_every_facade_entry_before_accessing_a_reused_path()
         }))
         .is_err()
     );
-    assert!(
-        catch_unwind(AssertUnwindSafe(|| {
-            register_effect(world.id(), &old, |_: Notice| {})
-        }))
-        .is_err()
-    );
+    assert!(catch_unwind(AssertUnwindSafe(|| { old.on_effect(|_: &Notice| {}) })).is_err());
     assert_eq!(replacement.value(), 1);
     let new_deliveries = Rc::new(Cell::new(0));
     let counter = new_deliveries.clone();
-    register_effect(world.id(), &replacement, move |_: Notice| {
-        counter.set(counter.get() + 1)
-    })
-    .unwrap();
+    replacement
+        .on_effect(move |_: &Notice| counter.set(counter.get() + 1))
+        .unwrap();
     replacement.change(1, 9);
     assert_eq!(old_deliveries.get(), 0);
     assert_eq!(new_deliveries.get(), 1);

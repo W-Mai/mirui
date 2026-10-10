@@ -868,16 +868,18 @@ fn typed_effects_are_drained_once_after_model_borrow_is_released() {
     let audit_total = Rc::new(Cell::new(0));
     let note_total_in_handler = note_total.clone();
     let observed = model.clone();
-    app.on_effect(&model, move |note: Note| {
-        assert_eq!(observed.count(), note.0);
-        note_total_in_handler.set(note_total_in_handler.get() + note.0);
-    })
-    .unwrap();
+    model
+        .on_effect(move |note: &Note| {
+            assert_eq!(observed.count(), note.0);
+            note_total_in_handler.set(note_total_in_handler.get() + note.0);
+        })
+        .unwrap();
     let audit_total_in_handler = audit_total.clone();
-    app.on_effect(&model, move |audit: Audit| {
-        audit_total_in_handler.set(audit_total_in_handler.get() + audit.0);
-    })
-    .unwrap();
+    model
+        .on_effect(move |audit: &Audit| {
+            audit_total_in_handler.set(audit_total_in_handler.get() + audit.0);
+        })
+        .unwrap();
     assert_eq!(note_total.get(), 0);
     assert_eq!(audit_total.get(), 0);
 
@@ -888,7 +890,7 @@ fn typed_effects_are_drained_once_after_model_borrow_is_released() {
     assert_eq!(note_total.get(), 5);
     assert_eq!(audit_total.get(), 5);
     assert_eq!(
-        app.on_effect(&model, |_note: Note| {}),
+        model.on_effect(|_note: &Note| {}),
         Err(mirui::core::model::EffectRegistrationError::AlreadyRegistered)
     );
 }
@@ -903,10 +905,11 @@ fn registered_effect_delivery_does_not_allocate_per_command() {
     });
     let total = Rc::new(Cell::new(0));
     let in_handler = total.clone();
-    app.on_effect(&model, move |note: Note| {
-        in_handler.set(in_handler.get() + note.0);
-    })
-    .unwrap();
+    model
+        .on_effect(move |note: &Note| {
+            in_handler.set(in_handler.get() + note.0);
+        })
+        .unwrap();
     model.emit(1);
     assert_eq!(tracked_allocations(|| model.emit(2)), 0);
     assert_eq!(total.get(), 3);
@@ -923,15 +926,17 @@ fn first_registered_effect_delivery_does_not_allocate() {
     let note_total = Rc::new(Cell::new(0));
     let audit_total = Rc::new(Cell::new(0));
     let notes = note_total.clone();
-    app.on_effect(&model, move |note: Note| {
-        notes.set(notes.get() + note.0);
-    })
-    .unwrap();
+    model
+        .on_effect(move |note: &Note| {
+            notes.set(notes.get() + note.0);
+        })
+        .unwrap();
     let audits = audit_total.clone();
-    app.on_effect(&model, move |audit: Audit| {
-        audits.set(audits.get() + audit.0);
-    })
-    .unwrap();
+    model
+        .on_effect(move |audit: &Audit| {
+            audits.set(audits.get() + audit.0);
+        })
+        .unwrap();
 
     assert_eq!(
         tracked_allocations(|| {
@@ -956,12 +961,13 @@ fn effect_callback_failure_does_not_poison_committed_model() {
     });
     let panic_once = Rc::new(Cell::new(true));
     let panic_in_handler = panic_once.clone();
-    app.on_effect(&model, move |_note: Note| {
-        if panic_in_handler.replace(false) {
-            panic!("effect callback failed");
-        }
-    })
-    .unwrap();
+    model
+        .on_effect(move |_note: &Note| {
+            if panic_in_handler.replace(false) {
+                panic!("effect callback failed");
+            }
+        })
+        .unwrap();
 
     let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| model.emit(1)));
     assert!(failure.is_err());
@@ -986,15 +992,17 @@ fn effect_consumers_are_bound_to_model_instances() {
     let first_total = Rc::new(Cell::new(0));
     let second_total = Rc::new(Cell::new(0));
     let first_in_handler = first_total.clone();
-    app.on_effect(&first, move |note: Note| {
-        first_in_handler.set(first_in_handler.get() + note.0);
-    })
-    .unwrap();
+    first
+        .on_effect(move |note: &Note| {
+            first_in_handler.set(first_in_handler.get() + note.0);
+        })
+        .unwrap();
     let second_in_handler = second_total.clone();
-    app.on_effect(&second, move |note: Note| {
-        second_in_handler.set(second_in_handler.get() + note.0);
-    })
-    .unwrap();
+    second
+        .on_effect(move |note: &Note| {
+            second_in_handler.set(second_in_handler.get() + note.0);
+        })
+        .unwrap();
 
     first.emit(3);
     second.emit(7);
@@ -1010,7 +1018,8 @@ fn effect_consumer_cannot_start_a_model_write_transaction() {
         audits: [None; 1],
     });
     let feedback = model.clone();
-    app.on_effect(&model, move |_note: Note| feedback.emit(99))
+    model
+        .on_effect(move |_note: &Note| feedback.emit(99))
         .unwrap();
     let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| model.emit(1)));
     assert!(failure.is_err());
@@ -1030,10 +1039,11 @@ fn effect_consumer_capture_does_not_keep_registration_alive() {
             audits: [None; 1],
         });
         let captured = model.clone();
-        app.on_effect(&model, move |_note: Note| {
-            let _ = captured.count();
-        })
-        .unwrap();
+        model
+            .on_effect(move |_note: &Note| {
+                let _ = captured.count();
+            })
+            .unwrap();
         model
     };
     let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| handle.count()));
@@ -1049,8 +1059,9 @@ fn effect_consumer_registration_rejects_another_app() {
         audits: [None; 1],
     });
     let mut other = App::headless(32, 32);
+    let root = other.spawn_root().id();
     let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        other.on_effect(&model, |_note: Note| {})
+        other.compose(root, |_| model.on_effect(|_note: &Note| {}))
     }));
     assert!(failure.is_err());
     assert_eq!(model.count(), 0);
