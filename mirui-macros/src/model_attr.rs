@@ -933,6 +933,7 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
     });
     let event_batch = format_ident!("{}EffectBatch", name);
     let route_store = format_ident!("{}EffectRoutes", name);
+    let item_route_store = format_ident!("{}ItemEffectRoutes", name);
     let effect_storage = if effects.is_empty() {
         quote!()
     } else {
@@ -948,6 +949,12 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             let attrs = &effect.cfg_attrs;
             quote!(#(#attrs)* #name: ::mirui::core::model::EffectRoute<#event>,)
         });
+        let item_route_fields = effects.iter().map(|effect| {
+            let name = &effect.name;
+            let event = &effect.event;
+            let attrs = &effect.cfg_attrs;
+            quote!(#(#attrs)* #name: ::mirui::core::model::EffectRoute<::mirui::core::model::ModelItemEffect<#event>>,)
+        });
         quote! {
             pub struct #event_batch #generics #impl_where {
                 #(#event_fields)*
@@ -958,15 +965,30 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
                 #(#route_fields)*
                 __mirui_marker: ::core::marker::PhantomData<#self_type>,
             }
+
+            pub struct #item_route_store #generics #impl_where {
+                #(#item_route_fields)*
+                __mirui_marker: ::core::marker::PhantomData<#self_type>,
+            }
         }
     };
-    let (events_type, routes_type, take_body, routes_body, deliver_body) = if effects.is_empty() {
+    let (
+        events_type,
+        routes_type,
+        item_routes_type,
+        take_body,
+        routes_body,
+        item_routes_body,
+        deliver_body,
+    ) = if effects.is_empty() {
         (
             quote!(()),
             quote!(()),
+            quote!(()),
             quote!(),
             quote!(),
-            quote!(let _ = (routes, events);),
+            quote!(),
+            quote!(let _ = (routes, events, item);),
         )
     } else {
         let dispatches = effects.iter().map(|effect| {
@@ -975,7 +997,13 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             quote! {
                 #(#attrs)*
                 for event in events.#name.into_iter().flatten() {
-                    routes.#name.deliver(&event);
+                    if let ::core::option::Option::Some((id, item_routes)) = item {
+                        let effect = ::mirui::core::model::ModelItemEffect { id, event };
+                        routes.#name.deliver(&effect.event);
+                        item_routes.#name.deliver(&effect);
+                    } else {
+                        routes.#name.deliver(&event);
+                    }
                 }
             }
         });
@@ -995,9 +1023,15 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             let attrs = &effect.cfg_attrs;
             quote!(#(#attrs)* #name: ::mirui::core::model::EffectRoute::<#event>::new(),)
         });
+        let item_route_values = effects.iter().map(|effect| {
+            let name = &effect.name;
+            let attrs = &effect.cfg_attrs;
+            quote!(#(#attrs)* #name: ::mirui::core::model::EffectRoute::new(),)
+        });
         (
             quote!(#event_batch #type_args),
             quote!(#route_store #type_args),
+            quote!(#item_route_store #type_args),
             quote!(#event_batch {
                 #(#take_fields)*
                 __mirui_marker: ::core::marker::PhantomData,
@@ -1006,14 +1040,21 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
                 #(#route_values)*
                 __mirui_marker: ::core::marker::PhantomData,
             }),
+            quote!(#item_route_store {
+                #(#item_route_values)*
+                __mirui_marker: ::core::marker::PhantomData,
+            }),
             quote!(#(#dispatches)*),
         )
     };
-    let retire_routes = effects.iter().map(|effect| {
-        let name = &effect.name;
-        let attrs = &effect.cfg_attrs;
-        quote!(#(#attrs)* routes.#name.retire();)
-    });
+    let retire_routes: Vec<_> = effects
+        .iter()
+        .map(|effect| {
+            let name = &effect.name;
+            let attrs = &effect.cfg_attrs;
+            quote!(#(#attrs)* routes.#name.retire();)
+        })
+        .collect();
     let effect_traits = effects.iter().map(|effect| {
         let event = &effect.event;
         let name = &effect.name;
@@ -1023,7 +1064,16 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             impl #derived_impl_generics ::mirui::core::model::Produces<#event>
                 for #self_type #derived_where
             {
-                fn route(routes: &Self::Routes) -> &::mirui::core::model::EffectRoute<#event> {
+                fn route(metadata: &::mirui::core::model::ModelMetadata<Self>) -> &::mirui::core::model::EffectRoute<#event> {
+                    &metadata.routes().#name
+                }
+            }
+
+            #(#attrs)*
+            impl #derived_impl_generics ::mirui::core::model::ItemEffectSource<#event>
+                for #self_type #derived_where
+            {
+                fn item_route(routes: &Self::ItemRoutes) -> &::mirui::core::model::EffectRoute<::mirui::core::model::ModelItemEffect<#event>> {
                     &routes.#name
                 }
             }
@@ -1040,6 +1090,7 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             type DerivedSources = [::mirui::core::reactive::ModelSource; #source_count];
             type Events = #events_type;
             type Routes = #routes_type;
+            type ItemRoutes = #item_routes_type;
 
             fn derived_snapshot(&self) -> Self::DerivedSnapshot {
                 #snapshot_value
@@ -1070,7 +1121,20 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
                 #(#retire_routes)*
             }
 
-            fn deliver_events(routes: &Self::Routes, events: Self::Events) {
+            fn item_routes() -> Self::ItemRoutes {
+                #item_routes_body
+            }
+
+            fn retire_item_routes(routes: &Self::ItemRoutes) {
+                let _ = routes;
+                #(#retire_routes)*
+            }
+
+            fn deliver_events(
+                routes: &Self::Routes,
+                events: Self::Events,
+                item: ::core::option::Option<(::mirui::core::model::ModelItemId, &Self::ItemRoutes)>,
+            ) {
                 #deliver_body
             }
         }
@@ -1296,11 +1360,16 @@ mod tests {
             assert!(text.contains("super :: Counter < T >"));
             assert!(text.contains("feature = \"extra\""));
         }
-        assert_eq!(storage_count, 3);
+        assert_eq!(storage_count, 4);
         assert!(
             expanded
                 .to_string()
                 .contains("Produces < super :: Counter < T > >")
+        );
+        assert!(
+            expanded
+                .to_string()
+                .contains("ItemEffectSource < super :: Counter < T > >")
         );
     }
 

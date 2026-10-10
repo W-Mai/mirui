@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Model lists and maps aggregate direct member effects through `on_effect`, carrying stable item IDs and borrowing the same payload after individual delivery. Collection consumers persist across member removal, loading, reconciliation, and owned-field replacement.
 - Model effect extractors accept `Option<E>` for a single optional event as well as fixed-capacity arrays.
 - State Todo uses a Model collection with task insertion, keyed reordering, completion icons, completed-task removal, and a derived remaining count.
 - Model sets load and reconcile owned values with duplicate-aware limits and recoverable input. Reconciliation retains equal stored values and publishes only membership changes.

@@ -23,6 +23,7 @@ pub(super) struct ListState<M: Model> {
     pub(super) revision: Cell<u64>,
     pub(super) active: Cell<bool>,
     pub(super) leases: Cell<usize>,
+    pub(super) routes: M::ItemRoutes,
     nodes: RefCell<Vec<NodeSlot<M>>>,
     order: RefCell<Vec<usize>>,
     factory: NodeFactory<M>,
@@ -211,6 +212,7 @@ impl<M: Model> ModelChildren<ModelList<M>> for ListChildren<M> {
             revision: Cell::new(value.as_ref().map_or(0, |value| value.revision)),
             active: Cell::new(value.is_some()),
             leases: Cell::new(0),
+            routes: M::item_routes(),
             nodes: RefCell::new(Vec::new()),
             order: RefCell::new(Vec::new()),
             factory: Box::new(move |index, storage| {
@@ -277,7 +279,16 @@ impl<M: Model> ModelChildren<ModelList<M>> for ListChildren<M> {
         self.0.ordered(|node| node.publish());
     }
     fn deliver(&self) {
-        self.0.ordered(|node| node.deliver());
+        let len = self.0.order.borrow().len();
+        for index in 0..len {
+            let slot = self.0.order.borrow()[index];
+            let id = super::ModelItemId {
+                collection: self.0.identity,
+                slot,
+                generation: self.0.generation(slot).expect("active model slot"),
+            };
+            self.0.node(slot).deliver_item(id, &self.0.routes);
+        }
     }
     fn discard(&self) {
         self.0.each_node(|node| node.discard());
@@ -286,6 +297,7 @@ impl<M: Model> ModelChildren<ModelList<M>> for ListChildren<M> {
     fn retire(&self) {
         self.0.active.set(false);
         self.0.each_node(|node| node.retire());
+        M::retire_item_routes(&self.0.routes);
     }
 }
 

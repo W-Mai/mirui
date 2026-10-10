@@ -205,7 +205,11 @@ impl<M: Model> ChildNode<M> {
     }
 
     pub fn deliver(&self) {
-        self.metadata.deliver();
+        self.metadata.deliver(None);
+    }
+
+    pub(super) fn deliver_item(&self, id: super::ModelItemId, routes: &M::ItemRoutes) {
+        self.metadata.deliver(Some((id, routes)));
     }
 
     pub fn discard(&self) {
@@ -255,6 +259,11 @@ impl<M: Model> ModelMetadata<M> {
     #[doc(hidden)]
     pub fn children(&self) -> &M::Children {
         &self.children
+    }
+
+    #[doc(hidden)]
+    pub fn routes(&self) -> &M::Routes {
+        &self.routes
     }
 
     fn can_activate(&self, value: &M, owner: BindingOwner) -> bool {
@@ -372,10 +381,10 @@ impl<M: Model> ModelMetadata<M> {
         self.children.publish();
     }
 
-    pub(super) fn deliver(&self) {
+    pub(super) fn deliver(&self, item: Option<(super::ModelItemId, &M::ItemRoutes)>) {
         let events = self.transaction.borrow_mut().events.take();
         if let Some(events) = events {
-            M::deliver_events(&self.routes, events);
+            M::deliver_events(&self.routes, events, item);
         }
         self.children.deliver();
     }

@@ -202,6 +202,8 @@ Application code calls business methods; the framework calls the extractor at th
 
 The callback borrows each event only for its invocation. Events do not require `Copy` or `Clone`; retaining owned event data for later use requires an explicit application copy. Extractors must move their pending events out of the Model, for example with `Option::take` or `core::mem::take`, to avoid delivering the same business event again.
 
+Lists and maps can consume their direct members' effects with `items.on_effect(|effect: &ModelItemEffect<E>| { ... })`. The envelope carries the stable member ID and the event; individual delivery precedes collection delivery. See [member effects](model-collections.md#member-effects) for registration and lifetime rules.
+
 ### Owned child models
 
 Declare `child: model!(owned Child)` inside a `#[model]` struct to store child data in its parent. Construct the field from raw data with `.into()` and register only the parent. The field getter returns the child's registered instance for existing Component, Compose, System, Event, and View roles.

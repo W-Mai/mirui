@@ -15,7 +15,7 @@ mod projection;
 mod set;
 mod tree;
 
-pub use collection::{CollectionError, CollectionLoadError, ModelItemId};
+pub use collection::{CollectionError, CollectionLoadError, ModelItemEffect, ModelItemId};
 pub use list::ModelList;
 #[doc(hidden)]
 pub use list::{ModelListEntries, ModelListHandle, ModelListOwned};
@@ -42,6 +42,7 @@ pub trait ModelMethods: Sized {
     type DerivedSources: AsRef<[crate::core::reactive::ModelSource]>;
     type Events;
     type Routes;
+    type ItemRoutes;
 
     #[doc(hidden)]
     fn derived_snapshot(&self) -> Self::DerivedSnapshot;
@@ -66,13 +67,29 @@ pub trait ModelMethods: Sized {
     fn retire_routes(routes: &Self::Routes);
 
     #[doc(hidden)]
-    fn deliver_events(routes: &Self::Routes, events: Self::Events);
+    fn item_routes() -> Self::ItemRoutes;
+
+    #[doc(hidden)]
+    fn retire_item_routes(routes: &Self::ItemRoutes);
+
+    #[doc(hidden)]
+    fn deliver_events(
+        routes: &Self::Routes,
+        events: Self::Events,
+        item: Option<(ModelItemId, &Self::ItemRoutes)>,
+    );
 }
 
 /// A model declares that it produces one effect type.
-pub trait Produces<E>: ModelMethods {
+pub trait Produces<E>: Model {
     #[doc(hidden)]
-    fn route(routes: &Self::Routes) -> &EffectRoute<E>;
+    fn route(metadata: &ModelMetadata<Self>) -> &EffectRoute<E>;
+}
+
+/// A declared local effect that can be aggregated by a containing collection.
+#[doc(hidden)]
+pub trait ItemEffectSource<E>: Produces<E> {
+    fn item_route(routes: &Self::ItemRoutes) -> &EffectRoute<ModelItemEffect<E>>;
 }
 
 /// Registration failure for an effect consumer.
@@ -579,7 +596,7 @@ impl<M: Model> ModelRoot<M> {
         drop(value);
         self.metadata.publish();
         guard.committed = true;
-        self.metadata.deliver();
+        self.metadata.deliver(None);
     }
 }
 
@@ -599,7 +616,7 @@ pub trait ModelHandle: Clone {
             assert_eq!(active, owner, "model belongs to a different App");
         }
         read_metadata(self, owner, |metadata| {
-            <Self::Data as Produces<E>>::route(&metadata.routes).register(handler)
+            <Self::Data as Produces<E>>::route(metadata).register(handler)
         })
     }
 
@@ -951,6 +968,7 @@ mod tests {
         type DerivedSources = [crate::core::reactive::ModelSource; 0];
         type Events = ();
         type Routes = ();
+        type ItemRoutes = ();
 
         fn derived_snapshot(&self) -> Self::DerivedSnapshot {}
 
@@ -971,7 +989,10 @@ mod tests {
 
         fn retire_routes(_: &Self::Routes) {}
 
-        fn deliver_events(_: &Self::Routes, _: Self::Events) {}
+        fn item_routes() {}
+        fn retire_item_routes(_: &Self::ItemRoutes) {}
+        fn deliver_events(_: &Self::Routes, _: Self::Events, _: Option<(super::ModelItemId, &())>) {
+        }
     }
 
     impl Clone for CounterHandle {

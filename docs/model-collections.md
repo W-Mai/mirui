@@ -66,6 +66,52 @@ Registered `entries`, `iter`, and `values` hold a structural lease until their i
 
 Positions and business keys are not item identities. Removing an item invalidates its previous references; reinserting the same key does not revive them. List reordering and same-key Map replacement preserve identity. Declared event, System, and Timer bindings skip execution if a captured member has been retired.
 
+## Member effects
+
+Lists and maps expose their direct members' declared effects through `on_effect`. The callback borrows a `ModelItemEffect<E>` containing the stable member `id` and the original `event`:
+
+```rust
+use mirui::{app::App, model};
+use mirui::core::model::{EffectRegistrationError, ModelItemEffect, ModelList};
+
+struct Note(u8);
+
+#[model]
+struct Pad {
+    pending: Option<Note>,
+}
+
+#[model]
+impl Pad {
+    fn strike(&mut self, pitch: u8) {
+        self.pending = Some(Note(pitch));
+    }
+
+    #[effects]
+    fn take_note(&mut self) -> Option<Note> {
+        self.pending.take()
+    }
+}
+
+fn example() -> Result<(), EffectRegistrationError> {
+    let mut app = App::headless(32, 32);
+    let pads = app.add_model(ModelList::from([Pad { pending: None }]));
+    let (id, pad) = pads.entries().next().unwrap();
+    pads.on_effect(move |effect: &ModelItemEffect<Note>| {
+        assert_eq!(effect.id, id);
+        assert_eq!(effect.event.0, 60);
+    })?;
+    pad.strike(60);
+    Ok(())
+}
+```
+
+Each event reaches its individual consumer first, then its collection consumer. Both borrow the same payload after all Model observations have been published; `E` needs neither `Copy` nor `Clone`. Lists deliver in final item order and maps in key order. Effects declared by nested child Models are not implicitly included. Installing both consumers can perform the same business side effect twice, so connect audio playback at the level that should own it.
+
+Each collection accepts one consumer per event type. Reordering, member replacement, clearing, loading, and reconciliation retain the collection consumer. Removed members lose their individual consumers; reused slots do not inherit them. Reconciliation preserves consumers on matched members. Replacing or swapping an owned collection keeps the collection consumer on its field. Unhandled events are discarded. A panicking callback discards the remaining transaction effects without replaying them later.
+
+The collection stores one typed route table, independent of its member capacity. Installing a captured callback allocates its storage once; delivery borrows the payload without cloning it or allocating a forwarding callback for each member.
+
 ## Binding rows
 
 Use `entries()` with keyed `walk` to keep each row attached to its Model when the collection changes order:

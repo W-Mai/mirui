@@ -3,8 +3,9 @@ use super::{
     state::{ListChildren, ListState},
 };
 use crate::core::model::{
-    BindType, BindingOwner, CollectionLoadError, Model, ModelHandle, ModelMethods, ModelRef,
-    ModelWatch, OwnedModel, OwnedStorage, SharedValue, read_model, update_model,
+    BindType, BindingOwner, CollectionLoadError, EffectRegistrationError, EffectRoute,
+    ItemEffectSource, Model, ModelHandle, ModelItemEffect, ModelMetadata, ModelMethods, ModelRef,
+    ModelWatch, OwnedModel, OwnedStorage, Produces, SharedValue, read_model, update_model,
 };
 use crate::core::reactive::ModelSource;
 use alloc::{rc::Rc, vec::Vec};
@@ -63,6 +64,7 @@ impl<M: Model> ModelMethods for ModelList<M> {
     type DerivedSources = [ModelSource; 0];
     type Events = ();
     type Routes = ();
+    type ItemRoutes = ();
     fn derived_snapshot(&self) {}
     fn derived_sources() -> Self::DerivedSources {
         []
@@ -71,7 +73,15 @@ impl<M: Model> ModelMethods for ModelList<M> {
     fn take_events(&mut self) {}
     fn routes() {}
     fn retire_routes(_: &()) {}
-    fn deliver_events(_: &(), _: ()) {}
+    fn item_routes() {}
+    fn retire_item_routes(_: &()) {}
+    fn deliver_events(_: &(), _: (), _: Option<(ModelItemId, &())>) {}
+}
+
+impl<M: Model + ItemEffectSource<E>, E> Produces<ModelItemEffect<E>> for ModelList<M> {
+    fn route(metadata: &ModelMetadata<Self>) -> &EffectRoute<ModelItemEffect<E>> {
+        M::item_route(&metadata.children().0.routes)
+    }
 }
 
 impl<M: Model> Model for ModelList<M> {
@@ -141,6 +151,16 @@ impl<M: Model> BindType for ModelListHandle<M> {
 }
 
 impl<M: Model> ModelListHandle<M> {
+    pub fn on_effect<E>(
+        &self,
+        handler: impl Fn(&ModelItemEffect<E>) + 'static,
+    ) -> Result<(), EffectRegistrationError>
+    where
+        M: ItemEffectSource<E>,
+    {
+        ModelHandle::on_effect(self, handler)
+    }
+
     pub(in crate::core::model) fn observe_structure(&self) {
         self.read_observed(0, |_| ());
     }

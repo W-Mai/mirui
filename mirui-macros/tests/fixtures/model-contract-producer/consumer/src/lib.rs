@@ -40,6 +40,26 @@ mod tests {
     use std::{cell::Cell, rc::Rc};
 
     #[test]
+    fn reexported_generic_effects_aggregate_across_crates() {
+        use mirui::core::model::{ModelItemEffect, ModelList};
+
+        let mut app = App::headless(1, 1);
+        let meters = app.add_model(ModelList::from([SmallMeter::new(0)]));
+        let (id, meter) = meters.entries().next().unwrap();
+        let calls = Rc::new(Cell::new(0));
+        let received = calls.clone();
+        meters
+            .on_effect(move |effect: &ModelItemEffect<Pulse>| {
+                assert_eq!(effect.id, id);
+                assert_eq!(effect.event.0, 1);
+                received.set(received.get() + 1);
+            })
+            .unwrap();
+        meter.set_value(1);
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
     fn reexported_generic_model_works_across_crate_boundaries() {
         let mut app = App::headless(16, 16);
         let meter = app.add_model(SmallMeter::new(3));

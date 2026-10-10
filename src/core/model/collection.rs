@@ -9,6 +9,12 @@ pub struct ModelItemId {
     pub(super) generation: u64,
 }
 
+/// An effect emitted by a collection member with its stable identity.
+pub struct ModelItemEffect<E> {
+    pub id: ModelItemId,
+    pub event: E,
+}
+
 /// A collection operation that could not be completed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CollectionError {

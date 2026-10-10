@@ -1,6 +1,19 @@
 use super::{CollectionError, Model, ModelItemId, ModelMap, ModelMapHandle};
-use crate::core::model::{CollectionLoadError, ModelHandle, ModelListEntries, update_model};
+use crate::core::model::{
+    CollectionLoadError, EffectRoute, ItemEffectSource, ModelHandle, ModelItemEffect, ModelList,
+    ModelListEntries, ModelMetadata, Produces, update_model,
+};
 use core::borrow::Borrow;
+
+impl<K: Ord + 'static, M: Model + ItemEffectSource<E>, E> Produces<ModelItemEffect<E>>
+    for ModelMap<K, M>
+{
+    fn route(metadata: &ModelMetadata<Self>) -> &EffectRoute<ModelItemEffect<E>> {
+        <ModelList<M> as Produces<ModelItemEffect<E>>>::route(
+            metadata.children().members.metadata(),
+        )
+    }
+}
 
 impl<K: Ord + 'static, M: Model> ModelMapHandle<K, M> {
     pub fn len(&self) -> usize {
