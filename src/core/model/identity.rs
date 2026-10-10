@@ -28,7 +28,11 @@ impl ModelLifetime {
     }
 
     pub(super) fn can_activate(&self) -> bool {
-        !self.active.get() && self.generation.get() < u64::MAX
+        !self.active.get() && self.can_advance()
+    }
+
+    pub(super) fn can_advance(&self) -> bool {
+        self.generation.get() < u64::MAX
     }
 
     pub(super) fn current(&self) -> Option<u64> {

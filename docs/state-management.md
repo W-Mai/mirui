@@ -206,6 +206,8 @@ cannot start another model write transaction during delivery.
 
 Declare `child: model!(owned Child)` inside a `#[model]` struct to store child data in its parent. Construct the field from raw data with `.into()` and register only the parent. The field getter returns the child's registered instance for existing Component, Compose, System, Event, and View roles.
 
+Use `items: model!(owned ModelList<Item>)` for an ordered collection of child models (`ModelList` is in `mirui::core::model`). Arrays and vectors initialize the field with `.into()`. Registered `get`/`iter`/`entries` return item facades; item changes share the parent transaction, while insertion, removal, and reordering publish a separate structural observation. Explicit `reserve` prepares capacity, and registered iterators prevent structural mutation until dropped.
+
 ```rust
 #[model]
 struct Scoreboard {

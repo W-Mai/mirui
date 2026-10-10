@@ -1226,6 +1226,15 @@ impl ModelSource {
             })
     }
 
+    pub(crate) fn can_rebind(&self, owner: WorldId) -> bool {
+        self.can_reactivate(owner)
+            && (self.lifecycle.get() != ModelSourceLifecycle::Active
+                || self
+                    .graph_source
+                    .get()
+                    .is_some_and(|source| source.slot.generation < u32::MAX))
+    }
+
     pub fn track(&self) {
         if self.lifecycle.get() != ModelSourceLifecycle::Active {
             return;
@@ -2976,6 +2985,27 @@ mod tests {
         );
         assert!(with_reactive(|r| r.graph.publish(original)).is_err());
         assert!(with_reactive(|r| r.graph.publish(reserved)).is_err());
+    }
+
+    #[test]
+    fn model_source_rebinding_preflights_the_next_retirement_generation() {
+        reset();
+        let mut world = World::new();
+        drop(OwnerGuard::enter(&mut world));
+        let source = ModelSource::new();
+        source.register_owner(world.id());
+        let original = source.graph_source.get().unwrap();
+        assert!(source.can_rebind(world.id()));
+        let mut last = original;
+        last.slot.generation = u32::MAX;
+        source.graph_source.set(Some(last));
+        assert!(!source.can_rebind(world.id()));
+        source.lifecycle.set(ModelSourceLifecycle::Retired);
+        assert!(source.can_rebind(world.id()));
+        source.lifecycle.set(ModelSourceLifecycle::Exhausted);
+        assert!(!source.can_rebind(world.id()));
+        source.graph_source.set(Some(original));
+        source.lifecycle.set(ModelSourceLifecycle::Active);
     }
 
     #[test]

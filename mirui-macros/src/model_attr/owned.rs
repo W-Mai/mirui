@@ -164,11 +164,32 @@ pub(super) fn expand(
             if !self.#name.can_activate(::mirui::core::model::OwnedModel::storage(&__value.#name), __owner) { return false; }
         }
     });
+    let writable_checks = fields.iter().map(|field| {
+        let name = &field.name;
+        let attrs = &field.cfg_attrs;
+        quote! { #(#attrs)* self.#name.assert_writable(); }
+    });
+    let shape_checks = fields.iter().map(|field| {
+        let name = &field.name;
+        let attrs = &field.cfg_attrs;
+        quote! {
+            #(#attrs)*
+            if !::mirui::core::model::OwnedModel::read(&__value.#name, |__child| self.#name.accepts(__child)) { return false; }
+        }
+    });
     let activations = fields.iter().map(|field| {
         let name = &field.name;
         let attrs = &field.cfg_attrs;
         quote! {
             #(#attrs)* self.#name.activate_prepared(::mirui::core::model::OwnedModel::storage_mut(&mut __value.#name), __owner);
+        }
+    });
+    let rebind_checks = fields.iter().map(|field| {
+        let name = &field.name;
+        let attrs = &field.cfg_attrs;
+        quote! {
+            #(#attrs)*
+            if !::mirui::core::model::OwnedModel::read(&__value.#name, |__child| self.#name.can_rebind(__child, __owner)) { return false; }
         }
     });
     let extracts = fields.iter().map(|field| {
@@ -242,6 +263,9 @@ pub(super) fn expand(
                 Self { #(#registrations)* __mirui_marker: ::core::marker::PhantomData }
             }
             fn begin(&self, __value: &#raw) { #(#begins)* }
+            fn assert_writable(&self) { #(#writable_checks)* }
+            fn accepts(&self, __value: &#raw) -> bool { #(#shape_checks)* true }
+            fn can_rebind(&self, __value: &#raw, __owner: ::mirui::core::model::BindingOwner) -> bool { #(#rebind_checks)* true }
             fn can_activate(&self, __value: &#raw, __owner: ::mirui::core::model::BindingOwner) -> bool { #(#activation_checks)* true }
             fn activate(&self, __value: &mut #raw, __owner: ::mirui::core::model::BindingOwner) { #(#activations)* }
             fn extract(&self, __value: &mut #raw) { #(#extracts)* }

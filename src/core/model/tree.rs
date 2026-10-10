@@ -15,6 +15,9 @@ pub trait ModelChildren<M: Model>: Sized {
         value: &mut Option<&mut M>,
     ) -> Self;
     fn begin(&self, value: &M);
+    fn assert_writable(&self);
+    fn accepts(&self, value: &M) -> bool;
+    fn can_rebind(&self, value: &M, owner: BindingOwner) -> bool;
     fn can_activate(&self, value: &M, owner: BindingOwner) -> bool;
     fn activate(&self, value: &mut M, owner: BindingOwner);
     fn extract(&self, value: &mut M);
@@ -35,6 +38,13 @@ impl<M: Model> ModelChildren<M> for () {
     ) {
     }
     fn begin(&self, _: &M) {}
+    fn assert_writable(&self) {}
+    fn accepts(&self, _: &M) -> bool {
+        true
+    }
+    fn can_rebind(&self, _: &M, _: BindingOwner) -> bool {
+        true
+    }
     fn can_activate(&self, _: &M, _: BindingOwner) -> bool {
         true
     }
@@ -154,6 +164,18 @@ impl<M: Model> ChildNode<M> {
         self.metadata.begin(&storage.value);
     }
 
+    pub fn assert_writable(&self) {
+        self.metadata.children.assert_writable();
+    }
+
+    pub fn accepts(&self, value: &M) -> bool {
+        self.metadata.children.accepts(value)
+    }
+
+    pub fn can_rebind(&self, value: &M, owner: BindingOwner) -> bool {
+        self.metadata.can_rebind(value, owner)
+    }
+
     pub fn extract(&self, storage: &mut OwnedStorage<M>) {
         self.metadata.extract(&mut storage.value);
     }
@@ -251,6 +273,26 @@ impl<M: Model> ModelMetadata<M> {
                 .iter()
                 .all(|watch| watch.can_reactivate(world))
             && self.children.can_activate(value, owner)
+    }
+
+    fn can_rebind(&self, value: &M, owner: BindingOwner) -> bool {
+        let OwnerState::Bound(world) = owner.0 else {
+            return false;
+        };
+        self.owner == world
+            && self.lifetime.can_advance()
+            && self
+                .sources
+                .as_ref()
+                .iter()
+                .chain(self.derived_sources.as_ref())
+                .all(|source| source.can_rebind(world))
+            && self
+                .watches
+                .as_ref()
+                .iter()
+                .all(|watch| watch.source.can_rebind(world))
+            && self.children.can_rebind(value, owner)
     }
 
     fn activate(&self, value: &mut M, owner: BindingOwner) {

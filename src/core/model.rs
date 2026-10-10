@@ -13,6 +13,8 @@ mod projection;
 mod tree;
 
 pub use list::{CollectionError, ModelItemId, ModelList};
+#[doc(hidden)]
+pub use list::{ModelListEntries, ModelListHandle, ModelListOwned};
 
 #[doc(hidden)]
 pub use identity::ModelRef;
@@ -526,6 +528,9 @@ impl<M: Model> ModelRoot<M> {
             !self.poisoned.get(),
             "model was poisoned by a failed update"
         );
+        path.metadata(&self.metadata, |metadata| {
+            metadata.children.assert_writable()
+        });
         let mut value = self
             .value
             .try_borrow_mut()
