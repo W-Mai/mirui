@@ -373,9 +373,10 @@ fn update_list(
         }
         let id = planned.next.and_then(|index| config.items.id(index));
         let rebound = planned.slot.index != planned.next
-            || world
-                .get::<CellItem>(cell)
-                .is_some_and(|item| item.handle.id() != id);
+            || (planned.next.is_some()
+                && world
+                    .get::<CellItem>(cell)
+                    .is_some_and(|item| item.handle.id() != id));
         if rebound {
             crate::input::event::retire_subtree_interaction(world, cell);
             if !world.is_alive(cell)

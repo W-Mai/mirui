@@ -268,6 +268,29 @@ fn structural_subscription_marks_an_empty_list_dirty_without_row_effects() {
 }
 
 #[test]
+fn inactive_collection_cells_settle_without_repeated_retirement() {
+    let (mut app, list, rows, first) = setup_collection();
+    rows.clear().unwrap();
+    viewport(&mut app.world, list, 200, 80, 0);
+    assert!(app.world.has::<Hidden>(first));
+    assert_eq!(
+        crate::test_support::tracked_allocations(|| {
+            for _ in 0..8 {
+                assert!(!reconcile(&mut app.world));
+            }
+        }),
+        0
+    );
+    rows.try_push(RowData { title: "restored" }).unwrap();
+    viewport(&mut app.world, list, 200, 80, 0);
+    assert!(!app.world.has::<Hidden>(first));
+    assert_eq!(
+        app.world.get::<Text>(first).unwrap().resolve(&app.world),
+        "restored"
+    );
+}
+
+#[test]
 fn retiring_the_source_disposes_cells_without_reading_expired_models() {
     let mut app = App::headless(200, 200);
     app.with_default_widgets();
