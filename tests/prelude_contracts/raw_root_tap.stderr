@@ -15,3 +15,15 @@ note: the function `current_count` is defined here
   |
   | pub(crate) fn current_count(world: &World, entity: Entity) -> u8 {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: function `set_sim_root` is private
+ --> tests/prelude_contracts/raw_root_tap.rs:3:31
+  |
+3 | use mirui::input::event::sim::set_sim_root;
+  |                               ^^^^^^^^^^^^ private function
+  |
+note: the function `set_sim_root` is defined here
+ --> src/input/event/sim.rs
+  |
+  | pub(crate) fn set_sim_root(world: &mut World, root: Entity) {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

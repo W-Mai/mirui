@@ -165,6 +165,7 @@ pub struct SimulatedInput {
     cursor: usize,
     start_ms: Option<u32>,
     looping: bool,
+    /// Input root override. `None` uses the root installed by the App.
     pub root: Option<Entity>,
 }
 
@@ -271,9 +272,7 @@ crate::ecs::system::framework_system!(pub sim_input_system, SimInput);
 
 struct SimRootFallback(Entity);
 
-/// Convenience: if the user doesn't set `SimulatedInput.root`, the system
-/// reads from App's root. Call this once after `set_root` to stash it.
-pub fn set_sim_root(world: &mut World, root: Entity) {
+pub(crate) fn set_sim_root(world: &mut World, root: Entity) {
     world.insert_resource(SimRootFallback(root));
 }
 
