@@ -111,9 +111,6 @@ fn attach_list(world: &mut World, entity: Entity) {
     if !world.has::<CellPool>(entity) {
         world.insert(entity, CellPool::default());
     }
-    if let Some(config) = ListConfig::read(world, entity) {
-        prepare_binding(world, entity, &config);
-    }
 }
 
 fn cell_is_valid(world: &World, cell: Entity) -> bool {

@@ -77,6 +77,52 @@ fn press(world: &mut World, cell: Entity) {
 }
 
 #[test]
+fn source_binding_uses_the_installed_provider_and_latest_data_before_creating_cells() {
+    let mut app = App::headless(200, 200);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    let rows = app.add_model(data());
+    let list = app.compose(root, collection(rows.clone()));
+    assert!(app.world.get::<CellPool>(list).unwrap().binding.is_none());
+    assert!(app.world.get::<Children>(list).unwrap().0.is_empty());
+
+    rows.rotate_left(1).unwrap();
+    rows.get(0).unwrap().rename("latest");
+    viewport(&mut app.world, list, 200, 80, 0);
+    let binding = app
+        .world
+        .get::<CellPool>(list)
+        .unwrap()
+        .binding
+        .as_ref()
+        .unwrap();
+    assert!(
+        binding.provider.as_ref().unwrap().same_instance(
+            app.world
+                .get::<ConstructionProvider<CreateCell>>(list)
+                .unwrap()
+        )
+    );
+    let first = app.world.get::<Children>(list).unwrap().0[0];
+    assert_eq!(
+        app.world.get::<Text>(first).unwrap().resolve(&app.world),
+        "latest"
+    );
+    assert!(cell_is_valid(&app.world, first));
+
+    app.world.remove::<Dirty>(list);
+    rows.rotate_left(1).unwrap();
+    crate::core::reactive::flush_signal_dirty(&mut app.world);
+    assert!(app.world.has::<Dirty>(list));
+    viewport(&mut app.world, list, 200, 80, 0);
+    assert_eq!(app.world.get::<Children>(list).unwrap().0[0], first);
+    assert_eq!(
+        app.world.get::<Text>(first).unwrap().resolve(&app.world),
+        "third"
+    );
+}
+
+#[test]
 fn membership_changes_rebind_index_and_identity_without_reconstructing_cells() {
     let (mut app, list, rows, first) = setup_collection();
     let cells = app.world.get::<Children>(list).unwrap().0.clone();
