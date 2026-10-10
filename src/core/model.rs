@@ -6,6 +6,11 @@ use core::cell::{Cell, RefCell};
 
 use crate::ecs::world::WorldId;
 
+mod tree;
+
+#[doc(hidden)]
+pub use tree::ModelChildren;
+
 /// Derived observations declared by a model's inherent implementation.
 #[doc(hidden)]
 pub trait ModelMethods: Sized {
@@ -115,6 +120,7 @@ pub trait Model: ModelMethods + Sized + 'static {
     type Sources: AsRef<[crate::core::reactive::ModelSource]>;
     type Change: Copy;
     type Watches: AsRef<[ModelWatch]>;
+    type Children: ModelChildren<Self>;
 
     #[doc(hidden)]
     fn handle(access: Weak<dyn ModelAccess<Self>>) -> Self::Handle;
@@ -340,40 +346,7 @@ pub struct ModelMetadata<M: Model> {
     derived_sources: M::DerivedSources,
     watches: M::Watches,
     routes: M::Routes,
-}
-
-impl<M: Model> ModelMetadata<M> {
-    fn new(owner: WorldId) -> Self {
-        let sources = M::sources();
-        let derived_sources = M::derived_sources();
-        let watches = M::watches();
-        for source in sources.as_ref().iter().chain(derived_sources.as_ref()) {
-            source.register_owner(owner);
-        }
-        for watch in watches.as_ref() {
-            watch.register_owner(owner);
-        }
-        Self {
-            sources,
-            derived_sources,
-            watches,
-            routes: M::routes(),
-        }
-    }
-
-    fn invalidate_computeds(&self) {
-        for source in self
-            .sources
-            .as_ref()
-            .iter()
-            .chain(self.derived_sources.as_ref())
-        {
-            source.invalidate_computeds();
-        }
-        for watch in self.watches.as_ref() {
-            watch.invalidate_computeds();
-        }
-    }
+    children: M::Children,
 }
 
 /// Borrowed access to a registered model's data and identity.
@@ -403,7 +376,7 @@ impl<M: Model> ModelCell<M> {
             owner,
             active: Cell::new(true),
             value: RefCell::new(value),
-            metadata: ModelMetadata::new(owner),
+            metadata: ModelMetadata::new(BindingOwner(OwnerState::Bound(owner))),
             poisoned: Cell::new(false),
         }
     }
@@ -483,28 +456,22 @@ impl<M: Model> ModelAccess<M> for ModelCell<M> {
             poisoned: &self.poisoned,
             committed: false,
         };
-        let before = value.snapshot();
-        let derived_before = value.derived_snapshot();
+        let before = ModelMetadata::<M>::snapshot(&value);
         let change = update(&mut value);
-        let events = value.take_events();
+        let events = ModelMetadata::<M>::take_events(&mut value);
+        let pending = self.metadata.finish(&mut value);
         let Some(change) = change else {
             drop(events);
+            drop(pending);
             drop(value);
             guard.committed = true;
             return;
         };
-        let after = value.snapshot();
-        let derived_after = value.derived_snapshot();
+        let after = ModelMetadata::<M>::snapshot(&value);
         drop(value);
-        M::publish(&self.metadata.sources, before, after);
-        M::publish_derived(
-            &self.metadata.derived_sources,
-            derived_before,
-            derived_after,
-        );
-        M::publish_change(&self.metadata.watches, change);
+        self.metadata.publish(before, after, change, pending);
         guard.committed = true;
-        M::deliver_events(&self.metadata.routes, events);
+        self.metadata.deliver(events);
     }
 
     fn metadata(&self, read: &mut dyn FnMut(&ModelMetadata<M>)) {
@@ -846,6 +813,7 @@ mod tests {
         type Sources = [crate::core::reactive::ModelSource; 1];
         type Change = ();
         type Watches = [super::ModelWatch; 0];
+        type Children = ();
 
         fn handle(access: Weak<dyn ModelAccess<Self>>) -> Self::Handle {
             CounterHandle(access)

@@ -476,6 +476,7 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
 
         impl #impl_generics ::mirui::core::model::Model for #name #type_generics #model_where {
             type Handle = #handle #type_generics;
+            type Children = ();
             type Snapshot = #snapshot_type;
             type Sources = [::mirui::core::reactive::ModelSource; #source_count];
             type Change = #change_type;
