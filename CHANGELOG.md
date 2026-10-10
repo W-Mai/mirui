@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Root geometry and tap tracking use typed resources and queries instead of public World-based helpers.
 - `Text::resolve` and `Localized` resolution accept an optional borrowed `I18n` instead of World.
 - Theme operations use App methods and typed callback resources or commands; World-based theme helpers are no longer public.
 - Custom persistence callbacks operate on captured state and byte slices without receiving World. Signal registration no longer requires a World argument.

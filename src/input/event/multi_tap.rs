@@ -53,7 +53,7 @@ pub(crate) fn observe_gesture(world: &mut World, event: &GestureEvent, now_ms: u
     }
 }
 
-pub fn current_count(world: &World, entity: Entity) -> u8 {
+pub(crate) fn current_count(world: &World, entity: Entity) -> u8 {
     world
         .resource::<MultiTapTracker>()
         .and_then(|t| t.last.as_ref())

@@ -3,7 +3,7 @@ mod tracking_allocator;
 
 use mirui::app::App;
 use mirui::input::event::gesture::GestureEvent;
-use mirui::input::event::multi_tap::{MultiTapTracker, current_count};
+use mirui::input::event::multi_tap::MultiTapTracker;
 use mirui::types::Fixed;
 use tracking_allocator::tracked_allocations;
 
@@ -77,5 +77,12 @@ fn first_tap_reuses_tracker_after_owner_initialization() {
         }),
         0
     );
-    assert_eq!(current_count(&app.world, target), 1);
+    let entry = app
+        .world
+        .resource::<MultiTapTracker>()
+        .unwrap()
+        .last
+        .unwrap();
+    assert_eq!(entry.entity, target);
+    assert_eq!(entry.count, 1);
 }

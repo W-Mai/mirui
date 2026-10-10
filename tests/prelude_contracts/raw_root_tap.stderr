@@ -1,0 +1,17 @@
+error[E0432]: unresolved import `mirui::ui::root_viewport`
+ --> tests/prelude_contracts/raw_root_tap.rs:2:5
+  |
+2 | use mirui::ui::root_viewport;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^ no `root_viewport` in `ui`
+
+error[E0603]: function `current_count` is private
+ --> tests/prelude_contracts/raw_root_tap.rs:1:37
+  |
+1 | use mirui::input::event::multi_tap::current_count;
+  |                                     ^^^^^^^^^^^^^ private function
+  |
+note: the function `current_count` is defined here
+ --> src/input/event/multi_tap.rs
+  |
+  | pub(crate) fn current_count(world: &World, entity: Entity) -> u8 {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

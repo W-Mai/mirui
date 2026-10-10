@@ -67,18 +67,9 @@ pub struct RespectSafeArea;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RenderKey(pub u64);
 
-/// World resource cached by `App::set_root` so handlers and systems can
-/// reach the active root without an `App` reference.
+/// Active root resource maintained by `App::set_root`. Typed callbacks can read `res!(WidgetRoot)` and retrieve its laid-out rectangle with `query!(ComputedRect)`.
 #[derive(Clone, Copy)]
 pub struct WidgetRoot(pub crate::ecs::Entity);
-
-/// The root's laid-out `Rect` this frame, for systems that size
-/// absolute children to the live canvas instead of a setup-time value.
-/// `None` before the first layout pass.
-pub fn root_viewport(world: &crate::ecs::World) -> Option<crate::types::Rect> {
-    let root = world.resource::<WidgetRoot>()?.0;
-    world.get::<ComputedRect>(root).map(|c| c.0)
-}
 
 #[crate::component]
 #[derive(Clone, Debug)]

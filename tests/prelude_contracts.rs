@@ -57,3 +57,9 @@ fn theme_world_operations_stay_in_the_framework() {
     let cases = trybuild::TestCases::new();
     cases.compile_fail("tests/prelude_contracts/raw_theme.rs");
 }
+
+#[test]
+fn root_and_tap_world_helpers_are_not_author_entry_points() {
+    let cases = trybuild::TestCases::new();
+    cases.compile_fail("tests/prelude_contracts/raw_root_tap.rs");
+}
