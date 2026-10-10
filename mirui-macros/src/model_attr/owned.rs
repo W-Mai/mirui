@@ -134,25 +134,12 @@ pub(super) fn expand(
         return wrappers;
     }
     let children = format_ident!("{}Children", name);
-    let snapshot = format_ident!("{}ChildrenSnapshot", name);
-    let events = format_ident!("{}ChildrenEvents", name);
-    let pending = format_ident!("{}ChildrenPending", name);
-    let fields_for = |kind: &str| {
-        fields
-            .iter()
-            .map(|field| {
-                let field_name = &field.name;
-                let ty = &field.ty;
-                let attrs = &field.cfg_attrs;
-                let kind = format_ident!("{kind}");
-                quote!(#(#attrs)* #field_name: ::mirui::core::model::#kind<#ty>,)
-            })
-            .collect::<Vec<_>>()
-    };
-    let metadata_fields = fields_for("ChildNode");
-    let snapshot_fields = fields_for("ModelSnapshot");
-    let event_fields = fields_for("ModelEvents");
-    let pending_fields = fields_for("ModelPending");
+    let metadata_fields = fields.iter().map(|field| {
+        let field_name = &field.name;
+        let ty = &field.ty;
+        let attrs = &field.cfg_attrs;
+        quote!(#(#attrs)* #field_name: ::mirui::core::model::ChildNode<#ty>,)
+    });
     let registrations = fields.iter().map(|field| {
         let field_name = &field.name;
         let path = field_type(name, field.index);
@@ -161,35 +148,44 @@ pub(super) fn expand(
             #(#attrs)* #field_name: ::mirui::core::model::ChildNode::new::<__MiruiRoot, ::mirui::core::model::ModelPathThen<__MiruiPath, #path #args>>(__root, __owner, ::mirui::core::model::ModelPathThen::new(__path)),
         }
     });
-    let snapshots = fields.iter().map(|field| {
+    let begins = fields.iter().map(|field| {
         let name = &field.name;
-        let ty = &field.ty;
         let attrs = &field.cfg_attrs;
         quote! {
-            #(#attrs)* #name: ::mirui::core::model::OwnedModel::read(&__value.#name, ::mirui::core::model::ModelMetadata::<#ty>::snapshot),
+            #(#attrs)* self.#name.begin(::mirui::core::model::OwnedModel::storage(&__value.#name));
         }
     });
     let extracts = fields.iter().map(|field| {
         let name = &field.name;
         let attrs = &field.cfg_attrs;
         quote! {
-            #(#attrs)* #name: ::mirui::core::model::OwnedModel::storage_mut(&mut __value.#name).take_events(),
+            #(#attrs)* self.#name.extract(::mirui::core::model::OwnedModel::storage_mut(&mut __value.#name));
         }
     });
     let finishes = fields.iter().map(|field| {
         let name = &field.name;
         let attrs = &field.cfg_attrs;
-        quote!(#(#attrs)* #name: self.#name.finish(::mirui::core::model::OwnedModel::storage_mut(&mut __value.#name), __reset),)
+        quote!(#(#attrs)* self.#name.finish(::mirui::core::model::OwnedModel::storage_mut(&mut __value.#name), __reset);)
+    });
+    let afters = fields.iter().map(|field| {
+        let name = &field.name;
+        let attrs = &field.cfg_attrs;
+        quote!(#(#attrs)* self.#name.capture_after(::mirui::core::model::OwnedModel::storage(&__value.#name));)
     });
     let publications = fields.iter().map(|field| {
         let name = &field.name;
         let attrs = &field.cfg_attrs;
-        quote!(#(#attrs)* self.#name.publish(__before.#name, __after.#name, __pending.#name);)
+        quote!(#(#attrs)* self.#name.publish();)
     });
     let deliveries = fields.iter().map(|field| {
         let name = &field.name;
         let attrs = &field.cfg_attrs;
-        quote!(#(#attrs)* self.#name.deliver(__events.#name);)
+        quote!(#(#attrs)* self.#name.deliver();)
+    });
+    let discards = fields.iter().map(|field| {
+        let name = &field.name;
+        let attrs = &field.cfg_attrs;
+        quote!(#(#attrs)* self.#name.discard();)
     });
     let invalidations = fields.iter().map(|field| {
         let name = &field.name;
@@ -223,34 +219,19 @@ pub(super) fn expand(
         #wrappers
         #[doc(hidden)]
         #visibility struct #children #model_generics #bounds { #(#metadata_fields)* __mirui_marker: ::core::marker::PhantomData<fn() -> #raw> }
-        #[doc(hidden)]
-        #visibility struct #snapshot #model_generics #bounds { #(#snapshot_fields)* __mirui_marker: ::core::marker::PhantomData<fn() -> #raw> }
-        impl #params ::core::marker::Copy for #snapshot #args #bounds {}
-        impl #params ::core::clone::Clone for #snapshot #args #bounds { fn clone(&self) -> Self { *self } }
-        #[doc(hidden)]
-        #visibility struct #events #model_generics #bounds { #(#event_fields)* __mirui_marker: ::core::marker::PhantomData<fn() -> #raw> }
-        #[doc(hidden)]
-        #visibility struct #pending #model_generics #bounds { #(#pending_fields)* __mirui_marker: ::core::marker::PhantomData<fn() -> #raw> }
         #(#paths)*
         impl #params ::mirui::core::model::ModelChildren<#raw> for #children #args #bounds {
-            type Snapshot = #snapshot #args;
-            type Events = #events #args;
-            type Pending = #pending #args;
             fn register<__MiruiRoot, __MiruiPath>(__root: &::mirui::__macro_support::__Weak<::mirui::core::model::ModelRoot<__MiruiRoot>>, __owner: ::mirui::core::model::BindingOwner, __path: __MiruiPath) -> Self
             where __MiruiRoot: ::mirui::core::model::Model, __MiruiPath: ::mirui::core::model::ModelPath<__MiruiRoot, Target = #raw> {
                 Self { #(#registrations)* __mirui_marker: ::core::marker::PhantomData }
             }
-            fn snapshot(__value: &#raw) -> Self::Snapshot {
-                #snapshot { #(#snapshots)* __mirui_marker: ::core::marker::PhantomData }
-            }
-            fn take_events(__value: &mut #raw) -> Self::Events {
-                #events { #(#extracts)* __mirui_marker: ::core::marker::PhantomData }
-            }
-            fn finish(&self, __value: &mut #raw, __reset: bool) -> Self::Pending {
-                #pending { #(#finishes)* __mirui_marker: ::core::marker::PhantomData }
-            }
-            fn publish(&self, __before: Self::Snapshot, __after: Self::Snapshot, __pending: Self::Pending) { #(#publications)* }
-            fn deliver(&self, __events: Self::Events) { #(#deliveries)* }
+            fn begin(&self, __value: &#raw) { #(#begins)* }
+            fn extract(&self, __value: &mut #raw) { #(#extracts)* }
+            fn finish(&self, __value: &mut #raw, __reset: bool) { #(#finishes)* }
+            fn capture_after(&self, __value: &#raw) { #(#afters)* }
+            fn publish(&self) { #(#publications)* }
+            fn deliver(&self) { #(#deliveries)* }
+            fn discard(&self) { #(#discards)* }
             fn invalidate(&self) { #(#invalidations)* }
         }
     }

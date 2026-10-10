@@ -1,4 +1,4 @@
-use super::{Model, ModelAccess, ModelEvents, ModelMetadata};
+use super::{Model, ModelAccess};
 use alloc::rc::Weak;
 
 /// Inline data and pending changes for a statically owned model field.
@@ -35,10 +35,6 @@ impl<M: Model> OwnedStorage<M> {
         let change = update(&mut self.value)?;
         M::record_change(&mut self.pending, change);
         Ok(change)
-    }
-
-    pub fn take_events(&mut self) -> ModelEvents<M> {
-        ModelMetadata::take_events(&mut self.value)
     }
 }
 

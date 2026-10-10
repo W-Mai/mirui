@@ -2,74 +2,73 @@ use super::{
     BindingOwner, Model, ModelAccess, ModelMetadata, ModelPath, ModelRoot, OwnedStorage, OwnerState,
 };
 use alloc::rc::{Rc, Weak};
+use core::cell::RefCell;
 
-/// Statically declared child identities and their transaction state.
+/// Declared child identities and their retained transaction state.
 #[doc(hidden)]
 pub trait ModelChildren<M: Model>: Sized {
-    type Snapshot: Copy;
-    type Events;
-    type Pending;
-
     fn register<R: Model, P: ModelPath<R, Target = M>>(
         root: &Weak<ModelRoot<R>>,
         owner: BindingOwner,
         path: P,
     ) -> Self;
-    fn snapshot(value: &M) -> Self::Snapshot;
-    fn take_events(value: &mut M) -> Self::Events;
-    fn finish(&self, value: &mut M, reset: bool) -> Self::Pending;
-    fn publish(&self, before: Self::Snapshot, after: Self::Snapshot, pending: Self::Pending);
-    fn deliver(&self, events: Self::Events);
+    fn begin(&self, value: &M);
+    fn extract(&self, value: &mut M);
+    fn finish(&self, value: &mut M, reset: bool);
+    fn capture_after(&self, value: &M);
+    fn publish(&self);
+    fn deliver(&self);
+    fn discard(&self);
     fn invalidate(&self);
 }
 
 impl<M: Model> ModelChildren<M> for () {
-    type Snapshot = ();
-    type Events = ();
-    type Pending = ();
-
     fn register<R: Model, P: ModelPath<R, Target = M>>(
         _: &Weak<ModelRoot<R>>,
         _: BindingOwner,
         _: P,
     ) {
     }
-    fn snapshot(_: &M) {}
-    fn take_events(_: &mut M) {}
+    fn begin(&self, _: &M) {}
+    fn extract(&self, _: &mut M) {}
     fn finish(&self, _: &mut M, _: bool) {}
-    fn publish(&self, _: (), _: (), _: ()) {}
-    fn deliver(&self, _: ()) {}
+    fn capture_after(&self, _: &M) {}
+    fn publish(&self) {}
+    fn deliver(&self) {}
+    fn discard(&self) {}
     fn invalidate(&self) {}
 }
 
-/// The observed values of a statically declared model subtree.
-#[doc(hidden)]
-pub struct ModelSnapshot<M: Model> {
+struct ModelSnapshot<M: Model> {
     observed: M::Snapshot,
     derived: M::DerivedSnapshot,
-    children: <M::Children as ModelChildren<M>>::Snapshot,
 }
 
-impl<M: Model> Copy for ModelSnapshot<M> {}
-
-impl<M: Model> Clone for ModelSnapshot<M> {
-    fn clone(&self) -> Self {
-        *self
+impl<M: Model> ModelSnapshot<M> {
+    fn capture(value: &M) -> Self {
+        Self {
+            observed: value.snapshot(),
+            derived: value.derived_snapshot(),
+        }
     }
 }
 
-/// Extracted fixed-capacity effects from one model subtree.
-#[doc(hidden)]
-pub struct ModelEvents<M: Model> {
-    own: M::Events,
-    children: <M::Children as ModelChildren<M>>::Events,
+pub(super) struct ModelTransaction<M: Model> {
+    before: Option<ModelSnapshot<M>>,
+    after: Option<ModelSnapshot<M>>,
+    pending: M::PendingWatches,
+    events: Option<M::Events>,
 }
 
-/// Pending watch notifications from one model subtree.
-#[doc(hidden)]
-pub struct ModelPending<M: Model> {
-    own: M::PendingWatches,
-    children: <M::Children as ModelChildren<M>>::Pending,
+impl<M: Model> ModelTransaction<M> {
+    fn new() -> Self {
+        Self {
+            before: None,
+            after: None,
+            pending: M::pending_watches(),
+            events: None,
+        }
+    }
 }
 
 /// Registered identity and observations for one owned model field.
@@ -102,7 +101,15 @@ impl<M: Model> ChildNode<M> {
         M::handle(Rc::downgrade(&self.access))
     }
 
-    pub fn finish(&self, storage: &mut OwnedStorage<M>, reset: bool) -> ModelPending<M> {
+    pub fn begin(&self, storage: &OwnedStorage<M>) {
+        self.metadata.begin(&storage.value);
+    }
+
+    pub fn extract(&self, storage: &mut OwnedStorage<M>) {
+        self.metadata.extract(&mut storage.value);
+    }
+
+    pub fn finish(&self, storage: &mut OwnedStorage<M>, reset: bool) {
         let identity = Rc::downgrade(&self.access);
         let moved = storage
             .identity
@@ -113,20 +120,23 @@ impl<M: Model> ChildNode<M> {
         }
         let pending = core::mem::replace(&mut storage.pending, M::pending_watches());
         self.metadata
-            .finish(&mut storage.value, pending, reset || moved)
+            .finish(&mut storage.value, pending, reset || moved);
     }
 
-    pub fn publish(
-        &self,
-        before: ModelSnapshot<M>,
-        after: ModelSnapshot<M>,
-        pending: ModelPending<M>,
-    ) {
-        self.metadata.publish(before, after, pending);
+    pub fn capture_after(&self, storage: &OwnedStorage<M>) {
+        self.metadata.capture_after(&storage.value);
     }
 
-    pub fn deliver(&self, events: ModelEvents<M>) {
-        self.metadata.deliver(events);
+    pub fn publish(&self) {
+        self.metadata.publish();
+    }
+
+    pub fn deliver(&self) {
+        self.metadata.deliver();
+    }
+
+    pub fn discard(&self) {
+        self.metadata.discard();
     }
 
     pub fn invalidate(&self) {
@@ -158,6 +168,7 @@ impl<M: Model> ModelMetadata<M> {
             watches,
             routes: M::routes(),
             children: M::Children::register::<R, P>(root, owner, path),
+            transaction: RefCell::new(ModelTransaction::new()),
         }
     }
 
@@ -166,57 +177,72 @@ impl<M: Model> ModelMetadata<M> {
         &self.children
     }
 
-    #[doc(hidden)]
-    pub fn snapshot(value: &M) -> ModelSnapshot<M> {
-        ModelSnapshot {
-            observed: value.snapshot(),
-            derived: value.derived_snapshot(),
-            children: M::Children::snapshot(value),
-        }
+    pub(super) fn begin(&self, value: &M) {
+        let before = ModelSnapshot::capture(value);
+        self.transaction.borrow_mut().before = Some(before);
+        self.children.begin(value);
     }
 
-    pub(super) fn take_events(value: &mut M) -> ModelEvents<M> {
-        ModelEvents {
-            own: value.take_events(),
-            children: M::Children::take_events(value),
-        }
+    pub(super) fn extract(&self, value: &mut M) {
+        let events = value.take_events();
+        self.transaction.borrow_mut().events = Some(events);
+        self.children.extract(value);
     }
 
-    pub(super) fn finish(
-        &self,
-        value: &mut M,
-        mut pending: M::PendingWatches,
-        reset: bool,
-    ) -> ModelPending<M> {
+    pub(super) fn finish(&self, value: &mut M, mut pending: M::PendingWatches, reset: bool) {
         if reset {
             pending.as_mut().fill(true);
         }
-        ModelPending {
-            own: pending,
-            children: self.children.finish(value, reset),
-        }
+        self.transaction.borrow_mut().pending = pending;
+        self.children.finish(value, reset);
     }
 
-    pub(super) fn publish(
-        &self,
-        before: ModelSnapshot<M>,
-        after: ModelSnapshot<M>,
-        pending: ModelPending<M>,
-    ) {
+    pub(super) fn capture_after(&self, value: &M) {
+        let after = ModelSnapshot::capture(value);
+        self.transaction.borrow_mut().after = Some(after);
+        self.children.capture_after(value);
+    }
+
+    pub(super) fn publish(&self) {
+        let (before, after, pending) = {
+            let mut transaction = self.transaction.borrow_mut();
+            (
+                transaction
+                    .before
+                    .take()
+                    .expect("model transaction has no before snapshot"),
+                transaction
+                    .after
+                    .take()
+                    .expect("model transaction has no after snapshot"),
+                core::mem::replace(&mut transaction.pending, M::pending_watches()),
+            )
+        };
         M::publish(&self.sources, before.observed, after.observed);
         M::publish_derived(&self.derived_sources, before.derived, after.derived);
-        for (watch, changed) in self.watches.as_ref().iter().zip(pending.own.as_ref()) {
+        for (watch, changed) in self.watches.as_ref().iter().zip(pending.as_ref()) {
             if *changed {
                 watch.publish();
             }
         }
-        self.children
-            .publish(before.children, after.children, pending.children);
+        self.children.publish();
     }
 
-    pub(super) fn deliver(&self, events: ModelEvents<M>) {
-        M::deliver_events(&self.routes, events.own);
-        self.children.deliver(events.children);
+    pub(super) fn deliver(&self) {
+        let events = self.transaction.borrow_mut().events.take();
+        if let Some(events) = events {
+            M::deliver_events(&self.routes, events);
+        }
+        self.children.deliver();
+    }
+
+    pub(super) fn discard(&self) {
+        let discarded = {
+            let mut transaction = self.transaction.borrow_mut();
+            core::mem::replace(&mut *transaction, ModelTransaction::new())
+        };
+        drop(discarded);
+        self.children.discard();
     }
 
     pub(super) fn invalidate_computeds(&self) {

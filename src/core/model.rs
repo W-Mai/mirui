@@ -1,4 +1,4 @@
-//! Registered model instances and their shared method-call boundary.
+//! Registered model instances, typed projections, and retained transaction storage.
 
 use alloc::boxed::Box;
 use alloc::rc::{Rc, Weak};
@@ -15,7 +15,7 @@ pub use owned::{OwnedModel, OwnedStorage};
 #[doc(hidden)]
 pub use projection::{ModelChildField, ModelPath, ModelPathThen};
 #[doc(hidden)]
-pub use tree::{ChildNode, ModelChildren, ModelEvents, ModelPending, ModelSnapshot};
+pub use tree::{ChildNode, ModelChildren};
 
 /// Derived observations declared by a model's inherent implementation.
 #[doc(hidden)]
@@ -358,6 +358,7 @@ pub struct ModelMetadata<M: Model> {
     watches: M::Watches,
     routes: M::Routes,
     children: M::Children,
+    transaction: RefCell<tree::ModelTransaction<M>>,
 }
 
 type ModelUpdate<'a, M> = dyn FnMut(&mut M) -> Option<<M as Model>::Change> + 'a;
@@ -383,6 +384,7 @@ pub struct ModelRoot<M: Model> {
     value: RefCell<M>,
     metadata: ModelMetadata<M>,
     poisoned: Cell<bool>,
+    updating: Cell<bool>,
 }
 
 impl<M: Model> ModelRoot<M> {
@@ -393,13 +395,15 @@ impl<M: Model> ModelRoot<M> {
                 BindingOwner(OwnerState::Bound(owner)),
                 projection::RootPath,
             );
-            let _ = metadata.finish(&mut value, M::pending_watches(), false);
+            metadata.finish(&mut value, M::pending_watches(), false);
+            metadata.discard();
             Self {
                 owner,
                 active: Cell::new(true),
                 value: RefCell::new(value),
                 metadata,
                 poisoned: Cell::new(false),
+                updating: Cell::new(false),
             }
         })
     }
@@ -420,16 +424,20 @@ impl<M: Model> Drop for RegisteredModel<M> {
     }
 }
 
-struct UpdateGuard<'a> {
+struct UpdateGuard<'a, M: Model> {
     poisoned: &'a Cell<bool>,
+    updating: &'a Cell<bool>,
+    metadata: &'a ModelMetadata<M>,
     committed: bool,
 }
 
-impl Drop for UpdateGuard<'_> {
+impl<M: Model> Drop for UpdateGuard<'_, M> {
     fn drop(&mut self) {
         if !self.committed {
             self.poisoned.set(true);
         }
+        self.metadata.discard();
+        self.updating.set(false);
     }
 }
 
@@ -486,27 +494,28 @@ impl<M: Model> ModelRoot<M> {
             .value
             .try_borrow_mut()
             .expect("model is already borrowed");
+        assert!(!self.updating.replace(true), "model is already updating");
         let mut guard = UpdateGuard {
             poisoned: &self.poisoned,
+            updating: &self.updating,
+            metadata: &self.metadata,
             committed: false,
         };
-        let before = ModelMetadata::<M>::snapshot(&value);
+        self.metadata.begin(&value);
         let mut watches = M::pending_watches();
         let accepted = path.update(&mut value, &mut watches, update);
-        let events = ModelMetadata::<M>::take_events(&mut value);
-        let pending = self.metadata.finish(&mut value, watches, false);
+        self.metadata.extract(&mut value);
+        self.metadata.finish(&mut value, watches, false);
         if !accepted {
-            drop(events);
-            drop(pending);
             drop(value);
             guard.committed = true;
             return;
         }
-        let after = ModelMetadata::<M>::snapshot(&value);
+        self.metadata.capture_after(&value);
         drop(value);
-        self.metadata.publish(before, after, pending);
+        self.metadata.publish();
         guard.committed = true;
-        self.metadata.deliver(events);
+        self.metadata.deliver();
     }
 }
 

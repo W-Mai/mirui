@@ -280,6 +280,45 @@ fn rejected_updates_clear_child_events_and_pending_without_publication() {
 }
 
 #[test]
+fn interrupted_effect_delivery_discards_all_retained_transaction_state() {
+    let mut app = crate::app::App::headless(32, 32);
+    let model = app.add_model(Pair::new());
+    let panic_once = Cell::new(true);
+    app.on_effect(&model.left(), move |_: Notice| {
+        assert!(!panic_once.replace(false), "consumer interrupted");
+    })
+    .unwrap();
+    let delivered = Rc::new(Cell::new(0));
+    let counter = delivered.clone();
+    app.on_effect(&model.right(), move |notice: Notice| {
+        counter.set(counter.get() + u16::from(notice.0));
+    })
+    .unwrap();
+
+    let interrupted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| model.change()));
+    assert!(interrupted.is_err());
+    assert_eq!(model.total(), 14);
+    assert_eq!(delivered.get(), 0);
+    model.access().upgrade().unwrap().metadata(&mut |metadata| {
+        let transaction = metadata.transaction.borrow();
+        assert!(transaction.before.is_none());
+        assert!(transaction.after.is_none());
+        assert!(transaction.events.is_none());
+        for child in [&metadata.children().left, &metadata.children().right] {
+            let transaction = child.metadata().transaction.borrow();
+            assert!(transaction.before.is_none());
+            assert!(transaction.after.is_none());
+            assert!(transaction.events.is_none());
+            assert!(transaction.pending.iter().all(|pending| !pending));
+        }
+    });
+    model.update(|_| {});
+    assert_eq!(delivered.get(), 0);
+    model.change();
+    assert_eq!(delivered.get(), 3);
+}
+
+#[test]
 fn registration_retirement_recursively_invalidates_child_sources() {
     let mut app = crate::app::App::headless(32, 32);
     let model = app.add_model(Pair::new());
