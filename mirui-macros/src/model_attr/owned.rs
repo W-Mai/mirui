@@ -158,7 +158,7 @@ pub(super) fn expand(
         let path = field_type(name, field.index);
         let attrs = &field.cfg_attrs;
         quote! {
-            #(#attrs)* #field_name: ::mirui::core::model::ChildNode::new::<__MiruiRoot, ::mirui::core::model::ModelPathThen<__MiruiPath, #path #args>>(__root, __owner),
+            #(#attrs)* #field_name: ::mirui::core::model::ChildNode::new::<__MiruiRoot, ::mirui::core::model::ModelPathThen<__MiruiPath, #path #args>>(__root, __owner, ::mirui::core::model::ModelPathThen::new(__path)),
         }
     });
     let snapshots = fields.iter().map(|field| {
@@ -236,7 +236,7 @@ pub(super) fn expand(
             type Snapshot = #snapshot #args;
             type Events = #events #args;
             type Pending = #pending #args;
-            fn register<__MiruiRoot, __MiruiPath>(__root: &::mirui::__macro_support::__Weak<::mirui::core::model::ModelRoot<__MiruiRoot>>, __owner: ::mirui::core::model::BindingOwner) -> Self
+            fn register<__MiruiRoot, __MiruiPath>(__root: &::mirui::__macro_support::__Weak<::mirui::core::model::ModelRoot<__MiruiRoot>>, __owner: ::mirui::core::model::BindingOwner, __path: __MiruiPath) -> Self
             where __MiruiRoot: ::mirui::core::model::Model, __MiruiPath: ::mirui::core::model::ModelPath<__MiruiRoot, Target = #raw> {
                 Self { #(#registrations)* __mirui_marker: ::core::marker::PhantomData }
             }

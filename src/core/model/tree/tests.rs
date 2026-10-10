@@ -1,3 +1,4 @@
+use crate::core::model::{Model, ModelMetadata, ModelPath, ModelUpdate};
 use crate::core::model::{ModelHandle, OwnedModel};
 use crate::core::reactive::{Computed, with_world_scope};
 use crate::test_support::tracked_allocations;
@@ -140,6 +141,101 @@ fn child_sources_publish_before_any_effect_and_extractor_writes_are_observed() {
         }),
         0
     );
+}
+
+#[derive(Clone, Copy)]
+struct LeafPath(bool);
+
+impl ModelPath<Pair> for LeafPath {
+    type Target = Leaf;
+
+    fn read<'a>(&self, value: &'a Pair) -> &'a Leaf {
+        if self.0 {
+            &value.right.storage().value
+        } else {
+            &value.left.storage().value
+        }
+    }
+
+    fn write<'a>(&self, value: &'a mut Pair) -> &'a mut Leaf {
+        if self.0 {
+            &mut value.right.storage_mut().value
+        } else {
+            &mut value.left.storage_mut().value
+        }
+    }
+
+    fn metadata<'a>(&self, root: &'a ModelMetadata<Pair>) -> &'a ModelMetadata<Leaf> {
+        if self.0 {
+            root.children().right.metadata()
+        } else {
+            root.children().left.metadata()
+        }
+    }
+
+    fn update(
+        &self,
+        value: &mut Pair,
+        _: &mut <Pair as Model>::PendingWatches,
+        update: &mut ModelUpdate<'_, Leaf>,
+    ) -> bool {
+        let storage = if self.0 {
+            value.right.storage_mut()
+        } else {
+            value.left.storage_mut()
+        };
+        let Some(change) = update(&mut storage.value) else {
+            return false;
+        };
+        Leaf::record_change(&mut storage.pending, change);
+        true
+    }
+}
+
+#[test]
+fn path_values_select_data_observations_and_effect_routes_without_hot_allocation() {
+    use crate::core::model::{ModelAccess, projection::Projection};
+
+    let mut world = crate::ecs::World::new();
+    let (registration, parent) = super::super::register(&mut world, Pair::new());
+    let accesses: [Rc<dyn ModelAccess<Leaf>>; 2] = [false, true].map(|right| {
+        Rc::new(Projection {
+            root: Rc::downgrade(&registration.root),
+            path: LeafPath(right),
+        }) as Rc<dyn ModelAccess<Leaf>>
+    });
+    let [left, right] = accesses
+        .each_ref()
+        .map(|access| Leaf::handle(Rc::downgrade(access)));
+    let tracked = right.clone();
+    let right_value = with_world_scope(&mut world, || Computed::new(move || tracked.value()));
+    let delivered = Rc::new(Cell::new(0));
+    let counter = delivered.clone();
+    super::super::register_effect(world.id(), &right, move |notice: Notice| {
+        counter.set(counter.get() + u16::from(notice.0));
+    })
+    .unwrap();
+    assert_eq!((left.value(), right_value.get()), (1, 10));
+    assert_eq!(
+        tracked_allocations(|| {
+            left.change(1, 7);
+            right.change(2, 3);
+            assert_eq!(
+                (left.value(), right_value.get(), parent.total()),
+                (2, 12, 14)
+            );
+            assert_eq!((left.value_revision(), right.value_revision()), (1, 1));
+        }),
+        0
+    );
+    assert_eq!(delivered.get(), 3);
+    drop(registration);
+    for access in &accesses {
+        assert!(matches!(
+            access.binding_owner().0,
+            super::super::OwnerState::Invalid(_)
+        ));
+    }
 }
 
 #[test]

@@ -2,7 +2,6 @@ use super::{
     BindingOwner, Model, ModelAccess, ModelMetadata, ModelPath, ModelRoot, OwnedStorage, OwnerState,
 };
 use alloc::rc::{Rc, Weak};
-use core::marker::PhantomData;
 
 /// Statically declared child identities and their transaction state.
 #[doc(hidden)]
@@ -14,6 +13,7 @@ pub trait ModelChildren<M: Model>: Sized {
     fn register<R: Model, P: ModelPath<R, Target = M>>(
         root: &Weak<ModelRoot<R>>,
         owner: BindingOwner,
+        path: P,
     ) -> Self;
     fn snapshot(value: &M) -> Self::Snapshot;
     fn take_events(value: &mut M) -> Self::Events;
@@ -28,7 +28,12 @@ impl<M: Model> ModelChildren<M> for () {
     type Events = ();
     type Pending = ();
 
-    fn register<R: Model, P: ModelPath<R, Target = M>>(_: &Weak<ModelRoot<R>>, _: BindingOwner) {}
+    fn register<R: Model, P: ModelPath<R, Target = M>>(
+        _: &Weak<ModelRoot<R>>,
+        _: BindingOwner,
+        _: P,
+    ) {
+    }
     fn snapshot(_: &M) {}
     fn take_events(_: &mut M) {}
     fn finish(&self, _: &mut M, _: bool) {}
@@ -78,12 +83,13 @@ impl<M: Model> ChildNode<M> {
     pub fn new<R: Model, P: ModelPath<R, Target = M>>(
         root: &Weak<ModelRoot<R>>,
         owner: BindingOwner,
+        path: P,
     ) -> Self {
         Self {
-            metadata: ModelMetadata::register::<R, P>(root, owner),
+            metadata: ModelMetadata::register::<R, P>(root, owner, path),
             access: Rc::new(super::projection::Projection::<R, P> {
                 root: root.clone(),
-                path: PhantomData,
+                path,
             }),
         }
     }
@@ -132,6 +138,7 @@ impl<M: Model> ModelMetadata<M> {
     pub(super) fn register<R: Model, P: ModelPath<R, Target = M>>(
         root: &Weak<ModelRoot<R>>,
         owner: BindingOwner,
+        path: P,
     ) -> Self {
         let OwnerState::Bound(world) = owner.0 else {
             panic!("model metadata requires a registered owner");
@@ -150,7 +157,7 @@ impl<M: Model> ModelMetadata<M> {
             derived_sources,
             watches,
             routes: M::routes(),
-            children: M::Children::register::<R, P>(root, owner),
+            children: M::Children::register::<R, P>(root, owner, path),
         }
     }
 

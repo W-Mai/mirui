@@ -391,6 +391,7 @@ impl<M: Model> ModelRoot<M> {
             let metadata = ModelMetadata::register::<M, projection::RootPath>(
                 root,
                 BindingOwner(OwnerState::Bound(owner)),
+                projection::RootPath,
             );
             let _ = metadata.finish(&mut value, M::pending_watches(), false);
             Self {
@@ -458,7 +459,7 @@ impl<M: Model> ModelAccess<M> for ModelRoot<M> {
     }
 
     fn update(&self, update: &mut ModelUpdate<'_, M>) {
-        self.update_path::<projection::RootPath>(update);
+        self.update_path(&projection::RootPath, update);
     }
 
     fn metadata(&self, read: &mut dyn FnMut(&ModelMetadata<M>)) {
@@ -468,7 +469,7 @@ impl<M: Model> ModelAccess<M> for ModelRoot<M> {
 }
 
 impl<M: Model> ModelRoot<M> {
-    fn update_path<P: ModelPath<M>>(&self, update: &mut ModelUpdate<'_, P::Target>) {
+    fn update_path<P: ModelPath<M>>(&self, path: &P, update: &mut ModelUpdate<'_, P::Target>) {
         assert!(
             crate::core::reactive::model_writes_allowed(),
             "model updates are not allowed in a read-only callback"
@@ -491,7 +492,7 @@ impl<M: Model> ModelRoot<M> {
         };
         let before = ModelMetadata::<M>::snapshot(&value);
         let mut watches = M::pending_watches();
-        let accepted = P::update(&mut value, &mut watches, update);
+        let accepted = path.update(&mut value, &mut watches, update);
         let events = ModelMetadata::<M>::take_events(&mut value);
         let pending = self.metadata.finish(&mut value, watches, false);
         if !accepted {
