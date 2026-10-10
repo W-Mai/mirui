@@ -1,9 +1,9 @@
-use crate::ecs::{CommandError, Entity, World};
-use crate::input::event::gesture::GestureEvent;
+use crate::ecs::{Entity, World};
+use crate::input::event::gesture::{DragEnd, DragMove, DragStart, Tap};
 use crate::render::command::DrawCommand;
 use crate::types::{Fixed, Rect};
 use crate::ui::ComputedRect;
-use crate::ui::property::{PropertyChange, ValueUpdate, invalidate_for_change};
+use crate::ui::property::PropertyChange;
 use crate::ui::theme::{ColorToken, ThemedColor};
 
 crate::input::event::contract::widget_events! {
@@ -73,18 +73,17 @@ impl Slider {
         self.min + clamped * (self.max - self.min)
     }
 
-    pub(crate) fn update_value(&mut self, value: Fixed) -> ValueUpdate<Fixed> {
+    pub(crate) fn update_value(&mut self, value: Fixed) -> PropertyChange {
         let old = self.value;
         let lower = self.min.min(self.max);
         let upper = self.min.max(self.max);
         let new = value.clamp(lower, upper);
-        let change = if old == new {
+        if old == new {
             PropertyChange::Unchanged
         } else {
             self.value = new;
             PropertyChange::Visual
-        };
-        ValueUpdate { old, new, change }
+        }
     }
 
     pub fn build(min: impl Into<Fixed>, max: impl Into<Fixed>) -> SliderBuilder {
@@ -161,7 +160,7 @@ fn knob_center_offset(ratio: Fixed, track_w: Fixed, thumb_size: Fixed) -> Fixed 
     name = "Slider",
     priority = 60,
     attach = slider_attach,
-    gesture = slider_handler
+    input = (slider_tap::callback(), slider_drag::callback(), slider_start::callback(), slider_end::callback())
 )]
 fn slider_render(component: component!(), paint: paint!(), theme: res!(crate::ui::Theme)) {
     let rect = paint.rect();
@@ -223,56 +222,63 @@ fn slider_render(component: component!(), paint: paint!(), theme: res!(crate::ui
     });
 }
 
-pub(crate) fn slider_handler(
-    world: &mut World,
-    entity: Entity,
-    event: &GestureEvent,
-) -> Result<bool, CommandError> {
-    match event {
-        GestureEvent::DragStart { .. } => {
-            crate::input::event::runtime::emit_widget(world, entity, DragStarted)?;
-            return Ok(true);
-        }
-        GestureEvent::DragEnd { .. } => {
-            crate::input::event::runtime::emit_widget(world, entity, DragEnded)?;
-            return Ok(true);
-        }
-        GestureEvent::Tap { .. } | GestureEvent::DragMove { .. } => {}
-        _ => return Ok(false),
-    }
+fn slider_value(slider: &Slider, rect: Rect, x: Fixed) -> Option<ValueChanged> {
+    let ratio = (x - rect.x).max(Fixed::ZERO) / rect.w;
+    let new = slider.value_from_ratio(ratio);
+    (new != slider.value).then_some(ValueChanged {
+        new,
+        old: slider.value,
+    })
+}
 
-    let x = match event {
-        GestureEvent::Tap { x, .. } | GestureEvent::DragMove { x, .. } => *x,
-        _ => return Ok(false),
+#[crate::event]
+fn slider_tap(
+    node: entity!(),
+    input: event!(Tap),
+    sliders: query!(Slider, ComputedRect),
+    commands: commands!(),
+) -> bool {
+    let Some((slider, rect)) = sliders.get(node) else {
+        return false;
     };
-    let Some(rect) = world.get::<ComputedRect>(entity).map(|r| r.0) else {
-        return Ok(false);
-    };
-    if rect.w <= Fixed::ZERO {
-        return Ok(false);
+    if rect.0.w <= Fixed::ZERO {
+        return false;
     }
-    let local = (x - rect.x).max(Fixed::ZERO);
-    let ratio = local / rect.w;
+    if let Some(changed) = slider_value(slider, rect.0, input.x) {
+        commands.set::<crate::ui::property::prop::SliderValue>(node, changed.new);
+        commands.emit(node, changed);
+    }
+    true
+}
 
-    let update = {
-        let Some(s) = world.get_mut::<Slider>(entity) else {
-            return Ok(false);
-        };
-        s.update_value(s.value_from_ratio(ratio))
+#[crate::event]
+fn slider_drag(
+    node: entity!(),
+    input: event!(DragMove),
+    sliders: query!(Slider, ComputedRect),
+    commands: commands!(),
+) -> bool {
+    let Some((slider, rect)) = sliders.get(node) else {
+        return false;
     };
-    if !update.change.changed() {
-        return Ok(true);
+    if rect.0.w <= Fixed::ZERO {
+        return false;
     }
-    invalidate_for_change(world, entity, update.change);
-    crate::input::event::runtime::emit_widget(
-        world,
-        entity,
-        ValueChanged {
-            new: update.new,
-            old: update.old,
-        },
-    )?;
-    Ok(true)
+    if let Some(changed) = slider_value(slider, rect.0, input.x) {
+        commands.set::<crate::ui::property::prop::SliderValue>(node, changed.new);
+        commands.emit(node, changed);
+    }
+    true
+}
+
+#[crate::event]
+fn slider_start(node: entity!(), _input: event!(DragStart), commands: commands!()) {
+    commands.emit(node, DragStarted);
+}
+
+#[crate::event]
+fn slider_end(node: entity!(), _input: event!(DragEnd), commands: commands!()) {
+    commands.emit(node, DragEnded);
 }
 
 fn slider_attach(world: &mut World, entity: Entity) {
@@ -284,7 +290,8 @@ pub use slider_render::view;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ecs::CommandCapacity;
+    use crate::ecs::CommandError;
+    use crate::input::event::gesture::GestureEvent;
     use crate::input::event::{EventCapacity, runtime};
     use crate::ui::dirty::VisualDirty;
 
@@ -342,6 +349,7 @@ mod tests {
         runtime::configure(
             &mut world,
             EventCapacity::new()
+                .commands(crate::input::event::view_input::fixture_capacity())
                 .notifications::<ValueChanged>(2)
                 .notifications::<DragStarted>(1)
                 .notifications::<DragEnded>(1)
@@ -363,7 +371,8 @@ mod tests {
     fn tap_emits_value_changed_with_new_old() {
         let (mut world, entity) = fresh();
         assert!(
-            slider_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -409,7 +418,10 @@ mod tests {
                 target: entity,
             },
         ] {
-            assert!(slider_handler(&mut world, entity, &event).unwrap());
+            assert!(
+                crate::input::event::view_input::invoke_gesture(view(), &mut world, entity, &event)
+                    .unwrap()
+            );
         }
         assert!(world.has::<VisualDirty>(entity));
         assert!(!world.has::<crate::ui::dirty::Dirty>(entity));
@@ -426,8 +438,11 @@ mod tests {
     fn no_value_change_does_not_emit() {
         let (mut world, entity) = fresh();
         world.get_mut::<Slider>(entity).unwrap().value = Fixed::from_int(50);
+        crate::input::event::view_input::fixture_inputs(view(), &mut world);
+        world.remove::<VisualDirty>(entity);
         assert!(
-            slider_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -446,6 +461,7 @@ mod tests {
     #[test]
     fn programmatic_value_uses_the_input_setter_without_emitting_an_event() {
         let (mut world, entity) = fresh();
+        crate::input::event::view_input::fixture_inputs(view(), &mut world);
         assert_eq!(
             crate::ui::property::apply_to_world::<crate::ui::property::prop::SliderValue>(
                 &mut world,
@@ -459,9 +475,11 @@ mod tests {
             Fixed::from_int(75)
         );
         assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        crate::ui::view::ViewRegistry::reconcile_observations(&mut world);
         world.remove::<VisualDirty>(entity);
         assert!(
-            slider_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -484,7 +502,7 @@ mod tests {
             &mut world,
             EventCapacity::new()
                 .notifications::<ValueChanged>(1)
-                .commands(CommandCapacity::new().despawn(1))
+                .commands(crate::input::event::view_input::fixture_capacity())
                 .flush_limit(1),
         )
         .unwrap();
@@ -493,7 +511,8 @@ mod tests {
             .spawn(Slider::build(0, 100).on_event(Slider::ValueChanged, remove_slider::callback()));
         world.insert(entity, ComputedRect(Rect::new(0, 0, 100, 20)));
         assert!(
-            slider_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -516,6 +535,7 @@ mod tests {
         runtime::configure(
             &mut world,
             EventCapacity::new()
+                .commands(crate::input::event::view_input::fixture_capacity())
                 .notifications::<ValueChanged>(1)
                 .flush_limit(1),
         )
@@ -529,7 +549,8 @@ mod tests {
         world.insert(entity, ComputedRect(Rect::new(0, 0, 100, 20)));
         assert!(world.has::<crate::ui::Style>(entity));
         assert!(world.has::<crate::ui::Widget>(entity));
-        slider_handler(
+        crate::input::event::view_input::invoke_gesture(
+            view(),
             &mut world,
             entity,
             &GestureEvent::Tap {
@@ -550,6 +571,7 @@ mod tests {
         runtime::configure(
             &mut world,
             EventCapacity::new()
+                .commands(crate::input::event::view_input::fixture_capacity())
                 .notifications::<ValueChanged>(1)
                 .flush_limit(1),
         )
@@ -562,7 +584,8 @@ mod tests {
         );
         world.insert(entity, ComputedRect(Rect::new(0, 0, 100, 20)));
         assert!(
-            slider_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -598,7 +621,8 @@ mod tests {
         let entity = crate::ui::UiScope::new(&mut world, builder_parent).spawn(Slider::build(0, 1));
         world.insert(entity, ComputedRect(Rect::new(0, 0, 100, 20)));
         assert!(
-            slider_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -621,6 +645,7 @@ mod tests {
         runtime::configure(
             &mut world,
             EventCapacity::new()
+                .commands(crate::input::event::view_input::fixture_capacity())
                 .notifications::<DragStarted>(1)
                 .flush_limit(1),
         )
@@ -633,7 +658,8 @@ mod tests {
             crate::ui::UiScope::new(&mut world, builder_parent).spawn(Slider::build(0, 100));
         world.insert(subscribed, ComputedRect(Rect::new(0, 0, 100, 20)));
         assert!(
-            slider_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 subscribed,
                 &GestureEvent::Tap {
@@ -645,7 +671,8 @@ mod tests {
             .unwrap()
         );
         assert!(
-            slider_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 other,
                 &GestureEvent::DragStart {
@@ -659,7 +686,8 @@ mod tests {
         assert_eq!(runtime::flush(&mut world).unwrap(), 0);
         assert_eq!(world.resource::<EventLog>().unwrap().len, 0);
         assert!(
-            slider_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 subscribed,
                 &GestureEvent::DragStart {
@@ -677,8 +705,16 @@ mod tests {
     #[test]
     fn input_preserves_updates_when_notification_budget_is_missing_or_zero() {
         for (capacity, explicit_zero) in [
-            (EventCapacity::new(), false),
-            (EventCapacity::new().notifications::<ValueChanged>(0), true),
+            (
+                EventCapacity::new().commands(crate::input::event::view_input::fixture_capacity()),
+                false,
+            ),
+            (
+                EventCapacity::new()
+                    .commands(crate::input::event::view_input::fixture_capacity())
+                    .notifications::<ValueChanged>(0),
+                true,
+            ),
         ] {
             let mut world = World::new();
             world.insert_resource(EventLog::default());
@@ -688,7 +724,8 @@ mod tests {
                 Slider::build(0, 100).on_event(Slider::ValueChanged, record_value::callback()),
             );
             world.insert(entity, ComputedRect(Rect::new(0, 0, 100, 20)));
-            let error = slider_handler(
+            let error = crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -743,7 +780,7 @@ mod tests {
         assert_eq!(view.name(), "Slider");
         assert_eq!(view.priority(), Some(60));
         assert!(view.auto_attach().is_some());
-        assert!(view.internal_gesture().is_some());
+        assert!(view.inputs().is_some());
     }
 
     #[test]

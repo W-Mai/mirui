@@ -72,12 +72,6 @@ fn multi_source_board_render(
 
 fn fixture() -> TestApp {
     let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
-    app.with_event_capacity(
-        EventCapacity::new()
-            .notifications::<crate::ui::widgets::slider::ValueChanged>(4)
-            .notifications::<crate::ui::widgets::switch::Toggled>(2)
-            .flush_limit(6),
-    );
     app.with_default_widgets()
         .with_widget(board_render::view())
         .with_widget(scene_board_render::view())
@@ -173,7 +167,7 @@ fn default_event_storage_routes_controls_through_real_setup() {
         .unwrap();
     let previous = model.bpm();
     let previous_trails = model.trails();
-    crate::input::event::runtime::emit_widget(
+    crate::input::event::emission::submit_if_listened(
         &mut app.world,
         bpm,
         crate::ui::widgets::slider::ValueChanged {
@@ -182,7 +176,7 @@ fn default_event_storage_routes_controls_through_real_setup() {
         },
     )
     .unwrap();
-    crate::input::event::runtime::emit_widget(
+    crate::input::event::emission::submit_if_listened(
         &mut app.world,
         trails,
         crate::ui::widgets::switch::Toggled {
@@ -207,12 +201,6 @@ fn default_event_storage_routes_controls_through_real_setup() {
 #[test]
 fn declared_text_layout_capacity_covers_page_switches() {
     let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
-    app.with_event_capacity(
-        EventCapacity::new()
-            .notifications::<crate::ui::widgets::slider::ValueChanged>(4)
-            .notifications::<crate::ui::widgets::switch::Toggled>(2)
-            .flush_limit(6),
-    );
     app.with_default_widgets();
     app.with_text_layout_limits(crate::text::TextLayoutLimits::EMBEDDED);
     #[cfg(feature = "audio")]
@@ -292,12 +280,6 @@ fn first_page_switch_keeps_dirty_storage_capacity_and_updates_output() {
 
     let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
 
-    app.with_event_capacity(
-        EventCapacity::new()
-            .notifications::<crate::ui::widgets::slider::ValueChanged>(4)
-            .notifications::<crate::ui::widgets::switch::Toggled>(2)
-            .flush_limit(6),
-    );
     app.with_default_widgets();
     let root = app.spawn_root().id();
     setup_app(&mut app, root);
@@ -384,12 +366,6 @@ fn marble_boards_share_only_their_bound_model_instance() {
 
     let mut app = App::headless(480, 320);
 
-    app.with_event_capacity(
-        EventCapacity::new()
-            .notifications::<crate::ui::widgets::slider::ValueChanged>(4)
-            .notifications::<crate::ui::widgets::switch::Toggled>(2)
-            .flush_limit(6),
-    );
     app.with_default_widgets();
     app.with_widget(board_render::view());
     let shared = app.add_model(MarbleModel::new());
@@ -687,12 +663,6 @@ fn installed_model_routes_pad_sound_to_the_shared_audio_core() {
 
     let mut app = App::headless(480, 320);
 
-    app.with_event_capacity(
-        EventCapacity::new()
-            .notifications::<crate::ui::widgets::slider::ValueChanged>(4)
-            .notifications::<crate::ui::widgets::switch::Toggled>(2)
-            .flush_limit(6),
-    );
     app.with_default_widgets();
     let core = crate::audio::SharedAudioCore::new(crate::audio::AudioBus::<32>::new());
     app.world
@@ -840,12 +810,6 @@ fn nav_pointer_tap_reaches_edit_after_layout() {
 
     let mut app = App::headless(480, 320);
 
-    app.with_event_capacity(
-        EventCapacity::new()
-            .notifications::<crate::ui::widgets::slider::ValueChanged>(4)
-            .notifications::<crate::ui::widgets::switch::Toggled>(2)
-            .flush_limit(6),
-    );
     app.world.insert_resource(IdMap::new());
     let root = app.spawn_root().id();
     setup_app(&mut app, root);

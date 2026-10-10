@@ -20,7 +20,7 @@ use super::emission::{
     enqueue_app_notice, flush_notifications_with, has_business_storage,
     prepare_runtime_notifications,
 };
-use super::focus::{FocusState, KeyHandler};
+use super::focus::FocusState;
 use super::input::{CharInput, InputEvent, Key, Rotary, Wheel};
 use super::layout::{SizeChanged, SizeObservers};
 use super::lifecycle::AppNotice;
@@ -73,23 +73,28 @@ impl EventRuntime {
             .checked_add(additional)
             .ok_or(ListenerError::SizeOverflow)?;
         let live = world.live_entity_count();
-        let gestures = match world.resource::<ViewRegistry>() {
+        let typed_inputs = match world.resource::<ViewRegistry>() {
             Some(registry) => registry.iter().try_fold(0_usize, |count, view| {
-                if view.internal_gesture().is_none() {
+                let Some(inputs) = view.inputs() else {
                     return Ok(count);
-                }
+                };
+                let inputs = inputs.try_borrow().map_err(|_| ListenerError::Busy)?;
+                let super::view_input::InputState::Ready(inputs) = &*inputs else {
+                    return Ok(count);
+                };
                 let matches = view
                     .component_filter()
                     .map_or(live, |kind| world.component_count(kind));
-                count
-                    .checked_add(matches)
+                inputs
+                    .max_dispatch
+                    .checked_mul(matches)
+                    .and_then(|additional| count.checked_add(additional))
                     .ok_or(ListenerError::SizeOverflow)
             })?,
             None => 0,
         };
-        let keyboard = world.component_count(TypeId::of::<KeyHandler>());
         let snapshot_steps = listeners
-            .checked_add(gestures.max(keyboard))
+            .checked_add(typed_inputs)
             .ok_or(ListenerError::SizeOverflow)?;
         self.listeners.reserve(ListenerCapacity {
             listeners,
@@ -282,6 +287,42 @@ where
     );
     runtime.configuration.set(configuration.freeze());
     Ok(())
+}
+
+pub(crate) fn prepare_shared_callback<E, C>(
+    world: &mut World,
+    callback: EventCallback<E, C>,
+) -> Result<super::callback::PreparedEvent<E, C>, RuntimeInstallError>
+where
+    E: Event,
+    C: CallbackContext<E, Target = Entity>,
+{
+    initialize(world);
+    let runtime = runtime(world).expect("initialized event runtime");
+    runtime.check_owner(world)?;
+    let configuration = runtime.configuration.get();
+    let capacity = if callback.uses_commands() {
+        configuration
+            .limits()
+            .commands
+            .ok_or(RuntimeInstallError::MissingCommandCapacity)?
+    } else {
+        CommandCapacity::new()
+    };
+    let app_slot = runtime.listeners.has_app_notifications(world)?;
+    runtime.prepare_notifications::<E>(world, callback.uses_commands(), app_slot)?;
+    let callback = callback
+        .prepare(world, capacity)
+        .map_err(ListenerError::from)?;
+    Ok(callback)
+}
+
+pub(crate) fn freeze_shared_callbacks(world: &World) {
+    if let Some(runtime) = runtime(world) {
+        runtime
+            .configuration
+            .set(runtime.configuration.get().freeze());
+    }
 }
 
 pub(crate) fn configure(
@@ -496,28 +537,6 @@ pub(crate) fn has_entity_listener<E: Event>(
         Some(runtime) => runtime.listeners.has_entity_listener::<E>(world, entity),
         None => Ok(false),
     }
-}
-
-pub(crate) fn emit_widget<E>(
-    world: &mut World,
-    entity: Entity,
-    payload: E,
-) -> Result<(), CommandError>
-where
-    E: Event<Route = EntityNotification>,
-    E::Source: EntityEventSource,
-{
-    if !has_entity_listener::<E>(world, entity).map_err(|error| match error {
-        ListenerError::ForeignOwner => {
-            CommandError::Commit(crate::ecs::CommandCommitError::ForeignOwner {
-                service: "event listeners",
-            })
-        }
-        _ => CommandError::Commit(crate::ecs::CommandCommitError::Busy),
-    })? {
-        return Ok(());
-    }
-    super::emission::submit(world, entity, payload)
 }
 
 /// Dispatch a recognizer gesture through the shared prepared event runtime.
@@ -1088,9 +1107,10 @@ mod tests {
         assert_eq!(&trace.values[..trace.len], &[99]);
     }
 
-    fn editing(world: &mut World, node: Entity, _: &InputEvent) -> Result<bool, CommandError> {
-        world.resource_mut::<Trace>().unwrap().push(40 + node.id);
-        Ok(false)
+    #[crate::event]
+    fn editing(node: entity!(), _key: event!(Key), trace: res!(mut Trace)) -> bool {
+        trace.push(40 + node.id);
+        false
     }
 
     #[test]
@@ -1099,8 +1119,15 @@ mod tests {
         install_app(&mut world, Key::EVENT, key::callback()).unwrap();
         let parent = world.spawn_empty();
         let child = world.spawn_empty();
-        world.insert(parent, KeyHandler { on_key: editing });
-        world.insert(child, KeyHandler { on_key: editing });
+        world.insert(parent, Marker(0));
+        world.insert(child, Marker(0));
+        let mut registry = ViewRegistry::default();
+        registry.insert(
+            crate::ui::view::View::systems_only("editor", &[])
+                .with_filter::<Marker>()
+                .with_inputs(&mut world, editing::callback()),
+        );
+        world.insert_resource(registry);
         world.insert(child, crate::ui::Parent(parent));
         world.insert_resource(FocusState {
             focused: Some(child),
@@ -1198,10 +1225,19 @@ mod tests {
                 for _ in 0..2 {
                     world.resource_mut::<Trace>().unwrap().len = 0;
                     for n in 0..8 {
-                        emit_widget(&mut world, target, Hit(n)).unwrap();
+                        crate::input::event::emission::submit_if_listened(
+                            &mut world,
+                            target,
+                            Hit(n),
+                        )
+                        .unwrap();
                     }
                     assert!(matches!(
-                        emit_widget(&mut world, target, Hit(9)),
+                        crate::input::event::emission::submit_if_listened(
+                            &mut world,
+                            target,
+                            Hit(9)
+                        ),
                         Err(CommandError::Commit(
                             crate::ecs::CommandCommitError::RecordCapacity { available: 8 }
                         ))
@@ -1288,9 +1324,14 @@ mod tests {
         assert_eq!(
             tracked_allocations(|| {
                 for _ in 0..2 {
-                    emit_widget(&mut world, target, Hit(1)).unwrap();
+                    crate::input::event::emission::submit_if_listened(&mut world, target, Hit(1))
+                        .unwrap();
                     assert!(matches!(
-                        emit_widget(&mut world, target, Hit(2)),
+                        crate::input::event::emission::submit_if_listened(
+                            &mut world,
+                            target,
+                            Hit(2)
+                        ),
                         Err(CommandError::Commit(
                             crate::ecs::CommandCommitError::RecordCapacity { available: 1 }
                         ))
@@ -1321,7 +1362,8 @@ mod tests {
         assert_eq!(
             tracked_allocations(|| {
                 for _ in 0..2 {
-                    emit_widget(&mut world, target, Hit(0)).unwrap();
+                    crate::input::event::emission::submit_if_listened(&mut world, target, Hit(0))
+                        .unwrap();
                     assert_eq!(
                         flush(&mut world),
                         Err(RuntimeRunError::Notification(
@@ -1421,8 +1463,18 @@ mod tests {
         assert_eq!(
             tracked_allocations(|| {
                 for _ in 0..2 {
-                    emit_widget(&mut world, target, Oversized([5; 65])).unwrap();
-                    emit_widget(&mut world, target, Aligned(7)).unwrap();
+                    crate::input::event::emission::submit_if_listened(
+                        &mut world,
+                        target,
+                        Oversized([5; 65]),
+                    )
+                    .unwrap();
+                    crate::input::event::emission::submit_if_listened(
+                        &mut world,
+                        target,
+                        Aligned(7),
+                    )
+                    .unwrap();
                     assert_eq!(flush(&mut world), Ok(2));
                 }
             }),

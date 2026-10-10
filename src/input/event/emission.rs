@@ -175,12 +175,22 @@ pub(crate) fn flush_notifications_with(
 }
 
 impl DeferredCommands<'_> {
-    /// Record a widget notification for submission after callback borrows end.
+    /// Record a notification submitted only when its entity has a listener for this event type at command commit time.
     ///
     /// This records a request, not a successful delivery. Recording and
     /// submission errors are returned by the callback executor.
     #[doc(hidden)]
     pub fn emit<E>(&mut self, entity: Entity, payload: E)
+    where
+        E: Event<Route = EntityNotification>,
+        E::Source: EntityEventSource,
+    {
+        self.apply(entity, payload, submit_if_listened::<E>);
+    }
+
+    /// Record a notification without requiring an installed listener at command commit time. Delivery uses the listeners present when the queue is flushed; undelivered events are not retained for future subscribers. Entity, source, and capacity checks still apply.
+    #[doc(hidden)]
+    pub fn emit_always<E>(&mut self, entity: Entity, payload: E)
     where
         E: Event<Route = EntityNotification>,
         E::Source: EntityEventSource,
@@ -198,6 +208,26 @@ impl crate::ecs::CommandCapacity {
     {
         self.entity_value::<E>(count)
     }
+}
+
+pub(crate) fn submit_if_listened<E>(
+    world: &mut World,
+    entity: Entity,
+    payload: E,
+) -> Result<(), CommandError>
+where
+    E: Event<Route = EntityNotification>,
+    E::Source: EntityEventSource,
+{
+    if !super::runtime::has_entity_listener::<E>(world, entity).map_err(|error| match error {
+        ListenerError::ForeignOwner => CommandError::Commit(CommandCommitError::ForeignOwner {
+            service: "event listeners",
+        }),
+        _ => CommandError::Commit(CommandCommitError::Busy),
+    })? {
+        return Ok(());
+    }
+    submit(world, entity, payload)
 }
 
 pub(crate) fn submit<E>(world: &mut World, entity: Entity, payload: E) -> Result<(), CommandError>

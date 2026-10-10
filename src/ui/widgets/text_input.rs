@@ -1,8 +1,8 @@
-use crate::ecs::{CommandError, Entity, World};
-use crate::input::event::focus::{FocusState, Focusable, KeyHandler, TextEditable};
-use crate::input::event::gesture::GestureEvent;
+use crate::ecs::{Entity, World};
+use crate::input::event::focus::{FocusState, Focusable, TextEditable};
+use crate::input::event::gesture::Tap;
 use crate::input::event::input::{
-    InputEvent, KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RIGHT,
+    CharInput, KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RIGHT, Key,
 };
 use crate::render::command::DrawCommand;
 use crate::text::TextGeometry;
@@ -28,6 +28,7 @@ crate::input::event::contract::widget_events! {
 /// `buffer[..len]` are the live characters and `cursor` is the insertion
 /// point in `0..=len`.
 #[crate::component]
+#[derive(Clone)]
 pub struct TextInput {
     pub buffer: [u8; TEXT_INPUT_CAP],
     pub len: u8,
@@ -360,7 +361,7 @@ pub(crate) fn prepare_layout(
     invalidation = Layout,
     priority = 70,
     attach = text_input_attach,
-    gesture = textinput_gesture_handler,
+    input = (textinput_tap::callback(), textinput_key::callback(), textinput_character::callback()),
     systems = [cursor_blink_system::system()]
 )]
 fn text_input_render(
@@ -499,95 +500,85 @@ pub fn cursor_blink_system(
     }
 }
 
-/// Gesture dispatch sets tap focus before this handler copies FocusState into TextInput.focused for rendering.
-fn textinput_gesture_handler(
-    world: &mut World,
-    entity: Entity,
-    event: &GestureEvent,
-) -> Result<bool, CommandError> {
-    if let GestureEvent::Tap { .. } = event {
-        sync_textinput_focus(world);
-        world.insert(entity, Dirty);
-        return Ok(true);
-    }
-    Ok(false)
-}
-
-/// Copy `FocusState.focused` onto each TextInput's `focused` field.
-fn sync_textinput_focus(world: &mut World) {
-    let focused = world.resource::<FocusState>().and_then(|fs| fs.focused);
-    world.for_each_stable::<TextInput>(|world, e| {
-        let want = Some(e) == focused;
-        let current = world
-            .get::<TextInput>(e)
-            .map(|t| t.focused)
-            .unwrap_or(false);
-        if want != current {
-            if let Some(ti) = world.get_mut::<TextInput>(e) {
-                ti.focused = want;
-            }
-            world.insert(e, Dirty);
+#[crate::event]
+fn textinput_tap(
+    _tap: event!(Tap),
+    focus: res!(optional FocusState),
+    inputs: query!(Entity, TextInput),
+    commands: commands!(),
+) {
+    let focused = focus.and_then(|state| state.focused);
+    for (entity, input) in inputs {
+        let now = Some(entity) == focused;
+        if input.focused != now {
+            commands.set::<crate::ui::property::prop::TextInputFocused>(entity, now);
         }
-    });
+    }
 }
 
-fn textinput_key_handler(
-    world: &mut World,
-    entity: Entity,
-    event: &InputEvent,
-) -> Result<bool, CommandError> {
-    let (visual_changed, content_changed, len) = {
-        let Some(ti) = world.get_mut::<TextInput>(entity) else {
-            return Ok(false);
-        };
-        let mut content_changed = false;
-        let visual_changed = match event {
-            InputEvent::CharInput { ch } => {
-                content_changed = ti.insert_char(*ch);
-                content_changed
-            }
-            InputEvent::Key { code, pressed } if *pressed => match *code {
-                KEY_BACKSPACE => {
-                    content_changed = ti.backspace();
-                    content_changed
-                }
-                KEY_DELETE => {
-                    content_changed = ti.delete_forward();
-                    content_changed
-                }
-                KEY_LEFT => {
-                    let before = ti.cursor;
-                    ti.move_left();
-                    ti.cursor != before
-                }
-                KEY_RIGHT => {
-                    let before = ti.cursor;
-                    ti.move_right();
-                    ti.cursor != before
-                }
-                KEY_HOME => {
-                    let before = ti.cursor;
-                    ti.move_home();
-                    ti.cursor != before
-                }
-                KEY_END => {
-                    let before = ti.cursor;
-                    ti.move_end();
-                    ti.cursor != before
-                }
-                _ => return Ok(false),
-            },
-            _ => return Ok(false),
-        };
-        (visual_changed, content_changed, ti.len)
+#[crate::event]
+fn textinput_character(
+    node: entity!(),
+    event: event!(CharInput),
+    inputs: query!(TextInput),
+    commands: commands!(),
+) -> bool {
+    let Some(input) = inputs.get(node) else {
+        return false;
     };
-    if visual_changed {
-        world.insert(entity, Dirty);
+    let mut updated = input.clone();
+    if updated.insert_char(event.ch) {
+        let len = updated.len;
+        commands.insert(node, updated);
+        commands.emit(node, Changed { len });
+    }
+    true
+}
+
+#[crate::event]
+fn textinput_key(
+    node: entity!(),
+    event: event!(Key),
+    inputs: query!(TextInput),
+    commands: commands!(),
+) -> bool {
+    if !event.pressed {
+        return false;
+    }
+    let Some(input) = inputs.get(node) else {
+        return false;
+    };
+    let old_cursor = input.cursor;
+    let mut updated = input.clone();
+    let content_changed = match event.code {
+        KEY_BACKSPACE => updated.backspace(),
+        KEY_DELETE => updated.delete_forward(),
+        KEY_LEFT => {
+            updated.move_left();
+            false
+        }
+        KEY_RIGHT => {
+            updated.move_right();
+            false
+        }
+        KEY_HOME => {
+            updated.move_home();
+            false
+        }
+        KEY_END => {
+            updated.move_end();
+            false
+        }
+        _ => return false,
+    };
+    let len = updated.len;
+    if content_changed || updated.cursor != old_cursor {
+        commands.insert(node, updated);
     }
     if content_changed {
-        crate::input::event::runtime::emit_widget(world, entity, Changed { len })?;
+        commands.emit(node, Changed { len });
     }
-    Ok(true)
+    true
 }
 
 fn text_input_attach(world: &mut World, entity: Entity) {
@@ -600,20 +591,13 @@ fn text_input_attach(world: &mut World, entity: Entity) {
     if world.get::<TextEditable>(entity).is_none() {
         world.insert(entity, TextEditable);
     }
-    if world.get::<KeyHandler>(entity).is_none() {
-        world.insert(
-            entity,
-            KeyHandler {
-                on_key: textinput_key_handler,
-            },
-        );
-    }
 }
 
 pub use text_input_render::view;
 
 #[cfg(test)]
 mod tests {
+    use crate::input::event::input::InputEvent;
     use alloc::{rc::Rc, vec::Vec};
 
     use super::*;
@@ -628,36 +612,74 @@ mod tests {
     use crate::ui::view::PaintCtx;
 
     #[test]
-    fn focus_sync_reuses_stable_storage_and_only_dirties_changed_inputs() {
+    fn focus_sync_reuses_prepared_callback_storage() {
         let mut world = World::new();
         let first = world.spawn(TextInput::new());
         let second = world.spawn(TextInput::new());
         world.insert(first, Dirty);
         world.insert(second, Dirty);
+        world.insert(first, crate::ui::dirty::VisualDirty);
+        world.insert(second, crate::ui::dirty::VisualDirty);
         world.insert_resource(FocusState::default());
-        let mut previous = None;
+        let target = world.spawn_empty();
+        let callback = textinput_tap::callback::<crate::__macro_support::NodeContext>()
+            .prepare(
+                &mut world,
+                crate::input::event::view_input::fixture_capacity(),
+            )
+            .unwrap();
         for focused in [None, Some(first), Some(second), None] {
             world.insert_resource(FocusState { focused });
-            for repeated in [false, true] {
+            for _ in 0..2 {
                 world.remove::<Dirty>(first);
                 world.remove::<Dirty>(second);
                 assert_eq!(
                     crate::test_support::tracked_allocations(|| {
-                        sync_textinput_focus(&mut world);
+                        callback
+                            .invoke(
+                                &mut world,
+                                &Tap {
+                                    x: Fixed::ZERO,
+                                    y: Fixed::ZERO,
+                                    target,
+                                },
+                                target,
+                            )
+                            .unwrap();
                     }),
                     0
                 );
                 for entity in [first, second] {
-                    let changed =
-                        !repeated && (Some(entity) == focused) != (Some(entity) == previous);
                     assert_eq!(
                         world.get::<TextInput>(entity).unwrap().focused,
                         Some(entity) == focused
                     );
-                    assert_eq!(world.has::<Dirty>(entity), changed);
                 }
             }
-            previous = focused;
+        }
+    }
+
+    fn invoke_key(
+        world: &mut World,
+        node: Entity,
+        event: &InputEvent,
+    ) -> Result<bool, crate::ecs::CommandError> {
+        use crate::input::event::view_input::invoke_payload;
+        match event {
+            InputEvent::Key { code, pressed } => invoke_payload(
+                view(),
+                world,
+                node,
+                &Key {
+                    code: *code,
+                    pressed: *pressed,
+                },
+                None,
+            ),
+            InputEvent::CharInput { ch } => {
+                invoke_payload(view(), world, node, &CharInput { ch: *ch }, None)
+            }
+            _ => Ok(false),
         }
     }
 
@@ -829,7 +851,7 @@ mod tests {
             descriptor.auto_attach().unwrap(),
             text_input_attach as crate::ui::view::ViewAttach
         ));
-        assert!(descriptor.internal_gesture().is_some());
+        assert!(descriptor.inputs().is_some());
         let mut systems = 0;
         let descriptor = descriptor.install(|_| systems += 1);
         assert_eq!(systems, 1);
@@ -859,7 +881,6 @@ mod tests {
                 );
                 assert_eq!(
                     crate::test_support::tracked_allocations(|| {
-                        let _ = view();
                         render(&world, entity, &mut paint);
                     }),
                     0
@@ -1123,6 +1144,7 @@ mod tests {
         runtime::configure(
             &mut world,
             EventCapacity::new()
+                .commands(crate::input::event::view_input::fixture_capacity())
                 .notifications::<Changed>(1)
                 .flush_limit(1),
         )
@@ -1138,9 +1160,7 @@ mod tests {
         assert!(world.has::<crate::ui::Style>(entity));
         assert!(world.has::<Placeholder>(entity));
         assert!(world.has::<crate::ui::Widget>(entity));
-        assert!(
-            textinput_key_handler(&mut world, entity, &InputEvent::CharInput { ch: 'a' }).unwrap()
-        );
+        assert!(invoke_key(&mut world, entity, &InputEvent::CharInput { ch: 'a' }).unwrap());
         assert_eq!(runtime::flush(&mut world).unwrap(), 1);
         assert_eq!(world.resource::<ChangeTrace>().unwrap().calls, 1);
     }
@@ -1186,6 +1206,7 @@ mod tests {
         runtime::configure(
             &mut world,
             EventCapacity::new()
+                .commands(crate::input::event::view_input::fixture_capacity())
                 .notifications::<Changed>(2)
                 .flush_limit(2),
         )
@@ -1199,11 +1220,9 @@ mod tests {
     #[test]
     fn content_mutation_notifies_in_fifo_after_releasing_the_input_borrow() {
         let (mut world, entity) = changed_fixture();
+        assert!(invoke_key(&mut world, entity, &InputEvent::CharInput { ch: 'a' }).unwrap());
         assert!(
-            textinput_key_handler(&mut world, entity, &InputEvent::CharInput { ch: 'a' }).unwrap()
-        );
-        assert!(
-            textinput_key_handler(
+            invoke_key(
                 &mut world,
                 entity,
                 &InputEvent::Key {
@@ -1228,16 +1247,14 @@ mod tests {
             &mut world,
             EventCapacity::new()
                 .notifications::<Changed>(1)
-                .commands(crate::ecs::CommandCapacity::new().despawn(1))
+                .commands(crate::input::event::view_input::fixture_capacity())
                 .flush_limit(1),
         )
         .unwrap();
         let builder_parent = world.spawn_empty();
         let entity = crate::ui::UiScope::new(&mut world, builder_parent)
             .spawn(TextInput::build().on_event(TextInput::Changed, remove_input::callback()));
-        assert!(
-            textinput_key_handler(&mut world, entity, &InputEvent::CharInput { ch: 'a' }).unwrap()
-        );
+        assert!(invoke_key(&mut world, entity, &InputEvent::CharInput { ch: 'a' }).unwrap());
         assert!(world.is_alive(entity));
         assert_eq!(runtime::flush(&mut world).unwrap(), 1);
         assert!(!world.is_alive(entity));
@@ -1246,6 +1263,8 @@ mod tests {
     #[test]
     fn caret_motion_and_no_op_edits_are_accepted_without_changed_notifications() {
         let (mut world, entity) = changed_fixture();
+        crate::input::event::view_input::fixture_inputs(view(), &mut world);
+        world.remove::<Dirty>(entity);
         for code in [
             KEY_LEFT,
             KEY_RIGHT,
@@ -1255,7 +1274,7 @@ mod tests {
             KEY_BACKSPACE,
         ] {
             assert!(
-                textinput_key_handler(
+                invoke_key(
                     &mut world,
                     entity,
                     &InputEvent::Key {
@@ -1279,10 +1298,8 @@ mod tests {
         text_input_attach(&mut world, entity);
         assert!(world.has::<Focusable>(entity));
         assert!(world.has::<TextEditable>(entity));
-        assert!(world.has::<KeyHandler>(entity));
-        assert!(
-            textinput_key_handler(&mut world, entity, &InputEvent::CharInput { ch: 'a' }).unwrap()
-        );
+        assert!(view().inputs().is_some());
+        assert!(invoke_key(&mut world, entity, &InputEvent::CharInput { ch: 'a' }).unwrap());
         assert_eq!(world.get::<TextInput>(entity).unwrap().as_str(), "a");
         assert_eq!(runtime::flush(&mut world).unwrap(), 0);
     }

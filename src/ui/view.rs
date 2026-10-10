@@ -10,7 +10,6 @@ use core::any::TypeId;
 use core::cell::Cell;
 
 use crate::ecs::{Entity, World};
-use crate::input::event::gesture::GestureEvent;
 use crate::render::command::DrawCommand;
 use crate::render::path::Path;
 use crate::render::raster::FillRule;
@@ -429,9 +428,6 @@ pub(crate) type ViewRender = fn(world: &World, entity: Entity, ctx: &mut PaintCt
 
 pub(crate) type ViewAttach = fn(world: &mut World, entity: Entity);
 
-pub(crate) type ViewInternalGesture =
-    fn(&mut World, Entity, &GestureEvent) -> Result<bool, crate::ecs::CommandError>;
-
 pub(crate) use generated::ViewObservationBindings;
 
 pub(crate) mod generated {
@@ -448,14 +444,14 @@ pub(crate) mod generated {
         pub name: &'static str,
         pub paint: Option<(u8, ViewRender)>,
         pub attach: Option<ViewAttach>,
-        pub gesture: Option<ViewInternalGesture>,
+        pub input: Option<crate::input::event::view_input::InputFactory>,
         pub observation: Option<(ViewObserve, usize)>,
         pub query_dependencies: &'static [fn() -> TypeId],
         pub systems: &'static [crate::ecs::System],
         pub invalidation: ViewInvalidation,
     }
 
-    pub const fn assemble_view<C: crate::ecs::Component>(descriptor: ViewDescriptor) -> View {
+    pub fn assemble_view<C: crate::ecs::Component>(descriptor: ViewDescriptor) -> View {
         View::from_descriptor(descriptor, Some(TypeId::of::<C>), C::OUTPUT_DEPENDENCIES)
     }
 
@@ -567,9 +563,7 @@ struct ViewDefinition {
     query_dependencies: &'static [fn() -> TypeId],
     query_scope: Cell<QueryScope>,
     output_dependencies: &'static [OutputDependency],
-    /// Component-internal gesture handler selected before authored listeners.
-    /// Returning `true` consumes the input; `false` continues the frozen route.
-    internal_gesture: Option<ViewInternalGesture>,
+    input: Option<crate::input::event::view_input::SharedInputs>,
     observe: Option<ViewObserve>,
     observation_count: usize,
     invalidation: ViewInvalidation,
@@ -585,19 +579,16 @@ enum QueryScope {
 }
 
 impl View {
-    const fn from_descriptor(
+    fn from_descriptor(
         descriptor: generated::ViewDescriptor,
         component_filter: Option<fn() -> TypeId>,
         output_dependencies: &'static [OutputDependency],
     ) -> Self {
-        let paint = match descriptor.paint {
-            Some((priority, render)) => Some(ViewPaint {
-                priority,
-                render,
-                measurement: None,
-            }),
-            None => None,
-        };
+        let paint = descriptor.paint.map(|(priority, render)| ViewPaint {
+            priority,
+            render,
+            measurement: None,
+        });
         let (observe, observation_count) = match descriptor.observation {
             Some((observe, count)) => (Some(observe), count),
             None => (None, 0),
@@ -611,7 +602,11 @@ impl View {
                 query_dependencies: descriptor.query_dependencies,
                 query_scope: Cell::new(QueryScope::Unobserved),
                 output_dependencies,
-                internal_gesture: descriptor.gesture,
+                input: descriptor.input.map(|factory| {
+                    Rc::new(core::cell::RefCell::new(
+                        crate::input::event::view_input::InputState::Pending(factory),
+                    ))
+                }),
                 observe,
                 observation_count,
                 invalidation: descriptor.invalidation,
@@ -623,7 +618,7 @@ impl View {
     }
 
     #[cfg(test)]
-    pub(crate) const fn new(name: &'static str, priority: u8, render: ViewRender) -> Self {
+    pub(crate) fn new(name: &'static str, priority: u8, render: ViewRender) -> Self {
         let mut view = Self::systems_only(name, &[]);
         view.definition.paint = Some(ViewPaint {
             priority,
@@ -634,10 +629,7 @@ impl View {
     }
 
     #[cfg(test)]
-    pub(crate) const fn systems_only(
-        name: &'static str,
-        systems: &'static [crate::ecs::System],
-    ) -> Self {
+    pub(crate) fn systems_only(name: &'static str, systems: &'static [crate::ecs::System]) -> Self {
         Self::from_descriptor(
             generated::ViewDescriptor {
                 name,
@@ -645,7 +637,7 @@ impl View {
                 attach: None,
                 systems,
                 query_dependencies: &[],
-                gesture: None,
+                input: None,
                 observation: None,
                 invalidation: ViewInvalidation::Visual,
             },
@@ -707,8 +699,16 @@ impl<Systems> View<Systems> {
     }
 
     #[cfg(test)]
-    pub(crate) const fn with_internal_gesture(mut self, f: ViewInternalGesture) -> Self {
-        self.definition.internal_gesture = Some(f);
+    pub(crate) fn with_inputs<I: crate::input::event::view_input::ViewInputs>(
+        mut self,
+        world: &mut World,
+        inputs: I,
+    ) -> Self {
+        self.definition.input = Some(Rc::new(core::cell::RefCell::new(
+            crate::input::event::view_input::InputState::Ready(
+                crate::input::event::view_input::prepare_inputs(world, inputs).unwrap(),
+            ),
+        )));
         self
     }
 
@@ -767,8 +767,8 @@ impl<Systems> View<Systems> {
     pub(crate) fn component_filter(&self) -> Option<TypeId> {
         self.definition.component_filter.map(|f| f())
     }
-    pub(crate) fn internal_gesture(&self) -> Option<ViewInternalGesture> {
-        self.definition.internal_gesture
+    pub(crate) fn inputs(&self) -> Option<&crate::input::event::view_input::SharedInputs> {
+        self.definition.input.as_ref()
     }
     pub(crate) fn invalidation(&self) -> ViewInvalidation {
         self.definition.invalidation
@@ -1670,12 +1670,9 @@ mod tests {
 
     fn options_attach(_: &mut World, _: Entity) {}
 
-    fn options_gesture(
-        _: &mut World,
-        _: Entity,
-        _: &GestureEvent,
-    ) -> Result<bool, crate::ecs::CommandError> {
-        Ok(false)
+    #[crate::event]
+    fn options_gesture(_tap: event!(crate::input::event::gesture::Tap)) -> bool {
+        false
     }
 
     fn options_system(_: &mut World) -> Result<(), crate::ecs::CommandError> {
@@ -1686,7 +1683,7 @@ mod tests {
         component = GenericTile<u8>,
         priority = 42,
         attach = options_attach,
-        gesture = options_gesture,
+        input = options_gesture::callback(),
         systems = [crate::ecs::System::new("options", 100, options_system)]
     )]
     fn paint_options(component: component!(), theme: res!(crate::ui::Theme)) {
@@ -2105,7 +2102,7 @@ mod tests {
             assert_eq!(view.name(), name);
             assert_eq!(view.priority(), Some(priority));
             assert_eq!(view.component_filter(), Some(TypeId::of::<T>()));
-            assert_eq!(view.internal_gesture().is_some(), gesture);
+            assert_eq!(view.inputs().is_some(), gesture);
             assert!(view.auto_attach().is_none());
             assert_eq!(view.invalidation(), ViewInvalidation::Visual);
             let mut world = World::new();
@@ -3227,7 +3224,7 @@ mod tests {
         let view = paint_options::view();
         assert_eq!(view.priority(), Some(42));
         assert!(view.auto_attach().is_some());
-        assert!(view.internal_gesture().is_some());
+        assert!(view.inputs().is_some());
         assert_eq!(view.systems.len(), 1);
     }
 

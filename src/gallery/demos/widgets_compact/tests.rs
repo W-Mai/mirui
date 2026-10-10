@@ -61,7 +61,7 @@ fn compact_progress_tracks_slider_events_without_polling() {
     let new = Fixed::from_int(25);
     app.world.get_mut::<Slider>(slider).unwrap().value = new;
     {
-        crate::input::event::runtime::emit_widget(
+        crate::input::event::emission::submit_if_listened(
             &mut app.world,
             slider,
             crate::ui::widgets::slider::ValueChanged { new, old },

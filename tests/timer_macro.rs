@@ -85,7 +85,7 @@ impl mirui::input::event::contract::Event for Pulse {
 fn submit_pulse(counter: model!(Counter), timer: entity!(), commands: commands!()) {
     counter.record(timer);
     commands.insert(timer, Fired(counter.fires()));
-    commands.emit(timer, Pulse);
+    commands.emit_always(timer, Pulse);
     commands.insert(timer, Fired(99));
 }
 

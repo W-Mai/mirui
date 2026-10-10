@@ -377,14 +377,14 @@ mod tests {
     fn submit_cb(entity: Entity, mut commands: DeferredCommands<'_>) {
         let next = FIRE_COUNT.fetch_add(1, Ordering::SeqCst) + 1;
         commands.insert(entity, Fired(next));
-        commands.emit(entity, Pulse);
+        commands.emit_always(entity, Pulse);
         commands.insert(entity, Fired(99));
     }
 
     fn remove_then_submit_cb(entity: Entity, mut commands: DeferredCommands<'_>) {
         commands.insert(entity, Fired(1));
         commands.remove::<Timer>(entity);
-        commands.emit(entity, Pulse);
+        commands.emit_always(entity, Pulse);
     }
 
     fn submission_failed(result: Result<(), CommandError>) {

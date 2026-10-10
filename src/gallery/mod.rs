@@ -365,7 +365,7 @@ mod tests {
             assert_eq!(view.priority(), Some(60));
             assert_eq!(view.invalidation(), ViewInvalidation::Visual);
             assert!(view.auto_attach().is_none());
-            assert!(view.internal_gesture().is_none());
+            assert!(view.inputs().is_none());
 
             let mut world = World::new();
             let node = world.spawn_empty();

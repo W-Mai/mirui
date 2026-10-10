@@ -391,7 +391,7 @@ fn intensity_and_pause_handlers_update_visible_state() {
         .expect("intensity label id");
     let pause = world.find_by_id(ConsoleNodes::PAUSE).expect("pause id");
     {
-        crate::input::event::runtime::emit_widget(
+        crate::input::event::emission::submit_if_listened(
             &mut world,
             slider,
             crate::ui::widgets::slider::ValueChanged {

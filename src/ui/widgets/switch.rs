@@ -1,11 +1,11 @@
 use crate::anim::Spring;
-use crate::ecs::{CommandError, Entity, World};
-use crate::input::event::gesture::GestureEvent;
+use crate::ecs::{Entity, World};
+use crate::input::event::gesture::Tap;
 use crate::render::command::DrawCommand;
 use crate::types::{Color, Fixed, Rect};
 use crate::ui::ComputedRect;
 use crate::ui::dirty::Dirty;
-use crate::ui::property::{PropertyChange, ValueUpdate, invalidate_for_change};
+use crate::ui::property::PropertyChange;
 use crate::ui::theme::{ColorToken, ThemedColor};
 
 crate::input::event::contract::widget_events! {
@@ -180,7 +180,7 @@ pub(crate) fn switch_init_system(
     name = "Switch",
     priority = 60,
     attach = switch_attach,
-    gesture = switch_handler,
+    input = switch_tap::callback(),
     systems = [switch_init_system::system(), AnimateSwitchBgT::system(), AnimateThumbX::system()]
 )]
 fn switch_render(
@@ -242,41 +242,31 @@ fn switch_render(
     });
 }
 
-pub(crate) fn switch_handler(
-    world: &mut World,
-    entity: Entity,
-    event: &GestureEvent,
-) -> Result<bool, CommandError> {
-    if !matches!(event, GestureEvent::Tap { .. }) {
-        return Ok(false);
-    }
-
-    let Some(on_now) = world.get::<Switch>(entity).map(|s| !s.on) else {
-        return Ok(false);
+#[crate::event]
+fn switch_tap(
+    node: entity!(),
+    _tap: event!(Tap),
+    switches: query!(Switch),
+    commands: commands!(),
+) -> bool {
+    let Some(switch) = switches.get(node) else {
+        return false;
     };
-    let Some(update) = set_switch_on(world, entity, on_now) else {
-        return Ok(false);
-    };
-    if update.old != update.new {
-        invalidate_for_change(world, entity, update.change);
-        crate::input::event::runtime::emit_widget(world, entity, Toggled { now: update.new })?;
-    }
-    Ok(true)
+    let now = !switch.on;
+    commands.set::<crate::ui::property::prop::SwitchOn>(node, now);
+    commands.emit(node, Toggled { now });
+    true
 }
 
 pub(crate) fn set_switch_on(
     world: &mut World,
     entity: Entity,
     on_now: bool,
-) -> Option<ValueUpdate<bool>> {
+) -> Option<PropertyChange> {
     let old_on = {
         let s = world.get_mut::<Switch>(entity)?;
         if s.on == on_now {
-            return Some(ValueUpdate {
-                old: on_now,
-                new: on_now,
-                change: PropertyChange::Unchanged,
-            });
+            return Some(PropertyChange::Unchanged);
         }
         let old = s.on;
         s.on = on_now;
@@ -318,11 +308,7 @@ pub(crate) fn set_switch_on(
         world.remove::<AnimateSwitchBgT>(entity);
         world.remove::<AnimateThumbX>(entity);
     }
-    Some(ValueUpdate {
-        old: old_on,
-        new: on_now,
-        change: PropertyChange::Visual,
-    })
+    Some(PropertyChange::Visual)
 }
 
 fn switch_attach(world: &mut World, entity: Entity) {
@@ -341,6 +327,7 @@ pub use switch_render::view;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input::event::gesture::GestureEvent;
     use crate::render::renderer::{DrawRequest, RenderError, Renderer};
     use crate::test_support::tracked_allocations;
     use crate::types::{Point, Transform};
@@ -595,6 +582,7 @@ mod tests {
         crate::input::event::runtime::configure(
             &mut world,
             crate::input::event::EventCapacity::new()
+                .commands(crate::input::event::view_input::fixture_capacity())
                 .notifications::<Toggled>(1)
                 .flush_limit(1),
         )
@@ -609,7 +597,8 @@ mod tests {
         assert!(world.has::<crate::ui::Style>(entity));
         assert!(world.has::<crate::ui::Widget>(entity));
         assert!(
-            switch_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -634,7 +623,8 @@ mod tests {
         let entity = crate::ui::UiScope::new(&mut world, builder_parent).spawn(Switch::build());
         assert!(world.has::<crate::ui::Style>(entity));
         assert!(
-            switch_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -650,21 +640,20 @@ mod tests {
     }
 
     #[test]
-    fn external_value_change_reports_old_new_and_does_not_restart() {
+    fn external_value_change_updates_state_and_does_not_restart() {
         let mut world = World::new();
         let entity = world.spawn_empty();
         world.insert(entity, Switch::new());
         world.insert(entity, ComputedRect(Rect::new(0, 0, 54, 24)));
 
         let first = set_switch_on(&mut world, entity, true).unwrap();
-        assert!(!first.old);
-        assert!(first.new);
-        assert_eq!(first.change, PropertyChange::Visual);
+        assert!(world.get::<Switch>(entity).unwrap().on);
+        assert_eq!(first, PropertyChange::Visual);
         let spring = &mut world.get_mut::<AnimateSwitchBgT>(entity).unwrap().0;
         spring.tick(16);
         let progressed = spring.value();
         let repeated = set_switch_on(&mut world, entity, true).unwrap();
-        assert_eq!(repeated.change, PropertyChange::Unchanged);
+        assert_eq!(repeated, PropertyChange::Unchanged);
         assert_eq!(
             world.get::<AnimateSwitchBgT>(entity).unwrap().0.value(),
             progressed
@@ -718,7 +707,7 @@ mod tests {
             &mut world,
             crate::input::event::EventCapacity::new()
                 .notifications::<Toggled>(1)
-                .commands(crate::ecs::CommandCapacity::new().despawn(1))
+                .commands(crate::input::event::view_input::fixture_capacity())
                 .flush_limit(1),
         )
         .unwrap();
@@ -726,7 +715,8 @@ mod tests {
         let entity = crate::ui::UiScope::new(&mut world, builder_parent)
             .spawn(Switch::build().on_event(Switch::Toggled, remove_switch::callback()));
         assert!(
-            switch_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -749,6 +739,7 @@ mod tests {
         crate::input::event::runtime::configure(
             &mut world,
             crate::input::event::EventCapacity::new()
+                .commands(crate::input::event::view_input::fixture_capacity())
                 .notifications::<Toggled>(1)
                 .flush_limit(1),
         )

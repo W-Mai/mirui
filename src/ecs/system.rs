@@ -877,7 +877,7 @@ mod tests {
     #[crate::system]
     fn submit_marker(target: res!(DeferredTarget), commands: commands!()) {
         commands.insert(target.0, DeferredMarker(1));
-        commands.emit(target.0, MarkerChanged);
+        commands.emit_always(target.0, MarkerChanged);
         commands.insert(target.0, DeferredMarker(2));
     }
 

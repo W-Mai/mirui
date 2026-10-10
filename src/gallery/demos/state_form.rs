@@ -110,7 +110,7 @@ mod tests {
 
     fn emit_input_changed(world: &mut World, entity: Entity, len: u8) {
         {
-            crate::input::event::runtime::emit_widget(
+            crate::input::event::emission::submit_if_listened(
                 world,
                 entity,
                 crate::ui::widgets::text_input::Changed { len },
@@ -124,12 +124,6 @@ mod tests {
     #[test]
     fn submit_lights_up_only_when_both_set() {
         let mut app = App::headless(360, 280);
-        app.with_event_capacity(
-            EventCapacity::new()
-                .notifications::<crate::ui::widgets::text_input::Changed>(1)
-                .notifications::<crate::ui::widgets::checkbox::Toggled>(1)
-                .flush_limit(2),
-        );
         let parent = app.spawn_root().id();
         app.compose(parent, build_widgets());
         let world = &mut app.world;
@@ -156,7 +150,7 @@ mod tests {
         emit_input_changed(world, name, 3);
         assert_eq!(normal(world, false), off, "name alone is not enough");
         {
-            crate::input::event::runtime::emit_widget(
+            crate::input::event::emission::submit_if_listened(
                 world,
                 agree,
                 crate::ui::widgets::checkbox::Toggled { now: true },
@@ -168,7 +162,7 @@ mod tests {
         assert_eq!(normal(world, true), on, "both set -> submit enabled");
 
         {
-            crate::input::event::runtime::emit_widget(
+            crate::input::event::emission::submit_if_listened(
                 world,
                 agree,
                 crate::ui::widgets::checkbox::Toggled { now: false },

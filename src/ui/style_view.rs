@@ -86,7 +86,7 @@ mod tests {
             assert_eq!(descriptor.invalidation(), ViewInvalidation::Layout);
             assert!(descriptor.render().is_some());
             assert!(descriptor.auto_attach().is_none());
-            assert!(descriptor.internal_gesture().is_none());
+            assert!(descriptor.inputs().is_none());
             assert!(descriptor.observation().is_none());
             let mut installed = 0;
             assert_eq!(

@@ -1646,7 +1646,7 @@ mod tests {
                 crate::ui::ViewInvalidation::Layout
             );
             assert!(descriptor.auto_attach().is_none());
-            assert!(descriptor.internal_gesture().is_none());
+            assert!(descriptor.inputs().is_none());
             assert!(descriptor.observation().is_none());
             let mut installed = 0;
             let descriptor = descriptor.install(|_| installed += 1);
@@ -1799,7 +1799,7 @@ mod tests {
             crate::ui::ViewInvalidation::Layout
         );
         assert!(descriptor.auto_attach().is_some());
-        assert!(descriptor.internal_gesture().is_none());
+        assert!(descriptor.inputs().is_none());
         let render = descriptor.render().unwrap();
         let style = Style::default();
         let rect = Rect::new(0, 0, 20, 10);

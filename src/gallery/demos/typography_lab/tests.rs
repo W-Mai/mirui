@@ -473,7 +473,7 @@ fn controls_publish_into_the_live_paragraph() {
 
     for (slider, new) in [(ppem, 42), (width, 320)] {
         {
-            crate::input::event::runtime::emit_widget(
+            crate::input::event::emission::submit_if_listened(
                 &mut world,
                 slider,
                 crate::ui::widgets::slider::ValueChanged {

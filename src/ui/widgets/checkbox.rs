@@ -1,7 +1,7 @@
-use crate::ecs::{CommandError, Entity, World};
-use crate::input::event::gesture::GestureEvent;
+use crate::ecs::{Entity, World};
+use crate::input::event::gesture::Tap;
 use crate::render::command::DrawCommand;
-use crate::ui::property::{PropertyChange, ValueUpdate, invalidate_for_change};
+use crate::ui::property::PropertyChange;
 use crate::ui::theme::{ColorToken, ThemedColor};
 
 crate::input::event::contract::widget_events! {
@@ -45,18 +45,13 @@ impl Checkbox {
         self.update_checked(!self.checked);
     }
 
-    pub(crate) fn update_checked(&mut self, checked: bool) -> ValueUpdate<bool> {
+    pub(crate) fn update_checked(&mut self, checked: bool) -> PropertyChange {
         let old = self.checked;
-        let change = if old == checked {
+        if old == checked {
             PropertyChange::Unchanged
         } else {
             self.checked = checked;
             PropertyChange::Visual
-        };
-        ValueUpdate {
-            old,
-            new: checked,
-            change,
         }
     }
 
@@ -116,7 +111,7 @@ impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::Ent
     }
 }
 
-#[crate::view(component = Checkbox, name = "Checkbox", priority = 40, gesture = checkbox_handler)]
+#[crate::view(component = Checkbox, name = "Checkbox", priority = 40, input = checkbox_tap::callback())]
 fn checkbox_render(cb: component!(), theme: res!(crate::ui::Theme), paint: paint!()) {
     let state = paint.state();
     let color = if cb.checked {
@@ -135,24 +130,20 @@ fn checkbox_render(cb: component!(), theme: res!(crate::ui::Theme), paint: paint
     paint.set_background_handled(true);
 }
 
-pub(crate) fn checkbox_handler(
-    world: &mut World,
-    entity: Entity,
-    event: &GestureEvent,
-) -> Result<bool, CommandError> {
-    if let GestureEvent::Tap { .. } = event {
-        let update = if let Some(cb) = world.get_mut::<Checkbox>(entity) {
-            cb.update_checked(!cb.checked)
-        } else {
-            return Ok(false);
-        };
-        if update.old != update.new {
-            invalidate_for_change(world, entity, update.change);
-            crate::input::event::runtime::emit_widget(world, entity, Toggled { now: update.new })?;
-        }
-        return Ok(true);
-    }
-    Ok(false)
+#[crate::event]
+fn checkbox_tap(
+    node: entity!(),
+    _tap: event!(Tap),
+    checkboxes: query!(Checkbox),
+    commands: commands!(),
+) -> bool {
+    let Some(checkbox) = checkboxes.get(node) else {
+        return false;
+    };
+    let checked = !checkbox.checked;
+    commands.set::<crate::ui::property::prop::CheckboxChecked>(node, checked);
+    commands.emit(node, Toggled { now: checked });
+    true
 }
 
 pub use checkbox_render::view;
@@ -160,6 +151,7 @@ pub use checkbox_render::view;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input::event::gesture::GestureEvent;
     use crate::input::event::{EventCapacity, runtime};
     use crate::ui::dirty::VisualDirty;
 
@@ -192,6 +184,7 @@ mod tests {
         runtime::configure(
             &mut world,
             EventCapacity::new()
+                .commands(crate::input::event::view_input::fixture_capacity())
                 .notifications::<Toggled>(1)
                 .flush_limit(1),
         )
@@ -205,7 +198,8 @@ mod tests {
         assert!(world.has::<crate::ui::Style>(entity));
         assert!(world.has::<crate::ui::Widget>(entity));
         assert!(
-            checkbox_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -230,7 +224,8 @@ mod tests {
         let entity = crate::ui::UiScope::new(&mut world, builder_parent).spawn(Checkbox::build());
         assert!(world.has::<crate::ui::Style>(entity));
         assert!(
-            checkbox_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -254,19 +249,18 @@ mod tests {
             .get_mut::<Checkbox>(entity)
             .unwrap()
             .update_checked(true);
-        assert!(!update.old);
-        assert!(update.new);
-        assert_eq!(update.change, PropertyChange::Visual);
+        assert!(world.get::<Checkbox>(entity).unwrap().checked);
+        assert_eq!(update, PropertyChange::Visual);
         assert_eq!(
             world
                 .get_mut::<Checkbox>(entity)
                 .unwrap()
-                .update_checked(true)
-                .change,
+                .update_checked(true),
             PropertyChange::Unchanged
         );
         assert!(
-            checkbox_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -288,7 +282,7 @@ mod tests {
             &mut world,
             EventCapacity::new()
                 .notifications::<Toggled>(1)
-                .commands(crate::ecs::CommandCapacity::new().despawn(1))
+                .commands(crate::input::event::view_input::fixture_capacity())
                 .flush_limit(1),
         )
         .unwrap();
@@ -296,7 +290,8 @@ mod tests {
         let entity = crate::ui::UiScope::new(&mut world, builder_parent)
             .spawn(Checkbox::build().on_event(Checkbox::Toggled, remove_checkbox::callback()));
         assert!(
-            checkbox_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -319,6 +314,7 @@ mod tests {
         runtime::configure(
             &mut world,
             EventCapacity::new()
+                .commands(crate::input::event::view_input::fixture_capacity())
                 .notifications::<Toggled>(1)
                 .flush_limit(1),
         )

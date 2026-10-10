@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- View `input` accepts typed event callbacks for gestures, keys, and character input, sharing prepared callbacks across matching widget instances.
+- `commands.emit_always` queues notifications independently of listener presence. `commands.emit` skips notifications without a matching entity listener at command commit time.
 - `LazyList.items` accepts a row count or a registered ModelList/ModelMap. Collection-backed cells observe membership and expose stable member IDs through `ListItem.id()`.
 - Model lists and maps aggregate direct member effects through `on_effect`, carrying stable item IDs and borrowing the same payload after individual delivery. Collection consumers persist across member removal, loading, reconciliation, and owned-field replacement.
 - Model effect extractors accept `Option<E>` for a single optional event as well as fixed-capacity arrays.

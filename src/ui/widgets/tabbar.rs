@@ -1,10 +1,9 @@
 use crate::anim::Tween;
-use crate::ecs::{CommandError, Entity, World};
-use crate::input::event::gesture::GestureEvent;
+use crate::ecs::{Entity, World};
+use crate::input::event::gesture::Tap;
 use crate::render::command::DrawCommand;
 use crate::types::{Fixed, Rect};
 use crate::ui::ComputedRect;
-use crate::ui::dirty::Dirty;
 use crate::ui::theme::{ColorToken, ThemedColor};
 
 crate::input::event::contract::widget_events! {
@@ -116,7 +115,7 @@ impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::Ent
     }
 }
 
-#[crate::view(component = TabBar, name = "TabBar", priority = 60, gesture = tabbar_handler)]
+#[crate::view(component = TabBar, name = "TabBar", priority = 60, input = tabbar_tap::callback())]
 fn tab_bar_render(tb: component!(), theme: res!(crate::ui::Theme), paint: paint!()) {
     if tb.count == 0 {
         return;
@@ -145,57 +144,41 @@ fn tab_bar_render(tb: component!(), theme: res!(crate::ui::Theme), paint: paint!
 /// Tap on a tab: clamp pointer x onto the tab grid, update `selected`,
 /// emit `SelectionChanged`, and start the indicator tween toward the
 /// new index. The tween itself is driven by `tab_pages_system`.
-pub(crate) fn tabbar_handler(
-    world: &mut World,
-    entity: Entity,
-    event: &GestureEvent,
-) -> Result<bool, CommandError> {
-    let x = match event {
-        GestureEvent::Tap { x, .. } => *x,
-        _ => return Ok(false),
+#[crate::event]
+fn tabbar_tap(
+    node: entity!(),
+    input: event!(Tap),
+    tabs: query!(mut TabBar, ComputedRect),
+    commands: commands!(),
+) -> bool {
+    let Some((tab, rect)) = tabs.get(node) else {
+        return false;
     };
-    let Some(rect) = world.get::<ComputedRect>(entity).map(|c| c.0) else {
-        return Ok(false);
-    };
-    if rect.w <= Fixed::ZERO {
-        return Ok(false);
+    if rect.0.w <= Fixed::ZERO || tab.count == 0 {
+        return false;
     }
-    let count = match world.get::<TabBar>(entity) {
-        Some(tb) if tb.count > 0 => tb.count,
-        _ => return Ok(false),
-    };
-    let local = (x - rect.x).max(Fixed::ZERO);
-    let tab_w = rect.w / Fixed::from_int(count as i32);
-    let idx = (local / tab_w).to_int().clamp(0, count as i32 - 1) as u8;
-
-    let (old_idx, current_offset) = match world.get::<TabBar>(entity) {
-        Some(tb) => (tb.selected, tb.indicator_offset),
-        None => return Ok(false),
-    };
-    if old_idx == idx {
-        return Ok(true);
+    let tab_w = rect.0.w / Fixed::from_int(tab.count as i32);
+    let idx = ((input.x - rect.0.x).max(Fixed::ZERO) / tab_w)
+        .to_int()
+        .clamp(0, tab.count as i32 - 1) as u8;
+    let old = tab.selected;
+    if old == idx {
+        return true;
     }
-    if let Some(tb) = world.get_mut::<TabBar>(entity) {
-        tb.selected = idx;
-    }
-    let to = Fixed::from_int(idx as i32);
-    world.insert(
-        entity,
+    tab.selected = idx;
+    commands.insert(
+        node,
         TabIndicatorTween {
-            tween: Tween::ease_to(current_offset, to, INDICATOR_TWEEN_MS),
+            tween: Tween::ease_to(
+                tab.indicator_offset,
+                Fixed::from_int(idx as i32),
+                INDICATOR_TWEEN_MS,
+            ),
         },
     );
-    world.insert(entity, TabBarPrev { selected: idx });
-    world.insert(entity, Dirty);
-    crate::input::event::runtime::emit_widget(
-        world,
-        entity,
-        SelectionChanged {
-            new: idx,
-            old: old_idx,
-        },
-    )?;
-    Ok(true)
+    commands.insert(node, TabBarPrev { selected: idx });
+    commands.emit(node, SelectionChanged { old, new: idx });
+    true
 }
 
 pub use tab_bar_render::view;
@@ -203,7 +186,9 @@ pub use tab_bar_render::view;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input::event::gesture::GestureEvent;
     use crate::input::event::{EventCapacity, runtime};
+    use crate::ui::dirty::VisualDirty;
 
     #[derive(Default)]
     struct SelectionTrace(Option<SelectionChanged>);
@@ -214,7 +199,7 @@ mod tests {
     }
 
     #[crate::event]
-    fn remove_bar(node: entity!(), bars: query!(TabBar, Dirty), commands: commands!()) {
+    fn remove_bar(node: entity!(), bars: query!(TabBar, VisualDirty), commands: commands!()) {
         assert!(bars.get(node).is_some());
         commands.despawn(node);
     }
@@ -250,6 +235,7 @@ mod tests {
         runtime::configure(
             &mut world,
             EventCapacity::new()
+                .commands(crate::input::event::view_input::fixture_capacity())
                 .notifications::<SelectionChanged>(1)
                 .flush_limit(1),
         )
@@ -264,7 +250,8 @@ mod tests {
         assert!(world.has::<crate::ui::Style>(entity));
         assert!(world.has::<crate::ui::Widget>(entity));
         assert!(
-            tabbar_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -277,7 +264,7 @@ mod tests {
         );
         assert_eq!(world.get::<TabBar>(entity).unwrap().selected, 1);
         assert!(world.has::<TabIndicatorTween>(entity));
-        assert!(world.has::<Dirty>(entity));
+        assert!(world.has::<VisualDirty>(entity));
         assert_eq!(world.resource::<SelectionTrace>().unwrap().0, None);
         assert_eq!(runtime::flush(&mut world).unwrap(), 1);
         assert_eq!(
@@ -286,7 +273,8 @@ mod tests {
         );
         world.resource_mut::<SelectionTrace>().unwrap().0 = None;
         assert!(
-            tabbar_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -309,7 +297,8 @@ mod tests {
         world.insert(entity, ComputedRect(Rect::new(0, 0, 90, 20)));
         assert!(world.has::<crate::ui::Style>(entity));
         assert!(
-            tabbar_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -331,7 +320,7 @@ mod tests {
             &mut world,
             EventCapacity::new()
                 .notifications::<SelectionChanged>(1)
-                .commands(crate::ecs::CommandCapacity::new().despawn(1))
+                .commands(crate::input::event::view_input::fixture_capacity())
                 .flush_limit(1),
         )
         .unwrap();
@@ -340,7 +329,8 @@ mod tests {
             .spawn(TabBar::build(3).on_event(TabBar::SelectionChanged, remove_bar::callback()));
         world.insert(entity, ComputedRect(Rect::new(0, 0, 90, 20)));
         assert!(
-            tabbar_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {

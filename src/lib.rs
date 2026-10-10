@@ -173,8 +173,10 @@ pub mod __macro_support {
         NotificationQueue,
     };
     pub use crate::input::event::runtime::{
-        RuntimeRunError, dispatch_gesture as dispatch_entity_gesture, flush as flush_entity_events,
+        RuntimeInstallError, RuntimeRunError, dispatch_gesture as dispatch_entity_gesture,
+        flush as flush_entity_events,
     };
+    pub use crate::input::event::view_input::{PreparedInputs, prepare_inputs};
     pub use crate::ui::builder::WidgetBuilder;
     pub use crate::ui::construction::{ReservedWidget, finish_widget_static};
     pub use crate::ui::layout_binding::LayoutBinding;

@@ -968,7 +968,7 @@ Recursive draining of the same read buffer returns `Busy`. Dispatch errors and u
 
 Each complete gesture route releases its listener snapshot before flushing widget notifications. The next gesture in the retained batch runs afterward; an arbitrary platform poll burst therefore does not accumulate all its widget notices into one business buffer. Inner notification delivery keeps FIFO order and its explicit feedback limit.
 
-Builtin widgets enqueue notifications only when that entity has a listener for the exact payload type. Unsubscribed controls do not need business notification storage. Programmatic property updates do not emit user notifications. Explicit `commands.emit` still validates storage even without a listener; missing or exhausted capacity never triggers hidden growth, and completed state changes are not rolled back.
+`commands.emit` enqueues a notification only when that entity has a listener for the exact payload type at command commit time. Without a listener, the payload is dropped without using business notification capacity or retaining history. `commands.emit_always` enqueues regardless of listeners; it still validates the entity, source, and storage. Both use `CommandCapacity::emit` for deferred command storage. Programmatic property updates do not emit user notifications. Missing or exhausted capacity never triggers hidden growth, and completed state changes are not rolled back. See [Widget input and notifications](widget-events.md) for View callbacks and delivery timing.
 
 This handoff allocates no storage during dispatch. Recognizer writes retain
 their existing growth policy. The handoff does not impose a bounded input-burst

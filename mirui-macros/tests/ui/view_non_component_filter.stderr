@@ -17,5 +17,5 @@ error[E0277]: the trait bound `u8: mirui::ecs::Component` is not satisfied
 note: required by a bound in `mirui::__macro_support::assemble_view`
  --> $WORKSPACE/src/ui/view.rs
   |
-  |     pub const fn assemble_view<C: crate::ecs::Component>(descriptor: ViewDescriptor) -> View {
-  |                                   ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assemble_view`
+  |     pub fn assemble_view<C: crate::ecs::Component>(descriptor: ViewDescriptor) -> View {
+  |                             ^^^^^^^^^^^^^^^^^^^^^ required by this bound in `assemble_view`

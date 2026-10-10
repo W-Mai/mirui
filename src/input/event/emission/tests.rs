@@ -50,7 +50,7 @@ fn hit(
     let pad = pads.get(node).unwrap();
     let old = pad.strength;
     pad.strength += 1;
-    commands.emit(
+    commands.emit_always(
         node,
         Hit {
             old,
@@ -202,7 +202,9 @@ fn preparation_reuses_the_service_and_preserves_pending_records_and_monotonic_ca
         tracked_allocations(|| {
             prepare_notifications(&mut fixture.world, notification_capacity::<Hit>(0)).unwrap();
             let mut batch = commands.begin();
-            batch.commands().emit(fixture.node, Hit { old: 1, new: 2 });
+            batch
+                .commands()
+                .emit_always(fixture.node, Hit { old: 1, new: 2 });
             batch.finish(&mut fixture.world).unwrap();
             assert_eq!(
                 flush_notifications(&mut fixture.world, &fixture.listeners, 2),
@@ -223,6 +225,111 @@ fn preparation_reuses_the_service_and_preserves_pending_records_and_monotonic_ca
 }
 
 struct EmptyHit;
+
+#[test]
+fn default_emit_checks_subscriptions_at_commit_and_does_not_replay_skipped_events() {
+    use crate::input::event::{EventCapacity, runtime};
+    let mut world = World::new();
+    world.insert_resource(Trace::default());
+    let node = world.spawn(Pad { strength: 0 });
+    let other = world.spawn(Pad { strength: 0 });
+    runtime::configure(&mut world, EventCapacity::new()).unwrap();
+    let mut queue = CommandQueue::bounded(command_capacity::<Hit>(1)).unwrap();
+    assert_eq!(
+        tracked_allocations(|| {
+            let mut batch = queue.begin();
+            batch.commands().emit(node, Hit { old: 0, new: 1 });
+            batch.finish(&mut world).unwrap();
+            assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        }),
+        0
+    );
+    assert!(world.resource::<Rc<PendingNotifications>>().is_none());
+    runtime::configure(
+        &mut world,
+        EventCapacity::new().notifications::<Hit>(1).flush_limit(1),
+    )
+    .unwrap();
+    runtime::install_entity(
+        &mut world,
+        other,
+        Hit::EVENT,
+        record::callback::<NodeContext>(),
+    )
+    .unwrap();
+    let mut batch = queue.begin();
+    batch.commands().emit(node, Hit { old: 1, new: 2 });
+    batch.finish(&mut world).unwrap();
+    runtime::install_entity(
+        &mut world,
+        node,
+        Hit::EVENT,
+        record::callback::<NodeContext>(),
+    )
+    .unwrap();
+    assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+    let mut batch = queue.begin();
+    batch.commands().emit(node, Hit { old: 2, new: 3 });
+    batch.finish(&mut world).unwrap();
+    assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+    assert_eq!(world.resource::<Trace>().unwrap().values[0], (2, 3));
+}
+
+#[test]
+fn emit_always_can_reach_a_listener_installed_before_flush_but_keeps_no_history() {
+    use crate::input::event::{EventCapacity, runtime};
+    let mut world = World::new();
+    world.insert_resource(Trace::default());
+    let node = world.spawn(Pad { strength: 0 });
+    runtime::configure(
+        &mut world,
+        EventCapacity::new().notifications::<Hit>(1).flush_limit(1),
+    )
+    .unwrap();
+    let mut queue = CommandQueue::bounded(command_capacity::<Hit>(1)).unwrap();
+    let mut batch = queue.begin();
+    batch.commands().emit_always(node, Hit { old: 0, new: 1 });
+    batch.finish(&mut world).unwrap();
+    assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+    let mut batch = queue.begin();
+    batch.commands().emit_always(node, Hit { old: 1, new: 2 });
+    batch.finish(&mut world).unwrap();
+    runtime::install_entity(
+        &mut world,
+        node,
+        Hit::EVENT,
+        record::callback::<NodeContext>(),
+    )
+    .unwrap();
+    assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+    assert_eq!(world.resource::<Trace>().unwrap().len, 1);
+    assert_eq!(world.resource::<Trace>().unwrap().values[0], (1, 2));
+}
+
+#[test]
+fn skipped_owning_emit_releases_its_payload_once_without_business_storage() {
+    let mut world = World::new();
+    let node = world.spawn(Pad { strength: 0 });
+    let drops = Rc::new(Cell::new(0));
+    let mut queue = CommandQueue::bounded(command_capacity::<OwnedHit>(1)).unwrap();
+    assert_eq!(
+        tracked_allocations(|| {
+            let mut batch = queue.begin();
+            batch.commands().emit(
+                node,
+                OwnedHit {
+                    value: 1,
+                    drops: drops.clone(),
+                },
+            );
+            assert_eq!(drops.get(), 0);
+            batch.finish(&mut world).unwrap();
+            assert_eq!(drops.get(), 1);
+        }),
+        0
+    );
+    assert!(world.resource::<Rc<PendingNotifications>>().is_none());
+}
 
 impl Event for EmptyHit {
     type Route = EntityNotification;
@@ -274,7 +381,7 @@ fn runtime_business_limits_do_not_borrow_app_slots_or_retained_storage() {
             tracked_allocations(|| {
                 enqueue_app_notice(&mut world, Started).unwrap();
                 let mut batch = empty.begin();
-                batch.commands().emit(node, EmptyHit);
+                batch.commands().emit_always(node, EmptyHit);
                 assert_eq!(batch.finish(&mut world), Err(CommandError::Commit(error)));
                 assert_eq!(flush_notifications(&mut world, &listeners, 1), Some(Ok(1)));
             }),
@@ -287,8 +394,8 @@ fn runtime_business_limits_do_not_borrow_app_slots_or_retained_storage() {
     assert_eq!(
         tracked_allocations(|| {
             let mut batch = hits.begin();
-            batch.commands().emit(node, Hit { old: 0, new: 1 });
-            batch.commands().emit(node, Hit { old: 1, new: 2 });
+            batch.commands().emit_always(node, Hit { old: 0, new: 1 });
+            batch.commands().emit_always(node, Hit { old: 1, new: 2 });
             assert_eq!(
                 batch.finish(&mut world),
                 Err(CommandError::Commit(CommandCommitError::RecordCapacity {
@@ -302,7 +409,7 @@ fn runtime_business_limits_do_not_borrow_app_slots_or_retained_storage() {
     );
     prepare_runtime_notifications(&mut world, None, false).unwrap();
     let mut batch = empty.begin();
-    batch.commands().emit(node, EmptyHit);
+    batch.commands().emit_always(node, EmptyHit);
     assert!(matches!(
         batch.finish(&mut world),
         Err(CommandError::Commit(
@@ -318,7 +425,7 @@ fn runtime_business_limits_do_not_borrow_app_slots_or_retained_storage() {
 #[crate::event]
 fn after_first(input: event!(Hit), node: entity!(), commands: commands!()) {
     if input.new == 1 {
-        commands.emit(node, Hit { old: 1, new: 3 });
+        commands.emit_always(node, Hit { old: 1, new: 3 });
     }
 }
 
@@ -369,7 +476,9 @@ fn runtime_app_notices_share_fifo_with_business_and_callback_writes_without_allo
             tracked_allocations(|| {
                 let mut batch = commands.begin();
                 for new in [1, 2] {
-                    batch.commands().emit(fixture.node, Hit { old: 0, new });
+                    batch
+                        .commands()
+                        .emit_always(fixture.node, Hit { old: 0, new });
                 }
                 batch.finish(&mut fixture.world).unwrap();
                 enqueue_app_notice(&mut fixture.world, Started).unwrap();
@@ -468,7 +577,7 @@ fn runtime_payload_limits_and_failed_flushes_preserve_app_slots_and_drop_owning_
             tracked_allocations(|| {
                 enqueue_app_notice(&mut world, Started).unwrap();
                 let mut batch = commands.begin();
-                batch.commands().emit(
+                batch.commands().emit_always(
                     node,
                     OwnedHit {
                         value: 1,
@@ -503,7 +612,7 @@ fn runtime_payload_limits_and_failed_flushes_preserve_app_slots_and_drop_owning_
     assert_eq!(
         tracked_allocations(|| {
             let mut batch = commands.begin();
-            batch.commands().emit(
+            batch.commands().emit_always(
                 node,
                 OwnedHit {
                     value: 3,
@@ -521,7 +630,7 @@ fn runtime_payload_limits_and_failed_flushes_preserve_app_slots_and_drop_owning_
             assert_eq!(drops.get(), 3);
             enqueue_app_notice(&mut world, Resumed).unwrap();
             let mut batch = commands.begin();
-            batch.commands().emit(
+            batch.commands().emit_always(
                 node,
                 OwnedHit {
                     value: 4,
@@ -551,7 +660,7 @@ fn failed_structural_preparation_drops_pending_payloads_and_reuses_the_app_slot_
         assert_eq!(
             tracked_allocations(|| {
                 let mut batch = commands.begin();
-                batch.commands().emit(
+                batch.commands().emit_always(
                     node,
                     OwnedHit {
                         value: 1,
@@ -571,7 +680,7 @@ fn failed_structural_preparation_drops_pending_payloads_and_reuses_the_app_slot_
                 assert_eq!(attempts.get(), 1);
                 enqueue_app_notice(&mut world, Resumed).unwrap();
                 let mut batch = commands.begin();
-                batch.commands().emit(
+                batch.commands().emit_always(
                     node,
                     OwnedHit {
                         value: 2,
@@ -620,7 +729,7 @@ fn prepare_while_flushing(input: event!(Hit), node: entity!(), commands: command
                 Err(NotificationError::Busy)
             );
         });
-        commands.emit(
+        commands.emit_always(
             node,
             Hit {
                 old: input.new,
@@ -650,7 +759,9 @@ fn active_preparation_returns_busy_without_replacing_the_service_or_reordering_n
         tracked_allocations(|| {
             let mut batch = commands.begin();
             for new in [1, 2] {
-                batch.commands().emit(fixture.node, Hit { old: 0, new });
+                batch
+                    .commands()
+                    .emit_always(fixture.node, Hit { old: 0, new });
             }
             batch.finish(&mut fixture.world).unwrap();
             assert_eq!(
@@ -677,7 +788,7 @@ fn active_preparation_returns_busy_without_replacing_the_service_or_reordering_n
 #[crate::event]
 fn chain(input: event!(Hit), node: entity!(), commands: commands!()) {
     if input.new < 3 {
-        commands.emit(
+        commands.emit_always(
             node,
             Hit {
                 old: input.new,
@@ -757,7 +868,7 @@ fn replace_pending(
     commands.apply_resource(replacement.0.clone(), |world, pending| {
         world.insert_resource(pending);
     });
-    commands.emit(
+    commands.emit_always(
         node,
         Hit {
             old: 0,
@@ -817,7 +928,7 @@ fn forced_service_replacement_keeps_active_payloads_alive_and_redirects_later_su
     let mut queue = CommandQueue::bounded(command_capacity::<OwnedHit>(2)).unwrap();
     let mut batch = queue.begin();
     for value in [1, 2] {
-        batch.commands().emit(
+        batch.commands().emit_always(
             node,
             OwnedHit {
                 value,
@@ -879,7 +990,7 @@ fn commit_failure_drops_owning_payloads_once_preserves_completed_commands_and_re
         tracked_allocations(|| {
             let mut batch = commands.begin();
             for value in [1, 2, 3] {
-                batch.commands().emit(
+                batch.commands().emit_always(
                     node,
                     OwnedHit {
                         value,
@@ -897,7 +1008,7 @@ fn commit_failure_drops_owning_payloads_once_preserves_completed_commands_and_re
             assert_eq!(pending.flush(&pool, &mut world, 1), Ok(1));
             assert_eq!(drops.get(), 3);
             let mut batch = commands.begin();
-            batch.commands().emit(
+            batch.commands().emit_always(
                 node,
                 OwnedHit {
                     value: 4,
@@ -925,14 +1036,14 @@ fn source_removal_is_checked_at_commit_without_rolling_back_completed_commands()
         tracked_allocations(|| {
             let mut batch = queue.begin();
             batch.commands().remove::<Pad>(node);
-            batch.commands().emit(
+            batch.commands().emit_always(
                 node,
                 OwnedHit {
                     value: 1,
                     drops: drops.clone(),
                 },
             );
-            batch.commands().emit(
+            batch.commands().emit_always(
                 node,
                 OwnedHit {
                     value: 2,
@@ -965,7 +1076,7 @@ fn stale_targets_and_missing_or_foreign_services_return_commit_errors() {
     let node = world.spawn(Pad { strength: 0 });
     let mut queue = CommandQueue::bounded(command_capacity::<Hit>(1)).unwrap();
     let mut batch = queue.begin();
-    batch.commands().emit(node, Hit { old: 0, new: 1 });
+    batch.commands().emit_always(node, Hit { old: 0, new: 1 });
     assert_eq!(
         batch.finish(&mut world),
         Err(CommandError::Commit(CommandCommitError::MissingService {
@@ -978,7 +1089,7 @@ fn stale_targets_and_missing_or_foreign_services_return_commit_errors() {
     );
     world.insert_resource(foreign);
     let mut batch = queue.begin();
-    batch.commands().emit(node, Hit { old: 0, new: 1 });
+    batch.commands().emit_always(node, Hit { old: 0, new: 1 });
     assert_eq!(
         batch.finish(&mut world),
         Err(CommandError::Commit(CommandCommitError::ForeignOwner {
@@ -989,7 +1100,7 @@ fn stale_targets_and_missing_or_foreign_services_return_commit_errors() {
     let pending = install_pending(&mut world, notification_capacity::<Hit>(1));
     let mut batch = queue.begin();
     batch.commands().despawn(node);
-    batch.commands().emit(node, Hit { old: 0, new: 1 });
+    batch.commands().emit_always(node, Hit { old: 0, new: 1 });
     assert_eq!(
         batch.finish(&mut world),
         Err(CommandError::RecordCapacity { available: 1 })
@@ -999,7 +1110,7 @@ fn stale_targets_and_missing_or_foreign_services_return_commit_errors() {
     let replacement = world.spawn(Pad { strength: 0 });
     assert_eq!(replacement.id, node.id);
     let mut batch = queue.begin();
-    batch.commands().emit(node, Hit { old: 0, new: 1 });
+    batch.commands().emit_always(node, Hit { old: 0, new: 1 });
     assert_eq!(
         batch.finish(&mut world),
         Err(CommandError::Commit(CommandCommitError::MissingTarget {
@@ -1067,7 +1178,7 @@ fn submission_byte_and_alignment_limits_remain_distinct_from_recording_limits() 
         assert_eq!(
             tracked_allocations(|| {
                 let mut batch = queue.begin();
-                batch.commands().emit(
+                batch.commands().emit_always(
                     node,
                     OwnedHit {
                         value: 1,

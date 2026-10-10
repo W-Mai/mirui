@@ -68,7 +68,9 @@ fn event_capacity() -> mirui::app::EventCapacity {
         .commands(
             mirui::ecs::CommandCapacity::new()
                 .insert::<Marker>(2)
-                .insert::<DropMarker>(1),
+                .insert::<DropMarker>(1)
+                .set::<mirui::ui::property::prop::SwitchOn>(1)
+                .emit::<Toggled>(1),
         )
         .notifications::<Toggled>(1)
         .flush_limit(1)

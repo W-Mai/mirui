@@ -196,7 +196,7 @@ fn raw_view_cannot_write_a_model_during_render() {
         name: "attempt_raw_view_write",
         paint: Some((64, attempt_raw_view_write)),
         attach: None,
-        gesture: None,
+        input: None,
         observation: None,
         query_dependencies: &[],
         systems: &[],

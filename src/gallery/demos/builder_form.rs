@@ -231,14 +231,8 @@ mod tests {
             target,
         };
 
-        crate::ui::widgets::slider::view()
-            .internal_gesture()
-            .unwrap()(&mut app.world, slider, &tap(slider))
-        .unwrap();
-        crate::ui::widgets::switch::view()
-            .internal_gesture()
-            .unwrap()(&mut app.world, switch, &tap(switch))
-        .unwrap();
+        runtime::dispatch_gesture(&mut app.world, &tap(slider), 1).unwrap();
+        runtime::dispatch_gesture(&mut app.world, &tap(switch), 1).unwrap();
         runtime::flush(&mut app.world).unwrap();
         crate::core::reactive::flush_signal_dirty(&mut app.world);
         assert_eq!(

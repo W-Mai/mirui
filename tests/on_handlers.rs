@@ -17,16 +17,16 @@ mod tests {
     #[mirui::component]
     struct ResetCount;
 
+    #[mirui::event]
     fn reset_tap_count(
-        world: &mut World,
-        _: Entity,
-        _: &GestureEvent,
-    ) -> Result<bool, mirui::ecs::CommandError> {
-        world.remove_resource::<MultiTapTracker>();
-        Ok(false)
+        _tap: event!(mirui::input::event::gesture::Tap),
+        commands: commands!(),
+    ) -> bool {
+        commands.remove_resource::<MultiTapTracker>();
+        false
     }
 
-    #[mirui::view(component = ResetCount, gesture = reset_tap_count)]
+    #[mirui::view(component = ResetCount, input = reset_tap_count::callback())]
     fn reset_count_view() {}
 
     fn reset() {

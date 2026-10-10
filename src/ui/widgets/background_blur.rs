@@ -183,7 +183,7 @@ mod tests {
         assert_eq!(descriptor.priority(), Some(60));
         assert_eq!(descriptor.invalidation(), ViewInvalidation::Visual);
         assert!(descriptor.auto_attach().is_none());
-        assert!(descriptor.internal_gesture().is_none());
+        assert!(descriptor.inputs().is_none());
         let render = descriptor.render().unwrap();
         let mut world = World::new();
         let entity = world.spawn(BackgroundBlur::new(4).with_spread(3));

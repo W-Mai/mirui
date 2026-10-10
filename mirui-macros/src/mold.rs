@@ -186,7 +186,7 @@ fn expand_decl(name: syn::Ident, params: Vec<MoldParam>, children: &[DsTreeRef])
                         name: stringify!(#name),
                         paint: ::core::option::Option::None,
                         attach: ::core::option::Option::Some(Self::__attach),
-                        gesture: ::core::option::Option::None,
+                        input: ::core::option::Option::None,
                         observation: ::core::option::Option::None,
                         query_dependencies: &[],
                         systems: &[],

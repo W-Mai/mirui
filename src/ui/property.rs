@@ -26,12 +26,6 @@ pub enum PropertyChange {
     Layout,
 }
 
-pub(crate) struct ValueUpdate<T> {
-    pub old: T,
-    pub new: T,
-    pub change: PropertyChange,
-}
-
 impl PropertyChange {
     pub const fn changed(self) -> bool {
         !matches!(self, Self::Unchanged)
@@ -214,6 +208,7 @@ pub mod prop {
     }
     pub struct SwitchOn;
     pub struct CheckboxChecked;
+    pub(crate) struct TextInputFocused;
     pub struct RowGap;
     pub struct ColumnGap;
     pub struct Left;
@@ -363,7 +358,7 @@ pub mod prop {
             let Some(slider) = world.get_mut::<crate::ui::widgets::Slider>(entity) else {
                 return PropertyChange::Unchanged;
             };
-            slider.update_value(value).change
+            slider.update_value(value)
         }
     }
 
@@ -372,7 +367,7 @@ pub mod prop {
 
         fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
             crate::ui::widgets::switch::set_switch_on(world, entity, value)
-                .map_or(PropertyChange::Unchanged, |update| update.change)
+                .unwrap_or(PropertyChange::Unchanged)
         }
     }
 
@@ -383,8 +378,23 @@ pub mod prop {
             world
                 .get_mut::<crate::ui::widgets::Checkbox>(entity)
                 .map_or(PropertyChange::Unchanged, |checkbox| {
-                    checkbox.update_checked(value).change
+                    checkbox.update_checked(value)
                 })
+        }
+    }
+
+    impl Property for TextInputFocused {
+        type Value = bool;
+
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
+            let Some(input) = world.get_mut::<crate::ui::widgets::TextInput>(entity) else {
+                return PropertyChange::Unchanged;
+            };
+            if input.focused == value {
+                return PropertyChange::Unchanged;
+            }
+            input.focused = value;
+            PropertyChange::Visual
         }
     }
 

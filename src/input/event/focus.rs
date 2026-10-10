@@ -1,5 +1,6 @@
-use crate::ecs::{Entity, World};
-use crate::surface::InputEvent;
+use crate::ecs::Entity;
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+use crate::ecs::World;
 
 /// Marker component: this entity can receive keyboard/char input.
 pub struct Focusable;
@@ -14,12 +15,6 @@ pub struct TextEditable;
 #[derive(Default)]
 pub struct FocusState {
     pub focused: Option<Entity>,
-}
-
-/// Handler component for receiving Key/CharInput events on focused entities.
-pub(crate) struct KeyHandler {
-    pub(crate) on_key:
-        fn(&mut World, Entity, &InputEvent) -> Result<bool, crate::ecs::CommandError>,
 }
 
 #[cfg(any(target_os = "android", target_os = "ios", test))]

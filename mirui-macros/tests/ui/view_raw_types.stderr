@@ -1,8 +1,8 @@
 error[E0603]: type alias `ViewAttach` is private
- --> tests/ui/view_raw_types.rs:2:5
+ --> tests/ui/view_raw_types.rs:1:23
   |
-2 |     ViewAttach, ViewInternalGesture, ViewObservationBindings, ViewObserve, ViewRender,
-  |     ^^^^^^^^^^ private type alias
+1 | use mirui::ui::view::{ViewAttach, ViewObservationBindings, ViewObserve, ViewRender};
+  |                       ^^^^^^^^^^ private type alias
   |
 note: the type alias `ViewAttach` is defined here
  --> $WORKSPACE/src/ui/view.rs
@@ -10,23 +10,11 @@ note: the type alias `ViewAttach` is defined here
   | pub(crate) type ViewAttach = fn(world: &mut World, entity: Entity);
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-error[E0603]: type alias `ViewInternalGesture` is private
- --> tests/ui/view_raw_types.rs:2:17
-  |
-2 |     ViewAttach, ViewInternalGesture, ViewObservationBindings, ViewObserve, ViewRender,
-  |                 ^^^^^^^^^^^^^^^^^^^ private type alias
-  |
-note: the type alias `ViewInternalGesture` is defined here
- --> $WORKSPACE/src/ui/view.rs
-  |
-  | pub(crate) type ViewInternalGesture =
-  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
 error[E0603]: struct `ViewObservationBindings` is private
- --> tests/ui/view_raw_types.rs:2:38
+ --> tests/ui/view_raw_types.rs:1:35
   |
-2 |     ViewAttach, ViewInternalGesture, ViewObservationBindings, ViewObserve, ViewRender,
-  |                                      ^^^^^^^^^^^^^^^^^^^^^^^ private struct
+1 | use mirui::ui::view::{ViewAttach, ViewObservationBindings, ViewObserve, ViewRender};
+  |                                   ^^^^^^^^^^^^^^^^^^^^^^^ private struct
   |
 note: the struct `ViewObservationBindings` is defined here
  --> $WORKSPACE/src/ui/view.rs
@@ -35,10 +23,10 @@ note: the struct `ViewObservationBindings` is defined here
   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0603]: type alias `ViewObserve` is private
- --> tests/ui/view_raw_types.rs:2:63
+ --> tests/ui/view_raw_types.rs:1:60
   |
-2 |     ViewAttach, ViewInternalGesture, ViewObservationBindings, ViewObserve, ViewRender,
-  |                                                               ^^^^^^^^^^^ private type alias
+1 | use mirui::ui::view::{ViewAttach, ViewObservationBindings, ViewObserve, ViewRender};
+  |                                                            ^^^^^^^^^^^ private type alias
   |
 note: the type alias `ViewObserve` is defined here
  --> $WORKSPACE/src/ui/view.rs
@@ -47,10 +35,10 @@ note: the type alias `ViewObserve` is defined here
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0603]: type alias `ViewRender` is private
- --> tests/ui/view_raw_types.rs:2:76
+ --> tests/ui/view_raw_types.rs:1:73
   |
-2 |     ViewAttach, ViewInternalGesture, ViewObservationBindings, ViewObserve, ViewRender,
-  |                                                                            ^^^^^^^^^^ private type alias
+1 | use mirui::ui::view::{ViewAttach, ViewObservationBindings, ViewObserve, ViewRender};
+  |                                                                         ^^^^^^^^^^ private type alias
   |
 note: the type alias `ViewRender` is defined here
  --> $WORKSPACE/src/ui/view.rs

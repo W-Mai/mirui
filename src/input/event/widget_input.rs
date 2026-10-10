@@ -1,20 +1,19 @@
 use crate::ecs::{Entity, World};
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(crate) struct InputAttach {
     component_filter: Option<core::any::TypeId>,
     attach: Option<crate::ui::view::ViewAttach>,
-    has_internal_gesture: bool,
+    inputs: Option<super::view_input::SharedInputs>,
 }
 
 impl InputAttach {
     pub(crate) fn for_view(view: &crate::ui::view::View) -> Option<Self> {
         let attach = view.auto_attach();
-        let has_internal_gesture = view.internal_gesture().is_some();
-        (attach.is_some() || has_internal_gesture).then(|| Self {
+        (attach.is_some() || view.inputs().is_some()).then(|| Self {
             component_filter: view.component_filter(),
             attach,
-            has_internal_gesture,
+            inputs: view.inputs().cloned(),
         })
     }
 }
@@ -37,7 +36,12 @@ fn apply_input_attach_plan(world: &mut World, entity: Entity, plan: &[InputAttac
         if let Some(attach) = hook.attach {
             attach(world, entity);
         }
-        has_internal_gesture |= hook.has_internal_gesture;
+        if let Some(inputs) = &hook.inputs {
+            super::view_input::prepare(inputs, world);
+            if let super::view_input::InputState::Ready(prepared) = &*inputs.borrow() {
+                has_internal_gesture |= prepared.hooks.iter().any(|hook| hook.gesture);
+            }
+        }
     }
 
     if has_internal_gesture {
@@ -64,8 +68,8 @@ mod tests {
     use crate::ui::ComputedRect;
     use crate::ui::view::ViewRegistry;
     use crate::ui::widgets::button::Button;
-    use crate::ui::widgets::checkbox::{Checkbox, checkbox_handler};
-    use crate::ui::widgets::tabbar::{TabBar, tabbar_handler};
+    use crate::ui::widgets::checkbox::Checkbox;
+    use crate::ui::widgets::tabbar::TabBar;
     use crate::ui::widgets::text_input::TextInput;
     use crate::ui::{HitTarget, InteractionFeedback};
 
@@ -85,7 +89,8 @@ mod tests {
         world.insert(e, ComputedRect(Rect::new(0, 0, 300, 40)));
         world.insert(e, TabBar::new(3));
         for (x, expected) in [(150, 1u8), (270, 2), (0, 0), (299, 2)] {
-            tabbar_handler(
+            crate::input::event::view_input::invoke_gesture(
+                crate::ui::widgets::tabbar::view(),
                 &mut world,
                 e,
                 &GestureEvent::Tap {
@@ -185,8 +190,8 @@ mod tests {
     }
 
     #[test]
-    fn text_input_attach_installs_focus_and_key_handler() {
-        use crate::input::event::focus::{Focusable, KeyHandler, TextEditable};
+    fn text_input_attach_installs_focus_and_typed_inputs() {
+        use crate::input::event::focus::{Focusable, TextEditable};
 
         let mut world = World::default();
         let mut reg = ViewRegistry::default();
@@ -200,13 +205,10 @@ mod tests {
 
         assert!(world.get::<Focusable>(e).is_some());
         assert!(world.get::<TextEditable>(e).is_some());
-        assert!(world.get::<KeyHandler>(e).is_some());
         assert!(world.has::<HitTarget>(e));
         assert!(world.has::<InteractionFeedback>(e));
         assert!(
-            crate::ui::widgets::text_input::view()
-                .internal_gesture()
-                .is_some(),
+            crate::ui::widgets::text_input::view().inputs().is_some(),
             "TextInput view must expose internal gesture for focus + tap-to-focus"
         );
     }
@@ -215,7 +217,7 @@ mod tests {
     fn registry_carries_progress_bar_internal_gesture() {
         let view = crate::ui::widgets::progress_bar::view();
         assert!(
-            view.internal_gesture().is_some(),
+            view.inputs().is_some(),
             "ProgressBar view must expose an internal gesture handler"
         );
     }
@@ -245,7 +247,7 @@ mod tests {
     fn registry_carries_checkbox_internal_gesture() {
         let view = crate::ui::widgets::checkbox::view();
         assert!(
-            view.internal_gesture().is_some(),
+            view.inputs().is_some(),
             "Checkbox view must expose an internal gesture handler"
         );
     }
@@ -261,7 +263,8 @@ mod tests {
         world.insert(e, Checkbox::new());
         attach_handlers_for(&mut world, e);
 
-        let consumed = checkbox_handler(
+        let consumed = crate::input::event::view_input::invoke_gesture(
+            crate::ui::widgets::checkbox::view(),
             &mut world,
             e,
             &GestureEvent::Tap {
@@ -280,7 +283,8 @@ mod tests {
         let e = world.spawn_empty();
         world.insert(e, ComputedRect(Rect::new(0, 0, 300, 40)));
         world.insert(e, TabBar::new(3));
-        let consumed = tabbar_handler(
+        let consumed = crate::input::event::view_input::invoke_gesture(
+            crate::ui::widgets::tabbar::view(),
             &mut world,
             e,
             &GestureEvent::DragMove {

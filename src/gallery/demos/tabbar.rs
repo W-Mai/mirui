@@ -249,11 +249,6 @@ mod tests {
     #[test]
     fn build_widgets_smoke() {
         let mut app = App::headless(480, 320);
-        app.with_event_capacity(
-            EventCapacity::new()
-                .notifications::<crate::ui::widgets::tabbar::SelectionChanged>(1)
-                .flush_limit(1),
-        );
         app.with_default_widgets();
         let parent = app.spawn_root().layout(LayoutStyle::default()).id();
         app.compose(parent, build_widgets());

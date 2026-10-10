@@ -79,13 +79,18 @@ fn prepared_listener_uses_each_invocation_target_without_repreparing() {
     }
 }
 
+use crate::core::reactive::retained::RetainedEffects;
+#[crate::event]
+fn recycle(node: entity!(), _tap: event!(Tap), commands: commands!()) -> bool {
+    commands.apply(node, (), |world, node, ()| {
+        super::super::retire_subtree_interaction(world, node);
+        Ok(())
+    });
+    false
+}
+
 #[test]
 fn retained_input_snapshot_stops_after_a_handler_rebinds_the_cell() {
-    use crate::core::reactive::retained::RetainedEffects;
-    fn recycle(world: &mut World, node: Entity, _: &GestureEvent) -> Result<bool, CommandError> {
-        super::super::retire_subtree_interaction(world, node);
-        Ok(false)
-    }
     let mut world = World::new();
     let cell = world.spawn_empty();
     let gate = RetainedEffects::new(&mut world, |_, _| true);
@@ -99,7 +104,7 @@ fn retained_input_snapshot_stops_after_a_handler_rebinds_the_cell() {
     registry.insert(
         crate::ui::view::View::systems_only("recycle", &[])
             .with_filter::<RouteMarker>()
-            .with_internal_gesture(recycle),
+            .with_inputs(&mut world, recycle::callback()),
     );
     world.insert_resource(registry);
     let pool = EventListeners::new(&mut world);
@@ -254,31 +259,27 @@ struct RouteTrace {
     author_stop: Option<Entity>,
 }
 
+#[crate::event]
 fn route_first(
-    world: &mut World,
-    node: Entity,
-    event: &GestureEvent,
-) -> Result<bool, CommandError> {
-    let trace = world.resource::<RouteTrace>().unwrap();
-    assert_eq!(event.target(), trace.origin);
+    node: entity!(),
+    event: event!(DragMove),
+    trace: res!(RouteTrace),
+    commands: commands!(),
+) -> bool {
+    assert_eq!(event.target, trace.origin);
     trace.trace.borrow_mut().record(100 + node.id);
     let stop = trace.internal_stop == Some(node);
     if node == trace.origin {
-        let (alternate, old_parent) = (trace.alternate, trace.old_parent);
-        world.insert(node, Parent(alternate));
-        world.remove::<RouteMarker>(old_parent);
+        commands.insert(node, Parent(trace.alternate));
+        commands.remove::<RouteMarker>(trace.old_parent);
     }
-    Ok(stop)
+    stop
 }
 
-fn route_second(world: &mut World, node: Entity, _: &GestureEvent) -> Result<bool, CommandError> {
-    world
-        .resource::<RouteTrace>()
-        .unwrap()
-        .trace
-        .borrow_mut()
-        .record(200 + node.id);
-    Ok(false)
+#[crate::event]
+fn route_second(node: entity!(), _event: event!(DragMove), trace: res!(RouteTrace)) -> bool {
+    trace.trace.borrow_mut().record(200 + node.id);
+    false
 }
 
 #[crate::event]
@@ -320,12 +321,12 @@ impl RouteFixture {
         registry.insert(
             crate::ui::view::View::systems_only("first", &[])
                 .with_filter::<RouteMarker>()
-                .with_internal_gesture(route_first),
+                .with_inputs(&mut world, route_first::callback()),
         );
         registry.insert(
             crate::ui::view::View::systems_only("second", &[])
                 .with_filter::<RouteMarker>()
-                .with_internal_gesture(route_second),
+                .with_inputs(&mut world, route_second::callback()),
         );
         world.insert_resource(registry);
         let pool = EventListeners::new(&mut world);
@@ -684,19 +685,23 @@ fn a_failed_snapshot_reservation_does_not_expand_listener_or_step_quotas() {
 
 struct Widget;
 
+#[crate::event]
+fn internal(_event: event!(DragMove), owner: res!(crate::ecs::world::WorldId)) -> bool {
+    assert_eq!(crate::core::reactive::current_world_id(), Some(*owner));
+    true
+}
+
 #[test]
 fn internal_only_gesture_routes_prepare_and_restore_reactive_owner_without_allocation() {
-    fn internal(world: &mut World, _: Entity, _: &GestureEvent) -> Result<bool, CommandError> {
-        assert_eq!(crate::core::reactive::current_world_id(), Some(world.id()));
-        Ok(true)
-    }
     let mut world = World::new();
     let node = world.spawn_empty();
     let mut registry = ViewRegistry::default();
     registry.insert(
-        crate::ui::view::View::systems_only("internal", &[]).with_internal_gesture(internal),
+        crate::ui::view::View::systems_only("internal", &[])
+            .with_inputs(&mut world, internal::callback()),
     );
     world.insert_resource(registry);
+    world.insert_resource(world.id());
     let before = crate::core::reactive::current_world_id();
     let pool = EventListeners::new(&mut world);
     assert_eq!(crate::core::reactive::current_world_id(), before);
@@ -743,10 +748,28 @@ fn keyboard_app(trace: res!(KeyboardTrace)) -> bool {
     false
 }
 
-fn keyboard_default(world: &mut World, node: Entity, _: &InputEvent) -> Result<bool, CommandError> {
-    let trace = world.resource::<KeyboardTrace>().unwrap();
+#[crate::event]
+fn keyboard_default(node: entity!(), trace: res!(KeyboardTrace)) -> bool {
     trace.trace.borrow_mut().record(200 + node.id);
-    Ok(trace.internal_stop == Some(node))
+    trace.internal_stop == Some(node)
+}
+
+struct DefaultEditor;
+impl Component for DefaultEditor {}
+
+fn keyboard_view(world: &mut World) -> crate::ui::view::View {
+    crate::ui::view::View::systems_only("editor", &[])
+        .with_filter::<DefaultEditor>()
+        .with_inputs(
+            world,
+            (
+                keyboard_default::callback::<Key, super::super::callback::NodeContext>(),
+                keyboard_default::callback::<
+                    super::super::input::CharInput,
+                    super::super::callback::NodeContext,
+                >(),
+            ),
+        )
 }
 
 struct KeyboardFixture {
@@ -772,6 +795,9 @@ impl KeyboardFixture {
             author_stop: None,
             internal_stop: None,
         });
+        let mut registry = ViewRegistry::default();
+        registry.insert(keyboard_view(&mut world));
+        world.insert_resource(registry);
         let pool = EventListeners::new(&mut world);
         pool.reserve(ListenerCapacity {
             listeners: 6,
@@ -779,12 +805,7 @@ impl KeyboardFixture {
         })
         .unwrap();
         for node in [root, leaf] {
-            world.insert(
-                node,
-                KeyHandler {
-                    on_key: keyboard_default,
-                },
-            );
+            world.insert(node, DefaultEditor);
             pool.install_entity::<Key, EntityContext<Widget>>(
                 &mut world,
                 node,
@@ -898,7 +919,7 @@ fn keyboard_selection_freezes_focus_parents_and_default_hooks() {
         .snapshot_keyboard(&fixture.world, &key)
         .unwrap();
     fixture.world.remove::<Parent>(fixture.leaf);
-    fixture.world.remove::<KeyHandler>(fixture.root);
+    fixture.world.remove::<DefaultEditor>(fixture.root);
     fixture.world.resource_mut::<FocusState>().unwrap().focused = Some(fixture.root);
     assert_eq!(snapshot.run(&mut fixture.world), Ok(BubbleControl::Allow));
     assert_eq!(fixture.trace.borrow().values(), &[101, 201, 100, 200, 900]);
@@ -926,12 +947,7 @@ fn keyboard_suppressed_or_stale_focus_only_reaches_app_fallback() {
     fixture.world.despawn(fixture.leaf);
     let replacement = fixture.world.spawn_empty();
     assert_eq!(replacement.id, fixture.leaf.id);
-    fixture.world.insert(
-        replacement,
-        KeyHandler {
-            on_key: keyboard_default,
-        },
-    );
+    fixture.world.insert(replacement, DefaultEditor);
     assert_eq!(fixture.dispatch(&key), Ok(BubbleControl::Allow));
     assert_eq!(fixture.trace.borrow().values(), &[900]);
     fixture.trace.borrow_mut().len = 0;
@@ -993,12 +1009,7 @@ fn keyboard_snapshot_skips_destroyed_generations_without_retargeting_replacement
         .unwrap();
     fixture.world.despawn(fixture.leaf);
     let replacement = fixture.world.spawn_empty();
-    fixture.world.insert(
-        replacement,
-        KeyHandler {
-            on_key: keyboard_default,
-        },
-    );
+    fixture.world.insert(replacement, DefaultEditor);
     assert_eq!(snapshot.run(&mut fixture.world), Ok(BubbleControl::Allow));
     assert_eq!(fixture.trace.borrow().values(), &[100, 200, 900]);
 }
@@ -1009,8 +1020,9 @@ fn unchanged_editor_actions_are_accepted_without_reaching_app_fallback() {
     let mut fixture = KeyboardFixture::new(5);
     fixture.world.insert(fixture.leaf, TextInput::new());
     let view = crate::ui::widgets::text_input::view();
-    fixture.world.remove::<KeyHandler>(fixture.leaf);
+    fixture.world.remove::<DefaultEditor>(fixture.leaf);
     view.auto_attach().unwrap()(&mut fixture.world, fixture.leaf);
+    super::super::view_input::fixture_inputs(view, &mut fixture.world);
     let changes = Rc::new(Cell::new(0));
     let called = changes.clone();
     // SAFETY: the only capture is an independent test counter, not a Model.

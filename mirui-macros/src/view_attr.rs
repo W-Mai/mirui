@@ -22,7 +22,7 @@ struct ViewArgs {
     priority: Expr,
     invalidation: BindingInvalidation,
     attach: Option<Path>,
-    gesture: Option<Path>,
+    input: Option<Expr>,
     systems: Vec<Expr>,
 }
 
@@ -33,7 +33,7 @@ impl Parse for ViewArgs {
         let mut priority = None;
         let mut invalidation = None;
         let mut attach = None;
-        let mut gesture = None;
+        let mut input_hooks = None;
         let mut systems = None;
 
         while !input.is_empty() {
@@ -88,10 +88,10 @@ impl Parse for ViewArgs {
                         return Err(syn::Error::new(key.span(), "duplicate `attach`"));
                     }
                 }
-                "gesture" => {
+                "input" => {
                     input.parse::<Token![=]>()?;
-                    if gesture.replace(input.parse()?).is_some() {
-                        return Err(syn::Error::new(key.span(), "duplicate `gesture`"));
+                    if input_hooks.replace(input.parse()?).is_some() {
+                        return Err(syn::Error::new(key.span(), "duplicate `input`"));
                     }
                 }
                 "systems" => {
@@ -111,7 +111,7 @@ impl Parse for ViewArgs {
                 _ => {
                     return Err(syn::Error::new(
                         key.span(),
-                        "unknown `#[view]` argument; expected `component`, `name`, `priority`, `invalidation`, `attach`, `gesture`, or `systems`",
+                        "unknown `#[view]` argument; expected `component`, `name`, `priority`, `invalidation`, `attach`, `input`, or `systems`",
                     ));
                 }
             }
@@ -128,7 +128,7 @@ impl Parse for ViewArgs {
             priority: priority.unwrap_or_else(|| syn::parse_quote!(60u8)),
             invalidation: invalidation.unwrap_or(BindingInvalidation::Visual),
             attach,
-            gesture,
+            input: input_hooks,
             systems: systems.unwrap_or_default(),
         })
     }
@@ -488,17 +488,27 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
             quote!(::core::option::Option::Some(#path))
         },
     );
-    let gesture = args.gesture.map_or_else(
-        || quote!(::core::option::Option::None),
-        |path| {
-            let path = ChildScope::path(&path);
-            quote!(::core::option::Option::Some(#path))
-        },
-    );
     let system_array = (!args.systems.is_empty()).then(|| {
         let systems = args.systems.iter().map(ChildScope::expression);
         quote!(const SYSTEMS: &[::mirui::ecs::System] = &[#(#systems),*];)
     });
+    let (input_definition, input_slot) = args.input.map_or_else(
+        || (TokenStream::new(), quote!(::core::option::Option::None)),
+        |input| {
+            let input = ChildScope::expression(&input);
+            (
+                quote! {
+                    fn prepare_input #factory_impl_generics (
+                        world: &mut ::mirui::ecs::World,
+                    ) -> ::core::result::Result<::mirui::__macro_support::PreparedInputs, ::mirui::__macro_support::RuntimeInstallError>
+                    #factory_where_clause {
+                        ::mirui::__macro_support::prepare_inputs(world, #input)
+                    }
+                },
+                quote!(::core::option::Option::Some(prepare_input #call_generics)),
+            )
+        },
+    );
     let systems = if args.systems.is_empty() {
         quote!(&[])
     } else {
@@ -573,6 +583,7 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
             use super::*;
 
             #system_array
+            #input_definition
             #render_definition
 
             #observation
@@ -584,7 +595,7 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
                         name: #view_name,
                         paint: #paint,
                         attach: #attach,
-                        gesture: #gesture,
+                        input: #input_slot,
                         observation: #observation_slot,
                         query_dependencies: const {
                             &[#(::core::any::TypeId::of::<#query_dependencies> as fn() -> ::core::any::TypeId),*]
@@ -815,7 +826,7 @@ mod tests {
                 name = "Behavior",
                 priority = 42,
                 attach = attach,
-                gesture = gesture,
+                input = gesture::callback(),
                 systems = [update::system()]
             ),
             quote! {
@@ -831,7 +842,7 @@ mod tests {
         assert!(expanded.contains("paint : :: core :: option :: Option :: None"));
         assert!(expanded.contains("systems : SYSTEMS"));
         assert!(expanded.contains("attach : :: core :: option :: Option :: Some (attach)"));
-        assert!(expanded.contains("gesture : :: core :: option :: Option :: Some (gesture)"));
+        assert!(expanded.contains("prepare_inputs"));
         assert!(
             expanded
                 .contains("observation : :: core :: option :: Option :: Some ((observe , 1usize))")
@@ -1025,7 +1036,7 @@ mod tests {
             assert!(!expanded.contains("paint : :: core :: option :: Option :: None"));
             assert_eq!(expanded.matches("assemble_view").count(), 1);
             assert!(expanded.contains("attach : :: core :: option :: Option :: None"));
-            assert!(expanded.contains("gesture : :: core :: option :: Option :: None"));
+            assert!(expanded.contains("input : :: core :: option :: Option :: None"));
             assert!(expanded.contains("observation : :: core :: option :: Option :: None"));
             assert!(expanded.contains("systems : & []"));
             assert!(!expanded.contains("View :: new"));
@@ -1042,7 +1053,7 @@ mod tests {
                 priority = 61,
                 invalidation = Layout,
                 attach = attach_board,
-                gesture = board_gesture,
+                input = board_gesture::callback(),
                 systems = [tick::system()]
             ),
             quote! {
@@ -1070,7 +1081,7 @@ mod tests {
         assert!(expanded.contains("__macro_support :: assemble_view :: < Board >"));
         assert!(expanded.contains("paint : :: core :: option :: Option :: Some ((61 , render))"));
         assert!(expanded.contains("attach : :: core :: option :: Option :: Some (attach_board)"));
-        assert!(expanded.contains("gesture : :: core :: option :: Option :: Some (board_gesture)"));
+        assert!(expanded.contains("board_gesture :: callback"));
         assert!(expanded.contains("self :: paint"));
         assert!(expanded.contains("& mut :: mirui :: ui :: view :: PaintCtx < '_ >"));
         assert!(!expanded.contains("__mirui_renderer"));

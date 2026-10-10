@@ -1,5 +1,3 @@
-use mirui::ui::view::{
-    ViewAttach, ViewInternalGesture, ViewObservationBindings, ViewObserve, ViewRender,
-};
+use mirui::ui::view::{ViewAttach, ViewObservationBindings, ViewObserve, ViewRender};
 
 fn main() {}

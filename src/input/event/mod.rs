@@ -15,6 +15,7 @@ pub(crate) mod notification;
 pub(crate) mod runtime;
 pub mod scroll;
 pub mod sim;
+pub(crate) mod view_input;
 pub mod widget_input;
 
 pub use capacity::EventCapacity;
@@ -277,48 +278,51 @@ mod tests {
         panic!("gesture unwind");
     }
 
+    struct RouteMarker;
+    impl crate::ecs::Component for RouteMarker {}
+    #[derive(Default)]
+    struct RouteCalls {
+        first: u8,
+        second: u8,
+        user: u8,
+    }
+    #[crate::event]
+    fn route_first(
+        node: entity!(),
+        _tap: event!(gesture::Tap),
+        calls: res!(mut RouteCalls),
+        commands: commands!(),
+    ) -> bool {
+        commands.remove::<RouteMarker>(node);
+        calls.first += 1;
+        false
+    }
+    #[crate::event]
+    fn route_second(_tap: event!(gesture::Tap), calls: res!(mut RouteCalls)) -> bool {
+        calls.second += 1;
+        true
+    }
+
     #[test]
     fn internal_handlers_keep_registration_order_and_snapshot_filter_matches() {
-        struct Marker;
-        impl crate::ecs::Component for Marker {}
-        #[derive(Default)]
-        struct Calls {
-            first: u8,
-            second: u8,
-            user: u8,
-        }
-        fn first(
-            world: &mut World,
-            entity: Entity,
-            _: &GestureEvent,
-        ) -> Result<bool, crate::ecs::CommandError> {
-            world.remove::<Marker>(entity);
-            world.resource_mut::<Calls>().unwrap().first += 1;
-            Ok(false)
-        }
-        fn second(
-            world: &mut World,
-            _: Entity,
-            _: &GestureEvent,
-        ) -> Result<bool, crate::ecs::CommandError> {
-            world.resource_mut::<Calls>().unwrap().second += 1;
-            Ok(true)
-        }
-
         let mut world = World::new();
         let entity = world.spawn_empty();
-        world.insert(entity, Marker);
-        world.insert_resource(Calls::default());
-        // SAFETY: this fixture fetches only Calls and captures no Model.
+        world.insert(entity, RouteMarker);
+        world.insert_resource(RouteCalls::default());
+        // SAFETY: this fixture fetches only RouteCalls and captures no Model.
         let user = unsafe {
             callback::event_callback::<
                 gesture::Tap,
                 callback::NodeContext,
-                (crate::__macro_support::ResMut<Calls>,),
+                (crate::__macro_support::ResMut<RouteCalls>,),
                 bool,
             >(
                 "user",
-                const { &[crate::__macro_support::SystemAccess::write_resource::<Calls>()] },
+                const {
+                    &[crate::__macro_support::SystemAccess::write_resource::<
+                        RouteCalls,
+                    >()]
+                },
                 |(calls,), _, _, _scope| {
                     calls.user += 1;
                     true
@@ -329,13 +333,13 @@ mod tests {
         let mut registry = crate::ui::view::ViewRegistry::default();
         registry.insert(
             crate::ui::view::View::systems_only("first", &[])
-                .with_filter::<Marker>()
-                .with_internal_gesture(first),
+                .with_filter::<RouteMarker>()
+                .with_inputs(&mut world, route_first::callback()),
         );
         registry.insert(
             crate::ui::view::View::systems_only("second", &[])
-                .with_filter::<Marker>()
-                .with_internal_gesture(second),
+                .with_filter::<RouteMarker>()
+                .with_inputs(&mut world, route_second::callback()),
         );
         world.insert_resource(registry);
 
@@ -349,7 +353,7 @@ mod tests {
             0,
         )
         .unwrap();
-        let calls = world.resource::<Calls>().unwrap();
+        let calls = world.resource::<RouteCalls>().unwrap();
         assert_eq!((calls.first, calls.second, calls.user), (1, 1, 0));
     }
 
@@ -658,22 +662,16 @@ mod tests {
             USER_FIRES.store(0, Ordering::SeqCst);
         }
 
-        fn internal_consume(
-            _w: &mut World,
-            _e: Entity,
-            _ev: &GestureEvent,
-        ) -> Result<bool, crate::ecs::CommandError> {
+        #[crate::event]
+        fn internal_consume(_tap: event!(gesture::Tap)) -> bool {
             INTERNAL_FIRES.fetch_add(1, Ordering::SeqCst);
-            Ok(true)
+            true
         }
 
-        fn internal_passthrough(
-            _w: &mut World,
-            _e: Entity,
-            _ev: &GestureEvent,
-        ) -> Result<bool, crate::ecs::CommandError> {
+        #[crate::event]
+        fn internal_passthrough(_tap: event!(gesture::Tap)) -> bool {
             INTERNAL_FIRES.fetch_add(1, Ordering::SeqCst);
-            Ok(false)
+            false
         }
 
         #[crate::event]
@@ -682,13 +680,16 @@ mod tests {
             true
         }
 
-        fn registry_with(internal: crate::ui::view::ViewInternalGesture) -> ViewRegistry {
+        fn registry_with(
+            world: &mut World,
+            internal: callback::EventCallback<gesture::Tap, callback::NodeContext>,
+        ) -> ViewRegistry {
             fn dummy_render(_w: &World, _e: Entity, _paint: &mut crate::ui::view::PaintCtx<'_>) {}
             let mut reg = ViewRegistry::default();
             reg.insert(
                 View::new("ChannelMarker", 60, dummy_render)
                     .with_filter::<ChannelMarker>()
-                    .with_internal_gesture(internal),
+                    .with_inputs(world, internal),
             );
             reg
         }
@@ -724,7 +725,8 @@ mod tests {
             let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
             reset();
             let mut world = World::new();
-            world.insert_resource(registry_with(internal_consume));
+            let registry = registry_with(&mut world, internal_consume::callback());
+            world.insert_resource(registry);
             let e = world.spawn_empty();
             world.insert(e, ChannelMarker);
             runtime::dispatch_gesture(&mut world, &tap_event(e), 0).unwrap();
@@ -737,7 +739,8 @@ mod tests {
             let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
             reset();
             let mut world = World::new();
-            world.insert_resource(registry_with(internal_consume));
+            let registry = registry_with(&mut world, internal_consume::callback());
+            world.insert_resource(registry);
             let e = world.spawn_empty();
             world.insert(e, ChannelMarker);
             binding::install_entity_event(
@@ -760,7 +763,8 @@ mod tests {
             let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
             reset();
             let mut world = World::new();
-            world.insert_resource(registry_with(internal_passthrough));
+            let registry = registry_with(&mut world, internal_passthrough::callback());
+            world.insert_resource(registry);
             let e = world.spawn_empty();
             world.insert(e, ChannelMarker);
             binding::install_entity_event(

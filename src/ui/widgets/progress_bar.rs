@@ -1,9 +1,8 @@
-use crate::ecs::{CommandError, Entity, World};
-use crate::input::event::gesture::GestureEvent;
+use crate::ecs::{Entity, World};
+use crate::input::event::gesture::{DragMove, Tap};
 use crate::render::command::DrawCommand;
 use crate::types::{Fixed, Rect};
 use crate::ui::ComputedRect;
-use crate::ui::dirty::Dirty;
 use crate::ui::theme::{ColorToken, ThemedColor};
 
 crate::input::event::contract::widget_events! {
@@ -99,7 +98,7 @@ impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::Ent
     }
 }
 
-#[crate::view(component = ProgressBar, name = "ProgressBar", priority = 60, gesture = progress_bar_handler)]
+#[crate::view(component = ProgressBar, name = "ProgressBar", priority = 60, input = (progress_tap::callback(), progress_drag::callback()))]
 fn progress_bar_render(pb: component!(), theme: res!(crate::ui::Theme), paint: paint!()) {
     let state = paint.state();
     let rect = paint.rect();
@@ -131,44 +130,49 @@ fn progress_bar_render(pb: component!(), theme: res!(crate::ui::Theme), paint: p
     }
 }
 
-/// Map pointer x onto the bar's ComputedRect to drive `value` in
-/// [0, 1]. Both Tap and DragMove route here so dragging produces a
-/// continuous update.
-fn progress_bar_handler(
-    world: &mut World,
-    entity: Entity,
-    event: &GestureEvent,
-) -> Result<bool, CommandError> {
-    let x = match event {
-        GestureEvent::Tap { x, .. } | GestureEvent::DragMove { x, .. } => *x,
-        _ => return Ok(false),
+fn set_progress(bar: &mut ProgressBar, rect: Rect, x: Fixed) -> Option<ValueChanged> {
+    let new = ((x - rect.x).to_f32() / rect.w.to_f32()).clamp(0.0, 1.0);
+    let old = bar.value;
+    bar.value = new;
+    (old != new).then_some(ValueChanged { old, new })
+}
+
+#[crate::event]
+fn progress_tap(
+    node: entity!(),
+    input: event!(Tap),
+    bars: query!(mut ProgressBar, ComputedRect),
+    commands: commands!(),
+) -> bool {
+    let Some((bar, rect)) = bars.get(node) else {
+        return false;
     };
-    let Some(rect) = world.get::<ComputedRect>(entity).map(|c| c.0) else {
-        return Ok(false);
-    };
-    if rect.w <= Fixed::ZERO {
-        return Ok(false);
+    if rect.0.w <= Fixed::ZERO {
+        return false;
     }
-    let ratio = ((x - rect.x).to_f32() / rect.w.to_f32()).clamp(0.0, 1.0);
-    let (old_value, new_value) = if let Some(pb) = world.get_mut::<ProgressBar>(entity) {
-        let old = pb.value;
-        pb.value = ratio;
-        (old, pb.value)
-    } else {
-        return Ok(false);
-    };
-    world.insert(entity, Dirty);
-    if old_value != new_value {
-        crate::input::event::runtime::emit_widget(
-            world,
-            entity,
-            ValueChanged {
-                new: new_value,
-                old: old_value,
-            },
-        )?;
+    if let Some(change) = set_progress(bar, rect.0, input.x) {
+        commands.emit(node, change);
     }
-    Ok(true)
+    true
+}
+
+#[crate::event]
+fn progress_drag(
+    node: entity!(),
+    input: event!(DragMove),
+    bars: query!(mut ProgressBar, ComputedRect),
+    commands: commands!(),
+) -> bool {
+    let Some((bar, rect)) = bars.get(node) else {
+        return false;
+    };
+    if rect.0.w <= Fixed::ZERO {
+        return false;
+    }
+    if let Some(change) = set_progress(bar, rect.0, input.x) {
+        commands.emit(node, change);
+    }
+    true
 }
 
 pub use progress_bar_render::view;
@@ -176,7 +180,9 @@ pub use progress_bar_render::view;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::input::event::gesture::GestureEvent;
     use crate::input::event::{EventCapacity, runtime};
+    use crate::ui::dirty::VisualDirty;
 
     #[derive(Default)]
     struct ValueTrace(Option<ValueChanged>);
@@ -193,6 +199,7 @@ mod tests {
         runtime::configure(
             &mut world,
             EventCapacity::new()
+                .commands(crate::input::event::view_input::fixture_capacity())
                 .notifications::<ValueChanged>(1)
                 .flush_limit(1),
         )
@@ -207,7 +214,8 @@ mod tests {
         assert!(world.has::<crate::ui::Style>(entity));
         assert!(world.has::<crate::ui::Widget>(entity));
         assert!(
-            progress_bar_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -218,7 +226,7 @@ mod tests {
             )
             .unwrap()
         );
-        assert!(world.has::<Dirty>(entity));
+        assert!(world.has::<VisualDirty>(entity));
         assert_eq!(world.resource::<ValueTrace>().unwrap().0, None);
         assert_eq!(runtime::flush(&mut world).unwrap(), 1);
         assert_eq!(
@@ -230,7 +238,8 @@ mod tests {
         );
         world.resource_mut::<ValueTrace>().unwrap().0 = None;
         assert!(
-            progress_bar_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {
@@ -254,7 +263,8 @@ mod tests {
         world.insert(entity, crate::ui::ComputedRect(Rect::new(0, 0, 100, 20)));
         assert!(world.has::<crate::ui::Style>(entity));
         assert!(
-            progress_bar_handler(
+            crate::input::event::view_input::invoke_gesture(
+                view(),
                 &mut world,
                 entity,
                 &GestureEvent::Tap {

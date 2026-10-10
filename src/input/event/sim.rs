@@ -2416,7 +2416,7 @@ mod tests {
         use crate::input::event::gesture::GestureEvent;
         use crate::types::Rect;
         use crate::ui::ComputedRect;
-        use crate::ui::widgets::slider::{Slider, slider_handler};
+        use crate::ui::widgets::slider::Slider;
 
         let mut world = World::new();
         let e = world.spawn_empty();
@@ -2447,7 +2447,12 @@ mod tests {
                 target: e,
             };
             assert_eq!(
-                slider_handler(&mut world, e, &ev),
+                crate::input::event::view_input::invoke_gesture(
+                    crate::ui::widgets::slider::view(),
+                    &mut world,
+                    e,
+                    &ev
+                ),
                 Ok(true),
                 "handler accepts Tap"
             );
