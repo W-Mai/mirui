@@ -933,7 +933,7 @@ mod tests {
         assert_eq!(rows_written, 32);
         world.drain_component_changes(|_, _| panic!("query-only tracking has no entity records"));
         let mut notifications = 0;
-        world.drain_query_dependency_changes(|_, kind| {
+        world.drain_query_dependency_changes(|_, kind, _| {
             assert_eq!(kind, TypeId::of::<Velocity>());
             notifications += 1;
         });
@@ -955,7 +955,7 @@ mod tests {
         world.watch_query_dependency_type(TypeId::of::<Velocity>());
         world.watch_component_type(TypeId::of::<Velocity>());
         world.drain_component_changes(|_, _| {});
-        world.drain_query_dependency_changes(|_, _| {});
+        world.drain_query_dependency_changes(|_, _, _| {});
         type Rows<'w> = SystemQuery<
             'w,
             ComponentDriver<Position>,
@@ -992,7 +992,7 @@ mod tests {
             ]
         );
         let mut notifications = 0;
-        world.drain_query_dependency_changes(|_, kind| {
+        world.drain_query_dependency_changes(|_, kind, _| {
             assert_eq!(kind, TypeId::of::<Velocity>());
             notifications += 1;
         });

@@ -84,7 +84,7 @@ mod tests {
                 Some(expected.into())
             );
             let mut changes = 0;
-            world.drain_query_dependency_changes(|_, kind| {
+            world.drain_query_dependency_changes(|_, kind, _| {
                 assert_eq!(kind, style_type);
                 changes += 1;
             });
@@ -99,7 +99,7 @@ mod tests {
                 Some(Color::rgb(220, 60, 60).into())
             );
             let mut changes = 0;
-            world.drain_query_dependency_changes(|_, kind| {
+            world.drain_query_dependency_changes(|_, kind, _| {
                 assert_eq!(kind, style_type);
                 changes += 1;
             });

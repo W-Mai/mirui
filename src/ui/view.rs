@@ -857,7 +857,7 @@ impl ViewRegistry {
     }
 
     fn invalidate_pending_queries(&self, world: &mut World) {
-        world.drain_query_dependency_changes(|world, changed| {
+        world.drain_query_dependency_changes(|world, changed, _| {
             for view in &self.views {
                 if view
                     .definition

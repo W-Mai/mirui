@@ -188,8 +188,33 @@ struct WatchedComponentType {
     type_id: TypeId,
     entity_tracking: bool,
     query_tracking: bool,
-    query_pending: bool,
-    query_snapshot: bool,
+    query_pending: Option<QueryDependencyCause>,
+    query_snapshot: Option<QueryDependencyCause>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum QueryDependencyCause {
+    /// Component values or membership changed on one or more entities.
+    Component,
+    /// Referenced storage changed even if component identities stayed equal.
+    Source,
+}
+
+impl QueryDependencyCause {
+    fn merge(self, pending: Option<Self>) -> Self {
+        match (self, pending) {
+            (Self::Source, _) | (_, Some(Self::Source)) => Self::Source,
+            _ => Self::Component,
+        }
+    }
+}
+
+impl WatchedComponentType {
+    fn record_query_change(&mut self, cause: QueryDependencyCause) {
+        if self.query_tracking {
+            self.query_pending = Some(cause.merge(self.query_pending));
+        }
+    }
 }
 
 /// Disjoint access to component-change records and dependency flags while generated queries hold references into component storage.
@@ -226,7 +251,7 @@ fn record_component_change(
     else {
         return;
     };
-    watched.query_pending |= watched.query_tracking;
+    watched.record_query_change(QueryDependencyCause::Component);
     if !watched.entity_tracking {
         return;
     }
@@ -249,7 +274,7 @@ fn record_query_dependency_change(
         .iter_mut()
         .find(|watched| watched.type_id == type_id)
     {
-        watched.query_pending |= watched.query_tracking;
+        watched.record_query_change(QueryDependencyCause::Source);
     }
 }
 
@@ -399,8 +424,8 @@ impl World {
                 type_id,
                 entity_tracking: false,
                 query_tracking: false,
-                query_pending: false,
-                query_snapshot: false,
+                query_pending: None,
+                query_snapshot: None,
             });
             index
         };
@@ -442,18 +467,19 @@ impl World {
     /// Freeze all pending type changes before visiting this batch once. Writes made by callbacks remain pending for the next drain. An interrupted snapshot is retained until its callbacks complete successfully.
     pub(crate) fn drain_query_dependency_changes(
         &mut self,
-        mut visit: impl FnMut(&mut Self, TypeId),
+        mut visit: impl FnMut(&mut Self, TypeId, QueryDependencyCause),
     ) {
         let count = self.watched_component_types.len();
         for watched in &mut self.watched_component_types {
-            watched.query_snapshot |= watched.query_pending;
-            watched.query_pending = false;
+            if let Some(pending) = watched.query_pending.take() {
+                watched.query_snapshot = Some(pending.merge(watched.query_snapshot));
+            }
         }
         for index in 0..count {
             let watched = self.watched_component_types[index];
-            if watched.query_snapshot {
-                visit(self, watched.type_id);
-                self.watched_component_types[index].query_snapshot = false;
+            if let Some(cause) = watched.query_snapshot {
+                visit(self, watched.type_id, cause);
+                self.watched_component_types[index].query_snapshot = None;
             }
         }
     }
@@ -648,6 +674,99 @@ mod tests {
     use crate::test_support::tracked_allocations;
 
     #[test]
+    fn query_change_causes_coalesce_without_entity_records_or_allocations() {
+        use QueryDependencyCause::{Component, Source};
+
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, 0u16);
+        world.watch_query_dependency_type(TypeId::of::<u16>());
+        let allocations = tracked_allocations(|| {
+            for (changes, expected) in [
+                (&[Component][..], Component),
+                (&[Source][..], Source),
+                (&[Component, Source][..], Source),
+                (&[Source, Component][..], Source),
+                (&[Source, Source][..], Source),
+            ] {
+                for cause in changes {
+                    match cause {
+                        Component => *world.get_mut::<u16>(entity).unwrap() += 1,
+                        Source => world.invalidate_query_dependency::<u16>(),
+                    }
+                }
+                let mut calls = 0;
+                world.drain_query_dependency_changes(|_, kind, cause| {
+                    assert_eq!(kind, TypeId::of::<u16>());
+                    assert_eq!(cause, expected);
+                    calls += 1;
+                });
+                assert_eq!(calls, 1);
+                assert!(world.component_changes.is_empty());
+                world.drain_query_dependency_changes(|_, _, _| panic!("already delivered"));
+            }
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(core::mem::size_of::<Option<QueryDependencyCause>>(), 1);
+    }
+
+    #[test]
+    fn query_source_changes_during_drain_wait_for_the_next_snapshot() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.watch_query_dependency_type(TypeId::of::<u16>());
+        world.watch_query_dependency_type(TypeId::of::<u32>());
+        world.insert(entity, 0u16);
+        world.insert(entity, 0u32);
+        let mut calls = 0;
+        world.drain_query_dependency_changes(|world, _, cause| {
+            assert_eq!(cause, QueryDependencyCause::Component);
+            world.invalidate_query_dependency::<u16>();
+            world.invalidate_query_dependency::<u32>();
+            calls += 1;
+        });
+        assert_eq!(calls, 2);
+        calls = 0;
+        world.drain_query_dependency_changes(|world, _, cause| {
+            assert_eq!(cause, QueryDependencyCause::Source);
+            *world.get_mut::<u16>(entity).unwrap() += 1;
+            calls += 1;
+        });
+        assert_eq!(calls, 2);
+        calls = 0;
+        world.drain_query_dependency_changes(|_, kind, cause| {
+            assert_eq!(kind, TypeId::of::<u16>());
+            assert_eq!(cause, QueryDependencyCause::Component);
+            calls += 1;
+        });
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn query_source_invalidation_survives_interrupted_delivery() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, 0u16);
+        world.watch_query_dependency_type(TypeId::of::<u16>());
+        world.invalidate_query_dependency::<u16>();
+        let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            world.drain_query_dependency_changes(|world, _, cause| {
+                assert_eq!(cause, QueryDependencyCause::Source);
+                *world.get_mut::<u16>(entity).unwrap() += 1;
+                panic!("dependency callback failed");
+            });
+        }));
+        assert!(failed.is_err());
+        let mut calls = 0;
+        world.drain_query_dependency_changes(|_, _, cause| {
+            assert_eq!(cause, QueryDependencyCause::Source);
+            calls += 1;
+        });
+        assert_eq!(calls, 1);
+        world.drain_query_dependency_changes(|_, _, _| panic!("already delivered"));
+    }
+
+    #[test]
     fn query_dependencies_share_registration_with_late_entity_tracking() {
         let mut world = World::new();
         let kind = TypeId::of::<u16>();
@@ -657,13 +776,13 @@ mod tests {
         assert_eq!(world.watched_component_types.len(), 1);
         assert!(!world.watched_component_types[0].entity_tracking);
         assert!(world.watched_component_types[0].query_tracking);
-        world.drain_query_dependency_changes(|_, _| panic!("registration is not a write"));
+        world.drain_query_dependency_changes(|_, _, _| panic!("registration is not a write"));
 
         let entity = world.spawn_empty();
         world.insert(entity, 1u16);
         assert!(world.component_changes.is_empty());
         let mut notifications = 0;
-        world.drain_query_dependency_changes(|_, changed| {
+        world.drain_query_dependency_changes(|_, changed, _| {
             assert_eq!(changed, kind);
             notifications += 1;
         });
@@ -694,7 +813,7 @@ mod tests {
         assert!(world.get_mut::<u16>(first).is_none());
         assert!(world.storages.is_empty());
         assert!(world.component_changes.is_empty());
-        world.drain_query_dependency_changes(|_, _| panic!("absent storage is not a write"));
+        world.drain_query_dependency_changes(|_, _, _| panic!("absent storage is not a write"));
 
         world.insert(first, 1u16);
         let retired = world.spawn_empty();
@@ -705,13 +824,13 @@ mod tests {
         assert_ne!(replacement.generation, retired.generation);
         world.insert(replacement, 4u16);
         world.drain_component_changes(|_, _| {});
-        world.drain_query_dependency_changes(|_, _| {});
+        world.drain_query_dependency_changes(|_, _, _| {});
         assert!(world.get_mut::<u16>(absent).is_none());
         assert!(world.get_mut::<u16>(retired).is_none());
         assert_eq!(world.get::<u16>(first), Some(&1));
         assert_eq!(world.get::<u16>(replacement), Some(&4));
         assert!(world.component_changes.is_empty());
-        world.drain_query_dependency_changes(|_, _| {
+        world.drain_query_dependency_changes(|_, _, _| {
             panic!("reads and absent values are not writes")
         });
 
@@ -732,7 +851,7 @@ mod tests {
                 world.drain_component_changes(|world, change| {
                     assert_eq!(world.get::<u16>(change.entity), Some(&(value + 1)));
                 });
-                world.drain_query_dependency_changes(|_, changed| {
+                world.drain_query_dependency_changes(|_, changed, _| {
                     assert_eq!(changed, kind);
                     notifications += 1;
                 });
@@ -760,7 +879,7 @@ mod tests {
         world.insert(entity, 3u32);
         world.insert(entity, true);
         let mut changed = alloc::vec::Vec::new();
-        world.drain_query_dependency_changes(|_, kind| changed.push(kind));
+        world.drain_query_dependency_changes(|_, kind, _| changed.push(kind));
         assert_eq!(changed, [query_only, both]);
         assert_eq!(world.component_changes.len(), 2);
         world.drain_component_changes(|_, _| {});
@@ -768,16 +887,16 @@ mod tests {
         assert_eq!(world.remove::<u16>(entity), Some(2));
         assert!(world.remove::<u16>(entity).is_none());
         changed.clear();
-        world.drain_query_dependency_changes(|_, kind| changed.push(kind));
+        world.drain_query_dependency_changes(|_, kind, _| changed.push(kind));
         assert_eq!(changed, [query_only]);
         assert!(world.component_changes.is_empty());
 
         world.insert(entity, 4u16);
-        world.drain_query_dependency_changes(|_, _| {});
+        world.drain_query_dependency_changes(|_, _, _| {});
         assert!(world.despawn(entity));
         assert!(!world.despawn(entity));
         changed.clear();
-        world.drain_query_dependency_changes(|_, kind| changed.push(kind));
+        world.drain_query_dependency_changes(|_, kind, _| changed.push(kind));
         assert_eq!(changed, [query_only, both]);
         assert_eq!(world.component_changes.len(), 2);
         assert!(
@@ -807,7 +926,7 @@ mod tests {
         world.insert(entity, 2u32);
 
         let mut changed = alloc::vec::Vec::new();
-        world.drain_query_dependency_changes(|world, kind| {
+        world.drain_query_dependency_changes(|world, kind, _| {
             changed.push(kind);
             if kind == first {
                 *world.get_mut::<u16>(entity).unwrap() += 1;
@@ -818,9 +937,9 @@ mod tests {
         });
         assert_eq!(changed, [first, second]);
         changed.clear();
-        world.drain_query_dependency_changes(|_, kind| changed.push(kind));
+        world.drain_query_dependency_changes(|_, kind, _| changed.push(kind));
         assert_eq!(changed, [first, second, added]);
-        world.drain_query_dependency_changes(|_, _| panic!("snapshot was already consumed"));
+        world.drain_query_dependency_changes(|_, _, _| panic!("snapshot was already consumed"));
     }
 
     #[test]
@@ -834,7 +953,7 @@ mod tests {
         world.insert(entity, 1u16);
         world.insert(entity, 2u32);
         let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            world.drain_query_dependency_changes(|world, kind| {
+            world.drain_query_dependency_changes(|world, kind, _| {
                 assert_eq!(kind, first);
                 *world.get_mut::<u16>(entity).unwrap() += 1;
                 panic!("dependency callback failed");
@@ -842,9 +961,9 @@ mod tests {
         }));
         assert!(failed.is_err());
         let mut changed = alloc::vec::Vec::new();
-        world.drain_query_dependency_changes(|_, kind| changed.push(kind));
+        world.drain_query_dependency_changes(|_, kind, _| changed.push(kind));
         assert_eq!(changed, [first, second]);
-        world.drain_query_dependency_changes(|_, _| panic!("snapshot was already consumed"));
+        world.drain_query_dependency_changes(|_, _, _| panic!("snapshot was already consumed"));
     }
 
     #[test]
@@ -895,7 +1014,7 @@ mod tests {
             for _ in 0..64 {
                 *world.get_mut::<u16>(entity).unwrap() += 1;
             }
-            world.drain_query_dependency_changes(|world, kind| {
+            world.drain_query_dependency_changes(|world, kind, _| {
                 assert_eq!(kind, TypeId::of::<u16>());
                 world.for_each_stable_type(kind, |world, entity| {
                     assert_eq!(world.get::<u16>(entity), Some(&65));
