@@ -8,6 +8,7 @@ use core::marker::PhantomData;
 use core::mem::size_of;
 use core::ptr::NonNull;
 
+use crate::core::reactive::retained::InputLease;
 use crate::ecs::commands::{CommandCapacity, CommandError};
 use crate::ecs::world::WorldId;
 use crate::ecs::{Entity, World};
@@ -562,6 +563,7 @@ impl EventListeners {
             scratch,
             event,
             internal,
+            input: None,
         })
     }
 
@@ -592,6 +594,7 @@ impl EventListeners {
             InternalEvent::Gesture(gesture),
         )?;
         let branch = InputBranch::scan(world, origin)?;
+        snapshot.input = InputLease::capture(world, origin);
         self.select_gesture(world, origin, &branch, &mut snapshot)?;
         Ok(snapshot)
     }
@@ -612,6 +615,7 @@ impl EventListeners {
             BorrowedEvent::new(event),
             InternalEvent::Gesture(gesture),
         )?;
+        snapshot.input = InputLease::capture(world, origin);
         self.select_gesture(world, origin, branch, &mut snapshot)?;
         Ok(snapshot)
     }
@@ -671,6 +675,7 @@ impl EventListeners {
         let focused = world
             .resource::<FocusState>()
             .and_then(|state| state.focused);
+        snapshot.input = focused.and_then(|entity| InputLease::capture(world, entity));
         if let Some(mut current) = focused
             && InputBranch::scan(world, current)?.allowed()
         {
@@ -772,6 +777,7 @@ pub struct ListenerSnapshot<'pool, 'event> {
     scratch: RefMut<'pool, Scratch>,
     event: BorrowedEvent<'event>,
     internal: InternalEvent,
+    input: Option<InputLease>,
 }
 
 impl ListenerSnapshot<'_, '_> {
@@ -809,6 +815,9 @@ impl ListenerSnapshot<'_, '_> {
         }
         let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
         for step in &self.scratch.steps {
+            if self.input.is_some_and(|lease| !lease.valid(world)) {
+                break;
+            }
             let result = match step {
                 DispatchStep::Listener(callback) => callback.invoke(world, &self.event)?,
                 DispatchStep::Internal { entity, callback } => {

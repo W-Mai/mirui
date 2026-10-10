@@ -161,6 +161,7 @@ pub(crate) fn cancel_active_input(world: &mut World, now_ms: u32) {
 
 pub(crate) fn retire_subtree_interaction(world: &mut World, root: Entity) {
     use crate::ui::branch::is_in_subtree;
+    crate::core::reactive::retained::retire(world, root);
     let captured = world
         .resource::<GestureSystem>()
         .and_then(|system| system.recognizer.captured_target());

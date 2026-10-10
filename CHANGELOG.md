@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Input callback snapshots stop when a retained ancestor is rebound, including nested cells and repeated reuse of the same entity.
 - Retiring a reused list cell discards its unread gestures from the active dispatch batch as well as queued input, while preserving later input and buffer capacity.
 - Reactive list rows can initialize nested reactive properties during construction without rejecting an explicit World reborrow. Direct ambient reentry remains guarded.
 - Event callbacks revalidate declared Model bindings before parameter access. Removed collection members and active collection iteration conflicts skip the callback without running its body or applying commands.

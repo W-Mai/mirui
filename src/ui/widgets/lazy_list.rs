@@ -221,13 +221,8 @@ fn update_list(
             cell.id,
             world.component_count(core::any::TypeId::of::<CellItem>()),
         );
-        world.insert(
-            cell,
-            crate::core::reactive::retained::RetainedEffects {
-                active: true,
-                valid: cell_is_valid,
-            },
-        );
+        let gate = crate::core::reactive::retained::RetainedEffects::new(world, cell_is_valid);
+        world.insert(cell, gate);
         let slot = Slot {
             entity: cell,
             index: Some(index),

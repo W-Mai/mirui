@@ -13,6 +13,74 @@ use core::cell::Cell;
 struct RouteMarker;
 impl Component for RouteMarker {}
 
+#[test]
+fn retained_input_snapshot_stops_after_a_handler_rebinds_the_cell() {
+    use crate::core::reactive::retained::RetainedEffects;
+    fn recycle(world: &mut World, node: Entity, _: &GestureEvent) -> Result<bool, CommandError> {
+        super::super::retire_subtree_interaction(world, node);
+        Ok(false)
+    }
+    let mut world = World::new();
+    let cell = world.spawn_empty();
+    let gate = RetainedEffects::new(&mut world, |_, _| true);
+    world.insert(cell, gate);
+    world.insert(cell, RouteMarker);
+    world.insert_resource(TapTrace {
+        trace: RefCell::new(Trace::default()),
+        consume: Cell::new(None),
+    });
+    let mut registry = ViewRegistry::default();
+    registry.insert(
+        crate::ui::view::View::systems_only("recycle", &[])
+            .with_filter::<RouteMarker>()
+            .with_internal_gesture(recycle),
+    );
+    world.insert_resource(registry);
+    let pool = EventListeners::new(&mut world);
+    pool.reserve(ListenerCapacity {
+        listeners: 1,
+        snapshot_steps: 2,
+    })
+    .unwrap();
+    pool.install_entity::<Tap, EntityContext<RouteMarker>>(
+        &mut world,
+        cell,
+        ListenerSelector::gesture(Tap::EVENT),
+        record_tap::callback(1),
+        CommandCapacity::default(),
+    )
+    .unwrap();
+    let event = Tap {
+        x: Fixed::ZERO,
+        y: Fixed::ZERO,
+        target: cell,
+    };
+    assert_eq!(
+        tracked_allocations(|| {
+            pool.snapshot_gesture(&world, &event)
+                .unwrap()
+                .run(&mut world)
+                .unwrap();
+        }),
+        0
+    );
+    assert_eq!(world.resource::<TapTrace>().unwrap().trace.borrow().len, 0);
+    world.remove_resource::<ViewRegistry>();
+    pool.snapshot_gesture(&world, &event)
+        .unwrap()
+        .run(&mut world)
+        .unwrap();
+    assert_eq!(
+        world
+            .resource::<TapTrace>()
+            .unwrap()
+            .trace
+            .borrow()
+            .values(),
+        &[1]
+    );
+}
+
 struct TapTrace {
     trace: RefCell<Trace>,
     consume: Cell<Option<u32>>,
