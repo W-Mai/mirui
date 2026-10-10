@@ -257,6 +257,8 @@ An outer `Err` keeps data changes but discards the whole tree's pending notifica
 
 Owned fields form a static, finite tree. Construction with `.into()` and warm reads, writes, resets, and swaps add no framework heap allocation. Registration allocates root storage, one projection per child, and observation storage; effect consumers retain their registration-time allocation. Each write snapshots the current tree, so stack and CPU costs scale with its observations and fixed-capacity effects. Business constructors and method bodies keep their own allocation costs.
 
+The [State Todo model](../src/gallery/demos/state_todo/model.rs) owns three item models. Each row binds its item directly, and the parent derives the remaining count from the children's observed completion values.
+
 ### Model roles
 
 Model roles keep generated handle types out of application code. A

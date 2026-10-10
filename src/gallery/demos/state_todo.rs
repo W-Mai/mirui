@@ -8,7 +8,7 @@ mod runtime;
 mod tests;
 
 pub use composition::build_widgets;
-pub use model::{TodoModel, TodoModelDerivedSnapshot, TodoModelHandle, TodoModelObservedSnapshot};
+pub use model::{TodoModel, TodoModelDerivedSnapshot, TodoModelHandle};
 #[cfg(feature = "std")]
 pub use runtime::setup_app;
 

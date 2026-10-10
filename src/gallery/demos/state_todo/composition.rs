@@ -1,4 +1,4 @@
-use super::model::{TodoItem, TodoModel};
+use super::model::{TodoItemModel, TodoModel};
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
@@ -6,8 +6,7 @@ use crate::ui::widgets::{Button, ParagraphStyle, Text};
 fn todo_row(
     label: &'static str,
     completed_label: &'static str,
-    item: TodoItem,
-    todo: model!(TodoModel),
+    item: model!(TodoItemModel),
 ) -> Entity {
     ui! {
         Button (
@@ -18,29 +17,21 @@ fn todo_row(
             normal_color: ColorToken::SurfaceVariant,
             pressed_color: ColorToken::Primary,
             text_color: ColorToken::OnSurface
-        ) on Tap { todo.toggle(item); }
-        {
+        ) {
             Text (
-                text: ${
-                    let done = match item {
-                        TodoItem::Milk => todo.milk(),
-                        TodoItem::Docs => todo.docs(),
-                        TodoItem::Release => todo.release(),
-                    };
-                    alloc::string::String::from(if done { completed_label } else { label })
-                },
+                text: ${ alloc::string::String::from(if item.completed() { completed_label } else { label }) },
                 grow: 1.0,
                 paragraph: ParagraphStyle::label()
             )
-        }
+        } on Tap { item.toggle(); }
     }
 }
 
 #[compose]
 pub fn build_widgets(todo: model!(TodoModel)) {
-    let milk = TodoItem::Milk;
-    let docs = TodoItem::Docs;
-    let release = TodoItem::Release;
+    let milk = todo.milk();
+    let docs = todo.docs();
+    let release = todo.release();
     let _ = ui! {
         Column (
             grow: 1.0,
@@ -58,9 +49,9 @@ pub fn build_widgets(todo: model!(TodoModel)) {
                 text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label()
             )
-            todo_row ("Buy milk", "✓  Buy milk", milk, todo)
-            todo_row ("Write docs", "✓  Write docs", docs, todo)
-            todo_row ("Ship release", "✓  Ship release", release, todo)
+            todo_row ("Buy milk", "✓  Buy milk", milk)
+            todo_row ("Write docs", "✓  Write docs", docs)
+            todo_row ("Ship release", "✓  Ship release", release)
         }
     };
 }
