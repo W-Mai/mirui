@@ -487,7 +487,7 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
         #owned_definition
 
         #visibility struct #handle #generics #where_clause {
-            access: ::mirui::__macro_support::__Weak<dyn ::mirui::core::model::ModelAccess<#name #type_generics>>,
+            access: ::mirui::core::model::ModelRef<#name #type_generics>,
         }
 
         impl #impl_generics ::core::clone::Clone for #handle #type_generics #where_clause {
@@ -507,7 +507,7 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
             type PendingWatches = [bool; #watch_count];
 
             fn handle(
-                access: ::mirui::__macro_support::__Weak<dyn ::mirui::core::model::ModelAccess<Self>>,
+                access: ::mirui::core::model::ModelRef<Self>,
             ) -> Self::Handle {
                 #handle { access }
             }
@@ -540,7 +540,7 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
         impl #impl_generics ::mirui::core::model::ModelHandle for #handle #type_generics #model_where {
             type Data = #name #type_generics;
 
-            fn access(&self) -> &::mirui::__macro_support::__Weak<dyn ::mirui::core::model::ModelAccess<Self::Data>> {
+            fn access(&self) -> &::mirui::core::model::ModelRef<Self::Data> {
                 &self.access
             }
         }
@@ -976,6 +976,11 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             quote!(#(#dispatches)*),
         )
     };
+    let retire_routes = effects.iter().map(|effect| {
+        let name = &effect.name;
+        let attrs = &effect.cfg_attrs;
+        quote!(#(#attrs)* routes.#name.retire();)
+    });
     let effect_traits = effects.iter().map(|effect| {
         let event = &effect.event;
         let name = &effect.name;
@@ -1025,6 +1030,11 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
 
             fn routes() -> Self::Routes {
                 #routes_body
+            }
+
+            fn retire_routes(routes: &Self::Routes) {
+                let _ = routes;
+                #(#retire_routes)*
             }
 
             fn deliver_events(routes: &Self::Routes, events: Self::Events) {

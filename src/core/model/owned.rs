@@ -1,12 +1,11 @@
-use super::{Model, ModelAccess};
-use alloc::rc::Weak;
+use super::{Model, ModelRef};
 
 /// Inline data and pending changes for a statically owned model field.
 #[doc(hidden)]
 pub struct OwnedStorage<M: Model> {
     pub(super) value: M,
     pub(super) pending: M::PendingWatches,
-    pub(super) identity: Option<Weak<dyn ModelAccess<M>>>,
+    pub(super) identity: Option<ModelRef<M>>,
 }
 
 impl<M: Model> OwnedStorage<M> {

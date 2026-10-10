@@ -1,5 +1,6 @@
 use super::{
-    BindingOwner, Model, ModelAccess, ModelMetadata, ModelPath, ModelRoot, OwnedStorage, OwnerState,
+    BindingOwner, Model, ModelAccess, ModelMetadata, ModelPath, ModelRef, ModelRoot, OwnedStorage,
+    OwnerState,
 };
 use alloc::rc::{Rc, Weak};
 use core::cell::RefCell;
@@ -100,7 +101,7 @@ impl<M: Model> ChildNode<M> {
             }),
         };
         if let Some(storage) = storage {
-            storage.identity = Some(Rc::downgrade(&node.access));
+            storage.identity = Some(node.reference());
             storage.pending = M::pending_watches();
         }
         node
@@ -111,7 +112,17 @@ impl<M: Model> ChildNode<M> {
     }
 
     pub fn handle(&self) -> M::Handle {
-        M::handle(Rc::downgrade(&self.access))
+        M::handle(self.reference())
+    }
+
+    fn reference(&self) -> ModelRef<M> {
+        ModelRef::new(
+            &self.access,
+            self.metadata
+                .lifetime
+                .current()
+                .expect("model member is not active"),
+        )
     }
 
     pub fn begin(&self, storage: &OwnedStorage<M>) {
@@ -123,11 +134,11 @@ impl<M: Model> ChildNode<M> {
     }
 
     pub fn finish(&self, storage: &mut OwnedStorage<M>, reset: bool) {
-        let identity = Rc::downgrade(&self.access);
+        let identity = self.reference();
         let moved = storage
             .identity
             .as_ref()
-            .is_none_or(|old| !Weak::ptr_eq(old, &identity));
+            .is_none_or(|old| !old.same_identity(&identity));
         if moved {
             storage.identity = Some(identity);
         }
@@ -170,6 +181,10 @@ impl<M: Model> ModelMetadata<M> {
         let sources = M::sources();
         let derived_sources = M::derived_sources();
         let watches = M::watches();
+        let lifetime = super::identity::ModelLifetime::new();
+        if value.is_some() {
+            assert!(lifetime.activate(), "new model identity is exhausted");
+        }
         for source in sources.as_ref().iter().chain(derived_sources.as_ref()) {
             source.register_owner(world);
         }
@@ -177,6 +192,7 @@ impl<M: Model> ModelMetadata<M> {
             watch.register_owner(world);
         }
         Self {
+            lifetime,
             sources,
             derived_sources,
             watches,
@@ -250,16 +266,21 @@ impl<M: Model> ModelMetadata<M> {
         self.children.deliver();
     }
 
-    pub(super) fn discard(&self) {
+    fn discard_current(&self) {
         let discarded = {
             let mut transaction = self.transaction.borrow_mut();
             core::mem::replace(&mut *transaction, ModelTransaction::new())
         };
         drop(discarded);
+    }
+
+    pub(super) fn discard(&self) {
+        self.discard_current();
         self.children.discard();
     }
 
     pub(super) fn retire(&self) {
+        self.lifetime.retire();
         for source in self
             .sources
             .as_ref()
@@ -272,6 +293,8 @@ impl<M: Model> ModelMetadata<M> {
             watch.retire();
         }
         self.children.retire();
+        M::retire_routes(&self.routes);
+        self.discard_current();
     }
 }
 

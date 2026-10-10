@@ -204,9 +204,12 @@ fn path_values_select_data_observations_and_effect_routes_without_hot_allocation
             path: LeafPath(right),
         }) as Rc<dyn ModelAccess<Leaf>>
     });
-    let [left, right] = accesses
-        .each_ref()
-        .map(|access| Leaf::handle(Rc::downgrade(access)));
+    let [left, right] = accesses.each_ref().map(|access| {
+        Leaf::handle(crate::core::model::ModelRef::new(
+            access,
+            access.generation().unwrap(),
+        ))
+    });
     let tracked = right.clone();
     let right_value = with_world_scope(&mut world, || Computed::new(move || tracked.value()));
     let delivered = Rc::new(Cell::new(0));
@@ -436,4 +439,105 @@ fn registration_retirement_disconnects_the_complete_retained_tree() {
     flush_signal_dirty(&mut world);
     assert!(world.get::<VisualDirty>(entity).is_none());
     assert!(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| computed.get())).is_err());
+}
+
+#[test]
+fn stale_incarnations_reject_every_facade_entry_before_accessing_a_reused_path() {
+    use crate::core::model::{
+        BindingOwner, ModelInvalidation, ModelOwnerError, register, register_effect,
+    };
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    let mut world = crate::ecs::World::new();
+    let entity = world.spawn_empty();
+    let (registration, parent) = register(&mut world, Pair::new());
+    let old = parent.left();
+    let old_identity = old.access().clone();
+    let node = &registration.root.metadata.children.left;
+    let old_deliveries = Rc::new(Cell::new(0));
+    let counter = old_deliveries.clone();
+    register_effect(world.id(), &old, move |_: Notice| {
+        counter.set(counter.get() + 1)
+    })
+    .unwrap();
+    let mut staged = Leaf::new(1);
+    node.metadata.begin(&staged);
+    staged.change(1, 4);
+    node.metadata.extract(&mut staged);
+    node.retire();
+    {
+        let transaction = node.metadata.transaction.borrow();
+        assert!(transaction.before.is_none());
+        assert!(transaction.events.is_none());
+    }
+    assert!(old.access().upgrade().is_none());
+
+    // Exercise reference validation independently of collection storage.
+    assert!(node.metadata.lifetime.activate());
+    let replacement = node.handle();
+    assert!(!old_identity.same_identity(replacement.access()));
+    assert!(old_identity.same_identity(old.clone().access()));
+    assert!(replacement.access().upgrade().is_some());
+    assert_eq!(replacement.value(), 1);
+    assert_eq!(
+        BindingOwner::registered(&old).check(world.id()),
+        Err(ModelOwnerError::RegistrationEnded)
+    );
+    assert!(catch_unwind(AssertUnwindSafe(|| old.value())).is_err());
+    assert!(catch_unwind(AssertUnwindSafe(|| old.change(40, 7))).is_err());
+    assert!(catch_unwind(AssertUnwindSafe(|| old.value_revision())).is_err());
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            old.subscribe_observed(0, &world, entity, ModelInvalidation::Visual)
+        }))
+        .is_err()
+    );
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            register_effect(world.id(), &old, |_: Notice| {})
+        }))
+        .is_err()
+    );
+    assert_eq!(replacement.value(), 1);
+    let new_deliveries = Rc::new(Cell::new(0));
+    let counter = new_deliveries.clone();
+    register_effect(world.id(), &replacement, move |_: Notice| {
+        counter.set(counter.get() + 1)
+    })
+    .unwrap();
+    replacement.change(1, 9);
+    assert_eq!(old_deliveries.get(), 0);
+    assert_eq!(new_deliveries.get(), 1);
+    assert_eq!(
+        tracked_allocations(|| {
+            for _ in 0..64 {
+                assert!(old.access().upgrade().is_none());
+                assert!(replacement.clone().access().upgrade().is_some());
+            }
+        }),
+        0
+    );
+}
+
+#[test]
+fn ancestor_retirement_invalidates_descendants_before_reactivation() {
+    use crate::core::model::{ModelAccess, ModelRef, register};
+    let mut world = crate::ecs::World::new();
+    let (registration, parent) = register(&mut world, Pair::new());
+    let old_left = parent.left();
+    let old_right = parent.right();
+    let root = &registration.root;
+    root.metadata.retire();
+    assert!(root.metadata.lifetime.activate());
+    assert!(old_left.access().upgrade().is_none());
+    assert!(old_right.access().upgrade().is_none());
+    for node in [&root.metadata.children.left, &root.metadata.children.right] {
+        assert!(node.metadata.lifetime.activate());
+    }
+    let access: Rc<dyn ModelAccess<Pair>> = root.clone();
+    let renewed = Pair::handle(ModelRef::new(&access, root.generation().unwrap()));
+    assert_eq!((renewed.left().value(), renewed.right().value()), (1, 10));
+    assert!(parent.access().upgrade().is_none());
+    assert!(old_left.access().upgrade().is_none());
+    assert!(old_right.access().upgrade().is_none());
 }

@@ -1,15 +1,18 @@
 //! Registered model instances, typed projections, and retained transaction storage.
 
 use alloc::boxed::Box;
-use alloc::rc::{Rc, Weak};
+use alloc::rc::Rc;
 use core::cell::{Cell, RefCell};
 
 use crate::ecs::world::WorldId;
 
+mod identity;
 mod owned;
 mod projection;
 mod tree;
 
+#[doc(hidden)]
+pub use identity::ModelRef;
 #[doc(hidden)]
 pub use owned::{OwnedModel, OwnedStorage};
 #[doc(hidden)]
@@ -43,6 +46,9 @@ pub trait ModelMethods: Sized {
 
     #[doc(hidden)]
     fn routes() -> Self::Routes;
+
+    #[doc(hidden)]
+    fn retire_routes(routes: &Self::Routes);
 
     #[doc(hidden)]
     fn deliver_events(routes: &Self::Routes, events: Self::Events);
@@ -91,6 +97,12 @@ impl<E> EffectRoute<E> {
         Ok(())
     }
 
+    pub fn retire(&self) {
+        self.active.set(false);
+        let handler = self.handler.borrow_mut().take();
+        drop(handler);
+    }
+
     pub fn deliver(&self, event: E) {
         assert!(
             !self.active.get(),
@@ -106,8 +118,9 @@ impl<E> EffectRoute<E> {
         }
         impl<E> Drop for Restore<'_, E> {
             fn drop(&mut self) {
-                *self.route.handler.borrow_mut() = self.handler.take();
-                self.route.active.set(false);
+                if self.route.active.replace(false) {
+                    *self.route.handler.borrow_mut() = self.handler.take();
+                }
             }
         }
         let restore = Restore {
@@ -131,7 +144,7 @@ pub trait Model: ModelMethods + Sized + 'static {
     type Children: ModelChildren<Self>;
 
     #[doc(hidden)]
-    fn handle(access: Weak<dyn ModelAccess<Self>>) -> Self::Handle;
+    fn handle(access: ModelRef<Self>) -> Self::Handle;
 
     #[doc(hidden)]
     fn snapshot(&self) -> Self::Snapshot;
@@ -353,6 +366,7 @@ impl<T: 'static> SharedValue for crate::core::reactive::Computed<T> {
 /// Observation and effect state belonging to one registered model identity.
 #[doc(hidden)]
 pub struct ModelMetadata<M: Model> {
+    lifetime: identity::ModelLifetime,
     sources: M::Sources,
     derived_sources: M::DerivedSources,
     watches: M::Watches,
@@ -367,6 +381,8 @@ type ModelUpdate<'a, M> = dyn FnMut(&mut M) -> Option<<M as Model>::Change> + 'a
 /// Each callback runs synchronously once while its references remain borrowed.
 #[doc(hidden)]
 pub trait ModelAccess<M: Model> {
+    fn generation(&self) -> Option<u64>;
+
     fn binding_owner(&self) -> BindingOwner;
 
     fn read(&self, read: &mut dyn FnMut(&M, &ModelMetadata<M>));
@@ -380,7 +396,6 @@ pub trait ModelAccess<M: Model> {
 #[doc(hidden)]
 pub struct ModelRoot<M: Model> {
     owner: WorldId,
-    active: Cell<bool>,
     value: RefCell<M>,
     metadata: ModelMetadata<M>,
     poisoned: Cell<bool>,
@@ -398,7 +413,6 @@ impl<M: Model> ModelRoot<M> {
             );
             Self {
                 owner,
-                active: Cell::new(true),
                 value: RefCell::new(value),
                 metadata,
                 poisoned: Cell::new(false),
@@ -408,7 +422,10 @@ impl<M: Model> ModelRoot<M> {
     }
 
     fn assert_active(&self) {
-        assert!(self.active.get(), "model registration is no longer alive");
+        assert!(
+            self.generation().is_some(),
+            "model registration is no longer alive"
+        );
     }
 }
 
@@ -418,7 +435,6 @@ pub(crate) struct RegisteredModel<M: Model> {
 
 impl<M: Model> Drop for RegisteredModel<M> {
     fn drop(&mut self) {
-        self.root.active.set(false);
         self.root.metadata.retire();
     }
 }
@@ -441,8 +457,12 @@ impl<M: Model> Drop for UpdateGuard<'_, M> {
 }
 
 impl<M: Model> ModelAccess<M> for ModelRoot<M> {
+    fn generation(&self) -> Option<u64> {
+        self.metadata.lifetime.current()
+    }
+
     fn binding_owner(&self) -> BindingOwner {
-        if self.active.get() {
+        if self.generation().is_some() {
             BindingOwner(OwnerState::Bound(self.owner))
         } else {
             BindingOwner(OwnerState::Invalid(ModelOwnerError::RegistrationEnded))
@@ -523,7 +543,7 @@ pub trait ModelHandle: Clone {
     type Data: Model<Handle = Self>;
 
     #[doc(hidden)]
-    fn access(&self) -> &Weak<dyn ModelAccess<Self::Data>>;
+    fn access(&self) -> &ModelRef<Self::Data>;
 
     #[doc(hidden)]
     fn child<F: ModelChildField<Self::Data>>(&self) -> <F::Child as Model>::Handle {
@@ -772,7 +792,10 @@ pub(crate) fn register<M: Model>(
     let _owner = crate::core::reactive::OwnerGuard::enter(world);
     let root = ModelRoot::new(world.id(), value);
     let access: Rc<dyn ModelAccess<M>> = root.clone();
-    let handle = M::handle(Rc::downgrade(&access));
+    let handle = M::handle(ModelRef::new(
+        &access,
+        root.generation().expect("registered model"),
+    ));
     (RegisteredModel { root }, handle)
 }
 
@@ -805,16 +828,45 @@ where
 #[cfg(all(test, feature = "std"))]
 mod tests {
     use super::{
-        BindingOwner, Model, ModelAccess, ModelHandle, ModelInvalidation, ModelMethods,
-        ModelOwnerError, SharedValue,
+        BindingOwner, Model, ModelHandle, ModelInvalidation, ModelMethods, ModelOwnerError,
+        ModelRef, SharedValue,
     };
     use crate::core::reactive::{Computed, Effect, Signal, flush_signal_dirty, with_world_scope};
     use crate::test_support::tracked_allocations;
     use crate::ui::dirty::VisualDirty;
-    use alloc::rc::{Rc, Weak};
+    use alloc::rc::Rc;
     use core::cell::Cell;
 
     struct Counter(u32);
+
+    #[test]
+    fn retiring_an_active_effect_route_cannot_restore_its_old_consumer() {
+        for unwind in [false, true] {
+            let route = Rc::new(super::EffectRoute::<()>::new());
+            let weak = Rc::downgrade(&route);
+            let deliveries = Rc::new(Cell::new(0));
+            let counter = deliveries.clone();
+            route
+                .register(move |()| {
+                    let route = weak.upgrade().unwrap();
+                    route.retire();
+                    let counter = counter.clone();
+                    route
+                        .register(move |()| counter.set(counter.get() + 1))
+                        .unwrap();
+                    assert!(!unwind, "effect unwind");
+                })
+                .unwrap();
+            let result =
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| route.deliver(())));
+            assert_eq!(result.is_err(), unwind);
+            route.deliver(());
+            assert_eq!(deliveries.get(), 1);
+            route.retire();
+            route.deliver(());
+            assert_eq!(deliveries.get(), 1);
+        }
+    }
 
     struct CounterOwned(super::OwnedStorage<Counter>);
 
@@ -836,7 +888,7 @@ mod tests {
         }
     }
 
-    struct CounterHandle(Weak<dyn ModelAccess<Counter>>);
+    struct CounterHandle(ModelRef<Counter>);
 
     impl ModelMethods for Counter {
         type DerivedSnapshot = ();
@@ -861,6 +913,8 @@ mod tests {
 
         fn routes() -> Self::Routes {}
 
+        fn retire_routes(_: &Self::Routes) {}
+
         fn deliver_events(_: &Self::Routes, _: Self::Events) {}
     }
 
@@ -880,7 +934,7 @@ mod tests {
         type PendingWatches = [bool; 0];
         type Children = ();
 
-        fn handle(access: Weak<dyn ModelAccess<Self>>) -> Self::Handle {
+        fn handle(access: ModelRef<Self>) -> Self::Handle {
             CounterHandle(access)
         }
 
@@ -912,7 +966,7 @@ mod tests {
     impl ModelHandle for CounterHandle {
         type Data = Counter;
 
-        fn access(&self) -> &Weak<dyn ModelAccess<Counter>> {
+        fn access(&self) -> &ModelRef<Counter> {
             &self.0
         }
     }

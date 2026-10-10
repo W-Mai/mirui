@@ -131,7 +131,16 @@ impl<R: Model, P: ModelPath<R>> Projection<R, P> {
 }
 
 impl<R: Model, P: ModelPath<R>> ModelAccess<P::Target> for Projection<R, P> {
+    fn generation(&self) -> Option<u64> {
+        let root = self.root.upgrade()?;
+        root.generation()?;
+        self.path.metadata(&root.metadata).lifetime.current()
+    }
+
     fn binding_owner(&self) -> BindingOwner {
+        if self.generation().is_none() {
+            return BindingOwner(OwnerState::Invalid(ModelOwnerError::RegistrationEnded));
+        }
         self.root.upgrade().map_or(
             BindingOwner(OwnerState::Invalid(ModelOwnerError::RegistrationEnded)),
             |root| root.binding_owner(),

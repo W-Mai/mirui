@@ -1,0 +1,108 @@
+use super::{Model, ModelAccess};
+use alloc::rc::{Rc, Weak};
+use core::cell::Cell;
+
+pub(super) struct ModelLifetime {
+    generation: Cell<u64>,
+    active: Cell<bool>,
+}
+
+impl ModelLifetime {
+    pub(super) const fn new() -> Self {
+        Self {
+            generation: Cell::new(0),
+            active: Cell::new(false),
+        }
+    }
+
+    pub(super) fn activate(&self) -> bool {
+        if self.active.get() {
+            return true;
+        }
+        let Some(generation) = self.generation.get().checked_add(1) else {
+            return false;
+        };
+        self.generation.set(generation);
+        self.active.set(true);
+        true
+    }
+
+    pub(super) fn current(&self) -> Option<u64> {
+        self.active.get().then(|| self.generation.get())
+    }
+
+    pub(super) fn retire(&self) {
+        self.active.set(false);
+    }
+}
+
+/// A weak reference to one incarnation of a registered model.
+#[doc(hidden)]
+pub struct ModelRef<M: Model> {
+    access: Weak<dyn ModelAccess<M>>,
+    generation: u64,
+}
+
+impl<M: Model> Clone for ModelRef<M> {
+    fn clone(&self) -> Self {
+        Self {
+            access: self.access.clone(),
+            generation: self.generation,
+        }
+    }
+}
+
+impl<M: Model> ModelRef<M> {
+    pub(super) fn new(access: &Rc<dyn ModelAccess<M>>, generation: u64) -> Self {
+        Self {
+            access: Rc::downgrade(access),
+            generation,
+        }
+    }
+
+    pub(crate) fn upgrade(&self) -> Option<Rc<dyn ModelAccess<M>>> {
+        let access = self.access.upgrade()?;
+        (access.generation() == Some(self.generation)).then_some(access)
+    }
+
+    pub(super) fn same_identity(&self, other: &Self) -> bool {
+        self.generation == other.generation && Weak::ptr_eq(&self.access, &other.access)
+    }
+
+    #[cfg(all(test, feature = "std"))]
+    pub(super) fn strong_count(&self) -> usize {
+        self.access.strong_count()
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod tests {
+    use super::ModelLifetime;
+
+    #[test]
+    fn retired_incarnations_never_become_live_again() {
+        let lifetime = ModelLifetime::new();
+        assert_eq!(lifetime.current(), None);
+        assert!(lifetime.activate());
+        let first = lifetime.current().unwrap();
+        assert!(lifetime.activate());
+        assert_eq!(lifetime.current(), Some(first));
+        lifetime.retire();
+        lifetime.retire();
+        assert_eq!(lifetime.current(), None);
+        assert!(lifetime.activate());
+        assert!(lifetime.current().unwrap() > first);
+    }
+
+    #[test]
+    fn exhausted_incarnation_cannot_wrap_or_be_reactivated() {
+        let lifetime = ModelLifetime::new();
+        lifetime.generation.set(u64::MAX - 1);
+        assert!(lifetime.activate());
+        assert_eq!(lifetime.current(), Some(u64::MAX));
+        lifetime.retire();
+        assert!(!lifetime.activate());
+        assert_eq!(lifetime.current(), None);
+        assert!(!lifetime.activate());
+    }
+}
