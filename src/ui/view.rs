@@ -955,6 +955,7 @@ impl ViewRegistry {
     /// as a `World` resource.
     pub fn with_builtins() -> Self {
         let mut reg = Self::default();
+        reg.insert(super::children_view::view());
         reg.insert(super::style_view::view());
         reg.insert(crate::ui::widgets::button::view());
         reg.insert(crate::ui::widgets::checkbox::view());
@@ -2111,6 +2112,102 @@ mod tests {
             false,
             1,
         );
+    }
+
+    #[test]
+    fn children_changes_invalidate_only_the_modified_parent_without_paint() {
+        use crate::ui::Children;
+
+        let mut app = crate::app::App::headless(32, 32);
+        assert!(
+            !app.world
+                .resource::<ViewRegistry>()
+                .unwrap()
+                .iter()
+                .any(|view| view.name() == "Children")
+        );
+        app.with_default_widgets();
+        let registry = app.world.resource::<ViewRegistry>().unwrap();
+        let descriptor = registry
+            .iter()
+            .find(|view| view.name() == "Children")
+            .unwrap();
+        assert_eq!(
+            descriptor.component_filter(),
+            Some(TypeId::of::<Children>())
+        );
+        assert_eq!(descriptor.invalidation(), ViewInvalidation::Layout);
+        assert!(descriptor.render().is_none());
+        assert_eq!(descriptor.priority(), None);
+        assert!(!registry.paint_iter().any(|view| view.name() == "Children"));
+
+        let parent = app.world.spawn_empty();
+        let sibling = app.world.spawn_empty();
+        let child = app.world.spawn_empty();
+        app.world.insert(parent, Children(Vec::new()));
+        app.world.insert(sibling, Children(Vec::new()));
+        ViewRegistry::reconcile_observations(&mut app.world);
+        app.world.remove::<Dirty>(parent);
+        app.world.remove::<Dirty>(sibling);
+
+        for operation in 0..3 {
+            match operation {
+                0 => app.world.insert(parent, Children(alloc::vec![child])),
+                1 => app.world.get_mut::<Children>(parent).unwrap().0.clear(),
+                _ => {
+                    app.world.remove::<Children>(parent).unwrap();
+                }
+            }
+            ViewRegistry::reconcile_observations(&mut app.world);
+            assert!(app.world.remove::<Dirty>(parent).is_some());
+            for entity in [parent, sibling, child] {
+                assert!(!app.world.has::<Dirty>(entity));
+                assert!(!app.world.has::<VisualDirty>(entity));
+            }
+            ViewRegistry::reconcile_observations(&mut app.world);
+            assert!(!app.world.has::<Dirty>(parent));
+        }
+    }
+
+    #[test]
+    fn children_reorder_layout_settles_without_repeated_invalidation() {
+        use crate::types::{Dimension, Viewport};
+        use crate::ui::{Children, ComputedRect, Style};
+
+        let mut app = crate::app::App::headless(32, 32);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        let make_style = || {
+            let mut style = Style::default();
+            style.layout.width = Dimension::px(16);
+            style.layout.height = Dimension::px(8);
+            style
+        };
+        let (first, second) = app.compose(root, |tree| {
+            (tree.spawn(make_style()), tree.spawn(make_style()))
+        });
+        app.render_dirty().unwrap();
+        let first_slot = app.world.get::<ComputedRect>(first).unwrap().0;
+        let second_slot = app.world.get::<ComputedRect>(second).unwrap().0;
+        assert_ne!(first_slot, second_slot);
+
+        app.world.get_mut::<Children>(root).unwrap().0.swap(0, 1);
+        app.render_dirty().unwrap();
+        assert_eq!(app.world.get::<ComputedRect>(second).unwrap().0, first_slot);
+        assert_eq!(app.world.get::<ComputedRect>(first).unwrap().0, second_slot);
+
+        for _ in 0..2 {
+            let plan = crate::ui::render_system::collect_dirty_regions(
+                &mut app.world,
+                root,
+                &Viewport::new(32, 32, Fixed::ONE),
+            );
+            assert!(plan.is_empty());
+            for entity in [root, first, second] {
+                assert!(!app.world.has::<Dirty>(entity));
+                assert!(!app.world.has::<VisualDirty>(entity));
+            }
+        }
     }
 
     #[test]

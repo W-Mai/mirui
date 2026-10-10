@@ -227,6 +227,9 @@ pub struct Children(pub Vec<crate::ecs::Entity>);
 
 impl crate::ecs::Component for Children {}
 
+#[crate::view(component = Children, name = "Children", invalidation = Layout)]
+fn children_view() {}
+
 pub struct Parent(pub crate::ecs::Entity);
 
 impl crate::ecs::Component for Parent {}

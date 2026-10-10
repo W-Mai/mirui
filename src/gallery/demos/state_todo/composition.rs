@@ -1,13 +1,10 @@
 use super::model::{TodoItemModel, TodoModel};
 use crate::prelude::*;
-use crate::ui::widgets::{Button, ParagraphStyle, Text};
+use crate::ui::icons::ICON_CHECK;
+use crate::ui::widgets::{Button, Icon, ParagraphStyle, Text};
 
 #[compose]
-fn todo_row(
-    label: &'static str,
-    completed_label: &'static str,
-    item: model!(TodoItemModel),
-) -> Entity {
+fn todo_row(label: &'static str, item: model!(TodoItemModel)) -> Entity {
     ui! {
         Button (
             width: Dimension::percent(100),
@@ -19,9 +16,19 @@ fn todo_row(
             text_color: ColorToken::OnSurface
         ) {
             Text (
-                text: ${ alloc::string::String::from(if item.completed() { completed_label } else { label }) },
+                label,
                 grow: 1.0,
                 paragraph: ParagraphStyle::label()
+            )
+            Icon (
+                path: ICON_CHECK,
+                color: ThemedColor::Token(ColorToken::Success),
+                position: Position::Absolute,
+                left: 12,
+                top: 10,
+                width: 20,
+                height: 20,
+                visible: ${ item.completed() }
             )
         } on Tap { item.toggle(); }
     }
@@ -29,9 +36,11 @@ fn todo_row(
 
 #[compose]
 pub fn build_widgets(todo: model!(TodoModel)) {
-    let milk = todo.milk();
-    let docs = todo.docs();
-    let release = todo.release();
+    let rows = [
+        ("Buy milk", todo.milk()),
+        ("Write docs", todo.docs()),
+        ("Ship release", todo.release()),
+    ];
     ui! {
         Column (
             grow: 1.0,
@@ -49,9 +58,9 @@ pub fn build_widgets(todo: model!(TodoModel)) {
                 text_color: ColorToken::OnSurface,
                 paragraph: ParagraphStyle::label()
             )
-            todo_row ("Buy milk", "✓  Buy milk", milk)
-            todo_row ("Write docs", "✓  Write docs", docs)
-            todo_row ("Ship release", "✓  Ship release", release)
+            walk rows with row {
+                todo_row (row.0, row.1)
+            }
         }
     };
 }

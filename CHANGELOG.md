@@ -88,6 +88,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- State Todo builds its rows with `walk` and displays completion with the built-in check icon.
+- Child-list mutations invalidate layout, so retained keyed rows move to their updated positions during incremental rendering.
 - Orbital Mission's complete source view includes its test module.
 - Changing an empty path registry's capacity preserves retired IDs and enforces the new live-path limit when reusing slots.
 

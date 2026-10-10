@@ -4,8 +4,9 @@ use crate::core::reactive::flush_signal_dirty;
 use crate::ecs::World;
 use crate::input::event::gesture::GestureEvent;
 use crate::prelude::*;
-use crate::ui::Children;
-use crate::ui::widgets::Text;
+use crate::ui::icons::ICON_CHECK;
+use crate::ui::widgets::{Icon, Text};
+use crate::ui::{Children, Hidden};
 
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
@@ -52,17 +53,30 @@ fn row_label(world: &World, row: Entity) -> alloc::string::String {
     label_text(world, label)
 }
 
+fn row_completed(world: &World, row: Entity) -> bool {
+    let mark = world.get::<Children>(row).unwrap().0[1];
+    let icon = world.get::<Icon>(mark).expect("completion uses an icon");
+    assert!(core::ptr::eq(
+        icon.path.cmds.as_ptr(),
+        ICON_CHECK.path().cmds.as_ptr()
+    ));
+    !world.has::<Hidden>(mark)
+}
+
 #[test]
 fn toggling_a_row_updates_remaining_count() {
     let (mut app, summary, rows) = todo_app();
     let world = &mut app.world;
     assert_eq!(label_text(world, summary), "3 REMAINING");
+    assert!(!row_completed(world, rows[0]));
 
     tap_row(world, rows[0]);
     assert_eq!(label_text(world, summary), "2 REMAINING");
+    assert!(row_completed(world, rows[0]));
 
     tap_row(world, rows[0]);
     assert_eq!(label_text(world, summary), "3 REMAINING");
+    assert!(!row_completed(world, rows[0]));
 }
 
 #[test]
@@ -75,13 +89,19 @@ fn row_states_update_independently() {
 
     tap_row(world, rows[1]);
     assert_eq!(row_label(world, rows[0]), "Buy milk");
-    assert_eq!(row_label(world, rows[1]), "✓  Write docs");
+    assert_eq!(row_label(world, rows[1]), "Write docs");
     assert_eq!(row_label(world, rows[2]), "Ship release");
+    assert!(!row_completed(world, rows[0]));
+    assert!(row_completed(world, rows[1]));
+    assert!(!row_completed(world, rows[2]));
     assert_eq!(label_text(world, summary), "2 REMAINING");
 
     tap_row(world, rows[2]);
     assert_eq!(row_label(world, rows[0]), "Buy milk");
-    assert_eq!(row_label(world, rows[1]), "✓  Write docs");
-    assert_eq!(row_label(world, rows[2]), "✓  Ship release");
+    assert_eq!(row_label(world, rows[1]), "Write docs");
+    assert_eq!(row_label(world, rows[2]), "Ship release");
+    assert!(!row_completed(world, rows[0]));
+    assert!(row_completed(world, rows[1]));
+    assert!(row_completed(world, rows[2]));
     assert_eq!(label_text(world, summary), "1 REMAINING");
 }

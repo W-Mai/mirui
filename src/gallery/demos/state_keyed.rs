@@ -171,4 +171,47 @@ mod tests {
             "rotate reuses all rows, builds none"
         );
     }
+
+    #[test]
+    fn rotate_relayouts_reused_rows_before_dirty_render() {
+        use crate::surface::FramebufferAccess;
+        use crate::ui::ComputedRect;
+
+        let mut app = App::headless(320, 320);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.compose(root, build_widgets());
+        app.render_dirty().unwrap();
+
+        let column = app.world.get::<Children>(root).unwrap().0[0];
+        let button = app.world.get::<Children>(column).unwrap().0[0];
+        let list = app.world.get::<Children>(column).unwrap().0[1];
+        let original = app.world.get::<Children>(list).unwrap().0.clone();
+        let slots: [Rect; 4] =
+            core::array::from_fn(|index| app.world.get::<ComputedRect>(original[index]).unwrap().0);
+        assert!(slots.windows(2).all(|pair| pair[0].y < pair[1].y));
+
+        for rotation in 1..=original.len() {
+            tap(&mut app.world, button);
+            app.render_dirty().unwrap();
+
+            let current = &app.world.get::<Children>(list).unwrap().0;
+            for (slot, &entity) in current.iter().enumerate() {
+                assert_eq!(entity, original[(slot + rotation) % original.len()]);
+                assert_eq!(
+                    app.world.get::<ComputedRect>(entity).unwrap().0,
+                    slots[slot],
+                    "rotation {rotation}: reused row must move to its new layout slot"
+                );
+            }
+
+            let incremental = app.backend.framebuffer().buf.as_slice().to_vec();
+            app.render().unwrap();
+            assert_eq!(
+                incremental.as_slice(),
+                app.backend.framebuffer().buf.as_slice(),
+                "rotation {rotation}: dirty rendering must match full rendering"
+            );
+        }
+    }
 }
