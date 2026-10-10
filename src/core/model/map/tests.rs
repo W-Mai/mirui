@@ -163,6 +163,186 @@ fn map_load_preflight_returns_original_order_and_leaves_old_members_untouched() 
     );
 }
 
+#[test]
+fn map_reconcile_preserves_matching_ids_and_returns_unsorted_duplicates_before_merging() {
+    let mut map = ModelMap::from_entries([(2, Item { value: 2 }), (4, Item { value: 4 })])
+        .ok()
+        .unwrap();
+    let ids = map.entries().map(|entry| entry.0).collect::<Vec<_>>();
+    let error = map
+        .reconcile(
+            [
+                (4, Item { value: 40 }),
+                (1, Item { value: 1 }),
+                (4, Item { value: 41 }),
+            ],
+            |_, _| panic!("duplicate batch must not merge"),
+        )
+        .unwrap_err();
+    assert_eq!(error.error(), CollectionError::DuplicateKey);
+    assert!(
+        error
+            .into_input()
+            .map(|(key, item)| (key, item.value))
+            .eq([(4, 40), (1, 1), (4, 41)])
+    );
+    assert_eq!(map.get_by_id(ids[0]).unwrap().value(), 2);
+    assert_eq!(map.get_by_id(ids[1]).unwrap().value(), 4);
+    map.reconcile(
+        [
+            (5, Item { value: 5 }),
+            (2, Item { value: 20 }),
+            (1, Item { value: 1 }),
+        ],
+        |old, new| old.value = new.value,
+    )
+    .unwrap();
+    assert!(
+        map.iter()
+            .map(|(key, item)| (*key, item.value()))
+            .eq([(1, 1), (2, 20), (5, 5)])
+    );
+    assert_eq!(map.entries().nth(1).unwrap().0, ids[0]);
+    assert!(map.get_by_id(ids[1]).is_none());
+    let mut calls = 0;
+    map.reconcile(
+        [
+            (2, Item { value: 21 }),
+            (1, Item { value: 10 }),
+            (5, Item { value: 50 }),
+        ],
+        |old, new| {
+            calls += 1;
+            old.value = new.value;
+        },
+    )
+    .unwrap();
+    assert_eq!(calls, 3);
+    assert!(
+        map.iter()
+            .map(|(key, item)| (*key, item.value()))
+            .eq([(1, 10), (2, 21), (5, 50)])
+    );
+}
+
+#[test]
+fn panicking_map_merge_keeps_keys_aligned_with_completed_member_changes() {
+    let mut map = ModelMap::from_entries([
+        (2, Item { value: 2 }),
+        (4, Item { value: 4 }),
+        (6, Item { value: 6 }),
+    ])
+    .ok()
+    .unwrap();
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        map.reconcile(
+            [
+                (7, Item { value: 7 }),
+                (4, Item { value: 40 }),
+                (3, Item { value: 3 }),
+                (2, Item { value: 20 }),
+                (1, Item { value: 1 }),
+            ],
+            |old, new| {
+                assert_ne!(new.value, 40, "merge interrupted");
+                old.value = new.value;
+            },
+        )
+        .unwrap();
+    }));
+    assert!(result.is_err());
+    assert!(map.iter().map(|(key, item)| (*key, item.value())).eq([
+        (1, 1),
+        (2, 20),
+        (3, 3),
+        (4, 4)
+    ]));
+    assert_eq!(map.get(&2).unwrap().value(), 20);
+    assert!(map.get(&6).is_none());
+    assert_eq!(
+        tracked_allocations(|| {
+            assert!(map.try_insert(5, Item { value: 5 }).is_ok());
+            assert_eq!(map.get(&5).unwrap().value(), 5);
+        }),
+        0
+    );
+}
+
+#[derive(Clone, Copy)]
+struct MergeNotice(u32);
+#[crate::model]
+struct NotifyingItem {
+    #[observe]
+    value: u32,
+    notice: Option<MergeNotice>,
+}
+#[crate::model]
+impl NotifyingItem {
+    #[effects]
+    fn take_notice(&mut self) -> [Option<MergeNotice>; 1] {
+        [self.notice.take()]
+    }
+}
+
+#[test]
+fn map_reconcile_preserves_effect_routes_and_observations_and_rejects_leases() {
+    use crate::core::{
+        model::ModelHandle,
+        reactive::{Computed, with_world_scope},
+    };
+    let mut app = App::headless(32, 32);
+    let map = app.add_model(
+        ModelMap::from_entries([(
+            2,
+            NotifyingItem {
+                value: 2,
+                notice: None,
+            },
+        )])
+        .ok()
+        .unwrap(),
+    );
+    let (id, item) = map.entries().next().unwrap();
+    let observed = item.clone();
+    let value = with_world_scope(&mut app.world, || Computed::new(move || observed.value()));
+    assert_eq!(value.get(), 2);
+    let calls = alloc::rc::Rc::new(core::cell::Cell::new(0));
+    let count = calls.clone();
+    let published = value.clone();
+    app.on_effect(&item, move |notice: MergeNotice| {
+        assert_eq!(published.get(), notice.0);
+        count.set(notice.0);
+    })
+    .unwrap();
+    let held = map.entries();
+    let consumed = core::cell::Cell::new(0);
+    let input = [(
+        2,
+        NotifyingItem {
+            value: 20,
+            notice: Some(MergeNotice(20)),
+        },
+    )]
+    .into_iter()
+    .inspect(|_| consumed.set(consumed.get() + 1));
+    let error = map
+        .reconcile(input, |_, _| panic!("leased collection"))
+        .unwrap_err();
+    assert_eq!(error.error(), CollectionError::Iterating);
+    assert_eq!(consumed.get(), 0);
+    drop(held);
+    map.reconcile(error.into_input(), |old, new| *old = new)
+        .unwrap();
+    assert_eq!(map.entries().next().unwrap().0, id);
+    assert_eq!(item.value(), 20);
+    assert_eq!(value.get(), 20);
+    assert_eq!(calls.get(), 20);
+    assert!(ModelHandle::callback_ready(&item));
+    map.reconcile([], |_, _| {}).unwrap();
+    assert!(map.is_empty());
+    assert!(!ModelHandle::callback_ready(&item));
+}
+
 #[crate::model]
 struct Group {
     items: model!(owned ModelMap<u32, Item>),

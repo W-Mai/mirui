@@ -6,6 +6,7 @@ use core::{
 };
 
 mod load;
+mod reconcile;
 mod registered;
 
 struct KeyEntry<K> {

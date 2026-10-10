@@ -110,6 +110,18 @@ todo.items().reconcile(
 
 Reconciliation stages input and matching indices and may prepare nested storage. It is not a zero-allocation edit. Matching items with unchanged order do not publish a structural change merely because their fields were merged. A merge panic poisons the enclosing registered Model transaction; completed business changes are not rolled back.
 
+## Merging keyed data
+
+`map.reconcile(entries, merge)` uses the Map's own keys; it does not take a separate key extractor. The input is an owned iterator of `(key, data)` pairs. Matching members retain their identities, original stored keys, observations, and effect handlers. New keys create members, absent keys retire members, and traversal remains sorted by key.
+
+```rust,ignore
+workspace.users().reconcile(records, |current, incoming| {
+    current.name = incoming.name;
+})?;
+```
+
+The closure receives `&mut Item` and an incoming `Item`, never a mutable index key. Fields omitted from the merge keep their local values. Duplicate input keys and capacity or iteration conflicts reject the batch before any merge; errors return consumed and remaining input in original order. Explicit watches use the same conservative invalidation as List merges. Key indexing stays aligned with completed member changes if a merge panics; this is not rollback or permission to reuse a poisoned registered Model.
+
 ## Membership sets
 
 Declare `selected: model!(owned ModelSet<UserId>)` for selected IDs, enabled options, or tags. `ModelSet::from_iter(values)` moves and deduplicates input into sorted order; `bounded(n)` prepares an empty set with a hard limit. Members are not Models and do not have individual handles. Use a Map when the stored objects need mutable fields or methods.

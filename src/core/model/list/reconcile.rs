@@ -4,10 +4,10 @@ use crate::core::model::{
 };
 use alloc::vec::Vec;
 
-struct MatchPlan {
-    slots: Vec<usize>,
-    keep: Vec<bool>,
-    capacity: usize,
+pub(in crate::core::model) struct MatchPlan {
+    pub(in crate::core::model) slots: Vec<usize>,
+    pub(in crate::core::model) keep: Vec<bool>,
+    pub(in crate::core::model) capacity: usize,
 }
 
 impl<M: Model> ModelList<M> {
@@ -38,31 +38,40 @@ impl<M: Model> ModelList<M> {
             index += 1;
             keep
         });
-        let binding = self.live_binding();
         for (index, (value, slot)) in input.into_iter().zip(plan.slots).enumerate() {
-            let position = if let Some(position) = self.slots[slot].position {
-                let storage = self.entries[position].value.storage_mut();
-                merge(&mut storage.value, value);
-                storage.pending.as_mut().fill(true);
-                position
-            } else {
-                let mut value: M::Owned = value.into();
-                if let Some(binding) = &binding {
-                    binding.activate_loaded(slot, value.storage_mut());
-                }
-                self.slots[slot].generation += 1;
-                if let Some(binding) = &binding {
-                    binding.set_generation(slot, self.slots[slot].generation);
-                }
-                let position = self.len();
-                self.entries.push(Entry { slot, value });
-                self.slots[slot].position = Some(position);
-                self.changed();
-                position
-            };
+            let id = self.merge_loaded(slot, value, &mut merge);
+            let position = self.position(id).expect("merged model slot");
             self.swap(index, position).expect("preflighted list order");
         }
         Ok(())
+    }
+
+    pub(in crate::core::model) fn merge_loaded(
+        &mut self,
+        slot: usize,
+        value: M,
+        merge: &mut impl FnMut(&mut M, M),
+    ) -> super::ModelItemId {
+        if let Some(position) = self.slots[slot].position {
+            let storage = self.entries[position].value.storage_mut();
+            merge(&mut storage.value, value);
+            storage.pending.as_mut().fill(true);
+        } else {
+            let binding = self.live_binding();
+            let mut value: M::Owned = value.into();
+            if let Some(binding) = &binding {
+                binding.activate_loaded(slot, value.storage_mut());
+            }
+            self.slots[slot].generation += 1;
+            if let Some(binding) = &binding {
+                binding.set_generation(slot, self.slots[slot].generation);
+            }
+            let position = self.len();
+            self.entries.push(Entry { slot, value });
+            self.slots[slot].position = Some(position);
+            self.changed();
+        }
+        self.id(slot)
     }
 
     fn match_input<K: Ord>(
@@ -72,20 +81,10 @@ impl<M: Model> ModelList<M> {
     ) -> Result<MatchPlan, CollectionError> {
         let mut old = Vec::new();
         let mut new = Vec::new();
-        let mut slots = Vec::new();
-        let mut keep = Vec::new();
-        let capacity = self.capacity().max(input.len());
         old.try_reserve_exact(self.len())
             .map_err(|_| CollectionError::Allocation)?;
         new.try_reserve_exact(input.len())
             .map_err(|_| CollectionError::Allocation)?;
-        slots
-            .try_reserve_exact(input.len())
-            .map_err(|_| CollectionError::Allocation)?;
-        keep.try_reserve_exact(self.len())
-            .map_err(|_| CollectionError::Allocation)?;
-        keep.resize(self.len(), false);
-        slots.resize(input.len(), usize::MAX);
         for entry in &self.entries {
             old.push((key_of(&entry.value.storage().value), entry.slot));
         }
@@ -99,12 +98,34 @@ impl<M: Model> ModelList<M> {
         {
             return Err(CollectionError::DuplicateKey);
         }
-        for (key, position) in new {
-            if let Ok(index) = old.binary_search_by(|entry| entry.0.cmp(&key)) {
-                let slot = old[index].1;
-                slots[position] = slot;
-                keep[self.slots[slot].position.expect("active matched slot")] = true;
+        new.sort_unstable_by_key(|entry| entry.1);
+        self.plan_matches(new.iter().map(|(key, _)| {
+            old.binary_search_by(|entry| entry.0.cmp(key))
+                .ok()
+                .map(|index| old[index].1)
+        }))
+    }
+
+    pub(in crate::core::model) fn plan_matches(
+        &self,
+        matches: impl ExactSizeIterator<Item = Option<usize>>,
+    ) -> Result<MatchPlan, CollectionError> {
+        let mut slots = Vec::new();
+        let mut keep = Vec::new();
+        let capacity = self.capacity().max(matches.len());
+        slots
+            .try_reserve_exact(matches.len())
+            .map_err(|_| CollectionError::Allocation)?;
+        keep.try_reserve_exact(self.len())
+            .map_err(|_| CollectionError::Allocation)?;
+        keep.resize(self.len(), false);
+        for slot in matches {
+            if let Some(slot) = slot {
+                let position = self.slots[slot].position.expect("active matched slot");
+                assert!(!keep[position], "duplicate matched model slot");
+                keep[position] = true;
             }
+            slots.push(slot.unwrap_or(usize::MAX));
         }
         let binding = self.live_binding();
         let mut free = (0..capacity).filter(|&index| {

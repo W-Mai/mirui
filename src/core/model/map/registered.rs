@@ -87,6 +87,21 @@ impl<K: Ord + 'static, M: Model> ModelMapHandle<K, M> {
         )
     }
 
+    pub fn reconcile<I: IntoIterator<Item = (K, M)>>(
+        &self,
+        items: I,
+        merge: impl FnMut(&mut M, M),
+    ) -> Result<(), CollectionLoadError<I::IntoIter>> {
+        if let Err(error) = self.available() {
+            return Err(CollectionLoadError::untouched(error, items.into_iter()));
+        }
+        update_model(
+            self,
+            |map| map.reconcile(items, merge),
+            |result| result.as_ref().ok().copied(),
+        )
+    }
+
     pub fn try_insert(
         &self,
         key: K,

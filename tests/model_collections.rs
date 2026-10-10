@@ -112,6 +112,28 @@ fn loading_keyed_data_retires_callbacks_even_when_business_keys_match() {
 }
 
 #[test]
+fn reconciling_keyed_data_preserves_declared_callbacks_and_local_fields() {
+    let mut app = App::headless(32, 32);
+    let map = app.add_model(
+        ModelMap::from_entries([(7, Task { done: true })])
+            .ok()
+            .unwrap(),
+    );
+    app.on_event(Started::EVENT, toggle::callback(map.get(&7).unwrap()));
+    let old = map.entries().next().unwrap().0;
+    map.reconcile(
+        [(8, Task { done: true }), (7, Task { done: false })],
+        |_, _| {},
+    )
+    .unwrap();
+    assert_eq!(map.entries().next().unwrap().0, old);
+    assert!(map.get(&7).unwrap().done());
+    app.tick();
+    assert!(!map.get(&7).unwrap().done());
+    assert!(map.get(&8).unwrap().done());
+}
+
+#[test]
 fn reconciled_members_keep_declared_callbacks_after_reordering() {
     let mut app = App::headless(32, 32);
     let items = app.add_model(ModelList::from([Task { done: false }, Task { done: true }]));
