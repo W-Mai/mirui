@@ -66,6 +66,27 @@ Registered `entries`, `iter`, and `values` hold a structural lease until their i
 
 Positions and business keys are not item identities. Removing an item invalidates its previous references; reinserting the same key does not revive them. List reordering and same-key Map replacement preserve identity. Declared event, System, and Timer bindings skip execution if a captured member has been retired.
 
+## Binding rows
+
+Use `entries()` with keyed `walk` to keep each row attached to its Model when the collection changes order:
+
+```rust,ignore
+#[compose]
+fn task_rows(tasks: model!(Tasks)) {
+    ui! {
+        Column {
+            walk ${ tasks.items().entries() } with entry by entry.0 {
+                task_row(entry.1)
+            }
+        }
+    };
+}
+```
+
+`task_row` is a child composition accepting `item: model!(Task)`. Its reactive properties and event callbacks bind to that item. Reordering retains the row entity and those bindings; removing a member removes its row. Inserting a new member constructs a new row, even if it reuses a retired storage slot.
+
+Keyed row tables retain their allocated storage. Pure reordering does not allocate temporary input or row tables; adding rows still incurs normal widget construction costs. Indexed `walk` retains rows by position rather than Model identity, so use stable member keys when items can move or be replaced.
+
 ## Capacity
 
 `new()` starts empty with capacity zero. `with_capacity(n)` prepares capacity, while `bounded(n)` also sets a hard limit. `reserve(additional)` prepares at least `len() + additional` positions, including registered member metadata. Removal retains capacity. Ordinary insertion and replacement do not grow storage; explicitly constructing, importing, or reserving a collection may allocate.

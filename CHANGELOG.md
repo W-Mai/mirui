@@ -18,9 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reactive list rows can initialize nested reactive properties during construction without rejecting an explicit World reborrow. Direct ambient reentry remains guarded.
 - Event callbacks revalidate declared Model bindings before parameter access. Removed collection members and active collection iteration conflicts skip the callback without running its body or applying commands.
 - Model-bound systems and timers skip execution when any declared binding is retired or conflicts with collection iteration. Skipped timers advance their schedules without replaying the missed invocation.
 - View queries that only read their current entity invalidate local consumers instead of every instance of the same widget. Cross-entity reads and iteration retain descriptor-wide invalidation; font and text cache replacement still refresh all dependent Views.
+
+### Performance
+
+- Reactive `walk` consumes iterators directly and retains row buffers. Keyed collection reordering preserves entities and item bindings without allocating temporary row tables.
 
 ## [0.48.0] - 2026-10-10
 

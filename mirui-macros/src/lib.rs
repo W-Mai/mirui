@@ -1721,16 +1721,33 @@ impl MiruiRune {
 
         quote! {
             {
-                let __rows = mirui::__macro_support::__Rc::new(mirui::__macro_support::__RefCell::new(
+                let __rows = mirui::__macro_support::__RefCell::new(
                     mirui::__macro_support::__Vec::<mirui::ecs::Entity>::new(),
-                ));
+                );
                 let __parent_e = #parent_var;
                 mirui::__macro_support::with_world_scope(#world, || {
                     mirui::core::reactive::effect_with_widget(__parent_e, move || {
-                        let __items: mirui::__macro_support::__Vec<_> = (#iterable).into_iter().collect();
+                        let __items = (#iterable).into_iter();
                         mirui::__macro_support::with_world(|__w| {
-                            let __n_new = __items.len();
                             let __n_old = __rows.borrow().len();
+                            let mut __n_new = 0;
+                            for #variable in __items {
+                                __n_new += 1;
+                                if __n_new <= __n_old {
+                                    continue;
+                                }
+                                let __r = (|__w: &mut mirui::ecs::World, __parent: mirui::ecs::Entity| -> Option<mirui::ecs::Entity> {
+                                    #row_body
+                                })(__w, __parent_e);
+                                if let Some(__r) = __r {
+                                    if let Some(children) =
+                                        __w.get_mut::<mirui::ui::Children>(__parent_e)
+                                    {
+                                        children.0.push(__r);
+                                    }
+                                    __rows.borrow_mut().push(__r);
+                                }
+                            }
                             if __n_new < __n_old {
                                 for __e in __rows.borrow_mut().drain(__n_new..) {
                                     let __pos = __w
@@ -1744,19 +1761,6 @@ impl MiruiRune {
                                         }
                                     }
                                     mirui::ui::despawn_subtree(__w, __e);
-                                }
-                            }
-                            for #variable in __items.into_iter().skip(__n_old) {
-                                let __r = (|__w: &mut mirui::ecs::World, __parent: mirui::ecs::Entity| -> Option<mirui::ecs::Entity> {
-                                    #row_body
-                                })(__w, __parent_e);
-                                if let Some(__r) = __r {
-                                    if let Some(children) =
-                                        __w.get_mut::<mirui::ui::Children>(__parent_e)
-                                    {
-                                        children.0.push(__r);
-                                    }
-                                    __rows.borrow_mut().push(__r);
                                 }
                             }
                         });
@@ -1778,27 +1782,28 @@ impl MiruiRune {
 
         quote! {
             {
-                let __rows = mirui::__macro_support::__Rc::new(mirui::__macro_support::__RefCell::new(mirui::__macro_support::__Vec::new()));
+                let __rows = mirui::__macro_support::__RefCell::new((
+                    mirui::__macro_support::__Vec::new(),
+                    mirui::__macro_support::__Vec::new(),
+                ));
                 let __parent_e = #parent_var;
                 mirui::__macro_support::with_world_scope(#world, || {
                     mirui::core::reactive::effect_with_widget(__parent_e, move || {
-                        let __items: mirui::__macro_support::__Vec<_> = (#iterable).into_iter().collect();
+                        let __items = (#iterable).into_iter();
                         mirui::__macro_support::with_world(|__w| {
-                            let mut __old: mirui::__macro_support::__Vec<_> = __rows.borrow_mut().drain(..).collect();
-                            let mut __new = mirui::__macro_support::__Vec::new();
-                            let mut __kept: mirui::__macro_support::__Vec<mirui::ecs::Entity> = mirui::__macro_support::__Vec::new();
+                            let mut __buffers = __rows.borrow_mut();
+                            let (__old, __new) = &mut *__buffers;
+                            __new.clear();
                             for #variable in __items {
                                 let __k = #key_expr;
                                 if let Some(__i) = __old.iter().position(|(__ok, _)| *__ok == __k) {
                                     let (_, __e) = __old.remove(__i);
-                                    __kept.push(__e);
                                     __new.push((__k, __e));
                                 } else {
                                     let __r = (|__w: &mut mirui::ecs::World, __parent: mirui::ecs::Entity| -> Option<mirui::ecs::Entity> {
                                         #row_body
                                     })(__w, __parent_e);
                                     if let Some(__r) = __r {
-                                        __kept.push(__r);
                                         __new.push((__k, __r));
                                     }
                                 }
@@ -1809,12 +1814,13 @@ impl MiruiRune {
                             // retain-then-append reorders the rows to match the new
                             // key order while leaving any static siblings in place.
                             if let Some(children) = __w.get_mut::<mirui::ui::Children>(__parent_e) {
-                                children.0.retain(|e| !__kept.contains(e));
-                                for __e in &__kept {
+                                children.0.retain(|e| !__new.iter().any(|(_, row)| row == e));
+                                for (_, __e) in __new.iter() {
                                     children.0.push(*__e);
                                 }
                             }
-                            *__rows.borrow_mut() = __new;
+                            __old.reserve(__new.len());
+                            ::core::mem::swap(__old, __new);
                         });
                     });
                 });

@@ -59,6 +59,7 @@ struct WorldWindow {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum WorldAccess {
     Borrowed(WorldId),
+    Reborrowed(WorldId),
     Suppressed(WorldId),
 }
 
@@ -641,6 +642,7 @@ impl Drop for OwnerGuard {
 
 pub(crate) struct WorldGuard {
     prev: Option<WorldWindow>,
+    reborrowed: Option<usize>,
     _owner: OwnerGuard,
 }
 
@@ -651,9 +653,21 @@ impl WorldGuard {
             owner: world.id(),
             pointer: NonNull::from(world),
         };
-        let prev = with_reactive(|r| r.world_window.replace(window));
+        let (prev, reborrowed) = with_reactive(|r| {
+            // The explicit exclusive reference suspends its outer ambient borrow.
+            // Keep that slot occupied until this narrower window ends.
+            let reborrowed = r
+                .borrowed_worlds
+                .iter()
+                .position(|access| *access == Some(WorldAccess::Borrowed(window.owner)));
+            if let Some(slot) = reborrowed {
+                r.borrowed_worlds[slot] = Some(WorldAccess::Reborrowed(window.owner));
+            }
+            (r.world_window.replace(window), reborrowed)
+        });
         Self {
             prev,
+            reborrowed,
             _owner: owner,
         }
     }
@@ -704,7 +718,14 @@ impl Drop for WorldAccessGuard {
 
 impl Drop for WorldGuard {
     fn drop(&mut self) {
-        with_reactive(|r| r.world_window = self.prev);
+        with_reactive(|r| {
+            r.world_window = self.prev;
+            if let Some(slot) = self.reborrowed
+                && let Some(WorldAccess::Reborrowed(owner)) = r.borrowed_worlds[slot]
+            {
+                r.borrowed_worlds[slot] = Some(WorldAccess::Borrowed(owner));
+            }
+        });
     }
 }
 
@@ -3293,6 +3314,54 @@ mod tests {
             assert_eq!(current_world_id(), Some(outer_id));
         });
         assert_eq!(current_world_id(), None);
+    }
+
+    #[test]
+    fn explicit_world_reborrow_restores_access_and_preserves_suppression() {
+        reset();
+        let mut world = World::new();
+        let owner = world.id();
+        with_world_scope(&mut world, || {
+            with_world(|world| {
+                assert_eq!(
+                    crate::test_support::tracked_allocations(|| {
+                        for _ in 0..16 {
+                            with_world_scope(world, || {
+                                with_world(|world| {
+                                    with_world_scope(world, || {
+                                        assert_eq!(with_world(|world| world.id()), Some(owner));
+                                    });
+                                });
+                            });
+                        }
+                    }),
+                    0
+                );
+                let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    with_world_scope(world, || {
+                        with_world(|_| panic!("reborrow unwind"));
+                    });
+                }));
+                assert!(failed.is_err());
+                assert!(std::panic::catch_unwind(|| with_world(|_| ())).is_err());
+                let suppression = WorldAccessGuard::suppress(world);
+                with_world_scope(world, || {
+                    assert!(with_world(|_| ()).is_none());
+                });
+                drop(suppression);
+                with_world_scope(world, || {
+                    assert_eq!(with_world(|world| world.id()), Some(owner));
+                    with_world(|_| {
+                        assert!(std::panic::catch_unwind(|| with_world(|_| ())).is_err());
+                    });
+                });
+            });
+            assert_eq!(with_world(|world| world.id()), Some(owner));
+        });
+        assert!(with_reactive(|runtime| runtime
+            .borrowed_worlds
+            .iter()
+            .all(Option::is_none)));
     }
 
     #[test]
