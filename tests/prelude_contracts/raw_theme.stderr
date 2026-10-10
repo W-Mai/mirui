@@ -1,0 +1,60 @@
+error[E0432]: unresolved import `mirui::ui::theme::active`
+ --> tests/prelude_contracts/raw_theme.rs:1:24
+  |
+1 | use mirui::ui::theme::{active, edit, edit_registered, register, set_theme};
+  |                        ^^^^^^ no `active` in `ui::theme`
+
+error[E0603]: function `edit` is private
+ --> tests/prelude_contracts/raw_theme.rs:1:32
+  |
+1 | use mirui::ui::theme::{active, edit, edit_registered, register, set_theme};
+  |                                ^^^^ private function
+  |
+note: the function `edit` is defined here
+ --> src/ui/theme.rs
+  |
+  | pub(crate) fn edit(world: &mut World, update: impl FnOnce(&mut Theme)) -> bool {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: function `edit_registered` is private
+ --> tests/prelude_contracts/raw_theme.rs:1:38
+  |
+1 | use mirui::ui::theme::{active, edit, edit_registered, register, set_theme};
+  |                                      ^^^^^^^^^^^^^^^ private function
+  |
+note: the function `edit_registered` is defined here
+ --> src/ui/theme.rs
+  |
+  | / pub(crate) fn edit_registered(
+  | |     world: &mut World,
+  | |     id: impl Into<ThemeId>,
+  | |     update: impl FnOnce(&mut Theme),
+  | | ) -> Result<(), ThemeError> {
+  | |___________________________^
+
+error[E0603]: function `register` is private
+ --> tests/prelude_contracts/raw_theme.rs:1:55
+  |
+1 | use mirui::ui::theme::{active, edit, edit_registered, register, set_theme};
+  |                                                       ^^^^^^^^ private function
+  |
+note: the function `register` is defined here
+ --> src/ui/theme.rs
+  |
+  | pub(crate) fn register(world: &mut World, theme: Theme) -> Option<Theme> {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: function `set_theme` is private
+ --> tests/prelude_contracts/raw_theme.rs:1:65
+  |
+1 | use mirui::ui::theme::{active, edit, edit_registered, register, set_theme};
+  |                                                                 ^^^^^^^^^ private function
+  |
+note: the function `set_theme` is defined here
+ --> src/ui/theme.rs
+  |
+  | / pub(crate) fn set_theme(
+  | |     world: &mut World,
+  | |     source: impl Into<ThemeSource>,
+  | | ) -> Result<(), ThemeError> {
+  | |___________________________^

@@ -7,6 +7,26 @@ use mirui::types::Color;
 use mirui::ui::Theme;
 use mirui::ui::theme::{ColorToken, ThemeError, ThemeId, ThemeInfo};
 
+#[mirui::event]
+fn select_light(theme: res!(Theme), commands: commands!()) {
+    assert_eq!(theme.id(), ThemeId::new("dark"));
+    commands.set_theme("light");
+    assert_eq!(theme.id(), ThemeId::new("dark"));
+}
+
+#[test]
+fn typed_theme_change_commits_after_resource_borrows_end() {
+    use mirui::input::event::contract::Event;
+    use mirui::input::event::lifecycle::Started;
+
+    let mut app = App::headless(16, 16);
+    let other = App::headless(16, 16);
+    app.on_event(Started::EVENT, select_light::callback());
+    app.tick();
+    assert_eq!(app.theme().id(), ThemeId::new("light"));
+    assert_eq!(other.theme().id(), ThemeId::new("dark"));
+}
+
 #[test]
 fn app_new_inserts_default_theme() {
     let backend = FramebufSurface::new(64, 64, |_, _| {});

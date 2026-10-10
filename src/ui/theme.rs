@@ -1,3 +1,7 @@
+//! Theme palettes and named theme registration.
+//!
+//! Read and edit themes through [`crate::app::App::theme`], [`crate::app::App::edit_theme`], and [`crate::app::App::edit_theme_id`]. Typed callbacks read `res!(Theme)` or `res!(ThemeCatalog)` and apply changes with `commands.set_theme(...)` after their resource borrows end.
+
 use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
 
@@ -414,9 +418,10 @@ impl From<&'static str> for ThemeSource {
     }
 }
 
-/// Free-function counterpart to `App::set_theme`, for handlers and
-/// systems that don't have an `App` reference.
-pub fn set_theme(world: &mut World, source: impl Into<ThemeSource>) -> Result<(), ThemeError> {
+pub(crate) fn set_theme(
+    world: &mut World,
+    source: impl Into<ThemeSource>,
+) -> Result<(), ThemeError> {
     let theme = match source.into() {
         ThemeSource::Theme(theme) => {
             register(world, theme.clone());
@@ -453,7 +458,7 @@ impl crate::ecs::CommandCapacity {
     }
 }
 
-pub fn register(world: &mut World, theme: Theme) -> Option<Theme> {
+pub(crate) fn register(world: &mut World, theme: Theme) -> Option<Theme> {
     if world.resource::<ThemeCatalog>().is_none() {
         world.insert_resource(ThemeCatalog::new());
     }
@@ -463,11 +468,7 @@ pub fn register(world: &mut World, theme: Theme) -> Option<Theme> {
         .insert(theme)
 }
 
-pub fn active(world: &World) -> Option<&Theme> {
-    world.resource::<Theme>()
-}
-
-pub fn edit(world: &mut World, update: impl FnOnce(&mut Theme)) -> bool {
+pub(crate) fn edit(world: &mut World, update: impl FnOnce(&mut Theme)) -> bool {
     let Some(theme) = world.resource_mut::<Theme>() else {
         return false;
     };
@@ -480,7 +481,7 @@ pub fn edit(world: &mut World, update: impl FnOnce(&mut Theme)) -> bool {
     true
 }
 
-pub fn edit_registered(
+pub(crate) fn edit_registered(
     world: &mut World,
     id: impl Into<ThemeId>,
     update: impl FnOnce(&mut Theme),
@@ -553,7 +554,10 @@ mod tests {
             theme.set(ColorToken::Primary, Color::rgb(1, 2, 3));
         }));
         assert_eq!(
-            active(&world).unwrap().resolve(ColorToken::Primary),
+            world
+                .resource::<Theme>()
+                .unwrap()
+                .resolve(ColorToken::Primary),
             Color::rgb(1, 2, 3)
         );
         assert!(world.get::<crate::ui::dirty::Dirty>(root).is_some());

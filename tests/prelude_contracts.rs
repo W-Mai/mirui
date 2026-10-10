@@ -51,3 +51,9 @@ fn composition_constructors_stay_in_macro_support() {
     cases.compile_fail("tests/prelude_contracts/raw_builder.rs");
     cases.compile_fail("tests/prelude_contracts/default_builder.rs");
 }
+
+#[test]
+fn theme_world_operations_stay_in_the_framework() {
+    let cases = trybuild::TestCases::new();
+    cases.compile_fail("tests/prelude_contracts/raw_theme.rs");
+}
