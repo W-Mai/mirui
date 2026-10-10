@@ -66,6 +66,44 @@ Registered `entries`, `iter`, and `values` hold a structural lease until their i
 
 Positions and business keys are not item identities. Removing an item invalidates its previous references; reinserting the same key does not revive them. List reordering and same-key Map replacement preserve identity. Declared event, System, and Timer bindings skip execution if a captured member has been retired.
 
+## Virtualized rows
+
+Pass the registered collection to `LazyList.items`; conversion is automatic. Using `Tasks` from the example above:
+
+```rust,ignore
+use mirui::prelude::*;
+use mirui::ui::widgets::{LazyList, ListItem, Text};
+use mirui::ui::widgets::lazy_list::CreateCell;
+
+#[compose]
+fn task_cell(cell: model!(ListItem), tasks: model!(Tasks)) -> Entity {
+    ui! {
+        Text(text: ${
+            cell.id()
+                .and_then(|id| tasks.items().get_by_id(id))
+                .map(|task| if task.done() { "Done" } else { "Open" })
+                .unwrap_or("")
+        }) on Tap {
+            if let Some(task) = cell.id().and_then(|id| tasks.items().get_by_id(id)) {
+                task.toggle();
+            }
+        }
+    }
+}
+
+#[compose]
+fn task_list(tasks: model!(Tasks)) -> Entity {
+    ui! {
+        LazyList(items: tasks.items(), height: 240, item_extent: 40)
+        on CreateCell(|event: event!(CreateCell)| {
+            ui! { task_cell(event.item.clone(), tasks.clone()) }
+        })
+    }
+}
+```
+
+The cell Model belongs to a reusable row; the task Model belongs to the dataset. Read the cell's current ID inside each property or callback. A task captured once during construction would still refer to that original task after the cell is reused. List and Map sources use the same row lifecycle; maps display members in key order. See [virtualized cells](scrolling.md#virtualized-cells) for count-based rows, source replacement, and input cancellation.
+
 ## Member effects
 
 Lists and maps expose their direct members' declared effects through `on_effect`. The callback borrows a `ModelItemEffect<E>` containing the stable member `id` and the original `event`:

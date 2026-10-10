@@ -343,3 +343,76 @@ fn creation_rechecks_source_after_user_mutation_without_leaking_a_partial_cell()
     assert!(app.world.get::<Children>(list).unwrap().0.is_empty());
     assert_eq!(app.world.live_entity_count(), before);
 }
+
+#[crate::compose]
+fn interactive_cell(item: model!(ListItem), rows: model!(ModelList<RowData>)) -> Entity {
+    ui! {
+        Text (
+            text_capacity: 16,
+            text: ${ item.id().and_then(|id| rows.get_by_id(id)).map(|row| row.title()).unwrap_or("") }
+        ) on Tap {
+            if let Some(row) = item.id().and_then(|id| rows.get_by_id(id)) {
+                row.rename("clicked");
+            }
+        }
+    }
+}
+
+#[crate::compose]
+fn interactive_collection(rows: model!(ModelList<RowData>)) -> Entity {
+    ui! {
+        LazyList (items: rows.clone(), item_extent: 40) on CreateCell(create_interactive::callback(rows.clone()))
+    }
+}
+
+#[crate::event]
+fn create_interactive(rows: model!(ModelList<RowData>), event: event!(CreateCell)) -> Entity {
+    ui! {
+        interactive_cell (event.item.clone(), rows.clone())
+    }
+}
+
+#[test]
+fn collection_callbacks_resolve_current_identity_after_reordering_and_slot_reuse() {
+    let mut app = App::headless(200, 200);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    let rows = app.add_model(data());
+    let list = app.compose(root, interactive_collection(rows.clone()));
+    viewport(&mut app.world, list, 200, 80, 0);
+    let first = app.world.get::<Children>(list).unwrap().0[0];
+    let original = rows.get(0).unwrap();
+    let tap = crate::input::event::gesture::GestureEvent::Tap {
+        target: first,
+        x: 10.into(),
+        y: 10.into(),
+    };
+    rows.rotate_left(1).unwrap();
+    crate::input::event::runtime::dispatch_gesture(&mut app.world, &tap, 100).unwrap();
+    assert_eq!(rows.get(0).unwrap().title(), "second");
+    viewport(&mut app.world, list, 200, 80, 0);
+    crate::input::event::runtime::dispatch_gesture(&mut app.world, &tap, 200).unwrap();
+    crate::core::reactive::flush_signal_dirty(&mut app.world);
+    assert_eq!(rows.get(0).unwrap().title(), "clicked");
+    assert_eq!(original.title(), "first");
+    let removed = app
+        .world
+        .get::<CellItem>(first)
+        .unwrap()
+        .handle
+        .id()
+        .unwrap();
+    rows.remove(removed).unwrap();
+    let replacement = rows.try_insert(0, RowData { title: "new" }).unwrap();
+    assert_ne!(removed, replacement);
+    viewport(&mut app.world, list, 200, 80, 0);
+    crate::input::event::runtime::dispatch_gesture(&mut app.world, &tap, 300).unwrap();
+    crate::core::reactive::flush_signal_dirty(&mut app.world);
+    assert_eq!(rows.get_by_id(replacement).unwrap().title(), "clicked");
+    assert!(rows.get_by_id(removed).is_none());
+    assert_eq!(app.world.get::<Children>(list).unwrap().0[0], first);
+    assert_eq!(
+        app.world.get::<Text>(first).unwrap().resolve(&app.world),
+        "clicked"
+    );
+}
