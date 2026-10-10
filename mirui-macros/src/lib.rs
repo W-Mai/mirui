@@ -38,6 +38,9 @@ pub fn component(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 mod mold;
 
+/// Declare registered state, observed values, and forwarded business methods.
+///
+/// Apply to a struct and its inherent implementation. A `model!(owned Child)` field stores child data constructed with `.into()`; registering the parent also registers its children. The field getter returns the child instance for existing Model roles. Parent and child mutations commit the same tree before delivering effects.
 #[proc_macro_attribute]
 pub fn model(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr = proc_macro2::TokenStream::from(attr);

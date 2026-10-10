@@ -6,10 +6,16 @@ use core::cell::{Cell, RefCell};
 
 use crate::ecs::world::WorldId;
 
+mod owned;
+mod projection;
 mod tree;
 
 #[doc(hidden)]
-pub use tree::ModelChildren;
+pub use owned::{OwnedModel, OwnedStorage};
+#[doc(hidden)]
+pub use projection::{ModelChildField, ModelPath, ModelPathThen};
+#[doc(hidden)]
+pub use tree::{ChildNode, ModelChildren, ModelEvents, ModelPending, ModelSnapshot};
 
 /// Derived observations declared by a model's inherent implementation.
 #[doc(hidden)]
@@ -116,10 +122,12 @@ impl<E> EffectRoute<E> {
 /// A model type that can create its generated instance handle.
 pub trait Model: ModelMethods + Sized + 'static {
     type Handle: ModelHandle<Data = Self>;
+    type Owned: OwnedModel<Data = Self> + From<Self>;
     type Snapshot: Copy;
     type Sources: AsRef<[crate::core::reactive::ModelSource]>;
     type Change: Copy;
     type Watches: AsRef<[ModelWatch]>;
+    type PendingWatches: Copy + AsRef<[bool]> + AsMut<[bool]>;
     type Children: ModelChildren<Self>;
 
     #[doc(hidden)]
@@ -138,7 +146,10 @@ pub trait Model: ModelMethods + Sized + 'static {
     fn watches() -> Self::Watches;
 
     #[doc(hidden)]
-    fn publish_change(watches: &Self::Watches, change: Self::Change);
+    fn pending_watches() -> Self::PendingWatches;
+
+    #[doc(hidden)]
+    fn record_change(pending: &mut Self::PendingWatches, change: Self::Change);
 }
 
 /// Maps a declaration type to the value stored by a bound callback or component.
@@ -349,6 +360,8 @@ pub struct ModelMetadata<M: Model> {
     children: M::Children,
 }
 
+type ModelUpdate<'a, M> = dyn FnMut(&mut M) -> Option<<M as Model>::Change> + 'a;
+
 /// Borrowed access to a registered model's data and identity.
 /// Each callback runs synchronously once while its references remain borrowed.
 #[doc(hidden)]
@@ -357,12 +370,14 @@ pub trait ModelAccess<M: Model> {
 
     fn read(&self, read: &mut dyn FnMut(&M, &ModelMetadata<M>));
 
-    fn update(&self, update: &mut dyn FnMut(&mut M) -> Option<M::Change>);
+    fn update(&self, update: &mut ModelUpdate<'_, M>);
 
     fn metadata(&self, read: &mut dyn FnMut(&ModelMetadata<M>));
 }
 
-struct ModelCell<M: Model> {
+/// The registered owner of one statically declared model tree.
+#[doc(hidden)]
+pub struct ModelRoot<M: Model> {
     owner: WorldId,
     active: Cell<bool>,
     value: RefCell<M>,
@@ -370,15 +385,22 @@ struct ModelCell<M: Model> {
     poisoned: Cell<bool>,
 }
 
-impl<M: Model> ModelCell<M> {
-    fn new(owner: WorldId, value: M) -> Self {
-        Self {
-            owner,
-            active: Cell::new(true),
-            value: RefCell::new(value),
-            metadata: ModelMetadata::new(BindingOwner(OwnerState::Bound(owner))),
-            poisoned: Cell::new(false),
-        }
+impl<M: Model> ModelRoot<M> {
+    fn new(owner: WorldId, mut value: M) -> Rc<Self> {
+        Rc::new_cyclic(|root| {
+            let metadata = ModelMetadata::register::<M, projection::RootPath>(
+                root,
+                BindingOwner(OwnerState::Bound(owner)),
+            );
+            let _ = metadata.finish(&mut value, M::pending_watches(), false);
+            Self {
+                owner,
+                active: Cell::new(true),
+                value: RefCell::new(value),
+                metadata,
+                poisoned: Cell::new(false),
+            }
+        })
     }
 
     fn assert_active(&self) {
@@ -387,13 +409,13 @@ impl<M: Model> ModelCell<M> {
 }
 
 pub(crate) struct RegisteredModel<M: Model> {
-    cell: Rc<ModelCell<M>>,
+    root: Rc<ModelRoot<M>>,
 }
 
 impl<M: Model> Drop for RegisteredModel<M> {
     fn drop(&mut self) {
-        self.cell.active.set(false);
-        self.cell.metadata.invalidate_computeds();
+        self.root.active.set(false);
+        self.root.metadata.invalidate_computeds();
     }
 }
 
@@ -410,7 +432,7 @@ impl Drop for UpdateGuard<'_> {
     }
 }
 
-impl<M: Model> ModelAccess<M> for ModelCell<M> {
+impl<M: Model> ModelAccess<M> for ModelRoot<M> {
     fn binding_owner(&self) -> BindingOwner {
         if self.active.get() {
             BindingOwner(OwnerState::Bound(self.owner))
@@ -435,7 +457,18 @@ impl<M: Model> ModelAccess<M> for ModelCell<M> {
         read(&value, &self.metadata);
     }
 
-    fn update(&self, update: &mut dyn FnMut(&mut M) -> Option<M::Change>) {
+    fn update(&self, update: &mut ModelUpdate<'_, M>) {
+        self.update_path::<projection::RootPath>(update);
+    }
+
+    fn metadata(&self, read: &mut dyn FnMut(&ModelMetadata<M>)) {
+        self.assert_active();
+        read(&self.metadata);
+    }
+}
+
+impl<M: Model> ModelRoot<M> {
+    fn update_path<P: ModelPath<M>>(&self, update: &mut ModelUpdate<'_, P::Target>) {
         assert!(
             crate::core::reactive::model_writes_allowed(),
             "model updates are not allowed in a read-only callback"
@@ -457,26 +490,22 @@ impl<M: Model> ModelAccess<M> for ModelCell<M> {
             committed: false,
         };
         let before = ModelMetadata::<M>::snapshot(&value);
-        let change = update(&mut value);
+        let mut watches = M::pending_watches();
+        let accepted = P::update(&mut value, &mut watches, update);
         let events = ModelMetadata::<M>::take_events(&mut value);
-        let pending = self.metadata.finish(&mut value);
-        let Some(change) = change else {
+        let pending = self.metadata.finish(&mut value, watches, false);
+        if !accepted {
             drop(events);
             drop(pending);
             drop(value);
             guard.committed = true;
             return;
-        };
+        }
         let after = ModelMetadata::<M>::snapshot(&value);
         drop(value);
-        self.metadata.publish(before, after, change, pending);
+        self.metadata.publish(before, after, pending);
         guard.committed = true;
         self.metadata.deliver(events);
-    }
-
-    fn metadata(&self, read: &mut dyn FnMut(&ModelMetadata<M>)) {
-        self.assert_active();
-        read(&self.metadata);
     }
 }
 
@@ -486,6 +515,11 @@ pub trait ModelHandle: Clone {
 
     #[doc(hidden)]
     fn access(&self) -> &Weak<dyn ModelAccess<Self::Data>>;
+
+    #[doc(hidden)]
+    fn child<F: ModelChildField<Self::Data>>(&self) -> <F::Child as Model>::Handle {
+        read_model(self, |_, metadata| F::node(metadata).handle())
+    }
 
     #[doc(hidden)]
     fn subscribe_observed(
@@ -727,10 +761,10 @@ pub(crate) fn register<M: Model>(
     value: M,
 ) -> (RegisteredModel<M>, M::Handle) {
     let _owner = crate::core::reactive::OwnerGuard::enter(world);
-    let cell = Rc::new(ModelCell::new(world.id(), value));
-    let access: Rc<dyn ModelAccess<M>> = cell.clone();
+    let root = ModelRoot::new(world.id(), value);
+    let access: Rc<dyn ModelAccess<M>> = root.clone();
     let handle = M::handle(Rc::downgrade(&access));
-    (RegisteredModel { cell }, handle)
+    (RegisteredModel { root }, handle)
 }
 
 pub(crate) fn registered_owner<H: ModelHandle>(handle: &H) -> WorldId {
@@ -773,6 +807,26 @@ mod tests {
 
     struct Counter(u32);
 
+    struct CounterOwned(super::OwnedStorage<Counter>);
+
+    impl From<Counter> for CounterOwned {
+        fn from(value: Counter) -> Self {
+            Self(super::OwnedStorage::new(value))
+        }
+    }
+
+    impl super::OwnedModel for CounterOwned {
+        type Data = Counter;
+
+        fn storage(&self) -> &super::OwnedStorage<Counter> {
+            &self.0
+        }
+
+        fn storage_mut(&mut self) -> &mut super::OwnedStorage<Counter> {
+            &mut self.0
+        }
+    }
+
     struct CounterHandle(Weak<dyn ModelAccess<Counter>>);
 
     impl ModelMethods for Counter {
@@ -809,10 +863,12 @@ mod tests {
 
     impl Model for Counter {
         type Handle = CounterHandle;
+        type Owned = CounterOwned;
         type Snapshot = u32;
         type Sources = [crate::core::reactive::ModelSource; 1];
         type Change = ();
         type Watches = [super::ModelWatch; 0];
+        type PendingWatches = [bool; 0];
         type Children = ();
 
         fn handle(access: Weak<dyn ModelAccess<Self>>) -> Self::Handle {
@@ -837,7 +893,11 @@ mod tests {
             []
         }
 
-        fn publish_change(_: &Self::Watches, _: Self::Change) {}
+        fn pending_watches() -> Self::PendingWatches {
+            []
+        }
+
+        fn record_change(_: &mut Self::PendingWatches, _: Self::Change) {}
     }
 
     impl ModelHandle for CounterHandle {

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Owned Model fields use `model!(owned Child)` and register with their parent. Parent and child mutations share a tree transaction, publish observations before effects, and preserve field-bound subscriptions and consumers across replacement or swaps. Owned construction and warm updates require no framework heap allocation.
 - `View::with_systems` accepts owned arrays of Model-bound systems and borrowed templates. App registration validates each system's owner and transfers systems to the scheduler without retaining another list in the View registry.
 - `Outputs<TextGeometry>` provides prepared text layouts, font metrics, local caret and selection geometry, and screen-space hit testing. Text painting and geometry readers borrow the same retained layout and path-placement storage.
 - `paint.request_frame()` schedules a visual update after successful output publication or main-target drawing. Failed drawing cancels its own requests; completed outputs retain theirs across downstream failures.

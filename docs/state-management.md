@@ -202,6 +202,63 @@ Events are drained even when no consumer is installed; delivery runs after
 the model borrow is released. Consumers can read committed model state, but
 cannot start another model write transaction during delivery.
 
+### Owned child models
+
+Declare `child: model!(owned Child)` inside a `#[model]` struct to store child data in its parent. Construct the field from raw data with `.into()` and register only the parent. The field getter returns the child's registered instance for existing Component, Compose, System, Event, and View roles.
+
+```rust
+#[model]
+struct Scoreboard {
+    left: model!(owned Counter),
+    right: model!(owned Counter),
+}
+
+#[model]
+impl Scoreboard {
+    fn new() -> Self {
+        Self {
+            left: Counter { count: 0 }.into(),
+            right: Counter { count: 0 }.into(),
+        }
+    }
+
+    #[observe]
+    fn total(&self) -> u32 {
+        self.left.count() + self.right.count()
+    }
+
+    fn increment_both(&mut self) {
+        self.left.increment();
+        self.right.increment();
+    }
+
+    fn reset_left(&mut self) {
+        self.left = Counter { count: 0 }.into();
+    }
+}
+
+let scoreboard = app.add_model(Scoreboard::new());
+let left = scoreboard.left();
+left.increment();
+assert_eq!(scoreboard.total(), 1);
+scoreboard.increment_both();
+assert_eq!(scoreboard.total(), 3);
+scoreboard.reset_left();
+assert_eq!(left.count(), 0);
+```
+
+One outermost mutating method call commits the whole registered tree, whether called through the parent or a child. Observed fields and derived values publish only when their final values differ. Each child accumulates its own named watch masks, independently of its parent's change type; each matching watch advances at most once per commit. A parent-derived observation includes direct child updates. Internal parent methods call the owned fields directly; an external handle cannot re-enter the same tree during a mutable borrow.
+
+Child identity belongs to the field path. Replacing or swapping child data keeps existing handles, subscriptions, callbacks, and effect consumers attached to that field. A successful replacement invalidates that child's named watches and descendant watches, while observed values still compare before and after. Dropping the parent registration ends all child registrations; handles do not keep the data alive.
+
+Effects are extracted in parent-first, declaration-order depth-first traversal and delivered after all observations have been published and the tree borrow released. Pending effects move with swapped data; replacement drops effects still held by the overwritten value. Already-extracted effects remain in the current batch. This order is not the chronological order of business method calls across children; use one bounded business queue when that order matters.
+
+An outer `Err` keeps data changes but discards the whole tree's pending notifications and effects from that call. An inner child call has no separate transaction or rollback: if the parent handles its error and succeeds, final observed values and effects still present in the data are committed. The failed child return does not match that child's change masks; successful deeper calls retain their pending masks.
+
+Owned fields form a static, finite tree. Construction with `.into()` and warm reads, writes, resets, and swaps add no framework heap allocation. Registration allocates root storage, one projection per child, and observation storage; effect consumers retain their registration-time allocation. Each write snapshots the current tree, so stack and CPU costs scale with its observations and fixed-capacity effects. Business constructors and method bodies keep their own allocation costs.
+
+### Model roles
+
 Model roles keep generated handle types out of application code. A
 `model!(T)` field in a `#[component]` stores one registered instance, while a
 `model!(T)` parameter in a `#[compose]` function receives one:

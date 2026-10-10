@@ -3,7 +3,10 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::parse::Parser;
 use syn::punctuated::Punctuated;
-use syn::{Attribute, FnArg, ImplItem, Item, Pat, Type, parse_quote, spanned::Spanned};
+use syn::{Attribute, FnArg, ImplItem, Item, Type, parse_quote, spanned::Spanned};
+
+mod methods;
+mod owned;
 
 struct ObservedValue {
     name: syn::Ident,
@@ -225,8 +228,10 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
 }
 
 fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Result<TokenStream> {
+    let owned_fields = owned::lower_fields(&mut item)?;
     let name = &item.ident;
     let handle = format_ident!("{}Handle", name);
+    let owned_name = format_ident!("{}Owned", name);
     let snapshot = format_ident!("{}ObservedSnapshot", name);
     let visibility = &item.vis;
     let generics = &item.generics;
@@ -380,6 +385,18 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
             }
         }
     });
+    let owned_accessors = observed.iter().map(|value| {
+        let field = &value.name;
+        let ty = &value.ty;
+        let vis = &value.visibility;
+        let attrs = &value.attrs;
+        quote! {
+            #(#attrs)*
+            #vis fn #field(&self) -> #ty {
+                ::mirui::core::model::OwnedModel::read(self, |data| data.#field)
+            }
+        }
+    });
     let subscriptions = observed.iter().enumerate().map(|(index, value)| {
         let subscribe = format_ident!("__mirui_subscribe_{}", value.name);
         let attrs = &value.cfg_attrs;
@@ -449,20 +466,25 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
         .map(|(index, (_, mask))| {
             quote! {
                 if change.contains(#mask) {
-                    watches[#index].publish();
+                    pending[#index] = true;
                 }
             }
         });
     let watch_publish_body = if options.watches.is_empty() {
-        quote!(let _ = (watches, change);)
+        quote!(let _ = (pending, change);)
     } else {
         quote!(#(#watch_publish)*)
     };
+
+    let owned_definition = owned::expand(&item, &owned_fields, &model_generics);
+    let children_type = owned::children_type(&item, &owned_fields);
 
     Ok(quote! {
         #item
 
         #snapshot_definition
+
+        #owned_definition
 
         #visibility struct #handle #generics #where_clause {
             access: ::mirui::__macro_support::__Weak<dyn ::mirui::core::model::ModelAccess<#name #type_generics>>,
@@ -476,11 +498,13 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
 
         impl #impl_generics ::mirui::core::model::Model for #name #type_generics #model_where {
             type Handle = #handle #type_generics;
-            type Children = ();
+            type Owned = #owned_name #type_generics;
+            type Children = #children_type;
             type Snapshot = #snapshot_type;
             type Sources = [::mirui::core::reactive::ModelSource; #source_count];
             type Change = #change_type;
             type Watches = [::mirui::core::model::ModelWatch; #watch_count];
+            type PendingWatches = [bool; #watch_count];
 
             fn handle(
                 access: ::mirui::__macro_support::__Weak<dyn ::mirui::core::model::ModelAccess<Self>>,
@@ -504,7 +528,11 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
                 ::core::array::from_fn(|_| ::mirui::core::model::ModelWatch::new())
             }
 
-            fn publish_change(watches: &Self::Watches, change: Self::Change) {
+            fn pending_watches() -> Self::PendingWatches {
+                [false; #watch_count]
+            }
+
+            fn record_change(pending: &mut Self::PendingWatches, change: Self::Change) {
                 #watch_publish_body
             }
         }
@@ -536,6 +564,10 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
             #(#watch_getters)*
             #(#subscriptions)*
             #(#watch_subscriptions)*
+        }
+
+        impl #impl_generics #owned_name #type_generics #model_where {
+            #(#owned_accessors)*
         }
     })
 }
@@ -569,11 +601,14 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
     let handle = format_ident!("{}Handle", name);
     let mut handle_path = self_type.path.clone();
     handle_path.segments.last_mut().unwrap().ident = handle.clone();
+    let mut owned_path = self_type.path.clone();
+    owned_path.segments.last_mut().unwrap().ident = format_ident!("{}Owned", name);
     let snapshot = format_ident!("{}DerivedSnapshot", name);
-    let generics = item.generics.clone();
+    let generics = methods::lower_generics(&item.generics, self_type);
     let (_, _, impl_where) = generics.split_for_impl();
     let type_args = target.arguments.clone();
     let mut forwards = Vec::new();
+    let mut owned_forwards = Vec::new();
     let mut observed = Vec::new();
     let mut effects = Vec::new();
     for member in &mut item.items {
@@ -714,11 +749,12 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             };
             observed.push(ObservedValue {
                 name: method.sig.ident.clone(),
-                ty: (**ty).clone(),
+                ty: methods::lower_type(ty, self_type),
                 visibility: method.vis.clone(),
                 attrs: accessor_attrs(&method.attrs),
                 cfg_attrs: method_cfg_attrs,
             });
+            owned_forwards.push(methods::method(method, self_type, methods::Facade::Owned)?);
             continue;
         }
         if is_effect {
@@ -731,7 +767,7 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
                     "effect extractors require &mut self, no arguments, and no generics",
                 ));
             }
-            let event = effect_item_type(&method.sig.output)?;
+            let event = methods::lower_type(&effect_item_type(&method.sig.output)?, self_type);
             if effects.iter().any(|existing: &EffectExtractor| {
                 let existing_event = &existing.event;
                 existing.cfg_attrs.len() == method_cfg_attrs.len()
@@ -752,45 +788,17 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
             effects.push(EffectExtractor {
                 name: method.sig.ident.clone(),
                 event,
-                array: (**array).clone(),
+                array: methods::lower_type(array, self_type),
                 cfg_attrs: method_cfg_attrs,
             });
             continue;
         }
-        let mut argument_names = Vec::new();
-        let mut arguments = Vec::new();
-        for argument in method.sig.inputs.iter().skip(1) {
-            let FnArg::Typed(argument) = argument else {
-                return Err(syn::Error::new_spanned(argument, "unexpected receiver"));
-            };
-            let Pat::Ident(ident) = &*argument.pat else {
-                return Err(syn::Error::new_spanned(
-                    &argument.pat,
-                    "model method arguments must use names",
-                ));
-            };
-            argument_names.push(&ident.ident);
-            arguments.push(argument);
-        }
-        let attrs = &method.attrs;
-        let visibility = &method.vis;
-        let method_name = &method.sig.ident;
-        let output = &method.sig.output;
-        let (fn_generics, _, fn_where) = method.sig.generics.split_for_impl();
-        let call = quote!(data.#method_name(#(#argument_names),*));
-        let invoke = if receiver.mutability.is_some() && returns_canonical_result(output) {
-            quote!(::mirui::core::model::ModelHandle::try_update(self, |data| #call))
-        } else if receiver.mutability.is_some() {
-            quote!(::mirui::core::model::ModelHandle::update(self, |data| #call))
-        } else {
-            quote!(::mirui::core::model::ModelHandle::read(self, |data| #call))
-        };
-        forwards.push(quote! {
-            #(#attrs)*
-            #visibility fn #method_name #fn_generics (&self, #(#arguments),*) #output #fn_where {
-                #invoke
-            }
-        });
+        forwards.push(methods::method(
+            method,
+            self_type,
+            methods::Facade::Registered,
+        )?);
+        owned_forwards.push(methods::method(method, self_type, methods::Facade::Owned)?);
     }
     let source_count = observed.len();
     let mut derived_generics = generics.clone();
@@ -1028,11 +1036,12 @@ fn expand_impl(mut item: syn::ItemImpl) -> syn::Result<TokenStream> {
 
         impl #derived_impl_generics #handle_path #derived_where {
             #(#forwards)*
-        }
-
-        impl #derived_impl_generics #handle_path #derived_where {
             #(#accessors)*
             #(#subscriptions)*
+        }
+
+        impl #derived_impl_generics #owned_path #derived_where {
+            #(#owned_forwards)*
         }
     })
 }
@@ -1134,6 +1143,122 @@ mod tests {
         assert!(expanded.contains("DerivedSources"));
         assert!(expanded.contains("read_derived"));
         assert!(expanded.contains("fn increment"));
+    }
+
+    #[test]
+    fn owned_and_registered_facades_keep_raw_types_and_method_roles() {
+        let expanded = expand(
+            quote!(),
+            quote! {
+                impl<T: Copy + Eq + 'static> super::Counter<T>
+                where Self: Copy + Eq + 'static {
+                    fn new(value: T) -> Self { Self { value } }
+
+                    #[model(local)]
+                    fn value_ref(&self) -> &T { &self.value }
+
+                    fn replace(&mut self, other: Self) { self.value = other.value; }
+
+                    fn map<U>(&self, map: impl FnOnce(Self) -> U) -> U { map(*self) }
+
+                    #[observe]
+                    fn duplicate(&self) -> Self { *self }
+
+                    #[effects]
+                    fn take(&mut self) -> [Option<Self>; 1] { [Some(*self)] }
+                }
+            },
+        )
+        .unwrap();
+        let file: syn::File = syn::parse2(expanded.clone()).unwrap();
+        for (name, protocol) in [
+            ("CounterHandle", "ModelHandle"),
+            ("CounterOwned", "OwnedModel"),
+        ] {
+            let facade = file
+                .items
+                .iter()
+                .find_map(|item| {
+                    let syn::Item::Impl(item) = item else {
+                        return None;
+                    };
+                    let syn::Type::Path(path) = &*item.self_ty else {
+                        return None;
+                    };
+                    (item.trait_.is_none() && path.path.segments.last().unwrap().ident == name)
+                        .then_some(item)
+                })
+                .unwrap();
+            let target = &facade.self_ty;
+            assert_eq!(
+                quote!(#target).to_string(),
+                format!("super :: {name} < T >")
+            );
+            let where_clause = &facade.generics.where_clause;
+            assert!(
+                quote!(#where_clause)
+                    .to_string()
+                    .contains("super :: Counter < T > : Copy")
+            );
+            let text = quote!(#facade).to_string();
+            assert!(text.contains("other : super :: Counter < T >"));
+            assert!(text.contains("FnOnce (super :: Counter < T >) -> U"));
+            assert!(text.contains("data . map :: < U > (map)"));
+            assert!(text.contains(&format!("{protocol} :: update")));
+            assert!(!text.contains("fn new"));
+            assert!(!text.contains("fn value_ref"));
+            assert!(!text.contains("fn take"));
+            if name == "CounterOwned" {
+                assert!(text.contains("fn replace (& mut self"));
+                assert!(text.contains("OwnedModel :: read"));
+                assert!(!text.contains("read_derived"));
+            } else {
+                assert!(text.contains("fn replace (& self"));
+                assert!(text.contains("read_derived"));
+            }
+        }
+        let text = expanded.to_string();
+        assert_eq!(text.matches("fn new").count(), 1);
+        assert_eq!(text.matches("fn value_ref").count(), 1);
+        assert_eq!(text.matches("fn take (").count(), 1);
+    }
+
+    #[test]
+    fn generated_derived_and_effect_storage_preserves_raw_self_and_cfg() {
+        let expanded = expand(
+            quote!(),
+            quote! {
+                impl<T: Copy + Eq + 'static> super::Counter<T>
+                where Self: Copy + Eq + 'static {
+                    #[cfg(feature = "extra")]
+                    #[observe]
+                    fn duplicate(&self) -> Option<Self> { Some(*self) }
+
+                    #[cfg(feature = "extra")]
+                    #[effects]
+                    fn take(&mut self) -> [Option<Self>; 1] { [Some(*self)] }
+                }
+            },
+        )
+        .unwrap();
+        let file: syn::File = syn::parse2(expanded.clone()).unwrap();
+        let mut storage_count = 0;
+        for item in &file.items {
+            let syn::Item::Struct(storage) = item else {
+                continue;
+            };
+            storage_count += 1;
+            let text = quote!(#storage).to_string();
+            assert!(!text.contains("Self"));
+            assert!(text.contains("super :: Counter < T >"));
+            assert!(text.contains("feature = \"extra\""));
+        }
+        assert_eq!(storage_count, 3);
+        assert!(
+            expanded
+                .to_string()
+                .contains("Produces < super :: Counter < T > >")
+        );
     }
 
     #[test]
