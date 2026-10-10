@@ -16,8 +16,8 @@ where
     let plugin = PersistencePlugin::new(gallery_storage("mirui_tidal_atlas.bin"))
         .bytes(
             "tidal_atlas/replay",
-            move |_world| Some(ModelHandle::read(&save_model, TideModel::encode_replay)),
-            move |_world, bytes| {
+            move || Some(ModelHandle::read(&save_model, TideModel::encode_replay)),
+            move |bytes| {
                 let Ok(log) = TidalReplayLog::decode(bytes, ReplayKind::Tidal) else {
                     return;
                 };

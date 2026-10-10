@@ -49,7 +49,7 @@ impl PersistenceRegistry {
     /// Persist a `Signal<T>` under `key`. Pulls any existing stored
     /// value into the signal immediately, so late-registered widgets
     /// catch up to disk state in the same call.
-    pub fn signal<T>(&mut self, world: &mut World, key: &'static str, signal: Signal<T>)
+    pub fn signal<T>(&mut self, key: &'static str, signal: Signal<T>)
     where
         T: Serialize + DeserializeOwned + Clone + 'static,
     {
@@ -66,7 +66,6 @@ impl PersistenceRegistry {
             }),
             framed: true,
         });
-        let _ = world;
     }
 
     /// Persist a World resource `T`. The resource must already exist
@@ -91,21 +90,19 @@ impl PersistenceRegistry {
         });
     }
 
-    /// Byte-level escape hatch: `save` / `restore` see the user's bytes
-    /// verbatim, no framing.
+    /// Save and restore custom bytes without framing. Restore runs immediately when a stored value exists; returning `None` from save leaves that value unchanged.
     pub fn bytes(
         &mut self,
-        world: &mut World,
         key: &'static str,
-        mut save: impl FnMut(&World) -> Option<Vec<u8>> + 'static,
-        mut restore: impl FnMut(&mut World, &[u8]) + 'static,
+        mut save: impl FnMut() -> Option<Vec<u8>> + 'static,
+        mut restore: impl FnMut(&[u8]) + 'static,
     ) {
         if let Some(bytes) = self.storage.read(key) {
-            restore(world, &bytes);
+            restore(&bytes);
         }
         self.items.push(TrackedItem {
             key,
-            save: Box::new(move |world| save(world)),
+            save: Box::new(move |_| save()),
             framed: false,
         });
     }
@@ -199,8 +196,8 @@ impl<S: Storage + 'static> PersistencePlugin<S> {
     where
         T: Serialize + DeserializeOwned + Clone + 'static,
     {
-        self.pending.push(Box::new(move |reg, world| {
-            reg.signal(world, key, signal);
+        self.pending.push(Box::new(move |reg, _world| {
+            reg.signal(key, signal);
         }));
         self
     }
@@ -216,14 +213,32 @@ impl<S: Storage + 'static> PersistencePlugin<S> {
         self
     }
 
+    /// Register custom encoding callbacks. Restore runs during plugin installation, before `add_plugin` returns. Save can return `None` to retain the stored value.
+    ///
+    /// ```
+    /// use mirui::core::{persistence::PersistencePlugin, reactive::Signal, storage::MemoryStorage};
+    ///
+    /// let level = Signal::new(7_u8);
+    /// let saved = level.clone();
+    /// let restored = level.clone();
+    /// let plugin = PersistencePlugin::new(MemoryStorage::new()).bytes(
+    ///     "level",
+    ///     move || Some(vec![saved.get_untracked()]),
+    ///     move |bytes| {
+    ///         if let [value] = bytes {
+    ///             restored.set(*value);
+    ///         }
+    ///     },
+    /// );
+    /// ```
     pub fn bytes(
         mut self,
         key: &'static str,
-        save: impl FnMut(&World) -> Option<Vec<u8>> + 'static,
-        restore: impl FnMut(&mut World, &[u8]) + 'static,
+        save: impl FnMut() -> Option<Vec<u8>> + 'static,
+        restore: impl FnMut(&[u8]) + 'static,
     ) -> Self {
-        self.pending.push(Box::new(move |reg, world| {
-            reg.bytes(world, key, save, restore);
+        self.pending.push(Box::new(move |reg, _world| {
+            reg.bytes(key, save, restore);
         }));
         self
     }
@@ -329,37 +344,37 @@ mod tests {
 
     #[test]
     fn signal_round_trip_through_storage() {
-        let (mut world, mut reg) = fresh_world();
+        let (world, mut reg) = fresh_world();
         let count = Signal::new(7i32);
-        reg.signal(&mut world, "count", count.clone());
+        reg.signal("count", count.clone());
         count.set(42);
         reg.save_all(&world);
 
         let count_back = Signal::new(0i32);
-        reg.signal(&mut world, "count", count_back.clone());
+        reg.signal("count", count_back.clone());
         assert_eq!(count_back.get_untracked(), 42);
     }
 
     #[test]
     fn signal_first_register_seeds_from_disk() {
-        let (mut world, mut reg) = fresh_world();
+        let (_, mut reg) = fresh_world();
         write_value(
             &mut *reg.storage,
             "score",
             &postcard::to_allocvec(&99u32).unwrap(),
         );
         let score = Signal::new(0u32);
-        reg.signal(&mut world, "score", score.clone());
+        reg.signal("score", score.clone());
         assert_eq!(score.get_untracked(), 99);
     }
 
     #[test]
     fn save_single_key_skips_other_items() {
-        let (mut world, mut reg) = fresh_world();
+        let (world, mut reg) = fresh_world();
         let a = Signal::new(1i32);
         let b = Signal::new(2i32);
-        reg.signal(&mut world, "a", a.clone());
-        reg.signal(&mut world, "b", b.clone());
+        reg.signal("a", a.clone());
+        reg.signal("b", b.clone());
         a.set(10);
         b.set(20);
         reg.save(&world, "a");
@@ -379,10 +394,10 @@ mod tests {
 
     #[test]
     fn corrupt_payload_falls_through_silently() {
-        let (mut world, mut reg) = fresh_world();
+        let (_, mut reg) = fresh_world();
         reg.storage.write("count", b"garbage");
         let count = Signal::new(3i32);
-        reg.signal(&mut world, "count", count.clone());
+        reg.signal("count", count.clone());
         assert_eq!(
             count.get_untracked(),
             3,
@@ -392,7 +407,7 @@ mod tests {
 
     #[test]
     fn bytes_escape_hatch_round_trip() {
-        let (mut world, mut reg) = fresh_world();
+        let (world, mut reg) = fresh_world();
         use alloc::rc::Rc;
         use core::cell::Cell;
         let captured: Rc<Cell<u32>> = Rc::new(Cell::new(0));
@@ -401,10 +416,9 @@ mod tests {
         // Raw bytes — no VALUE_VERSION frame.
         reg.storage.write("custom", b"\x05");
         reg.bytes(
-            &mut world,
             "custom",
-            move |_world| Some(vec![captured_save.get() as u8]),
-            move |_world, bytes| {
+            move || Some(vec![captured_save.get() as u8]),
+            move |bytes| {
                 if let Some(b) = bytes.last() {
                     captured_restore.set(*b as u32);
                 }
@@ -418,11 +432,40 @@ mod tests {
     }
 
     #[test]
+    fn plugin_restores_before_return_and_reuses_mutable_save_callbacks() {
+        let state = Signal::new(0_u8);
+        let restored = state.clone();
+        let saved = state.clone();
+        let mut calls = 0_u8;
+        let mut storage = MemoryStorage::new();
+        storage.write("custom", &[5]);
+        let plugin = PersistencePlugin::new(storage).bytes(
+            "custom",
+            move || {
+                calls += 1;
+                (calls != 2).then(|| vec![saved.get_untracked() + calls])
+            },
+            move |bytes| restored.set(bytes[0]),
+        );
+        let mut app = App::headless(16, 16);
+        assert_eq!(state.get_untracked(), 0);
+        app.add_plugin(plugin);
+        assert_eq!(state.get_untracked(), 5);
+        for expected in [6_u8, 6, 8] {
+            app.suspend();
+            app.suspend();
+            let registry = app.world.resource::<PersistenceRegistry>().unwrap();
+            assert_eq!(registry.storage.read("custom"), Some(vec![expected]));
+            app.resume();
+        }
+    }
+
+    #[test]
     fn version_mismatch_treated_as_missing() {
-        let (mut world, mut reg) = fresh_world();
+        let (_, mut reg) = fresh_world();
         reg.storage.write("k", &[99, 0x10, 0x00, 0x00, 0x00]);
         let v = Signal::new(7i32);
-        reg.signal(&mut world, "k", v.clone());
+        reg.signal("k", v.clone());
         assert_eq!(v.get_untracked(), 7);
     }
 }

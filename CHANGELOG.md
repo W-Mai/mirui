@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Custom persistence callbacks operate on captured state and byte slices without receiving World. Signal registration no longer requires a World argument.
 - `LazyList` uses `items` instead of `item_count`. Replacing its data source or creation callback retires the old cell pool; membership changes reuse cells and cancel input only when their bindings change.
 - Effect consumers register on Model instances with `model.on_effect(handler)` and borrow each event. The App registration entry point has been removed.
 

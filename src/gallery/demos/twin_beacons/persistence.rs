@@ -16,7 +16,7 @@ where
     let plugin = PersistencePlugin::new(gallery_storage("mirui_twin_beacons.bin"))
         .bytes(
             "twin_beacons/save",
-            move |_world| {
+            move || {
                 let revision = save_game.persistence_revision();
                 if revision == saved_revision {
                     return None;
@@ -25,7 +25,7 @@ where
                 saved_revision = revision;
                 Some(bytes)
             },
-            move |_world, bytes| {
+            move |bytes| {
                 if let Ok(restored) = TwinModel::decode(bytes) {
                     restore_game.restore(restored);
                 }

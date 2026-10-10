@@ -16,8 +16,8 @@ where
     let plugin = PersistencePlugin::new(gallery_storage("mirui_echo_walker.bin"))
         .bytes(
             "echo_walker/replay",
-            move |_world| Some(ModelHandle::read(&save_model, EchoModel::encode_replay)),
-            move |_world, bytes| {
+            move || Some(ModelHandle::read(&save_model, EchoModel::encode_replay)),
+            move |bytes| {
                 let Ok(log) = EchoReplayLog::decode(bytes, ReplayKind::Echo) else {
                     return;
                 };
