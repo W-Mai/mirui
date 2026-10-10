@@ -75,13 +75,23 @@ impl<I: Iterator> core::fmt::Debug for CollectionLoadError<I> {
 }
 
 pub(super) fn collect_input<I: Iterator>(
+    remaining: I,
+    limit: Option<usize>,
+) -> Result<(Vec<I::Item>, I), CollectionLoadError<I>> {
+    collect_input_checked(remaining, limit, |_, _| Ok(()))
+}
+
+pub(super) fn collect_input_checked<I: Iterator>(
     mut remaining: I,
     limit: Option<usize>,
+    mut check: impl FnMut(&[I::Item], &I::Item) -> Result<(), CollectionError>,
 ) -> Result<(Vec<I::Item>, I), CollectionLoadError<I>> {
     let mut staged = Vec::new();
     while let Some(item) = remaining.next() {
         let error = if limit.is_some_and(|limit| staged.len() == limit) {
             Some(CollectionError::Limit)
+        } else if let Err(error) = check(&staged, &item) {
+            Some(error)
         } else if staged.len() == staged.capacity() {
             let capacity = staged
                 .len()

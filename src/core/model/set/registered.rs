@@ -1,5 +1,5 @@
 use super::{CollectionError, ModelSet, ModelSetHandle};
-use crate::core::model::{ModelHandle, update_model};
+use crate::core::model::{CollectionLoadError, ModelHandle, update_model};
 use alloc::vec::Vec;
 use core::borrow::Borrow;
 
@@ -39,6 +39,28 @@ impl<K: Ord + 'static> ModelSetHandle<K> {
         update_model(
             self,
             |set| set.reserve(additional),
+            |result| result.as_ref().ok().copied(),
+        )
+    }
+
+    pub fn load<I: IntoIterator<Item = K>>(
+        &self,
+        items: I,
+    ) -> Result<(), CollectionLoadError<I::IntoIter>> {
+        update_model(
+            self,
+            |set| set.load(items),
+            |result| result.as_ref().ok().copied(),
+        )
+    }
+
+    pub fn reconcile<I: IntoIterator<Item = K>>(
+        &self,
+        items: I,
+    ) -> Result<(), CollectionLoadError<I::IntoIter>> {
+        update_model(
+            self,
+            |set| set.reconcile(items),
             |result| result.as_ref().ok().copied(),
         )
     }

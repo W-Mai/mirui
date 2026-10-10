@@ -142,6 +142,23 @@ impl Selection {
     fn selected(&self) -> usize {
         self.keys.len()
     }
+
+    fn refresh(&mut self) {
+        self.keys.reconcile([1, 2, 2, 3]).unwrap();
+    }
+}
+
+#[test]
+fn set_imports_are_available_inside_owned_parent_methods_and_registered_roles() {
+    let mut app = App::headless(32, 32);
+    let selection = app.add_model(Selection {
+        keys: ModelSet::bounded(4).into(),
+    });
+    selection.keys().load([9, 9]).unwrap();
+    selection.refresh();
+    assert_eq!(selection.selected(), 3);
+    assert!(selection.keys().contains(&2));
+    assert!(!selection.keys().contains(&9));
 }
 
 #[event]

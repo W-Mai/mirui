@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Model sets load and reconcile owned values with duplicate-aware limits and recoverable input. Reconciliation retains equal stored values and publishes only membership changes.
 - Model lists reconcile input by business key while preserving matching identities, subscriptions, and effect routes. Duplicate keys are rejected before merging, missing members are retired, and incoming order determines the result.
 - Model lists and maps load owned iterators with recoverable batch errors, retained collection limits, and explicit nested capacity preparation. Loading retires old member identities; rejected preflight preserves the previous dataset and returns consumed and remaining input without cloning. Map loads reject duplicate keys before installation.
 - `ModelSet` provides observable membership, sorted borrowed traversal, duplicate-free imports, and explicit capacity limits. Duplicate insertion and absent removal do not publish changes; owned fields share parent transactions without per-value Models.

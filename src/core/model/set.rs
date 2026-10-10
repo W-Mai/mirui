@@ -5,6 +5,7 @@ use core::{
     ops::{Deref, DerefMut},
 };
 
+mod load;
 mod registered;
 
 /// Observable membership of sorted, immutable values.

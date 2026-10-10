@@ -108,7 +108,7 @@ todo.items().reconcile(
 
 `merge` receives `&mut Item` and an owned incoming `Item`. The closure decides which business fields to overwrite; omitted fields keep their existing values. Keys are extracted before any merge, so changing a key field does not change the current matching plan. Observed fields and parent derived values publish through the root transaction before effects. Explicit change watches on merged Models are invalidated conservatively because the closure edits raw data without returning a business change token.
 
-Reconciliation stages input and matching indices and may prepare nested storage. It is not a zero-allocation edit. Matching items with unchanged order do not publish a structural change merely because their fields were merged. A merge panic does not roll back previously executed business changes and follows the Model transaction's panic contract.
+Reconciliation stages input and matching indices and may prepare nested storage. It is not a zero-allocation edit. Matching items with unchanged order do not publish a structural change merely because their fields were merged. A merge panic poisons the enclosing registered Model transaction; completed business changes are not rolled back.
 
 ## Membership sets
 
@@ -117,3 +117,7 @@ Declare `selected: model!(owned ModelSet<UserId>)` for selected IDs, enabled opt
 `contains(&key)`, `len()`, and `is_empty()` observe membership. `try_insert(value)` returns `Ok(true)` for a new value, `Ok(false)` for a duplicate, or `Err((error, value))` when capacity is insufficient. `remove(&key)` returns whether a value was removed; removing an absent value and inserting a duplicate do not publish changes. `clear` and `retain` preserve prepared capacity.
 
 `for_each` borrows each value in sorted order. Its callback cannot mutate the same Model root while values are borrowed. `to_vec()` requires `K: Clone` and creates an explicit owned snapshot; it is not a zero-allocation iteration API. Borrowed lookup supports `String` keys queried with `&str`.
+
+`load(values)` installs and deduplicates input, while `reconcile(values)` preserves stored values that compare equal and changes only membership. Reordering the input or repeating existing members does not publish a reconciliation change. Both methods retain capacity and the hard limit; loading publishes the installed dataset.
+
+The hard limit counts distinct members: a set bounded at two accepts `[1, 1, 2, 2]`. The first excess distinct value stops consumption. On failure, `CollectionLoadError::into_input()` returns the complete consumed prefix, including duplicates, followed by the remaining input. Recoverable staging therefore uses memory proportional to consumed input records, not only distinct members; batch import is an explicit allocating operation.
