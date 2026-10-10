@@ -214,7 +214,7 @@ fn mixed_bidi_sample_ellipsizes_within_its_card() {
     let handle = world.get::<crate::text::TextLayoutHandle>(sample).unwrap();
     let storage = world.resource::<Outputs<TextGeometry>>().unwrap().storage();
     let layout = storage.layouts.get(*handle).unwrap();
-    let text = world.get::<Text>(sample).unwrap().resolve(&world);
+    let text = world.get::<Text>(sample).unwrap().resolve(world.resource());
     assert_eq!(layout.lines().len(), 1);
     assert!(layout.lines()[0].text().end < text.len() as u32);
     assert!(crate::types::fixed::from_textflow(layout.measure().width) <= sample_rect.w);
@@ -310,7 +310,7 @@ fn path_sample_shares_curved_bidi_interaction_geometry() {
         .unwrap()
         .get(sample)
         .unwrap();
-    let text = world.get::<Text>(sample).unwrap().resolve(&world);
+    let text = world.get::<Text>(sample).unwrap().resolve(world.resource());
     let mut storage = [crate::text::PathSelectionRibbon::default(); 32];
     let ribbons = geometry
         .selection_into(0..text.len() as u32, &mut storage)
@@ -509,7 +509,7 @@ fn controls_publish_into_the_live_paragraph() {
         let text = world
             .get::<Text>(world.find_by_id(id).unwrap())
             .expect("bounded value text");
-        assert_eq!(text.resolve(&world).as_ref(), value, "{id}");
+        assert_eq!(text.resolve(world.resource()).as_ref(), value, "{id}");
         assert_eq!(text.text_capacity(), Some(capacity), "{id}");
         assert!(text.has_valid_content(), "{id}");
     }

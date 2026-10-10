@@ -170,7 +170,7 @@ fn gesture_callbacks_call_bound_model_commands() {
     ] {
         let entity = world.find_by_id(id).unwrap();
         let text = world.get::<Text>(entity).unwrap();
-        assert_eq!(text.resolve(&world), expected);
+        assert_eq!(text.resolve(world.resource()), expected);
         assert!(text.text_capacity().is_some(), "{id}");
     }
 }
@@ -231,7 +231,10 @@ fn drag_and_bubble_policy_update_only_the_model() {
     );
     tap(&mut world, "interaction_bubble_policy", 1_500);
     let policy = world.find_by_id("interaction_bubble_policy").unwrap();
-    assert_eq!(world.get::<Text>(policy).unwrap().resolve(&world), "ALLOW");
+    assert_eq!(
+        world.get::<Text>(policy).unwrap().resolve(world.resource()),
+        "ALLOW"
+    );
     assert!(
         world
             .get::<Children>(policy)
@@ -284,7 +287,7 @@ fn switch_and_checkbox_publish_business_values() {
     ] {
         let entity = world.find_by_id(id).unwrap();
         let text = world.get::<Text>(entity).unwrap();
-        assert_eq!(text.resolve(&world), expected);
+        assert_eq!(text.resolve(world.resource()), expected);
         assert!(text.text_capacity().is_some(), "{id}");
     }
 }

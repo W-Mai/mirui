@@ -444,7 +444,7 @@ fn model_changes_drive_board_result_and_bounded_text() {
         world
             .get::<Text>(world.find_by_id("picture_summary_line_0").unwrap())
             .unwrap()
-            .resolve(&world)
+            .resolve(world.resource())
             .contains("1/6")
     );
 

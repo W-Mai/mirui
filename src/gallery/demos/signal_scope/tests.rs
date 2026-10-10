@@ -250,7 +250,7 @@ fn bound_tick_updates_uart_and_only_publishes_real_visual_changes() {
         app.world
             .get::<Text>(uart)
             .unwrap()
-            .resolve(&app.world)
+            .resolve(app.world.resource())
             .as_ref(),
         "UART · E · 01000101"
     );

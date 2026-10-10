@@ -37,7 +37,7 @@ fn assert_text(world: &World, id: &'static str, expected: &str) {
     let text = world
         .get::<Text>(world.find_by_id(id).unwrap())
         .expect("text widget");
-    assert_eq!(text.resolve(world).as_ref(), expected, "{id}");
+    assert_eq!(text.resolve(world.resource()).as_ref(), expected, "{id}");
     assert!(text.has_valid_content(), "{id}");
     assert_eq!(text.last_content_error(), None, "{id}");
 }
@@ -140,7 +140,7 @@ fn observed_state_updates_bounded_text_and_visibility() {
     let preview = world
         .get::<Text>(world.find_by_id("tide_preview").unwrap())
         .unwrap();
-    assert!(!preview.resolve(&world).is_empty());
+    assert!(!preview.resolve(world.resource()).is_empty());
     assert!(preview.has_valid_content());
 
     model.cancel_preview();

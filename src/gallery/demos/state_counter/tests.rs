@@ -12,7 +12,7 @@ use core::cell::Cell;
 
 fn label_text(world: &World, label: Entity) -> alloc::string::String {
     let t = world.get::<Text>(label).expect("label has Text");
-    t.resolve(world).into_owned()
+    t.resolve(world.resource()).into_owned()
 }
 
 #[test]

@@ -30,7 +30,13 @@ fn ui_macro_splices_code_block() {
     let texts: Vec<Entity> = world.query::<Text>().collect();
     let contents: Vec<String> = texts
         .iter()
-        .map(|&t| world.get::<Text>(t).unwrap().resolve(world).to_string())
+        .map(|&t| {
+            world
+                .get::<Text>(t)
+                .unwrap()
+                .resolve(world.resource())
+                .to_string()
+        })
         .collect();
     assert!(contents.iter().any(|s| s == "before"));
     assert!(contents.iter().any(|s| s == "after"));

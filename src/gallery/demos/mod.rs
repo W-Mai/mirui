@@ -112,7 +112,7 @@ pub(super) fn assert_text_layouts_fit(world: &crate::ecs::World) {
                 layout.lines().len() <= usize::from(max_lines),
                 "{:?} exceeds {max_lines} lines: {}",
                 entity,
-                text.resolve(world)
+                text.resolve(world.resource())
             );
         }
         if paragraph.wrap != TextWrap::NoWrap || paragraph.overflow == TextOverflow::Ellipsis {
@@ -121,7 +121,7 @@ pub(super) fn assert_text_layouts_fit(world: &crate::ecs::World) {
                 "{:?} exceeds its width {:?}: {}",
                 entity,
                 rect.w,
-                text.resolve(world)
+                text.resolve(world.resource())
             );
         }
         assert!(
@@ -129,7 +129,7 @@ pub(super) fn assert_text_layouts_fit(world: &crate::ecs::World) {
             "{:?} exceeds its height {:?}: {}",
             entity,
             rect.h,
-            text.resolve(world)
+            text.resolve(world.resource())
         );
     }
 }

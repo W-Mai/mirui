@@ -37,7 +37,7 @@ fn assert_text(world: &World, id: &'static str, expected: &str) {
     let text = world
         .get::<Text>(world.find_by_id(id).unwrap())
         .expect("text widget");
-    assert_eq!(text.resolve(world), expected, "{id}");
+    assert_eq!(text.resolve(world.resource()), expected, "{id}");
     assert!(text.has_valid_content(), "{id}");
     assert_eq!(text.last_content_error(), None, "{id}");
 }
@@ -220,7 +220,7 @@ fn gestures_commit_once_and_bound_tick_updates_readouts() {
     let live_text = world
         .get::<Text>(world.find_by_id("moss_live").unwrap())
         .unwrap()
-        .resolve(&world);
+        .resolve(world.resource());
     assert_eq!(live_text.as_ref().parse::<u16>(), Ok(live));
 }
 

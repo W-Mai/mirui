@@ -46,7 +46,7 @@ mod tests {
         for &t in &text_entities {
             let parent = world.get::<Parent>(t).unwrap().0;
             let text = world.get::<Text>(t).unwrap();
-            let bytes = text.resolve(world);
+            let bytes = text.resolve(world.resource());
             if &*bytes == "body content" {
                 assert_eq!(parent, body);
             } else if &*bytes == "footer text" {

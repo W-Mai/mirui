@@ -710,7 +710,10 @@ fn bound_controls_follow_page_selection_and_scene_reset() {
         .unwrap()
         .selected_pitch();
     assert_eq!(selected_pitch, 74);
-    assert_eq!(world.get::<Text>(pitch).unwrap().resolve(world), "D5");
+    assert_eq!(
+        world.get::<Text>(pitch).unwrap().resolve(world.resource()),
+        "D5"
+    );
 
     world
         .resource::<MarbleModelHandle>()
@@ -753,7 +756,7 @@ fn bound_readout_tracks_visual_only_hit_changes() {
         world
             .get::<Text>(readout)
             .unwrap()
-            .resolve(world)
+            .resolve(world.resource())
             .contains("1 HITS")
     );
 }
@@ -855,18 +858,27 @@ fn audio_display_tracks_shared_controls() {
     let audio = world.find_by_id("marble_audio").unwrap();
     crate::core::reactive::flush_signal_dirty(world);
     assert!(world.get::<Hidden>(audio).is_none());
-    assert_eq!(world.get::<Text>(audio).unwrap().resolve(world), "WAIT");
+    assert_eq!(
+        world.get::<Text>(audio).unwrap().resolve(world.resource()),
+        "WAIT"
+    );
 
     world
         .resource::<alloc::rc::Rc<crate::audio::SharedAudioCore<32>>>()
         .unwrap()
         .set_output_state(AudioOutputState::Ready);
     crate::core::reactive::flush_signal_dirty(world);
-    assert_eq!(world.get::<Text>(audio).unwrap().resolve(world), "ON");
+    assert_eq!(
+        world.get::<Text>(audio).unwrap().resolve(world.resource()),
+        "ON"
+    );
 
     world.resource::<AudioHandle>().unwrap().set_muted(true);
     crate::core::reactive::flush_signal_dirty(world);
-    assert_eq!(world.get::<Text>(audio).unwrap().resolve(world), "SOUND");
+    assert_eq!(
+        world.get::<Text>(audio).unwrap().resolve(world.resource()),
+        "SOUND"
+    );
 }
 
 #[cfg(feature = "audio")]

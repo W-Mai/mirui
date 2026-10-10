@@ -100,7 +100,7 @@ fn pinch_updates_target_and_status() {
         app.world
             .get::<Text>(status)
             .expect("status text")
-            .resolve(&app.world)
+            .resolve(app.world.resource())
             .contains("EXPAND")
     );
     assert_eq!(

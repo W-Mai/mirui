@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use core::fmt;
 use core::ops::Range;
 
-use crate::core::i18n::Localized;
+use crate::core::i18n::{I18n, Localized};
 use crate::ecs::{Entity, World};
 use crate::render::command::DrawCommand;
 use crate::text::baseline::PlacementKey;
@@ -272,10 +272,10 @@ pub enum TextContent {
 }
 
 impl TextContent {
-    fn resolve<'a>(&'a self, world: &World) -> Cow<'a, str> {
+    fn resolve(&self, i18n: Option<&I18n>) -> Cow<'_, str> {
         match self {
             Self::Plain(content) => Cow::Borrowed(content.as_ref()),
-            Self::Localized(localized) => Cow::Borrowed(localized.resolve_or_key(world)),
+            Self::Localized(localized) => Cow::Borrowed(localized.resolve_or_key(i18n)),
         }
     }
 
@@ -441,8 +441,9 @@ impl Text {
         }
     }
 
-    pub fn resolve<'a>(&'a self, world: &World) -> Cow<'a, str> {
-        self.content.resolve(world)
+    /// Borrow the current text, resolving localized keys with the supplied translation resource. Missing translations fall back to the key. Typed callbacks can pass their `res!(optional I18n)` parameter directly; plain content needs no translation resource.
+    pub fn resolve(&self, i18n: Option<&I18n>) -> Cow<'_, str> {
+        self.content.resolve(i18n)
     }
 
     pub fn is_localized(&self) -> bool {
@@ -1964,7 +1965,7 @@ mod tests {
         let e = crate::ui::UiScope::new(&mut world, builder_parent)
             .spawn(Text::build("hi").style(crate::ui::Style::default()));
         let text = world.get::<Text>(e).unwrap();
-        assert_eq!(text.resolve(&world), "hi");
+        assert_eq!(text.resolve(world.resource()), "hi");
         assert!(world.has::<crate::ui::Style>(e));
         assert!(world.has::<crate::ui::Widget>(e));
     }
@@ -2001,7 +2002,7 @@ mod tests {
         assert_eq!(text.try_set_bounded::<8>(format_args!("é🙂")), Ok(true));
         assert!(text.has_valid_content());
         assert_eq!(text.try_set_bounded::<8>(format_args!("é🙂")), Ok(false));
-        assert_eq!(text.resolve(&World::new()), "é🙂");
+        assert_eq!(text.resolve(None), "é🙂");
         assert_eq!(
             text.try_set_bounded::<8>(format_args!("é{}", "🙂🙂")),
             Err(TextContentError::Capacity {
@@ -2009,7 +2010,7 @@ mod tests {
                 capacity: 8,
             })
         );
-        assert_eq!(text.resolve(&World::new()), "é🙂");
+        assert_eq!(text.resolve(None), "é🙂");
         assert_eq!(
             text.last_content_error(),
             Some(TextContentError::Capacity {
@@ -2037,7 +2038,7 @@ mod tests {
             Err(TextContentError::Format)
         );
         assert!(!text.has_valid_content());
-        assert_eq!(text.resolve(&World::new()), "");
+        assert_eq!(text.resolve(None), "");
         assert_eq!(
             text.try_set_bounded::<4>(format_args!("ok")),
             Err(TextContentError::CapacityMismatch {
@@ -2072,12 +2073,12 @@ mod tests {
                 capacity: 8,
             })
         );
-        assert_eq!(text.resolve(&World::new()), "ready");
+        assert_eq!(text.resolve(None), "ready");
         assert_eq!(
             text.try_set_content(Localized::new("welcome")),
             Err(TextContentError::Localized)
         );
-        assert_eq!(text.resolve(&World::new()), "ready");
+        assert_eq!(text.resolve(None), "ready");
         assert_eq!(text.try_set_content("changed"), Ok(true));
         assert_eq!(text.last_content_error(), None);
         let TextContent::Plain(Cow::Owned(storage)) = text.content() else {

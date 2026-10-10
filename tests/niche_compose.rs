@@ -56,7 +56,7 @@ fn mold_generates_niche_map_via_attach() {
     for &t in &texts {
         let parent = world.get::<Parent>(t).expect("text has Parent").0;
         let text_val = world.get::<Text>(t).expect("text has Text");
-        let bytes = text_val.resolve(world);
+        let bytes = text_val.resolve(world.resource());
         match &*bytes {
             "body content" => assert_eq!(parent, body),
             "footer text" => assert_eq!(parent, footer),
@@ -150,7 +150,7 @@ fn mold_body_expands_nested_widget_tree() {
     for &t in &texts {
         let parent = world.get::<Parent>(t).unwrap().0;
         let text_val = world.get::<Text>(t).unwrap();
-        let bytes = text_val.resolve(world);
+        let bytes = text_val.resolve(world.resource());
         match &*bytes {
             "title" => assert_eq!(parent, header_slot),
             "content" => assert_eq!(parent, body_slot),
@@ -193,7 +193,7 @@ fn mold_unfilled_slot_keeps_fallback() {
     assert_eq!(texts.len(), 2, "both slots keep their fallback text");
     for &t in &texts {
         let parent = world.get::<Parent>(t).unwrap().0;
-        let bytes = world.get::<Text>(t).unwrap().resolve(world);
+        let bytes = world.get::<Text>(t).unwrap().resolve(world.resource());
         match &*bytes {
             "Default header" => assert_eq!(parent, header),
             "Default body" => assert_eq!(parent, body),
@@ -230,7 +230,16 @@ fn mold_filled_slot_despawns_fallback() {
     let texts: Vec<Entity> = world.query::<Text>().collect();
     let contents: Vec<String> = texts
         .iter()
-        .map(|&t| (t, world.get::<Text>(t).unwrap().resolve(world).to_string()))
+        .map(|&t| {
+            (
+                t,
+                world
+                    .get::<Text>(t)
+                    .unwrap()
+                    .resolve(world.resource())
+                    .to_string(),
+            )
+        })
         .map(|(_, s)| s)
         .collect();
 
@@ -249,7 +258,7 @@ fn mold_filled_slot_despawns_fallback() {
 
     for &t in &texts {
         let parent = world.get::<Parent>(t).unwrap().0;
-        let bytes = world.get::<Text>(t).unwrap().resolve(world);
+        let bytes = world.get::<Text>(t).unwrap().resolve(world.resource());
         match &*bytes {
             "Default header" => assert_eq!(parent, header),
             "Custom body" => assert_eq!(parent, body),

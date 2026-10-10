@@ -858,7 +858,7 @@ fn layout_text(
         return Ok(None);
     };
     let font = fonts.primary();
-    let content = text.resolve(world);
+    let content = text.resolve(world.resource());
     let metrics = font.metrics(font.size);
     let text_path = world.get::<crate::text::TextPath>(entity).copied();
     let content_width = crate::ui::widgets::text::linear_text_content_rect(
@@ -1388,7 +1388,7 @@ pub(crate) fn apply_text_intrinsic(
         return Ok(());
     };
     let font = fonts.primary();
-    let content = text.resolve(world);
+    let content = text.resolve(world.resource());
     let metrics = font.metrics(font.size);
     let text_path = world.get::<crate::text::TextPath>(entity).copied();
     let request = text.paragraph().layout_request(&content, metrics, None);

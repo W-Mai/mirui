@@ -40,12 +40,19 @@ fn build_widgets_smoke() {
         .iter()
         .find(|&&row| {
             world.get::<Children>(row).is_some_and(|children| {
-                world.get::<Text>(children.0[0]).unwrap().resolve(&world) == "Row 42"
+                world
+                    .get::<Text>(children.0[0])
+                    .unwrap()
+                    .resolve(world.resource())
+                    == "Row 42"
             })
         })
         .unwrap();
     let label = world.get::<Children>(row).unwrap().0[0];
-    assert_eq!(world.get::<Text>(label).unwrap().resolve(&world), "Row 42");
+    assert_eq!(
+        world.get::<Text>(label).unwrap().resolve(world.resource()),
+        "Row 42"
+    );
     assert_eq!(world.get::<Text>(label).unwrap().paragraph(), &paragraph);
     assert_eq!(
         world.get::<Style>(row).unwrap().bg_color,

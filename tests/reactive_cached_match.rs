@@ -182,7 +182,13 @@ fn payload_binding_match_still_rebuilds_the_selected_arm() {
     assert_eq!(initial[3], empty_initial[1]);
     let mounted = initial[1];
     let suffix = initial[2];
-    assert_eq!(world.get::<Text>(mounted).unwrap().resolve(world), "alpha");
+    assert_eq!(
+        world
+            .get::<Text>(mounted)
+            .unwrap()
+            .resolve(world.resource()),
+        "alpha"
+    );
 
     payload.set(Some("beta"));
     flush_signal_dirty(world);
@@ -194,7 +200,10 @@ fn payload_binding_match_still_rebuilds_the_selected_arm() {
     assert!(!world.is_alive(mounted));
     assert!(!world.is_alive(suffix));
     assert_eq!(
-        world.get::<Text>(updated[1]).unwrap().resolve(world),
+        world
+            .get::<Text>(updated[1])
+            .unwrap()
+            .resolve(world.resource()),
         "beta"
     );
 
@@ -210,7 +219,10 @@ fn payload_binding_match_still_rebuilds_the_selected_arm() {
     assert_eq!(remounted[0], initial[0]);
     assert_eq!(remounted[3], initial[3]);
     assert_eq!(
-        world.get::<Text>(remounted[1]).unwrap().resolve(world),
+        world
+            .get::<Text>(remounted[1])
+            .unwrap()
+            .resolve(world.resource()),
         "gamma"
     );
 }

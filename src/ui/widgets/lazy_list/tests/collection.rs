@@ -105,7 +105,10 @@ fn source_binding_uses_the_installed_provider_and_latest_data_before_creating_ce
     );
     let first = app.world.get::<Children>(list).unwrap().0[0];
     assert_eq!(
-        app.world.get::<Text>(first).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(first)
+            .unwrap()
+            .resolve(app.world.resource()),
         "latest"
     );
     assert!(cell_is_valid(&app.world, first));
@@ -117,7 +120,10 @@ fn source_binding_uses_the_installed_provider_and_latest_data_before_creating_ce
     viewport(&mut app.world, list, 200, 80, 0);
     assert_eq!(app.world.get::<Children>(list).unwrap().0[0], first);
     assert_eq!(
-        app.world.get::<Text>(first).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(first)
+            .unwrap()
+            .resolve(app.world.resource()),
         "third"
     );
 }
@@ -135,7 +141,10 @@ fn membership_changes_rebind_index_and_identity_without_reconstructing_cells() {
     assert_ne!(item.id(), Some(original));
     assert_eq!(item.index(), 0);
     assert_eq!(
-        app.world.get::<Text>(first).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(first)
+            .unwrap()
+            .resolve(app.world.resource()),
         "second"
     );
     assert_eq!(app.world.get::<Children>(list).unwrap().0, cells);
@@ -198,7 +207,10 @@ fn field_changes_and_unrelated_appends_keep_the_current_press() {
         Some(first)
     );
     assert_eq!(
-        app.world.get::<Text>(first).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(first)
+            .unwrap()
+            .resolve(app.world.resource()),
         "updated"
     );
 }
@@ -331,7 +343,10 @@ fn inactive_collection_cells_settle_without_repeated_retirement() {
     viewport(&mut app.world, list, 200, 80, 0);
     assert!(!app.world.has::<Hidden>(first));
     assert_eq!(
-        app.world.get::<Text>(first).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(first)
+            .unwrap()
+            .resolve(app.world.resource()),
         "restored"
     );
 }
@@ -458,7 +473,10 @@ fn collection_callbacks_resolve_current_identity_after_reordering_and_slot_reuse
     assert!(rows.get_by_id(removed).is_none());
     assert_eq!(app.world.get::<Children>(list).unwrap().0[0], first);
     assert_eq!(
-        app.world.get::<Text>(first).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(first)
+            .unwrap()
+            .resolve(app.world.resource()),
         "clicked"
     );
 }

@@ -45,7 +45,7 @@ mod tests {
         let entities = world.query::<Text>().collect();
         let labels: Vec<_> = entities
             .into_iter()
-            .map(|entity| world.get::<Text>(entity).unwrap().resolve(world))
+            .map(|entity| world.get::<Text>(entity).unwrap().resolve(world.resource()))
             .collect();
         assert_eq!(labels, ["Save", "Cancel"]);
     }
@@ -85,7 +85,7 @@ mod tests {
         let entities = world.query::<Text>().collect();
         assert_eq!(entities.len(), 1);
         let text = world.get::<Text>(entities[0]).unwrap();
-        assert_eq!(text.resolve(world), "Hello");
+        assert_eq!(text.resolve(world.resource()), "Hello");
     }
 
     #[test]
@@ -233,7 +233,7 @@ mod tests {
         let entities = world.query::<Text>().collect();
         assert_eq!(entities.len(), 1);
         let text = world.get::<Text>(entities[0]).unwrap();
-        assert_eq!(text.resolve(world), "Positional");
+        assert_eq!(text.resolve(world.resource()), "Positional");
     }
 
     #[test]

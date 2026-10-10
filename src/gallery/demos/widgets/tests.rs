@@ -170,7 +170,7 @@ fn list_binding_updates_content_without_dropping_paragraph_style() {
     scheduler.run_all(&mut world).unwrap();
 
     let text = world.get::<Text>(label).expect("bound label");
-    assert_eq!(text.resolve(&world), "Row 0");
+    assert_eq!(text.resolve(world.resource()), "Row 0");
     assert_eq!(text.paragraph(), &paragraph);
 }
 

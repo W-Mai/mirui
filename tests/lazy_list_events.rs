@@ -110,7 +110,10 @@ fn data_shrink_suspends_expired_cells_before_property_evaluation_and_reuses_them
     for &cell in &cells {
         assert!(!app.world.has::<mirui::ui::Hidden>(cell));
         assert_eq!(
-            app.world.get::<Text>(cell).unwrap().resolve(&app.world),
+            app.world
+                .get::<Text>(cell)
+                .unwrap()
+                .resolve(app.world.resource()),
             "even"
         );
     }
@@ -118,7 +121,10 @@ fn data_shrink_suspends_expired_cells_before_property_evaluation_and_reuses_them
     flush_signal_dirty(&mut app.world);
     for &cell in &cells {
         assert_eq!(
-            app.world.get::<Text>(cell).unwrap().resolve(&app.world),
+            app.world
+                .get::<Text>(cell)
+                .unwrap()
+                .resolve(app.world.resource()),
             "odd"
         );
     }

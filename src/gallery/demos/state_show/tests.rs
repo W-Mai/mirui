@@ -24,7 +24,10 @@ fn reactive_if_else_swaps_branch() {
             .filter(|&entity| !crate::ui::branch::is_effectively_hidden(w, entity))
             .nth(1)
             .unwrap();
-        w.get::<Text>(branch).unwrap().resolve(w).into_owned()
+        w.get::<Text>(branch)
+            .unwrap()
+            .resolve(w.resource())
+            .into_owned()
     };
     assert_eq!(branch_text(world), "hidden — tap to show");
 
@@ -91,7 +94,10 @@ fn reactive_match_swaps_arm() {
             .copied()
             .find(|&entity| !crate::ui::branch::is_effectively_hidden(w, entity))
             .unwrap();
-        w.get::<Text>(arm).unwrap().resolve(w).into_owned()
+        w.get::<Text>(arm)
+            .unwrap()
+            .resolve(w.resource())
+            .into_owned()
     };
     assert_eq!(arm_text(world), "zero");
 
@@ -136,7 +142,7 @@ fn reactive_branch_keeps_index_between_static_siblings() {
             .filter(|&entity| !crate::ui::branch::is_effectively_hidden(w, entity))
             .nth(i)
             .unwrap();
-        w.get::<Text>(e).unwrap().resolve(w).into_owned()
+        w.get::<Text>(e).unwrap().resolve(w.resource()).into_owned()
     };
     assert_eq!(text_at(world, 0), "top");
     assert_eq!(text_at(world, 1), "off");

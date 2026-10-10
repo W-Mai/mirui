@@ -287,7 +287,7 @@ fn completion_updates_visual_revision_and_progress_text() {
     let text = world
         .get::<Text>(world.find_by_id("fold_summary_line_0").unwrap())
         .unwrap();
-    assert!(text.resolve(&world).contains("1/6"));
+    assert!(text.resolve(world.resource()).contains("1/6"));
     assert!(text.has_valid_content());
     assert_eq!(text.last_content_error(), None);
 }
@@ -319,7 +319,7 @@ fn messages_and_hints_update_observed_text_without_invalidating_surface() {
     let status = world
         .get::<Text>(world.find_by_id("fold_status").unwrap())
         .unwrap();
-    assert!(status.resolve(&world).contains("没有执行"));
+    assert!(status.resolve(world.resource()).contains("没有执行"));
 
     let changes = game.request_hint(&mut ExpeditionHintWorkspace::new());
     assert!(changes.contains(ChangeSet::MODEL));
@@ -333,5 +333,5 @@ fn messages_and_hints_update_observed_text_without_invalidating_surface() {
     let status = world
         .get::<Text>(world.find_by_id("fold_status").unwrap())
         .unwrap();
-    assert!(status.resolve(&world).contains("提示"));
+    assert!(status.resolve(world.resource()).contains("提示"));
 }

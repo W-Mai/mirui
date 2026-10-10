@@ -81,28 +81,28 @@ fn bounded_text_and_button_bindings_keep_storage_and_recover_after_overflow() {
         app.world
             .get::<Text>(reading_entity)
             .unwrap()
-            .resolve(&app.world),
+            .resolve(app.world.resource()),
         "007"
     );
     assert_eq!(
         app.world
             .get::<Text>(button_entity)
             .unwrap()
-            .resolve(&app.world),
+            .resolve(app.world.resource()),
         "007"
     );
     assert_eq!(
         app.world
             .get::<Text>(static_entity)
             .unwrap()
-            .resolve(&app.world),
+            .resolve(app.world.resource()),
         "ready"
     );
     assert_eq!(
         app.world
             .get::<Text>(static_format_entity)
             .unwrap()
-            .resolve(&app.world),
+            .resolve(app.world.resource()),
         "n=7"
     );
 
@@ -114,7 +114,7 @@ fn bounded_text_and_button_bindings_keep_storage_and_recover_after_overflow() {
     reading.set(42);
     flush_signal_dirty(&mut app.world);
     let text = app.world.get::<Text>(reading_entity).unwrap();
-    assert_eq!(text.resolve(&app.world), "042");
+    assert_eq!(text.resolve(app.world.resource()), "042");
     assert!(text.has_valid_content());
     assert_eq!(text.last_content_error(), None);
     let pointer = match text.content() {
@@ -127,7 +127,7 @@ fn bounded_text_and_button_bindings_keep_storage_and_recover_after_overflow() {
     flush_signal_dirty(&mut app.world);
     for entity in [reading_entity, button_entity] {
         let text = app.world.get::<Text>(entity).unwrap();
-        assert_eq!(text.resolve(&app.world), "042");
+        assert_eq!(text.resolve(app.world.resource()), "042");
         assert_eq!(
             text.last_content_error(),
             Some(TextContentError::Capacity {
@@ -154,7 +154,7 @@ fn bounded_text_and_button_bindings_keep_storage_and_recover_after_overflow() {
     flush_signal_dirty(&mut app.world);
     for entity in [reading_entity, button_entity] {
         let text = app.world.get::<Text>(entity).unwrap();
-        assert_eq!(text.resolve(&app.world), "003");
+        assert_eq!(text.resolve(app.world.resource()), "003");
         assert_eq!(text.last_content_error(), None);
     }
 }
@@ -193,21 +193,27 @@ fn bounded_text_formats_locals_inside_static_and_reactive_blocks() {
     let reactive = app.world.find_by_id("reactive_block").unwrap();
     let static_text = app.world.find_by_id("static_block").unwrap();
     assert_eq!(
-        app.world.get::<Text>(reactive).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(reactive)
+            .unwrap()
+            .resolve(app.world.resource()),
         "007"
     );
     assert_eq!(
         app.world
             .get::<Text>(static_text)
             .unwrap()
-            .resolve(&app.world),
+            .resolve(app.world.resource()),
         "012"
     );
 
     reading.set(42);
     flush_signal_dirty(&mut app.world);
     assert_eq!(
-        app.world.get::<Text>(reactive).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(reactive)
+            .unwrap()
+            .resolve(app.world.resource()),
         "042"
     );
     assert_eq!(
@@ -252,7 +258,10 @@ fn composed_bounded_binding_tracks_its_model() {
 
     let entity = app.world.find_by_id("composed").unwrap();
     assert_eq!(
-        app.world.get::<Text>(entity).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(entity)
+            .unwrap()
+            .resolve(app.world.resource()),
         "005"
     );
     assert_eq!(
@@ -263,7 +272,10 @@ fn composed_bounded_binding_tracks_its_model() {
         0
     );
     assert_eq!(
-        app.world.get::<Text>(entity).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(entity)
+            .unwrap()
+            .resolve(app.world.resource()),
         "098"
     );
 }
@@ -314,7 +326,10 @@ fn first_bounded_value_overflow_has_no_valid_content_until_recovery() {
     );
     assert!(app.world.get::<Text>(entity).unwrap().has_valid_content());
     assert_eq!(
-        app.world.get::<Text>(entity).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(entity)
+            .unwrap()
+            .resolve(app.world.resource()),
         ""
     );
     assert_eq!(app.last_text_content_failure(), None);
@@ -352,7 +367,7 @@ fn property_binding_preserves_bounded_content_after_overflow() {
         PropertyChange::Unchanged
     );
     let text = app.world.get::<Text>(entity).unwrap();
-    assert_eq!(text.resolve(&app.world), "OK");
+    assert_eq!(text.resolve(app.world.resource()), "OK");
     assert_eq!(
         text.last_content_error(),
         Some(TextContentError::Capacity {
@@ -389,7 +404,10 @@ fn reactive_initial_overflow_recovers_without_rebuilding_widgets() {
     assert_eq!(app.render_dirty(), Ok(()));
     assert_eq!(app.world.find_by_id("reading"), Some(entity));
     assert_eq!(
-        app.world.get::<Text>(entity).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(entity)
+            .unwrap()
+            .resolve(app.world.resource()),
         "007"
     );
     assert_eq!(app.last_text_content_failure(), None);

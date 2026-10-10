@@ -1031,7 +1031,7 @@ mod tests {
         for (entity, expected) in [(static_button, "Save"), (reactive_button, "Idle")] {
             assert!(world.has::<Button>(entity));
             let text = world.get::<Text>(entity).expect("Button owns Text");
-            assert_eq!(text.resolve(&world).as_ref(), expected);
+            assert_eq!(text.resolve(world.resource()).as_ref(), expected);
             assert_eq!(text.paragraph(), &ParagraphStyle::label());
         }
         assert_eq!(
@@ -1044,7 +1044,7 @@ mod tests {
         let text = world
             .get::<Text>(reactive_button)
             .expect("reactive Button keeps Text");
-        assert_eq!(text.resolve(&world).as_ref(), "Saved");
+        assert_eq!(text.resolve(world.resource()).as_ref(), "Saved");
         assert_eq!(text.paragraph(), &ParagraphStyle::label());
     }
 }

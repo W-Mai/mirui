@@ -12,7 +12,7 @@ type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalR
 
 fn label_text(world: &World, label: Entity) -> alloc::string::String {
     let t = world.get::<Text>(label).expect("label has Text");
-    t.resolve(world).into_owned()
+    t.resolve(world.resource()).into_owned()
 }
 
 fn todo_app() -> (TestApp, Entity, [Entity; 3]) {

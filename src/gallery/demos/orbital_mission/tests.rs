@@ -37,7 +37,7 @@ fn assert_text(world: &World, id: &'static str, expected: &str) {
     let text = world
         .get::<Text>(world.find_by_id(id).unwrap())
         .expect("text widget");
-    assert_eq!(text.resolve(world).as_ref(), expected, "{id}");
+    assert_eq!(text.resolve(world.resource()).as_ref(), expected, "{id}");
     assert!(text.has_valid_content(), "{id}");
     assert_eq!(text.last_content_error(), None, "{id}");
 }

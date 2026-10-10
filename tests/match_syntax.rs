@@ -36,7 +36,7 @@ mod tests {
         let texts = world.query::<Text>().collect();
         assert_eq!(texts.len(), 1);
         let text = world.get::<Text>(texts[0]).unwrap();
-        assert_eq!(text.resolve(world), "hello");
+        assert_eq!(text.resolve(world.resource()), "hello");
     }
 
     #[test]
@@ -90,6 +90,6 @@ mod tests {
         let texts = world.query::<Text>().collect();
         assert_eq!(texts.len(), 1);
         let text = world.get::<Text>(texts[0]).unwrap();
-        assert_eq!(text.resolve(world), "error");
+        assert_eq!(text.resolve(world.resource()), "error");
     }
 }

@@ -428,11 +428,13 @@ fn generated_callbacks_share_implicit_format_captures() {
     counter.increment();
     flush_signal_dirty(&mut app.world);
     let labels: Vec<_> = app.world.query::<Text>().collect();
-    assert!(
-        labels
-            .iter()
-            .any(|&entity| { app.world.get::<Text>(entity).unwrap().resolve(&app.world) == "14" })
-    );
+    assert!(labels.iter().any(|&entity| {
+        app.world
+            .get::<Text>(entity)
+            .unwrap()
+            .resolve(app.world.resource())
+            == "14"
+    }));
 }
 
 #[test]
@@ -462,10 +464,19 @@ fn bound_model_is_shared_across_generated_callbacks() {
     let labels: Vec<_> = app.world.query::<Text>().collect();
     let label = *labels
         .iter()
-        .find(|entity| app.world.get::<Text>(**entity).unwrap().resolve(&app.world) == "0")
+        .find(|entity| {
+            app.world
+                .get::<Text>(**entity)
+                .unwrap()
+                .resolve(app.world.resource())
+                == "0"
+        })
         .expect("counter label");
     assert_eq!(
-        app.world.get::<Text>(label).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(label)
+            .unwrap()
+            .resolve(app.world.resource()),
         "0"
     );
     let buttons: Vec<_> = app.world.query::<Button>().collect();
@@ -486,7 +497,10 @@ fn bound_model_is_shared_across_generated_callbacks() {
     flush_signal_dirty(&mut app.world);
     assert_eq!(counter.count(), 2);
     assert_eq!(
-        app.world.get::<Text>(label).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(label)
+            .unwrap()
+            .resolve(app.world.resource()),
         "2"
     );
 }

@@ -177,7 +177,7 @@ fn observed_fields_invalidate_only_their_canvas_consumers() {
     assert!(
         world
             .get::<Text>(pause)
-            .is_some_and(|text| text.resolve(&world).contains("RESUME"))
+            .is_some_and(|text| text.resolve(world.resource()).contains("RESUME"))
     );
 }
 
@@ -378,7 +378,7 @@ fn stage_tap_cycles_focus_without_allocation_state() {
     assert!(
         world
             .get::<Text>(focus_label)
-            .is_some_and(|text| text.resolve(&world).contains("NODE 03"))
+            .is_some_and(|text| text.resolve(world.resource()).contains("NODE 03"))
     );
 }
 
@@ -407,7 +407,7 @@ fn intensity_and_pause_handlers_update_visible_state() {
     assert!(
         world
             .get::<Text>(intensity_label)
-            .is_some_and(|text| text.resolve(&world) == "42")
+            .is_some_and(|text| text.resolve(world.resource()) == "42")
     );
 
     {
@@ -429,6 +429,6 @@ fn intensity_and_pause_handlers_update_visible_state() {
     assert!(
         world
             .get::<Text>(pause)
-            .is_some_and(|text| text.resolve(&world).contains("RESUME"))
+            .is_some_and(|text| text.resolve(world.resource()).contains("RESUME"))
     );
 }

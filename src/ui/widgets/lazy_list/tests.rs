@@ -55,7 +55,10 @@ fn cells_wait_for_geometry_then_rebind_without_reconstruction() {
             "odd"
         };
         assert_eq!(
-            app.world.get::<Text>(cell).unwrap().resolve(&app.world),
+            app.world
+                .get::<Text>(cell)
+                .unwrap()
+                .resolve(app.world.resource()),
             expected
         );
         assert_eq!(app.world.get::<Parent>(cell).unwrap().0, list);

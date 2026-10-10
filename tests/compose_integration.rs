@@ -85,10 +85,19 @@ fn compose_functions_are_tree_nodes() {
     }
     let first = world.get::<mirui::ui::Children>(children[0]).unwrap().0[0];
     let last = world.get::<mirui::ui::Children>(children[2]).unwrap().0[0];
-    assert_eq!(world.get::<Text>(first).unwrap().resolve(world), "alpha");
     assert_eq!(
-        world.get::<Text>(children[1]).unwrap().resolve(world),
+        world.get::<Text>(first).unwrap().resolve(world.resource()),
+        "alpha"
+    );
+    assert_eq!(
+        world
+            .get::<Text>(children[1])
+            .unwrap()
+            .resolve(world.resource()),
         "middle"
     );
-    assert_eq!(world.get::<Text>(last).unwrap().resolve(world), "beta");
+    assert_eq!(
+        world.get::<Text>(last).unwrap().resolve(world.resource()),
+        "beta"
+    );
 }

@@ -289,7 +289,7 @@ mod tests {
         };
         flush_signal_dirty(world);
         let status = world.find_by_id("tabbar_selection_status").unwrap();
-        let status_text = world.get::<Text>(status).unwrap().resolve(world);
+        let status_text = world.get::<Text>(status).unwrap().resolve(world.resource());
         assert!(
             status_text.contains("TAB 2 · FROM 1 · 1 CHANGE"),
             "{status_text}"

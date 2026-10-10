@@ -108,7 +108,10 @@ fn static_bounded_value_precedes_consuming_binding_capture() {
     );
     let entity = app.world.query::<Text>().iter().next().unwrap().0;
     assert_eq!(
-        app.world.get::<Text>(entity).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(entity)
+            .unwrap()
+            .resolve(app.world.resource()),
         "label"
     );
     assert_eq!(
@@ -345,11 +348,17 @@ fn lowercase_compose_calls_remain_bare_tree_children() {
     assert_eq!(world.get::<Parent>(children[0]).unwrap().0, column);
     assert_eq!(world.get::<Parent>(children[1]).unwrap().0, column);
     assert_eq!(
-        world.get::<Text>(children[0]).unwrap().resolve(world),
+        world
+            .get::<Text>(children[0])
+            .unwrap()
+            .resolve(world.resource()),
         "first"
     );
     assert_eq!(
-        world.get::<Text>(children[1]).unwrap().resolve(world),
+        world
+            .get::<Text>(children[1])
+            .unwrap()
+            .resolve(world.resource()),
         "second"
     );
 }
@@ -386,7 +395,7 @@ fn single_text_child(world: &World, parent: Entity) -> String {
     world
         .get::<Text>(children[0])
         .expect("Niche child is Text")
-        .resolve(world)
+        .resolve(world.resource())
         .to_string()
 }
 

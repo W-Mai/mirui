@@ -331,7 +331,7 @@ fn first_nested_bounded_text_branch_switch_reuses_full_frame_storage() {
     assert_ne!(deep_frame, shallow_frame);
     let text = app.world.get::<Text>(deep).unwrap();
     assert_eq!(text.text_capacity(), Some(8));
-    assert_eq!(text.resolve(&app.world), "DEEP 001");
+    assert_eq!(text.resolve(app.world.resource()), "DEEP 001");
     assert_eq!(
         app.world.get::<ComputedRect>(tail).unwrap().0.y,
         Fixed::from_int(32)
@@ -458,7 +458,10 @@ fn cached_branch_routes_taps_and_reveals_hidden_state_without_rebuilding() {
     );
     assert!(branch::is_effectively_hidden(&app.world, first));
     assert_eq!(
-        app.world.get::<Text>(second).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(second)
+            .unwrap()
+            .resolve(app.world.resource()),
         "SECOND 007"
     );
     assert_eq!(

@@ -3,7 +3,6 @@
 extern crate alloc;
 
 use crate::core::reactive::Signal;
-use crate::ecs::World;
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum Locale {
@@ -111,9 +110,7 @@ pub fn i18n_dirty_system(
     });
 }
 
-/// Translation-key reference returned by `t!`. Resolves to a `&'static str`
-/// at usage time, so call sites read `loc.resolve(world)` or rely on
-/// `impl ToString` for reactive bindings.
+/// Translation-key reference returned by `t!`. Resolve with an explicitly borrowed [`I18n`], or format inside a reactive binding to use its installed translation resource.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Localized {
     pub key: &'static str,
@@ -124,23 +121,34 @@ impl Localized {
         Self { key }
     }
 
-    /// `None` when no I18n resource is installed (`App::with_i18n` not called).
-    pub fn resolve(self, world: &World) -> Option<&'static str> {
-        world.resource::<I18n>()?.translate(self.key)
+    /// Resolve a key, returning `None` when the translation resource or key is absent.
+    pub fn resolve(self, i18n: Option<&I18n>) -> Option<&'static str> {
+        i18n?.translate(self.key)
     }
 
-    /// Resolve against the supplied World's I18n resource, falling back to the key.
-    pub fn resolve_or_key(self, world: &World) -> &'static str {
-        self.resolve(world).unwrap_or(self.key)
+    /// Resolve against the supplied translation resource, falling back to the key.
+    ///
+    /// ```
+    /// use mirui::core::i18n::{I18n, Locale, Localized};
+    ///
+    /// let translations = I18n::new(Locale::ZhCn)
+    ///     .with_translations(&[(Locale::ZhCn, "greeting", "你好")]);
+    /// let greeting = Localized::new("greeting");
+    /// assert_eq!(greeting.resolve_or_key(Some(&translations)), "你好");
+    /// assert_eq!(greeting.resolve_or_key(None), "greeting");
+    /// ```
+    pub fn resolve_or_key(self, i18n: Option<&I18n>) -> &'static str {
+        self.resolve(i18n).unwrap_or(self.key)
     }
 }
 
 impl core::fmt::Display for Localized {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let key = self.key;
-        let resolved =
-            crate::core::reactive::with_world(|world| self.resolve(world).unwrap_or(key))
-                .unwrap_or(key);
+        let resolved = crate::core::reactive::with_world(|world| {
+            self.resolve(world.resource()).unwrap_or(key)
+        })
+        .unwrap_or(key);
         f.write_str(resolved)
     }
 }
@@ -198,25 +206,37 @@ mod tests {
     }
 
     #[test]
-    fn localized_resolve_uses_world_i18n() {
-        let mut world = World::new();
-        world.insert_resource(I18n::new(Locale::ZhCn).with_translations(TABLE));
+    fn localized_resolve_uses_borrowed_i18n() {
+        let i18n = I18n::new(Locale::ZhCn).with_translations(TABLE);
         let loc = Localized::new("welcome");
-        assert_eq!(loc.resolve(&world), Some("欢迎"));
+        assert_eq!(loc.resolve(Some(&i18n)), Some("欢迎"));
     }
 
     #[test]
     fn localized_resolve_without_i18n_returns_none() {
-        let world = World::new();
         let loc = Localized::new("welcome");
-        assert_eq!(loc.resolve(&world), None);
+        assert_eq!(loc.resolve(None), None);
     }
 
     #[test]
     fn localized_resolve_or_key_falls_back() {
-        let world = World::new();
         let loc = Localized::new("greeting");
-        assert_eq!(loc.resolve_or_key(&world), "greeting");
+        assert_eq!(loc.resolve_or_key(None), "greeting");
+    }
+
+    #[test]
+    fn borrowed_resolution_keeps_locale_observation() {
+        let mut world = World::new();
+        let i18n = I18n::new(Locale::EnUs).with_translations(TABLE);
+        let locale = i18n.locale_signal();
+        let translated = with_world_scope(&mut world, || {
+            crate::core::reactive::Computed::new(move || {
+                Localized::new("welcome").resolve(Some(&i18n))
+            })
+        });
+        assert_eq!(translated.get(), Some("Welcome"));
+        locale.set(Locale::ZhCn);
+        assert_eq!(translated.get(), Some("欢迎"));
     }
 
     #[test]
@@ -259,10 +279,10 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(I18n::new(Locale::EnUs).with_translations(TABLE));
         let text = crate::ui::widgets::text::Text::from(t!("welcome"));
-        assert_eq!(text.resolve(&world), "Welcome");
+        assert_eq!(text.resolve(world.resource()), "Welcome");
 
         world.resource::<I18n>().unwrap().set_locale(Locale::ZhCn);
-        assert_eq!(text.resolve(&world), "欢迎");
+        assert_eq!(text.resolve(world.resource()), "欢迎");
     }
 
     #[test]

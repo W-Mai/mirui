@@ -302,7 +302,10 @@ fn marble_scene_cards_ignore_gaps_and_margins_but_load_a_selected_scene() {
     assert!(!is_hidden_in_tree(&app.world, scene_board));
     assert!(!is_hidden_in_tree(&app.world, scene_label));
     assert_eq!(
-        app.world.get::<Text>(status).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(status)
+            .unwrap()
+            .resolve(app.world.resource()),
         "SCENES · CHOOSE A LITTLE WORLD"
     );
 
@@ -336,7 +339,10 @@ fn marble_scene_cards_ignore_gaps_and_margins_but_load_a_selected_scene() {
         assert!(!is_hidden_in_tree(&app.world, scene_board), "x={local_x}");
         assert!(!is_hidden_in_tree(&app.world, scene_label), "x={local_x}");
         assert_eq!(
-            app.world.get::<Text>(status).unwrap().resolve(&app.world),
+            app.world
+                .get::<Text>(status)
+                .unwrap()
+                .resolve(app.world.resource()),
             "SCENES · CHOOSE A LITTLE WORLD",
             "x={local_x} loaded a scene from outside its card"
         );
@@ -373,7 +379,10 @@ fn marble_scene_cards_ignore_gaps_and_margins_but_load_a_selected_scene() {
     app.render_dirty().unwrap();
     assert!(is_hidden_in_tree(&app.world, scene_board));
     assert_eq!(
-        app.world.get::<Text>(status).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(status)
+            .unwrap()
+            .resolve(app.world.resource()),
         "LIVE · DRAG EMPTY SPACE TO TILT"
     );
 
@@ -389,7 +398,10 @@ fn marble_scene_cards_ignore_gaps_and_margins_but_load_a_selected_scene() {
     app.render_dirty().unwrap();
     let bpm = app.world.find_by_id("marble_setting_bpm").unwrap();
     assert_eq!(
-        app.world.get::<Text>(bpm).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(bpm)
+            .unwrap()
+            .resolve(app.world.resource()),
         "TEMPO · 72 BPM"
     );
 }
@@ -558,7 +570,10 @@ fn first_marble_bpm_updates_fit_bounded_text_without_allocations() {
     assert!(!is_hidden_in_tree(&app.world, label));
     assert!(!is_hidden_in_tree(&app.world, slider));
     assert_eq!(
-        app.world.get::<Text>(label).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(label)
+            .unwrap()
+            .resolve(app.world.resource()),
         "TEMPO · 96 BPM"
     );
     assert_eq!(
@@ -612,7 +627,10 @@ fn first_marble_bpm_updates_fit_bounded_text_without_allocations() {
         assert_eq!(app.last_text_layout_failure(), None);
         assert_eq!(app.last_text_content_failure(), None);
         assert_eq!(
-            app.world.get::<Text>(label).unwrap().resolve(&app.world),
+            app.world
+                .get::<Text>(label)
+                .unwrap()
+                .resolve(app.world.resource()),
             expected
         );
         assert_eq!(
@@ -692,12 +710,18 @@ fn first_marble_inspector_pitch_and_timbre_actions_do_not_allocate() {
     let timbre = app.world.find_by_id("marble_timbre").unwrap();
     assert!(!is_hidden_in_tree(&app.world, inspector));
     assert_eq!(
-        app.world.get::<Text>(pitch).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(pitch)
+            .unwrap()
+            .resolve(app.world.resource()),
         "C5"
     );
     assert!(app.world.has::<Button>(pitch_up));
     assert_eq!(
-        app.world.get::<Text>(pitch_up).unwrap().resolve(&app.world),
+        app.world
+            .get::<Text>(pitch_up)
+            .unwrap()
+            .resolve(app.world.resource()),
         "+"
     );
 
@@ -768,11 +792,17 @@ fn first_marble_inspector_pitch_and_timbre_actions_do_not_allocate() {
         assert_eq!(app.last_text_layout_failure(), None);
         assert_eq!(app.last_text_content_failure(), None);
         assert_eq!(
-            app.world.get::<Text>(pitch).unwrap().resolve(&app.world),
+            app.world
+                .get::<Text>(pitch)
+                .unwrap()
+                .resolve(app.world.resource()),
             expected_pitch
         );
         assert_eq!(
-            app.world.get::<Text>(timbre).unwrap().resolve(&app.world),
+            app.world
+                .get::<Text>(timbre)
+                .unwrap()
+                .resolve(app.world.resource()),
             expected_timbre
         );
         #[cfg(feature = "audio")]
