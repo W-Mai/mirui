@@ -5,7 +5,6 @@ use std::time::Instant;
 
 use sdl2::EventPump;
 use sdl2::event::{Event, WindowEvent};
-use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Rect as SdlRect;
 use sdl2::render::{Canvas, Texture as SdlTexture, TextureCreator};
@@ -32,34 +31,6 @@ const INITIAL_DIST_FRAC: f32 = 0.05;
 
 const VIRT_FINGER_A: u8 = 1;
 const VIRT_FINGER_B: u8 = 2;
-
-fn keyboard_input(event: &Event) -> Option<InputEvent> {
-    use crate::input::event::input::*;
-
-    let (keycode, pressed) = match event {
-        Event::KeyDown {
-            keycode: Some(keycode),
-            ..
-        } => (*keycode, true),
-        Event::KeyUp {
-            keycode: Some(keycode),
-            ..
-        } => (*keycode, false),
-        _ => return None,
-    };
-    let code = match keycode {
-        Keycode::Backspace => KEY_BACKSPACE,
-        Keycode::Delete => KEY_DELETE,
-        Keycode::Left => KEY_LEFT,
-        Keycode::Right => KEY_RIGHT,
-        Keycode::Home => KEY_HOME,
-        Keycode::End => KEY_END,
-        Keycode::Return => KEY_RETURN,
-        Keycode::Escape if pressed => return Some(InputEvent::Quit),
-        _ => return None,
-    };
-    Some(InputEvent::Key { code, pressed })
-}
 
 #[derive(Default)]
 struct MultiGestureState {
@@ -329,7 +300,7 @@ impl Surface for SdlSurface {
             match event {
                 Event::Quit { .. } => self.pending.push_back(InputEvent::Quit),
                 event @ (Event::KeyDown { .. } | Event::KeyUp { .. }) => {
-                    if let Some(input) = keyboard_input(&event) {
+                    if let Some(input) = super::sdl_events::keyboard_input(&event) {
                         self.pending.push_back(input);
                     }
                 }
@@ -421,65 +392,5 @@ impl FramebufferAccess for SdlSurface {
             self.height,
             ColorFormat::RGBA8888,
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::input::event::input::*;
-    use sdl2::keyboard::Mod;
-
-    fn key_event(keycode: Keycode, pressed: bool) -> Event {
-        if pressed {
-            Event::KeyDown {
-                timestamp: 0,
-                window_id: 0,
-                keycode: Some(keycode),
-                scancode: None,
-                keymod: Mod::NOMOD,
-                repeat: false,
-            }
-        } else {
-            Event::KeyUp {
-                timestamp: 0,
-                window_id: 0,
-                keycode: Some(keycode),
-                scancode: None,
-                keymod: Mod::NOMOD,
-                repeat: false,
-            }
-        }
-    }
-
-    #[test]
-    fn keyboard_translation_preserves_pressed_and_released_states() {
-        for (key, expected) in [
-            (Keycode::Backspace, KEY_BACKSPACE),
-            (Keycode::Delete, KEY_DELETE),
-            (Keycode::Left, KEY_LEFT),
-            (Keycode::Right, KEY_RIGHT),
-            (Keycode::Home, KEY_HOME),
-            (Keycode::End, KEY_END),
-            (Keycode::Return, KEY_RETURN),
-        ] {
-            for pressed in [true, false] {
-                assert!(matches!(keyboard_input(&key_event(key, pressed)),
-                    Some(InputEvent::Key { code, pressed: actual })
-                    if code == expected && actual == pressed));
-            }
-        }
-    }
-
-    #[test]
-    fn keyboard_translation_does_not_duplicate_quit_or_text() {
-        assert!(matches!(
-            keyboard_input(&key_event(Keycode::Escape, true)),
-            Some(InputEvent::Quit)
-        ));
-        assert!(keyboard_input(&key_event(Keycode::Escape, false)).is_none());
-        for pressed in [true, false] {
-            assert!(keyboard_input(&key_event(Keycode::A, pressed)).is_none());
-        }
     }
 }

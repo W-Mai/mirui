@@ -20,7 +20,6 @@ use std::time::Instant;
 
 use sdl2::EventPump;
 use sdl2::event::Event;
-use sdl2::keyboard::Keycode;
 use sdl2::render::Canvas as SdlCanvas;
 use sdl2::video::Window;
 
@@ -296,28 +295,10 @@ impl Surface for SdlGpuSurface {
         while let Some(event) = crate::surface::sdl_events::poll() {
             match event {
                 Event::Quit { .. } => self.pending.push_back(InputEvent::Quit),
-                Event::KeyDown {
-                    keycode: Some(kc), ..
-                } => {
-                    use crate::input::event::input::*;
-                    let code = match kc {
-                        Keycode::Backspace => KEY_BACKSPACE,
-                        Keycode::Delete => KEY_DELETE,
-                        Keycode::Left => KEY_LEFT,
-                        Keycode::Right => KEY_RIGHT,
-                        Keycode::Home => KEY_HOME,
-                        Keycode::End => KEY_END,
-                        Keycode::Return => KEY_RETURN,
-                        Keycode::Escape => {
-                            self.pending.push_back(InputEvent::Quit);
-                            continue;
-                        }
-                        _ => continue,
-                    };
-                    self.pending.push_back(InputEvent::Key {
-                        code,
-                        pressed: true,
-                    });
+                event @ (Event::KeyDown { .. } | Event::KeyUp { .. }) => {
+                    if let Some(input) = crate::surface::sdl_events::keyboard_input(&event) {
+                        self.pending.push_back(input);
+                    }
                 }
                 Event::MouseButtonDown { x, y, .. } => {
                     self.pending.push_back(InputEvent::PointerDown {

@@ -41,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- SDL GPU delivers key releases through the same keyboard mapping as the SDL software surface.
+
 - Pointer and wheel input refresh stale layout and hit geometry before dispatch, preserving pending paint damage and reusing unchanged geometry between inputs.
 
 - Pointer movement coalescing preserves event order across button, touch, wheel, and text input in WGPU surfaces.
