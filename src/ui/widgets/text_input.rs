@@ -13,25 +13,13 @@ use crate::ui::outputs::Outputs;
 use crate::ui::theme::{ColorToken, ThemedColor};
 
 use super::text_document::{INLINE_CAPACITY, TextEditError, storage::Storage};
+use super::text_editing::TextSelection;
 
 /// Caret on/off, toggled by `cursor_blink_system` every ~500 ms.
 #[derive(Default, Clone, Copy)]
 pub struct CursorBlinkPhase(pub bool);
 
 pub const TEXT_INPUT_CAP: usize = INLINE_CAPACITY;
-
-/// Directed selection expressed as UTF-8 byte offsets.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct TextSelection {
-    pub anchor: usize,
-    pub cursor: usize,
-}
-
-impl TextSelection {
-    pub fn range(self) -> core::ops::Range<usize> {
-        self.anchor.min(self.cursor)..self.anchor.max(self.cursor)
-    }
-}
 
 crate::input::event::contract::widget_events! {
     TextInput;

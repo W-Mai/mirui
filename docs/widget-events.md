@@ -4,6 +4,10 @@
 
 `mirui::ui::widgets::TextDocument` stores UTF-8 content independently of an editor's selection, composition, and appearance. It can be registered with `App::add_model` or nested using `model!(owned TextDocument)`. Its default byte capacity is 32; `set_capacity` prepares larger buffers explicitly. Capacity changes are observable independently of the content revision.
 
+`TextEditing::default()` owns a local inline document; `TextEditing::new(document.clone())` binds a registered document without copying its content. Each component retains its own `TextSelection`. `read` borrows content for a callback, and `set_selection` validates both UTF-8 byte endpoints atomically. Selection reads resolve external edits by clamping to the document's end and preceding UTF-8 boundaries; they do not transform positions using edit history. Register `text_editing::view()` to observe shared content and capacity changes through normal layout invalidation. This descriptor does not paint.
+
+Use `with_capacity` and `with_text` to prepare a component before insertion. For a shared source, these constructors modify the bound document, while selection changes remain local. Registered document bindings retain their App ownership and lifetime rules; they do not fall back to an empty local document when the source expires.
+
 ```rust,ignore
 let document = app.add_model(TextDocument::new());
 document.set_capacity(256)?;
@@ -37,7 +41,7 @@ SDL preserves each native text event as one fragment; WGPU preserves each text o
 The default capacity is 32 inline bytes. Use `TextInput(capacity: 256)` in `ui!`, `TextInput::new().with_capacity(256)?`, or `TextInput::build().capacity(256)?` to prepare a larger buffer. `capacity()` reports the accepted byte limit. `set_capacity(bytes)` explicitly changes that limit, preserving content and selection; shrinking below the current length fails. Shrinking retains storage for reuse. Zero capacity accepts only empty content, and capacities above `min(u32::MAX, isize::MAX)` are rejected. Allocation failure leaves the existing input unchanged.
 
 ```rust,ignore
-use mirui::ui::widgets::text_input::{TextInput, TextSelection};
+use mirui::ui::widgets::{TextInput, TextSelection};
 
 let mut input = TextInput::new().with_capacity(256)?;
 input.replace_selection("Hello world")?;
