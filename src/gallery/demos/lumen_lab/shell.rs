@@ -185,7 +185,7 @@ fn compose_header(model: model!(LumenModel)) -> Entity {
             )
             Text (
                 text: ${ format_args!("PUZZLE {:02} / 05", model.level_index() + 1) },
-                text_capacity: 14,
+                capacity: 14,
                 id: "lumen_puzzle",
                 width: 110,
                 height: 20,
@@ -208,7 +208,7 @@ fn compose_level_intro(model: model!(LumenModel)) -> Entity {
         ) {
             Text (
                 text: ${ LEVELS[model.level_index()].name },
-                text_capacity: 15,
+                capacity: 15,
                 id: "lumen_level_name",
                 width: 164,
                 height: 20,
@@ -218,7 +218,7 @@ fn compose_level_intro(model: model!(LumenModel)) -> Entity {
             )
             Text (
                 text: ${ LEVELS[model.level_index()].subtitle },
-                text_capacity: 42,
+                capacity: 42,
                 id: "lumen_level_subtitle",
                 grow: 1.0,
                 height: 18,
@@ -263,7 +263,7 @@ fn compose_playfield(model: model!(LumenModel)) -> Entity {
                 ) {
                     Text (
                         text: ${ if model.solved() { "光路接通" } else { "等待点亮" } },
-                        text_capacity: 12,
+                        capacity: 12,
                         id: "lumen_status",
                         height: 20,
                         font_size: 11,
@@ -272,7 +272,7 @@ fn compose_playfield(model: model!(LumenModel)) -> Entity {
                     )
                     Text (
                         text: ${ if model.solved() { "NICE CONNECTION" } else { "FOLLOW THE LIGHT" } },
-                        text_capacity: 16,
+                        capacity: 16,
                         id: "lumen_status_subtitle",
                         height: 13,
                         font_size: 7,
@@ -283,7 +283,7 @@ fn compose_playfield(model: model!(LumenModel)) -> Entity {
                     Row (grow: 1.0, align: AlignItems::Center, column_gap: 4) {
                         Text (
                             text: ${ format_args!("{:02}", model.moves()) },
-                            text_capacity: 2,
+                            capacity: 2,
                             id: "lumen_moves",
                             width: 42,
                             height: 35,
@@ -302,7 +302,7 @@ fn compose_playfield(model: model!(LumenModel)) -> Entity {
                         Column (width: 43, height: 38) {
                             Text (
                                 text: ${ format_args!("{} / 5", model.completion_mask().count_ones()) },
-                                text_capacity: 5,
+                                capacity: 5,
                                 id: "lumen_completed",
                                 height: 21,
                                 font_size: 12,
@@ -343,7 +343,7 @@ fn compose_playfield(model: model!(LumenModel)) -> Entity {
                 ) on Tap { model.reset(); }
                 Text (
                     text: ${ hint_label(model.hint()) },
-                    text_capacity: 33,
+                    capacity: 33,
                     id: "lumen_hint_note",
                     grow: 1.0,
                     font_size: 7,
@@ -392,7 +392,7 @@ fn compose_footer(model: model!(LumenModel)) -> Entity {
             ) on Tap { model.undo(); }
             Button (
                 text: ${ if model.scan() { "追光 开" } else { "追光 关" } },
-                text_capacity: 10,
+                capacity: 10,
                 id: "lumen_scan",
                 size: ButtonSize::Compact,
                 width: 113,

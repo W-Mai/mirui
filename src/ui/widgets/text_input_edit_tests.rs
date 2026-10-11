@@ -13,7 +13,7 @@ fn explicit_capacity_preserves_content_and_selection_across_storage_changes() {
     input.replace_selection("A中🙂Z").unwrap();
     selected(&mut input, 8, 1);
     for capacity in [9, 64, 512, 9, 512] {
-        input.set_text_capacity(capacity).unwrap();
+        input.set_capacity(capacity).unwrap();
         assert_eq!(input.capacity(), capacity);
         assert_eq!(input.as_str(), "A中🙂Z");
         assert_eq!(
@@ -26,7 +26,7 @@ fn explicit_capacity_preserves_content_and_selection_across_storage_changes() {
     }
     let before = input.clone();
     for capacity in [0, 8, usize::MAX] {
-        assert!(input.set_text_capacity(capacity).is_err());
+        assert!(input.set_capacity(capacity).is_err());
         assert_eq!(input.buffer, before.buffer);
         assert_eq!(input.capacity(), before.capacity());
         assert_eq!(input.selection(), before.selection());
@@ -41,25 +41,25 @@ fn explicit_capacity_preserves_content_and_selection_across_storage_changes() {
 fn declared_capacity_is_enforced_independently_of_retained_storage() {
     assert_eq!(
         crate::test_support::tracked_allocations(|| {
-            let mut input = TextInput::new().with_text_capacity(0).unwrap();
+            let mut input = TextInput::new().with_capacity(0).unwrap();
             assert!(input.replace_selection("a").is_err());
-            input.set_text_capacity(3).unwrap();
+            input.set_capacity(3).unwrap();
             input.replace_selection("中").unwrap();
             assert!(!input.insert_char('a'));
             selected(&mut input, 0, 3);
             input.replace_selection("").unwrap();
-            input.set_text_capacity(TEXT_INPUT_CAP).unwrap();
+            input.set_capacity(TEXT_INPUT_CAP).unwrap();
         }),
         0
     );
-    let mut input = TextInput::new().with_text_capacity(512).unwrap();
+    let mut input = TextInput::new().with_capacity(512).unwrap();
     let text = "中".repeat(100);
     assert_eq!(
         crate::test_support::tracked_allocations(|| {
-            input.set_text_capacity(4).unwrap();
+            input.set_capacity(4).unwrap();
             input.replace_selection("🙂").unwrap();
             assert!(!input.insert_char('a'));
-            input.set_text_capacity(512).unwrap();
+            input.set_capacity(512).unwrap();
             selected(&mut input, 4, 0);
             input.replace_selection(&text).unwrap();
             assert_eq!(input.len(), 300);
@@ -71,7 +71,7 @@ fn declared_capacity_is_enforced_independently_of_retained_storage() {
             assert_eq!(input.len(), 294);
             selected(&mut input, 0, 294);
             input.replace_selection("").unwrap();
-            input.set_text_capacity(0).unwrap();
+            input.set_capacity(0).unwrap();
         }),
         0
     );
@@ -204,7 +204,7 @@ fn prepared_edits_do_not_allocate() {
 #[test]
 fn queued_edits_apply_to_current_content_in_order_without_allocating() {
     let mut world = World::new();
-    let entity = world.spawn(TextInput::new().with_text_capacity(512).unwrap());
+    let entity = world.spawn(TextInput::new().with_capacity(512).unwrap());
     let mut queue = crate::ecs::commands::CommandQueue::bounded(
         crate::ecs::CommandCapacity::new().entity_value::<InputEdit>(2),
     )

@@ -607,7 +607,7 @@ fn first_marble_bpm_updates_fit_bounded_text_without_allocations() {
         "TEMPO · 96 BPM"
     );
     assert_eq!(
-        app.world.get::<Text>(label).unwrap().text_capacity(),
+        app.world.get::<Text>(label).unwrap().capacity(),
         Some("TEMPO · 160 BPM".len())
     );
 

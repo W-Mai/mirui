@@ -32,10 +32,10 @@ fn bounded_panel(reading: model!(Reading)) {
         Row () {
             Text (
                 text: ${ format_args!("{:03}", reading.value()) },
-                text_capacity: 4,
+                capacity: 4,
                 id: "composed"
             )
-            Button (text: "SET", text_capacity: 3) on Tap { reading.set(12); }
+            Button (text: "SET", capacity: 3) on Tap { reading.set(12); }
         }
     };
 }
@@ -54,18 +54,18 @@ fn bounded_text_and_button_bindings_keep_storage_and_recover_after_overflow() {
             Column () {
                 Text (
                     text: ${ format_args!("{:03}", bound.value()) },
-                    text_capacity: 4,
+                    capacity: 4,
                     id: "reading"
                 )
                 Button (
-                    text_capacity: 4,
+                    capacity: 4,
                     text: ${ (::core::format_args!("{:03}", bound_button.value())) },
                     id: "button"
                 )
-                Text ("ready", text_capacity: 5, id: "static")
+                Text ("ready", capacity: 5, id: "static")
                 Text (
                     text: (::core::format_args!("n={}", 7)),
-                    text_capacity: 3,
+                    capacity: 3,
                     id: "static_format"
                 )
             }
@@ -175,7 +175,7 @@ fn bounded_text_formats_locals_inside_static_and_reactive_blocks() {
                         let value = bound.value();
                         format_args!("{value:03}")
                     },
-                    text_capacity: 3,
+                    capacity: 3,
                     id: "reactive_block"
                 )
                 Text (
@@ -183,7 +183,7 @@ fn bounded_text_formats_locals_inside_static_and_reactive_blocks() {
                         let value = 12;
                         format_args!("{value:03}")
                     },
-                    text_capacity: 3,
+                    capacity: 3,
                     id: "static_block"
                 )
             }
@@ -227,25 +227,22 @@ fn bounded_text_formats_locals_inside_static_and_reactive_blocks() {
 
 #[derive(Default)]
 struct CustomCard {
-    text_capacity: usize,
+    capacity: usize,
 }
 
 #[test]
-fn custom_component_keeps_its_own_text_capacity_field() {
+fn custom_component_keeps_its_own_capacity_field() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
 
     app.compose(root, |cx| {
         ui! {
-            CustomCard (text_capacity: 8usize, id: "custom")
+            CustomCard (capacity: 8usize, id: "custom")
         }
     });
 
     let entity = app.world.find_by_id("custom").unwrap();
-    assert_eq!(
-        app.world.get::<CustomCard>(entity).unwrap().text_capacity,
-        8
-    );
+    assert_eq!(app.world.get::<CustomCard>(entity).unwrap().capacity, 8);
 }
 
 #[test]
@@ -292,7 +289,7 @@ fn first_bounded_value_overflow_has_no_valid_content_until_recovery() {
 
     app.compose(root, |cx| {
         ui! {
-            Text ("OVER", text_capacity: 3, id: "label")
+            Text ("OVER", capacity: 3, id: "label")
         }
     });
 
@@ -357,7 +354,7 @@ fn property_binding_preserves_bounded_content_after_overflow() {
 
     app.compose(root, |cx| {
         ui! {
-            Text ("OK", text_capacity: 3, id: "bounded")
+            Text ("OK", capacity: 3, id: "bounded")
         }
     });
 
@@ -390,7 +387,7 @@ fn reactive_initial_overflow_recovers_without_rebuilding_widgets() {
         ui! {
             Text (
                 text: ${ format_args!("{:03}", bound.value()) },
-                text_capacity: 4,
+                capacity: 4,
                 id: "reading"
             )
         }

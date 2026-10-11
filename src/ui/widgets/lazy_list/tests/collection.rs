@@ -20,7 +20,7 @@ impl RowData {
 fn cell(item: model!(ListItem), rows: model!(ModelList<RowData>)) -> Entity {
     ui! {
         Text (
-            text_capacity: 16,
+            capacity: 16,
             text: ${ item.id().and_then(|id| rows.get_by_id(id)).map(|row| row.title()).unwrap_or("") }
         )
     }
@@ -411,7 +411,7 @@ fn creation_rechecks_source_after_user_mutation_without_leaking_a_partial_cell()
 fn interactive_cell(item: model!(ListItem), rows: model!(ModelList<RowData>)) -> Entity {
     ui! {
         Text (
-            text_capacity: 16,
+            capacity: 16,
             text: ${ item.id().and_then(|id| rows.get_by_id(id)).map(|row| row.title()).unwrap_or("") }
         ) on Tap {
             if let Some(row) = item.id().and_then(|id| rows.get_by_id(id)) {

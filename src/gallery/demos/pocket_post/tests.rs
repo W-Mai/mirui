@@ -65,7 +65,7 @@ fn assert_bounded_text_valid(world: &World) {
     ] {
         let entity = world.find_by_id(id).unwrap();
         let text = world.get::<Text>(entity).unwrap();
-        assert!(text.text_capacity().is_some(), "{id}");
+        assert!(text.capacity().is_some(), "{id}");
         assert!(text.has_valid_content(), "{id}");
         assert_eq!(text.last_content_error(), None, "{id}");
     }

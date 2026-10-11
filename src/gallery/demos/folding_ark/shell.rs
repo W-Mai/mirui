@@ -211,7 +211,7 @@ fn map_level_button(
                 ] {
                     Text (
                         text: ${ LockedLevelLabel(expedition.chapter() * 6 + slot) },
-                        text_capacity: 8,
+                        capacity: 8,
                         grow: 1.0,
                         height: 49,
                         font_size: 10,
@@ -228,7 +228,7 @@ fn map_level_button(
                             level: expedition.chapter() * 6 + slot,
                         }
                     },
-                    text_capacity: 10,
+                    capacity: 10,
                     grow: 1.0,
                     height: 57,
                     size: ButtonSize::Compact,
@@ -261,7 +261,7 @@ fn compose_hud(game: model!(FoldModel)) -> Entity {
     ui! {
         Text (
             text: ${ CHAPTER_NAMES[usize::from(game.level_index() / 6)] },
-            text_capacity: 24,
+            capacity: 24,
             id: "fold_chapter",
             position: Position::Absolute,
             left: 228,
@@ -276,7 +276,7 @@ fn compose_hud(game: model!(FoldModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("F{:02} / 36", game.level_index() + 1) },
-            text_capacity: 8,
+            capacity: 8,
             id: "fold_level",
             position: Position::Absolute,
             left: 383,
@@ -421,7 +421,7 @@ fn compose_footer(game: model!(FoldModel), expedition: model!(ExpeditionUiModel)
     ui! {
         Text (
             text: ${ StatusText(game.message()) },
-            text_capacity: 48,
+            capacity: 48,
             id: "fold_status",
             position: Position::Absolute,
             left: 16,
@@ -442,7 +442,7 @@ fn compose_footer(game: model!(FoldModel), expedition: model!(ExpeditionUiModel)
                     par: level_par(game.level_index()),
                 }
             },
-            text_capacity: 40,
+            capacity: 40,
             id: "fold_steps",
             position: Position::Absolute,
             left: 16,
@@ -505,7 +505,7 @@ fn compose_footer(game: model!(FoldModel), expedition: model!(ExpeditionUiModel)
     ui! {
         Button (
             text: ${ next_label(game.modal(), game.level_index(), game.unlocked()) },
-            text_capacity: 16,
+            capacity: 16,
             id: "fold_next",
             position: Position::Absolute,
             left: 416,
@@ -555,7 +555,7 @@ fn compose_result_overlay(
             ) {
                 Text (
                     text: ${ result_title(game.modal(), game.level_index()) },
-                    text_capacity: 20,
+                    capacity: 20,
                     id: "fold_result_title",
                     height: 28,
                     font_size: 15,
@@ -570,7 +570,7 @@ fn compose_result_overlay(
                             par: level_par(game.level_index()),
                         }
                     },
-                    text_capacity: 48,
+                    capacity: 48,
                     id: "fold_result_stats",
                     height: 22,
                     font_size: 10,
@@ -680,7 +680,7 @@ fn compose_map_overlay(game: model!(FoldModel), expedition: model!(ExpeditionUiM
                             chapter: expedition.chapter(),
                         }
                     },
-                    text_capacity: 40,
+                    capacity: 40,
                     id: "fold_map_summary",
                     height: 14,
                     font_size: 8,
@@ -763,7 +763,7 @@ fn compose_map_overlay(game: model!(FoldModel), expedition: model!(ExpeditionUiM
                 }
                 Text (
                     text: ${ CHAPTER_NAMES[usize::from(expedition.chapter())] },
-                    text_capacity: 24,
+                    capacity: 24,
                     id: "fold_map_chapter_name",
                     height: 16,
                     font_size: 12,
@@ -772,7 +772,7 @@ fn compose_map_overlay(game: model!(FoldModel), expedition: model!(ExpeditionUiM
                 )
                 Text (
                     text: ${ CHAPTER_MECHANICS[usize::from(expedition.chapter())] },
-                    text_capacity: 48,
+                    capacity: 48,
                     id: "fold_map_chapter_mechanic",
                     height: 14,
                     font_size: 9,
@@ -938,7 +938,7 @@ fn compose_briefing_overlay(
                             .level_index() / 6)],
                         )
                     },
-                    text_capacity: 32,
+                    capacity: 32,
                     id: "fold_briefing_title",
                     height: 24,
                     font_size: 13,
@@ -954,7 +954,7 @@ fn compose_briefing_overlay(
                 )
                 Text (
                     text: ${ CHAPTER_MECHANICS[usize::from(game.level_index() / 6)] },
-                    text_capacity: 48,
+                    capacity: 48,
                     id: "fold_briefing_mechanic",
                     height: 20,
                     font_size: 11,
@@ -1043,7 +1043,7 @@ fn compose_summary_overlay(
                             chapter: 0,
                         }
                     },
-                    text_capacity: 48,
+                    capacity: 48,
                     id: "fold_summary_line_0",
                     height: 17,
                     font_size: 9,
@@ -1057,7 +1057,7 @@ fn compose_summary_overlay(
                             chapter: 1,
                         }
                     },
-                    text_capacity: 48,
+                    capacity: 48,
                     id: "fold_summary_line_1",
                     height: 17,
                     font_size: 9,
@@ -1071,7 +1071,7 @@ fn compose_summary_overlay(
                             chapter: 2,
                         }
                     },
-                    text_capacity: 48,
+                    capacity: 48,
                     id: "fold_summary_line_2",
                     height: 17,
                     font_size: 9,
@@ -1085,7 +1085,7 @@ fn compose_summary_overlay(
                             chapter: 3,
                         }
                     },
-                    text_capacity: 48,
+                    capacity: 48,
                     id: "fold_summary_line_3",
                     height: 17,
                     font_size: 9,
@@ -1099,7 +1099,7 @@ fn compose_summary_overlay(
                             chapter: 4,
                         }
                     },
-                    text_capacity: 48,
+                    capacity: 48,
                     id: "fold_summary_line_4",
                     height: 17,
                     font_size: 9,
@@ -1113,7 +1113,7 @@ fn compose_summary_overlay(
                             chapter: 5,
                         }
                     },
-                    text_capacity: 48,
+                    capacity: 48,
                     id: "fold_summary_line_5",
                     height: 17,
                     font_size: 9,

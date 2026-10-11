@@ -177,7 +177,7 @@ fn map_level_button(
                 ] {
                     Text (
                         text: ${ LockedLevelLabel(expedition.chapter() * 6 + slot) },
-                        text_capacity: 8,
+                        capacity: 8,
                         grow: 1.0,
                         height: 49,
                         font_size: 10,
@@ -194,7 +194,7 @@ fn map_level_button(
                             stars: model.progress().stars(expedition.chapter() * 6 + slot),
                         }
                     },
-                    text_capacity: 20,
+                    capacity: 20,
                     size: ButtonSize::Compact,
                     grow: 1.0,
                     height: 57,
@@ -238,7 +238,7 @@ fn compose_header(model: model!(PictureModel)) -> Entity {
     ui! {
         Text (
             text: ${ CHAPTER_NAMES[usize::from(model.level_index() / 6)] },
-            text_capacity: 32,
+            capacity: 32,
             id: "picture_chapter",
             position: Position::Absolute,
             left: 247,
@@ -253,7 +253,7 @@ fn compose_header(model: model!(PictureModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("A{:02} / 36", model.level_index() + 1) },
-            text_capacity: 16,
+            capacity: 16,
             id: "picture_level",
             position: Position::Absolute,
             left: 383,
@@ -278,7 +278,7 @@ fn compose_row_clues(model: model!(PictureModel)) -> Entity {
                     line: 0,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_row_0",
             position: Position::Absolute,
             left: 20,
@@ -299,7 +299,7 @@ fn compose_row_clues(model: model!(PictureModel)) -> Entity {
                     line: 1,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_row_1",
             position: Position::Absolute,
             left: 20,
@@ -320,7 +320,7 @@ fn compose_row_clues(model: model!(PictureModel)) -> Entity {
                     line: 2,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_row_2",
             position: Position::Absolute,
             left: 20,
@@ -341,7 +341,7 @@ fn compose_row_clues(model: model!(PictureModel)) -> Entity {
                     line: 3,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_row_3",
             position: Position::Absolute,
             left: 20,
@@ -362,7 +362,7 @@ fn compose_row_clues(model: model!(PictureModel)) -> Entity {
                     line: 4,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_row_4",
             position: Position::Absolute,
             left: 20,
@@ -383,7 +383,7 @@ fn compose_row_clues(model: model!(PictureModel)) -> Entity {
                     line: 5,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_row_5",
             position: Position::Absolute,
             left: 20,
@@ -404,7 +404,7 @@ fn compose_row_clues(model: model!(PictureModel)) -> Entity {
                     line: 6,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_row_6",
             position: Position::Absolute,
             left: 20,
@@ -425,7 +425,7 @@ fn compose_row_clues(model: model!(PictureModel)) -> Entity {
                     line: 7,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_row_7",
             position: Position::Absolute,
             left: 20,
@@ -446,7 +446,7 @@ fn compose_row_clues(model: model!(PictureModel)) -> Entity {
                     line: 8,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_row_8",
             position: Position::Absolute,
             left: 20,
@@ -467,7 +467,7 @@ fn compose_row_clues(model: model!(PictureModel)) -> Entity {
                     line: 9,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_row_9",
             position: Position::Absolute,
             left: 20,
@@ -492,7 +492,7 @@ fn compose_column_clues(model: model!(PictureModel)) -> Entity {
                     line: 0,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_col_0",
             position: Position::Absolute,
             left: ${ column_clue_left(model.level_index(), 0) },
@@ -513,7 +513,7 @@ fn compose_column_clues(model: model!(PictureModel)) -> Entity {
                     line: 1,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_col_1",
             position: Position::Absolute,
             left: ${ column_clue_left(model.level_index(), 1) },
@@ -534,7 +534,7 @@ fn compose_column_clues(model: model!(PictureModel)) -> Entity {
                     line: 2,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_col_2",
             position: Position::Absolute,
             left: ${ column_clue_left(model.level_index(), 2) },
@@ -555,7 +555,7 @@ fn compose_column_clues(model: model!(PictureModel)) -> Entity {
                     line: 3,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_col_3",
             position: Position::Absolute,
             left: ${ column_clue_left(model.level_index(), 3) },
@@ -576,7 +576,7 @@ fn compose_column_clues(model: model!(PictureModel)) -> Entity {
                     line: 4,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_col_4",
             position: Position::Absolute,
             left: ${ column_clue_left(model.level_index(), 4) },
@@ -597,7 +597,7 @@ fn compose_column_clues(model: model!(PictureModel)) -> Entity {
                     line: 5,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_col_5",
             position: Position::Absolute,
             left: ${ column_clue_left(model.level_index(), 5) },
@@ -618,7 +618,7 @@ fn compose_column_clues(model: model!(PictureModel)) -> Entity {
                     line: 6,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_col_6",
             position: Position::Absolute,
             left: ${ column_clue_left(model.level_index(), 6) },
@@ -639,7 +639,7 @@ fn compose_column_clues(model: model!(PictureModel)) -> Entity {
                     line: 7,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_col_7",
             position: Position::Absolute,
             left: ${ column_clue_left(model.level_index(), 7) },
@@ -660,7 +660,7 @@ fn compose_column_clues(model: model!(PictureModel)) -> Entity {
                     line: 8,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_col_8",
             position: Position::Absolute,
             left: ${ column_clue_left(model.level_index(), 8) },
@@ -681,7 +681,7 @@ fn compose_column_clues(model: model!(PictureModel)) -> Entity {
                     line: 9,
                 }
             },
-            text_capacity: 16,
+            capacity: 16,
             id: "pic_col_9",
             position: Position::Absolute,
             left: ${ column_clue_left(model.level_index(), 9) },
@@ -806,7 +806,7 @@ fn compose_tools(model: model!(PictureModel)) -> Entity {
                     level_size(model.level_index()), model.history_len(), model.hints()
                 )
             },
-            text_capacity: 48,
+            capacity: 48,
             id: "picture_progress",
             position: Position::Absolute,
             left: 334,
@@ -825,7 +825,7 @@ fn compose_footer(model: model!(PictureModel), expedition: model!(ExpeditionUiMo
     ui! {
         Text (
             text: ${ StatusLabel(model.message()) },
-            text_capacity: 48,
+            capacity: 48,
             id: "picture_status",
             position: Position::Absolute,
             left: 18,
@@ -888,7 +888,7 @@ fn compose_footer(model: model!(PictureModel), expedition: model!(ExpeditionUiMo
     ui! {
         Button (
             text: ${ next_label(model.modal(), model.level_index(), model.unlocked()) },
-            text_capacity: 16,
+            capacity: 16,
             id: "picture_next",
             position: Position::Absolute,
             left: 391,
@@ -961,7 +961,7 @@ fn compose_result_modal(
                             "图谱已复原"
                         }
                     },
-                    text_capacity: 24,
+                    capacity: 24,
                     id: "picture_result_title",
                     height: 28,
                     font_size: 15,
@@ -976,7 +976,7 @@ fn compose_result_modal(
                             .level_index())
                         )
                     },
-                    text_capacity: 64,
+                    capacity: 64,
                     id: "picture_result_stats",
                     height: 22,
                     font_size: 10,
@@ -1101,7 +1101,7 @@ fn compose_map_panel(model: model!(PictureModel), expedition: model!(ExpeditionU
                             expedition.chapter() + 1
                         )
                     },
-                    text_capacity: 48,
+                    capacity: 48,
                     id: "picture_map_summary",
                     height: 14,
                     font_size: 8,
@@ -1184,7 +1184,7 @@ fn compose_map_panel(model: model!(PictureModel), expedition: model!(ExpeditionU
                 }
                 Text (
                     text: ${ CHAPTER_NAMES[usize::from(expedition.chapter())] },
-                    text_capacity: 32,
+                    capacity: 32,
                     id: "picture_map_chapter_name",
                     height: 16,
                     font_size: 12,
@@ -1193,7 +1193,7 @@ fn compose_map_panel(model: model!(PictureModel), expedition: model!(ExpeditionU
                 )
                 Text (
                     text: ${ CHAPTER_MECHANICS[usize::from(expedition.chapter())] },
-                    text_capacity: 64,
+                    capacity: 64,
                     id: "picture_map_chapter_mechanic",
                     height: 14,
                     font_size: 9,
@@ -1359,7 +1359,7 @@ fn compose_briefing_panel(
                             .level_index() / 6)]
                         )
                     },
-                    text_capacity: 48,
+                    capacity: 48,
                     id: "picture_briefing_title",
                     height: 24,
                     font_size: 13,
@@ -1375,7 +1375,7 @@ fn compose_briefing_panel(
                 )
                 Text (
                     text: ${ CHAPTER_MECHANICS[usize::from(model.level_index() / 6)] },
-                    text_capacity: 64,
+                    capacity: 64,
                     id: "picture_briefing_mechanic",
                     height: 20,
                     font_size: 11,
@@ -1459,7 +1459,7 @@ fn compose_summary_panel(
                 )
                 Text (
                     text: ${ chapter_summary(model.progress(), 0) },
-                    text_capacity: 48,
+                    capacity: 48,
                     id: "picture_summary_line_0",
                     height: 17,
                     font_size: 9,
@@ -1468,7 +1468,7 @@ fn compose_summary_panel(
                 )
                 Text (
                     text: ${ chapter_summary(model.progress(), 1) },
-                    text_capacity: 48,
+                    capacity: 48,
                     id: "picture_summary_line_1",
                     height: 17,
                     font_size: 9,
@@ -1477,7 +1477,7 @@ fn compose_summary_panel(
                 )
                 Text (
                     text: ${ chapter_summary(model.progress(), 2) },
-                    text_capacity: 48,
+                    capacity: 48,
                     id: "picture_summary_line_2",
                     height: 17,
                     font_size: 9,
@@ -1486,7 +1486,7 @@ fn compose_summary_panel(
                 )
                 Text (
                     text: ${ chapter_summary(model.progress(), 3) },
-                    text_capacity: 48,
+                    capacity: 48,
                     id: "picture_summary_line_3",
                     height: 17,
                     font_size: 9,
@@ -1495,7 +1495,7 @@ fn compose_summary_panel(
                 )
                 Text (
                     text: ${ chapter_summary(model.progress(), 4) },
-                    text_capacity: 48,
+                    capacity: 48,
                     id: "picture_summary_line_4",
                     height: 17,
                     font_size: 9,
@@ -1504,7 +1504,7 @@ fn compose_summary_panel(
                 )
                 Text (
                     text: ${ chapter_summary(model.progress(), 5) },
-                    text_capacity: 48,
+                    capacity: 48,
                     id: "picture_summary_line_5",
                     height: 17,
                     font_size: 9,

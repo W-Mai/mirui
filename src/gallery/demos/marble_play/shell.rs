@@ -154,7 +154,7 @@ fn compose_header(model: model!(MarbleModel), audio: MarbleAudio) -> Entity {
             )
             Button (
                 text: ${ if model.paused() { "PLAY" } else { "HOLD" } },
-                text_capacity: 4,
+                capacity: 4,
                 id: "marble_pause",
                 size: ButtonSize::Compact,
                 width: 52,
@@ -175,7 +175,7 @@ fn compose_header(model: model!(MarbleModel), audio: MarbleAudio) -> Entity {
                 pressed_color: Color::rgb(217, 248, 138),
                 text_color: TEXT,
                 text: ${ audio_label(&audio_label_state) },
-                text_capacity: 5,
+                capacity: 5,
                 visible: ${ audio_visible(&audio_button_state) },
                 border_radius: 6
             ) on Tap {
@@ -197,7 +197,7 @@ fn compose_header(model: model!(MarbleModel), audio: MarbleAudio) -> Entity {
             }
             Button (
                 text: ${ if model.recording() { "DONE" } else if model.looping() { "STOP" } else { "REC" } },
-                text_capacity: 4,
+                capacity: 4,
                 id: "marble_record",
                 size: ButtonSize::Compact,
                 width: 44,
@@ -235,7 +235,7 @@ fn compose_status(model: model!(MarbleModel)) -> Entity {
         ) {
             Text (
                 text: ${ marble_status(model.page(), model.paused(), model.add_mode()) },
-                text_capacity: 32,
+                capacity: 32,
                 id: "marble_status",
                 grow: 1.0,
                 height: 17,
@@ -245,7 +245,7 @@ fn compose_status(model: model!(MarbleModel)) -> Entity {
             )
             Text (
                 text: ${ marble_count(model.ball_count()) },
-                text_capacity: 9,
+                capacity: 9,
                 id: "marble_marble_count",
                 width: 74,
                 height: 17,
@@ -255,7 +255,7 @@ fn compose_status(model: model!(MarbleModel)) -> Entity {
             )
             Text (
                 text: ${ pad_count(model.pad_count()) },
-                text_capacity: 6,
+                capacity: 6,
                 id: "marble_pad_count",
                 width: 52,
                 height: 17,
@@ -287,7 +287,7 @@ fn compose_readout(model: model!(MarbleModel)) -> Entity {
                         model.selected_bounce().to_fixed(),
                     )
                 },
-                text_capacity: 34,
+                capacity: 34,
                 id: "marble_readout",
                 grow: 1.0,
                 height: 22,

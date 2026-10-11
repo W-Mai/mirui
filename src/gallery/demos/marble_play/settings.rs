@@ -71,7 +71,7 @@ pub(super) fn marble_settings_page(model: model!(MarbleModel)) -> Entity {
             )
             Text (
                 text: ${ format_args!("TEMPO · {} BPM", model.bpm()) },
-                text_capacity: 16,
+                capacity: 16,
                 id: "marble_setting_bpm",
                 position: Position::Absolute,
                 left: 42,

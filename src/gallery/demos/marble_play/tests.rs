@@ -144,7 +144,7 @@ fn composition_uses_real_text_and_button_widgets() {
         ("marble_timbre", 6),
     ] {
         let text = world.get::<Text>(world.find_by_id(id).unwrap()).unwrap();
-        assert_eq!(text.text_capacity(), Some(capacity), "{id}");
+        assert_eq!(text.capacity(), Some(capacity), "{id}");
         assert!(text.has_valid_content(), "{id}");
         assert_eq!(text.last_content_error(), None, "{id}");
     }

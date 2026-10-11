@@ -141,7 +141,7 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                     ) on Tap { model.adjust_pitch(-1); }
                     Text (
                         text: ${ pitch_label(model.selected_pitch()) },
-                        text_capacity: 4,
+                        capacity: 4,
                         id: "marble_pitch",
                         grow: 1.0,
                         height: 18,
@@ -173,7 +173,7 @@ pub(super) fn marble_inspector(model: model!(MarbleModel)) -> Entity {
                     )
                     Button (
                         text: ${ model.selected_timbre().label() },
-                        text_capacity: 6,
+                        capacity: 6,
                         id: "marble_timbre",
                         size: ButtonSize::Compact,
                         grow: 1.0,

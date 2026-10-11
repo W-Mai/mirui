@@ -141,7 +141,7 @@ fn compose_header(model: model!(OrbitModel)) -> Entity {
     ui! {
         Button (
             text: ${ format_args!("任务 0{} · {}", model.mission() + 1, mission_name(model.mission())) },
-            text_capacity: 48,
+            capacity: 48,
             id: "orbit_mission",
             position: Position::Absolute,
             left: 284,
@@ -226,7 +226,7 @@ fn compose_header(model: model!(OrbitModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("SIM T+{}", Decimal1(model.time())) },
-            text_capacity: 24,
+            capacity: 24,
             id: "orbit_time",
             position: Position::Absolute,
             left: 356,
@@ -254,7 +254,7 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
         ) {
             Text (
                 text: ${ format_args!("FUEL  {} / 48", Decimal1(model.fuel())) },
-                text_capacity: 24,
+                capacity: 24,
                 id: "orbit_fuel",
                 position: Position::Absolute,
                 left: 318,
@@ -267,7 +267,7 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
             )
             Text (
                 text: ${ format_args!("HEAT  {}%", model.heat().to_int()) },
-                text_capacity: 20,
+                capacity: 20,
                 id: "orbit_heat",
                 position: Position::Absolute,
                 left: 318,
@@ -280,7 +280,7 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
             )
             Text (
                 text: ${ Decimal1(model.radius()) },
-                text_capacity: 16,
+                capacity: 16,
                 id: "orbit_radius",
                 position: Position::Absolute,
                 left: 318,
@@ -293,7 +293,7 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
             )
             Text (
                 text: ${ Decimal1(model.speed()) },
-                text_capacity: 16,
+                capacity: 16,
                 id: "orbit_speed",
                 position: Position::Absolute,
                 left: 395,
@@ -306,7 +306,7 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
             )
             Text (
                 text: ${ format_args!("{}.{}", model.dv_tenths() / 10, model.dv_tenths() % 10) },
-                text_capacity: 8,
+                capacity: 8,
                 id: "orbit_dv",
                 position: Position::Absolute,
                 left: 417,
@@ -375,7 +375,7 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
             ) on Tap { model.adjust_angle(-15); }
             Text (
                 text: ${ format_args!("{}°", model.angle_degrees()) },
-                text_capacity: 8,
+                capacity: 8,
                 id: "orbit_angle",
                 position: Position::Absolute,
                 left: 377,
@@ -402,7 +402,7 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
             ) on Tap { model.adjust_angle(15); }
             Button (
                 text: ${ if model.preview() { "预演 已开" } else { "预演 已关" } },
-                text_capacity: 16,
+                capacity: 16,
                 id: "orbit_preview",
                 position: Position::Absolute,
                 left: 18,
@@ -418,7 +418,7 @@ fn compose_map_page(model: model!(OrbitModel)) -> Entity {
             ) on Tap { model.toggle_preview(); }
             Button (
                 text: ${ format_args!("{}×", model.warp()) },
-                text_capacity: 8,
+                capacity: 8,
                 id: "orbit_warp",
                 position: Position::Absolute,
                 left: 244,
@@ -455,7 +455,7 @@ fn compose_plan_page(model: model!(OrbitModel)) -> Entity {
                         number: 1,
                     }
                 },
-                text_capacity: 64,
+                capacity: 64,
                 id: "orbit_node_0",
                 position: Position::Absolute,
                 left: 35,
@@ -487,7 +487,7 @@ fn compose_plan_page(model: model!(OrbitModel)) -> Entity {
                         number: 2,
                     }
                 },
-                text_capacity: 64,
+                capacity: 64,
                 id: "orbit_node_1",
                 position: Position::Absolute,
                 left: 35,
@@ -519,7 +519,7 @@ fn compose_plan_page(model: model!(OrbitModel)) -> Entity {
                         number: 3,
                     }
                 },
-                text_capacity: 64,
+                capacity: 64,
                 id: "orbit_node_2",
                 position: Position::Absolute,
                 left: 35,
@@ -546,7 +546,7 @@ fn compose_plan_page(model: model!(OrbitModel)) -> Entity {
             ) on Tap { let _ = model.cancel_at(2); }
             Text (
                 text: ${ format_args!("{} / 3 个节点", model.queue_len()) },
-                text_capacity: 24,
+                capacity: 24,
                 id: "orbit_queue_count",
                 position: Position::Absolute,
                 left: 24,
@@ -559,7 +559,7 @@ fn compose_plan_page(model: model!(OrbitModel)) -> Entity {
             )
             Text (
                 text: ${ format_args!("{} s", model.delay_seconds()) },
-                text_capacity: 8,
+                capacity: 8,
                 id: "orbit_delay",
                 position: Position::Absolute,
                 left: 326,
@@ -616,7 +616,7 @@ fn compose_record_page(model: model!(OrbitModel)) -> Entity {
         ) {
             Text (
                 text: ${ format_args!("{}", model.telemetry_len()) },
-                text_capacity: 8,
+                capacity: 8,
                 id: "orbit_samples",
                 position: Position::Absolute,
                 left: 325,
@@ -629,7 +629,7 @@ fn compose_record_page(model: model!(OrbitModel)) -> Entity {
             )
             Text (
                 text: ${ format_args!("{}", model.trail_len()) },
-                text_capacity: 8,
+                capacity: 8,
                 id: "orbit_trail",
                 position: Position::Absolute,
                 left: 392,
@@ -642,7 +642,7 @@ fn compose_record_page(model: model!(OrbitModel)) -> Entity {
             )
             Text (
                 text: ${ Decimal1(model.radius()) },
-                text_capacity: 16,
+                capacity: 16,
                 id: "orbit_record_radius",
                 position: Position::Absolute,
                 left: 325,
@@ -655,7 +655,7 @@ fn compose_record_page(model: model!(OrbitModel)) -> Entity {
             )
             Text (
                 text: ${ Decimal1(model.speed()) },
-                text_capacity: 16,
+                capacity: 16,
                 id: "orbit_record_speed",
                 position: Position::Absolute,
                 left: 325,
@@ -668,7 +668,7 @@ fn compose_record_page(model: model!(OrbitModel)) -> Entity {
             )
             Text (
                 text: ${ model.latest_event_kind().map_or("等待事件", event_label) },
-                text_capacity: 48,
+                capacity: 48,
                 id: "orbit_event",
                 position: Position::Absolute,
                 left: 325,
@@ -681,7 +681,7 @@ fn compose_record_page(model: model!(OrbitModel)) -> Entity {
             )
             Text (
                 text: ${ status_label(model.status()) },
-                text_capacity: 16,
+                capacity: 16,
                 id: "orbit_status",
                 position: Position::Absolute,
                 left: 325,
@@ -701,7 +701,7 @@ fn compose_footer(model: model!(OrbitModel)) -> Entity {
     ui! {
         Button (
             text: ${ if model.status() == OrbitStatus::Running { "Ⅱ 暂停" } else { "▶ 滑行" } },
-            text_capacity: 16,
+            capacity: 16,
             id: "orbit_footer_run",
             position: Position::Absolute,
             left: 12,
@@ -744,7 +744,7 @@ fn compose_footer(model: model!(OrbitModel)) -> Entity {
     ui! {
         Button (
             text: ${ if model.eligible() { "● 立即采样" } else { "采样" } },
-            text_capacity: 16,
+            capacity: 16,
             id: "orbit_footer_scan",
             position: Position::Absolute,
             left: 174,
@@ -821,7 +821,7 @@ fn compose_modal(model: model!(OrbitModel)) -> Entity {
         ] {
             Text (
                 text: ${ modal_title(model.modal()) },
-                text_capacity: 48,
+                capacity: 48,
                 id: "orbit_modal_title",
                 position: Position::Absolute,
                 left: 55,
@@ -834,7 +834,7 @@ fn compose_modal(model: model!(OrbitModel)) -> Entity {
             )
             Text (
                 text: ${ modal_subtitle(model.modal()) },
-                text_capacity: 96,
+                capacity: 96,
                 id: "orbit_modal_subtitle",
                 position: Position::Absolute,
                 left: 55,
@@ -847,7 +847,7 @@ fn compose_modal(model: model!(OrbitModel)) -> Entity {
             )
             Button (
                 text: ${ modal_button(model.modal(), 0, model.mission()).0 },
-                text_capacity: 32,
+                capacity: 32,
                 visible: ${ modal_button(model.modal(), 0, model.mission()).1 },
                 id: "orbit_modal_0",
                 position: Position::Absolute,
@@ -864,7 +864,7 @@ fn compose_modal(model: model!(OrbitModel)) -> Entity {
             ) on Tap { model.select_modal_option(0); }
             Button (
                 text: ${ modal_button(model.modal(), 1, model.mission()).0 },
-                text_capacity: 32,
+                capacity: 32,
                 visible: ${ modal_button(model.modal(), 1, model.mission()).1 },
                 id: "orbit_modal_1",
                 position: Position::Absolute,
@@ -881,7 +881,7 @@ fn compose_modal(model: model!(OrbitModel)) -> Entity {
             ) on Tap { model.select_modal_option(1); }
             Button (
                 text: ${ modal_button(model.modal(), 2, model.mission()).0 },
-                text_capacity: 32,
+                capacity: 32,
                 visible: ${ modal_button(model.modal(), 2, model.mission()).1 },
                 id: "orbit_modal_2",
                 position: Position::Absolute,
@@ -898,7 +898,7 @@ fn compose_modal(model: model!(OrbitModel)) -> Entity {
             ) on Tap { model.select_modal_option(2); }
             Button (
                 text: ${ modal_button(model.modal(), 3, model.mission()).0 },
-                text_capacity: 32,
+                capacity: 32,
                 visible: ${ modal_button(model.modal(), 3, model.mission()).1 },
                 id: "orbit_modal_3",
                 position: Position::Absolute,

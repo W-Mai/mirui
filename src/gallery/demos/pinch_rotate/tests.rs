@@ -116,7 +116,7 @@ fn pinch_updates_target_and_status() {
     assert!(
         app.world
             .get::<Text>(status)
-            .is_some_and(|text| text.text_capacity() == Some(64))
+            .is_some_and(|text| text.capacity() == Some(64))
     );
 }
 

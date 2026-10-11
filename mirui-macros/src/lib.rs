@@ -330,7 +330,7 @@ struct WidgetCmd {
     on_handlers: Vec<OnCmd>,
     component_fields: Vec<proc_macro2::TokenStream>,
     text_tuple_value: Option<proc_macro2::TokenStream>,
-    text_capacity: Option<proc_macro2::TokenStream>,
+    capacity: Option<proc_macro2::TokenStream>,
     text_paragraph_value: Option<proc_macro2::TokenStream>,
     id: Option<syn::LitStr>,
     id_lookups: Vec<(syn::Ident, String)>,
@@ -346,7 +346,7 @@ struct ParsedAttrs {
     component_inserts: Vec<proc_macro2::TokenStream>,
     component_fields: Vec<proc_macro2::TokenStream>,
     text_tuple_value: Option<proc_macro2::TokenStream>,
-    text_capacity: Option<proc_macro2::TokenStream>,
+    capacity: Option<proc_macro2::TokenStream>,
     text_paragraph_value: Option<proc_macro2::TokenStream>,
     id: Option<syn::LitStr>,
     id_lookups: Vec<(syn::Ident, String)>,
@@ -423,7 +423,7 @@ impl MiruiRune {
         let mut component_inserts = Vec::new();
         let mut component_fields = Vec::new();
         let mut text_tuple_value: Option<proc_macro2::TokenStream> = None;
-        let mut text_capacity: Option<proc_macro2::TokenStream> = None;
+        let mut capacity: Option<proc_macro2::TokenStream> = None;
         let mut text_paragraph_value: Option<proc_macro2::TokenStream> = None;
         let mut id = None;
         let mut id_lookups: Vec<(syn::Ident, String)> = Vec::new();
@@ -492,23 +492,18 @@ impl MiruiRune {
                 .map(|n| n.span())
                 .unwrap_or_else(|| syn::spanned::Spanned::span(&attr.value));
 
-            if name == "text_capacity"
-                && (is_text_widget || is_button_widget || is_text_input_widget)
-            {
-                if text_capacity.is_some() {
+            if name == "capacity" && (is_text_widget || is_button_widget || is_text_input_widget) {
+                if capacity.is_some() {
                     errors.push(
-                        syn::Error::new(attr_span, "duplicate `text_capacity`").to_compile_error(),
+                        syn::Error::new(attr_span, "duplicate `capacity`").to_compile_error(),
                     );
                 } else if attr.reactive {
                     errors.push(
-                        syn::Error::new(
-                            attr_span,
-                            "`text_capacity` must be a compile-time constant",
-                        )
-                        .to_compile_error(),
+                        syn::Error::new(attr_span, "`capacity` must be a compile-time constant")
+                            .to_compile_error(),
                     );
                 } else {
-                    text_capacity = Some(quote! { #value });
+                    capacity = Some(quote! { #value });
                 }
                 continue;
             }
@@ -701,7 +696,7 @@ impl MiruiRune {
             component_inserts,
             component_fields,
             text_tuple_value,
-            text_capacity,
+            capacity,
             text_paragraph_value,
             id,
             id_lookups,
@@ -976,14 +971,14 @@ impl MiruiRune {
         if cmd.kind == WidgetKind::Component {
             let comp_name = &cmd.name;
             if cmd.name == "Text" {
-                let init = if let Some(capacity) = &cmd.text_capacity {
+                let init = if let Some(capacity) = &cmd.capacity {
                     let paragraph = cmd
                         .text_paragraph_value
                         .as_ref()
                         .map(|value| quote! { .with_paragraph(#value) });
                     quote! {
                         #comp_name::new_bounded(#capacity)
-                            .expect("Text text_capacity could not be reserved")
+                            .expect("Text capacity could not be reserved")
                             #paragraph
                     }
                 } else {
@@ -1006,10 +1001,10 @@ impl MiruiRune {
                 });
             } else if cmd.name == "TextInput" {
                 let setters = &cmd.component_fields;
-                let capacity = cmd.text_capacity.as_ref().map(|capacity| {
+                let capacity = cmd.capacity.as_ref().map(|capacity| {
                     quote! {
-                        .with_text_capacity(#capacity)
-                        .expect("TextInput text_capacity could not be reserved")
+                        .with_capacity(#capacity)
+                        .expect("TextInput capacity could not be reserved")
                     }
                 });
                 tokens.extend(quote! {
@@ -1028,12 +1023,12 @@ impl MiruiRune {
                     });
                 });
                 if cmd.name == "Button" {
-                    if let Some(capacity) = &cmd.text_capacity {
+                    if let Some(capacity) = &cmd.capacity {
                         tokens.extend(quote! {
                             (#world).insert(
                                 #var,
                                 ::mirui::ui::widgets::Text::new_bounded(#capacity)
-                                    .expect("Button text_capacity could not be reserved")
+                                    .expect("Button capacity could not be reserved")
                                     .with_paragraph(::mirui::ui::widgets::ParagraphStyle::label()),
                             );
                         });
@@ -1049,7 +1044,7 @@ impl MiruiRune {
             }
         }
 
-        if let Some(capacity) = &cmd.text_capacity
+        if let Some(capacity) = &cmd.capacity
             && (cmd.name == "Text" || cmd.name == "Button")
             && !cmd
                 .reactive_binds
@@ -1090,7 +1085,7 @@ impl MiruiRune {
             let expr = &binding.expr;
             let body = if property == "TextContent"
                 && (cmd.name == "Text" || cmd.name == "Button")
-                && let Some(capacity) = &cmd.text_capacity
+                && let Some(capacity) = &cmd.capacity
             {
                 direct_format_args_call(&binding.format_expr, &quote! { #var }, capacity)
                     .unwrap_or_else(|| {
@@ -2000,7 +1995,7 @@ impl DsRune for MiruiRune {
             on_handlers: collected_on_handlers,
             component_fields: parsed.component_fields,
             text_tuple_value: parsed.text_tuple_value,
-            text_capacity: parsed.text_capacity,
+            capacity: parsed.capacity,
             text_paragraph_value: parsed.text_paragraph_value,
             id: parsed.id,
             id_lookups,

@@ -203,7 +203,7 @@ mod tests {
         app.compose(root, |cx| {
             ui! {
                 TextInput (
-                    text_capacity: 512,
+                    capacity: 512,
                     text_color: mirui::ui::ColorToken::Primary,
                     placeholder_color: mirui::ui::ColorToken::Secondary,
                     cursor_color: mirui::ui::ColorToken::OnPrimary,

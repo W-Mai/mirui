@@ -14,12 +14,12 @@ Spatial input refreshes stale layout or transformed hit geometry before dispatch
 
 `replace_selection(text)` replaces the entire selection and collapses it to the end of the inserted text. Capacity errors and control characters reject the whole replacement without changing content or selection. A successful result is `true` when content changed and `false` when only the selection collapsed. Editing does not allocate.
 
-The default capacity is 32 inline bytes. Use `TextInput(text_capacity: 256)` in `ui!`, `TextInput::new().with_text_capacity(256)?`, or `TextInput::build().text_capacity(256)?` to prepare a larger buffer. `capacity()` reports the accepted byte limit. `set_text_capacity(bytes)` explicitly changes that limit, preserving content and selection; shrinking below the current length fails. Shrinking retains storage for reuse. Zero capacity accepts only empty content, and capacities above `min(u32::MAX, isize::MAX)` are rejected. Allocation failure leaves the existing input unchanged.
+The default capacity is 32 inline bytes. Use `TextInput(capacity: 256)` in `ui!`, `TextInput::new().with_capacity(256)?`, or `TextInput::build().capacity(256)?` to prepare a larger buffer. `capacity()` reports the accepted byte limit. `set_capacity(bytes)` explicitly changes that limit, preserving content and selection; shrinking below the current length fails. Shrinking retains storage for reuse. Zero capacity accepts only empty content, and capacities above `min(u32::MAX, isize::MAX)` are rejected. Allocation failure leaves the existing input unchanged.
 
 ```rust,ignore
 use mirui::ui::widgets::text_input::{TextInput, TextSelection};
 
-let mut input = TextInput::new().with_text_capacity(256)?;
+let mut input = TextInput::new().with_capacity(256)?;
 input.replace_selection("Hello world")?;
 input.set_selection(TextSelection { anchor: 6, cursor: 11 })?;
 input.replace_selection("Mirui")?;

@@ -557,7 +557,7 @@ fn direction_and_sliders_publish_semantic_state() {
             .get::<Text>(app.world.find_by_id(id).unwrap())
             .unwrap();
         assert_eq!(text.resolve(app.world.resource()), expected);
-        assert!(text.text_capacity().is_some());
+        assert!(text.capacity().is_some());
     }
 }
 

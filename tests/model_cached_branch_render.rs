@@ -269,7 +269,7 @@ fn first_nested_bounded_text_branch_switch_reuses_full_frame_storage() {
                         Text (
                             "SHALLOW",
                             id: "shallow_text",
-                            text_capacity: 8,
+                            capacity: 8,
                             width: 128,
                             height: 16,
                             font_size: 8,
@@ -282,7 +282,7 @@ fn first_nested_bounded_text_branch_switch_reuses_full_frame_storage() {
                                 Text (
                                     text: ${ format_args!("DEEP {:03}", deep_label.selected()) },
                                     id: "deep_text",
-                                    text_capacity: 8,
+                                    capacity: 8,
                                     width: 128,
                                     height: 16,
                                     font_size: 8,
@@ -290,7 +290,7 @@ fn first_nested_bounded_text_branch_switch_reuses_full_frame_storage() {
                                 ) on Tap { }
                                 Text (
                                     "SECOND",
-                                    text_capacity: 8,
+                                    capacity: 8,
                                     width: 128,
                                     height: 16,
                                     font_size: 8
@@ -340,7 +340,7 @@ fn first_nested_bounded_text_branch_switch_reuses_full_frame_storage() {
     let deep_frame = app.backend.framebuffer().buf.as_slice().to_vec();
     assert_ne!(deep_frame, shallow_frame);
     let text = app.world.get::<Text>(deep).unwrap();
-    assert_eq!(text.text_capacity(), Some(8));
+    assert_eq!(text.capacity(), Some(8));
     assert_eq!(text.resolve(app.world.resource()), "DEEP 001");
     assert_eq!(
         app.world.get::<ComputedRect>(tail).unwrap().0.y,
@@ -416,7 +416,7 @@ fn cached_branch_routes_taps_and_reveals_hidden_state_without_rebuilding() {
                         Text (
                             "FIRST",
                             id: "branch_first",
-                            text_capacity: 10,
+                            capacity: 10,
                             width: 128,
                             height: 16,
                             font_size: 8,
@@ -427,7 +427,7 @@ fn cached_branch_routes_taps_and_reveals_hidden_state_without_rebuilding() {
                         Text (
                             text: ${ format_args!("SECOND {:03}", label.label()) },
                             id: "branch_second",
-                            text_capacity: 10,
+                            capacity: 10,
                             width: 128,
                             height: 16,
                             font_size: 8,

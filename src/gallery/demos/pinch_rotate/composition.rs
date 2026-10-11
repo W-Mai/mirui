@@ -20,7 +20,7 @@ pub(super) fn build_widgets(model: model!(PinchModel)) {
             ) {
                 Text (
                     text: ${ format_args!("{}", model.status()) },
-                    text_capacity: 64,
+                    capacity: 64,
                     grow: 1.0,
                     width: Dimension::percent(100),
                     height: 32,

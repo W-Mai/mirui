@@ -176,7 +176,7 @@ fn compose_header(model: model!(FactoryModel)) -> Entity {
                     .mission().goal,
                 )
             },
-            text_capacity: 24,
+            capacity: 24,
             id: "factory_order_meta",
             position: Position::Absolute,
             left: 304,
@@ -258,7 +258,7 @@ fn compose_header(model: model!(FactoryModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("PWR {}/{}", model.power(), model.mission().power) },
-            text_capacity: 12,
+            capacity: 12,
             id: "factory_power_meta",
             position: Position::Absolute,
             left: 302,
@@ -273,7 +273,7 @@ fn compose_header(model: model!(FactoryModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("T+{:03}", model.tick()) },
-            text_capacity: 8,
+            capacity: 8,
             id: "factory_tick_meta",
             position: Position::Absolute,
             left: 394,
@@ -312,7 +312,7 @@ fn compose_line_page(model: model!(FactoryModel)) -> Entity {
             )
             Text (
                 text: ${ format_args!("{} / {}", model.delivered(), model.mission().goal) },
-                text_capacity: 16,
+                capacity: 16,
                 id: "factory_delivered",
                 position: Position::Absolute,
                 left: 319,
@@ -336,7 +336,7 @@ fn compose_line_page(model: model!(FactoryModel)) -> Entity {
             )
             Text (
                 text: ${ format_args!("{} / {}", model.cost(), model.mission().budget) },
-                text_capacity: 16,
+                capacity: 16,
                 id: "factory_cost",
                 position: Position::Absolute,
                 left: 388,
@@ -360,7 +360,7 @@ fn compose_line_page(model: model!(FactoryModel)) -> Entity {
             )
             Text (
                 text: ${ model.selected_cell().map_or("待建造空位", |cell| cell.kind.label()) },
-                text_capacity: 18,
+                capacity: 18,
                 id: "factory_selected",
                 position: Position::Absolute,
                 left: 318,
@@ -378,7 +378,7 @@ fn compose_line_page(model: model!(FactoryModel)) -> Entity {
                         1,
                     )
                 },
-                text_capacity: 12,
+                capacity: 12,
                 id: "factory_selected_coord",
                 position: Position::Absolute,
                 left: 388,
@@ -398,7 +398,7 @@ fn compose_line_page(model: model!(FactoryModel)) -> Entity {
                         rejected: model.rejected(),
                     }
                 },
-                text_capacity: 96,
+                capacity: 96,
                 id: "factory_status",
                 position: Position::Absolute,
                 left: 16,
@@ -411,7 +411,7 @@ fn compose_line_page(model: model!(FactoryModel)) -> Entity {
             )
             Text (
                 text: ${ format_args!("方向 {}", direction_glyph(model.tool_direction())) },
-                text_capacity: 12,
+                capacity: 12,
                 id: "factory_direction",
                 position: Position::Absolute,
                 left: 318,
@@ -424,7 +424,7 @@ fn compose_line_page(model: model!(FactoryModel)) -> Entity {
             )
             Text (
                 text: ${ tool_label(model.tool()) },
-                text_capacity: 18,
+                capacity: 18,
                 id: "factory_tool",
                 position: Position::Absolute,
                 left: 318,
@@ -498,7 +498,7 @@ fn compose_orders_page(model: model!(FactoryModel)) -> Entity {
             ) on Tap { model.request_mission(2, false); }
             Text (
                 text: ${ MissionDescription(0) },
-                text_capacity: 96,
+                capacity: 96,
                 id: "factory_order_desc_0",
                 position: Position::Absolute,
                 left: 98,
@@ -512,7 +512,7 @@ fn compose_orders_page(model: model!(FactoryModel)) -> Entity {
             )
             Text (
                 text: ${ MissionDescription(1) },
-                text_capacity: 96,
+                capacity: 96,
                 id: "factory_order_desc_1",
                 position: Position::Absolute,
                 left: 98,
@@ -526,7 +526,7 @@ fn compose_orders_page(model: model!(FactoryModel)) -> Entity {
             )
             Text (
                 text: ${ MissionDescription(2) },
-                text_capacity: 96,
+                capacity: 96,
                 id: "factory_order_desc_2",
                 position: Position::Absolute,
                 left: 98,
@@ -671,7 +671,7 @@ fn compose_telemetry_page(model: model!(FactoryModel)) -> Entity {
             )
             Text (
                 text: ${ format_args!("{}", model.tick()) },
-                text_capacity: 8,
+                capacity: 8,
                 id: "factory_telemetry_tick",
                 position: Position::Absolute,
                 left: 419,
@@ -684,7 +684,7 @@ fn compose_telemetry_page(model: model!(FactoryModel)) -> Entity {
             )
             Text (
                 text: ${ format_args!("{}", model.produced()) },
-                text_capacity: 8,
+                capacity: 8,
                 id: "factory_telemetry_produced",
                 position: Position::Absolute,
                 left: 419,
@@ -697,7 +697,7 @@ fn compose_telemetry_page(model: model!(FactoryModel)) -> Entity {
             )
             Text (
                 text: ${ format_args!("{}", model.delivered()) },
-                text_capacity: 8,
+                capacity: 8,
                 id: "factory_telemetry_delivered",
                 position: Position::Absolute,
                 left: 419,
@@ -710,7 +710,7 @@ fn compose_telemetry_page(model: model!(FactoryModel)) -> Entity {
             )
             Text (
                 text: ${ format_args!("{}", model.rejected()) },
-                text_capacity: 8,
+                capacity: 8,
                 id: "factory_telemetry_rejected",
                 position: Position::Absolute,
                 left: 419,
@@ -723,7 +723,7 @@ fn compose_telemetry_page(model: model!(FactoryModel)) -> Entity {
             )
             Text (
                 text: ${ format_args!("{}", model.wip()) },
-                text_capacity: 8,
+                capacity: 8,
                 id: "factory_telemetry_wip",
                 position: Position::Absolute,
                 left: 419,
@@ -842,7 +842,7 @@ fn compose_footer(model: model!(FactoryModel)) -> Entity {
     ui! {
         Button (
             text: ${ if model.running() { "Ⅱ 暂停" } else { "▶ 运行" } },
-            text_capacity: 12,
+            capacity: 12,
             id: "factory_footer_4",
             position: Position::Absolute,
             left: 369,
@@ -877,7 +877,7 @@ fn compose_modal(model: model!(FactoryModel)) -> Entity {
         ] {
             Text (
                 text: ${ modal_title(model.modal()) },
-                text_capacity: 32,
+                capacity: 32,
                 id: "factory_modal_title",
                 position: Position::Absolute,
                 left: 43,
@@ -890,7 +890,7 @@ fn compose_modal(model: model!(FactoryModel)) -> Entity {
             )
             Text (
                 text: ${ modal_subtitle(model.modal()) },
-                text_capacity: 96,
+                capacity: 96,
                 id: "factory_modal_subtitle",
                 position: Position::Absolute,
                 left: 43,
@@ -903,7 +903,7 @@ fn compose_modal(model: model!(FactoryModel)) -> Entity {
             )
             Button (
                 text: ${ modal_button_label(model.modal(), 0) },
-                text_capacity: 32,
+                capacity: 32,
                 id: "factory_modal_0",
                 visible: ${ modal_button_visible(model.modal(), 0) },
                 position: Position::Absolute,
@@ -920,7 +920,7 @@ fn compose_modal(model: model!(FactoryModel)) -> Entity {
             ) on Tap { model.select_modal_option(0); }
             Button (
                 text: ${ modal_button_label(model.modal(), 1) },
-                text_capacity: 32,
+                capacity: 32,
                 id: "factory_modal_1",
                 visible: ${ modal_button_visible(model.modal(), 1) },
                 position: Position::Absolute,
@@ -937,7 +937,7 @@ fn compose_modal(model: model!(FactoryModel)) -> Entity {
             ) on Tap { model.select_modal_option(1); }
             Button (
                 text: ${ modal_button_label(model.modal(), 2) },
-                text_capacity: 32,
+                capacity: 32,
                 id: "factory_modal_2",
                 visible: ${ modal_button_visible(model.modal(), 2) },
                 position: Position::Absolute,
@@ -954,7 +954,7 @@ fn compose_modal(model: model!(FactoryModel)) -> Entity {
             ) on Tap { model.select_modal_option(2); }
             Button (
                 text: ${ modal_button_label(model.modal(), 3) },
-                text_capacity: 32,
+                capacity: 32,
                 id: "factory_modal_3",
                 visible: ${ modal_button_visible(model.modal(), 3) },
                 position: Position::Absolute,
@@ -971,7 +971,7 @@ fn compose_modal(model: model!(FactoryModel)) -> Entity {
             ) on Tap { model.select_modal_option(3); }
             Button (
                 text: ${ modal_button_label(model.modal(), 4) },
-                text_capacity: 32,
+                capacity: 32,
                 id: "factory_modal_4",
                 visible: ${ modal_button_visible(model.modal(), 4) },
                 position: Position::Absolute,
@@ -988,7 +988,7 @@ fn compose_modal(model: model!(FactoryModel)) -> Entity {
             ) on Tap { model.select_modal_option(4); }
             Button (
                 text: ${ modal_button_label(model.modal(), 5) },
-                text_capacity: 32,
+                capacity: 32,
                 id: "factory_modal_5",
                 visible: ${ modal_button_visible(model.modal(), 5) },
                 position: Position::Absolute,

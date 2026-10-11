@@ -122,7 +122,7 @@ fn observed_state_drives_bounded_text_and_page_visibility() {
         "orbit_modal_subtitle",
     ] {
         let text = world.get::<Text>(world.find_by_id(id).unwrap()).unwrap();
-        assert!(text.text_capacity().is_some(), "{id}");
+        assert!(text.capacity().is_some(), "{id}");
         assert!(text.has_valid_content(), "{id}");
         assert_eq!(text.last_content_error(), None, "{id}");
     }

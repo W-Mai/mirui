@@ -114,7 +114,7 @@ fn compose_header(model: model!(PostModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("SORTED {} / {}", model.delivered(), model.manifest_len()) },
-            text_capacity: 14,
+            capacity: 14,
             id: "post_sorted",
             position: Position::Absolute,
             left: 306,
@@ -129,7 +129,7 @@ fn compose_header(model: model!(PostModel)) -> Entity {
     ui! {
         Text (
             text: ${ status_label(model.finished(), model.running(), model.started()) },
-            text_capacity: 39,
+            capacity: 39,
             id: "post_status",
             position: Position::Absolute,
             left: 16,
@@ -144,7 +144,7 @@ fn compose_header(model: model!(PostModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("错投 {}   连对 {}", model.missed(), model.streak()) },
-            text_capacity: 23,
+            capacity: 23,
             id: "post_misses",
             position: Position::Absolute,
             left: 304,
@@ -228,7 +228,7 @@ fn compose_route_summary(model: model!(PostModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("{}", model.station_a_count()) },
-            text_capacity: 3,
+            capacity: 3,
             id: "post_station_0",
             position: Position::Absolute,
             left: 432,
@@ -269,7 +269,7 @@ fn compose_route_summary(model: model!(PostModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("{}", model.station_b_count()) },
-            text_capacity: 3,
+            capacity: 3,
             id: "post_station_1",
             position: Position::Absolute,
             left: 432,
@@ -310,7 +310,7 @@ fn compose_route_summary(model: model!(PostModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("{}", model.station_c_count()) },
-            text_capacity: 3,
+            capacity: 3,
             id: "post_station_2",
             position: Position::Absolute,
             left: 432,
@@ -342,7 +342,7 @@ fn compose_dispatch_queue(model: model!(PostModel)) -> Entity {
     ui! {
         Text (
             text: ${ destination_letter(model.queued_slots()[0]) },
-            text_capacity: 1,
+            capacity: 1,
             id: "post_queue_0",
             visible: ${ model.queued_slots()[0].is_some() },
             position: Position::Absolute,
@@ -358,7 +358,7 @@ fn compose_dispatch_queue(model: model!(PostModel)) -> Entity {
     ui! {
         Text (
             text: ${ destination_letter(model.queued_slots()[1]) },
-            text_capacity: 1,
+            capacity: 1,
             id: "post_queue_1",
             visible: ${ model.queued_slots()[1].is_some() },
             position: Position::Absolute,
@@ -374,7 +374,7 @@ fn compose_dispatch_queue(model: model!(PostModel)) -> Entity {
     ui! {
         Text (
             text: ${ destination_letter(model.queued_slots()[2]) },
-            text_capacity: 1,
+            capacity: 1,
             id: "post_queue_2",
             visible: ${ model.queued_slots()[2].is_some() },
             position: Position::Absolute,
@@ -390,7 +390,7 @@ fn compose_dispatch_queue(model: model!(PostModel)) -> Entity {
     ui! {
         Text (
             text: ${ destination_letter(model.queued_slots()[3]) },
-            text_capacity: 1,
+            capacity: 1,
             id: "post_queue_3",
             visible: ${ model.queued_slots()[3].is_some() },
             position: Position::Absolute,
@@ -406,7 +406,7 @@ fn compose_dispatch_queue(model: model!(PostModel)) -> Entity {
     ui! {
         Text (
             text: ${ destination_letter(model.queued_slots()[4]) },
-            text_capacity: 1,
+            capacity: 1,
             id: "post_queue_4",
             visible: ${ model.queued_slots()[4].is_some() },
             position: Position::Absolute,
@@ -422,7 +422,7 @@ fn compose_dispatch_queue(model: model!(PostModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("{} / 3 在途", model.active_len()) },
-            text_capacity: 12,
+            capacity: 12,
             id: "post_in_transit",
             position: Position::Absolute,
             left: 218,
@@ -457,7 +457,7 @@ fn compose_footer(model: model!(PostModel)) -> Entity {
     ui! {
         Button (
             text: ${ run_label(model.finished(), model.running(), model.started()) },
-            text_capacity: 12,
+            capacity: 12,
             id: "post_run",
             position: Position::Absolute,
             left: 12,
@@ -497,7 +497,7 @@ fn compose_footer(model: model!(PostModel)) -> Entity {
     ui! {
         Button (
             text: ${ speed_label(model.speed_x2()) },
-            text_capacity: 12,
+            capacity: 12,
             id: "post_speed",
             position: Position::Absolute,
             left: 268,
@@ -574,7 +574,7 @@ fn compose_modal(model: model!(PostModel)) -> Entity {
         ] {
             Text (
                 text: ${ modal_title(model.modal()) },
-                text_capacity: 24,
+                capacity: 24,
                 id: "post_modal_title",
                 position: Position::Absolute,
                 left: 29,
@@ -587,7 +587,7 @@ fn compose_modal(model: model!(PostModel)) -> Entity {
             )
             Text (
                 text: ${ modal_subtitle(model.modal()) },
-                text_capacity: 72,
+                capacity: 72,
                 id: "post_modal_subtitle",
                 position: Position::Absolute,
                 left: 29,
@@ -662,7 +662,7 @@ fn compose_modal(model: model!(PostModel)) -> Entity {
             ) on Tap { model.load_manifest(2); }
             Text (
                 text: ${ format_args!("{:04}", model.score()) },
-                text_capacity: 5,
+                capacity: 5,
                 id: "post_summary_score",
                 visible: ${ model.modal() == PostModal::Summary },
                 position: Position::Absolute,
@@ -689,7 +689,7 @@ fn compose_modal(model: model!(PostModel)) -> Entity {
             )
             Text (
                 text: ${ format_args!("正确 {} 件", model.delivered()) },
-                text_capacity: 14,
+                capacity: 14,
                 id: "post_summary_correct",
                 visible: ${ model.modal() == PostModal::Summary },
                 position: Position::Absolute,
@@ -703,7 +703,7 @@ fn compose_modal(model: model!(PostModel)) -> Entity {
             )
             Text (
                 text: ${ format_args!("错投 {} 件", model.missed()) },
-                text_capacity: 14,
+                capacity: 14,
                 id: "post_summary_missed",
                 visible: ${ model.modal() == PostModal::Summary },
                 position: Position::Absolute,

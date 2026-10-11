@@ -68,7 +68,7 @@ fn compose_header_tools(model: model!(MossModel)) -> Entity {
     ui! {
         Text (
             text: ${ if model.running() { "B3 / S23 · RUN" } else { "B3 / S23 · PAUSE" } },
-            text_capacity: 17,
+            capacity: 17,
             id: "moss_status",
             position: Position::Absolute,
             left: 300,
@@ -134,7 +134,7 @@ fn compose_header_tools(model: model!(MossModel)) -> Entity {
     ui! {
         Button (
             text: ${ format_args!("{} 度旋转", model.rotation() * 90) },
-            text_capacity: 13,
+            capacity: 13,
             id: "moss_rotate",
             position: Position::Absolute,
             left: 235,
@@ -169,7 +169,7 @@ fn compose_metrics(model: model!(MossModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("{:03}", model.generation()) },
-            text_capacity: 10,
+            capacity: 10,
             id: "moss_generation",
             position: Position::Absolute,
             left: 382,
@@ -197,7 +197,7 @@ fn compose_metrics(model: model!(MossModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("{}", model.live_count()) },
-            text_capacity: 3,
+            capacity: 3,
             id: "moss_live",
             position: Position::Absolute,
             left: 425,
@@ -212,7 +212,7 @@ fn compose_metrics(model: model!(MossModel)) -> Entity {
     ui! {
         Button (
             text: ${ format_args!("{} 代/秒 ↻", model.rate()) },
-            text_capacity: 13,
+            capacity: 13,
             id: "moss_rate",
             position: Position::Absolute,
             left: 372,
@@ -277,7 +277,7 @@ fn compose_footer(model: model!(MossModel)) -> Entity {
     ui! {
         Button (
             text: ${ if model.running() { "暂停" } else { "运行" } },
-            text_capacity: 6,
+            capacity: 6,
             id: "moss_run",
             position: Position::Absolute,
             left: 12,
@@ -368,7 +368,7 @@ fn compose_modal(model: model!(MossModel)) -> Entity {
                         "让花园重新开始？"
                     }
                 },
-                text_capacity: 27,
+                capacity: 27,
                 id: "moss_modal_title",
                 position: Position::Absolute,
                 left: 29,
@@ -387,7 +387,7 @@ fn compose_modal(model: model!(MossModel)) -> Entity {
                         MossModal::Clear => ModalSubtitle::Clear(model.live_count()),
                     }
                 },
-                text_capacity: 53,
+                capacity: 53,
                 id: "moss_modal_subtitle",
                 position: Position::Absolute,
                 left: 29,

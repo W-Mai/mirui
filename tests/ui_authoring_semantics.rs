@@ -91,7 +91,7 @@ fn static_label_with_consuming_capture(label: String) {
     ui! {
         Text (
             text: label,
-            text_capacity: 32,
+            capacity: 32,
             width: ${ mirui::types::Dimension::px(label.len() as i32) }
         )
     };

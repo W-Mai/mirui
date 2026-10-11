@@ -171,7 +171,7 @@ fn gesture_callbacks_call_bound_model_commands() {
         let entity = world.find_by_id(id).unwrap();
         let text = world.get::<Text>(entity).unwrap();
         assert_eq!(text.resolve(world.resource()), expected);
-        assert!(text.text_capacity().is_some(), "{id}");
+        assert!(text.capacity().is_some(), "{id}");
     }
 }
 
@@ -288,7 +288,7 @@ fn switch_and_checkbox_publish_business_values() {
         let entity = world.find_by_id(id).unwrap();
         let text = world.get::<Text>(entity).unwrap();
         assert_eq!(text.resolve(world.resource()), expected);
-        assert!(text.text_capacity().is_some(), "{id}");
+        assert!(text.capacity().is_some(), "{id}");
     }
 }
 

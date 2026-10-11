@@ -457,7 +457,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             .world
             .query::<crate::ui::widgets::Text>()
             .iter()
-            .filter(|(_, text)| text.text_capacity().is_some())
+            .filter(|(_, text)| text.capacity().is_some())
             .count()
             .max(1);
         self.text_raster_scratch_preparation_error = self
@@ -2028,13 +2028,13 @@ mod app_invariant_tests {
         {
             let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
             crate::ui! {
-                Text ("A", id: "scratch_a", text_capacity: 1)
+                Text ("A", id: "scratch_a", capacity: 1)
             }
         };
         {
             let mut cx = ::mirui::ui::UiScope::new(&mut app.world, root);
             crate::ui! {
-                Text ("B", id: "scratch_b", text_capacity: 1)
+                Text ("B", id: "scratch_b", capacity: 1)
             }
         };
         app.prefer_text_raster_scratch(8, 8).unwrap();

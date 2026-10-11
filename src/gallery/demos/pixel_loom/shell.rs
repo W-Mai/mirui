@@ -100,7 +100,7 @@ fn compose_header(model: model!(PixelModel)) -> Entity {
                     playing: model.playing(),
                 }
             },
-            text_capacity: 13,
+            capacity: 13,
             id: "pixel_frame_status",
             position: Position::Absolute,
             left: 350,
@@ -115,7 +115,7 @@ fn compose_header(model: model!(PixelModel)) -> Entity {
     ui! {
         Text (
             text: ${ if model.playing() { "正在播放" } else { "画一格，就改变一点" } },
-            text_capacity: 27,
+            capacity: 27,
             id: "pixel_mode_status",
             position: Position::Absolute,
             left: 17,
@@ -156,7 +156,7 @@ fn compose_header(model: model!(PixelModel)) -> Entity {
     ui! {
         Text (
             text: ${ TEMPLATE_NAMES[model.template_id() as usize] },
-            text_capacity: 12,
+            capacity: 12,
             id: "pixel_template_name",
             position: Position::Absolute,
             left: 327,
@@ -184,7 +184,7 @@ fn compose_header(model: model!(PixelModel)) -> Entity {
     ui! {
         Button (
             text: ${ format_args!("{} 帧/秒 ↻", model.fps()) },
-            text_capacity: 13,
+            capacity: 13,
             id: "pixel_fps",
             position: Position::Absolute,
             left: 327,
@@ -521,7 +521,7 @@ fn compose_footer(model: model!(PixelModel)) -> Entity {
     ui! {
         Button (
             text: ${ if model.playing() { "暂停预览" } else { "播放动画" } },
-            text_capacity: 12,
+            capacity: 12,
             id: "pixel_play",
             position: Position::Absolute,
             left: 260,
@@ -564,7 +564,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                         "清空这一帧？"
                     }
                 },
-                text_capacity: 18,
+                capacity: 18,
                 id: "pixel_modal_title",
                 position: Position::Absolute,
                 left: 29,
@@ -583,7 +583,7 @@ fn compose_modal(model: model!(PixelModel)) -> Entity {
                         "其他三帧不受影响；清空以后也能撤销。"
                     }
                 },
-                text_capacity: 66,
+                capacity: 66,
                 id: "pixel_modal_subtitle",
                 position: Position::Absolute,
                 left: 29,

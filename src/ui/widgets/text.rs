@@ -358,14 +358,14 @@ impl<const N: usize> fmt::Write for BoundedTextBuffer<N> {
 pub struct Text {
     content: TextContent,
     paragraph: ParagraphStyle,
-    text_capacity: Option<usize>,
+    capacity: Option<usize>,
     last_content_error: Option<TextContentError>,
     has_valid_content: bool,
 }
 
 impl Clone for Text {
     fn clone(&self) -> Self {
-        let content = match (&self.content, self.text_capacity) {
+        let content = match (&self.content, self.capacity) {
             (TextContent::Plain(value), Some(capacity)) => {
                 let mut storage = String::with_capacity(capacity);
                 storage.push_str(value);
@@ -376,7 +376,7 @@ impl Clone for Text {
         Self {
             content,
             paragraph: self.paragraph.clone(),
-            text_capacity: self.text_capacity,
+            capacity: self.capacity,
             last_content_error: self.last_content_error,
             has_valid_content: self.has_valid_content,
         }
@@ -388,21 +388,21 @@ impl Text {
         Self {
             content: content.into(),
             paragraph: ParagraphStyle::default(),
-            text_capacity: None,
+            capacity: None,
             last_content_error: None,
             has_valid_content: true,
         }
     }
 
     pub fn new_bounded(capacity: usize) -> Result<Self, TextContentError> {
-        let mut text = Self::new("").with_text_capacity(capacity)?;
+        let mut text = Self::new("").with_capacity(capacity)?;
         text.has_valid_content = false;
         text.last_content_error = Some(TextContentError::Uninitialized);
         Ok(text)
     }
 
-    pub fn with_text_capacity(mut self, capacity: usize) -> Result<Self, TextContentError> {
-        let already_bounded = self.text_capacity.is_some();
+    pub fn with_capacity(mut self, capacity: usize) -> Result<Self, TextContentError> {
+        let already_bounded = self.capacity.is_some();
         let TextContent::Plain(value) = &self.content else {
             return Err(TextContentError::Localized);
         };
@@ -418,7 +418,7 @@ impl Text {
             .map_err(|_| TextContentError::ReserveFailed { capacity })?;
         storage.push_str(value);
         self.content = TextContent::Plain(Cow::Owned(storage));
-        self.text_capacity = Some(capacity);
+        self.capacity = Some(capacity);
         if !already_bounded {
             self.last_content_error = None;
             self.has_valid_content = true;
@@ -454,8 +454,8 @@ impl Text {
         &self.content
     }
 
-    pub fn text_capacity(&self) -> Option<usize> {
-        self.text_capacity
+    pub fn capacity(&self) -> Option<usize> {
+        self.capacity
     }
 
     pub fn last_content_error(&self) -> Option<TextContentError> {
@@ -481,7 +481,7 @@ impl Text {
         content: impl Into<TextContent>,
     ) -> Result<bool, TextContentError> {
         let content = content.into();
-        if let Some(capacity) = self.text_capacity {
+        if let Some(capacity) = self.capacity {
             let TextContent::Plain(value) = content else {
                 return self.content_failure(TextContentError::Localized);
             };
@@ -506,7 +506,7 @@ impl Text {
         &mut self,
         args: fmt::Arguments<'_>,
     ) -> Result<bool, TextContentError> {
-        let Some(capacity) = self.text_capacity else {
+        let Some(capacity) = self.capacity else {
             return self.content_failure(TextContentError::Unbounded);
         };
         if N != capacity {
@@ -772,7 +772,7 @@ fn text_render(
             &clip,
             color,
         ),
-        text.text_capacity().map(|_| entity),
+        text.capacity().map(|_| entity),
     );
 }
 
@@ -2052,7 +2052,7 @@ mod tests {
 
     #[test]
     fn bounded_text_preserves_reserved_storage_when_cloned_or_set() {
-        let mut text = Text::new("ready").with_text_capacity(8).unwrap();
+        let mut text = Text::new("ready").with_capacity(8).unwrap();
         assert!(text.has_valid_content());
         let TextContent::Plain(Cow::Owned(storage)) = text.content() else {
             panic!("bounded text must own its content storage");
@@ -2091,7 +2091,7 @@ mod tests {
     fn localized_text_cannot_declare_unresolved_content_capacity() {
         assert_eq!(
             Text::new(Localized::new("welcome"))
-                .with_text_capacity(8)
+                .with_capacity(8)
                 .unwrap_err(),
             TextContentError::Localized
         );

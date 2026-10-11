@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `TextInput` accepts explicit byte capacities through `text_capacity` and fallible component and builder methods. Small inputs use inline storage; larger buffers are prepared before allocation-free editing.
+- `TextInput` accepts explicit byte capacities through `capacity` and fallible component and builder methods. Small inputs use inline storage; larger buffers are prepared before allocation-free editing.
 
 - `TextInput` supports validated UTF-8 selections and atomic text replacement without allocating. Editing failures preserve content and selection; text storage is private and change notifications report byte lengths as `u32`.
 
@@ -47,6 +47,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ModelList` stores ordered Model data with runtime capacity, stable item IDs, and capacity-bounded edits. Owned list fields share parent transactions, separate structural observations from item changes, and reject structural changes during registered iteration. Arrays, vectors, and iterators transfer data without requiring item clones; explicit reservation prepares data and observation storage.
 
 ### Changed
+
+- Text, Button labels, and TextInput use `capacity` for their UTF-8 byte limit. Component methods use `capacity`, `with_capacity`, and `set_capacity` without a `text_` prefix.
 
 - Scroll geometry is read through `query!(ScrollBounds)` instead of the public `scroll_bounds(World, Entity)` function.
 

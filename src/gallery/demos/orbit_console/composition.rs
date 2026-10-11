@@ -213,7 +213,7 @@ fn compose_controls(model: model!(ConsoleState)) -> Entity {
                 )
                 Text (
                     text: ${ format_args!("{}", model.intensity()) },
-                    text_capacity: 3,
+                    capacity: 3,
                     id: "orbit_console_intensity_value",
                     font: FontToken::Mono,
                     font_size: 9,

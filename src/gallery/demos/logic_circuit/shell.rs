@@ -363,7 +363,7 @@ fn compose_header(model: model!(CircuitModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("NET / {}:6 GATES", model.gate_len()) },
-            text_capacity: 15,
+            capacity: 15,
             id: "circuit_gate_count",
             position: Position::Absolute,
             left: 320,
@@ -445,7 +445,7 @@ fn compose_header(model: model!(CircuitModel)) -> Entity {
     ui! {
         Button (
             text: ${ TaskLabel(model.task()) },
-            text_capacity: 32,
+            capacity: 32,
             id: "circuit_task",
             position: Position::Absolute,
             left: 310,
@@ -472,7 +472,7 @@ fn compose_wire_inputs(model: model!(CircuitModel)) -> Entity {
                     on: model.input_values()[0],
                 }
             },
-            text_capacity: 3,
+            capacity: 3,
             id: "circuit_input_0",
             position: Position::Absolute,
             left: 17,
@@ -495,7 +495,7 @@ fn compose_wire_inputs(model: model!(CircuitModel)) -> Entity {
                     on: model.input_values()[1],
                 }
             },
-            text_capacity: 3,
+            capacity: 3,
             id: "circuit_input_1",
             position: Position::Absolute,
             left: 17,
@@ -518,7 +518,7 @@ fn compose_wire_inputs(model: model!(CircuitModel)) -> Entity {
                     on: model.input_values()[2],
                 }
             },
-            text_capacity: 3,
+            capacity: 3,
             id: "circuit_input_2",
             position: Position::Absolute,
             left: 17,
@@ -541,7 +541,7 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
     ui! {
         Text (
             text: ${ GateLabel(model.gates()[0]) },
-            text_capacity: 8,
+            capacity: 8,
             id: "circuit_gate_0",
             position: Position::Absolute,
             left: ${ gate_left(model.gate_positions(), 0) },
@@ -558,7 +558,7 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
     ui! {
         Text (
             text: ${ GateLabel(model.gates()[1]) },
-            text_capacity: 8,
+            capacity: 8,
             id: "circuit_gate_1",
             position: Position::Absolute,
             left: ${ gate_left(model.gate_positions(), 1) },
@@ -575,7 +575,7 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
     ui! {
         Text (
             text: ${ GateLabel(model.gates()[2]) },
-            text_capacity: 8,
+            capacity: 8,
             id: "circuit_gate_2",
             position: Position::Absolute,
             left: ${ gate_left(model.gate_positions(), 2) },
@@ -592,7 +592,7 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
     ui! {
         Text (
             text: ${ GateLabel(model.gates()[3]) },
-            text_capacity: 8,
+            capacity: 8,
             id: "circuit_gate_3",
             position: Position::Absolute,
             left: ${ gate_left(model.gate_positions(), 3) },
@@ -609,7 +609,7 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
     ui! {
         Text (
             text: ${ GateLabel(model.gates()[4]) },
-            text_capacity: 8,
+            capacity: 8,
             id: "circuit_gate_4",
             position: Position::Absolute,
             left: ${ gate_left(model.gate_positions(), 4) },
@@ -626,7 +626,7 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
     ui! {
         Text (
             text: ${ GateLabel(model.gates()[5]) },
-            text_capacity: 8,
+            capacity: 8,
             id: "circuit_gate_5",
             position: Position::Absolute,
             left: ${ gate_left(model.gate_positions(), 5) },
@@ -643,7 +643,7 @@ fn compose_wire_gates(model: model!(CircuitModel)) -> Entity {
     ui! {
         Text (
             text: ${ OutputLabel(model.evaluation()) },
-            text_capacity: 3,
+            capacity: 3,
             id: "circuit_output",
             position: Position::Absolute,
             left: 288,
@@ -676,7 +676,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
     ui! {
         Text (
             text: ${ target_code(model.task()) },
-            text_capacity: 16,
+            capacity: 16,
             id: "circuit_live_code",
             position: Position::Absolute,
             left: 334,
@@ -709,7 +709,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
                     count: model.input_count(),
                 }
             },
-            text_capacity: 32,
+            capacity: 32,
             id: "circuit_live_0",
             position: Position::Absolute,
             left: 335,
@@ -730,7 +730,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
                     count: model.input_count(),
                 }
             },
-            text_capacity: 32,
+            capacity: 32,
             id: "circuit_live_1",
             position: Position::Absolute,
             left: 335,
@@ -751,7 +751,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
                     count: model.input_count(),
                 }
             },
-            text_capacity: 32,
+            capacity: 32,
             id: "circuit_live_2",
             position: Position::Absolute,
             left: 335,
@@ -772,7 +772,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
                     count: model.input_count(),
                 }
             },
-            text_capacity: 32,
+            capacity: 32,
             id: "circuit_live_3",
             position: Position::Absolute,
             left: 335,
@@ -793,7 +793,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
                     count: model.input_count(),
                 }
             },
-            text_capacity: 32,
+            capacity: 32,
             id: "circuit_live_4",
             position: Position::Absolute,
             left: 335,
@@ -814,7 +814,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
                     count: model.input_count(),
                 }
             },
-            text_capacity: 32,
+            capacity: 32,
             id: "circuit_live_5",
             position: Position::Absolute,
             left: 335,
@@ -835,7 +835,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
                     count: model.input_count(),
                 }
             },
-            text_capacity: 32,
+            capacity: 32,
             id: "circuit_live_6",
             position: Position::Absolute,
             left: 335,
@@ -856,7 +856,7 @@ fn compose_wire_live_truth(model: model!(CircuitModel)) -> Entity {
                     count: model.input_count(),
                 }
             },
-            text_capacity: 32,
+            capacity: 32,
             id: "circuit_live_7",
             position: Position::Absolute,
             left: 335,
@@ -882,7 +882,7 @@ fn compose_wire_status(model: model!(CircuitModel)) -> Entity {
                     pending: model.pending(),
                 }
             },
-            text_capacity: 128,
+            capacity: 128,
             id: "circuit_wire_status",
             position: Position::Absolute,
             left: 16,
@@ -957,7 +957,7 @@ fn compose_truth_page(model: model!(CircuitModel)) -> Entity {
                         count: model.input_count(),
                     }
                 },
-                text_capacity: 48,
+                capacity: 48,
                 id: "circuit_truth_0",
                 position: Position::Absolute,
                 left: 27,
@@ -976,7 +976,7 @@ fn compose_truth_page(model: model!(CircuitModel)) -> Entity {
                         count: model.input_count(),
                     }
                 },
-                text_capacity: 48,
+                capacity: 48,
                 id: "circuit_truth_1",
                 position: Position::Absolute,
                 left: 27,
@@ -995,7 +995,7 @@ fn compose_truth_page(model: model!(CircuitModel)) -> Entity {
                         count: model.input_count(),
                     }
                 },
-                text_capacity: 48,
+                capacity: 48,
                 id: "circuit_truth_2",
                 position: Position::Absolute,
                 left: 27,
@@ -1014,7 +1014,7 @@ fn compose_truth_page(model: model!(CircuitModel)) -> Entity {
                         count: model.input_count(),
                     }
                 },
-                text_capacity: 48,
+                capacity: 48,
                 id: "circuit_truth_3",
                 position: Position::Absolute,
                 left: 27,
@@ -1033,7 +1033,7 @@ fn compose_truth_page(model: model!(CircuitModel)) -> Entity {
                         count: model.input_count(),
                     }
                 },
-                text_capacity: 48,
+                capacity: 48,
                 id: "circuit_truth_4",
                 position: Position::Absolute,
                 left: 27,
@@ -1052,7 +1052,7 @@ fn compose_truth_page(model: model!(CircuitModel)) -> Entity {
                         count: model.input_count(),
                     }
                 },
-                text_capacity: 48,
+                capacity: 48,
                 id: "circuit_truth_5",
                 position: Position::Absolute,
                 left: 27,
@@ -1071,7 +1071,7 @@ fn compose_truth_page(model: model!(CircuitModel)) -> Entity {
                         count: model.input_count(),
                     }
                 },
-                text_capacity: 48,
+                capacity: 48,
                 id: "circuit_truth_6",
                 position: Position::Absolute,
                 left: 27,
@@ -1090,7 +1090,7 @@ fn compose_truth_page(model: model!(CircuitModel)) -> Entity {
                         count: model.input_count(),
                     }
                 },
-                text_capacity: 48,
+                capacity: 48,
                 id: "circuit_truth_7",
                 position: Position::Absolute,
                 left: 27,
@@ -1115,7 +1115,7 @@ fn compose_truth_page(model: model!(CircuitModel)) -> Entity {
             )
             Text (
                 text: ${ task_name(model.task()) },
-                text_capacity: 24,
+                capacity: 24,
                 id: "circuit_truth_title",
                 position: Position::Absolute,
                 left: 334,
@@ -1128,7 +1128,7 @@ fn compose_truth_page(model: model!(CircuitModel)) -> Entity {
             )
             Text (
                 text: ${ task_description(model.task()) },
-                text_capacity: 64,
+                capacity: 64,
                 id: "circuit_truth_desc",
                 position: Position::Absolute,
                 left: 334,
@@ -1239,7 +1239,7 @@ fn compose_trace_page(model: model!(CircuitModel)) -> Entity {
             )
             Text (
                 text: ${ if model.scanning() { "AUTO / ON" } else { "STEP / READY" } },
-                text_capacity: 12,
+                capacity: 12,
                 id: "circuit_trace_mode",
                 position: Position::Absolute,
                 left: 334,
@@ -1252,7 +1252,7 @@ fn compose_trace_page(model: model!(CircuitModel)) -> Entity {
             )
             Text (
                 text: ${ format_args!("{} / 32", model.trace_len()) },
-                text_capacity: 7,
+                capacity: 7,
                 id: "circuit_trace_count",
                 position: Position::Absolute,
                 left: 334,
@@ -1283,7 +1283,7 @@ fn compose_footer(model: model!(CircuitModel)) -> Entity {
     ui! {
         Button (
             text: ${ footer_label(model.page(), 0, model.scanning(), model.disconnecting()) },
-            text_capacity: 32,
+            capacity: 32,
             id: "circuit_footer_0",
             position: Position::Absolute,
             left: 7,
@@ -1334,7 +1334,7 @@ fn compose_footer(model: model!(CircuitModel)) -> Entity {
     ui! {
         Button (
             text: ${ footer_label(model.page(), 1, model.scanning(), model.disconnecting()) },
-            text_capacity: 32,
+            capacity: 32,
             id: "circuit_footer_1",
             position: Position::Absolute,
             left: 101,
@@ -1385,7 +1385,7 @@ fn compose_footer(model: model!(CircuitModel)) -> Entity {
     ui! {
         Button (
             text: ${ footer_label(model.page(), 2, model.scanning(), model.disconnecting()) },
-            text_capacity: 32,
+            capacity: 32,
             id: "circuit_footer_2",
             position: Position::Absolute,
             left: 195,
@@ -1433,7 +1433,7 @@ fn compose_footer(model: model!(CircuitModel)) -> Entity {
     ui! {
         Button (
             text: ${ footer_label(model.page(), 3, model.scanning(), model.disconnecting()) },
-            text_capacity: 32,
+            capacity: 32,
             id: "circuit_footer_3",
             position: Position::Absolute,
             left: 289,
@@ -1481,7 +1481,7 @@ fn compose_footer(model: model!(CircuitModel)) -> Entity {
     ui! {
         Button (
             text: ${ footer_label(model.page(), 4, model.scanning(), model.disconnecting()) },
-            text_capacity: 32,
+            capacity: 32,
             id: "circuit_footer_4",
             position: Position::Absolute,
             left: 383,
@@ -1548,7 +1548,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
         ] {
             Text (
                 text: ${ modal_title(model.modal()) },
-                text_capacity: 48,
+                capacity: 48,
                 id: "circuit_modal_title",
                 position: Position::Absolute,
                 left: 43,
@@ -1561,7 +1561,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
             )
             Text (
                 text: ${ modal_subtitle(model.modal()) },
-                text_capacity: 128,
+                capacity: 128,
                 id: "circuit_modal_subtitle",
                 position: Position::Absolute,
                 left: 43,
@@ -1593,7 +1593,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                         index: 0,
                     }
                 },
-                text_capacity: 24,
+                capacity: 24,
                 id: "circuit_modal_0",
                 position: Position::Absolute,
                 left: 43,
@@ -1615,7 +1615,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                         index: 1,
                     }
                 },
-                text_capacity: 24,
+                capacity: 24,
                 id: "circuit_modal_1",
                 position: Position::Absolute,
                 left: 173,
@@ -1637,7 +1637,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                         index: 2,
                     }
                 },
-                text_capacity: 24,
+                capacity: 24,
                 id: "circuit_modal_2",
                 position: Position::Absolute,
                 left: 303,
@@ -1659,7 +1659,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                         index: 3,
                     }
                 },
-                text_capacity: 24,
+                capacity: 24,
                 id: "circuit_modal_3",
                 position: Position::Absolute,
                 left: 43,
@@ -1681,7 +1681,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                         index: 4,
                     }
                 },
-                text_capacity: 24,
+                capacity: 24,
                 id: "circuit_modal_4",
                 position: Position::Absolute,
                 left: 173,
@@ -1703,7 +1703,7 @@ fn compose_modal(model: model!(CircuitModel)) -> Entity {
                         index: 5,
                     }
                 },
-                text_capacity: 24,
+                capacity: 24,
                 id: "circuit_modal_5",
                 position: Position::Absolute,
                 left: 303,

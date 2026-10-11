@@ -171,7 +171,7 @@ fn compose_header(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("第 {} / 4 岛", model.chapter() + 1) },
-            text_capacity: 20,
+            capacity: 20,
             id: "tide_chapter",
             position: Position::Absolute,
             left: 14,
@@ -186,7 +186,7 @@ fn compose_header(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("落子 {} / 24", model.turn()) },
-            text_capacity: 20,
+            capacity: 20,
             id: "tide_turn",
             position: Position::Absolute,
             left: 115,
@@ -201,7 +201,7 @@ fn compose_header(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("累计 {}", model.cumulative_score()) },
-            text_capacity: 20,
+            capacity: 20,
             id: "tide_total",
             position: Position::Absolute,
             left: 171,
@@ -239,7 +239,7 @@ fn compose_forecast(model: model!(TideModel)) -> Entity {
                     .forecast().weather.name()
                 )
             },
-            text_capacity: 24,
+            capacity: 24,
             id: "tide_forecast",
             position: Position::Absolute,
             left: 247,
@@ -254,7 +254,7 @@ fn compose_forecast(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("预计 +{}", model.forecast_score()) },
-            text_capacity: 20,
+            capacity: 20,
             id: "tide_estimate",
             position: Position::Absolute,
             left: 366,
@@ -274,7 +274,7 @@ fn compose_forecast(model: model!(TideModel)) -> Entity {
                     model.turn() % 6 }, model.target()
                 )
             },
-            text_capacity: 56,
+            capacity: 56,
             id: "tide_until",
             position: Position::Absolute,
             left: 247,
@@ -306,7 +306,7 @@ fn compose_offers(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("换牌 {}", model.rerolls()) },
-            text_capacity: 16,
+            capacity: 16,
             id: "tide_offer_count",
             position: Position::Absolute,
             left: 390,
@@ -321,7 +321,7 @@ fn compose_offers(model: model!(TideModel)) -> Entity {
     ui! {
         Button (
             text: ${ model.offer_tiles()[0].name() },
-            text_capacity: 12,
+            capacity: 12,
             id: "tide_offer_0",
             position: Position::Absolute,
             left: 237,
@@ -339,7 +339,7 @@ fn compose_offers(model: model!(TideModel)) -> Entity {
     ui! {
         Button (
             text: ${ model.offer_tiles()[1].name() },
-            text_capacity: 12,
+            capacity: 12,
             id: "tide_offer_1",
             position: Position::Absolute,
             left: 315,
@@ -357,7 +357,7 @@ fn compose_offers(model: model!(TideModel)) -> Entity {
     ui! {
         Button (
             text: ${ model.offer_tiles()[2].name() },
-            text_capacity: 12,
+            capacity: 12,
             id: "tide_offer_2",
             position: Position::Absolute,
             left: 393,
@@ -384,7 +384,7 @@ fn compose_tile_info(model: model!(TideModel)) -> Entity {
                     model.display_tile().name()
                 )
             },
-            text_capacity: 32,
+            capacity: 32,
             id: "tide_info_title",
             position: Position::Absolute,
             left: 237,
@@ -399,7 +399,7 @@ fn compose_tile_info(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${ model.display_tile().description() },
-            text_capacity: 64,
+            capacity: 64,
             id: "tide_info_desc",
             position: Position::Absolute,
             left: 237,
@@ -414,7 +414,7 @@ fn compose_tile_info(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${ model.display_tile().rule() },
-            text_capacity: 64,
+            capacity: 64,
             id: "tide_info_rule",
             position: Position::Absolute,
             left: 237,
@@ -429,7 +429,7 @@ fn compose_tile_info(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${ PreviewText(model.preview_data()) },
-            text_capacity: 96,
+            capacity: 96,
             id: "tide_preview",
             position: Position::Absolute,
             left: 237,
@@ -537,7 +537,7 @@ fn compose_actions(model: model!(TideModel)) -> Entity {
                     "本岛结算 · 选择新学说"
                 }
             },
-            text_capacity: 40,
+            capacity: 40,
             id: "tide_cancel_result",
             visible: ${ model.pending().is_some() || model.settled() || model.complete() },
             position: Position::Absolute,
@@ -566,7 +566,7 @@ fn compose_footer(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${ model.goal().name },
-            text_capacity: 24,
+            capacity: 24,
             id: "tide_goal",
             position: Position::Absolute,
             left: 14,
@@ -581,7 +581,7 @@ fn compose_footer(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("{} / {}", model.goal_progress(), model.goal().count) },
-            text_capacity: 8,
+            capacity: 8,
             id: "tide_goal_progress",
             position: Position::Absolute,
             left: 164,
@@ -596,7 +596,7 @@ fn compose_footer(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${ message_text(model.message()) },
-            text_capacity: 96,
+            capacity: 96,
             id: "tide_message",
             position: Position::Absolute,
             left: 14,
@@ -623,7 +623,7 @@ fn compose_modal_header(model: model!(TideModel)) -> Entity {
                     "本岛结算"
                 }
             },
-            text_capacity: 32,
+            capacity: 32,
             id: "tide_modal_title",
             position: Position::Absolute,
             left: 35,
@@ -644,7 +644,7 @@ fn compose_modal_header(model: model!(TideModel)) -> Entity {
                     "评级不锁关。选择学说，继续前往下一座岛。"
                 }
             },
-            text_capacity: 128,
+            capacity: 128,
             id: "tide_modal_subtitle",
             position: Position::Absolute,
             left: 35,
@@ -679,7 +679,7 @@ fn compose_modal_result(model: model!(TideModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("{}", model.score()) },
-            text_capacity: 6,
+            capacity: 6,
             id: "tide_modal_score",
             visible: ${ model.modal() == TideModal::Result },
             position: Position::Absolute,
@@ -700,7 +700,7 @@ fn compose_modal_result(model: model!(TideModel)) -> Entity {
                     len: model.harvest_len(),
                 })
             },
-            text_capacity: 48,
+            capacity: 48,
             id: "tide_modal_detail",
             visible: ${ model.modal() == TideModal::Result },
             position: Position::Absolute,
@@ -716,7 +716,7 @@ fn compose_modal_result(model: model!(TideModel)) -> Entity {
     ui! {
         Button (
             text: ${ PerkText(model.perk_offers()[0]) },
-            text_capacity: 64,
+            capacity: 64,
             id: "tide_perk_0",
             visible: ${
                 model.modal() == TideModal::Result && model.settled() && model.chapter() != 3
@@ -738,7 +738,7 @@ fn compose_modal_result(model: model!(TideModel)) -> Entity {
     ui! {
         Button (
             text: ${ PerkText(model.perk_offers()[1]) },
-            text_capacity: 64,
+            capacity: 64,
             id: "tide_perk_1",
             visible: ${
                 model.modal() == TideModal::Result && model.settled() && model.chapter() != 3
@@ -760,7 +760,7 @@ fn compose_modal_result(model: model!(TideModel)) -> Entity {
     ui! {
         Button (
             text: ${ PerkText(model.perk_offers()[2]) },
-            text_capacity: 64,
+            capacity: 64,
             id: "tide_perk_2",
             visible: ${
                 model.modal() == TideModal::Result && model.settled() && model.chapter() != 3
@@ -813,7 +813,7 @@ fn compose_modal_voyage(model: model!(TideModel)) -> Entity {
                     results: model.results(),
                 }
             },
-            text_capacity: 32,
+            capacity: 32,
             id: "tide_voyage_0",
             visible: ${ model.modal() == TideModal::Voyage },
             position: Position::Absolute,
@@ -835,7 +835,7 @@ fn compose_modal_voyage(model: model!(TideModel)) -> Entity {
                     results: model.results(),
                 }
             },
-            text_capacity: 32,
+            capacity: 32,
             id: "tide_voyage_1",
             visible: ${ model.modal() == TideModal::Voyage },
             position: Position::Absolute,
@@ -857,7 +857,7 @@ fn compose_modal_voyage(model: model!(TideModel)) -> Entity {
                     results: model.results(),
                 }
             },
-            text_capacity: 32,
+            capacity: 32,
             id: "tide_voyage_2",
             visible: ${ model.modal() == TideModal::Voyage },
             position: Position::Absolute,
@@ -879,7 +879,7 @@ fn compose_modal_voyage(model: model!(TideModel)) -> Entity {
                     results: model.results(),
                 }
             },
-            text_capacity: 32,
+            capacity: 32,
             id: "tide_voyage_3",
             visible: ${ model.modal() == TideModal::Voyage },
             position: Position::Absolute,

@@ -470,7 +470,7 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                                 mirx::scene::GlyphPose::WIRE_SIZE,
                                 mirx::types::Transform3D::WIRE_SIZE,
                             ),
-                            text_capacity: 96,
+                            capacity: 96,
                             width: Dimension::percent(100),
                             height: 24,
                             font: UI,
@@ -559,7 +559,7 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                             Text (
                                 id: "typography_ppem_value",
                                 text: ${ format_args!("{}", model.ppem()) },
-                                text_capacity: 2,
+                                capacity: 2,
                                 width: 34,
                                 font: UI,
                                 font_size: 11,
@@ -585,7 +585,7 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                             Text (
                                 id: "typography_width_value",
                                 text: ${ format_args!("{}", model.width()) },
-                                text_capacity: 3,
+                                capacity: 3,
                                 width: 34,
                                 font: UI,
                                 font_size: 11,
@@ -596,7 +596,7 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                             Button (
                                 id: "typography_wrap",
                                 text: ${ wrap_label(model.wrap()) },
-                                text_capacity: 8,
+                                capacity: 8,
                                 grow: 1.0,
                                 height: 28,
                                 normal_color: PANEL_ALT,
@@ -611,7 +611,7 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                             Button (
                                 id: "typography_align",
                                 text: ${ align_label(model.align()) },
-                                text_capacity: 7,
+                                capacity: 7,
                                 grow: 1.0,
                                 height: 28,
                                 normal_color: PANEL_ALT,
@@ -626,7 +626,7 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
                             Button (
                                 id: "typography_overflow",
                                 text: ${ overflow_label(model.overflow()) },
-                                text_capacity: 8,
+                                capacity: 8,
                                 grow: 1.0,
                                 height: 28,
                                 normal_color: PANEL_ALT,

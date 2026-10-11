@@ -243,7 +243,7 @@ fn compose_controls(model: model!(CurveModel)) -> Entity {
                 Text (
                     id: "curve_text_amplitude_value",
                     text: ${ format_args!("{}", model.amplitude().to_int()) },
-                    text_capacity: 3,
+                    capacity: 3,
                     width: 28,
                     font: UI,
                     font_size: 11,
@@ -271,7 +271,7 @@ fn compose_controls(model: model!(CurveModel)) -> Entity {
                 Text (
                     id: "curve_text_speed_value",
                     text: ${ format_args!("{}", model.speed().to_int()) },
-                    text_capacity: 3,
+                    capacity: 3,
                     width: 30,
                     font: UI,
                     font_size: 11,

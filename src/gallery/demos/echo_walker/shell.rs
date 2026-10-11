@@ -160,7 +160,7 @@ fn compose_header(model: model!(EchoModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("ARCHIVE {:02} / 12", model.level() + 1) },
-            text_capacity: 15,
+            capacity: 15,
             id: "echo_room",
             position: Position::Absolute,
             left: 14,
@@ -175,7 +175,7 @@ fn compose_header(model: model!(EchoModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("MEMORY {}/{}", model.collected_count(), model.gem_count()) },
-            text_capacity: 10,
+            capacity: 10,
             id: "echo_memory",
             position: Position::Absolute,
             left: 146,
@@ -190,7 +190,7 @@ fn compose_header(model: model!(EchoModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("ECHOES {}/3", model.ghost_count()) },
-            text_capacity: 10,
+            capacity: 10,
             id: "echo_ghosts",
             position: Position::Absolute,
             left: 220,
@@ -222,7 +222,7 @@ fn compose_controls(model: model!(EchoModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("{:02}", model.tick()) },
-            text_capacity: 2,
+            capacity: 2,
             id: "echo_tick",
             position: Position::Absolute,
             left: 305,
@@ -428,7 +428,7 @@ fn compose_route_status(model: model!(EchoModel)) -> Entity {
     ui! {
         Text (
             text: ${ format_args!("{} STEPS / {} ECHOES", model.steps(), model.loops()) },
-            text_capacity: 22,
+            capacity: 22,
             id: "echo_run",
             position: Position::Absolute,
             left: 165,
@@ -443,7 +443,7 @@ fn compose_route_status(model: model!(EchoModel)) -> Entity {
     ui! {
         Text (
             text: ${ MessageLabel(model.message()) },
-            text_capacity: 64,
+            capacity: 64,
             id: "echo_message",
             position: Position::Absolute,
             left: 14,
@@ -476,7 +476,7 @@ fn compose_modal(model: model!(EchoModel)) -> Entity {
         ] {
             Text (
                 text: ${ modal_title(model.modal(), model.complete()) },
-                text_capacity: 23,
+                capacity: 23,
                 id: "echo_modal_title",
                 position: Position::Absolute,
                 left: 35,
@@ -489,7 +489,7 @@ fn compose_modal(model: model!(EchoModel)) -> Entity {
             )
             Text (
                 text: ${ modal_subtitle(model.modal(), model.complete()) },
-                text_capacity: 52,
+                capacity: 52,
                 id: "echo_modal_subtitle",
                 position: Position::Absolute,
                 left: 35,
@@ -522,7 +522,7 @@ fn compose_modal(model: model!(EchoModel)) -> Entity {
                         solo: model.peek_ghost() == Some(0),
                     }
                 },
-                text_capacity: 32,
+                capacity: 32,
                 id: "echo_tape_0",
                 position: Position::Absolute,
                 left: 35,
@@ -545,7 +545,7 @@ fn compose_modal(model: model!(EchoModel)) -> Entity {
                         solo: model.peek_ghost() == Some(1),
                     }
                 },
-                text_capacity: 32,
+                capacity: 32,
                 id: "echo_tape_1",
                 position: Position::Absolute,
                 left: 35,
@@ -568,7 +568,7 @@ fn compose_modal(model: model!(EchoModel)) -> Entity {
                         solo: model.peek_ghost() == Some(2),
                     }
                 },
-                text_capacity: 32,
+                capacity: 32,
                 id: "echo_tape_2",
                 position: Position::Absolute,
                 left: 35,
@@ -595,7 +595,7 @@ fn compose_modal(model: model!(EchoModel)) -> Entity {
                         },
                     }
                 },
-                text_capacity: 40,
+                capacity: 40,
                 id: "echo_result_stats",
                 position: Position::Absolute,
                 left: 35,
@@ -609,7 +609,7 @@ fn compose_modal(model: model!(EchoModel)) -> Entity {
             )
             Button (
                 text: ${ primary_label(model.complete(), model.result_len()) },
-                text_capacity: 16,
+                capacity: 16,
                 id: "echo_modal_primary",
                 position: Position::Absolute,
                 left: 35,

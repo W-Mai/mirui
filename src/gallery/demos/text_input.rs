@@ -34,7 +34,7 @@ pub fn build_widgets() {
                 text_color: ColorToken::OnSurfaceVariant
             )
             TextInput (
-                text_capacity: 256,
+                capacity: 256,
                 bg_color: ColorToken::SurfaceVariant,
                 border_color: ColorToken::Outline,
                 border_width: 1,

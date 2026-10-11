@@ -509,7 +509,7 @@ fn controls_publish_into_the_live_paragraph() {
             .get::<Text>(world.find_by_id(id).unwrap())
             .expect("bounded value text");
         assert_eq!(text.resolve(world.resource()).as_ref(), value, "{id}");
-        assert_eq!(text.text_capacity(), Some(capacity), "{id}");
+        assert_eq!(text.capacity(), Some(capacity), "{id}");
         assert!(text.has_valid_content(), "{id}");
     }
     for (id, pointer) in dynamic_ids.into_iter().zip(text_buffers) {

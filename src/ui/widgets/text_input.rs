@@ -81,7 +81,7 @@ impl TextInput {
     }
 
     /// Set the byte limit, preparing storage before editing. Existing content and selection are preserved on failure.
-    pub fn set_text_capacity(&mut self, capacity: usize) -> Result<(), TextEditError> {
+    pub fn set_capacity(&mut self, capacity: usize) -> Result<(), TextEditError> {
         if capacity < self.len() {
             return Err(TextEditError::Capacity {
                 required: self.len(),
@@ -93,8 +93,8 @@ impl TextInput {
         Ok(())
     }
 
-    pub fn with_text_capacity(mut self, capacity: usize) -> Result<Self, TextEditError> {
-        self.set_text_capacity(capacity)?;
+    pub fn with_capacity(mut self, capacity: usize) -> Result<Self, TextEditError> {
+        self.set_capacity(capacity)?;
         Ok(self)
     }
 
@@ -312,8 +312,8 @@ pub struct TextInputBuilder<P = (), B = ()> {
 }
 
 impl<P, B> TextInputBuilder<P, B> {
-    pub fn text_capacity(mut self, capacity: usize) -> Result<Self, TextEditError> {
-        self.text_input.set_text_capacity(capacity)?;
+    pub fn capacity(mut self, capacity: usize) -> Result<Self, TextEditError> {
+        self.text_input.set_capacity(capacity)?;
         Ok(self)
     }
 
@@ -1346,7 +1346,7 @@ mod tests {
         let parent = world.spawn_empty();
         let entity = crate::ui::UiScope::new(&mut world, parent).spawn(
             TextInput::build()
-                .text_capacity(512)
+                .capacity(512)
                 .unwrap()
                 .on_event(TextInput::Changed, record_changed::callback()),
         );

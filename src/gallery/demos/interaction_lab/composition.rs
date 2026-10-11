@@ -49,7 +49,7 @@ fn compose_header(model: model!(InteractionModel)) -> Entity {
                 Text (
                     id: "interaction_scroll_status",
                     text: ${ alloc::format!("SCROLL {}", model.scroll_position()) },
-                    text_capacity: 20,
+                    capacity: 20,
                     grow: 1.0,
                     min_width: 0,
                     height: 30,
@@ -59,7 +59,7 @@ fn compose_header(model: model!(InteractionModel)) -> Entity {
                 )
                 Text (
                     text: ${ if model.disabled() { "TARGET LOCKED" } else { "LIVE TIMELINE" } },
-                    text_capacity: 13,
+                    capacity: 13,
                     width: 144,
                     height: 30,
                     bg_color: PANEL_ALT,
@@ -117,7 +117,7 @@ fn compose_gesture_card(model: model!(InteractionModel)) -> Entity {
                 Text (
                     id: "interaction_single_status",
                     text: ${ format_args!("single {}", model.single()) },
-                    text_capacity: 14,
+                    capacity: 14,
                     width: @id(interaction_gestures).width {
                         gesture_cell_width(interaction_gestures.width)
                     },
@@ -130,7 +130,7 @@ fn compose_gesture_card(model: model!(InteractionModel)) -> Entity {
                 Text (
                     id: "interaction_double_status",
                     text: ${ format_args!("double {}", model.double()) },
-                    text_capacity: 14,
+                    capacity: 14,
                     width: @id(interaction_gestures).width {
                         gesture_cell_width(interaction_gestures.width)
                     },
@@ -143,7 +143,7 @@ fn compose_gesture_card(model: model!(InteractionModel)) -> Entity {
                 Text (
                     id: "interaction_triple_status",
                     text: ${ format_args!("triple {}", model.triple()) },
-                    text_capacity: 14,
+                    capacity: 14,
                     width: @id(interaction_gestures).width {
                         gesture_cell_width(interaction_gestures.width)
                     },
@@ -156,7 +156,7 @@ fn compose_gesture_card(model: model!(InteractionModel)) -> Entity {
                 Text (
                     id: "interaction_long_status",
                     text: ${ format_args!("long {}", model.long()) },
-                    text_capacity: 12,
+                    capacity: 12,
                     width: @id(interaction_gestures).width {
                         gesture_cell_width(interaction_gestures.width)
                     },
@@ -493,7 +493,7 @@ fn compose_motion_card(model: model!(InteractionModel)) -> Entity {
                     model.parent_taps(),
                     if model.allow_bubble() { "allow" } else { "blocked" },
                 ) },
-                text_capacity: 36,
+                capacity: 36,
                 id: "interaction_bubble_status",
                 width: Dimension::percent(100),
                 height: 24,
@@ -579,7 +579,7 @@ fn compose_controls_card(model: model!(InteractionModel)) -> Entity {
                         if model.switch_on() { "ON" } else { "OFF" },
                         model.switch_changes(),
                     ) },
-                    text_capacity: 28,
+                    capacity: 28,
                     grow: 1.0,
                     min_width: 150,
                     height: 24,
@@ -594,7 +594,7 @@ fn compose_controls_card(model: model!(InteractionModel)) -> Entity {
                         if model.checkbox_on() { "ON" } else { "OFF" },
                         model.checkbox_changes(),
                     ) },
-                    text_capacity: 27,
+                    capacity: 27,
                     grow: 1.0,
                     min_width: 150,
                     height: 24,

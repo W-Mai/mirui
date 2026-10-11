@@ -4667,7 +4667,7 @@ mod text_layout_check {
                 ..Style::default()
             },
         );
-        world.insert(label, Text::new("abc").with_text_capacity(8).unwrap());
+        world.insert(label, Text::new("abc").with_capacity(8).unwrap());
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         update_layout(&mut world, root, &viewport);
 
