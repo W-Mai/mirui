@@ -823,7 +823,7 @@ fn pop_visual_widget_for(
     }
 }
 
-/// Drain queued reactive work once per frame, after systems and before render:
+/// Drain queued reactive work at input delivery and frame boundaries:
 /// re-run dirty effects (which may dirty more), then mark dirty widgets. Dead
 /// entities are skipped (no reverse index; subscriber lists may retain
 /// despawned entities).

@@ -103,6 +103,156 @@ enum Step {
     Rotary(Rotary),
     Viewport(ViewportChanged),
     SafeArea(SafeAreaChanged),
+    Tap,
+}
+
+#[mirui::event]
+fn record_tap(trace: res!(mut Trace)) {
+    trace.push(Step::Tap);
+}
+
+#[mirui::model]
+struct InputGate {
+    #[observe]
+    visible: bool,
+}
+
+#[mirui::model]
+impl InputGate {
+    fn dismiss(&mut self) {
+        self.visible = false;
+    }
+}
+
+#[mirui::event]
+fn dismiss_on_tap(gate: model!(InputGate), trace: res!(mut Trace)) {
+    gate.dismiss();
+    trace.push(Step::Tap);
+}
+
+#[test]
+fn reactive_hiding_from_one_tap_is_visible_to_the_next_tap_in_the_burst() {
+    use mirui::core::model::SharedValue;
+    use mirui::input::event::sim::{SimCommand, SimulatedInput, sim_input_system};
+
+    for simulated in [false, true] {
+        let mut app = app([]);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        let gate = app.add_model(InputGate { visible: true });
+        let shared = gate.share();
+        app.compose(root, |cx| {
+            mirui::ui! {
+                if ${ shared.visible() } {
+                    View (width: 8, height: 8) on Tap(dismiss_on_tap::callback(shared.clone()))
+                }
+            }
+        });
+        app.render().unwrap();
+        let input = [
+            InputEvent::PointerDown {
+                id: 0,
+                x: Fixed::from_int(2),
+                y: Fixed::from_int(2),
+            },
+            InputEvent::PointerUp {
+                id: 0,
+                x: Fixed::from_int(2),
+                y: Fixed::from_int(2),
+            },
+        ];
+        if simulated {
+            app.add_resource(SimulatedInput::new(
+                input
+                    .iter()
+                    .chain(input.iter())
+                    .cloned()
+                    .map(|event| SimCommand::at(0, event))
+                    .collect(),
+            ));
+            app.add_system(sim_input_system::system());
+        } else {
+            app.backend
+                .events
+                .extend(input.iter().chain(input.iter()).cloned());
+        }
+        app.tick();
+        assert!(!gate.visible());
+        assert_eq!(
+            app.world
+                .resource::<Trace>()
+                .unwrap()
+                .steps()
+                .iter()
+                .filter(|step| **step == Step::Tap)
+                .count(),
+            1,
+            "simulated={simulated}"
+        );
+    }
+}
+
+#[test]
+fn native_and_scheduled_input_deliver_taps_before_the_following_key() {
+    use mirui::input::event::sim::{SimCommand, SimulatedInput, sim_input_system};
+
+    for simulated in [false, true] {
+        let input = [
+            InputEvent::PointerDown {
+                id: 0,
+                x: Fixed::from_int(2),
+                y: Fixed::from_int(2),
+            },
+            InputEvent::PointerUp {
+                id: 0,
+                x: Fixed::from_int(2),
+                y: Fixed::from_int(2),
+            },
+            InputEvent::Key {
+                code: 42,
+                pressed: true,
+            },
+        ];
+        let mut app = app([]);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.compose(root, |cx| {
+            mirui::ui! {
+                View (width: 8, height: 8) on Tap(record_tap::callback())
+            }
+        });
+        app.on_event(Key::EVENT, key::callback());
+        app.render().unwrap();
+        if simulated {
+            app.add_resource(SimulatedInput::new(
+                input
+                    .into_iter()
+                    .map(|event| SimCommand::at(0, event))
+                    .collect(),
+            ));
+            app.add_system(sim_input_system::system());
+        } else {
+            app.backend.events.extend(input);
+        }
+        app.tick();
+        let trace = app.world.resource::<Trace>().unwrap();
+        assert!(
+            trace
+                .steps()
+                .iter()
+                .copied()
+                .filter(|step| matches!(step, Step::Tap | Step::Key(_)))
+                .eq([
+                    Step::Tap,
+                    Step::Key(Key {
+                        code: 42,
+                        pressed: true
+                    }),
+                ]),
+            "simulated={simulated}: {:?}",
+            trace.steps()
+        );
+    }
 }
 
 #[mirui::event]

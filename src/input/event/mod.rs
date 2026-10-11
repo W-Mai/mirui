@@ -62,15 +62,36 @@ fn update_pointer_cursor(world: &mut World, update: impl FnOnce(&mut PointerCurs
     }
 }
 
-/// Single source of truth for the per-event side of the input
-/// pipeline. Both `App::run`'s real input loop and
-/// `sim_timeline_system` (which fakes pointer events) call this so
-/// that simulated inputs traverse the exact same scroll / hit-test /
-/// gesture-recognizer / key-dispatch path as real ones.
-///
-/// Does *not* drain `GestureSystem.events` — the caller decides when
-/// to dispatch (real input loop drains after the whole `poll_event`
-/// burst; sim drains every system tick).
+pub(crate) fn deliver_input(
+    world: &mut World,
+    root: Option<Entity>,
+    event: &InputEvent,
+    now_ms: u32,
+    width: u16,
+    height: u16,
+) {
+    dispatch_input(world, root, event, now_ms, width, height);
+    dispatch_pending_gestures(world, now_ms);
+    if let Err(error) = runtime::flush(world) {
+        crate::warn!("input notification flush failed: {:?}", error);
+    }
+    crate::core::reactive::flush_signal_dirty(world);
+}
+
+pub(crate) fn dispatch_pending_gestures(world: &mut World, now_ms: u32) {
+    if let Err(error) = gesture::system::drain_gestures(world, |world, gesture| {
+        runtime::dispatch_gesture(world, gesture, now_ms)?;
+        runtime::flush(world)?;
+        crate::core::reactive::flush_signal_dirty(world);
+        Ok::<(), runtime::RuntimeRunError>(())
+    }) {
+        crate::warn!("gesture dispatch failed: {:?}", error);
+    }
+}
+
+/// Feed one raw input through key dispatch, scrolling, and gesture recognition.
+/// Recognized gestures remain queued until delivery; App and simulation use a
+/// shared delivery boundary before processing their next raw input.
 pub fn dispatch_input(
     world: &mut World,
     root: Option<Entity>,
@@ -258,6 +279,33 @@ mod tests {
     use super::*;
 
     struct TapCount(u8);
+
+    #[crate::event]
+    fn count_key(count: res!(mut TapCount)) {
+        count.0 += 1;
+    }
+
+    #[test]
+    fn ordered_delivery_reuses_prepared_callback_and_reactive_storage() {
+        use crate::input::event::input::Key;
+        let mut world = World::new();
+        world.insert_resource(TapCount(0));
+        runtime::install_app(&mut world, Key::EVENT, count_key::callback()).unwrap();
+        let input = InputEvent::Key {
+            code: 42,
+            pressed: true,
+        };
+        deliver_input(&mut world, None, &input, 0, 8, 8);
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for time in 1..5 {
+                    deliver_input(&mut world, None, &input, time, 8, 8);
+                }
+            }),
+            0
+        );
+        assert_eq!(world.resource::<TapCount>().unwrap().0, 5);
+    }
 
     #[crate::event]
     fn count_tap(count: res!(mut TapCount)) -> bool {

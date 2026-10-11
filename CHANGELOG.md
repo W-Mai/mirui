@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Native and simulated input deliver recognized gestures, notifications, and reactive updates before handling the next raw input.
 - Simulated input root fallback installation is internal to App; explicit root overrides remain available.
 - Root geometry and tap tracking use typed resources and queries instead of public World-based helpers.
 - `Text::resolve` and `Localized` resolution accept an optional borrowed `I18n` instead of World.

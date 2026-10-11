@@ -811,15 +811,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     fn dispatch_gestures(&mut self) {
         let now_ms = (self.clock_ns() / 1_000_000) as u32;
-        if let Err(error) = crate::input::event::gesture::system::drain_gestures(
-            &mut self.world,
-            |world, gesture| {
-                crate::input::event::runtime::dispatch_gesture(world, gesture, now_ms)?;
-                crate::input::event::runtime::flush(world).map(|_| ())
-            },
-        ) {
-            crate::warn!("gesture batch dispatch failed: {:?}", error);
-        }
+        crate::input::event::dispatch_pending_gestures(&mut self.world, now_ms);
     }
 
     fn finish_quit(&mut self) {
@@ -1267,7 +1259,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                             let info = self.backend.display_info();
                             let (lw, lh) = (info.width, info.height);
                             let now_ms = (self.clock_ns() / 1_000_000) as u32;
-                            crate::input::event::dispatch_input(
+                            crate::input::event::deliver_input(
                                 &mut self.world,
                                 self.root,
                                 &event,

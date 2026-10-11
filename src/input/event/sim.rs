@@ -256,15 +256,10 @@ pub(crate) fn sim_input_system(world: &mut World) -> Result<(), crate::ecs::Comm
     });
 
     for event in &commands_to_fire {
-        super::dispatch_input(world, root, event, now_ms, screen_w, screen_h);
+        super::deliver_input(world, root, event, now_ms, screen_w, screen_h);
     }
 
-    if let Err(error) = super::gesture::system::drain_gestures(world, |world, gesture| {
-        super::runtime::dispatch_gesture(world, gesture, now_ms)?;
-        super::runtime::flush(world).map(|_| ())
-    }) {
-        crate::warn!("simulated gesture batch dispatch failed: {:?}", error);
-    }
+    super::dispatch_pending_gestures(world, now_ms);
     Ok(())
 }
 
@@ -657,20 +652,20 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     x: pt.x,
                     y: pt.y,
                 };
-                super::dispatch_input(world, root, &event, now_ms, lw, lh);
+                super::deliver_input(world, root, &event, now_ms, lw, lh);
             } else if action_elapsed >= 50 {
                 let event = InputEvent::PointerUp {
                     id: 0,
                     x: pt.x,
                     y: pt.y,
                 };
-                super::dispatch_input(world, root, &event, now_ms, lw, lh);
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
                     tl.action_started = false;
                     tl.drag_move_emitted = false;
                     tl.rotate_emitted = 0;
                 }
+                super::deliver_input(world, root, &event, now_ms, lw, lh);
             }
         }
         ResolvedAction::Drag {
@@ -694,20 +689,20 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     x: from.x,
                     y: from.y,
                 };
-                super::dispatch_input(world, root, &event, now_ms, lw, lh);
+                super::deliver_input(world, root, &event, now_ms, lw, lh);
             } else if action_elapsed >= duration_ms as u32 && move_emitted {
                 let event = InputEvent::PointerUp {
                     id: 0,
                     x: to.x,
                     y: to.y,
                 };
-                super::dispatch_input(world, root, &event, now_ms, lw, lh);
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
                     tl.action_started = false;
                     tl.drag_move_emitted = false;
                     tl.rotate_emitted = 0;
                 }
+                super::deliver_input(world, root, &event, now_ms, lw, lh);
             } else {
                 // Catch-up branch (elapsed ≥ duration, no move yet) clamps t=1
                 // so a sub-tick drag still emits one move before PointerUp.
@@ -720,10 +715,10 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                 let x = from.x + eased * (to.x - from.x);
                 let y = from.y + eased * (to.y - from.y);
                 let event = InputEvent::PointerMove { id: 0, x, y };
-                super::dispatch_input(world, root, &event, now_ms, lw, lh);
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.drag_move_emitted = true;
                 }
+                super::deliver_input(world, root, &event, now_ms, lw, lh);
             }
         }
         ResolvedAction::MoveTo {
@@ -742,27 +737,27 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     x: from.x,
                     y: from.y,
                 };
-                super::dispatch_input(world, root, &event, now_ms, lw, lh);
+                super::deliver_input(world, root, &event, now_ms, lw, lh);
             } else if action_elapsed >= duration_ms as u32 {
                 let event = InputEvent::PointerMove {
                     id: 0,
                     x: to.x,
                     y: to.y,
                 };
-                super::dispatch_input(world, root, &event, now_ms, lw, lh);
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
                     tl.action_started = false;
                     tl.drag_move_emitted = false;
                     tl.rotate_emitted = 0;
                 }
+                super::deliver_input(world, root, &event, now_ms, lw, lh);
             } else {
                 let t = Fixed::from_ratio(action_elapsed as i32, duration_ms as i32);
                 let eased = ease(t);
                 let x = from.x + eased * (to.x - from.x);
                 let y = from.y + eased * (to.y - from.y);
                 let event = InputEvent::PointerMove { id: 0, x, y };
-                super::dispatch_input(world, root, &event, now_ms, lw, lh);
+                super::deliver_input(world, root, &event, now_ms, lw, lh);
             }
         }
         ResolvedAction::Pinch {
@@ -791,7 +786,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     tl.action_elapsed_ms = 0;
                 }
                 let (a, b) = two_fingers(from_dist);
-                super::dispatch_input(
+                super::deliver_input(
                     world,
                     root,
                     &InputEvent::PointerDown {
@@ -803,7 +798,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     lw,
                     lh,
                 );
-                super::dispatch_input(
+                super::deliver_input(
                     world,
                     root,
                     &InputEvent::PointerDown {
@@ -817,7 +812,13 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                 );
             } else if action_elapsed >= duration_ms as u32 {
                 let (a, b) = two_fingers(to_dist);
-                super::dispatch_input(
+                if let Some(tl) = world.resource_mut::<SimTimeline>() {
+                    tl.cursor += 1;
+                    tl.action_started = false;
+                    tl.drag_move_emitted = false;
+                    tl.rotate_emitted = 0;
+                }
+                super::deliver_input(
                     world,
                     root,
                     &InputEvent::PointerUp {
@@ -829,7 +830,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     lw,
                     lh,
                 );
-                super::dispatch_input(
+                super::deliver_input(
                     world,
                     root,
                     &InputEvent::PointerUp {
@@ -841,18 +842,12 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     lw,
                     lh,
                 );
-                if let Some(tl) = world.resource_mut::<SimTimeline>() {
-                    tl.cursor += 1;
-                    tl.action_started = false;
-                    tl.drag_move_emitted = false;
-                    tl.rotate_emitted = 0;
-                }
             } else {
                 let t = Fixed::from_ratio(action_elapsed as i32, duration_ms as i32);
                 let eased = ease(t);
                 let dist = from_dist + eased * (to_dist - from_dist);
                 let (a, b) = two_fingers(dist);
-                super::dispatch_input(
+                super::deliver_input(
                     world,
                     root,
                     &InputEvent::PointerMove {
@@ -864,7 +859,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     lw,
                     lh,
                 );
-                super::dispatch_input(
+                super::deliver_input(
                     world,
                     root,
                     &InputEvent::PointerMove {
@@ -906,7 +901,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     tl.action_elapsed_ms = 0;
                 }
                 let (a, b) = two_fingers(from_angle);
-                super::dispatch_input(
+                super::deliver_input(
                     world,
                     root,
                     &InputEvent::PointerDown {
@@ -918,7 +913,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     lw,
                     lh,
                 );
-                super::dispatch_input(
+                super::deliver_input(
                     world,
                     root,
                     &InputEvent::PointerDown {
@@ -932,7 +927,13 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                 );
             } else if action_elapsed >= duration_ms as u32 {
                 let (a, b) = two_fingers(to_angle);
-                super::dispatch_input(
+                if let Some(tl) = world.resource_mut::<SimTimeline>() {
+                    tl.cursor += 1;
+                    tl.action_started = false;
+                    tl.drag_move_emitted = false;
+                    tl.rotate_emitted = 0;
+                }
+                super::deliver_input(
                     world,
                     root,
                     &InputEvent::PointerUp {
@@ -944,7 +945,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     lw,
                     lh,
                 );
-                super::dispatch_input(
+                super::deliver_input(
                     world,
                     root,
                     &InputEvent::PointerUp {
@@ -956,18 +957,12 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     lw,
                     lh,
                 );
-                if let Some(tl) = world.resource_mut::<SimTimeline>() {
-                    tl.cursor += 1;
-                    tl.action_started = false;
-                    tl.drag_move_emitted = false;
-                    tl.rotate_emitted = 0;
-                }
             } else {
                 let t = Fixed::from_ratio(action_elapsed as i32, duration_ms as i32);
                 let eased = ease(t);
                 let angle = from_angle + eased * (to_angle - from_angle);
                 let (a, b) = two_fingers(angle);
-                super::dispatch_input(
+                super::deliver_input(
                     world,
                     root,
                     &InputEvent::PointerMove {
@@ -979,7 +974,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     lw,
                     lh,
                 );
-                super::dispatch_input(
+                super::deliver_input(
                     world,
                     root,
                     &InputEvent::PointerMove {
@@ -1031,10 +1026,6 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     .map(|t| t.rotate_emitted)
                     .unwrap_or(0);
                 let sign: i16 = if ticks >= 0 { 1 } else { -1 };
-                for _ in already..target {
-                    let event = InputEvent::Rotary { id: 0, delta: sign };
-                    super::dispatch_input(world, root, &event, now_ms, lw, lh);
-                }
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.action_started = true;
                     tl.rotate_emitted = target;
@@ -1043,6 +1034,10 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                         tl.action_started = false;
                         tl.rotate_emitted = 0;
                     }
+                }
+                for _ in already..target {
+                    let event = InputEvent::Rotary { id: 0, delta: sign };
+                    super::deliver_input(world, root, &event, now_ms, lw, lh);
                 }
             }
         }
@@ -1056,19 +1051,19 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     code: crate::input::event::input::KEY_ROTARY_PRESS,
                     pressed: true,
                 };
-                super::dispatch_input(world, root, &event, now_ms, lw, lh);
+                super::deliver_input(world, root, &event, now_ms, lw, lh);
             } else if action_elapsed >= 50 {
                 let event = InputEvent::Key {
                     code: crate::input::event::input::KEY_ROTARY_PRESS,
                     pressed: false,
                 };
-                super::dispatch_input(world, root, &event, now_ms, lw, lh);
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
                     tl.action_started = false;
                     tl.drag_move_emitted = false;
                     tl.rotate_emitted = 0;
                 }
+                super::deliver_input(world, root, &event, now_ms, lw, lh);
             }
         }
         ResolvedAction::Wait(ms) => {
@@ -1083,12 +1078,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
         }
     }
 
-    if let Err(error) = super::gesture::system::drain_gestures(world, |world, gesture| {
-        super::runtime::dispatch_gesture(world, gesture, now_ms)?;
-        super::runtime::flush(world).map(|_| ())
-    }) {
-        crate::warn!("simulated gesture batch dispatch failed: {:?}", error);
-    }
+    super::dispatch_pending_gestures(world, now_ms);
     Ok(())
 }
 
@@ -1122,6 +1112,39 @@ mod tests {
         mock::set_ns(0);
         world.insert_resource(MonoClock::from_time_source());
         world
+    }
+
+    #[crate::event]
+    fn replace_timeline(commands: commands!()) {
+        commands.insert_resource(SimTimeline::new(alloc::vec![SimAction::wait(1000)]));
+    }
+
+    #[test]
+    fn completing_action_does_not_advance_a_timeline_installed_by_its_callback() {
+        let _guard = mock::install();
+        mock::set_ns(0);
+        let mut app = crate::app::App::headless(32, 32);
+        app.add_resource(MonoClock::from_time_source());
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.compose(root, |cx| {
+            crate::ui! {
+                View (width: 32, height: 32) on Tap(replace_timeline::callback())
+            }
+        });
+        app.render().unwrap();
+        app.add_resource(SimTimeline::new(alloc::vec![SimAction::tap(Point {
+            x: 4.into(),
+            y: 4.into()
+        })]));
+        sim_timeline_system(&mut app.world).unwrap();
+        mock::advance_ms(50);
+        sim_timeline_system(&mut app.world).unwrap();
+        let timeline = app.world.resource::<SimTimeline>().unwrap();
+        assert_eq!(timeline.total_ms, 1000);
+        assert_eq!(timeline.cursor, 0);
+        assert!(timeline.start_ms.is_none());
+        assert!(timeline.is_running());
     }
 
     #[derive(Clone, Copy, Debug)]
