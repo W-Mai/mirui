@@ -704,7 +704,7 @@ View ()
 The first handler runs on every click and allows the second handler to run
 on a double tap. Returning `()` or `true` instead stops that sequence.
 
-`Key` and `CharInput` carry their platform fields and support entity and App input source capabilities. `InputSelectors` supplies their component-node keys; focused nodes and ancestors run before App fallback. `Wheel` carries its position and deltas; `Rotary` carries its device id and delta, without fabricated pointer coordinates. Wheel and rotary callback sources are App-only.
+`Key` carries keyboard metadata; `TextCommitted::text()` borrows a complete UTF-8 fragment. Both support entity and App input source capabilities. `InputSelectors` supplies their component-node keys; focused nodes and ancestors run before App fallback. `Wheel` carries its position and deltas; `Rotary` carries its device id and delta, without fabricated pointer coordinates. Wheel and rotary callback sources are App-only.
 
 SDL and WGPU preserve press and release for supported editing keys. Character
 input is produced by text input or key presses, not key releases. Escape retains
@@ -784,7 +784,7 @@ app.on_event(Key::EVENT, handle_key::callback(shortcuts));
 
 Focused keyboard handlers and default text editing run before App key and character fallback. Wheel and rotary events first try the scroll route. An accepted input is not dispatched again through a second handler path. App fallback also works without a widget root. Plugin consumption can stop user input, but does not stop lifecycle requests from reaching other plugins or bypass cancellation.
 
-Atlas Restoration, Echo Walker, Pocket Post, Twin Beacons, and Folding Ark bind keyboard controls with `#[event]`, `event!(CharInput)`, and `model!` parameters. Their shortcuts use App fallback rather than a lifecycle plugin or an explicit Model handle type. Registered instances are shared with the rest of each game; character input consumed by a focused editor does not trigger the shortcut.
+Atlas Restoration, Echo Walker, Pocket Post, Twin Beacons, and Folding Ark bind keyboard controls with `#[event]`, `event!(TextCommitted)`, and `model!` parameters. Their shortcuts match a complete single-key string at App fallback, without splitting pasted text into game actions. Registered instances are shared with the rest of each game; input consumed by a focused editor does not trigger the shortcut.
 
 Twin Beacons and Folding Ark install their hint services with `App::add_resource` before binding the keyboard callbacks, which borrow them through `res!` on each invocation. At setup, each game's keyboard and hint controls share the same search workspace; subsequent keyboard calls read the current installed service.
 

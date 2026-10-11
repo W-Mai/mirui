@@ -2,7 +2,7 @@
 
 use mirui::input::event::contract::*;
 use mirui::prelude::{
-    CharInput, DragCancel, DragEnd, DragMove, DragStart, HostInteraction, Key,
+    TextCommitted, DragCancel, DragEnd, DragMove, DragStart, HostInteraction, Key,
     LongPress, MemoryWarning, Pinch, Quit, Resumed, Rotary, Rotate, Started,
     Suspended, Tap, Wheel,
 };
@@ -63,9 +63,9 @@ fn main() {
     entity(Pinch::EVENT);
     entity(Rotate::EVENT);
     entity(Key::EVENT);
-    entity(CharInput::EVENT);
+    entity(TextCommitted::EVENT);
     app(Key::EVENT);
-    app(CharInput::EVENT);
+    app(TextCommitted::EVENT);
     app(Wheel::EVENT);
     app(Rotary::EVENT);
     app(Started::EVENT);

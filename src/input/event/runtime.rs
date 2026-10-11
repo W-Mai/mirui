@@ -22,7 +22,7 @@ use super::emission::{
 };
 use super::focus::{FocusChanged, FocusObserver, FocusState};
 use super::hover::{HoverChanged, HoverObservers};
-use super::input::{CharInput, InputEvent, Key, Rotary, Wheel};
+use super::input::{InputEvent, Key, Rotary, Wheel};
 use super::layout::{SizeChanged, SizeObservers};
 use super::lifecycle::AppNotice;
 use super::listeners::{
@@ -750,10 +750,10 @@ pub(crate) fn dispatch_input(
                 )?
                 .run(world)?;
         }
-        InputEvent::CharInput { ch } => {
+        InputEvent::TextCommitted(text) => {
             runtime
                 .listeners
-                .snapshot_keyboard(world, &CharInput { ch: *ch })?
+                .snapshot_keyboard(world, text)?
                 .run(world)?;
         }
         InputEvent::Wheel { dx, dy, x, y } => {

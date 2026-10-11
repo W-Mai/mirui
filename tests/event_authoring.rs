@@ -82,7 +82,7 @@ fn text_notifications_share_authoring_forms_and_respect_key_consumption() {
             focused: Some(node),
         });
         for input in [
-            InputEvent::CharInput { ch: '界' },
+            InputEvent::TextCommitted(mirui::input::event::input::TextCommitted::new("界")),
             InputEvent::Key {
                 code: KEY_RETURN,
                 pressed: true,

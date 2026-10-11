@@ -46,15 +46,15 @@ pub(super) fn surface_tap(surface: &EchoSurface, rect: Rect, x: Fixed, y: Fixed)
 }
 
 #[event]
-pub(super) fn keyboard(input: event!(CharInput), model: model!(EchoModel)) -> bool {
-    match input.ch {
-        'w' | 'W' => model.step(Direction::Up),
-        'a' | 'A' => model.step(Direction::Left),
-        's' | 'S' => model.step(Direction::Down),
-        'd' | 'D' => model.step(Direction::Right),
-        ' ' => model.step(Direction::Wait),
-        'r' | 'R' => model.rewind(),
-        'u' | 'U' => model.undo(),
+pub(super) fn keyboard(input: event!(TextCommitted), model: model!(EchoModel)) -> bool {
+    match input.text() {
+        "w" | "W" => model.step(Direction::Up),
+        "a" | "A" => model.step(Direction::Left),
+        "s" | "S" => model.step(Direction::Down),
+        "d" | "D" => model.step(Direction::Right),
+        " " => model.step(Direction::Wait),
+        "r" | "R" => model.rewind(),
+        "u" | "U" => model.undo(),
         _ => return false,
     };
     true
@@ -70,9 +70,27 @@ mod tests {
     struct Unhandled(Option<char>);
 
     #[event]
-    fn unhandled(input: event!(CharInput), seen: res!(mut Unhandled)) -> bool {
-        seen.0 = Some(input.ch);
+    fn unhandled(input: event!(TextCommitted), seen: res!(mut Unhandled)) -> bool {
+        seen.0 = input.text().chars().next();
         true
+    }
+
+    #[test]
+    fn committed_words_do_not_trigger_individual_game_shortcuts() {
+        let mut app = crate::app::App::headless(32, 32);
+        app.add_resource(Unhandled::default());
+        let model = app.add_model(EchoModel::default());
+        app.on_event(TextCommitted::EVENT, keyboard::callback(model))
+            .on_event(TextCommitted::EVENT, unhandled::callback());
+        crate::input::event::dispatch_input(
+            &mut app.world,
+            None,
+            &TextCommitted::new("wasd").into(),
+            0,
+            32,
+            32,
+        );
+        assert_eq!(app.world.resource::<Unhandled>().unwrap().0, Some('w'));
     }
 
     #[test]
@@ -81,14 +99,14 @@ mod tests {
         let model = app.add_model(EchoModel::default());
         let observer = model.clone();
         app.world.insert_resource(Unhandled::default());
-        app.on_event(CharInput::EVENT, keyboard::callback(model.clone()))
-            .on_event(CharInput::EVENT, unhandled::callback());
+        app.on_event(TextCommitted::EVENT, keyboard::callback(model.clone()))
+            .on_event(TextCommitted::EVENT, unhandled::callback());
         drop(model);
 
         dispatch_input(
             &mut app.world,
             None,
-            &InputEvent::CharInput { ch: ' ' },
+            &InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new(" ")),
             0,
             1,
             1,
@@ -100,7 +118,7 @@ mod tests {
         dispatch_input(
             &mut app.world,
             None,
-            &InputEvent::CharInput { ch: 'x' },
+            &InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new("x")),
             1,
             1,
             1,

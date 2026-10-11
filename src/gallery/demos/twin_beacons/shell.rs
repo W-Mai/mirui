@@ -1264,7 +1264,7 @@ where
     #[cfg(feature = "persistence")]
     install_persistence(app, game.clone());
     app.on_event(
-        CharInput::EVENT,
+        TextCommitted::EVENT,
         keyboard::callback(game.clone(), expedition.clone()),
     );
     app.compose(parent, build_widgets(game, expedition, hints));

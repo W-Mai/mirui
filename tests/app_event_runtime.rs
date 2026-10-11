@@ -6,7 +6,7 @@ use mirui::app::{App, RendererFactory};
 use mirui::core::cache::InspectCaches;
 use mirui::ecs::World;
 use mirui::input::event::contract::Event;
-use mirui::input::event::input::{CharInput, InputEvent, Key, KeyModifiers, Rotary, Wheel};
+use mirui::input::event::input::{InputEvent, Key, KeyModifiers, Rotary, TextCommitted, Wheel};
 use mirui::input::event::lifecycle::{
     HostFocusChanged, HostInteraction, HostVisibilityChanged, MemoryWarning, Quit, Resumed,
     SafeAreaChanged, Started, Suspended, ViewportChanged,
@@ -99,7 +99,7 @@ enum Step {
     QuitHook,
     Quit,
     Key(Key),
-    CharInput(CharInput),
+    TextCommitted(usize),
     Wheel(Wheel),
     Rotary(Rotary),
     Viewport(ViewportChanged),
@@ -779,8 +779,8 @@ fn key(input: event!(Key), trace: res!(mut Trace)) -> bool {
 }
 
 #[mirui::event]
-fn char_input(input: event!(CharInput), trace: res!(mut Trace)) -> bool {
-    trace.push(Step::CharInput(*input));
+fn char_input(input: event!(TextCommitted), trace: res!(mut Trace)) -> bool {
+    trace.push(Step::TextCommitted(input.text().len()));
     false
 }
 
@@ -809,7 +809,7 @@ fn rootless_app_dispatches_all_four_typed_input_kinds_once() {
         }),
         repeat: Some(true),
     };
-    let text = CharInput { ch: '界' };
+    let text = TextCommitted::new("界");
     let wheel_input = Wheel {
         dx: Fixed::from_int(2),
         dy: Fixed::from_int(-3),
@@ -824,7 +824,7 @@ fn rootless_app_dispatches_all_four_typed_input_kinds_once() {
         rotary_input.into(),
     ]);
     app.on_event(Key::EVENT, key::callback())
-        .on_event(CharInput::EVENT, char_input::callback())
+        .on_event(TextCommitted::EVENT, char_input::callback())
         .on_event(Wheel::EVENT, wheel::callback())
         .on_event(Rotary::EVENT, rotary::callback());
     assert!(app.root.is_none());
@@ -835,7 +835,7 @@ fn rootless_app_dispatches_all_four_typed_input_kinds_once() {
         &[
             Step::StartHook,
             Step::Key(key_input),
-            Step::CharInput(text),
+            Step::TextCommitted("界".len()),
             Step::Wheel(wheel_input),
             Step::Rotary(rotary_input),
         ],

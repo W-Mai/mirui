@@ -214,8 +214,8 @@ fn queued_edits_apply_to_current_content_in_order_without_allocating() {
         assert_eq!(
             crate::test_support::tracked_allocations(|| {
                 let mut commands = batch.commands();
-                commands.apply(entity, InputEdit::Character('A'), apply_input_edit);
-                commands.apply(entity, InputEdit::Character('中'), apply_input_edit);
+                commands.apply(entity, InputEdit::Replace("A"), apply_input_edit);
+                commands.apply(entity, InputEdit::Replace("中"), apply_input_edit);
             }),
             0
         );
@@ -244,7 +244,7 @@ fn queued_edits_revalidate_missing_inputs_and_capacity_at_commit() {
     let mut batch = queue.begin();
     batch
         .commands()
-        .apply(entity, InputEdit::Character('中'), apply_input_edit);
+        .apply(entity, InputEdit::Replace("中"), apply_input_edit);
     world
         .get_mut::<TextInput>(entity)
         .unwrap()
@@ -259,7 +259,7 @@ fn queued_edits_revalidate_missing_inputs_and_capacity_at_commit() {
     batch.commands().remove::<TextInput>(entity);
     batch
         .commands()
-        .apply(entity, InputEdit::Character('A'), apply_input_edit);
+        .apply(entity, InputEdit::Replace("A"), apply_input_edit);
     batch.finish(&mut world).unwrap();
     assert!(!world.has::<TextInput>(entity));
 }

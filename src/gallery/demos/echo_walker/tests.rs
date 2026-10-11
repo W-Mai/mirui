@@ -74,7 +74,9 @@ fn keyboard_wait_advances_exactly_one_beat() {
     crate::input::event::dispatch_input(
         &mut world,
         None,
-        &crate::surface::InputEvent::CharInput { ch: ' ' },
+        &crate::surface::InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new(
+            " ",
+        )),
         0,
         480,
         320,

@@ -362,8 +362,8 @@ impl Surface for SdlSurface {
                     self.handle_multi_gesture(cx, cy, d_theta, d_dist, win_w, win_h);
                 }
                 Event::TextInput { text, .. } => {
-                    if let Some(ch) = text.chars().next() {
-                        self.pending.push_back(InputEvent::CharInput { ch });
+                    if let Some(input) = super::sdl_events::text_input(text) {
+                        self.pending.push_back(input);
                     }
                 }
                 Event::Window { win_event, .. } => {

@@ -1160,6 +1160,50 @@ mod tests {
         replace: bool,
     }
 
+    #[derive(Default)]
+    struct TextProgramTrace {
+        pointer: usize,
+        calls: usize,
+    }
+
+    #[crate::event]
+    fn program_text(
+        input: event!(crate::input::event::input::TextCommitted),
+        trace: res!(mut TextProgramTrace),
+    ) {
+        assert_eq!(input.text().len(), 300);
+        assert_eq!(input.text().as_ptr() as usize, trace.pointer);
+        trace.calls += 1;
+    }
+
+    #[test]
+    fn looping_owned_text_keeps_its_buffer_without_per_cycle_cloning() {
+        use crate::input::event::input::TextCommitted;
+        let _guard = mock::install();
+        let mut app = crate::app::App::headless(32, 32);
+        let text = "界".repeat(100);
+        app.add_resource(TextProgramTrace {
+            pointer: text.as_ptr() as usize,
+            calls: 0,
+        });
+        app.on_event(TextCommitted::EVENT, program_text::callback());
+        app.add_resource(
+            SimulatedInput::new(alloc::vec![SimCommand::at(
+                0,
+                TextCommitted::new(text).into()
+            )])
+            .looping(true),
+        );
+        sim_input_system(&mut app.world).unwrap();
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for _ in 0..8 {
+                sim_input_system(&mut app.world).unwrap();
+            }
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(app.world.resource::<TextProgramTrace>().unwrap().calls, 9);
+    }
+
     fn program_key(code: u32) -> InputEvent {
         super::super::input::Key {
             code,

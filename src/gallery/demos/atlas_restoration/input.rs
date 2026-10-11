@@ -4,7 +4,7 @@ use crate::gallery::play::expeditions::{
     Direction4, ExpeditionModal, ExpeditionPanel, ExpeditionUiModel, picture_level,
 };
 use crate::gallery::play::picture::{PictureModel, PictureTool};
-use crate::prelude::{CharInput, Fixed, Rect, event};
+use crate::prelude::{Fixed, Rect, TextCommitted, event};
 
 fn local_cell(level_index: u8, rect: Rect, x: Fixed, y: Fixed) -> Option<u8> {
     if rect.w.is_zero() || rect.h.is_zero() {
@@ -98,22 +98,22 @@ pub(super) fn surface_drag_end(surface: &PictureSurface, cancelled: bool) -> boo
 
 #[event]
 pub(super) fn keyboard(
-    input: event!(CharInput),
+    input: event!(TextCommitted),
     model: model!(PictureModel),
     expedition: model!(ExpeditionUiModel),
 ) -> bool {
     if expedition.panel() != ExpeditionPanel::None || model.modal() != ExpeditionModal::None {
         return false;
     }
-    match input.ch {
-        'w' | 'W' => model.move_cursor(Direction4::Up),
-        'd' | 'D' => model.move_cursor(Direction4::Right),
-        's' | 'S' => model.move_cursor(Direction4::Down),
-        'a' | 'A' => model.move_cursor(Direction4::Left),
-        ' ' => model.apply_cursor(None),
-        'x' | 'X' => model.apply_cursor(Some(PictureTool::Mark)),
-        'z' | 'Z' => model.undo(),
-        'h' | 'H' => model.reveal_hint(),
+    match input.text() {
+        "w" | "W" => model.move_cursor(Direction4::Up),
+        "d" | "D" => model.move_cursor(Direction4::Right),
+        "s" | "S" => model.move_cursor(Direction4::Down),
+        "a" | "A" => model.move_cursor(Direction4::Left),
+        " " => model.apply_cursor(None),
+        "x" | "X" => model.apply_cursor(Some(PictureTool::Mark)),
+        "z" | "Z" => model.undo(),
+        "h" | "H" => model.reveal_hint(),
         _ => return false,
     };
     true

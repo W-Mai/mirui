@@ -1,6 +1,7 @@
 use super::contract::{AppSource, Event, EventKey, InputFallback, InputSource};
 use crate::ecs::Component;
 use crate::types::Fixed;
+use alloc::borrow::Cow;
 
 pub(crate) const WHEEL_LINE_PIXELS: Fixed = Fixed::from_int(20);
 
@@ -45,10 +46,41 @@ pub enum PointerKind {
     Unknown,
 }
 
-/// Projection from platform input to a concrete input callback payload.
+/// A typed platform input payload.
 #[doc(hidden)]
-pub trait InputPayload: Event<Route = InputFallback> + sealed::InputPayload {
-    fn project(event: &InputEvent) -> Option<Self>;
+pub trait InputPayload: Event<Route = InputFallback> + sealed::InputPayload {}
+
+/// One complete text fragment delivered by an input source.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TextCommitted {
+    text: Cow<'static, str>,
+}
+
+impl TextCommitted {
+    /// Move owned text or borrow a static string without copying it.
+    pub fn new(text: impl Into<Cow<'static, str>>) -> Self {
+        Self { text: text.into() }
+    }
+
+    /// Borrow the complete UTF-8 fragment for this callback.
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+}
+
+impl Event for TextCommitted {
+    type Route = InputFallback;
+    type Source = InputSource;
+    type Options = ();
+}
+
+impl sealed::InputPayload for TextCommitted {}
+impl InputPayload for TextCommitted {}
+
+impl From<TextCommitted> for InputEvent {
+    fn from(text: TextCommitted) -> Self {
+        Self::TextCommitted(text)
+    }
 }
 
 macro_rules! typed_inputs {
@@ -68,6 +100,7 @@ macro_rules! typed_inputs {
             PointerLeave { kind: PointerKind, id: u8 },
             HostFocus { focused: bool },
             HostVisibility { visible: bool },
+            TextCommitted(TextCommitted),
             $($(#[$doc])* $kind { $($(#[$field_doc])* $field: $ty),+ },)+
             AppSuspend,
             AppResume,
@@ -90,16 +123,7 @@ macro_rules! typed_inputs {
 
             impl sealed::InputPayload for $kind {}
 
-            impl InputPayload for $kind {
-                fn project(event: &InputEvent) -> Option<Self> {
-                    match event {
-                        InputEvent::$kind { $($field),+ } => Some(Self {
-                            $($field: *$field),+
-                        }),
-                        _ => None,
-                    }
-                }
-            }
+            impl InputPayload for $kind {}
 
             impl From<$kind> for InputEvent {
                 fn from(payload: $kind) -> Self {
@@ -131,14 +155,13 @@ typed_inputs! {
         /// Platform auto-repeat flag, or `None` when unavailable.
         repeat: Option<bool>,
     },
-    CharInput(InputSource) { ch: char },
 }
 
 /// Focused keyboard selectors available on component nodes.
 #[allow(non_upper_case_globals)]
 pub trait InputSelectors: Component {
     const Key: EventKey<Key> = Key::EVENT;
-    const CharInput: EventKey<CharInput> = CharInput::EVENT;
+    const TextCommitted: EventKey<TextCommitted> = TextCommitted::EVENT;
 }
 
 impl<T: Component> InputSelectors for T {}
@@ -166,7 +189,7 @@ impl InputEvent {
             | Self::Rotary { .. }
             | Self::Wheel { .. }
             | Self::Key { .. }
-            | Self::CharInput { .. } => true,
+            | Self::TextCommitted(_) => true,
             Self::AppSuspend
             | Self::AppResume
             | Self::Quit
@@ -220,7 +243,7 @@ mod tests {
                 modifiers: Some(Default::default()),
                 repeat: Some(false),
             },
-            InputEvent::CharInput { ch: 'a' },
+            InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new("a")),
         ] {
             assert!(event.is_user_input());
         }
@@ -236,22 +259,8 @@ mod tests {
     }
 
     #[test]
-    fn projections_preserve_input_fields_without_fabricating_targets() {
-        fn round_trip<P>(payload: P)
-        where
-            P: InputPayload + Into<InputEvent> + Copy + PartialEq + core::fmt::Debug,
-        {
-            assert_eq!(P::project(&payload.into()), Some(payload));
-        }
-
-        round_trip(Rotary { id: 3, delta: -7 });
-        round_trip(Wheel {
-            dx: Fixed::from_int(-2),
-            dy: Fixed::from_int(3),
-            x: Fixed::from_int(4),
-            y: Fixed::from_int(5),
-        });
-        round_trip(Key {
+    fn conversion_preserves_keyboard_metadata() {
+        let key = Key {
             code: KEY_BACKSPACE,
             pressed: true,
             modifiers: Some(KeyModifiers {
@@ -261,51 +270,43 @@ mod tests {
                 meta: true,
             }),
             repeat: Some(true),
-        });
-        round_trip(Key {
-            code: KEY_RETURN,
-            pressed: false,
-            modifiers: None,
-            repeat: None,
-        });
-        round_trip(CharInput { ch: '界' });
+        };
+        let InputEvent::Key {
+            code,
+            pressed,
+            modifiers,
+            repeat,
+        } = key.into()
+        else {
+            panic!("key input")
+        };
+        assert_eq!(
+            Key {
+                code,
+                pressed,
+                modifiers,
+                repeat
+            },
+            key
+        );
     }
 
     #[test]
-    fn requests_and_pointer_primitives_do_not_project_as_callback_input() {
-        for event in [
-            InputEvent::PointerDown {
-                kind: crate::input::event::input::PointerKind::Mouse,
-                id: 0,
-                x: Fixed::ONE,
-                y: Fixed::ZERO,
-            },
-            InputEvent::PointerMove {
-                kind: crate::input::event::input::PointerKind::Mouse,
-                id: 0,
-                x: Fixed::ONE,
-                y: Fixed::ZERO,
-            },
-            InputEvent::PointerUp {
-                kind: crate::input::event::input::PointerKind::Mouse,
-                id: 0,
-                x: Fixed::ONE,
-                y: Fixed::ZERO,
-            },
-            InputEvent::PointerCancel {
-                kind: crate::input::event::input::PointerKind::Mouse,
-                id: 0,
-                x: Fixed::ONE,
-                y: Fixed::ZERO,
-            },
-            InputEvent::AppSuspend,
-            InputEvent::AppResume,
-            InputEvent::Quit,
-        ] {
-            assert!(Key::project(&event).is_none());
-            assert!(CharInput::project(&event).is_none());
-            assert!(Wheel::project(&event).is_none());
-            assert!(Rotary::project(&event).is_none());
-        }
+    fn text_keeps_owned_and_static_storage_without_copying() {
+        fn send_sync<T: Send + Sync>() {}
+        send_sync::<InputEvent>();
+        let owned = alloc::string::String::from("A中🙂");
+        let pointer = owned.as_ptr();
+        let event: InputEvent = TextCommitted::new(owned).into();
+        let InputEvent::TextCommitted(text) = event else {
+            panic!("text input")
+        };
+        assert_eq!(text.text(), "A中🙂");
+        assert_eq!(text.text().as_ptr(), pointer);
+        let allocations = crate::test_support::tracked_allocations(|| {
+            let text = TextCommitted::new("静态🙂");
+            assert_eq!(text.text(), "静态🙂");
+        });
+        assert_eq!(allocations, 0);
     }
 }

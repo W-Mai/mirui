@@ -26,7 +26,7 @@ fn main() {
         .on_event(HostInteraction::EVENT, lifecycle::callback())
         .on_event(Quit::EVENT, lifecycle::callback())
         .on_event(Key::EVENT, deferred::callback())
-        .on_event(CharInput::EVENT, fallback::callback())
+        .on_event(TextCommitted::EVENT, fallback::callback())
         .on_event(Wheel::EVENT, fallback::callback())
         .on_event(Rotary::EVENT, fallback::callback());
 }

@@ -476,12 +476,9 @@ fn keyboard_listener(
                 repeat: Some(evt.repeat()),
             });
         }
-        if pressed && key.chars().count() == 1 {
-            // `key` is post-IME / post-shift / post-dead-key — emit it
-            // alongside `Key` so text widgets get both signals.
-            if let Some(ch) = key.chars().next() {
-                q.borrow_mut().push_back(InputEvent::CharInput { ch });
-            }
+        if pressed && !evt.is_composing() && key.chars().count() == 1 {
+            q.borrow_mut()
+                .push_back(crate::input::event::input::TextCommitted::new(key).into());
         }
     });
     register_listener(canvas.clone().into(), name, closure)

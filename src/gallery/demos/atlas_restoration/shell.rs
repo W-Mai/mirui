@@ -1644,7 +1644,7 @@ where
     let model = app.add_model(PictureModel::default());
     let expedition = app.add_model(ExpeditionUiModel::default());
     app.on_event(
-        CharInput::EVENT,
+        TextCommitted::EVENT,
         keyboard::callback(model.clone(), expedition.clone()),
     );
     #[cfg(feature = "persistence")]

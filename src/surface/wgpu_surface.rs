@@ -111,12 +111,14 @@ fn wheel_delta(delta: MouseScrollDelta, scale: f64) -> (Fixed, Fixed) {
     }
 }
 
-fn enqueue_text(queue: &mut VecDeque<InputEvent>, text: &str) {
-    queue.extend(
-        text.chars()
-            .filter(|ch| !ch.is_control())
-            .map(|ch| InputEvent::CharInput { ch }),
-    );
+fn enqueue_text(
+    queue: &mut VecDeque<InputEvent>,
+    text: impl Into<alloc::borrow::Cow<'static, str>>,
+) {
+    let text = crate::input::event::input::TextCommitted::new(text);
+    if !text.text().is_empty() {
+        queue.push_back(text.into());
+    }
 }
 
 #[cfg(target_os = "android")]
@@ -313,8 +315,11 @@ impl WgpuRuntime {
                 repeat: Some(repeat),
             });
         }
-        if pressed && let Some(text) = text {
-            enqueue_text(&mut self.event_queue, text);
+        if pressed
+            && let Some(text) = text
+            && !text.chars().all(char::is_control)
+        {
+            enqueue_text(&mut self.event_queue, alloc::string::String::from(text));
         }
         false
     }
@@ -553,7 +558,7 @@ impl WgpuRuntime {
                 false
             }
             WindowEvent::Ime(Ime::Commit(text)) => {
-                enqueue_text(&mut self.event_queue, &text);
+                enqueue_text(&mut self.event_queue, text);
                 false
             }
             _ => false,
@@ -1412,7 +1417,7 @@ mod tests {
             Some(InputEvent::PointerMove { x, .. }) if x == Fixed::from_int(5)));
         assert!(matches!(
             runtime.event_queue.pop_front(),
-            Some(InputEvent::CharInput { ch: 'x' })
+            Some(InputEvent::TextCommitted(text)) if text.text() == "x"
         ));
         assert!(runtime.event_queue.is_empty());
         assert!(runtime.pending_move.is_none());
@@ -1531,10 +1536,8 @@ mod tests {
         }
         let key = Key::Character("A中🙂".into());
         assert!(!runtime.keyboard_input(&key, ElementState::Pressed, Some("A中🙂"), false));
-        for expected in ['A', '中', '🙂'] {
-            assert!(matches!(runtime.event_queue.pop_front(),
-                Some(InputEvent::CharInput { ch }) if ch == expected));
-        }
+        assert!(matches!(runtime.event_queue.pop_front(),
+            Some(InputEvent::TextCommitted(text)) if text.text() == "A中🙂"));
         assert!(!runtime.keyboard_input(&key, ElementState::Released, Some("A中🙂"), false));
         assert!(runtime.event_queue.is_empty());
     }
@@ -1742,22 +1745,28 @@ mod tests {
     }
 
     #[test]
-    fn text_event_translation_keeps_every_committed_scalar() {
+    fn text_event_translation_preserves_the_whole_fragment() {
         let mut queue = VecDeque::new();
         enqueue_text(&mut queue, "A中\n🙂");
         assert!(matches!(
             queue.pop_front(),
-            Some(InputEvent::CharInput { ch: 'A' })
-        ));
-        assert!(matches!(
-            queue.pop_front(),
-            Some(InputEvent::CharInput { ch: '中' })
-        ));
-        assert!(matches!(
-            queue.pop_front(),
-            Some(InputEvent::CharInput { ch: '🙂' })
+            Some(InputEvent::TextCommitted(text)) if text.text() == "A中\n🙂"
         ));
         assert!(queue.is_empty());
+    }
+
+    #[test]
+    fn owned_commit_moves_into_the_prepared_queue_without_copying() {
+        let mut queue = VecDeque::with_capacity(1);
+        let text = alloc::string::String::from("A中🙂");
+        let pointer = text.as_ptr();
+        let allocations =
+            crate::test_support::tracked_allocations(|| enqueue_text(&mut queue, text));
+        assert_eq!(allocations, 0);
+        let Some(InputEvent::TextCommitted(event)) = queue.pop_front() else {
+            panic!("text input")
+        };
+        assert_eq!(event.text().as_ptr(), pointer);
     }
 
     #[test]

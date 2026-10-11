@@ -315,3 +315,22 @@ mod tests {
         assert!(supported_event_type(0x300));
     }
 }
+pub(crate) fn text_input(text: alloc::string::String) -> Option<crate::surface::InputEvent> {
+    if text.is_empty() {
+        return None;
+    }
+    Some(crate::input::event::input::TextCommitted::new(text).into())
+}
+
+#[cfg(test)]
+#[test]
+fn committed_text_moves_the_complete_native_string() {
+    let text = alloc::string::String::from("A中🙂");
+    let pointer = text.as_ptr();
+    let Some(InputEvent::TextCommitted(event)) = text_input(text) else {
+        panic!("text input")
+    };
+    assert_eq!(event.text(), "A中🙂");
+    assert_eq!(event.text().as_ptr(), pointer);
+    assert!(text_input(alloc::string::String::new()).is_none());
+}

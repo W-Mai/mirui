@@ -634,7 +634,7 @@ impl EventListeners {
         event: &'event E,
     ) -> Result<ListenerSnapshot<'pool, 'event>, ListenerError>
     where
-        E: InputPayload + Event<Source = InputSource> + Copy + Into<InputEvent>,
+        E: InputPayload + Event<Source = InputSource>,
     {
         let mut snapshot = self.empty_snapshot(world, BorrowedEvent::new(event))?;
         let focused = world

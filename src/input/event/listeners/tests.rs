@@ -765,7 +765,7 @@ fn keyboard_view(world: &mut World) -> crate::ui::view::View {
             (
                 keyboard_default::callback::<Key, super::super::callback::NodeContext>(),
                 keyboard_default::callback::<
-                    super::super::input::CharInput,
+                    super::super::input::TextCommitted,
                     super::super::callback::NodeContext,
                 >(),
             ),
@@ -814,7 +814,7 @@ impl KeyboardFixture {
                 CommandCapacity::default(),
             )
             .unwrap();
-            pool.install_entity::<super::super::input::CharInput, EntityContext<Widget>>(
+            pool.install_entity::<super::super::input::TextCommitted, EntityContext<Widget>>(
                 &mut world,
                 node,
                 selector(),
@@ -830,7 +830,7 @@ impl KeyboardFixture {
             CommandCapacity::default(),
         )
         .unwrap();
-        pool.install_app::<super::super::input::CharInput>(
+        pool.install_app::<super::super::input::TextCommitted>(
             &mut world,
             selector(),
             keyboard_app::callback(),
@@ -848,7 +848,7 @@ impl KeyboardFixture {
 
     fn dispatch<E>(&mut self, event: &E) -> Result<BubbleControl, ListenerError>
     where
-        E: InputPayload + Event<Source = InputSource> + Copy + Into<InputEvent>,
+        E: InputPayload + Event<Source = InputSource>,
     {
         self.pool
             .snapshot_keyboard(&self.world, event)?
@@ -877,7 +877,7 @@ fn keyboard_and_character_routes_order_authors_defaults_ancestors_and_app_withou
     assert_eq!(
         tracked_allocations(|| {
             assert_eq!(
-                fixture.dispatch(&super::super::input::CharInput { ch: '界' }),
+                fixture.dispatch(&super::super::input::TextCommitted::new("界")),
                 Ok(BubbleControl::Allow)
             );
         }),

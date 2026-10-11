@@ -56,8 +56,8 @@ fn visible_interactive_descendant(world: &World, entity: Entity) -> bool {
 struct UnhandledCharacter(Option<char>);
 
 #[event]
-fn unhandled_character(input: event!(CharInput), seen: res!(mut UnhandledCharacter)) -> bool {
-    seen.0 = Some(input.ch);
+fn unhandled_character(input: event!(TextCommitted), seen: res!(mut UnhandledCharacter)) -> bool {
+    seen.0 = input.text().chars().next();
     true
 }
 
@@ -65,7 +65,9 @@ fn send_character(world: &mut World, root: Entity, ch: char) {
     crate::input::event::dispatch_input(
         world,
         Some(root),
-        &crate::surface::InputEvent::CharInput { ch },
+        &crate::surface::InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new(
+            ch.to_string(),
+        )),
         0,
         480,
         320,
@@ -90,7 +92,7 @@ fn registered_keyboard_preserves_commands_and_bound_model_instances() {
     let independent_panel = app.add_model(ExpeditionUiModel::default());
     independent_panel.open_summary();
     app.add_resource(UnhandledCharacter::default());
-    app.on_event(CharInput::EVENT, unhandled_character::callback());
+    app.on_event(TextCommitted::EVENT, unhandled_character::callback());
     drop(game);
     drop(expedition);
 

@@ -50,6 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `TextCommitted` replaces character input with complete UTF-8 fragments. SDL moves native text without truncating it; WGPU commits remain intact, and TextInput applies each fragment atomically through borrowed callback commands.
+
 - Text, Button labels, and TextInput use `capacity` for their UTF-8 byte limit. Component methods use `capacity`, `with_capacity`, and `set_capacity` without a `text_` prefix.
 
 - Scroll geometry is read through `query!(ScrollBounds)` instead of the public `scroll_bounds(World, Entity)` function.

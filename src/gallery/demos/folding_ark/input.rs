@@ -5,7 +5,7 @@ use crate::prelude::*;
 
 #[event]
 pub(super) fn keyboard(
-    input: event!(CharInput),
+    input: event!(TextCommitted),
     game: model!(FoldModel),
     expedition: model!(ExpeditionUiModel),
     hints: res!(FoldHintService),
@@ -13,23 +13,23 @@ pub(super) fn keyboard(
     if expedition.panel() != ExpeditionPanel::None {
         return false;
     }
-    match input.ch {
-        'w' | 'W' => {
+    match input.text() {
+        "w" | "W" => {
             game.move_direction(Direction4::Up);
         }
-        'd' | 'D' => {
+        "d" | "D" => {
             game.move_direction(Direction4::Right);
         }
-        's' | 'S' => {
+        "s" | "S" => {
             game.move_direction(Direction4::Down);
         }
-        'a' | 'A' => {
+        "a" | "A" => {
             game.move_direction(Direction4::Left);
         }
-        'z' | 'Z' => {
+        "z" | "Z" => {
             game.undo();
         }
-        'h' | 'H' => hints.request(game),
+        "h" | "H" => hints.request(game),
         _ => return false,
     }
     true

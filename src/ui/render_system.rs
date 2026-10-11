@@ -9506,14 +9506,14 @@ mod scroll_plan_check {
     }
 
     #[test]
-    fn idle_first_pass_publishes_input_geometry_snapshot() {
+    fn first_pass_publishes_input_geometry_and_preserves_initial_damage() {
         let mut world = World::new();
         let root = spawn_widget(&mut world, None, px_style(64, 64));
         spawn_widget(&mut world, Some(root), px_style(32, 32));
 
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        let plan_idle = collect_dirty_regions(&mut world, root, &viewport);
-        assert!(plan_idle.rects.is_empty());
+        let plan = collect_dirty_regions(&mut world, root, &viewport);
+        assert!(!plan.rects.is_empty());
         assert!(world.resource::<LayoutSnapshot>().is_some());
         assert!(crate::input::event::hit_test::geometry_matches(
             &world, root, 64, 64,

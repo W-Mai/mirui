@@ -90,7 +90,7 @@ macro_rules! keyboard_inputs {
     )+};
 }
 
-keyboard_inputs!(super::input::Key, super::input::CharInput);
+keyboard_inputs!(super::input::Key, super::input::TextCommitted);
 
 #[doc(hidden)]
 pub trait ViewInputs {

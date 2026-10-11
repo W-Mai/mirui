@@ -71,7 +71,13 @@ fn press(world: &mut World, node: Entity, code: u32) -> Result<bool, CommandErro
 }
 
 fn character(world: &mut World, node: Entity, ch: char) -> Result<bool, CommandError> {
-    view_input::invoke_payload(view(), world, node, &CharInput { ch }, None)
+    view_input::invoke_payload(
+        view(),
+        world,
+        node,
+        &TextCommitted::new(ch.to_string()),
+        None,
+    )
 }
 
 #[test]
@@ -92,6 +98,114 @@ fn input_edits_report_content_before_directed_selection() {
         world.resource::<Trace>().unwrap().as_slice(),
         &[Notice::Content(5), Notice::Selection(4, 4)]
     );
+}
+
+#[test]
+fn complete_fragments_replace_selection_once_and_reject_atomically() {
+    let (mut world, node) = fixture(EventCapacity::default());
+    let input = world.get_mut::<TextInput>(node).unwrap();
+    input.replace_selection("A中🙂Z").unwrap();
+    input
+        .set_selection(TextSelection {
+            anchor: 8,
+            cursor: 1,
+        })
+        .unwrap();
+    let callback = textinput_committed::callback::<crate::__macro_support::NodeContext>()
+        .prepare(&mut world, view_input::fixture_capacity())
+        .unwrap();
+    callback
+        .invoke(&mut world, &TextCommitted::new("文e\u{301}"), node)
+        .unwrap();
+    assert_eq!(runtime::flush(&mut world).unwrap(), 2);
+    assert_eq!(
+        world.get::<TextInput>(node).unwrap().as_str(),
+        "A文e\u{301}Z"
+    );
+    assert_eq!(
+        world.resource::<Trace>().unwrap().as_slice(),
+        &[Notice::Content(8), Notice::Selection(7, 7)]
+    );
+    *world.resource_mut::<Trace>().unwrap() = Trace::default();
+    world
+        .get_mut::<TextInput>(node)
+        .unwrap()
+        .set_selection(TextSelection {
+            anchor: 1,
+            cursor: 7,
+        })
+        .unwrap();
+    world.remove::<Dirty>(node);
+    for text in [
+        "x\ny",
+        "this entire replacement exceeds the declared byte capacity",
+    ] {
+        callback
+            .invoke(&mut world, &TextCommitted::new(text), node)
+            .unwrap();
+        assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        let input = world.get::<TextInput>(node).unwrap();
+        assert_eq!(input.as_str(), "A文e\u{301}Z");
+        assert_eq!(
+            input.selection(),
+            TextSelection {
+                anchor: 1,
+                cursor: 7
+            }
+        );
+        assert!(!world.has::<Dirty>(node));
+    }
+}
+
+#[test]
+fn large_owned_fragment_uses_the_widget_capacity_without_transport_slots() {
+    let (mut world, node) = fixture(EventCapacity::default());
+    world
+        .get_mut::<TextInput>(node)
+        .unwrap()
+        .set_capacity(512)
+        .unwrap();
+    let callback = textinput_committed::callback::<crate::__macro_support::NodeContext>()
+        .prepare(&mut world, view_input::fixture_capacity())
+        .unwrap();
+    callback
+        .invoke(&mut world, &TextCommitted::new("warm"), node)
+        .unwrap();
+    runtime::flush(&mut world).unwrap();
+    *world.resource_mut::<Trace>().unwrap() = Trace::default();
+    world
+        .get_mut::<TextInput>(node)
+        .unwrap()
+        .set_selection(TextSelection {
+            anchor: 0,
+            cursor: 4,
+        })
+        .unwrap();
+    let event = TextCommitted::new("界".repeat(100));
+    let allocations = crate::test_support::tracked_allocations(|| {
+        callback.invoke(&mut world, &event, node).unwrap();
+        assert_eq!(runtime::flush(&mut world).unwrap(), 2);
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(world.get::<TextInput>(node).unwrap().as_str(), event.text());
+    assert_eq!(
+        world.resource::<Trace>().unwrap().as_slice(),
+        &[Notice::Content(300), Notice::Selection(300, 300)]
+    );
+}
+
+#[test]
+fn empty_commit_without_selection_does_not_dirty() {
+    let (mut world, node) = fixture(EventCapacity::default());
+    let callback = textinput_committed::callback::<crate::__macro_support::NodeContext>()
+        .prepare(&mut world, view_input::fixture_capacity())
+        .unwrap();
+    world.remove::<Dirty>(node);
+    callback
+        .invoke(&mut world, &TextCommitted::new(""), node)
+        .unwrap();
+    assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+    assert!(!world.has::<Dirty>(node));
 }
 
 #[test]
@@ -215,7 +329,7 @@ fn unobserved_submission_needs_no_notification_storage() {
 #[test]
 fn prepared_edit_and_submission_callbacks_reuse_default_storage() {
     let (mut world, node) = fixture(EventCapacity::default());
-    let character = textinput_character::callback::<crate::__macro_support::NodeContext>()
+    let character = textinput_committed::callback::<crate::__macro_support::NodeContext>()
         .prepare(&mut world, view_input::fixture_capacity())
         .unwrap();
     let keyboard = textinput_key::callback::<crate::__macro_support::NodeContext>()
@@ -224,7 +338,7 @@ fn prepared_edit_and_submission_callbacks_reuse_default_storage() {
     for warm in [true, false] {
         let allocations = crate::test_support::tracked_allocations(|| {
             character
-                .invoke(&mut world, &CharInput { ch: '中' }, node)
+                .invoke(&mut world, &TextCommitted::new("中"), node)
                 .unwrap();
             runtime::flush(&mut world).unwrap();
             keyboard

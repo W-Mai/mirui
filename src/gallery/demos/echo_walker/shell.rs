@@ -678,6 +678,6 @@ where
     install_persistence(app, model.clone());
     app.with_widget(surface_render::view())
         .with_widget(modal_render::view());
-    app.on_event(CharInput::EVENT, keyboard::callback(model.clone()));
+    app.on_event(TextCommitted::EVENT, keyboard::callback(model.clone()));
     app.compose(parent, build_widgets(model));
 }

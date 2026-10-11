@@ -10,6 +10,12 @@ Spatial input refreshes stale layout or transformed hit geometry before dispatch
 
 ## Text editing
 
+`TextCommitted` delivers one complete UTF-8 fragment through the focused node, its ancestors, and App fallback. Read it with `event.text()`. Inline `on TextCommitted`, closures, and `#[event]` callbacks share this route. Returning `false` lets the default TextInput handler apply the fragment; consuming it prevents default editing.
+
+Construct simulated or custom input with `TextCommitted::new("你好").into()` or move an existing `String` into `TextCommitted::new(text)`. Static strings are borrowed and owned strings are moved. Callback execution and deferred editing borrow the event until the current invocation completes; retaining business data requires its own storage. Cloning owned event text copies it. Platform text conversion and input-queue growth are separate from prepared callback and editing storage.
+
+SDL preserves each native text event as one fragment; WGPU preserves each text or IME commit fragment rather than splitting it into characters. Native fragments are not guaranteed to be entire composition sessions or grapheme clusters. The Web keyboard source ignores composing key events; composition lifecycle and candidate-window handling are not supplied by that keyboard source.
+
 `TextInput` keeps its UTF-8 storage private. Read content with `as_str()`, `len()`, and `is_empty()`, and read the caret with `cursor()`. Lengths and positions are byte offsets. `set_selection(TextSelection { anchor, cursor })` validates both endpoints before changing either; reversed selections preserve their direction.
 
 `replace_selection(text)` replaces the entire selection and collapses it to the end of the inserted text. Capacity errors and control characters reject the whole replacement without changing content or selection. A successful result is `true` when content changed and `false` when only the selection collapsed. Editing does not allocate.
@@ -26,7 +32,7 @@ input.replace_selection("Mirui")?;
 assert_eq!(input.as_str(), "Hello Mirui");
 ```
 
-Character input replaces the current selection. Backspace and Delete remove a nonempty selection first; otherwise they remove one Unicode scalar. Left and Right collapse a selection to its beginning or end, and otherwise move by one scalar, not a full grapheme cluster. `TextInput::Changed { len: u32 }` reports content accepted by the input handlers, not caret-only changes. Calling component methods directly updates component state without synthesizing input notifications.
+Committed text replaces the current selection as one operation. An accepted fragment produces at most one `TextInput::Changed { len: u32 }`; invalid or oversized fragments are rejected in full with a warning. Backspace and Delete remove a nonempty selection first; otherwise they remove one Unicode scalar. Left and Right collapse a selection to its beginning or end, and otherwise move by one scalar, not a full grapheme cluster. `Changed` reports content accepted by input handlers, not caret-only changes. Calling component methods directly updates component state without synthesizing input notifications.
 
 `TextInput::SelectionChanged { anchor: u32, cursor: u32 }` reports the resulting directed UTF-8 byte offsets when an input handler changes the selection. An edit that changes both content and selection reports `Changed` first. Replacing selected text with identical text can collapse the selection without reporting a content change. Rejected and unchanged operations do not notify.
 
@@ -195,7 +201,7 @@ fn checkbox_input() {}
 
 Register this descriptor through `App::with_widget`. A custom descriptor for an existing component replaces its default input implementation only when the default descriptor is not also registered. An empty body supplies no painting. Input and painting can belong to the same descriptor.
 
-Use a tuple for multiple input callbacks: `input = (tap::callback(), drag::callback(), key::callback())`. Handlers declare their payload with `event!(Tap)`, `event!(DragMove)`, `event!(Key)`, or another supported input type. Supported gestures are Tap, LongPress, DragStart, DragMove, DragEnd, DragCancel, Pinch, and Rotate; keyboard inputs are Key and CharInput. Business notifications remain authored `on` bindings, not View input hooks.
+Use a tuple for multiple input callbacks: `input = (tap::callback(), drag::callback(), key::callback())`. Handlers declare their payload with `event!(Tap)`, `event!(DragMove)`, `event!(Key)`, or another supported input type. Supported gestures are Tap, LongPress, DragStart, DragMove, DragEnd, DragCancel, Pinch, and Rotate; keyboard inputs are Key and TextCommitted. Business notifications remain authored `on` bindings, not View input hooks.
 
 Callbacks are prepared when the first matching widget is assembled, after the App's event capacity has been configured. Matching instances share prepared callback storage; they do not each allocate command queues. Each callback invocation receives its current entity and borrows parameters afresh. Stable input dispatch reuses prepared storage.
 

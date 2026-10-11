@@ -191,7 +191,9 @@ fn overlays_block_surface_taps_drags_and_keyboard_commands() {
     crate::input::event::dispatch_input(
         &mut world,
         None,
-        &crate::surface::InputEvent::CharInput { ch: 'd' },
+        &crate::surface::InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new(
+            "d",
+        )),
         0,
         480,
         320,
@@ -212,7 +214,9 @@ fn overlays_block_surface_taps_drags_and_keyboard_commands() {
         crate::input::event::dispatch_input(
             &mut world,
             None,
-            &crate::surface::InputEvent::CharInput { ch },
+            &crate::surface::InputEvent::TextCommitted(
+                crate::input::event::input::TextCommitted::new(ch.to_string()),
+            ),
             1,
             480,
             320,
@@ -317,7 +321,9 @@ fn keyboard_commands_wait_for_the_active_stroke_transaction() {
     crate::input::event::dispatch_input(
         &mut world,
         None,
-        &crate::surface::InputEvent::CharInput { ch: 'h' },
+        &crate::surface::InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new(
+            "h",
+        )),
         0,
         480,
         320,
@@ -344,8 +350,8 @@ fn keyboard_commands_wait_for_the_active_stroke_transaction() {
 struct UnhandledCharacter(Option<char>);
 
 #[event]
-fn unhandled_character(input: event!(CharInput), seen: res!(mut UnhandledCharacter)) -> bool {
-    seen.0 = Some(input.ch);
+fn unhandled_character(input: event!(TextCommitted), seen: res!(mut UnhandledCharacter)) -> bool {
+    seen.0 = input.text().chars().next();
     true
 }
 
@@ -359,7 +365,7 @@ fn registered_keyboard_uses_both_model_instances_and_leaves_unknown_characters_u
     let observer = model.clone();
     let panel = expedition.clone();
     app.world.insert_resource(UnhandledCharacter::default());
-    app.on_event(CharInput::EVENT, unhandled_character::callback());
+    app.on_event(TextCommitted::EVENT, unhandled_character::callback());
     drop(model);
     drop(expedition);
 
@@ -367,7 +373,9 @@ fn registered_keyboard_uses_both_model_instances_and_leaves_unknown_characters_u
     crate::input::event::dispatch_input(
         &mut app.world,
         Some(root),
-        &crate::surface::InputEvent::CharInput { ch: 'D' },
+        &crate::surface::InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new(
+            "D",
+        )),
         0,
         480,
         320,
@@ -380,7 +388,9 @@ fn registered_keyboard_uses_both_model_instances_and_leaves_unknown_characters_u
     crate::input::event::dispatch_input(
         &mut app.world,
         Some(root),
-        &crate::surface::InputEvent::CharInput { ch: 'a' },
+        &crate::surface::InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new(
+            "a",
+        )),
         1,
         480,
         320,
@@ -395,7 +405,9 @@ fn registered_keyboard_uses_both_model_instances_and_leaves_unknown_characters_u
     crate::input::event::dispatch_input(
         &mut app.world,
         Some(root),
-        &crate::surface::InputEvent::CharInput { ch: 'q' },
+        &crate::surface::InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new(
+            "q",
+        )),
         2,
         480,
         320,
