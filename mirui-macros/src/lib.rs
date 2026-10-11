@@ -591,8 +591,8 @@ impl MiruiRune {
             }
 
             if is_text_input_widget && TEXT_INPUT_FIELDS.contains(&name.as_str()) {
-                let field_ident = syn::Ident::new(&name, attr_span);
-                component_fields.push(Self::field_init_tokens(&field_ident, value));
+                let method = syn::Ident::new(&format!("with_{name}"), attr_span);
+                component_fields.push(quote! { .#method(#value) });
                 continue;
             }
 
@@ -1001,6 +1001,11 @@ impl MiruiRune {
                 };
                 tokens.extend(quote! {
                     (#world).insert(#var, #init);
+                });
+            } else if cmd.name == "TextInput" {
+                let setters = &cmd.component_fields;
+                tokens.extend(quote! {
+                    (#world).insert(#var, #comp_name::new() #(#setters)*);
                 });
             } else {
                 let comp_fields = &cmd.component_fields;

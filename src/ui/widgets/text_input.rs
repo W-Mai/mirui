@@ -17,22 +17,40 @@ pub struct CursorBlinkPhase(pub bool);
 
 pub const TEXT_INPUT_CAP: usize = 32;
 
+/// Directed selection expressed as UTF-8 byte offsets.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TextSelection {
+    pub anchor: usize,
+    pub cursor: usize,
+}
+
+impl TextSelection {
+    pub fn range(self) -> core::ops::Range<usize> {
+        self.anchor.min(self.cursor)..self.anchor.max(self.cursor)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextEditError {
+    InvalidBoundary { offset: usize },
+    ControlCharacter,
+    Capacity { required: usize, capacity: usize },
+}
+
 crate::input::event::contract::widget_events! {
     TextInput;
     /// The input accepted an insertion or deletion and now contains `len` bytes.
-    Changed { len: u8 },
+    Changed { len: u32 },
 }
 
 /// Single-line UTF-8 text input with a fixed-capacity buffer.
-///
-/// `buffer[..len]` are the live characters and `cursor` is the insertion
-/// point in `0..=len`.
 #[crate::component]
 #[derive(Clone)]
 pub struct TextInput {
-    pub buffer: [u8; TEXT_INPUT_CAP],
-    pub len: u8,
-    pub cursor: u8,
+    buffer: [u8; TEXT_INPUT_CAP],
+    len: u8,
+    cursor: u8,
+    anchor: u8,
     pub focused: bool,
     pub text_color: ThemedColor,
     pub placeholder_color: ThemedColor,
@@ -46,6 +64,7 @@ impl TextInput {
             buffer: [0u8; TEXT_INPUT_CAP],
             len: 0,
             cursor: 0,
+            anchor: 0,
             focused: false,
             text_color: ThemedColor::Token(ColorToken::OnSurface),
             placeholder_color: ThemedColor::Token(ColorToken::OnSurfaceVariant),
@@ -75,10 +94,69 @@ impl TextInput {
     }
 
     pub fn as_str(&self) -> &str {
-        // Buffer only ever holds ASCII (filtered by the key handler) so
-        // utf8 validation is a runtime no-op; we still go through the
-        // checked API to stay sound.
-        core::str::from_utf8(&self.buffer[..self.len as usize]).unwrap_or("")
+        core::str::from_utf8(&self.buffer[..self.len()])
+            .expect("validated text edits preserve UTF-8")
+    }
+
+    pub fn len(&self) -> usize {
+        usize::from(self.len)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    pub fn cursor(&self) -> usize {
+        usize::from(self.cursor)
+    }
+
+    pub fn selection(&self) -> TextSelection {
+        TextSelection {
+            anchor: usize::from(self.anchor),
+            cursor: self.cursor(),
+        }
+    }
+
+    /// Set both endpoints atomically. Offsets must be current UTF-8 boundaries.
+    pub fn set_selection(&mut self, selection: TextSelection) -> Result<bool, TextEditError> {
+        for offset in [selection.anchor, selection.cursor] {
+            if !self.as_str().is_char_boundary(offset) {
+                return Err(TextEditError::InvalidBoundary { offset });
+            }
+        }
+        let changed = self.selection() != selection;
+        self.anchor = selection.anchor as u8;
+        self.cursor = selection.cursor as u8;
+        Ok(changed)
+    }
+
+    /// Replace the selection without allocating. Failure preserves content and selection; the result indicates whether content changed.
+    pub fn replace_selection(&mut self, text: &str) -> Result<bool, TextEditError> {
+        if text.chars().any(char::is_control) {
+            return Err(TextEditError::ControlCharacter);
+        }
+        let range = self.selection().range();
+        let retained = self.len() - range.len();
+        let required = retained.saturating_add(text.len());
+        if required > TEXT_INPUT_CAP {
+            return Err(TextEditError::Capacity {
+                required,
+                capacity: TEXT_INPUT_CAP,
+            });
+        }
+        let changed = &self.as_str()[range.clone()] != text;
+        let cursor = range.start + text.len();
+        let end = self.len();
+        self.buffer.copy_within(range.end..end, cursor);
+        self.buffer[range.start..cursor].copy_from_slice(text.as_bytes());
+        self.len = required as u8;
+        self.collapse(cursor as u8);
+        Ok(changed)
+    }
+
+    fn collapse(&mut self, cursor: u8) {
+        self.cursor = cursor;
+        self.anchor = cursor;
     }
 
     pub fn insert(&mut self, ch: u8) -> bool {
@@ -89,27 +167,16 @@ impl TextInput {
     }
 
     pub fn insert_char(&mut self, ch: char) -> bool {
-        if ch.is_control() {
-            return false;
-        }
-        let pos = self.cursor as usize;
-        let end = self.len as usize;
-        let encoded_len = ch.len_utf8();
-        if pos > end || end.saturating_add(encoded_len) > TEXT_INPUT_CAP {
-            return false;
-        }
-        let mut i = end;
-        while i > pos {
-            self.buffer[i + encoded_len - 1] = self.buffer[i - 1];
-            i -= 1;
-        }
-        ch.encode_utf8(&mut self.buffer[pos..pos + encoded_len]);
-        self.len += encoded_len as u8;
-        self.cursor += encoded_len as u8;
-        true
+        self.replace_selection(ch.encode_utf8(&mut [0; 4]))
+            .unwrap_or(false)
     }
 
     pub fn backspace(&mut self) -> bool {
+        if self.anchor != self.cursor {
+            return self
+                .replace_selection("")
+                .expect("deletion fits existing storage");
+        }
         if self.cursor == 0 {
             return false;
         }
@@ -117,19 +184,17 @@ impl TextInput {
         while pos > 0 && is_utf8_continuation(self.buffer[pos]) {
             pos -= 1;
         }
-        let end = self.len as usize;
-        let removed = self.cursor as usize - pos;
-        let mut i = pos;
-        while i + removed < end {
-            self.buffer[i] = self.buffer[i + removed];
-            i += 1;
-        }
-        self.len -= removed as u8;
-        self.cursor = pos as u8;
-        true
+        self.anchor = pos as u8;
+        self.replace_selection("")
+            .expect("deletion fits existing storage")
     }
 
     pub fn delete_forward(&mut self) -> bool {
+        if self.anchor != self.cursor {
+            return self
+                .replace_selection("")
+                .expect("deletion fits existing storage");
+        }
         if (self.cursor as usize) >= (self.len as usize) {
             return false;
         }
@@ -139,26 +204,30 @@ impl TextInput {
         while next < end && is_utf8_continuation(self.buffer[next]) {
             next += 1;
         }
-        let removed = next - pos;
-        let mut i = pos;
-        while i + removed < end {
-            self.buffer[i] = self.buffer[i + removed];
-            i += 1;
-        }
-        self.len -= removed as u8;
-        true
+        self.anchor = next as u8;
+        self.replace_selection("")
+            .expect("deletion fits existing storage")
     }
 
     pub fn move_left(&mut self) {
+        if self.anchor != self.cursor {
+            self.collapse(self.anchor.min(self.cursor));
+            return;
+        }
         if self.cursor > 0 {
             self.cursor -= 1;
             while self.cursor > 0 && is_utf8_continuation(self.buffer[self.cursor as usize]) {
                 self.cursor -= 1;
             }
         }
+        self.anchor = self.cursor;
     }
 
     pub fn move_right(&mut self) {
+        if self.anchor != self.cursor {
+            self.collapse(self.anchor.max(self.cursor));
+            return;
+        }
         if (self.cursor as usize) < (self.len as usize) {
             self.cursor += 1;
             while self.cursor < self.len && is_utf8_continuation(self.buffer[self.cursor as usize])
@@ -166,14 +235,15 @@ impl TextInput {
                 self.cursor += 1;
             }
         }
+        self.anchor = self.cursor;
     }
 
     pub fn move_home(&mut self) {
-        self.cursor = 0;
+        self.collapse(0);
     }
 
     pub fn move_end(&mut self) {
-        self.cursor = self.len;
+        self.collapse(self.len);
     }
 
     pub fn build() -> TextInputBuilder {
@@ -527,10 +597,13 @@ fn textinput_character(
         return false;
     };
     let mut updated = input.clone();
-    if updated.insert_char(event.ch) {
-        let len = updated.len;
+    let content_changed = updated.insert_char(event.ch);
+    let len = updated.len();
+    if content_changed || updated.selection() != input.selection() {
         commands.insert(node, updated);
-        commands.emit(node, Changed { len });
+    }
+    if content_changed {
+        commands.emit(node, Changed { len: len as u32 });
     }
     true
 }
@@ -548,7 +621,7 @@ fn textinput_key(
     let Some(input) = inputs.get(node) else {
         return false;
     };
-    let old_cursor = input.cursor;
+    let old_selection = input.selection();
     let mut updated = input.clone();
     let content_changed = match event.code {
         KEY_BACKSPACE => updated.backspace(),
@@ -571,12 +644,12 @@ fn textinput_key(
         }
         _ => return false,
     };
-    let len = updated.len;
-    if content_changed || updated.cursor != old_cursor {
+    let len = updated.len();
+    if content_changed || updated.selection() != old_selection {
         commands.insert(node, updated);
     }
     if content_changed {
-        commands.emit(node, Changed { len });
+        commands.emit(node, Changed { len: len as u32 });
     }
     true
 }
@@ -599,6 +672,10 @@ fn text_input_attach(
 }
 
 pub use text_input_render::view;
+
+#[cfg(test)]
+#[path = "text_input_edit_tests.rs"]
+mod edit_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1186,8 +1263,8 @@ mod tests {
 
     #[derive(Default)]
     struct ChangeTrace {
-        lengths: [u8; 2],
-        current_lengths: [u8; 2],
+        lengths: [u32; 2],
+        current_lengths: [usize; 2],
         calls: usize,
     }
 
@@ -1199,7 +1276,7 @@ mod tests {
         trace: res!(mut ChangeTrace),
     ) {
         trace.lengths[trace.calls] = input.len;
-        trace.current_lengths[trace.calls] = values.get(node).unwrap().len;
+        trace.current_lengths[trace.calls] = values.get(node).unwrap().len();
         trace.calls += 1;
     }
 
@@ -1224,6 +1301,69 @@ mod tests {
         let entity = crate::ui::UiScope::new(&mut world, builder_parent)
             .spawn(TextInput::build().on_event(TextInput::Changed, record_changed::callback()));
         (world, entity)
+    }
+
+    #[test]
+    fn same_text_input_collapses_selection_without_content_notification() {
+        let (mut world, entity) = changed_fixture();
+        let input = world.get_mut::<TextInput>(entity).unwrap();
+        input.replace_selection("abc").unwrap();
+        input
+            .set_selection(TextSelection {
+                anchor: 2,
+                cursor: 1,
+            })
+            .unwrap();
+        assert!(invoke_key(&mut world, entity, &InputEvent::CharInput { ch: 'b' }).unwrap());
+        let input = world.get::<TextInput>(entity).unwrap();
+        assert_eq!(input.as_str(), "abc");
+        assert_eq!(
+            input.selection(),
+            TextSelection {
+                anchor: 2,
+                cursor: 2
+            }
+        );
+        assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+    }
+
+    #[test]
+    fn character_input_replaces_selection_and_delete_removes_selection() {
+        let (mut world, entity) = changed_fixture();
+        let input = world.get_mut::<TextInput>(entity).unwrap();
+        input.replace_selection("A中🙂Z").unwrap();
+        input
+            .set_selection(TextSelection {
+                anchor: 8,
+                cursor: 1,
+            })
+            .unwrap();
+        assert!(invoke_key(&mut world, entity, &InputEvent::CharInput { ch: 'B' }).unwrap());
+        assert_eq!(world.get::<TextInput>(entity).unwrap().as_str(), "ABZ");
+        world
+            .get_mut::<TextInput>(entity)
+            .unwrap()
+            .set_selection(TextSelection {
+                anchor: 0,
+                cursor: 3,
+            })
+            .unwrap();
+        assert!(
+            invoke_key(
+                &mut world,
+                entity,
+                &InputEvent::Key {
+                    code: KEY_DELETE,
+                    pressed: true,
+                    modifiers: None,
+                    repeat: None,
+                }
+            )
+            .unwrap()
+        );
+        assert!(world.get::<TextInput>(entity).unwrap().is_empty());
+        assert_eq!(runtime::flush(&mut world).unwrap(), 2);
+        assert_eq!(world.resource::<ChangeTrace>().unwrap().lengths, [3, 0]);
     }
 
     #[test]

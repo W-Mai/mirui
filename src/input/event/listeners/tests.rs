@@ -1076,7 +1076,10 @@ fn unchanged_editor_actions_are_accepted_without_reaching_app_fallback() {
         assert_eq!(fixture.trace.borrow().values(), &[101]);
     }
     assert_eq!(changes.get(), 0);
-    assert_eq!(fixture.world.get::<TextInput>(fixture.leaf).unwrap().len, 0);
+    assert_eq!(
+        fixture.world.get::<TextInput>(fixture.leaf).unwrap().len(),
+        0
+    );
 }
 
 struct Changed(u32);

@@ -108,7 +108,7 @@ mod tests {
     use crate::ecs::World;
     use crate::ui::Children;
 
-    fn emit_input_changed(world: &mut World, entity: Entity, len: u8) {
+    fn emit_input_changed(world: &mut World, entity: Entity, len: u32) {
         {
             crate::input::event::emission::submit_if_listened(
                 world,

@@ -8,6 +8,24 @@ Spatial input refreshes stale layout or transformed hit geometry before dispatch
 
 `Key` carries `code`, `pressed`, `modifiers: Option<KeyModifiers>`, and `repeat: Option<bool>`. Modifiers expose `shift`, `control`, `alt`, and `meta`. `Some(false)` identifies a non-repeated key event; `None` means the platform did not provide that information. SDL and Web supply both snapshots; WGPU modifiers remain unknown until a native modifier update and are cleared on focus loss or suspension. Linux uses the keyboard device state and native repeat flag. NuttX keyboard records do not provide modifiers or repeat metadata. Simulated input supplies the fields explicitly.
 
+## Text editing
+
+`TextInput` keeps its UTF-8 storage private. Read content with `as_str()`, `len()`, and `is_empty()`, and read the caret with `cursor()`. Lengths and positions are byte offsets. `set_selection(TextSelection { anchor, cursor })` validates both endpoints before changing either; reversed selections preserve their direction.
+
+`replace_selection(text)` replaces the entire selection and collapses it to the end of the inserted text. The input has 32 bytes of inline storage. Capacity errors and control characters reject the whole replacement without changing content or selection. A successful result is `true` when content changed and `false` when only the selection collapsed. Editing does not allocate.
+
+```rust,ignore
+use mirui::ui::widgets::text_input::{TextInput, TextSelection};
+
+let mut input = TextInput::new();
+input.replace_selection("Hello world")?;
+input.set_selection(TextSelection { anchor: 6, cursor: 11 })?;
+input.replace_selection("Mirui")?;
+assert_eq!(input.as_str(), "Hello Mirui");
+```
+
+Character input replaces the current selection. Backspace and Delete remove a nonempty selection first; otherwise they remove one Unicode scalar. Left and Right collapse a selection to its beginning or end, and otherwise move by one scalar, not a full grapheme cluster. `TextInput::Changed { len: u32 }` reports content accepted by the input handlers, not caret-only changes. Calling component methods directly updates component state without synthesizing input notifications.
+
 ## Pointer identity
 
 Raw `InputEvent` pointer records carry `kind: PointerKind` (`Mouse`, `Touch`, `Pen`, or `Unknown`) and `id`. Gesture and scroll capture match both fields; movement or release from another pointer cannot end that capture. Backends report the device category rather than inferring it from the slot number. Simulated cursor actions use `Mouse`; simulated pinch and rotation contacts use `Touch`.

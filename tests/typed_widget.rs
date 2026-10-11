@@ -202,7 +202,12 @@ mod tests {
 
         app.compose(root, |cx| {
             ui! {
-                TextInput (text_color: mirui::ui::ColorToken::Primary)
+                TextInput (
+                    text_color: mirui::ui::ColorToken::Primary,
+                    placeholder_color: mirui::ui::ColorToken::Secondary,
+                    cursor_color: mirui::ui::ColorToken::OnPrimary,
+                    focus_border_color: mirui::ui::ColorToken::OnSurface
+                )
             }
         });
         let world = &app.world;
@@ -214,6 +219,16 @@ mod tests {
             ti.text_color,
             mirui::ui::ThemedColor::Token(mirui::ui::ColorToken::Primary)
         ));
+        assert_eq!(
+            ti.placeholder_color,
+            mirui::ui::ColorToken::Secondary.into()
+        );
+        assert_eq!(ti.cursor_color, mirui::ui::ColorToken::OnPrimary.into());
+        assert_eq!(
+            ti.focus_border_color,
+            mirui::ui::ColorToken::OnSurface.into()
+        );
+        assert!(ti.is_empty());
     }
 
     #[test]
