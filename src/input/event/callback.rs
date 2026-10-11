@@ -559,7 +559,7 @@ impl<E: Event, C: CallbackContext<E>> PreparedEvent<E, C> {
                 let mut queue = commands.try_borrow_mut().map_err(|_| CommandError::Busy)?;
                 let mut batch = queue.begin();
                 let decision = run(world, payload, target, batch.commands());
-                if let Err(error) = batch.finish(world) {
+                if let Err(error) = batch.finish_with_event(world, payload) {
                     if let Some(decision) = decision {
                         E::Route::discard(world, decision);
                     }

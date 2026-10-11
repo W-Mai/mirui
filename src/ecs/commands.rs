@@ -1,5 +1,6 @@
 use alloc::vec::Vec;
 use core::alloc::Layout;
+use core::any::Any;
 use core::cmp;
 use core::ptr::NonNull;
 
@@ -10,6 +11,45 @@ const MIN_PAYLOAD_CAPACITY: usize = 64;
 
 pub(crate) type EntityPayload<T> = (T, fn(&mut World, Entity, T) -> Result<(), CommandError>);
 pub(crate) type ResourcePayload<T> = (T, fn(&mut World, T));
+
+trait EntityOperation: 'static {
+    fn apply(
+        self,
+        world: &mut World,
+        entity: Entity,
+        event: Option<&dyn Any>,
+    ) -> Result<(), CommandError>;
+}
+
+impl<T: 'static> EntityOperation for EntityPayload<T> {
+    fn apply(
+        self,
+        world: &mut World,
+        entity: Entity,
+        _event: Option<&dyn Any>,
+    ) -> Result<(), CommandError> {
+        (self.1)(world, entity, self.0)
+    }
+}
+
+struct EventOperation<E>(fn(&mut World, Entity, &E) -> Result<(), CommandError>);
+
+impl<E: 'static> EntityOperation for EventOperation<E> {
+    fn apply(
+        self,
+        world: &mut World,
+        entity: Entity,
+        event: Option<&dyn Any>,
+    ) -> Result<(), CommandError> {
+        let event = event
+            .and_then(|event| event.downcast_ref::<E>())
+            .ok_or(CommandError::EventContext)?;
+        (self.0)(world, entity, event)
+    }
+}
+
+type ApplyCommand =
+    unsafe fn(&mut World, Option<Entity>, *mut u8, Option<&dyn Any>) -> Result<(), CommandError>;
 
 /// Storage requirements for deferred operations in one callback.
 ///
@@ -154,6 +194,7 @@ pub enum CommandError {
     InvalidLayout,
     AllocationFailed,
     Busy,
+    EventContext,
     Commit(CommandCommitError),
 }
 
@@ -215,7 +256,7 @@ impl From<PayloadError> for CommandError {
 struct CommandRecord {
     target: Option<Entity>,
     payload_offset: usize,
-    apply: unsafe fn(&mut World, Option<Entity>, *mut u8) -> Result<(), CommandError>,
+    apply: ApplyCommand,
     drop_payload: Option<unsafe fn(*mut u8)>,
     consumed: bool,
 }
@@ -251,12 +292,7 @@ impl CommandQueue {
         }
     }
 
-    fn push_payload<T: 'static>(
-        &mut self,
-        target: Option<Entity>,
-        value: T,
-        apply: unsafe fn(&mut World, Option<Entity>, *mut u8) -> Result<(), CommandError>,
-    ) {
+    fn push_payload<T: 'static>(&mut self, target: Option<Entity>, value: T, apply: ApplyCommand) {
         if let Err((error, _value)) = self.try_push_payload(target, value, apply) {
             self.error = Some(error);
         }
@@ -266,7 +302,7 @@ impl CommandQueue {
         &mut self,
         target: Option<Entity>,
         value: T,
-        apply: unsafe fn(&mut World, Option<Entity>, *mut u8) -> Result<(), CommandError>,
+        apply: ApplyCommand,
     ) -> Result<(), (CommandError, T)> {
         if let Err(error) = self.prepare_record() {
             return Err((error, value));
@@ -339,11 +375,7 @@ impl CommandQueue {
             .map_err(|(error, value)| (error.into(), value))
     }
 
-    fn push_empty(
-        &mut self,
-        target: Option<Entity>,
-        apply: unsafe fn(&mut World, Option<Entity>, *mut u8) -> Result<(), CommandError>,
-    ) {
+    fn push_empty(&mut self, target: Option<Entity>, apply: ApplyCommand) {
         if let Err(error) = self.prepare_record() {
             self.error = Some(error);
             return;
@@ -364,14 +396,14 @@ impl CommandQueue {
         self.payload.ptr(record.payload_offset)
     }
 
-    fn apply(&mut self, world: &mut World) -> Result<(), CommandError> {
+    fn apply(&mut self, world: &mut World, event: Option<&dyn Any>) -> Result<(), CommandError> {
         for index in 0..self.records.len() {
             let record = self.records[index];
             self.records[index].consumed = true;
             let payload = self.record_ptr(record);
             // SAFETY: the record's apply function matches the stored payload
             // type and each record is consumed at most once.
-            unsafe { (record.apply)(world, record.target, payload) }?;
+            unsafe { (record.apply)(world, record.target, payload, event) }?;
         }
         self.records.clear();
         self.payload.clear();
@@ -413,13 +445,25 @@ impl CommandBatch<'_> {
         DeferredCommands { queue: self.queue }
     }
 
-    pub(crate) fn finish(mut self, world: &mut World) -> Result<(), CommandError> {
+    pub(crate) fn finish(self, world: &mut World) -> Result<(), CommandError> {
+        self.finish_in(world, None)
+    }
+
+    pub(crate) fn finish_with_event<E: 'static>(
+        self,
+        world: &mut World,
+        event: &E,
+    ) -> Result<(), CommandError> {
+        self.finish_in(world, Some(event))
+    }
+
+    fn finish_in(mut self, world: &mut World, event: Option<&dyn Any>) -> Result<(), CommandError> {
         if let Some(error) = self.queue.error {
             self.queue.discard();
             self.finished = true;
             return Err(error);
         }
-        self.queue.apply(world)?;
+        self.queue.apply(world, event)?;
         self.finished = true;
         Ok(())
     }
@@ -451,7 +495,19 @@ impl DeferredCommands<'_> {
     ) {
         let payload: EntityPayload<T> = (value, apply);
         self.queue
-            .push_payload(Some(entity), payload, apply_value::<T>);
+            .push_payload(Some(entity), payload, apply_value::<EntityPayload<T>>);
+    }
+
+    pub(crate) fn apply_event<E: 'static>(
+        &mut self,
+        entity: Entity,
+        apply: fn(&mut World, Entity, &E) -> Result<(), CommandError>,
+    ) {
+        self.queue.push_payload(
+            Some(entity),
+            EventOperation(apply),
+            apply_value::<EventOperation<E>>,
+        );
     }
 
     pub(crate) fn apply_resource<T: 'static>(&mut self, value: T, apply: fn(&mut World, T)) {
@@ -492,6 +548,7 @@ unsafe fn apply_insert<T: Component>(
     world: &mut World,
     target: Option<Entity>,
     payload: *mut u8,
+    _event: Option<&dyn Any>,
 ) -> Result<(), CommandError> {
     // SAFETY: this apply function is paired with a stored T.
     let component = unsafe { read_stored::<T>(payload) };
@@ -499,20 +556,22 @@ unsafe fn apply_insert<T: Component>(
     Ok(())
 }
 
-unsafe fn apply_value<T: 'static>(
+unsafe fn apply_value<T: EntityOperation>(
     world: &mut World,
     target: Option<Entity>,
     payload: *mut u8,
+    event: Option<&dyn Any>,
 ) -> Result<(), CommandError> {
-    // SAFETY: this apply function is paired with a stored value/function tuple.
-    let (value, apply) = unsafe { read_stored::<EntityPayload<T>>(payload) };
-    apply(world, target.expect("deferred value target"), value)
+    // SAFETY: this apply function is paired with a stored operation of type T.
+    let operation = unsafe { read_stored::<T>(payload) };
+    operation.apply(world, target.expect("deferred value target"), event)
 }
 
 unsafe fn apply_resource_value<T: 'static>(
     world: &mut World,
     _target: Option<Entity>,
     payload: *mut u8,
+    _event: Option<&dyn Any>,
 ) -> Result<(), CommandError> {
     // SAFETY: this apply function is paired with a stored value/function tuple.
     let (value, apply) = unsafe { read_stored::<ResourcePayload<T>>(payload) };
@@ -524,6 +583,7 @@ unsafe fn apply_remove<T: Component>(
     world: &mut World,
     target: Option<Entity>,
     _payload: *mut u8,
+    _event: Option<&dyn Any>,
 ) -> Result<(), CommandError> {
     let _ = world.remove::<T>(target.expect("component command target"));
     Ok(())
@@ -533,6 +593,7 @@ unsafe fn apply_despawn(
     world: &mut World,
     target: Option<Entity>,
     _payload: *mut u8,
+    _event: Option<&dyn Any>,
 ) -> Result<(), CommandError> {
     let _ = world.despawn(target.expect("despawn command target"));
     Ok(())
@@ -542,6 +603,7 @@ unsafe fn apply_insert_resource<T: 'static>(
     world: &mut World,
     _target: Option<Entity>,
     payload: *mut u8,
+    _event: Option<&dyn Any>,
 ) -> Result<(), CommandError> {
     // SAFETY: this apply function is paired with a stored T.
     let resource = unsafe { read_stored::<T>(payload) };
@@ -553,10 +615,15 @@ unsafe fn apply_remove_resource<T: 'static>(
     world: &mut World,
     _target: Option<Entity>,
     _payload: *mut u8,
+    _event: Option<&dyn Any>,
 ) -> Result<(), CommandError> {
     let _ = world.remove_resource::<T>();
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "command_event_tests.rs"]
+mod event_tests;
 
 #[cfg(test)]
 mod tests {
@@ -757,6 +824,7 @@ mod tests {
             _world: &mut World,
             _target: Option<Entity>,
             payload: *mut u8,
+            _event: Option<&dyn Any>,
         ) -> Result<(), CommandError> {
             // SAFETY: this function is paired with a stored DropMarker.
             let value = unsafe { read_stored::<DropMarker>(payload) };

@@ -643,9 +643,17 @@ fn textinput_character(
     };
     let edit = InputEdit::Character(event.ch);
     if edit.changes(input) {
-        commands.apply(node, edit, apply_input_edit);
+        commands.apply_event(node, apply_character);
     }
     true
+}
+
+fn apply_character(
+    world: &mut World,
+    node: Entity,
+    event: &CharInput,
+) -> Result<(), crate::ecs::CommandError> {
+    apply_input_edit(world, node, InputEdit::Character(event.ch))
 }
 
 #[crate::event]
