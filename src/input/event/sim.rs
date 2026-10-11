@@ -1,3 +1,4 @@
+use alloc::rc::Rc;
 use alloc::vec::Vec;
 
 use crate::anim::EaseFn;
@@ -160,7 +161,7 @@ impl SimCommand {
 }
 
 pub struct SimulatedInput {
-    commands: Vec<SimCommand>,
+    commands: Rc<Vec<SimCommand>>,
     resolved_ms: Vec<u32>,
     cursor: usize,
     start_ms: Option<u32>,
@@ -173,7 +174,7 @@ impl SimulatedInput {
     pub fn new(commands: Vec<SimCommand>) -> Self {
         let resolved = resolve_timings(&commands);
         Self {
-            commands,
+            commands: Rc::new(commands),
             resolved_ms: resolved,
             cursor: 0,
             start_ms: None,
@@ -214,7 +215,7 @@ pub(crate) fn sim_input_system(world: &mut World) -> Result<(), crate::ecs::Comm
     let clock_fn = world.resource::<crate::ecs::MonoClock>().map(|fc| fc.clock);
     let now_ms = clock_fn.map(|f| (f() / 1_000_000) as u32).unwrap_or(0);
 
-    let (commands_to_fire, root, screen_w, screen_h) = {
+    let (commands, due, root, screen_w, screen_h) = {
         let Some(sim) = world.resource_mut::<SimulatedInput>() else {
             return Ok(());
         };
@@ -225,17 +226,18 @@ pub(crate) fn sim_input_system(world: &mut World) -> Result<(), crate::ecs::Comm
         let start = *sim.start_ms.get_or_insert(now_ms);
         let elapsed = now_ms.wrapping_sub(start);
 
-        let mut fired: Vec<InputEvent> = Vec::new();
+        let first = sim.cursor;
         while sim.cursor < sim.commands.len() {
             let target_ms = sim.resolved_ms[sim.cursor];
             if elapsed >= target_ms {
-                fired.push(sim.commands[sim.cursor].event.clone());
                 sim.cursor += 1;
             } else {
                 break;
             }
         }
 
+        let due = first..sim.cursor;
+        let commands = Rc::clone(&sim.commands);
         if sim.cursor >= sim.commands.len() && sim.looping {
             sim.cursor = 0;
             sim.start_ms = Some(now_ms);
@@ -246,7 +248,7 @@ pub(crate) fn sim_input_system(world: &mut World) -> Result<(), crate::ecs::Comm
             .resource::<crate::surface::DisplayInfo>()
             .map(|d| (d.width, d.height))
             .unwrap_or((128, 128));
-        (fired, root, sw, sh)
+        (commands, due, root, sw, sh)
     };
 
     let root = root.or_else(|| {
@@ -255,8 +257,8 @@ pub(crate) fn sim_input_system(world: &mut World) -> Result<(), crate::ecs::Comm
             .map(|fallback| fallback.0)
     });
 
-    for event in &commands_to_fire {
-        super::deliver_input(world, root, event, now_ms, screen_w, screen_h);
+    for command in &commands[due] {
+        super::deliver_input(world, root, &command.event, now_ms, screen_w, screen_h);
     }
 
     super::dispatch_pending_gestures(world, now_ms);
@@ -1149,6 +1151,103 @@ mod tests {
     #[crate::event]
     fn replace_timeline(commands: commands!()) {
         commands.insert_resource(SimTimeline::new(alloc::vec![SimAction::wait(1000)]));
+    }
+
+    #[derive(Default)]
+    struct ProgramTrace {
+        codes: [u32; 8],
+        len: usize,
+        replace: bool,
+    }
+
+    fn program_key(code: u32) -> InputEvent {
+        super::super::input::Key {
+            code,
+            pressed: true,
+            modifiers: None,
+            repeat: None,
+        }
+        .into()
+    }
+
+    #[crate::event]
+    fn program_input(
+        input: event!(super::super::input::Key),
+        trace: res!(mut ProgramTrace),
+        commands: commands!(),
+    ) -> bool {
+        trace.codes[trace.len] = input.code;
+        trace.len += 1;
+        if input.code == 1 {
+            if trace.replace {
+                commands.insert_resource(SimulatedInput::new(alloc::vec![SimCommand::at(
+                    0,
+                    program_key(9)
+                )]));
+            } else {
+                commands.remove_resource::<SimulatedInput>();
+            }
+        }
+        true
+    }
+
+    #[test]
+    fn scheduled_batch_survives_removing_or_replacing_its_program() {
+        let _guard = mock::install();
+        for replace in [false, true] {
+            let mut app = crate::app::App::headless(32, 32);
+            app.add_resource(ProgramTrace {
+                replace,
+                ..Default::default()
+            });
+            app.on_event(super::super::input::Key::EVENT, program_input::callback());
+            app.add_resource(
+                SimulatedInput::new(alloc::vec![
+                    SimCommand::at(0, program_key(1)),
+                    SimCommand::at(0, program_key(2)),
+                ])
+                .looping(true),
+            );
+            sim_input_system(&mut app.world).unwrap();
+            let trace = app.world.resource::<ProgramTrace>().unwrap();
+            assert_eq!(&trace.codes[..trace.len], &[1, 2]);
+            sim_input_system(&mut app.world).unwrap();
+            let trace = app.world.resource::<ProgramTrace>().unwrap();
+            assert_eq!(
+                &trace.codes[..trace.len],
+                if replace { &[1, 2, 9][..] } else { &[1, 2][..] }
+            );
+        }
+    }
+
+    #[test]
+    fn looping_program_reuses_storage_and_preserves_due_order() {
+        let _guard = mock::install();
+        let mut app = crate::app::App::headless(32, 32);
+        app.add_resource(MonoClock::from_time_source());
+        app.add_resource(ProgramTrace::default());
+        app.on_event(super::super::input::Key::EVENT, program_input::callback());
+        app.add_resource(
+            SimulatedInput::new(alloc::vec![
+                SimCommand::at(0, program_key(2)),
+                SimCommand::after(5, program_key(3)),
+            ])
+            .looping(true),
+        );
+        mock::set_ns(0);
+        sim_input_system(&mut app.world).unwrap();
+        mock::advance_ms(5);
+        sim_input_system(&mut app.world).unwrap();
+        app.world.resource_mut::<ProgramTrace>().unwrap().len = 0;
+        let allocations = crate::test_support::tracked_allocations(|| {
+            sim_input_system(&mut app.world).unwrap();
+            sim_input_system(&mut app.world).unwrap();
+            mock::advance_ms(5);
+            sim_input_system(&mut app.world).unwrap();
+        });
+        assert_eq!(allocations, 0);
+        let trace = app.world.resource::<ProgramTrace>().unwrap();
+        assert_eq!(&trace.codes[..trace.len], &[2, 3]);
     }
 
     #[test]

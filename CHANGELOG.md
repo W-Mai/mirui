@@ -89,6 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Simulated input borrows scheduled events from a shared command table without allocating or cloning events during playback.
+
 - Reactive `walk` consumes iterators directly and retains row buffers. Keyed collection reordering preserves entities and item bindings without allocating temporary row tables.
 
 ## [0.48.0] - 2026-10-10
