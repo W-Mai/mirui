@@ -169,36 +169,55 @@ fn attach_listeners(
     queue: &EventQueue,
     logical_size: &LogicalSize,
 ) -> Vec<Listener> {
-    let mut listeners = Vec::with_capacity(13);
+    use super::web_input::{PointerPhase, WebPointers};
+    let pointers = Rc::new(RefCell::new(WebPointers::new()));
+    let mut listeners = Vec::with_capacity(14);
     listeners.push(pointer_listener(
         canvas,
         queue,
         logical_size,
+        &pointers,
         "pointerdown",
+        PointerPhase::Down,
         |id, x, y| InputEvent::PointerDown { id, x, y },
     ));
     listeners.push(pointer_listener(
         canvas,
         queue,
         logical_size,
+        &pointers,
         "pointermove",
+        PointerPhase::Move,
         |id, x, y| InputEvent::PointerMove { id, x, y },
     ));
     listeners.push(pointer_listener(
         canvas,
         queue,
         logical_size,
+        &pointers,
         "pointerup",
+        PointerPhase::Up,
         |id, x, y| InputEvent::PointerUp { id, x, y },
     ));
     listeners.push(pointer_listener(
         canvas,
         queue,
         logical_size,
+        &pointers,
         "pointercancel",
+        PointerPhase::Cancel,
         |id, x, y| InputEvent::PointerCancel { id, x, y },
     ));
-    listeners.push(leave_listener(canvas, queue));
+    listeners.push(pointer_listener(
+        canvas,
+        queue,
+        logical_size,
+        &pointers,
+        "lostpointercapture",
+        PointerPhase::Cancel,
+        |id, x, y| InputEvent::PointerCancel { id, x, y },
+    ));
+    listeners.push(leave_listener(canvas, queue, &pointers));
     listeners.push(wheel_listener(canvas, queue, logical_size));
     listeners.push(keyboard_listener(canvas, queue, "keydown", true));
     listeners.push(keyboard_listener(canvas, queue, "keyup", false));
@@ -210,18 +229,23 @@ fn attach_listeners(
             let canvas = canvas.clone();
             let document = document.clone();
             let queue = queue.clone();
+            let pointers = pointers.clone();
             let closure = Closure::<dyn FnMut(JsValue)>::new(move |_| {
-                enqueue_host_focus(&canvas, &document, &queue);
+                enqueue_host_focus(&canvas, &document, &queue, &pointers);
             });
             listeners.push(register_listener(target.clone(), name, closure));
         }
     }
     let observed_document = document.clone();
     let visibility_queue = queue.clone();
+    let visibility_pointers = pointers.clone();
     listeners.push(register_listener(
         document.clone().into(),
         "visibilitychange",
         Closure::<dyn FnMut(JsValue)>::new(move |_| {
+            if observed_document.hidden() {
+                visibility_pointers.borrow_mut().clear();
+            }
             visibility_queue
                 .borrow_mut()
                 .push_back(InputEvent::HostVisibility {
@@ -229,7 +253,7 @@ fn attach_listeners(
                 });
         }),
     ));
-    enqueue_host_focus(canvas, &document, queue);
+    enqueue_host_focus(canvas, &document, queue, &pointers);
     queue.borrow_mut().push_back(InputEvent::HostVisibility {
         visible: !document.hidden(),
     });
@@ -240,12 +264,16 @@ fn enqueue_host_focus(
     canvas: &HtmlCanvasElement,
     document: &web_sys::Document,
     queue: &EventQueue,
+    pointers: &Rc<RefCell<super::web_input::WebPointers>>,
 ) {
     if let Ok(focused) = document.has_focus() {
         let focused = focused
             && document
                 .active_element()
                 .is_some_and(|element| &element == canvas.unchecked_ref::<web_sys::Element>());
+        if !focused {
+            pointers.borrow_mut().clear();
+        }
         queue
             .borrow_mut()
             .push_back(InputEvent::HostFocus { focused });
@@ -256,10 +284,14 @@ fn pointer_listener(
     canvas: &HtmlCanvasElement,
     queue: &EventQueue,
     logical_size: &LogicalSize,
+    pointers: &Rc<RefCell<super::web_input::WebPointers>>,
     name: &str,
+    phase: super::web_input::PointerPhase,
     map: fn(u8, Fixed, Fixed) -> InputEvent,
 ) -> Listener {
     let q = queue.clone();
+    let pointers = pointers.clone();
+    let types = PointerTypes::new();
     // Capture so move/up keep firing once the cursor leaves the canvas.
     let capture_on_down = name == "pointerdown";
     let canvas_for_capture = canvas.clone();
@@ -272,7 +304,13 @@ fn pointer_listener(
             let _ = canvas_for_capture.focus();
             let _ = canvas_for_capture.set_pointer_capture(evt.pointer_id());
         }
-        let id = (evt.pointer_id().rem_euclid(0xff)) as u8;
+        let (mouse, touch) = types.classify(&evt);
+        let Some(id) = pointers
+            .borrow_mut()
+            .translate(evt.pointer_id(), mouse, touch, phase)
+        else {
+            return;
+        };
         // `offset_x/y` is relative to the canvas backing-store box, which
         // diverges from the CSS box once the canvas is resized (or pointer
         // capture is held); `client_x/y - rect` is the reliable CSS-space
@@ -288,6 +326,29 @@ fn pointer_listener(
         q.borrow_mut().push_back(map(id, x, y));
     });
     register_listener(canvas.clone().into(), name, closure)
+}
+
+struct PointerTypes {
+    property: JsValue,
+    mouse: JsValue,
+    touch: JsValue,
+}
+
+impl PointerTypes {
+    fn new() -> Self {
+        Self {
+            property: JsValue::from_str("pointerType"),
+            mouse: JsValue::from_str("mouse"),
+            touch: JsValue::from_str("touch"),
+        }
+    }
+
+    fn classify(&self, event: &PointerEvent) -> (bool, bool) {
+        // Keep platform strings in JS rather than allocating a Rust String per event.
+        let value =
+            js_sys::Reflect::get(event.as_ref(), &self.property).unwrap_or(JsValue::UNDEFINED);
+        (value == self.mouse, value == self.touch)
+    }
 }
 
 fn register_listener(
@@ -308,16 +369,28 @@ fn register_listener(
 /// Synthetic off-screen `PointerMove` so `hover_system` clears the
 /// active widget. Skipped while a button is held — the captured
 /// pointer is still delivering real coordinates and would race.
-fn leave_listener(canvas: &HtmlCanvasElement, queue: &EventQueue) -> Listener {
+fn leave_listener(
+    canvas: &HtmlCanvasElement,
+    queue: &EventQueue,
+    pointers: &Rc<RefCell<super::web_input::WebPointers>>,
+) -> Listener {
     let q = queue.clone();
+    let pointers = pointers.clone();
+    let types = PointerTypes::new();
     let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
         let evt: PointerEvent = raw.unchecked_into();
-        if evt.buttons() != 0 {
+        let (mouse, touch) = types.classify(&evt);
+        let Some(id) = pointers.borrow_mut().translate(
+            evt.pointer_id(),
+            mouse,
+            touch,
+            super::web_input::PointerPhase::Leave,
+        ) else {
             return;
-        }
+        };
         const OFF: i32 = i16::MIN as i32;
         q.borrow_mut().push_back(InputEvent::PointerMove {
-            id: 0,
+            id,
             x: Fixed::from_int(OFF),
             y: Fixed::from_int(OFF),
         });

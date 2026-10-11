@@ -28,43 +28,18 @@ use crate::types::Fixed;
 const MAX_NATIVE_TOUCHES: usize = 16;
 
 struct NativeTouchMap<const N: usize> {
-    native_ids: [u64; N],
-    occupied: u32,
+    slots: super::pointer_slots::PointerSlots<u64, N>,
 }
 
 impl<const N: usize> NativeTouchMap<N> {
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
-            native_ids: [0; N],
-            occupied: 0,
+            slots: super::pointer_slots::PointerSlots::new(),
         }
     }
 
     fn clear(&mut self) {
-        self.occupied = 0;
-    }
-
-    fn resolve(&self, native_id: u64) -> Option<usize> {
-        self.native_ids
-            .iter()
-            .enumerate()
-            .position(|(slot, candidate)| self.is_occupied(slot) && *candidate == native_id)
-    }
-
-    fn start(&mut self, native_id: u64) -> Option<usize> {
-        if let Some(slot) = self.resolve(native_id) {
-            return Some(slot);
-        }
-        let slot = (0..N).find(|slot| !self.is_occupied(*slot))?;
-        self.native_ids[slot] = native_id;
-        self.occupied |= 1_u32.checked_shl(slot as u32)?;
-        Some(slot)
-    }
-
-    fn is_occupied(&self, slot: usize) -> bool {
-        1_u32
-            .checked_shl(slot as u32)
-            .is_some_and(|mask| self.occupied & mask != 0)
+        self.slots.clear();
     }
 
     fn input_event(
@@ -74,22 +49,22 @@ impl<const N: usize> NativeTouchMap<N> {
         x: Fixed,
         y: Fixed,
     ) -> Option<InputEvent> {
-        let slot = match phase {
-            TouchPhase::Started => self.start(native_id)?,
-            TouchPhase::Moved | TouchPhase::Ended | TouchPhase::Cancelled => {
-                self.resolve(native_id)?
+        let id = match phase {
+            TouchPhase::Started => {
+                if self.slots.get(native_id).is_some() {
+                    return None;
+                }
+                self.slots.insert(native_id)?
             }
+            TouchPhase::Moved => self.slots.get(native_id)?,
+            TouchPhase::Ended | TouchPhase::Cancelled => self.slots.remove(native_id)?,
         };
-        let id = u8::try_from(slot).ok()?;
         let event = match phase {
             TouchPhase::Started => InputEvent::PointerDown { id, x, y },
             TouchPhase::Moved => InputEvent::PointerMove { id, x, y },
             TouchPhase::Ended => InputEvent::PointerUp { id, x, y },
             TouchPhase::Cancelled => InputEvent::PointerCancel { id, x, y },
         };
-        if matches!(phase, TouchPhase::Ended | TouchPhase::Cancelled) {
-            self.occupied &= !1_u32.checked_shl(slot as u32).unwrap_or(0);
-        }
         Some(event)
     }
 }
@@ -433,12 +408,16 @@ impl WgpuRuntime {
             WindowEvent::Focused(focused) => {
                 if !focused {
                     self.modifiers = None;
+                    self.native_touches.clear();
                 }
                 self.event_queue
                     .push_back(InputEvent::HostFocus { focused });
                 false
             }
             WindowEvent::Occluded(occluded) => {
+                if occluded {
+                    self.native_touches.clear();
+                }
                 self.event_queue
                     .push_back(InputEvent::HostVisibility { visible: !occluded });
                 false
@@ -1550,20 +1529,74 @@ mod tests {
         let native = 0x0000_7fff_1234_5678;
         assert!(matches!(
             touches.input_event(native, TouchPhase::Started, x, y),
-            Some(InputEvent::PointerDown { id: 0, x: px, y: py }) if px == x && py == y
+            Some(InputEvent::PointerDown { id: 1, x: px, y: py }) if px == x && py == y
         ));
+        assert!(
+            touches
+                .input_event(native, TouchPhase::Started, x, y)
+                .is_none()
+        );
         assert!(matches!(
             touches.input_event(native, TouchPhase::Moved, x, y),
-            Some(InputEvent::PointerMove { id: 0, x: px, y: py }) if px == x && py == y
+            Some(InputEvent::PointerMove { id: 1, x: px, y: py }) if px == x && py == y
         ));
         assert!(matches!(
             touches.input_event(native, TouchPhase::Cancelled, x, y),
-            Some(InputEvent::PointerCancel { id: 0, x: px, y: py }) if px == x && py == y
+            Some(InputEvent::PointerCancel { id: 1, x: px, y: py }) if px == x && py == y
         ));
         assert!(matches!(
             touches.input_event(native + 1, TouchPhase::Started, x, y),
+            Some(InputEvent::PointerDown { id: 1, .. })
+        ));
+    }
+
+    #[test]
+    fn native_touch_and_mouse_slots_stay_distinct_until_host_cancellation() {
+        let mut runtime = WgpuRuntime::new();
+        let device_id = winit::event::DeviceId::dummy();
+        let touch = |phase| {
+            WindowEvent::Touch(winit::event::Touch {
+                device_id,
+                phase,
+                location: winit::dpi::PhysicalPosition::new(7.0, 11.0),
+                force: None,
+                id: u64::MAX,
+            })
+        };
+        runtime.window_event(touch(TouchPhase::Started));
+        runtime.window_event(WindowEvent::MouseInput {
+            device_id,
+            state: ElementState::Pressed,
+            button: MouseButton::Left,
+        });
+        assert!(matches!(
+            runtime.poll_event(),
+            Some(InputEvent::PointerDown { id: 1, .. })
+        ));
+        assert!(matches!(
+            runtime.poll_event(),
             Some(InputEvent::PointerDown { id: 0, .. })
         ));
+        runtime.window_event(WindowEvent::Focused(false));
+        runtime.window_event(touch(TouchPhase::Moved));
+        runtime.window_event(touch(TouchPhase::Ended));
+        assert!(matches!(
+            runtime.poll_event(),
+            Some(InputEvent::HostFocus { focused: false })
+        ));
+        assert!(runtime.poll_event().is_none());
+        runtime.window_event(touch(TouchPhase::Started));
+        assert!(matches!(
+            runtime.poll_event(),
+            Some(InputEvent::PointerDown { id: 1, .. })
+        ));
+        runtime.window_event(WindowEvent::Occluded(true));
+        runtime.window_event(touch(TouchPhase::Cancelled));
+        assert!(matches!(
+            runtime.poll_event(),
+            Some(InputEvent::HostVisibility { visible: false })
+        ));
+        assert!(runtime.poll_event().is_none());
     }
 
     #[test]
@@ -1576,7 +1609,7 @@ mod tests {
         assert!(touches.input_event(30, TouchPhase::Started, x, y).is_none());
         assert!(matches!(
             touches.input_event(20, TouchPhase::Moved, x, y),
-            Some(InputEvent::PointerMove { id: 1, .. })
+            Some(InputEvent::PointerMove { id: 2, .. })
         ));
         touches.clear();
         assert!(touches.input_event(20, TouchPhase::Moved, x, y).is_none());

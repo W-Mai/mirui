@@ -13,6 +13,12 @@ pub(crate) mod mirror;
 #[cfg(all(feature = "nuttx", target_os = "nuttx"))]
 pub mod nuttx;
 #[cfg(any(
+    test,
+    feature = "wgpu",
+    all(feature = "web-canvas", target_arch = "wasm32")
+))]
+mod pointer_slots;
+#[cfg(any(
     all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"),
     all(feature = "nuttx", target_os = "nuttx"),
 ))]

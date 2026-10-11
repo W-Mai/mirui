@@ -1,6 +1,80 @@
 use crate::input::event::input::WHEEL_LINE_PIXELS;
 use crate::types::Fixed;
 
+#[derive(Clone, Copy)]
+pub(super) enum PointerPhase {
+    Down,
+    Move,
+    Up,
+    Cancel,
+    Leave,
+}
+
+pub(super) struct WebPointers {
+    slots: super::pointer_slots::PointerSlots<i32, 16>,
+    down: u32,
+}
+
+impl WebPointers {
+    pub(super) fn new() -> Self {
+        Self {
+            slots: super::pointer_slots::PointerSlots::new(),
+            down: 0,
+        }
+    }
+
+    pub(super) fn clear(&mut self) {
+        self.slots.clear();
+        self.down = 0;
+    }
+
+    pub(super) fn translate(
+        &mut self,
+        native_id: i32,
+        mouse: bool,
+        touch: bool,
+        phase: PointerPhase,
+    ) -> Option<u8> {
+        let id = if mouse {
+            0
+        } else {
+            match phase {
+                PointerPhase::Down => self.slots.insert(native_id)?,
+                PointerPhase::Move if !touch => self.slots.insert(native_id)?,
+                _ => self.slots.get(native_id)?,
+            }
+        };
+        let mask = 1 << id;
+        match phase {
+            PointerPhase::Down => {
+                if self.down & mask != 0 {
+                    return None;
+                }
+                self.down |= mask;
+            }
+            PointerPhase::Up | PointerPhase::Cancel => {
+                if self.down & mask == 0 {
+                    return None;
+                }
+                self.down &= !mask;
+                if !mouse && (touch || matches!(phase, PointerPhase::Cancel)) {
+                    self.slots.remove(native_id);
+                }
+            }
+            PointerPhase::Leave => {
+                if self.down & mask != 0 {
+                    return None;
+                }
+                if !mouse {
+                    self.slots.remove(native_id);
+                }
+            }
+            PointerPhase::Move => {}
+        }
+        Some(id)
+    }
+}
+
 pub(super) fn wheel_delta(
     dx: f64,
     dy: f64,
@@ -33,6 +107,66 @@ pub(super) fn wheel_delta(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pointer_identity_survives_colliding_native_ids_without_allocations() {
+        use PointerPhase::*;
+        let mut pointers = WebPointers::new();
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                assert_eq!(pointers.translate(1, true, false, Down), Some(0));
+                assert_eq!(pointers.translate(1, false, true, Down), Some(1));
+                assert_eq!(pointers.translate(256, false, true, Down), Some(2));
+                assert_eq!(pointers.translate(1, false, true, Down), None);
+                assert_eq!(pointers.translate(256, false, true, Move), Some(2));
+                assert_eq!(pointers.translate(1, false, true, Up), Some(1));
+                assert_eq!(pointers.translate(1, false, true, Cancel), None);
+                assert_eq!(pointers.translate(1, false, true, Move), None);
+                assert_eq!(pointers.translate(511, false, true, Down), Some(1));
+                assert_eq!(pointers.translate(256, false, true, Cancel), Some(2));
+                assert_eq!(pointers.translate(1, true, false, Up), Some(0));
+                assert_eq!(pointers.translate(1, true, false, Cancel), None);
+            }),
+            0
+        );
+    }
+
+    #[test]
+    fn hover_slots_remain_stable_during_capture_and_release_on_leave() {
+        use PointerPhase::*;
+        let mut pointers = WebPointers::new();
+        assert_eq!(pointers.translate(80, false, false, Move), Some(1));
+        assert_eq!(pointers.translate(80, false, false, Down), Some(1));
+        assert_eq!(pointers.translate(80, false, false, Leave), None);
+        assert_eq!(pointers.translate(80, false, false, Up), Some(1));
+        assert_eq!(pointers.translate(80, false, false, Move), Some(1));
+        assert_eq!(pointers.translate(80, false, false, Leave), Some(1));
+        assert_eq!(pointers.translate(90, false, false, Move), Some(1));
+        assert_eq!(pointers.translate(90, false, false, Down), Some(1));
+        assert_eq!(pointers.translate(90, false, false, Cancel), Some(1));
+        assert_eq!(pointers.translate(90, false, false, Cancel), None);
+    }
+
+    #[test]
+    fn full_pointer_map_does_not_accept_unstarted_touch_after_a_slot_frees() {
+        use PointerPhase::*;
+        let mut pointers = WebPointers::new();
+        for native in 1..=16 {
+            assert_eq!(
+                pointers.translate(native, false, true, Down),
+                Some(native as u8)
+            );
+        }
+        assert_eq!(pointers.translate(17, false, true, Down), None);
+        assert_eq!(pointers.translate(1, false, true, Up), Some(1));
+        assert_eq!(pointers.translate(17, false, true, Move), None);
+        assert_eq!(pointers.translate(17, false, true, Up), None);
+        assert_eq!(pointers.translate(18, false, true, Down), Some(1));
+        pointers.clear();
+        assert_eq!(pointers.translate(18, false, true, Up), None);
+        assert_eq!(pointers.translate(2, false, true, Move), None);
+        assert_eq!(pointers.translate(19, false, true, Down), Some(1));
+    }
 
     #[test]
     fn pixel_delta_scales_once_and_retains_subpixel_momentum() {

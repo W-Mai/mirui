@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Web and WGPU preserve active pointer identities without native ID truncation or mouse/touch collisions. Web cancels presses on lost pointer capture without duplicating normal release.
+
 - SDL GPU delivers key releases through the same keyboard mapping as the SDL software surface.
 
 - Pointer and wheel input refresh stale layout and hit geometry before dispatch, preserving pending paint damage and reusing unchanged geometry between inputs.
