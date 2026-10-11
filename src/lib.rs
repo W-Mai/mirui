@@ -226,6 +226,9 @@ pub mod prelude {
         HostFocusChanged, HostInteraction, HostVisibilityChanged, MemoryWarning, Quit, Resumed,
         SafeAreaChanged, Started, Suspended, ViewportChanged,
     };
+    pub use crate::input::event::press::{
+        PressCancelReason, PressCancelled, PressSelectors, Pressed, Released,
+    };
     pub use crate::render::font::FontToken;
     pub use crate::render::path::{Path, PathId};
     pub use crate::surface::{SafeAreaInsets, Surface};

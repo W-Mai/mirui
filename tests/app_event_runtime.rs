@@ -11,6 +11,7 @@ use mirui::input::event::lifecycle::{
     HostFocusChanged, HostInteraction, HostVisibilityChanged, MemoryWarning, Quit, Resumed,
     SafeAreaChanged, Started, Suspended, ViewportChanged,
 };
+use mirui::input::event::press::{PressCancelReason, PressCancelled, PressSelectors};
 use mirui::render::texture::Texture;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::surface::{DisplayInfo, FramebufferAccess, SafeAreaInsets, Surface};
@@ -110,6 +111,9 @@ enum Step {
     DragEnded,
     LayoutChanged,
     Tap,
+    Pressed,
+    Released,
+    PressCancelled(PressCancelReason),
 }
 
 #[mirui::event]
@@ -603,6 +607,82 @@ fn host_loss_cancels_active_drag_before_the_notice_and_late_release() {
                 notice,
             ]
         );
+    }
+}
+
+#[mirui::event]
+fn press_cancelled(event: event!(PressCancelled), trace: res!(mut Trace)) {
+    trace.push(Step::PressCancelled(event.reason));
+}
+
+#[mirui::compose]
+fn press_target() -> mirui::ecs::Entity {
+    mirui::ui! {
+        View (width: 8, height: 8)
+            on Tap(notice::callback(Step::Tap))
+            on Pressed(notice::callback(Step::Pressed))
+            on Released(notice::callback(Step::Released))
+            on PressCancelled(press_cancelled::callback())
+    }
+}
+
+#[test]
+fn raw_press_lifecycle_precedes_tap_and_host_notifications() {
+    use mirui::input::event::input::PointerKind;
+    for end in [
+        None,
+        Some(InputEvent::HostFocus { focused: false }),
+        Some(InputEvent::AppSuspend),
+    ] {
+        let mut app = app([]);
+        app.with_default_widgets();
+        app.on_event(HostFocusChanged::EVENT, host_focus::callback());
+        let root = app.spawn_root().id();
+        app.compose(root, press_target());
+        app.render().unwrap();
+        app.backend.events.push_back(InputEvent::PointerDown {
+            kind: PointerKind::Mouse,
+            id: 0,
+            x: 2.into(),
+            y: 2.into(),
+        });
+        if let Some(event) = &end {
+            app.backend.events.push_back(event.clone());
+        }
+        app.backend.events.push_back(InputEvent::PointerUp {
+            kind: PointerKind::Mouse,
+            id: 0,
+            x: 2.into(),
+            y: 2.into(),
+        });
+        app.tick();
+        let trace = app.world.resource::<Trace>().unwrap().steps();
+        match end {
+            None => assert_eq!(
+                trace,
+                &[Step::StartHook, Step::Pressed, Step::Released, Step::Tap]
+            ),
+            Some(InputEvent::HostFocus { .. }) => assert_eq!(
+                trace,
+                &[
+                    Step::StartHook,
+                    Step::Pressed,
+                    Step::PressCancelled(PressCancelReason::Platform),
+                    Step::HostFocus(false)
+                ]
+            ),
+            _ => {
+                assert_eq!(
+                    &trace[..3],
+                    &[
+                        Step::StartHook,
+                        Step::Pressed,
+                        Step::PressCancelled(PressCancelReason::Suspended)
+                    ]
+                );
+                assert!(!trace.contains(&Step::Released) && !trace.contains(&Step::Tap));
+            }
+        }
     }
 }
 

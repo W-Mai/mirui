@@ -30,6 +30,7 @@ use super::listeners::{
     ListenerSelector, ListenerTarget,
 };
 use super::notification::{NotificationError, NotificationFlushError};
+use super::press::{PressCancelReason, PressCancelled, PressObserver, Pressed, Released};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Configuration {
@@ -58,6 +59,7 @@ struct EventRuntime {
     sizes: SizeObservers,
     focus: FocusObserver,
     hover: HoverObservers,
+    press: PressObserver,
 }
 
 impl EventRuntime {
@@ -109,6 +111,7 @@ impl EventRuntime {
         self.check_owner(world)?;
         self.focus.observe(world);
         self.hover.observe(world, &self.listeners)?;
+        self.press.observe(world);
         match flush_notifications_with(world, &self.listeners, limit, |world| {
             self.prepare(world, 0)
         }) {
@@ -211,6 +214,7 @@ pub(crate) fn initialize(world: &mut World) {
         sizes: SizeObservers::default(),
         focus: FocusObserver::default(),
         hover: HoverObservers::default(),
+        press: PressObserver::default(),
         configuration: Cell::new(Configuration::Open(
             EventCapacity::default()
                 .resolve()
@@ -225,6 +229,40 @@ fn observe_interaction(world: &mut World) {
         runtime.focus.observe(world);
         if let Err(error) = runtime.hover.observe(world, &runtime.listeners) {
             crate::warn!("hover observation skipped: {:?}", error);
+        }
+        runtime.press.observe(world);
+    }
+}
+
+pub(crate) fn observe_press(world: &mut World) {
+    if let Some(runtime) = runtime(world) {
+        runtime.press.observe(world);
+    }
+}
+
+pub(crate) fn cancel_press(world: &mut World, reason: PressCancelReason) {
+    if let Some(runtime) = runtime(world) {
+        runtime.press.cancel(world, reason);
+    }
+}
+
+pub(crate) fn observe_press_input(
+    world: &mut World,
+    event: &InputEvent,
+    can_start: bool,
+    after: Option<super::gesture::recognizer::SinglePress>,
+    scroll_claimed: bool,
+) {
+    if let Some(runtime) = runtime(world) {
+        if let Err(error) = runtime.press.input(
+            world,
+            &runtime.listeners,
+            event,
+            can_start,
+            after,
+            scroll_claimed,
+        ) {
+            crate::warn!("press observation skipped: {:?}", error);
         }
     }
 }
@@ -491,6 +529,15 @@ where
     if observes_hover {
         runtime.hover.reserve(world, &runtime.listeners, entity)?;
     }
+    let observes_press = [
+        TypeId::of::<Pressed>(),
+        TypeId::of::<Released>(),
+        TypeId::of::<PressCancelled>(),
+    ]
+    .contains(&TypeId::of::<E>());
+    if observes_press {
+        runtime.press.reserve(world, &runtime.listeners, entity)?;
+    }
     let listener = runtime
         .listeners
         .install_entity(world, entity, selector, callback, commands)?;
@@ -499,6 +546,9 @@ where
     }
     if observes_hover {
         runtime.hover.insert(world, entity);
+    }
+    if observes_press {
+        runtime.press.insert(entity);
     }
     if observes_size {
         runtime.sizes.insert(listener, entity);

@@ -13,6 +13,7 @@ pub mod lifecycle;
 pub(crate) mod listeners;
 pub mod multi_tap;
 pub(crate) mod notification;
+pub mod press;
 pub(crate) mod runtime;
 pub mod scroll;
 pub mod sim;
@@ -150,7 +151,7 @@ pub(crate) fn deliver_input(
     ) && let Some(root) = root
     {
         if hit_test::preparation_blocked(world) {
-            cancel_active_input(world, now_ms);
+            cancel_active_input(world, now_ms, press::PressCancelReason::Unavailable);
             dispatch_pending_gestures(world, now_ms);
             return;
         }
@@ -161,7 +162,7 @@ pub(crate) fn deliver_input(
         if let Err(error) = crate::ui::render_system::prepare_input_geometry(world, root, &viewport)
         {
             crate::warn!("input geometry unavailable: {:?}", error);
-            cancel_active_input(world, now_ms);
+            cancel_active_input(world, now_ms, press::PressCancelReason::Unavailable);
             dispatch_pending_gestures(world, now_ms);
             return;
         }
@@ -201,7 +202,7 @@ pub fn dispatch_input(
 ) {
     let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
     if matches!(event, InputEvent::AppSuspend) {
-        cancel_active_input(world, now_ms);
+        cancel_active_input(world, now_ms, press::PressCancelReason::Suspended);
         return;
     }
     runtime::initialize(world);
@@ -244,6 +245,9 @@ pub fn dispatch_input(
         return;
     }
 
+    let can_start = world
+        .resource::<GestureSystem>()
+        .is_some_and(|system| system.recognizer.can_start_press());
     scroll_system_with_target(world, root, event, lw, lh, pointer_down_target, now_ms);
 
     let scroll_claimed = world
@@ -254,10 +258,19 @@ pub fn dispatch_input(
         gs.recognizer
             .update(event, now_ms, pointer_down_target, &mut gs.events);
     }
+    let after = world
+        .resource::<GestureSystem>()
+        .and_then(|system| system.recognizer.single_press());
+    runtime::observe_press_input(world, event, can_start, after, scroll_claimed);
 }
 
-pub(crate) fn cancel_active_input(world: &mut World, now_ms: u32) {
+pub(crate) fn cancel_active_input(
+    world: &mut World,
+    now_ms: u32,
+    reason: press::PressCancelReason,
+) {
     runtime::cancel_hover(world);
+    runtime::cancel_press(world, reason);
     if let Some(cursor) = world.resource_mut::<PointerCursor>() {
         cursor.down = false;
         cursor.present = false;
@@ -276,6 +289,7 @@ pub(crate) fn cancel_active_input(world: &mut World, now_ms: u32) {
 pub(crate) fn retire_subtree_interaction(world: &mut World, root: Entity) {
     use crate::ui::branch::is_in_subtree;
     crate::core::reactive::retained::retire(world, root);
+    runtime::observe_press(world);
     let captured = world
         .resource::<GestureSystem>()
         .and_then(|system| system.recognizer.captured_target());

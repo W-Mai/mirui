@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Pressed`, `Released`, and `PressCancelled` report captured press lifecycles with frozen ancestor routing and explicit cancellation reasons.
+
 - `HoverChanged` reports ordered node and ancestor hover transitions, combining mouse and pen paths without adding hit targets or visual feedback.
 
 - `FocusChanged` reports node focus transitions across input, event callbacks, systems, and timers, with ordered loss/gain delivery and retained-identity checks.

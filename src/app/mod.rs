@@ -750,7 +750,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         if !self.suspended {
             self.suspended = true;
             let now_ms = (self.clock_ns() / 1_000_000) as u32;
-            crate::input::event::cancel_active_input(&mut self.world, now_ms);
+            crate::input::event::cancel_active_input(
+                &mut self.world,
+                now_ms,
+                crate::input::event::press::PressCancelReason::Suspended,
+            );
             self.dispatch_gestures();
             for p in &mut self.plugins {
                 p.on_suspend(&mut self.world);
@@ -828,7 +832,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         if !self.quitting {
             self.quitting = true;
             let now_ms = (self.clock_ns() / 1_000_000) as u32;
-            crate::input::event::cancel_active_input(&mut self.world, now_ms);
+            crate::input::event::cancel_active_input(
+                &mut self.world,
+                now_ms,
+                crate::input::event::press::PressCancelReason::Platform,
+            );
             self.dispatch_gestures();
             for plugin in &mut self.plugins {
                 plugin.on_quit(&mut self.world);
@@ -856,7 +864,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 | InputEvent::HostVisibility { visible: false }
         ) {
             let now_ms = (self.clock_ns() / 1_000_000) as u32;
-            crate::input::event::cancel_active_input(&mut self.world, now_ms);
+            crate::input::event::cancel_active_input(
+                &mut self.world,
+                now_ms,
+                crate::input::event::press::PressCancelReason::Platform,
+            );
             self.dispatch_gestures();
         }
         let mut consumed = false;

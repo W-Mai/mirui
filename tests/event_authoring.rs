@@ -12,6 +12,7 @@ use mirui::input::event::contract::Event;
 use mirui::input::event::focus::{FocusChanged, FocusSelectors, Focusable};
 use mirui::input::event::gesture::{GestureEvent, Tap};
 use mirui::input::event::hover::{HoverChanged, HoverSelectors};
+use mirui::input::event::press::{PressCancelled, PressSelectors, Released};
 use mirui::types::Fixed;
 use mirui::ui::widgets::switch::{Switch, Toggled};
 use mirui::{compose, event, model, ui};
@@ -171,6 +172,97 @@ fn hover_notifications_use_all_authoring_forms_and_preserve_container_hit_semant
 }
 
 struct DropMarker(Rc<Cell<u32>>);
+
+#[event]
+fn count_cancel(event: event!(PressCancelled), counter: model!(EventCounter)) {
+    assert_eq!(
+        event.reason,
+        mirui::input::event::press::PressCancelReason::Gesture
+    );
+    counter.increment();
+}
+
+#[compose]
+fn press_panel(down: model!(EventCounter), up: model!(EventCounter), cancel: model!(EventCounter)) {
+    ui! {
+        View (width: 32, height: 32, id: "press_panel")
+            on Tap {}
+            on Pressed { down.increment(); }
+            on Released(move |_event: &Released| { up.increment(); })
+            on PressCancelled(count_cancel::callback(cancel))
+    };
+}
+
+#[test]
+fn press_notifications_support_inline_closure_and_typed_callbacks() {
+    use mirui::input::event::input::{InputEvent, PointerKind};
+    let mut app = App::headless(32, 32);
+    let root = app.spawn_root().id();
+    let counters = core::array::from_fn::<_, 3, _>(|_| app.add_model(EventCounter { value: 0 }));
+    app.compose(
+        root,
+        press_panel(
+            counters[0].clone(),
+            counters[1].clone(),
+            counters[2].clone(),
+        ),
+    );
+    app.render().unwrap();
+    for (now, input) in [
+        (
+            0,
+            InputEvent::PointerDown {
+                kind: PointerKind::Mouse,
+                id: 0,
+                x: 10.into(),
+                y: 10.into(),
+            },
+        ),
+        (
+            10,
+            InputEvent::PointerUp {
+                kind: PointerKind::Mouse,
+                id: 0,
+                x: 10.into(),
+                y: 10.into(),
+            },
+        ),
+        (
+            20,
+            InputEvent::PointerDown {
+                kind: PointerKind::Mouse,
+                id: 0,
+                x: 10.into(),
+                y: 10.into(),
+            },
+        ),
+        (
+            30,
+            InputEvent::PointerMove {
+                kind: PointerKind::Mouse,
+                id: 0,
+                x: 30.into(),
+                y: 10.into(),
+            },
+        ),
+        (
+            40,
+            InputEvent::PointerUp {
+                kind: PointerKind::Mouse,
+                id: 0,
+                x: 30.into(),
+                y: 10.into(),
+            },
+        ),
+    ] {
+        mirui::input::event::dispatch_input(&mut app.world, Some(root), &input, now, 32, 32);
+        mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
+    }
+    assert_eq!(
+        counters.each_ref().map(|counter| counter.value()),
+        [2, 1, 1]
+    );
+}
 
 impl Component for DropMarker {}
 

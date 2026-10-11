@@ -35,6 +35,21 @@ Subscribing does not make an otherwise non-interactive node hit-testable or add 
 
 Leaves are delivered from child to parent, followed by entries from parent to child. Shared ancestors do not toggle when moving between children. Coordinates are logical surface coordinates, not local node coordinates. Hidden, disabled, removed, and rebound nodes lose eligibility; published layout changes update stationary hover. Registering a listener does not replay prior transitions. Notifications share `EventCapacity`; failed enqueue attempts are logged and discarded without retry.
 
+## Press lifecycle
+
+`Pressed { pointer_id, x, y }` starts a single-pointer press. `Released` carries the same fields for a normal release, including releases outside the original bounds; it does not imply `Tap`. `PressCancelled` adds `reason: PressCancelReason`: `Scroll`, `Gesture`, `Platform`, `Suspended`, or `Unavailable`.
+
+```rust,ignore
+Button("Open")
+    on Pressed { state.set_pressed(true); }
+    on Released { state.set_pressed(false); }
+    on PressCancelled { state.set_pressed(false); }
+```
+
+All three notifications also accept closures and `#[event]` callbacks. They do not consume input, add hit targets, or enable visual feedback. Coordinates are logical surface coordinates; `pointer_id` is a backend contact slot, not a persistent device identifier. Capture internally distinguishes pointer kinds as well as slots.
+
+The hit node and its listening ancestors are captured at the initial down and notified from child to parent. Moving, leaving the surface, reparenting, or adding a listener does not redirect that path. Long press retains capture. Scroll takeover, drag or multi-pointer recognition, platform cancellation, suspension, and target invalidation cancel it instead of releasing it. Removed or rebound receivers do not receive notifications for their old identities. Each press has at most one termination; a full notification queue discards delivery without retrying or changing recognition.
+
 ## Node focus
 
 `FocusChanged { focused, related }` is a direct node notification. `related` identifies the other node in the transition and may no longer exist when read. Subscribe with an inline body, closure, or `#[event]` callback:

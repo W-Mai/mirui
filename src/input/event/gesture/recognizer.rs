@@ -42,6 +42,14 @@ pub(super) struct Finger {
     pub down_ms: u32,
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct SinglePress {
+    pub target: Entity,
+    pub pointer: (PointerKind, u8),
+    pub x: Fixed,
+    pub y: Fixed,
+}
+
 #[derive(Default)]
 pub struct GestureRecognizer {
     pub(super) state: GestureState,
@@ -62,6 +70,28 @@ pub struct GestureRecognizer {
 }
 
 impl GestureRecognizer {
+    pub(crate) fn can_start_press(&self) -> bool {
+        self.state == GestureState::Idle
+    }
+
+    pub(crate) fn single_press(&self) -> Option<SinglePress> {
+        if self.scroll_claimed
+            || !matches!(
+                self.state,
+                GestureState::Pending | GestureState::LongPressed
+            )
+        {
+            return None;
+        }
+        let finger = self.fingers.first().filter(|finger| finger.active)?;
+        Some(SinglePress {
+            target: self.target?,
+            pointer: finger.pointer,
+            x: finger.current_x,
+            y: finger.current_y,
+        })
+    }
+
     pub fn new() -> Self {
         Self::default()
     }
