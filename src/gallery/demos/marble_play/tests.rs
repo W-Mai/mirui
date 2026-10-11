@@ -827,8 +827,24 @@ fn nav_pointer_tap_reaches_edit_after_layout() {
     let x = Fixed::from_int(180);
     let y = Fixed::from_int(301);
     for (event, now) in [
-        (InputEvent::PointerDown { id: 0, x, y }, 0),
-        (InputEvent::PointerUp { id: 0, x, y }, 50),
+        (
+            InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
+                id: 0,
+                x,
+                y,
+            },
+            0,
+        ),
+        (
+            InputEvent::PointerUp {
+                kind: crate::input::event::input::PointerKind::Mouse,
+                id: 0,
+                x,
+                y,
+            },
+            50,
+        ),
     ] {
         crate::input::event::dispatch_input(&mut app.world, Some(root), &event, now, 480, 320);
     }

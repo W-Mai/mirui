@@ -1098,6 +1098,7 @@ mod tests {
                         &mut world,
                         None,
                         &InputEvent::PointerDown {
+                            kind: crate::input::event::input::PointerKind::Mouse,
                             id: 0,
                             x: Fixed::ZERO,
                             y: Fixed::ZERO,

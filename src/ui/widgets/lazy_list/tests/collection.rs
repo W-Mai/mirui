@@ -65,6 +65,7 @@ fn press(world: &mut World, cell: Entity) {
     let mut gestures = GestureSystem::default();
     gestures.recognizer.update(
         &InputEvent::PointerDown {
+            kind: crate::input::event::input::PointerKind::Mouse,
             id: 0,
             x: 10.into(),
             y: 10.into(),
@@ -176,6 +177,7 @@ fn pointer_release_rejects_reordered_data_before_the_next_layout() {
         &mut app.world,
         Some(list),
         &InputEvent::PointerUp {
+            kind: crate::input::event::input::PointerKind::Mouse,
             id: 0,
             x: 10.into(),
             y: 10.into(),

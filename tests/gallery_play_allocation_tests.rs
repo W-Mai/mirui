@@ -43,7 +43,12 @@ fn try_tap_at(
     dispatch_input(
         world,
         Some(root),
-        &InputEvent::PointerDown { id: 0, x, y },
+        &InputEvent::PointerDown {
+            kind: mirui::input::event::input::PointerKind::Mouse,
+            id: 0,
+            x,
+            y,
+        },
         now_ms,
         width,
         height,
@@ -51,7 +56,12 @@ fn try_tap_at(
     dispatch_input(
         world,
         Some(root),
-        &InputEvent::PointerUp { id: 0, x, y },
+        &InputEvent::PointerUp {
+            kind: mirui::input::event::input::PointerKind::Mouse,
+            id: 0,
+            x,
+            y,
+        },
         now_ms + 50,
         width,
         height,
@@ -204,7 +214,12 @@ fn first_marble_page_switch_accounts_for_tap_flush_and_render_allocations() {
             dispatch_input(
                 &mut app.world,
                 Some(root),
-                &InputEvent::PointerDown { id: 0, x, y },
+                &InputEvent::PointerDown {
+                    kind: mirui::input::event::input::PointerKind::Mouse,
+                    id: 0,
+                    x,
+                    y,
+                },
                 now_ms,
                 width,
                 height,
@@ -212,7 +227,12 @@ fn first_marble_page_switch_accounts_for_tap_flush_and_render_allocations() {
             dispatch_input(
                 &mut app.world,
                 Some(root),
-                &InputEvent::PointerUp { id: 0, x, y },
+                &InputEvent::PointerUp {
+                    kind: mirui::input::event::input::PointerKind::Mouse,
+                    id: 0,
+                    x,
+                    y,
+                },
                 now_ms + 50,
                 width,
                 height,
@@ -457,7 +477,12 @@ fn first_marble_inspector_open_reuses_input_layout_and_render_storage() {
             dispatch_input(
                 &mut app.world,
                 Some(root),
-                &InputEvent::PointerDown { id: 0, x, y },
+                &InputEvent::PointerDown {
+                    kind: mirui::input::event::input::PointerKind::Mouse,
+                    id: 0,
+                    x,
+                    y,
+                },
                 now_ms,
                 width,
                 height,
@@ -465,7 +490,12 @@ fn first_marble_inspector_open_reuses_input_layout_and_render_storage() {
             dispatch_input(
                 &mut app.world,
                 Some(root),
-                &InputEvent::PointerUp { id: 0, x, y },
+                &InputEvent::PointerUp {
+                    kind: mirui::input::event::input::PointerKind::Mouse,
+                    id: 0,
+                    x,
+                    y,
+                },
                 now_ms + 50,
                 width,
                 height,
@@ -749,7 +779,12 @@ fn first_marble_inspector_pitch_and_timbre_actions_do_not_allocate() {
             dispatch_input(
                 &mut app.world,
                 Some(root),
-                &InputEvent::PointerDown { id: 0, x, y },
+                &InputEvent::PointerDown {
+                    kind: mirui::input::event::input::PointerKind::Mouse,
+                    id: 0,
+                    x,
+                    y,
+                },
                 now_ms,
                 width,
                 height,
@@ -757,7 +792,12 @@ fn first_marble_inspector_pitch_and_timbre_actions_do_not_allocate() {
             dispatch_input(
                 &mut app.world,
                 Some(root),
-                &InputEvent::PointerUp { id: 0, x, y },
+                &InputEvent::PointerUp {
+                    kind: mirui::input::event::input::PointerKind::Mouse,
+                    id: 0,
+                    x,
+                    y,
+                },
                 now_ms + 50,
                 width,
                 height,

@@ -1,6 +1,6 @@
 use alloc::collections::VecDeque;
 
-use crate::input::event::input::{InputEvent, WHEEL_LINE_PIXELS};
+use crate::input::event::input::{InputEvent, PointerKind, WHEEL_LINE_PIXELS};
 use crate::types::Fixed;
 
 /// Driver-agnostic axis events fed into [`PointerState`]. Each backend
@@ -21,6 +21,7 @@ pub(crate) enum InputAxis {
 }
 
 pub(crate) struct PointerState {
+    kind: PointerKind,
     width: u16,
     height: u16,
     abs_min_x: i32,
@@ -43,8 +44,10 @@ impl PointerState {
         abs_max_x: i32,
         abs_min_y: i32,
         abs_max_y: i32,
+        kind: PointerKind,
     ) -> Self {
         Self {
+            kind,
             width,
             height,
             abs_min_x,
@@ -71,6 +74,7 @@ impl PointerState {
                     if self.last_down[i] {
                         let (x, y) = self.last_xy[i];
                         queue.push_back(InputEvent::PointerUp {
+                            kind: self.kind,
                             id: self.slot,
                             x,
                             y,
@@ -80,6 +84,7 @@ impl PointerState {
                 } else if !self.last_down[i] {
                     let (x, y) = self.last_xy[i];
                     queue.push_back(InputEvent::PointerDown {
+                        kind: self.kind,
                         id: self.slot,
                         x,
                         y,
@@ -120,6 +125,7 @@ impl PointerState {
                 if !self.last_down[i] {
                     let (x, y) = self.last_xy[i];
                     queue.push_back(InputEvent::PointerDown {
+                        kind: self.kind,
                         id: self.slot,
                         x,
                         y,
@@ -132,6 +138,7 @@ impl PointerState {
                 if self.last_down[i] {
                     let (x, y) = self.last_xy[i];
                     queue.push_back(InputEvent::PointerUp {
+                        kind: self.kind,
                         id: self.slot,
                         x,
                         y,
@@ -146,7 +153,12 @@ impl PointerState {
                         continue;
                     }
                     let (x, y) = self.last_xy[i];
-                    queue.push_back(InputEvent::PointerMove { id: i as u8, x, y });
+                    queue.push_back(InputEvent::PointerMove {
+                        kind: self.kind,
+                        id: i as u8,
+                        x,
+                        y,
+                    });
                 }
                 let dx = core::mem::take(&mut self.wheel_dx);
                 let dy = core::mem::take(&mut self.wheel_dy);
@@ -193,7 +205,32 @@ mod tests {
     }
 
     fn st() -> PointerState {
-        PointerState::new(800, 600, 0, 32767, 0, 32767)
+        PointerState::new(800, 600, 0, 32767, 0, 32767, PointerKind::Mouse)
+    }
+
+    #[test]
+    fn axis_protocol_preserves_the_explicit_device_category() {
+        for kind in [
+            PointerKind::Mouse,
+            PointerKind::Touch,
+            PointerKind::Pen,
+            PointerKind::Unknown,
+        ] {
+            let mut state = PointerState::new(100, 100, 0, 100, 0, 100, kind);
+            let events = drain(
+                &mut state,
+                &[
+                    InputAxis::Button(true),
+                    InputAxis::AbsX(30),
+                    InputAxis::Sync,
+                    InputAxis::Button(false),
+                ],
+            );
+            assert_eq!(events.len(), 3);
+            for event in events {
+                assert_eq!(event.pointer_identity(), Some((kind, 0)));
+            }
+        }
     }
 
     #[test]
@@ -209,7 +246,12 @@ mod tests {
         );
         assert_eq!(events.len(), 1, "hover sync must emit a single PointerMove");
         match &events[0] {
-            InputEvent::PointerMove { id, x, y } => {
+            InputEvent::PointerMove {
+                kind: crate::input::event::input::PointerKind::Mouse,
+                id,
+                x,
+                y,
+            } => {
                 assert_eq!(*id, 0);
                 assert!((x.to_int() - 400).abs() <= 1);
                 assert!((y.to_int() - 300).abs() <= 1);
@@ -387,7 +429,7 @@ mod tests {
     #[test]
     fn nonzero_abs_min_maps_physical_offset_to_view_origin() {
         // Overscan: driver reports physical 0..200; view occupies [10, 110).
-        let mut s = PointerState::new(100, 100, 10, 110, 10, 110);
+        let mut s = PointerState::new(100, 100, 10, 110, 10, 110, PointerKind::Mouse);
         let events = drain(
             &mut s,
             &[InputAxis::AbsX(10), InputAxis::AbsY(110), InputAxis::Sync],

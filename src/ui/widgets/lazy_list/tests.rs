@@ -191,6 +191,7 @@ fn reusing_a_pressed_cell_cancels_capture_without_stopping_the_list_scroll() {
     let mut gestures = GestureSystem::default();
     gestures.recognizer.update(
         &InputEvent::PointerDown {
+            kind: crate::input::event::input::PointerKind::Mouse,
             id: 0,
             x: 10.into(),
             y: 10.into(),
@@ -222,6 +223,7 @@ fn reusing_a_pressed_cell_cancels_capture_without_stopping_the_list_scroll() {
     let gestures = app.world.resource_mut::<GestureSystem>().unwrap();
     gestures.recognizer.update(
         &InputEvent::PointerUp {
+            kind: crate::input::event::input::PointerKind::Mouse,
             id: 0,
             x: 10.into(),
             y: 10.into(),

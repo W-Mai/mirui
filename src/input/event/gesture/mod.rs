@@ -23,6 +23,86 @@ mod tests {
     }
 
     #[test]
+    fn pointer_category_is_part_of_capture_identity() {
+        use crate::surface::PointerKind;
+        let mut rec = GestureRecognizer::new();
+        let mut events = GestureEvents::new();
+        rec.update(
+            &InputEvent::PointerDown {
+                kind: PointerKind::Mouse,
+                id: 0,
+                x: 10.into(),
+                y: 10.into(),
+            },
+            0,
+            Some(entity(1)),
+            &mut events,
+        );
+        for kind in [PointerKind::Touch, PointerKind::Pen, PointerKind::Unknown] {
+            for event in [
+                InputEvent::PointerMove {
+                    kind,
+                    id: 0,
+                    x: 100.into(),
+                    y: 100.into(),
+                },
+                InputEvent::PointerUp {
+                    kind,
+                    id: 0,
+                    x: 100.into(),
+                    y: 100.into(),
+                },
+                InputEvent::PointerCancel {
+                    kind,
+                    id: 0,
+                    x: 100.into(),
+                    y: 100.into(),
+                },
+            ] {
+                rec.update(&event, 10, None, &mut events);
+                assert_eq!(rec.state, GestureState::Pending);
+                assert!(events.buffer.is_empty());
+            }
+        }
+        rec.update(
+            &InputEvent::PointerDown {
+                kind: PointerKind::Touch,
+                id: 0,
+                x: 20.into(),
+                y: 10.into(),
+            },
+            20,
+            Some(entity(1)),
+            &mut events,
+        );
+        assert_eq!(rec.state, GestureState::MultiPending);
+        rec.update(
+            &InputEvent::PointerUp {
+                kind: PointerKind::Unknown,
+                id: 0,
+                x: 20.into(),
+                y: 10.into(),
+            },
+            30,
+            None,
+            &mut events,
+        );
+        assert_eq!(rec.state, GestureState::MultiPending);
+        rec.update(
+            &InputEvent::PointerUp {
+                kind: PointerKind::Touch,
+                id: 0,
+                x: 20.into(),
+                y: 10.into(),
+            },
+            40,
+            None,
+            &mut events,
+        );
+        assert_eq!(rec.state, GestureState::Idle);
+    }
+
+    #[test]
     fn tap_on_quick_release() {
         let mut rec = GestureRecognizer::new();
         let mut events = GestureEvents::new();
@@ -30,6 +110,7 @@ mod tests {
 
         rec.update(
             &InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(50),
                 y: Fixed::from_int(50),
@@ -42,6 +123,7 @@ mod tests {
 
         rec.update(
             &InputEvent::PointerUp {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(50),
                 y: Fixed::from_int(50),
@@ -62,6 +144,7 @@ mod tests {
 
         rec.update(
             &InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(10),
                 y: Fixed::from_int(10),
@@ -73,6 +156,7 @@ mod tests {
 
         rec.update(
             &InputEvent::PointerMove {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(25),
                 y: Fixed::from_int(10),
@@ -88,6 +172,7 @@ mod tests {
         events.clear();
         rec.update(
             &InputEvent::PointerMove {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(30),
                 y: Fixed::from_int(10),
@@ -102,6 +187,7 @@ mod tests {
         events.clear();
         rec.update(
             &InputEvent::PointerUp {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(30),
                 y: Fixed::from_int(10),
@@ -139,6 +225,7 @@ mod tests {
 
         rec.update(
             &InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(50),
                 y: Fixed::from_int(50),
@@ -167,6 +254,7 @@ mod tests {
     ) {
         rec.update(
             &InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id,
                 x: Fixed::from_int(x),
                 y: Fixed::from_int(y),
@@ -180,6 +268,7 @@ mod tests {
     fn motion(rec: &mut GestureRecognizer, id: u8, x: i32, y: i32, t: u32, ev: &mut GestureEvents) {
         rec.update(
             &InputEvent::PointerMove {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id,
                 x: Fixed::from_int(x),
                 y: Fixed::from_int(y),
@@ -193,6 +282,7 @@ mod tests {
     fn up(rec: &mut GestureRecognizer, id: u8, x: i32, y: i32, t: u32, ev: &mut GestureEvents) {
         rec.update(
             &InputEvent::PointerUp {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id,
                 x: Fixed::from_int(x),
                 y: Fixed::from_int(y),
@@ -206,6 +296,7 @@ mod tests {
     fn cancel(rec: &mut GestureRecognizer, id: u8, x: i32, y: i32, t: u32, ev: &mut GestureEvents) {
         rec.update(
             &InputEvent::PointerCancel {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id,
                 x: Fixed::from_int(x),
                 y: Fixed::from_int(y),
@@ -402,6 +493,7 @@ mod tests {
 
         rec.update(
             &InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(10),
                 y: Fixed::from_int(10),
@@ -414,6 +506,7 @@ mod tests {
 
         rec.update(
             &InputEvent::PointerMove {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(50),
                 y: Fixed::from_int(50),
@@ -426,6 +519,7 @@ mod tests {
 
         rec.update(
             &InputEvent::PointerUp {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(50),
                 y: Fixed::from_int(50),

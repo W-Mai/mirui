@@ -110,6 +110,7 @@ fn tap_at(world: &mut World, root: Entity, x: i32, y: i32, mut now_ms: u32) -> u
         world,
         Some(root),
         &InputEvent::PointerDown {
+            kind: mirui::input::event::input::PointerKind::Mouse,
             id: 0,
             x: xf,
             y: yf,
@@ -123,6 +124,7 @@ fn tap_at(world: &mut World, root: Entity, x: i32, y: i32, mut now_ms: u32) -> u
         world,
         Some(root),
         &InputEvent::PointerUp {
+            kind: mirui::input::event::input::PointerKind::Mouse,
             id: 0,
             x: xf,
             y: yf,

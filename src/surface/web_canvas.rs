@@ -18,7 +18,7 @@ use web_sys::{
 };
 
 use super::backbuffer_invalidation::BackbufferInvalidation;
-use super::{BackbufferPersistence, DisplayInfo, InputEvent, Surface};
+use super::{BackbufferPersistence, DisplayInfo, InputEvent, PointerKind, Surface};
 use crate::core::cache::InspectCaches;
 use crate::input::event::input::{
     KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_ESCAPE, KEY_HOME, KEY_LEFT, KEY_RETURN, KEY_RIGHT,
@@ -179,7 +179,7 @@ fn attach_listeners(
         &pointers,
         "pointerdown",
         PointerPhase::Down,
-        |id, x, y| InputEvent::PointerDown { id, x, y },
+        |kind, id, x, y| InputEvent::PointerDown { kind, id, x, y },
     ));
     listeners.push(pointer_listener(
         canvas,
@@ -188,7 +188,7 @@ fn attach_listeners(
         &pointers,
         "pointermove",
         PointerPhase::Move,
-        |id, x, y| InputEvent::PointerMove { id, x, y },
+        |kind, id, x, y| InputEvent::PointerMove { kind, id, x, y },
     ));
     listeners.push(pointer_listener(
         canvas,
@@ -197,7 +197,7 @@ fn attach_listeners(
         &pointers,
         "pointerup",
         PointerPhase::Up,
-        |id, x, y| InputEvent::PointerUp { id, x, y },
+        |kind, id, x, y| InputEvent::PointerUp { kind, id, x, y },
     ));
     listeners.push(pointer_listener(
         canvas,
@@ -206,7 +206,7 @@ fn attach_listeners(
         &pointers,
         "pointercancel",
         PointerPhase::Cancel,
-        |id, x, y| InputEvent::PointerCancel { id, x, y },
+        |kind, id, x, y| InputEvent::PointerCancel { kind, id, x, y },
     ));
     listeners.push(pointer_listener(
         canvas,
@@ -215,7 +215,7 @@ fn attach_listeners(
         &pointers,
         "lostpointercapture",
         PointerPhase::Cancel,
-        |id, x, y| InputEvent::PointerCancel { id, x, y },
+        |kind, id, x, y| InputEvent::PointerCancel { kind, id, x, y },
     ));
     listeners.push(leave_listener(canvas, queue, &pointers));
     listeners.push(wheel_listener(canvas, queue, logical_size));
@@ -287,7 +287,7 @@ fn pointer_listener(
     pointers: &Rc<RefCell<super::web_input::WebPointers>>,
     name: &str,
     phase: super::web_input::PointerPhase,
-    map: fn(u8, Fixed, Fixed) -> InputEvent,
+    map: fn(PointerKind, u8, Fixed, Fixed) -> InputEvent,
 ) -> Listener {
     let q = queue.clone();
     let pointers = pointers.clone();
@@ -304,10 +304,10 @@ fn pointer_listener(
             let _ = canvas_for_capture.focus();
             let _ = canvas_for_capture.set_pointer_capture(evt.pointer_id());
         }
-        let (mouse, touch) = types.classify(&evt);
+        let kind = types.classify(&evt);
         let Some(id) = pointers
             .borrow_mut()
-            .translate(evt.pointer_id(), mouse, touch, phase)
+            .translate(evt.pointer_id(), kind, phase)
         else {
             return;
         };
@@ -323,7 +323,7 @@ fn pointer_listener(
             evt.client_y() as f64,
             logical_size.get(),
         );
-        q.borrow_mut().push_back(map(id, x, y));
+        q.borrow_mut().push_back(map(kind, id, x, y));
     });
     register_listener(canvas.clone().into(), name, closure)
 }
@@ -332,6 +332,7 @@ struct PointerTypes {
     property: JsValue,
     mouse: JsValue,
     touch: JsValue,
+    pen: JsValue,
 }
 
 impl PointerTypes {
@@ -340,14 +341,23 @@ impl PointerTypes {
             property: JsValue::from_str("pointerType"),
             mouse: JsValue::from_str("mouse"),
             touch: JsValue::from_str("touch"),
+            pen: JsValue::from_str("pen"),
         }
     }
 
-    fn classify(&self, event: &PointerEvent) -> (bool, bool) {
+    fn classify(&self, event: &PointerEvent) -> PointerKind {
         // Keep platform strings in JS rather than allocating a Rust String per event.
         let value =
             js_sys::Reflect::get(event.as_ref(), &self.property).unwrap_or(JsValue::UNDEFINED);
-        (value == self.mouse, value == self.touch)
+        if value == self.mouse {
+            PointerKind::Mouse
+        } else if value == self.touch {
+            PointerKind::Touch
+        } else if value == self.pen {
+            PointerKind::Pen
+        } else {
+            PointerKind::Unknown
+        }
     }
 }
 
@@ -379,17 +389,17 @@ fn leave_listener(
     let types = PointerTypes::new();
     let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
         let evt: PointerEvent = raw.unchecked_into();
-        let (mouse, touch) = types.classify(&evt);
+        let kind = types.classify(&evt);
         let Some(id) = pointers.borrow_mut().translate(
             evt.pointer_id(),
-            mouse,
-            touch,
+            kind,
             super::web_input::PointerPhase::Leave,
         ) else {
             return;
         };
         const OFF: i32 = i16::MIN as i32;
         q.borrow_mut().push_back(InputEvent::PointerMove {
+            kind,
             id,
             x: Fixed::from_int(OFF),
             y: Fixed::from_int(OFF),

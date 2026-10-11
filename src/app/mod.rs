@@ -2168,6 +2168,7 @@ mod app_invariant_tests {
             &mut app.world,
             Some(root),
             &InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: 1.into(),
                 y: 1.into(),
@@ -3023,11 +3024,13 @@ mod fractional_scale_input_check {
         app.render().unwrap();
         app.backend.events.extend([
             InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(8),
                 y: Fixed::from_int(8),
             },
             InputEvent::PointerUp {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(8),
                 y: Fixed::from_int(8),
@@ -3055,11 +3058,13 @@ mod fractional_scale_input_check {
         for _ in 0..3 {
             app.backend.events.extend([
                 InputEvent::PointerDown {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: Fixed::from_int(8),
                     y: Fixed::from_int(8),
                 },
                 InputEvent::PointerUp {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: Fixed::from_int(8),
                     y: Fixed::from_int(8),

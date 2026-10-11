@@ -41,6 +41,7 @@ impl TouchInput {
             off_x as i32 + width as i32,
             off_y as i32,
             off_y as i32 + height as i32,
+            crate::surface::PointerKind::Touch,
         );
         let buf =
             vec![0u8; TOUCH_SAMPLE_HEADER + MAX_TOUCH_POINTS * core::mem::size_of::<TouchPoint>()];

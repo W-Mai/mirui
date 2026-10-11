@@ -35,6 +35,16 @@ pub struct KeyModifiers {
     pub meta: bool,
 }
 
+/// Platform-reported pointer device category.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PointerKind {
+    Mouse,
+    Touch,
+    Pen,
+    #[default]
+    Unknown,
+}
+
 /// Projection from platform input to a concrete input callback payload.
 #[doc(hidden)]
 pub trait InputPayload: Event<Route = InputFallback> + sealed::InputPayload {
@@ -45,15 +55,15 @@ macro_rules! typed_inputs {
     ($($(#[$doc:meta])* $kind:ident($source:ty) { $($(#[$field_doc:meta])* $field:ident: $ty:ty),+ $(,)? }),+ $(,)?) => {
         /// Raw input event produced by the platform layer.
         ///
-        /// Pointer 0 is the first finger or mouse; other ids are additional
-        /// fingers. Gestures are recognized from these pointer primitives.
+        /// Active pointers are identified by their device category and slot id.
+        /// Gestures are recognized from these pointer primitives.
         /// Suspend/resume/quit variants are requests, not state notifications.
         #[derive(Clone, Debug)]
         pub enum InputEvent {
-            PointerDown { id: u8, x: Fixed, y: Fixed },
-            PointerMove { id: u8, x: Fixed, y: Fixed },
-            PointerUp { id: u8, x: Fixed, y: Fixed },
-            PointerCancel { id: u8, x: Fixed, y: Fixed },
+            PointerDown { kind: PointerKind, id: u8, x: Fixed, y: Fixed },
+            PointerMove { kind: PointerKind, id: u8, x: Fixed, y: Fixed },
+            PointerUp { kind: PointerKind, id: u8, x: Fixed, y: Fixed },
+            PointerCancel { kind: PointerKind, id: u8, x: Fixed, y: Fixed },
             HostFocus { focused: bool },
             HostVisibility { visible: bool },
             $($(#[$doc])* $kind { $($(#[$field_doc])* $field: $ty),+ },)+
@@ -132,6 +142,16 @@ pub trait InputSelectors: Component {
 impl<T: Component> InputSelectors for T {}
 
 impl InputEvent {
+    pub(crate) fn pointer_identity(&self) -> Option<(PointerKind, u8)> {
+        match self {
+            Self::PointerDown { kind, id, .. }
+            | Self::PointerMove { kind, id, .. }
+            | Self::PointerUp { kind, id, .. }
+            | Self::PointerCancel { kind, id, .. } => Some((*kind, *id)),
+            _ => None,
+        }
+    }
+
     pub(crate) fn is_user_input(&self) -> bool {
         match self {
             Self::PointerDown { .. }
@@ -159,21 +179,25 @@ mod tests {
     fn simulation_input_filter_does_not_include_host_lifecycle_requests() {
         for event in [
             InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::ZERO,
                 y: Fixed::ZERO,
             },
             InputEvent::PointerMove {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::ZERO,
                 y: Fixed::ZERO,
             },
             InputEvent::PointerUp {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::ZERO,
                 y: Fixed::ZERO,
             },
             InputEvent::PointerCancel {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::ZERO,
                 y: Fixed::ZERO,
@@ -246,21 +270,25 @@ mod tests {
     fn requests_and_pointer_primitives_do_not_project_as_callback_input() {
         for event in [
             InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::ONE,
                 y: Fixed::ZERO,
             },
             InputEvent::PointerMove {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::ONE,
                 y: Fixed::ZERO,
             },
             InputEvent::PointerUp {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::ONE,
                 y: Fixed::ZERO,
             },
             InputEvent::PointerCancel {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::ONE,
                 y: Fixed::ZERO,

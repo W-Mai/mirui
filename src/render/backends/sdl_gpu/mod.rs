@@ -174,11 +174,13 @@ impl SdlGpuSurface {
             let (ax, ay) = self.multi.f_a;
             let (bx, by) = self.multi.f_b;
             self.pending.push_back(InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Touch,
                 id: VIRT_FINGER_A,
                 x: Fixed::from(ax as i32),
                 y: Fixed::from(ay as i32),
             });
             self.pending.push_back(InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Touch,
                 id: VIRT_FINGER_B,
                 x: Fixed::from(bx as i32),
                 y: Fixed::from(by as i32),
@@ -204,11 +206,13 @@ impl SdlGpuSurface {
         let (ax, ay) = self.multi.f_a;
         let (bx, by) = self.multi.f_b;
         self.pending.push_back(InputEvent::PointerMove {
+            kind: crate::input::event::input::PointerKind::Touch,
             id: VIRT_FINGER_A,
             x: Fixed::from(ax as i32),
             y: Fixed::from(ay as i32),
         });
         self.pending.push_back(InputEvent::PointerMove {
+            kind: crate::input::event::input::PointerKind::Touch,
             id: VIRT_FINGER_B,
             x: Fixed::from(bx as i32),
             y: Fixed::from(by as i32),
@@ -222,11 +226,13 @@ impl SdlGpuSurface {
         let (ax, ay) = self.multi.f_a;
         let (bx, by) = self.multi.f_b;
         self.pending.push_back(InputEvent::PointerUp {
+            kind: crate::input::event::input::PointerKind::Touch,
             id: VIRT_FINGER_A,
             x: Fixed::from(ax as i32),
             y: Fixed::from(ay as i32),
         });
         self.pending.push_back(InputEvent::PointerUp {
+            kind: crate::input::event::input::PointerKind::Touch,
             id: VIRT_FINGER_B,
             x: Fixed::from(bx as i32),
             y: Fixed::from(by as i32),
@@ -302,6 +308,7 @@ impl Surface for SdlGpuSurface {
                 }
                 Event::MouseButtonDown { x, y, .. } => {
                     self.pending.push_back(InputEvent::PointerDown {
+                        kind: crate::input::event::input::PointerKind::Mouse,
                         id: 0,
                         x: x.into(),
                         y: y.into(),
@@ -309,6 +316,7 @@ impl Surface for SdlGpuSurface {
                 }
                 Event::MouseButtonUp { x, y, .. } => {
                     self.pending.push_back(InputEvent::PointerUp {
+                        kind: crate::input::event::input::PointerKind::Mouse,
                         id: 0,
                         x: x.into(),
                         y: y.into(),
@@ -318,6 +326,7 @@ impl Surface for SdlGpuSurface {
                     self.last_mouse_x = x;
                     self.last_mouse_y = y;
                     self.pending.push_back(InputEvent::PointerMove {
+                        kind: crate::input::event::input::PointerKind::Mouse,
                         id: 0,
                         x: x.into(),
                         y: y.into(),
@@ -360,6 +369,7 @@ impl Surface for SdlGpuSurface {
                 } => {
                     const OFF: i32 = i16::MIN as i32;
                     self.pending.push_back(InputEvent::PointerMove {
+                        kind: crate::input::event::input::PointerKind::Mouse,
                         id: 0,
                         x: Fixed::from_int(OFF),
                         y: Fixed::from_int(OFF),

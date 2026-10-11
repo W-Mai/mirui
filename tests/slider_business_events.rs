@@ -169,26 +169,31 @@ mod tests {
         app.render().unwrap();
         let events = [
             InputEvent::PointerDown {
+                kind: mirui::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: 10.into(),
                 y: 10.into(),
             },
             InputEvent::PointerMove {
+                kind: mirui::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: 70.into(),
                 y: 10.into(),
             },
             InputEvent::PointerMove {
+                kind: mirui::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: 80.into(),
                 y: 10.into(),
             },
             InputEvent::PointerCancel {
+                kind: mirui::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: 80.into(),
                 y: 10.into(),
             },
             InputEvent::PointerUp {
+                kind: mirui::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: 80.into(),
                 y: 10.into(),

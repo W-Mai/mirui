@@ -1,4 +1,4 @@
-use crate::input::event::input::WHEEL_LINE_PIXELS;
+use crate::input::event::input::{PointerKind, WHEEL_LINE_PIXELS};
 use crate::types::Fixed;
 
 #[derive(Clone, Copy)]
@@ -31,16 +31,15 @@ impl WebPointers {
     pub(super) fn translate(
         &mut self,
         native_id: i32,
-        mouse: bool,
-        touch: bool,
+        kind: PointerKind,
         phase: PointerPhase,
     ) -> Option<u8> {
-        let id = if mouse {
+        let id = if kind == PointerKind::Mouse {
             0
         } else {
             match phase {
                 PointerPhase::Down => self.slots.insert(native_id)?,
-                PointerPhase::Move if !touch => self.slots.insert(native_id)?,
+                PointerPhase::Move if kind == PointerKind::Pen => self.slots.insert(native_id)?,
                 _ => self.slots.get(native_id)?,
             }
         };
@@ -57,7 +56,9 @@ impl WebPointers {
                     return None;
                 }
                 self.down &= !mask;
-                if !mouse && (touch || matches!(phase, PointerPhase::Cancel)) {
+                if kind != PointerKind::Mouse
+                    && (kind != PointerKind::Pen || matches!(phase, PointerPhase::Cancel))
+                {
                     self.slots.remove(native_id);
                 }
             }
@@ -65,7 +66,7 @@ impl WebPointers {
                 if self.down & mask != 0 {
                     return None;
                 }
-                if !mouse {
+                if kind != PointerKind::Mouse {
                     self.slots.remove(native_id);
                 }
             }
@@ -114,18 +115,18 @@ mod tests {
         let mut pointers = WebPointers::new();
         assert_eq!(
             crate::test_support::tracked_allocations(|| {
-                assert_eq!(pointers.translate(1, true, false, Down), Some(0));
-                assert_eq!(pointers.translate(1, false, true, Down), Some(1));
-                assert_eq!(pointers.translate(256, false, true, Down), Some(2));
-                assert_eq!(pointers.translate(1, false, true, Down), None);
-                assert_eq!(pointers.translate(256, false, true, Move), Some(2));
-                assert_eq!(pointers.translate(1, false, true, Up), Some(1));
-                assert_eq!(pointers.translate(1, false, true, Cancel), None);
-                assert_eq!(pointers.translate(1, false, true, Move), None);
-                assert_eq!(pointers.translate(511, false, true, Down), Some(1));
-                assert_eq!(pointers.translate(256, false, true, Cancel), Some(2));
-                assert_eq!(pointers.translate(1, true, false, Up), Some(0));
-                assert_eq!(pointers.translate(1, true, false, Cancel), None);
+                assert_eq!(pointers.translate(1, PointerKind::Mouse, Down), Some(0));
+                assert_eq!(pointers.translate(1, PointerKind::Touch, Down), Some(1));
+                assert_eq!(pointers.translate(256, PointerKind::Touch, Down), Some(2));
+                assert_eq!(pointers.translate(1, PointerKind::Touch, Down), None);
+                assert_eq!(pointers.translate(256, PointerKind::Touch, Move), Some(2));
+                assert_eq!(pointers.translate(1, PointerKind::Touch, Up), Some(1));
+                assert_eq!(pointers.translate(1, PointerKind::Touch, Cancel), None);
+                assert_eq!(pointers.translate(1, PointerKind::Touch, Move), None);
+                assert_eq!(pointers.translate(511, PointerKind::Touch, Down), Some(1));
+                assert_eq!(pointers.translate(256, PointerKind::Touch, Cancel), Some(2));
+                assert_eq!(pointers.translate(1, PointerKind::Mouse, Up), Some(0));
+                assert_eq!(pointers.translate(1, PointerKind::Mouse, Cancel), None);
             }),
             0
         );
@@ -135,16 +136,16 @@ mod tests {
     fn hover_slots_remain_stable_during_capture_and_release_on_leave() {
         use PointerPhase::*;
         let mut pointers = WebPointers::new();
-        assert_eq!(pointers.translate(80, false, false, Move), Some(1));
-        assert_eq!(pointers.translate(80, false, false, Down), Some(1));
-        assert_eq!(pointers.translate(80, false, false, Leave), None);
-        assert_eq!(pointers.translate(80, false, false, Up), Some(1));
-        assert_eq!(pointers.translate(80, false, false, Move), Some(1));
-        assert_eq!(pointers.translate(80, false, false, Leave), Some(1));
-        assert_eq!(pointers.translate(90, false, false, Move), Some(1));
-        assert_eq!(pointers.translate(90, false, false, Down), Some(1));
-        assert_eq!(pointers.translate(90, false, false, Cancel), Some(1));
-        assert_eq!(pointers.translate(90, false, false, Cancel), None);
+        assert_eq!(pointers.translate(80, PointerKind::Pen, Move), Some(1));
+        assert_eq!(pointers.translate(80, PointerKind::Pen, Down), Some(1));
+        assert_eq!(pointers.translate(80, PointerKind::Pen, Leave), None);
+        assert_eq!(pointers.translate(80, PointerKind::Pen, Up), Some(1));
+        assert_eq!(pointers.translate(80, PointerKind::Pen, Move), Some(1));
+        assert_eq!(pointers.translate(80, PointerKind::Pen, Leave), Some(1));
+        assert_eq!(pointers.translate(90, PointerKind::Pen, Move), Some(1));
+        assert_eq!(pointers.translate(90, PointerKind::Pen, Down), Some(1));
+        assert_eq!(pointers.translate(90, PointerKind::Pen, Cancel), Some(1));
+        assert_eq!(pointers.translate(90, PointerKind::Pen, Cancel), None);
     }
 
     #[test]
@@ -153,19 +154,30 @@ mod tests {
         let mut pointers = WebPointers::new();
         for native in 1..=16 {
             assert_eq!(
-                pointers.translate(native, false, true, Down),
+                pointers.translate(native, PointerKind::Touch, Down),
                 Some(native as u8)
             );
         }
-        assert_eq!(pointers.translate(17, false, true, Down), None);
-        assert_eq!(pointers.translate(1, false, true, Up), Some(1));
-        assert_eq!(pointers.translate(17, false, true, Move), None);
-        assert_eq!(pointers.translate(17, false, true, Up), None);
-        assert_eq!(pointers.translate(18, false, true, Down), Some(1));
+        assert_eq!(pointers.translate(17, PointerKind::Touch, Down), None);
+        assert_eq!(pointers.translate(1, PointerKind::Touch, Up), Some(1));
+        assert_eq!(pointers.translate(17, PointerKind::Touch, Move), None);
+        assert_eq!(pointers.translate(17, PointerKind::Touch, Up), None);
+        assert_eq!(pointers.translate(18, PointerKind::Touch, Down), Some(1));
         pointers.clear();
-        assert_eq!(pointers.translate(18, false, true, Up), None);
-        assert_eq!(pointers.translate(2, false, true, Move), None);
-        assert_eq!(pointers.translate(19, false, true, Down), Some(1));
+        assert_eq!(pointers.translate(18, PointerKind::Touch, Up), None);
+        assert_eq!(pointers.translate(2, PointerKind::Touch, Move), None);
+        assert_eq!(pointers.translate(19, PointerKind::Touch, Down), Some(1));
+    }
+
+    #[test]
+    fn unknown_pointer_category_does_not_invent_hover_capability() {
+        use PointerPhase::*;
+        let mut pointers = WebPointers::new();
+        assert_eq!(pointers.translate(9, PointerKind::Unknown, Move), None);
+        assert_eq!(pointers.translate(9, PointerKind::Unknown, Down), Some(1));
+        assert_eq!(pointers.translate(9, PointerKind::Unknown, Move), Some(1));
+        assert_eq!(pointers.translate(9, PointerKind::Unknown, Up), Some(1));
+        assert_eq!(pointers.translate(9, PointerKind::Unknown, Move), None);
     }
 
     #[test]

@@ -608,6 +608,7 @@ mod tests {
             &mut world,
             Some(root),
             &InputEvent::PointerCancel {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(12),
                 y: Fixed::from_int(18),
@@ -633,16 +634,19 @@ mod tests {
 
         for event in [
             InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(4),
                 y: Fixed::from_int(5),
             },
             InputEvent::PointerMove {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(6),
                 y: Fixed::from_int(7),
             },
             InputEvent::PointerUp {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(8),
                 y: Fixed::from_int(9),

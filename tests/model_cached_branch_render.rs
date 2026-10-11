@@ -74,7 +74,12 @@ fn dispatch_tap(world: &mut World, root: Entity, x: Fixed, y: Fixed, now_ms: u32
     dispatch_input(
         world,
         Some(root),
-        &InputEvent::PointerDown { id: 0, x, y },
+        &InputEvent::PointerDown {
+            kind: mirui::input::event::input::PointerKind::Mouse,
+            id: 0,
+            x,
+            y,
+        },
         now_ms,
         128,
         96,
@@ -82,7 +87,12 @@ fn dispatch_tap(world: &mut World, root: Entity, x: Fixed, y: Fixed, now_ms: u32
     dispatch_input(
         world,
         Some(root),
-        &InputEvent::PointerUp { id: 0, x, y },
+        &InputEvent::PointerUp {
+            kind: mirui::input::event::input::PointerKind::Mouse,
+            id: 0,
+            x,
+            y,
+        },
         now_ms + 50,
         128,
         96,

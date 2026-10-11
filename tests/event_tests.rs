@@ -49,6 +49,7 @@ mod tests {
         let mut events = GestureEvents::new();
         rec.update(
             &InputEvent::PointerDown {
+                kind: mirui::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: xf,
                 y: yf,
@@ -59,6 +60,7 @@ mod tests {
         );
         rec.update(
             &InputEvent::PointerUp {
+                kind: mirui::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: xf,
                 y: yf,

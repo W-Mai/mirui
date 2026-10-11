@@ -1,5 +1,5 @@
 use crate::ecs::Entity;
-use crate::input::event::input::InputEvent;
+use crate::input::event::input::{InputEvent, PointerKind};
 use crate::types::{Fixed, Fixed64};
 
 use super::event::GestureEvent;
@@ -30,7 +30,7 @@ pub(super) const MAX_FINGERS: usize = 4;
 
 #[derive(Clone, Copy, Default)]
 pub(super) struct Finger {
-    pub id: u8,
+    pub pointer: (PointerKind, u8),
     pub active: bool,
     pub start_x: Fixed,
     pub start_y: Fixed,
@@ -78,10 +78,10 @@ impl GestureRecognizer {
                 event,
                 InputEvent::PointerUp { .. } | InputEvent::PointerCancel { .. }
             ) {
-                if let InputEvent::PointerUp { id, .. } | InputEvent::PointerCancel { id, .. } =
-                    event
+                if let InputEvent::PointerUp { kind, id, .. }
+                | InputEvent::PointerCancel { kind, id, .. } = event
                 {
-                    self.release_finger(*id);
+                    self.release_finger((*kind, *id));
                 }
                 if self.active_count() == 0 {
                     self.reset();
@@ -93,14 +93,18 @@ impl GestureRecognizer {
         }
 
         match event {
-            InputEvent::PointerDown { id, x, y } => {
-                self.on_down(*id, *x, *y, elapsed_ms, hit_target, events_out)
+            InputEvent::PointerDown { kind, id, x, y } => {
+                self.on_down((*kind, *id), *x, *y, elapsed_ms, hit_target, events_out)
             }
-            InputEvent::PointerMove { id, x, y } => {
-                self.on_move(*id, *x, *y, elapsed_ms, events_out)
+            InputEvent::PointerMove { kind, id, x, y } => {
+                self.on_move((*kind, *id), *x, *y, elapsed_ms, events_out)
             }
-            InputEvent::PointerUp { id, x, y } => self.on_up(*id, *x, *y, elapsed_ms, events_out),
-            InputEvent::PointerCancel { id, x, y } => self.on_cancel(*id, *x, *y, events_out),
+            InputEvent::PointerUp { kind, id, x, y } => {
+                self.on_up((*kind, *id), *x, *y, elapsed_ms, events_out)
+            }
+            InputEvent::PointerCancel { kind, id, x, y } => {
+                self.on_cancel((*kind, *id), *x, *y, events_out)
+            }
             InputEvent::AppSuspend => self.cancel_active(events_out),
             _ => {}
         }
@@ -108,18 +112,21 @@ impl GestureRecognizer {
 
     fn on_down(
         &mut self,
-        id: u8,
+        pointer: (PointerKind, u8),
         x: Fixed,
         y: Fixed,
         elapsed_ms: u32,
         hit_target: Option<Entity>,
         _events_out: &mut GestureEvents,
     ) {
+        if self.find_slot(pointer).is_some() {
+            return;
+        }
         match self.state {
             GestureState::Idle => {
                 let slot = 0;
                 self.fingers[slot] = Finger {
-                    id,
+                    pointer,
                     active: true,
                     start_x: x,
                     start_y: y,
@@ -136,7 +143,7 @@ impl GestureRecognizer {
             GestureState::Pending => {
                 if let Some(slot) = self.alloc_slot() {
                     self.fingers[slot] = Finger {
-                        id,
+                        pointer,
                         active: true,
                         start_x: x,
                         start_y: y,
@@ -162,13 +169,13 @@ impl GestureRecognizer {
 
     fn on_move(
         &mut self,
-        id: u8,
+        pointer: (PointerKind, u8),
         x: Fixed,
         y: Fixed,
         elapsed_ms: u32,
         events_out: &mut GestureEvents,
     ) {
-        let Some(slot) = self.find_slot(id) else {
+        let Some(slot) = self.find_slot(pointer) else {
             return;
         };
         let f = &mut self.fingers[slot];
@@ -222,7 +229,7 @@ impl GestureRecognizer {
 
     fn on_up(
         &mut self,
-        id: u8,
+        pointer: (PointerKind, u8),
         x: Fixed,
         y: Fixed,
         elapsed_ms: u32,
@@ -230,8 +237,11 @@ impl GestureRecognizer {
     ) {
         let was = self.state;
         let active_before = self.active_count();
-        let lifting = self.find_slot(id).map(|slot| self.fingers[slot]);
-        self.release_finger(id);
+        let Some(slot) = self.find_slot(pointer) else {
+            return;
+        };
+        let lifting = self.fingers[slot];
+        self.release_finger(pointer);
 
         match was {
             GestureState::Pending => {
@@ -241,7 +251,8 @@ impl GestureRecognizer {
                 self.reset();
             }
             GestureState::Dragging => {
-                if let (Some(target), Some(f)) = (self.target, lifting) {
+                if let Some(target) = self.target {
+                    let f = lifting;
                     let dt_ms = elapsed_ms.wrapping_sub(f.prev_ms).max(1);
                     let vx = (x - f.prev_x) * Fixed::from_int(1000) / Fixed::from_int(dt_ms as i32);
                     let vy = (y - f.prev_y) * Fixed::from_int(1000) / Fixed::from_int(dt_ms as i32);
@@ -270,8 +281,14 @@ impl GestureRecognizer {
         }
     }
 
-    fn on_cancel(&mut self, id: u8, x: Fixed, y: Fixed, events_out: &mut GestureEvents) {
-        if self.find_slot(id).is_none() {
+    fn on_cancel(
+        &mut self,
+        pointer: (PointerKind, u8),
+        x: Fixed,
+        y: Fixed,
+        events_out: &mut GestureEvents,
+    ) {
+        if self.find_slot(pointer).is_none() {
             return;
         }
         if self.state == GestureState::Dragging
@@ -378,16 +395,18 @@ impl GestureRecognizer {
         self.fingers.iter().position(|f| !f.active)
     }
 
-    fn find_slot(&self, id: u8) -> Option<usize> {
-        self.fingers.iter().position(|f| f.active && f.id == id)
+    fn find_slot(&self, pointer: (PointerKind, u8)) -> Option<usize> {
+        self.fingers
+            .iter()
+            .position(|f| f.active && f.pointer == pointer)
     }
 
     fn active_count(&self) -> usize {
         self.fingers.iter().filter(|f| f.active).count()
     }
 
-    fn release_finger(&mut self, id: u8) {
-        if let Some(slot) = self.find_slot(id) {
+    fn release_finger(&mut self, pointer: (PointerKind, u8)) {
+        if let Some(slot) = self.find_slot(pointer) {
             self.fingers[slot] = Finger::default();
         }
     }

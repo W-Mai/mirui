@@ -168,21 +168,25 @@ fn later_input_hits_layout_changed_by_an_earlier_callback_in_the_same_burst() {
         app.render().unwrap();
         let events = [
             InputEvent::PointerDown {
+                kind: mirui::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: 1.into(),
                 y: 1.into(),
             },
             InputEvent::PointerUp {
+                kind: mirui::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: 1.into(),
                 y: 1.into(),
             },
             InputEvent::PointerDown {
+                kind: mirui::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: 1.into(),
                 y: 5.into(),
             },
             InputEvent::PointerUp {
+                kind: mirui::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: 1.into(),
                 y: 5.into(),
@@ -246,11 +250,13 @@ fn reactive_hiding_from_one_tap_is_visible_to_the_next_tap_in_the_burst() {
         app.render().unwrap();
         let input = [
             InputEvent::PointerDown {
+                kind: mirui::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(2),
                 y: Fixed::from_int(2),
             },
             InputEvent::PointerUp {
+                kind: mirui::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(2),
                 y: Fixed::from_int(2),
@@ -294,11 +300,13 @@ fn native_and_scheduled_input_deliver_taps_before_the_following_key() {
     for simulated in [false, true] {
         let input = [
             InputEvent::PointerDown {
+                kind: mirui::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(2),
                 y: Fixed::from_int(2),
             },
             InputEvent::PointerUp {
+                kind: mirui::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(2),
                 y: Fixed::from_int(2),
@@ -562,17 +570,20 @@ fn host_loss_cancels_active_drag_before_the_notice_and_late_release() {
         app.render().unwrap();
         app.backend.events.extend([
             InputEvent::PointerDown {
+                kind: mirui::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: 2.into(),
                 y: 2.into(),
             },
             InputEvent::PointerMove {
+                kind: mirui::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: 50.into(),
                 y: 2.into(),
             },
             input.clone(),
             InputEvent::PointerUp {
+                kind: mirui::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: 50.into(),
                 y: 2.into(),

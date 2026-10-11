@@ -60,10 +60,30 @@ impl<const N: usize> NativeTouchMap<N> {
             TouchPhase::Ended | TouchPhase::Cancelled => self.slots.remove(native_id)?,
         };
         let event = match phase {
-            TouchPhase::Started => InputEvent::PointerDown { id, x, y },
-            TouchPhase::Moved => InputEvent::PointerMove { id, x, y },
-            TouchPhase::Ended => InputEvent::PointerUp { id, x, y },
-            TouchPhase::Cancelled => InputEvent::PointerCancel { id, x, y },
+            TouchPhase::Started => InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Touch,
+                id,
+                x,
+                y,
+            },
+            TouchPhase::Moved => InputEvent::PointerMove {
+                kind: crate::input::event::input::PointerKind::Touch,
+                id,
+                x,
+                y,
+            },
+            TouchPhase::Ended => InputEvent::PointerUp {
+                kind: crate::input::event::input::PointerKind::Touch,
+                id,
+                x,
+                y,
+            },
+            TouchPhase::Cancelled => InputEvent::PointerCancel {
+                kind: crate::input::event::input::PointerKind::Touch,
+                id,
+                x,
+                y,
+            },
         };
         Some(event)
     }
@@ -243,8 +263,12 @@ pub(crate) struct WgpuRuntime {
 impl WgpuRuntime {
     fn flush_pointer_move(&mut self) {
         if let Some((x, y)) = self.pending_move.take() {
-            self.event_queue
-                .push_back(InputEvent::PointerMove { id: 0, x, y });
+            self.event_queue.push_back(InputEvent::PointerMove {
+                kind: crate::input::event::input::PointerKind::Mouse,
+                id: 0,
+                x,
+                y,
+            });
         }
     }
 
@@ -457,8 +481,18 @@ impl WgpuRuntime {
                 if button == MouseButton::Left {
                     let (x, y) = self.last_cursor;
                     let event = match state {
-                        ElementState::Pressed => InputEvent::PointerDown { id: 0, x, y },
-                        ElementState::Released => InputEvent::PointerUp { id: 0, x, y },
+                        ElementState::Pressed => InputEvent::PointerDown {
+                            kind: crate::input::event::input::PointerKind::Mouse,
+                            id: 0,
+                            x,
+                            y,
+                        },
+                        ElementState::Released => InputEvent::PointerUp {
+                            kind: crate::input::event::input::PointerKind::Mouse,
+                            id: 0,
+                            x,
+                            y,
+                        },
                     };
                     self.event_queue.push_back(event);
                 }
@@ -1377,6 +1411,7 @@ mod tests {
         let allocations = crate::test_support::tracked_allocations(|| {
             for x in 0..8 {
                 runtime.event_queue.push_back(InputEvent::PointerDown {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: Fixed::from_int(x),
                     y: Fixed::ZERO,
@@ -1489,6 +1524,7 @@ mod tests {
     fn suspend_discards_input_bound_to_the_old_native_window() {
         let mut runtime = WgpuRuntime::new();
         runtime.event_queue.push_back(InputEvent::PointerDown {
+            kind: crate::input::event::input::PointerKind::Mouse,
             id: 0,
             x: Fixed::from_int(4),
             y: Fixed::from_int(8),
@@ -1529,7 +1565,7 @@ mod tests {
         let native = 0x0000_7fff_1234_5678;
         assert!(matches!(
             touches.input_event(native, TouchPhase::Started, x, y),
-            Some(InputEvent::PointerDown { id: 1, x: px, y: py }) if px == x && py == y
+            Some(InputEvent::PointerDown { kind: crate::input::event::input::PointerKind::Touch, id: 1, x: px, y: py }) if px == x && py == y
         ));
         assert!(
             touches
@@ -1538,11 +1574,11 @@ mod tests {
         );
         assert!(matches!(
             touches.input_event(native, TouchPhase::Moved, x, y),
-            Some(InputEvent::PointerMove { id: 1, x: px, y: py }) if px == x && py == y
+            Some(InputEvent::PointerMove { kind: crate::input::event::input::PointerKind::Touch, id: 1, x: px, y: py }) if px == x && py == y
         ));
         assert!(matches!(
             touches.input_event(native, TouchPhase::Cancelled, x, y),
-            Some(InputEvent::PointerCancel { id: 1, x: px, y: py }) if px == x && py == y
+            Some(InputEvent::PointerCancel { kind: crate::input::event::input::PointerKind::Touch, id: 1, x: px, y: py }) if px == x && py == y
         ));
         assert!(matches!(
             touches.input_event(native + 1, TouchPhase::Started, x, y),

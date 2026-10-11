@@ -648,6 +648,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     tl.action_elapsed_ms = 0;
                 }
                 let event = InputEvent::PointerDown {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: pt.x,
                     y: pt.y,
@@ -655,6 +656,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                 super::deliver_input(world, root, &event, now_ms, lw, lh);
             } else if action_elapsed >= 50 {
                 let event = InputEvent::PointerUp {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: pt.x,
                     y: pt.y,
@@ -685,6 +687,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     tl.drag_move_emitted = false;
                 }
                 let event = InputEvent::PointerDown {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: from.x,
                     y: from.y,
@@ -692,6 +695,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                 super::deliver_input(world, root, &event, now_ms, lw, lh);
             } else if action_elapsed >= duration_ms as u32 && move_emitted {
                 let event = InputEvent::PointerUp {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: to.x,
                     y: to.y,
@@ -714,7 +718,12 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                 let eased = ease(t_raw);
                 let x = from.x + eased * (to.x - from.x);
                 let y = from.y + eased * (to.y - from.y);
-                let event = InputEvent::PointerMove { id: 0, x, y };
+                let event = InputEvent::PointerMove {
+                    kind: crate::input::event::input::PointerKind::Mouse,
+                    id: 0,
+                    x,
+                    y,
+                };
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.drag_move_emitted = true;
                 }
@@ -733,6 +742,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     tl.action_elapsed_ms = 0;
                 }
                 let event = InputEvent::PointerMove {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: from.x,
                     y: from.y,
@@ -740,6 +750,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                 super::deliver_input(world, root, &event, now_ms, lw, lh);
             } else if action_elapsed >= duration_ms as u32 {
                 let event = InputEvent::PointerMove {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: to.x,
                     y: to.y,
@@ -756,7 +767,12 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                 let eased = ease(t);
                 let x = from.x + eased * (to.x - from.x);
                 let y = from.y + eased * (to.y - from.y);
-                let event = InputEvent::PointerMove { id: 0, x, y };
+                let event = InputEvent::PointerMove {
+                    kind: crate::input::event::input::PointerKind::Mouse,
+                    id: 0,
+                    x,
+                    y,
+                };
                 super::deliver_input(world, root, &event, now_ms, lw, lh);
             }
         }
@@ -790,6 +806,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     world,
                     root,
                     &InputEvent::PointerDown {
+                        kind: crate::input::event::input::PointerKind::Touch,
                         id: 1,
                         x: a.x,
                         y: a.y,
@@ -802,6 +819,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     world,
                     root,
                     &InputEvent::PointerDown {
+                        kind: crate::input::event::input::PointerKind::Touch,
                         id: 2,
                         x: b.x,
                         y: b.y,
@@ -822,6 +840,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     world,
                     root,
                     &InputEvent::PointerUp {
+                        kind: crate::input::event::input::PointerKind::Touch,
                         id: 1,
                         x: a.x,
                         y: a.y,
@@ -834,6 +853,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     world,
                     root,
                     &InputEvent::PointerUp {
+                        kind: crate::input::event::input::PointerKind::Touch,
                         id: 2,
                         x: b.x,
                         y: b.y,
@@ -851,6 +871,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     world,
                     root,
                     &InputEvent::PointerMove {
+                        kind: crate::input::event::input::PointerKind::Touch,
                         id: 1,
                         x: a.x,
                         y: a.y,
@@ -863,6 +884,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     world,
                     root,
                     &InputEvent::PointerMove {
+                        kind: crate::input::event::input::PointerKind::Touch,
                         id: 2,
                         x: b.x,
                         y: b.y,
@@ -905,6 +927,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     world,
                     root,
                     &InputEvent::PointerDown {
+                        kind: crate::input::event::input::PointerKind::Touch,
                         id: 1,
                         x: a.x,
                         y: a.y,
@@ -917,6 +940,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     world,
                     root,
                     &InputEvent::PointerDown {
+                        kind: crate::input::event::input::PointerKind::Touch,
                         id: 2,
                         x: b.x,
                         y: b.y,
@@ -937,6 +961,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     world,
                     root,
                     &InputEvent::PointerUp {
+                        kind: crate::input::event::input::PointerKind::Touch,
                         id: 1,
                         x: a.x,
                         y: a.y,
@@ -949,6 +974,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     world,
                     root,
                     &InputEvent::PointerUp {
+                        kind: crate::input::event::input::PointerKind::Touch,
                         id: 2,
                         x: b.x,
                         y: b.y,
@@ -966,6 +992,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     world,
                     root,
                     &InputEvent::PointerMove {
+                        kind: crate::input::event::input::PointerKind::Touch,
                         id: 1,
                         x: a.x,
                         y: a.y,
@@ -978,6 +1005,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     world,
                     root,
                     &InputEvent::PointerMove {
+                        kind: crate::input::event::input::PointerKind::Touch,
                         id: 2,
                         x: b.x,
                         y: b.y,
@@ -1243,6 +1271,7 @@ mod tests {
             SimCommand::at(
                 0,
                 InputEvent::PointerDown {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: Fixed::from_int(64),
                     y: Fixed::from_int(64),
@@ -1251,6 +1280,7 @@ mod tests {
             SimCommand::at(
                 50,
                 InputEvent::PointerUp {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: Fixed::from_int(64),
                     y: Fixed::from_int(64),
@@ -1259,6 +1289,7 @@ mod tests {
             SimCommand::at(
                 100,
                 InputEvent::PointerDown {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: Fixed::from_int(64),
                     y: Fixed::from_int(64),
@@ -1267,6 +1298,7 @@ mod tests {
             SimCommand::at(
                 150,
                 InputEvent::PointerUp {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: Fixed::from_int(64),
                     y: Fixed::from_int(64),
@@ -1300,6 +1332,13 @@ mod tests {
         ]));
 
         sim_timeline_system(&mut world).unwrap();
+        assert_eq!(
+            world
+                .resource::<crate::input::event::scroll::ScrollDragState>()
+                .unwrap()
+                .pointer,
+            (crate::surface::PointerKind::Mouse, 0),
+        );
         mock::advance_ms(50);
         sim_timeline_system(&mut world).unwrap();
         assert_sim_tap_contract(&world, target, 0, 1050);
@@ -1319,6 +1358,7 @@ mod tests {
             SimCommand::at(
                 0,
                 InputEvent::PointerDown {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: Fixed::from_int(4),
                     y: Fixed::from_int(5),
@@ -1327,6 +1367,7 @@ mod tests {
             SimCommand::at(
                 50,
                 InputEvent::PointerUp {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: Fixed::from_int(6),
                     y: Fixed::from_int(7),
@@ -2312,6 +2353,7 @@ mod tests {
             &mut world,
             Some(root),
             &InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: cx,
                 y: cy,
@@ -2327,6 +2369,7 @@ mod tests {
             &mut world,
             Some(root),
             &InputEvent::PointerUp {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: cx,
                 y: cy,
@@ -2390,6 +2433,7 @@ mod tests {
                 &mut world,
                 Some(root),
                 &InputEvent::PointerDown {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: cx,
                     y: cy,
@@ -2404,6 +2448,7 @@ mod tests {
                 &mut world,
                 Some(root),
                 &InputEvent::PointerUp {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: cx,
                     y: cy,
@@ -2707,6 +2752,14 @@ mod tests {
             ),
         ]));
 
+        sim_timeline_system(&mut world).unwrap();
+        assert_eq!(
+            world
+                .resource::<crate::input::event::scroll::ScrollDragState>()
+                .unwrap()
+                .pointer,
+            (crate::surface::PointerKind::Touch, 1),
+        );
         for _ in 0..40 {
             sim_timeline_system(&mut world).unwrap();
             mock::advance_ms(16);

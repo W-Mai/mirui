@@ -99,7 +99,13 @@ fn poll_event_recovers_burst_and_window_leave() {
 
     let mut leave_move: Option<(u8, i32, i32)> = None;
     while let Some(e) = surface.poll_event() {
-        if let InputEvent::PointerMove { id, x, y } = e {
+        if let InputEvent::PointerMove {
+            kind: mirui::input::event::input::PointerKind::Mouse,
+            id,
+            x,
+            y,
+        } = e
+        {
             if x.to_int() < -1000 {
                 leave_move = Some((id, x.to_int(), y.to_int()));
             }

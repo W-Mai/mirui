@@ -100,6 +100,7 @@ pub struct ScrollDragState {
     pub last_y: Fixed,
     pub last_resolved_target: Option<Entity>,
     pub(crate) started_at_ms: u32,
+    pub(crate) pointer: (crate::surface::PointerKind, u8),
 }
 
 impl Default for ScrollDragState {
@@ -119,6 +120,7 @@ impl Default for ScrollDragState {
             last_y: Fixed::ZERO,
             last_resolved_target: None,
             started_at_ms: 0,
+            pointer: (crate::surface::PointerKind::Unknown, 0),
         }
     }
 }
@@ -212,9 +214,17 @@ pub(crate) fn scroll_system_with_target(
     now_ms: u32,
 ) -> bool {
     let mut accepted = false;
+    if let Some(pointer) = event.pointer_identity()
+        && world
+            .resource::<ScrollDragState>()
+            .is_some_and(|state| state.active && state.pointer != pointer)
+    {
+        return false;
+    }
     match event {
-        InputEvent::PointerDown { x, y, .. } => {
+        InputEvent::PointerDown { kind, id, x, y } => {
             if let Some(state) = world.resource_mut::<ScrollDragState>() {
+                state.pointer = (*kind, *id);
                 state.active = true;
                 state.resolved = false;
                 state.hit_entity = pointer_down_target.unwrap_or(Entity {
@@ -641,6 +651,7 @@ mod tests {
         for (event, hit, now) in [
             (
                 InputEvent::PointerDown {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: 20.into(),
                     y: 20.into(),
@@ -650,6 +661,7 @@ mod tests {
             ),
             (
                 InputEvent::PointerMove {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: 20.into(),
                     y: 40.into(),
@@ -659,6 +671,7 @@ mod tests {
             ),
             (
                 InputEvent::PointerUp {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: 20.into(),
                     y: 40.into(),
@@ -677,6 +690,7 @@ mod tests {
         for (event, hit, now) in [
             (
                 InputEvent::PointerDown {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: 60.into(),
                     y: 60.into(),
@@ -686,6 +700,7 @@ mod tests {
             ),
             (
                 InputEvent::PointerUp {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: 60.into(),
                     y: 60.into(),
@@ -714,6 +729,76 @@ mod tests {
     }
 
     #[test]
+    fn other_pointer_categories_cannot_take_over_or_release_scroll_capture() {
+        use crate::surface::PointerKind;
+        let (mut world, root) = fallback_scroll_world();
+        scroll_system_with_target(
+            &mut world,
+            root,
+            &InputEvent::PointerDown {
+                kind: PointerKind::Mouse,
+                id: 0,
+                x: 20.into(),
+                y: 20.into(),
+            },
+            100,
+            100,
+            Some(root),
+            0,
+        );
+        scroll_system_with_target(
+            &mut world,
+            root,
+            &InputEvent::PointerMove {
+                kind: PointerKind::Mouse,
+                id: 0,
+                x: 20.into(),
+                y: 5.into(),
+            },
+            100,
+            100,
+            None,
+            10,
+        );
+        let offset = world.get::<ScrollOffset>(root).unwrap().y;
+        assert!(offset > Fixed::ZERO);
+        for kind in [PointerKind::Touch, PointerKind::Pen, PointerKind::Unknown] {
+            for event in [
+                InputEvent::PointerDown {
+                    kind,
+                    id: 0,
+                    x: 90.into(),
+                    y: 90.into(),
+                },
+                InputEvent::PointerMove {
+                    kind,
+                    id: 0,
+                    x: 90.into(),
+                    y: 90.into(),
+                },
+                InputEvent::PointerUp {
+                    kind,
+                    id: 0,
+                    x: 90.into(),
+                    y: 90.into(),
+                },
+                InputEvent::PointerCancel {
+                    kind,
+                    id: 0,
+                    x: 90.into(),
+                    y: 90.into(),
+                },
+            ] {
+                scroll_system_with_target(&mut world, root, &event, 100, 100, Some(root), 20);
+                let state = world.resource::<ScrollDragState>().unwrap();
+                assert!(state.active && state.resolved);
+                assert_eq!(state.pointer, (PointerKind::Mouse, 0));
+                assert_eq!(world.get::<ScrollOffset>(root).unwrap().y, offset);
+            }
+        }
+    }
+
+    #[test]
     fn target_handoff_and_cancellation_leave_no_abandoned_stretch() {
         let (mut world, root) = fallback_scroll_world();
         world.get_mut::<ScrollConfig>(root).unwrap().elastic = true;
@@ -734,6 +819,7 @@ mod tests {
                 &mut world,
                 root,
                 &InputEvent::PointerDown {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: 20.into(),
                     y: 20.into(),
@@ -747,6 +833,7 @@ mod tests {
                 &mut world,
                 root,
                 &InputEvent::PointerMove {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: 20.into(),
                     y: 40.into(),
@@ -767,6 +854,7 @@ mod tests {
             &mut world,
             root,
             &InputEvent::PointerCancel {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: 20.into(),
                 y: 40.into(),
@@ -812,6 +900,7 @@ mod tests {
             &mut world,
             root,
             &InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: 20.into(),
                 y: 70.into(),
@@ -825,6 +914,7 @@ mod tests {
             &mut world,
             root,
             &InputEvent::PointerMove {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: 20.into(),
                 y: 60.into(),
@@ -854,6 +944,7 @@ mod tests {
             &mut world,
             root,
             &InputEvent::PointerUp {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: 20.into(),
                 y: 60.into(),
@@ -964,6 +1055,7 @@ mod tests {
                 &mut world,
                 root,
                 &InputEvent::PointerDown {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: 20.into(),
                     y: 70.into(),
@@ -978,6 +1070,7 @@ mod tests {
                     &mut world,
                     root,
                     &InputEvent::PointerMove {
+                        kind: crate::input::event::input::PointerKind::Mouse,
                         id: 0,
                         x: 20.into(),
                         y: (70 - step * 10).into(),
@@ -993,6 +1086,7 @@ mod tests {
                 &mut world,
                 root,
                 &InputEvent::PointerUp {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: 20.into(),
                     y: 40.into(),
@@ -1257,6 +1351,7 @@ mod tests {
         let root = world.spawn_empty();
         let target = world.spawn_empty();
         let event = InputEvent::PointerDown {
+            kind: crate::input::event::input::PointerKind::Mouse,
             id: 0,
             x: Fixed::from_int(12),
             y: Fixed::from_int(18),
@@ -1308,6 +1403,7 @@ mod tests {
         );
         // Simulate PointerDown at (64, 50) hitting target.
         if let Some(state) = world.resource_mut::<ScrollDragState>() {
+            state.pointer = (crate::surface::PointerKind::Mouse, 0);
             state.active = true;
             state.resolved = true;
             state.target = target;
@@ -1321,6 +1417,7 @@ mod tests {
         for _ in 0..frames {
             y += dy_per_frame;
             let event = InputEvent::PointerMove {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(64),
                 y: Fixed::from_int(y),
@@ -1377,6 +1474,7 @@ mod tests {
             },
         );
         if let Some(state) = world.resource_mut::<ScrollDragState>() {
+            state.pointer = (crate::surface::PointerKind::Mouse, 0);
             state.active = true;
             state.resolved = true;
             state.target = target;
@@ -1386,6 +1484,7 @@ mod tests {
         motion.begin_pointer(target, 0);
         motion.record(target, (Fixed::ZERO, (-10).into()), Driver::Pointer, 10);
         let event = InputEvent::PointerUp {
+            kind: crate::input::event::input::PointerKind::Mouse,
             id: 0,
             x: Fixed::from_int(64),
             y: Fixed::from_int(50),
@@ -1438,6 +1537,7 @@ mod tests {
             },
         );
         if let Some(state) = world.resource_mut::<ScrollDragState>() {
+            state.pointer = (crate::surface::PointerKind::Mouse, 0);
             state.active = true;
             state.resolved = true;
             state.target = target;
@@ -1447,6 +1547,7 @@ mod tests {
             &mut world,
             target,
             &InputEvent::PointerCancel {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(64),
                 y: Fixed::from_int(50),
@@ -1501,6 +1602,7 @@ mod tests {
             },
         );
         if let Some(state) = world.resource_mut::<ScrollDragState>() {
+            state.pointer = (crate::surface::PointerKind::Mouse, 0);
             state.active = true;
             state.resolved = true;
             state.target = target;
@@ -1513,6 +1615,7 @@ mod tests {
             &mut world,
             target,
             &InputEvent::PointerUp {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(64),
                 y: Fixed::from_int(50),
@@ -1672,6 +1775,7 @@ mod tests {
             &mut world,
             target,
             &InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::from_int(64),
                 y: Fixed::from_int(50),
@@ -1686,6 +1790,7 @@ mod tests {
                 &mut world,
                 target,
                 &InputEvent::PointerMove {
+                    kind: crate::input::event::input::PointerKind::Mouse,
                     id: 0,
                     x: Fixed::from_int(64),
                     y: Fixed::from_int(y),

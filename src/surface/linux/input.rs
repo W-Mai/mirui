@@ -6,7 +6,7 @@ use std::os::fd::AsRawFd;
 
 use evdev::{AttributeSet, Device, KeyCode};
 
-use crate::input::event::input::{InputEvent, KeyModifiers};
+use crate::input::event::input::{InputEvent, KeyModifiers, PointerKind};
 
 pub(super) fn detect_pointer_device() -> Option<alloc::string::String> {
     use alloc::string::String;
@@ -94,6 +94,7 @@ use crate::surface::input_state::{InputAxis, PointerState};
 impl EvdevInput {
     pub(super) fn open_pointer(path: &str, width: u16, height: u16) -> io::Result<Self> {
         let mut device = Self::nonblocking_device(path)?;
+        let kind = pointer_kind(&device);
         let abs_info = device.get_abs_state().ok();
         let (abs_min_x, abs_max_x, abs_min_y, abs_max_y) = abs_info
             .as_ref()
@@ -121,7 +122,9 @@ impl EvdevInput {
             keys: device.get_key_state().ok(),
             keys_dropped: false,
             _device: device,
-            state: PointerState::new(width, height, abs_min_x, abs_max_x, abs_min_y, abs_max_y),
+            state: PointerState::new(
+                width, height, abs_min_x, abs_max_x, abs_min_y, abs_max_y, kind,
+            ),
             buffer: alloc::vec![0u8; 64 * core::mem::size_of::<libc::input_event>()],
         })
     }
@@ -134,7 +137,7 @@ impl EvdevInput {
             keys: device.get_key_state().ok(),
             keys_dropped: false,
             _device: device,
-            state: PointerState::new(0, 0, 0, 0, 0, 0),
+            state: PointerState::new(0, 0, 0, 0, 0, 0, PointerKind::Unknown),
             buffer: alloc::vec![0u8; 64 * core::mem::size_of::<libc::input_event>()],
         })
     }
@@ -228,6 +231,30 @@ impl EvdevInput {
                 }
             }
         }
+    }
+}
+
+fn pointer_kind(device: &Device) -> PointerKind {
+    let keys = device.supported_keys();
+    if keys.is_some_and(|keys| {
+        keys.contains(KeyCode::BTN_TOOL_PEN) || keys.contains(KeyCode::BTN_TOOL_RUBBER)
+    }) {
+        PointerKind::Pen
+    } else if keys.is_some_and(|keys| keys.contains(KeyCode::BTN_TOUCH))
+        || device
+            .supported_absolute_axes()
+            .is_some_and(|axes| axes.contains(evdev::AbsoluteAxisCode::ABS_MT_TRACKING_ID))
+    {
+        PointerKind::Touch
+    } else if keys.is_some_and(|keys| keys.contains(KeyCode::BTN_LEFT))
+        && device.supported_relative_axes().is_some_and(|axes| {
+            axes.contains(evdev::RelativeAxisCode::REL_X)
+                && axes.contains(evdev::RelativeAxisCode::REL_Y)
+        })
+    {
+        PointerKind::Mouse
+    } else {
+        PointerKind::Unknown
     }
 }
 

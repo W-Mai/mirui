@@ -270,6 +270,7 @@ mod tests {
         assert!(!plugins[0].on_event(
             &mut app.world,
             &InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
                 id: 0,
                 x: Fixed::ZERO,
                 y: Fixed::ZERO,
