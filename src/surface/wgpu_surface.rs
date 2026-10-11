@@ -417,6 +417,16 @@ impl WgpuRuntime {
             self.flush_pointer_move();
         }
         match event {
+            WindowEvent::Focused(focused) => {
+                self.event_queue
+                    .push_back(InputEvent::HostFocus { focused });
+                false
+            }
+            WindowEvent::Occluded(occluded) => {
+                self.event_queue
+                    .push_back(InputEvent::HostVisibility { visible: !occluded });
+                false
+            }
             WindowEvent::CloseRequested => {
                 self.event_queue.push_back(InputEvent::Quit);
                 true
@@ -1277,6 +1287,41 @@ fn window_event_is_current<T: Eq>(active: Option<&T>, incoming: &T) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_state_preserves_input_order_without_requesting_suspend() {
+        let mut runtime = WgpuRuntime::new();
+        runtime.pending_move = Some((Fixed::ONE, Fixed::ZERO));
+        for event in [
+            WindowEvent::Focused(false),
+            WindowEvent::Occluded(true),
+            WindowEvent::Focused(true),
+            WindowEvent::Occluded(false),
+        ] {
+            assert!(!runtime.window_event(event));
+        }
+        assert!(matches!(
+            runtime.poll_event(),
+            Some(InputEvent::PointerMove { .. })
+        ));
+        assert!(matches!(
+            runtime.poll_event(),
+            Some(InputEvent::HostFocus { focused: false })
+        ));
+        assert!(matches!(
+            runtime.poll_event(),
+            Some(InputEvent::HostVisibility { visible: false })
+        ));
+        assert!(matches!(
+            runtime.poll_event(),
+            Some(InputEvent::HostFocus { focused: true })
+        ));
+        assert!(matches!(
+            runtime.poll_event(),
+            Some(InputEvent::HostVisibility { visible: true })
+        ));
+        assert!(runtime.poll_event().is_none());
+    }
 
     #[test]
     fn pointer_moves_only_coalesce_between_ordered_input_boundaries() {

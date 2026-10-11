@@ -401,17 +401,10 @@ impl Surface for SdlSurface {
                         y: Fixed::from_int(OFF),
                     });
                 }
-                Event::Window {
-                    win_event: WindowEvent::FocusLost | WindowEvent::Hidden | WindowEvent::Minimized,
-                    ..
-                } => {
-                    self.pending.push_back(InputEvent::AppSuspend);
-                }
-                Event::Window {
-                    win_event: WindowEvent::FocusGained | WindowEvent::Shown | WindowEvent::Restored,
-                    ..
-                } => {
-                    self.pending.push_back(InputEvent::AppResume);
+                Event::Window { win_event, .. } => {
+                    if let Some(input) = super::sdl_events::host_window_input(win_event) {
+                        self.pending.push_back(input);
+                    }
                 }
                 _ => {}
             }

@@ -220,8 +220,8 @@ pub mod prelude {
     pub use crate::input::event::input::{CharInput, InputSelectors, Key, Rotary, Wheel};
     pub use crate::input::event::layout::{LayoutSelectors, LayoutSize, SizeChanged};
     pub use crate::input::event::lifecycle::{
-        HostInteraction, MemoryWarning, Quit, Resumed, SafeAreaChanged, Started, Suspended,
-        ViewportChanged,
+        HostFocusChanged, HostInteraction, HostVisibilityChanged, MemoryWarning, Quit, Resumed,
+        SafeAreaChanged, Started, Suspended, ViewportChanged,
     };
     pub use crate::render::font::FontToken;
     pub use crate::render::path::{Path, PathId};

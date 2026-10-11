@@ -63,3 +63,31 @@ impl Event for SafeAreaChanged {
 }
 
 impl AppNotice for SafeAreaChanged {}
+
+/// Host input focus, independent of the focused widget and App suspension.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HostFocusChanged {
+    pub focused: bool,
+}
+
+impl Event for HostFocusChanged {
+    type Route = AppNotification;
+    type Source = AppSource;
+    type Options = ();
+}
+
+impl AppNotice for HostFocusChanged {}
+
+/// Host visibility as reported by the platform, independent of App suspension.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HostVisibilityChanged {
+    pub visible: bool,
+}
+
+impl Event for HostVisibilityChanged {
+    type Route = AppNotification;
+    type Source = AppSource;
+    type Options = ();
+}
+
+impl AppNotice for HostVisibilityChanged {}

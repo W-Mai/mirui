@@ -24,6 +24,24 @@ pub(crate) fn wheel_input(
     }
 }
 
+pub(crate) fn host_window_input(
+    event: sdl2::event::WindowEvent,
+) -> Option<crate::surface::InputEvent> {
+    use crate::surface::InputEvent;
+    use sdl2::event::WindowEvent;
+    match event {
+        WindowEvent::FocusLost => Some(InputEvent::HostFocus { focused: false }),
+        WindowEvent::FocusGained => Some(InputEvent::HostFocus { focused: true }),
+        WindowEvent::Hidden | WindowEvent::Minimized => {
+            Some(InputEvent::HostVisibility { visible: false })
+        }
+        WindowEvent::Shown | WindowEvent::Restored => {
+            Some(InputEvent::HostVisibility { visible: true })
+        }
+        _ => None,
+    }
+}
+
 fn supported_event_type(kind: u32) -> bool {
     // SDL2 defines only Window (0x200) and SysWM (0x201) in this range.
     !(0x202..0x300).contains(&kind)
@@ -46,6 +64,33 @@ pub(crate) fn poll() -> Option<Event> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn focus_and_visibility_are_not_suspend_requests() {
+        use crate::surface::InputEvent;
+        use sdl2::event::WindowEvent;
+        assert!(matches!(
+            host_window_input(WindowEvent::FocusLost),
+            Some(InputEvent::HostFocus { focused: false })
+        ));
+        assert!(matches!(
+            host_window_input(WindowEvent::FocusGained),
+            Some(InputEvent::HostFocus { focused: true })
+        ));
+        for event in [WindowEvent::Hidden, WindowEvent::Minimized] {
+            assert!(matches!(
+                host_window_input(event),
+                Some(InputEvent::HostVisibility { visible: false })
+            ));
+        }
+        for event in [WindowEvent::Shown, WindowEvent::Restored] {
+            assert!(matches!(
+                host_window_input(event),
+                Some(InputEvent::HostVisibility { visible: true })
+            ));
+        }
+        assert!(host_window_input(WindowEvent::Leave).is_none());
+    }
 
     #[test]
     fn wheel_preserves_fractional_motion_and_logical_anchor() {

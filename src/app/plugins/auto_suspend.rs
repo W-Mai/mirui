@@ -2,10 +2,7 @@
 //! `SuspendRequest` so `App::tick` flips `App::suspend()` / `App::resume()`
 //! the next time it drains the resource.
 //!
-//! Plug it in to make the app react to OS lifecycle signals (SDL focus
-//! loss, browser tab hide, mobile background) without writing any
-//! glue in user code. Omit it to let `App::suspend` / `App::resume`
-//! stay strictly host-driven.
+//! Host focus and visibility notifications do not request suspension.
 
 use crate::app::lifecycle::SuspendRequest;
 use crate::app::plugin::Plugin;

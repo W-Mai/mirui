@@ -169,7 +169,7 @@ fn attach_listeners(
     queue: &EventQueue,
     logical_size: &LogicalSize,
 ) -> Vec<Listener> {
-    let mut listeners = Vec::with_capacity(8);
+    let mut listeners = Vec::with_capacity(13);
     listeners.push(pointer_listener(
         canvas,
         queue,
@@ -202,7 +202,54 @@ fn attach_listeners(
     listeners.push(wheel_listener(canvas, queue, logical_size));
     listeners.push(keyboard_listener(canvas, queue, "keydown", true));
     listeners.push(keyboard_listener(canvas, queue, "keyup", false));
+    let window = web_sys::window().expect("no global window");
+    let document = canvas.owner_document().expect("canvas document");
+    let targets: [EventTarget; 2] = [canvas.clone().into(), window.into()];
+    for target in targets {
+        for name in ["focus", "blur"] {
+            let canvas = canvas.clone();
+            let document = document.clone();
+            let queue = queue.clone();
+            let closure = Closure::<dyn FnMut(JsValue)>::new(move |_| {
+                enqueue_host_focus(&canvas, &document, &queue);
+            });
+            listeners.push(register_listener(target.clone(), name, closure));
+        }
+    }
+    let observed_document = document.clone();
+    let visibility_queue = queue.clone();
+    listeners.push(register_listener(
+        document.clone().into(),
+        "visibilitychange",
+        Closure::<dyn FnMut(JsValue)>::new(move |_| {
+            visibility_queue
+                .borrow_mut()
+                .push_back(InputEvent::HostVisibility {
+                    visible: !observed_document.hidden(),
+                });
+        }),
+    ));
+    enqueue_host_focus(canvas, &document, queue);
+    queue.borrow_mut().push_back(InputEvent::HostVisibility {
+        visible: !document.hidden(),
+    });
     listeners
+}
+
+fn enqueue_host_focus(
+    canvas: &HtmlCanvasElement,
+    document: &web_sys::Document,
+    queue: &EventQueue,
+) {
+    if let Ok(focused) = document.has_focus() {
+        let focused = focused
+            && document
+                .active_element()
+                .is_some_and(|element| &element == canvas.unchecked_ref::<web_sys::Element>());
+        queue
+            .borrow_mut()
+            .push_back(InputEvent::HostFocus { focused });
+    }
 }
 
 fn pointer_listener(

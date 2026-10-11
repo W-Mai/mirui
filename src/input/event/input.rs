@@ -45,6 +45,8 @@ macro_rules! typed_inputs {
             PointerMove { id: u8, x: Fixed, y: Fixed },
             PointerUp { id: u8, x: Fixed, y: Fixed },
             PointerCancel { id: u8, x: Fixed, y: Fixed },
+            HostFocus { focused: bool },
+            HostVisibility { visible: bool },
             $($(#[$doc])* $kind { $($(#[$field_doc])* $field: $ty),+ },)+
             AppSuspend,
             AppResume,
@@ -124,7 +126,11 @@ impl InputEvent {
             | Self::Wheel { .. }
             | Self::Key { .. }
             | Self::CharInput { .. } => true,
-            Self::AppSuspend | Self::AppResume | Self::Quit => false,
+            Self::AppSuspend
+            | Self::AppResume
+            | Self::Quit
+            | Self::HostFocus { .. }
+            | Self::HostVisibility { .. } => false,
         }
     }
 }
@@ -174,6 +180,8 @@ mod tests {
         for event in [
             InputEvent::AppSuspend,
             InputEvent::AppResume,
+            InputEvent::HostFocus { focused: false },
+            InputEvent::HostVisibility { visible: false },
             InputEvent::Quit,
         ] {
             assert!(!event.is_user_input());

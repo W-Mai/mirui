@@ -8,8 +8,8 @@ use mirui::ecs::World;
 use mirui::input::event::contract::Event;
 use mirui::input::event::input::{CharInput, InputEvent, Key, Rotary, Wheel};
 use mirui::input::event::lifecycle::{
-    HostInteraction, MemoryWarning, Quit, Resumed, SafeAreaChanged, Started, Suspended,
-    ViewportChanged,
+    HostFocusChanged, HostInteraction, HostVisibilityChanged, MemoryWarning, Quit, Resumed,
+    SafeAreaChanged, Started, Suspended, ViewportChanged,
 };
 use mirui::render::texture::Texture;
 use mirui::surface::framebuf::FramebufSurface;
@@ -103,6 +103,11 @@ enum Step {
     Rotary(Rotary),
     Viewport(ViewportChanged),
     SafeArea(SafeAreaChanged),
+    HostFocus(bool),
+    HostVisibility(bool),
+    DragStarted,
+    DragCancelled,
+    DragEnded,
     Tap,
 }
 
@@ -338,6 +343,156 @@ fn surface_geometry_changes_without_input_are_not_replayed_to_later_listeners() 
             Step::Viewport(ViewportChanged { old: middle, new }),
         ]
     );
+}
+
+#[mirui::event]
+fn host_focus(event: event!(HostFocusChanged), trace: res!(mut Trace)) {
+    trace.push(Step::HostFocus(event.focused));
+}
+
+#[mirui::event]
+fn host_visibility(event: event!(HostVisibilityChanged), trace: res!(mut Trace)) {
+    trace.push(Step::HostVisibility(event.visible));
+}
+
+#[test]
+fn host_state_is_ordered_deduplicated_and_independent_of_suspension() {
+    let mut app = app([]);
+    app.with_event_capacity(mirui::input::event::EventCapacity::new());
+    app.add_plugin(AutoSuspendPlugin);
+    app.on_event(HostFocusChanged::EVENT, host_focus::callback())
+        .on_event(HostVisibilityChanged::EVENT, host_visibility::callback())
+        .on_event(Key::EVENT, key::callback());
+    app.tick();
+    assert_eq!(
+        app.world.resource::<Trace>().unwrap().steps(),
+        &[Step::StartHook]
+    );
+    app.backend.events.extend([
+        InputEvent::HostFocus { focused: true },
+        InputEvent::HostFocus { focused: true },
+        InputEvent::HostVisibility { visible: false },
+        InputEvent::HostVisibility { visible: false },
+        InputEvent::HostFocus { focused: false },
+        InputEvent::Key {
+            code: 7,
+            pressed: true,
+        },
+    ]);
+    app.tick();
+    assert!(!app.is_suspended());
+    assert_eq!(
+        app.world.resource::<Trace>().unwrap().steps(),
+        &[
+            Step::StartHook,
+            Step::HostFocus(true),
+            Step::HostVisibility(false),
+            Step::HostFocus(false),
+            Step::Key(Key {
+                code: 7,
+                pressed: true
+            }),
+        ]
+    );
+    app.suspend();
+    app.backend.events.extend([
+        InputEvent::HostVisibility { visible: true },
+        InputEvent::HostFocus { focused: true },
+    ]);
+    app.tick();
+    assert!(app.is_suspended());
+    assert!(
+        app.world
+            .resource::<Trace>()
+            .unwrap()
+            .steps()
+            .ends_with(&[Step::HostVisibility(true), Step::HostFocus(true)])
+    );
+}
+
+#[test]
+fn host_state_is_not_replayed_to_later_listeners() {
+    let mut app = app([
+        InputEvent::HostFocus { focused: true },
+        InputEvent::HostVisibility { visible: true },
+    ]);
+    app.tick();
+    app.on_event(HostFocusChanged::EVENT, host_focus::callback())
+        .on_event(HostVisibilityChanged::EVENT, host_visibility::callback());
+    app.backend.events.extend([
+        InputEvent::HostFocus { focused: true },
+        InputEvent::HostVisibility { visible: true },
+    ]);
+    app.tick();
+    assert_eq!(
+        app.world.resource::<Trace>().unwrap().steps(),
+        &[Step::StartHook]
+    );
+    app.backend.events.extend([
+        InputEvent::HostFocus { focused: false },
+        InputEvent::HostVisibility { visible: false },
+    ]);
+    app.tick();
+    assert_eq!(
+        app.world.resource::<Trace>().unwrap().steps(),
+        &[
+            Step::StartHook,
+            Step::HostFocus(false),
+            Step::HostVisibility(false)
+        ]
+    );
+}
+
+#[test]
+fn host_loss_cancels_active_drag_before_the_notice_and_late_release() {
+    for input in [
+        InputEvent::HostFocus { focused: false },
+        InputEvent::HostVisibility { visible: false },
+    ] {
+        let mut app = app([]);
+        app.with_default_widgets();
+        app.on_event(HostFocusChanged::EVENT, host_focus::callback())
+            .on_event(HostVisibilityChanged::EVENT, host_visibility::callback());
+        let root = app.spawn_root().id();
+        app.compose(root, |cx| {
+            mirui::ui! {
+                View (width: 8, height: 8) on DragStart(notice::callback(Step::DragStarted)) on DragCancel(notice::callback(Step::DragCancelled)) on DragEnd(notice::callback(Step::DragEnded))
+            }
+        });
+        app.render().unwrap();
+        app.backend.events.extend([
+            InputEvent::PointerDown {
+                id: 0,
+                x: 2.into(),
+                y: 2.into(),
+            },
+            InputEvent::PointerMove {
+                id: 0,
+                x: 50.into(),
+                y: 2.into(),
+            },
+            input.clone(),
+            InputEvent::PointerUp {
+                id: 0,
+                x: 50.into(),
+                y: 2.into(),
+            },
+        ]);
+        app.tick();
+        let notice = match input {
+            InputEvent::HostFocus { .. } => Step::HostFocus(false),
+            _ => Step::HostVisibility(false),
+        };
+        assert_eq!(
+            app.world.resource::<Trace>().unwrap().steps(),
+            &[
+                Step::StartHook,
+                Step::DragStarted,
+                Step::DragCancelled,
+                notice,
+            ]
+        );
+    }
 }
 
 #[derive(Default)]

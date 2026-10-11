@@ -384,6 +384,11 @@ impl Surface for SdlGpuSurface {
                         y: Fixed::from_int(OFF),
                     });
                 }
+                Event::Window { win_event, .. } => {
+                    if let Some(input) = crate::surface::sdl_events::host_window_input(win_event) {
+                        self.pending.push_back(input);
+                    }
+                }
                 _ => {}
             }
         }

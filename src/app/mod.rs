@@ -95,6 +95,8 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     needs_full_first_frame: bool,
     suspended: bool,
     started: bool,
+    host_focus: Option<bool>,
+    host_visibility: Option<bool>,
     quitting: bool,
     text_layout_started: bool,
     dirty_reserved_slots: u32,
@@ -280,6 +282,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             needs_full_first_frame: true,
             suspended: false,
             started: false,
+            host_focus: None,
+            host_visibility: None,
             quitting: false,
             text_layout_started: false,
             dirty_reserved_slots: 0,
@@ -840,6 +844,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 
     fn notify_raw_input(&mut self, event: &InputEvent) -> bool {
+        if matches!(
+            event,
+            InputEvent::HostFocus { focused: false }
+                | InputEvent::HostVisibility { visible: false }
+        ) {
+            let now_ms = (self.clock_ns() / 1_000_000) as u32;
+            crate::input::event::cancel_active_input(&mut self.world, now_ms);
+            self.dispatch_gestures();
+        }
         let mut consumed = false;
         for plugin in &mut self.plugins {
             let accepted = plugin.on_event(&mut self.world, event);
@@ -847,6 +860,17 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             if accepted && event.is_user_input() {
                 break;
             }
+        }
+        match *event {
+            InputEvent::HostFocus { focused } if self.host_focus != Some(focused) => {
+                self.host_focus = Some(focused);
+                self.notify_app(crate::input::event::lifecycle::HostFocusChanged { focused });
+            }
+            InputEvent::HostVisibility { visible } if self.host_visibility != Some(visible) => {
+                self.host_visibility = Some(visible);
+                self.notify_app(crate::input::event::lifecycle::HostVisibilityChanged { visible });
+            }
+            _ => {}
         }
         consumed
     }
@@ -1819,6 +1843,44 @@ mod compose_entry_tests {
                 assert_eq!(app.compose(root, |_cx| value), value);
             }
         });
+        assert_eq!(allocations, 0);
+    }
+}
+
+#[cfg(test)]
+mod host_state_tests {
+    use super::*;
+    use crate::input::event::contract::Event;
+    use crate::input::event::lifecycle::{HostFocusChanged, HostVisibilityChanged};
+
+    #[derive(Default)]
+    struct Count(u32);
+
+    #[crate::event]
+    fn notice(count: res!(mut Count)) {
+        count.0 += 1;
+    }
+
+    #[test]
+    fn prepared_host_notifications_reuse_storage() {
+        let mut app = App::headless(8, 8);
+        app.add_resource(Count::default());
+        app.on_event(HostFocusChanged::EVENT, notice::callback())
+            .on_event(HostVisibilityChanged::EVENT, notice::callback());
+        app.notify_raw_input(&InputEvent::HostFocus { focused: false });
+        app.notify_raw_input(&InputEvent::HostVisibility { visible: false });
+        app.world.resource_mut::<Count>().unwrap().0 = 0;
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for index in 0..64 {
+                app.notify_raw_input(&InputEvent::HostFocus {
+                    focused: index % 2 == 0,
+                });
+                app.notify_raw_input(&InputEvent::HostVisibility {
+                    visible: index % 2 == 0,
+                });
+            }
+        });
+        assert_eq!(app.world.resource::<Count>().unwrap().0, 128);
         assert_eq!(allocations, 0);
     }
 }
