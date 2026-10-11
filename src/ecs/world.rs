@@ -11,6 +11,14 @@ use super::bundle::Component;
 use super::entity::{Entity, EntityAllocator};
 use super::sparse_set::{SparseSet, SparseSetParts};
 
+type ResourceSlot = Option<Box<dyn Any>>;
+type ResourceMap = HashMap<TypeId, ResourceSlot, FxBuildHasher>;
+
+const _: () = {
+    assert!(core::mem::size_of::<ResourceSlot>() == core::mem::size_of::<Box<dyn Any>>());
+    assert!(core::mem::align_of::<ResourceSlot>() == core::mem::align_of::<Box<dyn Any>>());
+};
+
 /// Exclusive World capability used while building typed system parameters.
 ///
 /// The type is an opaque, doc-hidden macro support seam. Construction and raw
@@ -21,7 +29,7 @@ use super::sparse_set::{SparseSet, SparseSetParts};
 #[doc(hidden)]
 pub struct SystemWorldCell<'world> {
     storages: NonNull<HashMap<TypeId, Box<dyn ComponentStorage>, FxBuildHasher>>,
-    resources: NonNull<HashMap<TypeId, Box<dyn Any>, FxBuildHasher>>,
+    resources: NonNull<ResourceMap>,
     watched_component_types: NonNull<alloc::vec::Vec<WatchedComponentType>>,
     component_changes: NonNull<alloc::vec::Vec<ComponentChange>>,
     _marker: PhantomData<&'world mut World>,
@@ -70,7 +78,10 @@ impl<'world> SystemWorldCell<'world> {
         // SAFETY: the caller validated the complete resource access plan. The
         // pointer is branded by the unique World borrow held by this cell.
         let resources = unsafe { &*self.resources.as_ptr() };
-        let value = resources.get(&TypeId::of::<T>())?.downcast_ref::<T>()? as *const T;
+        let value = resources
+            .get(&TypeId::of::<T>())?
+            .as_ref()?
+            .downcast_ref::<T>()? as *const T;
         Some(unsafe { &*value })
     }
 
@@ -82,7 +93,10 @@ impl<'world> SystemWorldCell<'world> {
         // SAFETY: the caller validated exclusive access to T. The pointer is
         // branded by the unique World borrow held by this cell.
         let resources = unsafe { &mut *self.resources.as_ptr() };
-        let value = resources.get_mut(&TypeId::of::<T>())?.downcast_mut::<T>()? as *mut T;
+        let value = resources
+            .get_mut(&TypeId::of::<T>())?
+            .as_mut()?
+            .downcast_mut::<T>()? as *mut T;
         Some(unsafe { &mut *value })
     }
 
@@ -289,7 +303,7 @@ pub struct World {
     id: WorldId,
     allocator: EntityAllocator,
     storages: HashMap<TypeId, Box<dyn ComponentStorage>, FxBuildHasher>,
-    resources: HashMap<TypeId, Box<dyn Any>, FxBuildHasher>,
+    resources: ResourceMap,
     watched_component_types: alloc::vec::Vec<WatchedComponentType>,
     component_changes: alloc::vec::Vec<ComponentChange>,
     drop_hooks: RefCell<alloc::vec::Vec<WorldDropHook>>,
@@ -620,40 +634,52 @@ impl World {
 
     /// Register a resource, reusing its storage when the type is already present.
     pub fn insert_resource<T: 'static>(&mut self, value: T) {
-        if let Some(existing) = self.resources.get_mut(&TypeId::of::<T>()) {
+        if let Some(existing) = self
+            .resources
+            .get_mut(&TypeId::of::<T>())
+            .and_then(Option::as_mut)
+        {
             let slot = existing
                 .downcast_mut::<T>()
                 .expect("resource type does not match its TypeId");
             drop(core::mem::replace(slot, value));
         } else {
-            self.resources.insert(TypeId::of::<T>(), Box::new(value));
+            self.resources
+                .insert(TypeId::of::<T>(), Some(Box::new(value)));
         }
     }
 
     pub fn resource<T: 'static>(&self) -> Option<&T> {
         self.resources
             .get(&TypeId::of::<T>())
+            .and_then(Option::as_ref)
             .and_then(|v| v.downcast_ref::<T>())
     }
 
     pub fn resource_mut<T: 'static>(&mut self) -> Option<&mut T> {
         self.resources
             .get_mut(&TypeId::of::<T>())
+            .and_then(Option::as_mut)
             .and_then(|v| v.downcast_mut::<T>())
     }
 
     pub fn remove_resource<T: 'static>(&mut self) -> Option<T> {
-        self.take_resource_box::<T>().map(|value| *value)
+        self.resources
+            .remove(&TypeId::of::<T>())
+            .flatten()
+            .and_then(|value| value.downcast::<T>().ok())
+            .map(|value| *value)
     }
 
     pub(crate) fn take_resource_box<T: 'static>(&mut self) -> Option<Box<T>> {
         self.resources
-            .remove(&TypeId::of::<T>())
+            .get_mut(&TypeId::of::<T>())
+            .and_then(Option::take)
             .and_then(|v| v.downcast::<T>().ok())
     }
 
     pub(crate) fn put_resource_box<T: 'static>(&mut self, value: Box<T>) {
-        self.resources.insert(TypeId::of::<T>(), value);
+        self.resources.insert(TypeId::of::<T>(), Some(value));
     }
 
     /// Temporarily separate a resource from the World while its callback also
@@ -1192,6 +1218,63 @@ mod tests {
             count += 1;
         });
         assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn temporarily_separated_resources_retain_slots_without_allocating() {
+        let mut world = World::new();
+        world.insert_resource(7u16);
+        world.insert_resource(9u32);
+        let slots = world.resources.len();
+        let address = world.resource::<u16>().unwrap() as *const u16;
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for _ in 0..128 {
+                    world
+                        .with_resource_box::<u16, _>(|outer, world| {
+                            assert!(world.resource::<u16>().is_none());
+                            assert!(world.resource_mut::<u16>().is_none());
+                            assert_eq!(world.resources.len(), slots);
+                            assert!(world.take_resource_box::<u16>().is_none());
+                            world
+                                .with_resource_box::<u32, _>(|inner, world| {
+                                    assert!(world.resource::<u32>().is_none());
+                                    assert_eq!(world.resources.len(), slots);
+                                    *inner += 1;
+                                })
+                                .unwrap();
+                            *outer += 1;
+                        })
+                        .unwrap();
+                }
+            }),
+            0
+        );
+        assert_eq!(world.resource::<u16>(), Some(&135));
+        assert_eq!(world.resource::<u32>(), Some(&137));
+        assert_eq!(world.resource::<u16>().unwrap() as *const u16, address);
+        assert_eq!(world.remove_resource::<u16>(), Some(135));
+        assert!(!world.resources.contains_key(&TypeId::of::<u16>()));
+    }
+
+    #[test]
+    fn separated_resource_hides_from_typed_access_and_restores_over_replacements() {
+        let mut world = World::new();
+        world.insert_resource(7u16);
+        world
+            .with_resource_box::<u16, _>(|value, world| {
+                let cell = SystemWorldCell::new(world);
+                // SAFETY: no resource references exist while the original value is separated.
+                unsafe {
+                    assert!(cell.resource::<u16>().is_none());
+                    assert!(cell.resource_mut::<u16>().is_none());
+                }
+                world.insert_resource(99u16);
+                assert_eq!(world.resource::<u16>(), Some(&99));
+                *value = 8;
+            })
+            .unwrap();
+        assert_eq!(world.resource::<u16>(), Some(&8));
     }
 
     #[test]
