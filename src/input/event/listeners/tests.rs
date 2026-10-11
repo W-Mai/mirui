@@ -913,6 +913,40 @@ fn keyboard_consumption_stops_before_later_defaults_and_fallback() {
 }
 
 #[test]
+fn keyboard_explicit_origin_does_not_read_or_change_current_focus() {
+    let mut fixture = KeyboardFixture::new(5);
+    let text = super::super::input::TextCommitted::new("界");
+    fixture.world.resource_mut::<FocusState>().unwrap().focused = Some(fixture.root);
+    assert_eq!(
+        tracked_allocations(|| {
+            fixture
+                .pool
+                .snapshot_keyboard_from(&fixture.world, &text, Some(fixture.leaf))
+                .unwrap()
+                .run(&mut fixture.world)
+                .unwrap();
+        }),
+        0
+    );
+    assert_eq!(fixture.trace.borrow().values(), &[101, 201, 100, 200, 900]);
+    assert_eq!(
+        fixture.world.resource::<FocusState>().unwrap().focused,
+        Some(fixture.root)
+    );
+    fixture.trace.borrow_mut().len = 0;
+    fixture
+        .pool
+        .snapshot_keyboard_from(&fixture.world, &text, None)
+        .unwrap()
+        .run(&mut fixture.world)
+        .unwrap();
+    assert_eq!(fixture.trace.borrow().values(), &[900]);
+    fixture.trace.borrow_mut().len = 0;
+    fixture.dispatch(&text).unwrap();
+    assert_eq!(fixture.trace.borrow().values(), &[100, 200, 900]);
+}
+
+#[test]
 fn keyboard_selection_freezes_focus_and_parents_but_skips_retired_defaults() {
     let mut fixture = KeyboardFixture::new(5);
     let key = Key {

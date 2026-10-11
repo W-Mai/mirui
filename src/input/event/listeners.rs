@@ -638,12 +638,24 @@ impl EventListeners {
     where
         E: InputPayload + Event<Source = InputSource>,
     {
-        let mut snapshot = self.empty_snapshot(world, BorrowedEvent::new(event))?;
         let focused = world
             .resource::<FocusState>()
             .and_then(|state| state.focused);
-        snapshot.input = focused.and_then(|entity| InputLease::capture(world, entity));
-        if let Some(mut current) = focused
+        self.snapshot_keyboard_from(world, event, focused)
+    }
+
+    pub(crate) fn snapshot_keyboard_from<'pool, 'event, E>(
+        &'pool self,
+        world: &World,
+        event: &'event E,
+        origin: Option<Entity>,
+    ) -> Result<ListenerSnapshot<'pool, 'event>, ListenerError>
+    where
+        E: InputPayload + Event<Source = InputSource>,
+    {
+        let mut snapshot = self.empty_snapshot(world, BorrowedEvent::new(event))?;
+        snapshot.input = origin.and_then(|entity| InputLease::capture(world, entity));
+        if let Some(mut current) = origin
             && InputBranch::scan(world, current)?.allowed()
         {
             while world.is_alive(current) {
