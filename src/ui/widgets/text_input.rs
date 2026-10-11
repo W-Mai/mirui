@@ -162,7 +162,9 @@ impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::Ent
 #[crate::component]
 pub struct Placeholder(pub &'static str);
 
-use super::text_editing::geometry::{TextEditingLayoutHandle, input_content_rect};
+use super::text_editing::geometry::{
+    TextEditingLayoutHandle, caret_and_scroll, input_content_rect,
+};
 
 #[crate::view(
     component = TextInput,
@@ -231,18 +233,7 @@ fn text_input_render(
     } else {
         text_color
     };
-    let caret = if editing.is_empty() {
-        Fixed::ZERO
-    } else {
-        layout
-            .carets()
-            .iter()
-            .find(|caret| caret.text_offset as usize == editing.cursor())
-            .map(|caret| crate::types::fixed::from_textflow(caret.position.x))
-            .unwrap_or(Fixed::ZERO)
-    };
-    let visible_width = (content_rect.w - Fixed::ONE).max(Fixed::ZERO);
-    let scroll = (caret - visible_width).max(Fixed::ZERO);
+    let (caret, scroll) = caret_and_scroll(&layout, editing, content_rect);
     let transform = paint.transform();
     let selection = editing.selection().range();
     if editing.focused() && !selection.is_empty() && !editing.is_empty() {
@@ -521,6 +512,175 @@ mod tests {
         view().render().unwrap()(&world, entity, &mut paint);
         drop(paint);
         renderer
+    }
+
+    #[test]
+    fn tapped_document_edits_keep_partial_and_full_frames_identical() {
+        use crate::input::event::input::{InputEvent, PointerKind};
+        use crate::input::event::sim::{SimCommand, SimulatedInput, sim_input_system};
+        use crate::prelude::*;
+        use crate::surface::FramebufferAccess;
+        use crate::ui::widgets::{Text, TextDocument, TextSelection};
+
+        #[crate::compose]
+        fn panel(document: model!(TextDocument)) -> (Entity, Entity) {
+            ui! { Text("CARET", height: 24, font_size: 9) };
+            let first = ui! { TextInput(width: 120, height: 30, font_size: 10, bg_color: ColorToken::SurfaceVariant) [TextEditing::new(document.clone())] };
+            let second = ui! { TextInput(width: 120, height: 30, font_size: 10, bg_color: ColorToken::SurfaceVariant) [TextEditing::new(document)] };
+            (first, second)
+        }
+        let mut app = crate::app::App::new(crate::surface::framebuf::FramebufSurface::with_format(
+            128,
+            128,
+            crate::render::texture::ColorFormat::RGB565Swapped,
+            |_, _| {},
+        ));
+        app.with_default_widgets().with_default_systems();
+        app.add_resource(crate::ecs::MonoClock::new(|| 600_000_000));
+        app.add_system(sim_input_system::system());
+        let root = app.spawn_root().id();
+        let document = app.add_model(TextDocument::new());
+        let (first, _) = app.compose(root, panel(document.clone()));
+        app.add_resource(crate::input::event::focus::FocusState {
+            focused: Some(first),
+        });
+        document.set_text("EDIT").unwrap();
+        app.world
+            .get_mut::<TextEditing>(first)
+            .unwrap()
+            .set_selection(TextSelection {
+                anchor: 4,
+                cursor: 4,
+            })
+            .unwrap();
+        app.tick();
+        app.render().unwrap();
+        let rect = app.world.get::<crate::ui::ComputedRect>(first).unwrap().0;
+        for (x, cursor, text) in [
+            (rect.x + Fixed::from_int(2), 0, "A"),
+            (rect.x + rect.w - Fixed::from_int(2), 5, "Z"),
+        ] {
+            let y = rect.y + Fixed::from_int(4);
+            app.add_resource(SimulatedInput::new(vec![
+                SimCommand::at(
+                    0,
+                    InputEvent::PointerDown {
+                        kind: PointerKind::Mouse,
+                        id: 0,
+                        x,
+                        y,
+                    },
+                ),
+                SimCommand::at(
+                    0,
+                    InputEvent::PointerUp {
+                        kind: PointerKind::Mouse,
+                        id: 0,
+                        x,
+                        y,
+                    },
+                ),
+            ]));
+            app.tick();
+            assert_eq!(
+                app.world.get::<TextEditing>(first).unwrap().cursor(),
+                cursor
+            );
+            app.add_resource(SimulatedInput::new(vec![SimCommand::at(
+                0,
+                TextCommitted::new(text).into(),
+            )]));
+            app.tick();
+            app.render_dirty().unwrap();
+            let partial: Vec<_> = (0..128)
+                .flat_map(|y| (0..128).map(move |x| (x, y)))
+                .map(|(x, y)| app.backend.framebuffer().get_pixel(x, y))
+                .collect();
+            app.render().unwrap();
+            for y in 0..128 {
+                for x in 0..128 {
+                    assert_eq!(
+                        partial[(y * 128 + x) as usize],
+                        app.backend.framebuffer().get_pixel(x, y),
+                        "pixel ({x}, {y})"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn caret_hit_reuses_painted_positions_and_rejects_stale_layouts() {
+        use crate::ui::ComputedRect;
+
+        fn hit(world: &mut World, entity: Entity, point: Point) -> usize {
+            let editor = world.get_mut::<TextEditing>(entity).unwrap();
+            let end = editor.len();
+            editor
+                .set_selection(super::super::TextSelection {
+                    anchor: end,
+                    cursor: end,
+                })
+                .unwrap();
+            crate::input::event::view_input::invoke_payload(
+                super::super::text_editing::view(),
+                world,
+                entity,
+                &crate::input::event::gesture::Tap {
+                    x: point.x,
+                    y: point.y,
+                    target: entity,
+                },
+                Some(1),
+            )
+            .unwrap();
+            world.get::<TextEditing>(entity).unwrap().cursor()
+        }
+
+        let (mut world, entity, _, rect) = input_fixture(b"Wi", None, 12);
+        world.insert(entity, ComputedRect(rect));
+        let handle = prepare_layout(&world, entity, rect).unwrap().unwrap();
+        world.insert(entity, TextEditingLayoutHandle(handle));
+        // The trailing caret is at 13, and the visible width is 7.
+        assert_eq!(hit(&mut world, entity, Point::new(5, 5)), 1);
+        assert_eq!(hit(&mut world, entity, Point::new(9, 5)), 2);
+        assert_eq!(hit(&mut world, entity, Point::new(-20, 5)), 0);
+
+        let parent = world.spawn(crate::ui::Widget);
+        world.insert(parent, ComputedRect(Rect::new(0, 0, 100, 100)));
+        world.insert(
+            parent,
+            crate::input::event::scroll::ScrollOffset {
+                x: 3.into(),
+                y: 4.into(),
+            },
+        );
+        world.insert(entity, crate::ui::Parent(parent));
+        world.insert(
+            parent,
+            crate::ui::widgets::WidgetTransform(Transform::translate(20.into(), 10.into())),
+        );
+        assert_eq!(hit(&mut world, entity, Point::new(22, 11)), 1);
+        world.insert(
+            parent,
+            crate::ui::widgets::WidgetTransform3D(crate::types::Transform3D::rotate_y_perspective(
+                20.into(),
+                400.into(),
+            )),
+        );
+        let (_, _, projection) =
+            crate::ui::render_system::widget_render_geometry(&world, entity).unwrap();
+        let projected = projection.apply_point(Point::new(2, 1)).unwrap();
+        assert_eq!(hit(&mut world, entity, projected), 1);
+
+        world.insert(entity, TextEditing::default().with_text("ii").unwrap());
+        assert_eq!(hit(&mut world, entity, projected), 2);
+        world.insert(entity, TextEditing::default().with_text("Wi").unwrap());
+        world.get_mut::<ComputedRect>(entity).unwrap().0.w = 30.into();
+        assert_eq!(hit(&mut world, entity, projected), 2);
+        world.get_mut::<ComputedRect>(entity).unwrap().0 = rect;
+        world.get_mut::<Style>(entity).unwrap().font_size = Some(15);
+        assert_eq!(hit(&mut world, entity, projected), 2);
     }
 
     #[test]

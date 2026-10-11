@@ -56,6 +56,7 @@ enum Edit<'a> {
     Backspace,
     Delete,
     Navigate(Navigation, bool),
+    Select(TextSelection),
     Normalize,
     Submit,
 }
@@ -95,6 +96,18 @@ impl<'a> Edit<'a> {
                         return Ok(Plan {
                             replacement: None,
                             selection: direction.selection(text, selection, extend),
+                            content_changed: false,
+                        });
+                    }
+                    Self::Select(selection) => {
+                        for offset in [selection.anchor, selection.cursor] {
+                            if !text.is_char_boundary(offset) {
+                                return Err(TextEditError::InvalidBoundary { offset });
+                            }
+                        }
+                        return Ok(Plan {
+                            replacement: None,
+                            selection,
                             content_changed: false,
                         });
                     }
@@ -146,6 +159,34 @@ pub(super) fn attach(
     }
     commands.insert(entity, crate::ui::HitTarget);
     commands.insert(entity, crate::ui::InteractionFeedback);
+}
+
+#[crate::event]
+pub(super) fn tap(
+    node: entity!(),
+    event: event!(crate::input::event::gesture::Tap),
+    commands: commands!(),
+) {
+    commands.apply(
+        node,
+        crate::types::Point {
+            x: event.x,
+            y: event.y,
+        },
+        |world, node, point| {
+            let Some(cursor) = super::geometry::hit_caret(world, node, point) else {
+                return Ok(());
+            };
+            apply(
+                world,
+                node,
+                Edit::Select(TextSelection {
+                    anchor: cursor,
+                    cursor,
+                }),
+            )
+        },
+    );
 }
 
 #[crate::event]

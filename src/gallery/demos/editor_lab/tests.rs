@@ -127,4 +127,35 @@ fn custom_attachments_share_input_behavior_and_preserve_document_identity() {
         .get::<TextEditing>(second)
         .unwrap()
         .read(|text| assert_eq!(text, "Hello from the document"));
+
+    let rect = app.world.get::<crate::ui::ComputedRect>(first).unwrap().0;
+    for (time, event) in [
+        (
+            10,
+            InputEvent::PointerDown {
+                kind: PointerKind::Mouse,
+                id: 0,
+                x: rect.x + Fixed::from_int(2),
+                y: rect.y + Fixed::from_int(4),
+            },
+        ),
+        (
+            11,
+            InputEvent::PointerUp {
+                kind: PointerKind::Mouse,
+                id: 0,
+                x: rect.x + Fixed::from_int(2),
+                y: rect.y + Fixed::from_int(4),
+            },
+        ),
+        (12, TextCommitted::new(">").into()),
+    ] {
+        crate::input::event::deliver_input(&mut app.world, Some(root), &event, time, 440, 640);
+    }
+    assert_eq!(app.world.get::<TextEditing>(first).unwrap().cursor(), 1);
+    assert_eq!(app.world.get::<TextEditing>(second).unwrap().cursor(), 0);
+    app.world
+        .get::<TextEditing>(second)
+        .unwrap()
+        .read(|text| assert_eq!(text, ">Hello from the document"));
 }

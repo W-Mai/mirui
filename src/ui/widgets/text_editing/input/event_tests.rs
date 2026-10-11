@@ -84,6 +84,105 @@ fn character(world: &mut World, node: Entity, ch: char) -> Result<bool, CommandE
 }
 
 #[test]
+fn tapping_a_prepared_editor_collapses_selection_without_editing_content() {
+    use crate::input::event::gesture::Tap;
+    use crate::text::TextGeometry;
+    use crate::types::{Fixed, Rect};
+    use crate::ui::outputs::Outputs;
+    use crate::ui::widgets::text_editing::geometry::{TextEditingLayoutHandle, prepare_layout};
+
+    let (mut world, node) = fixture(EventCapacity::default());
+    world.insert_resource(crate::render::font::default_font_manager());
+    world.insert_resource(Outputs::<TextGeometry>::new_text(
+        crate::text::TextLayoutLimits::EMBEDDED,
+    ));
+    world.insert(node, crate::ui::Style::default());
+    let rect = Rect::new(0, 0, 100, 24);
+    world.insert(node, crate::ui::ComputedRect(rect));
+    // This fixture's parent has no layout; the editor geometry is independent.
+    world.remove::<crate::ui::Parent>(node);
+    world
+        .get_mut::<TextEditing>(node)
+        .unwrap()
+        .local
+        .as_mut()
+        .unwrap()
+        .set_text("A中Z")
+        .unwrap();
+    let handle = prepare_layout(&world, node, rect).unwrap().unwrap();
+    world.insert(node, TextEditingLayoutHandle(handle));
+    let callback = super::tap::callback::<crate::__macro_support::NodeContext>()
+        .prepare(&mut world, view_input::fixture_capacity())
+        .unwrap();
+    for warm in [true, false] {
+        world
+            .get_mut::<TextEditing>(node)
+            .unwrap()
+            .set_selection(TextSelection {
+                anchor: 0,
+                cursor: 5,
+            })
+            .unwrap();
+        let x = {
+            let storage = world.resource::<Outputs<TextGeometry>>().unwrap().storage();
+            let layout = storage.layouts.get(handle).unwrap();
+            crate::types::fixed::from_textflow(
+                layout
+                    .carets()
+                    .iter()
+                    .find(|caret| caret.text_offset == 4)
+                    .unwrap()
+                    .position
+                    .x,
+            ) + Fixed::from_int(2)
+        };
+        *world.resource_mut::<Trace>().unwrap() = Trace::default();
+        let allocations = crate::test_support::tracked_allocations(|| {
+            callback
+                .invoke(
+                    &mut world,
+                    &Tap {
+                        x,
+                        y: 5.into(),
+                        target: node,
+                    },
+                    node,
+                )
+                .unwrap();
+            assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+            callback
+                .invoke(
+                    &mut world,
+                    &Tap {
+                        x,
+                        y: 5.into(),
+                        target: node,
+                    },
+                    node,
+                )
+                .unwrap();
+            assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        });
+        if !warm {
+            assert_eq!(allocations, 0);
+        }
+        assert_eq!(
+            world.resource::<Trace>().unwrap().as_slice(),
+            &[Notice::Selection(4, 4)]
+        );
+        let editor = world.get::<TextEditing>(node).unwrap();
+        assert_eq!(
+            editor.selection(),
+            TextSelection {
+                anchor: 4,
+                cursor: 4
+            }
+        );
+        editor.read(|text| assert_eq!(text, "A中Z"));
+    }
+}
+
+#[test]
 fn input_edits_report_content_before_directed_selection() {
     let (mut world, node) = fixture(EventCapacity::default());
     let input = world.get_mut::<TextEditing>(node).unwrap();

@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- TextEditing positions the caret from taps using prepared visual geometry, including scrolled and transformed editors.
+
 - TextInput displays focused selections using prepared text geometry, including reversed selections and horizontally scrolled content.
 
 - Editor Lab demonstrates custom search, command, and shared-document editors using TextEditing and ordinary Component/View attachment.

@@ -440,6 +440,20 @@ impl TextLayoutCache {
         })
     }
 
+    pub(crate) fn get_matching(
+        &self,
+        handle: TextLayoutHandle,
+        owner: u64,
+        font_fingerprint: u64,
+        request: TextLayoutRequest<'_>,
+    ) -> Option<TextLayout<'_>> {
+        let entry = self.entries.get(handle.slot as usize)?.as_ref()?;
+        if entry.key != Some(LayoutKey::new(owner, font_fingerprint, request)) {
+            return None;
+        }
+        self.get(handle)
+    }
+
     pub(crate) fn measure(
         &mut self,
         request: TextLayoutRequest<'_>,

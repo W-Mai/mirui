@@ -180,7 +180,7 @@ impl TextEditing {
     name = "TextEditing",
     invalidation = Layout,
     attach = input::attach::callback(),
-    input = (input::key::callback(), input::committed::callback()),
+    input = (input::key::callback(), input::committed::callback(), input::tap::callback()),
     systems = [input::normalize_selections::system(), input::cursor_blink::system()]
 )]
 fn text_editing_state(_document: model!(optional component.document, watch(revision, capacity))) {}
