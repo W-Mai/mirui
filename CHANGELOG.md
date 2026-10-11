@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Interaction Lab displays scroll position and active motion through scroll notifications.
+
 - `ScrollStarted`, `ScrollChanged`, and `ScrollEnded` report content movement across pointer, wheel, rotary, and programmatic changes, including inertia completion and cancellation.
 
 - `ScrollBounds` exposes the last successful layout's viewport and content extents through component queries. Configuration changes refresh the snapshot; failed layouts retain the published value.

@@ -45,7 +45,18 @@ fn compose_header(model: model!(InteractionModel)) -> Entity {
                     )
                 }
             }
-            Row (height: 30, justify: JustifyContent::FlexEnd) {
+            Row (height: 30, justify: JustifyContent::SpaceBetween) {
+                Text (
+                    id: "interaction_scroll_status",
+                    text: ${ alloc::format!("SCROLL {}", model.scroll_position()) },
+                    text_capacity: 20,
+                    grow: 1.0,
+                    min_width: 0,
+                    height: 30,
+                    font_size: 11,
+                    text_color: ${ if model.scrolling() { CYAN } else { MUTED } },
+                    paragraph: ellipsis_label()
+                )
                 Text (
                     text: ${ if model.disabled() { "TARGET LOCKED" } else { "LIVE TIMELINE" } },
                     text_capacity: 13,
@@ -640,7 +651,7 @@ pub(super) fn build_widgets(model: model!(InteractionModel)) {
                     compose_controls_card (model)
                 }
             }
-        }
+        } on ScrollStarted { model.start_scroll(); } on ScrollChanged { model.update_scroll(event.new.y); } on ScrollEnded { model.end_scroll(); }
     };
     //~focus-end
 }

@@ -18,6 +18,8 @@ pub(super) struct InteractionModel {
     allow_bubble: bool,
     child_taps: u16,
     parent_taps: u16,
+    scrolling: bool,
+    scroll_y: Fixed,
 }
 
 impl Default for InteractionModel {
@@ -38,12 +40,36 @@ impl Default for InteractionModel {
             allow_bubble: false,
             child_taps: 0,
             parent_taps: 0,
+            scrolling: false,
+            scroll_y: Fixed::ZERO,
         }
     }
 }
 
 #[crate::model]
 impl InteractionModel {
+    #[observe]
+    pub(super) fn scrolling(&self) -> bool {
+        self.scrolling
+    }
+
+    #[observe]
+    pub(super) fn scroll_position(&self) -> i32 {
+        self.scroll_y.to_int()
+    }
+
+    pub(super) fn start_scroll(&mut self) {
+        self.scrolling = true;
+    }
+
+    pub(super) fn update_scroll(&mut self, y: Fixed) {
+        self.scroll_y = y;
+    }
+
+    pub(super) fn end_scroll(&mut self) {
+        self.scrolling = false;
+    }
+
     #[observe]
     pub(super) fn single(&self) -> u16 {
         self.single

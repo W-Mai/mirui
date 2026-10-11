@@ -512,3 +512,59 @@ fn phone_scroll_extent_keeps_the_last_card_reachable() {
         );
     }
 }
+
+#[test]
+fn scroll_notifications_update_the_model_and_header_from_real_input() {
+    use crate::input::event::input::InputEvent;
+    use crate::input::event::scroll::ScrollOffset;
+    let mut app = App::headless(320, 568);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    let model = install(&mut app, root);
+    app.render().unwrap();
+    let shell = app.world.find_by_id("interaction_lab_shell").unwrap();
+    let readout = app.world.find_by_id("interaction_scroll_status").unwrap();
+    assert!(!model.scrolling());
+    crate::input::event::deliver_input(
+        &mut app.world,
+        Some(root),
+        &InputEvent::Wheel {
+            dx: Fixed::ZERO,
+            dy: (-8).into(),
+            x: 12.into(),
+            y: 12.into(),
+        },
+        8,
+        320,
+        568,
+    );
+    assert!(model.scrolling());
+    assert_eq!(
+        model.scroll_position(),
+        app.world.get::<ScrollOffset>(shell).unwrap().y.to_int()
+    );
+    assert_eq!(
+        app.world
+            .get::<Text>(readout)
+            .unwrap()
+            .resolve(app.world.resource()),
+        "SCROLL 8"
+    );
+    assert_eq!(
+        app.world.get::<Style>(readout).unwrap().text_color,
+        super::style::CYAN.into()
+    );
+    crate::input::event::deliver_input(
+        &mut app.world,
+        Some(root),
+        &InputEvent::AppSuspend,
+        16,
+        320,
+        568,
+    );
+    assert!(!model.scrolling());
+    assert_eq!(
+        app.world.get::<Style>(readout).unwrap().text_color,
+        super::style::MUTED.into()
+    );
+}
