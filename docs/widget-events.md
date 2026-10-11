@@ -70,6 +70,10 @@ Shift+Left, Shift+Right, Shift+Home, and Shift+End extend the selection while re
 
 `TextEditing::Submitted` reports a Return press accepted by the default key handler, including repeated presses. It does not insert a newline, clear content, move the selection, or change focus. An authored key handler can consume Return before the default handler. Both notifications support inline bodies, closures, typed callbacks, and widget builders. Notifications without listeners are skipped; queue failure does not roll back an edit or replay it later.
 
+### Custom editor examples
+
+Gallery's `editor_lab` contains SearchEditor, CommandEditor, and SharedEditor. Each is a Component with a nonpainting View whose attach callback inserts TextEditing on the same node and reuses TextInput for appearance. Search observes document revisions to filter a fixed catalog; commands handle `TextEditing::Submitted`; two shared editors bind one owned TextDocument with independent selections. The source is split into [components](../src/gallery/demos/editor_lab/editors.rs), [Models](../src/gallery/demos/editor_lab/model.rs), and [composition](../src/gallery/demos/editor_lab/composition.rs).
+
 ## Pointer identity
 
 Raw `InputEvent` pointer records carry `kind: PointerKind` (`Mouse`, `Touch`, `Pen`, or `Unknown`) and `id`. Gesture and scroll capture match both fields; movement or release from another pointer cannot end that capture. Backends report the device category rather than inferring it from the slot number. Simulated cursor actions use `Mouse`; simulated pinch and rotation contacts use `Touch`.

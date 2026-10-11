@@ -159,6 +159,7 @@ register_demos! {
     ("curve_text",           "Kinetic Type",         "Showcase",    curve_text, source = demo_sources::KINETIC_TYPE),
     ("curve_text_compact",   "Curve Text Compact",   "Showcase",    curve_text_compact, source = demo_sources::CURVE_TEXT_COMPACT),
     ("interaction_lab",      "Interaction Lab",      "Showcase",    interaction_lab, source = demo_sources::INTERACTION_LAB),
+    ("editor_lab",           "Editor Lab",           "Components",  editor_lab, source = demo_sources::EDITOR_LAB),
     ("kinetic_console",      "Kinetic Console",      "Showcase",    kinetic_console, source = demo_sources::KINETIC_CONSOLE),
 
     ("signal_scope",         "Signal Scope",         "Product",     signal_scope, source = demo_sources::SIGNAL_SCOPE),

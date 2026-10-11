@@ -8,9 +8,12 @@ cargo run -p gallery --example tabbar_snapshot --no-default-features --features 
 MIRUI_SNAPSHOT_DIR=.local/screenshots cargo run -p gallery --example lazy_list_snapshot --no-default-features --features snapshot -- mid
 cargo run -p gallery --example effect_demo_snapshot --no-default-features --features snapshot -- .local/screenshots/effects.ppm
 cargo run -p gallery --example offscreen_modal_snapshot --no-default-features --features snapshot -- .local/screenshots/modal
+cargo run -p gallery --example demo_previews_snapshot --no-default-features --features snapshot -- .local/screenshots editor_lab
 ```
 
 The tab snapshot accepts a selected index from 0 to 2. The list accepts `top`, `mid`, or `bottom`. The modal tool captures 30 frames for each of the inline (`inl-*.ppm`) and offscreen (`off-*.ppm`) rendering modes.
+
+The preview tool accepts an optional demo slug after the output directory; omit it to capture the catalog. It writes PNG directly without Pillow.
 
 For a regression check, capture before and after a change with identical arguments into separate directories. Compare corresponding files and inspect the images for clipping, layering, and animation artifacts. These snapshots support manual visual checks; they do not replace unit tests for layout, event, or lifecycle contracts. Keep generated images under `.local/screenshots/` or a temporary directory, outside version control.
 

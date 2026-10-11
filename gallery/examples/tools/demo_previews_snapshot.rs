@@ -26,8 +26,15 @@ fn main() {
         .nth(1)
         .map(PathBuf::from)
         .expect("output directory");
+    let selected = env::args().nth(2);
+    if let Some(slug) = &selected {
+        assert!(gallery::lookup_demo(slug).is_some(), "unknown demo: {slug}");
+    }
 
     for demo in gallery::DEMOS {
+        if selected.as_ref().is_some_and(|slug| slug != demo.slug) {
+            continue;
+        }
         snapshot_render::render(
             &output.join(format!("{}.png", demo.slug)),
             preview_size(demo.size),
