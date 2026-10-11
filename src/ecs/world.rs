@@ -186,6 +186,7 @@ pub(crate) struct ComponentChange {
 #[derive(Clone, Copy)]
 struct WatchedComponentType {
     type_id: TypeId,
+    revision: u64,
     entity_tracking: bool,
     query_tracking: bool,
     query_pending: Option<QueryDependencyCause>,
@@ -252,6 +253,7 @@ fn record_component_change(
         return;
     };
     watched.record_query_change(QueryDependencyCause::Component);
+    watched.revision = watched.revision.wrapping_add(1);
     if !watched.entity_tracking {
         return;
     }
@@ -411,6 +413,17 @@ impl World {
         self.watch_component_type_entry(type_id).query_tracking = true;
     }
 
+    pub(crate) fn watch_component_revision<T: 'static>(&mut self) {
+        self.watch_component_type_entry(TypeId::of::<T>());
+    }
+
+    pub(crate) fn component_revision<T: 'static>(&self) -> u64 {
+        self.watched_component_types
+            .iter()
+            .find(|watched| watched.type_id == TypeId::of::<T>())
+            .map_or(0, |watched| watched.revision)
+    }
+
     fn watch_component_type_entry(&mut self, type_id: TypeId) -> &mut WatchedComponentType {
         let index = if let Some(index) = self
             .watched_component_types
@@ -422,6 +435,7 @@ impl World {
             let index = self.watched_component_types.len();
             self.watched_component_types.push(WatchedComponentType {
                 type_id,
+                revision: 0,
                 entity_tracking: false,
                 query_tracking: false,
                 query_pending: None,
@@ -673,6 +687,23 @@ mod tests {
     use super::*;
     use crate::test_support::tracked_allocations;
 
+    #[test]
+    fn component_revisions_preserve_repeated_writes_without_entity_tracking() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.watch_component_revision::<u32>();
+        world.insert(entity, 1u32);
+        let revision = world.component_revision::<u32>();
+        world.insert(entity, 1u32);
+        assert_ne!(world.component_revision::<u32>(), revision);
+        assert!(world.component_changes.is_empty());
+        let revision = world.component_revision::<u32>();
+        world.remove::<u32>(entity);
+        assert_ne!(world.component_revision::<u32>(), revision);
+        let revision = world.component_revision::<u32>();
+        world.remove::<u32>(entity);
+        assert_eq!(world.component_revision::<u32>(), revision);
+    }
     #[test]
     fn query_change_causes_coalesce_without_entity_records_or_allocations() {
         use QueryDependencyCause::{Component, Source};

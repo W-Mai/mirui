@@ -2507,6 +2507,46 @@ pub fn try_update_layout(
     Ok(())
 }
 
+pub(crate) fn prepare_input_geometry(
+    world: &mut World,
+    root: Entity,
+    viewport: &Viewport,
+) -> Result<(), TextLayoutFailure> {
+    use crate::input::event::hit_test;
+    hit_test::prepare_geometry_tracking(world);
+    if super::branch::is_effectively_hidden(world, root) {
+        hit_test::invalidate_hit_test_geometry(world);
+        return Ok(());
+    }
+    super::view::ViewRegistry::invalidate_queries(world);
+    let (width, height) = viewport.logical_size();
+    let (_, visual_changed) = hit_test::geometry_changes(world);
+    if visual_changed && super::widgets::lazy_list::reconcile(world) {
+        crate::core::reactive::flush_signal_dirty(world);
+        super::view::ViewRegistry::invalidate_queries(world);
+    }
+    let (layout_changed, visual_changed) = hit_test::geometry_changes(world);
+    let layout_current = world.resource::<LayoutSnapshot>().is_some_and(|snapshot| {
+        snapshot.matches(root, width, height) && !snapshot.bindings_pending
+    });
+    if layout_changed || !layout_current {
+        return try_update_layout(world, root, viewport);
+    }
+    if visual_changed || !hit_test::geometry_matches(world, root, width, height) {
+        world.with_resource_box::<LayoutSnapshot, _>(|snapshot, world| {
+            hit_test::update_hit_test_geometry(
+                world,
+                root,
+                width,
+                height,
+                &snapshot.layout_tree,
+                &snapshot.entities,
+            );
+        });
+    }
+    Ok(())
+}
+
 fn write_computed_rects(
     node: &LayoutNode,
     world: &mut World,
@@ -2520,9 +2560,7 @@ fn write_computed_rects(
             .is_none_or(|rect| rect.0 != node.rect)
         {
             world.insert(entity, super::ComputedRect(node.rect));
-            if super::offscreen::config(world, entity).is_some() {
-                world.invalidate_visual(entity);
-            }
+            world.invalidate_visual(entity);
         }
     }
     *idx += 1;
@@ -4184,10 +4222,51 @@ mod layout_snapshot_reuse_check {
     }
 
     #[test]
+    fn input_layout_tracks_repeated_invalidation_without_consuming_paint_damage() {
+        use crate::input::event::hit_test::{geometry_changes, hit_test};
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let child = widget(&mut world, 10);
+        world.insert(child, crate::ui::HitTarget);
+        world.insert(root, Children(vec![child]));
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        let mut plan = DirtyRegions::default();
+        world.invalidate(child);
+        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot;
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for width in [20, 5, 20, 5] {
+                world.get_mut::<Style>(child).unwrap().layout.width = Dimension::px(width);
+                world.invalidate(child);
+                prepare_input_geometry(&mut world, root, &viewport).unwrap();
+                assert!(world.has::<Dirty>(child));
+                assert_eq!(
+                    world.get::<super::super::dirty::PrevRect>(child).unwrap().0,
+                    Rect::new(0, 0, 10, 10)
+                );
+                assert_eq!(
+                    hit_test(&world, root, 15.into(), 5.into(), 64, 64),
+                    (width == 20).then_some(child)
+                );
+                assert_eq!(geometry_changes(&world), (false, false));
+                prepare_input_geometry(&mut world, root, &viewport).unwrap();
+                assert_eq!(
+                    world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot,
+                    snapshot
+                );
+            }
+        });
+        assert_eq!(allocations, 0);
+        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        assert_eq!(plan.rects, [Rect::new(0, 0, 10, 10)]);
+    }
+
+    #[test]
     fn visual_transform_reuses_layout_snapshot_and_tracks_old_and_new_bounds() {
         let mut world = World::new();
         let root = widget(&mut world, 64);
         let child = widget(&mut world, 10);
+        world.insert(child, crate::ui::HitTarget);
         world.insert(root, Children(vec![child]));
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         let mut plan = DirtyRegions::default();
@@ -4201,6 +4280,30 @@ mod layout_snapshot_reuse_check {
             child,
             Transform::translate(Fixed::from_int(20), Fixed::ZERO),
         );
+        prepare_input_geometry(&mut world, root, &viewport).unwrap();
+        assert!(world.has::<super::super::dirty::VisualDirty>(child));
+        assert_eq!(
+            world.get::<super::super::dirty::PrevRect>(child).unwrap().0,
+            Rect::new(0, 0, 10, 10)
+        );
+        assert_eq!(
+            crate::input::event::hit_test::hit_test(&world, root, 25.into(), 5.into(), 64, 64),
+            Some(child)
+        );
+        assert_eq!(
+            crate::input::event::hit_test::hit_test(&world, root, 5.into(), 5.into(), 64, 64),
+            None
+        );
+        assert_eq!(
+            crate::input::event::hit_test::geometry_changes(&world),
+            (false, false)
+        );
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for _ in 0..16 {
+                prepare_input_geometry(&mut world, root, &viewport).unwrap();
+            }
+        });
+        assert_eq!(allocations, 0);
         collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
 
         assert_eq!(plan.rects, [Rect::new(0, 0, 30, 10)]);
@@ -4222,6 +4325,7 @@ mod layout_snapshot_reuse_check {
         world.insert(root, Children(children.clone()));
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         let mut plan = DirtyRegions::default();
+        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
 
         world.insert(children[0], Dirty);
         world.insert(children[2], Dirty);

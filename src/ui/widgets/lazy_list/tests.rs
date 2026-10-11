@@ -290,6 +290,26 @@ fn first_layout_and_both_axes_share_clipping_with_pointer_hits() {
                 .map(|item| item.handle.index());
             assert_eq!(index, expected, "axis {axis:?}, point {point}");
         }
+        let offset = app.world.get_mut::<ScrollOffset>(list).unwrap();
+        if axis == ScrollAxis::Vertical {
+            offset.y = 60.into();
+        } else {
+            offset.x = 60.into();
+        }
+        app.world.invalidate_visual(list);
+        crate::ui::render_system::prepare_input_geometry(
+            &mut app.world,
+            root,
+            &Viewport::new(200, 200, Fixed::ONE),
+        )
+        .unwrap();
+        for (point, expected) in [(29, None), (30, Some(2)), (109, Some(3)), (110, None)] {
+            let target = hit_test(&app.world, root, point.into(), point.into(), 200, 200);
+            let index = target
+                .and_then(|target| app.world.get::<CellItem>(target))
+                .map(|item| item.handle.index());
+            assert_eq!(index, expected, "scrolled axis {axis:?}, point {point}");
+        }
     }
 }
 

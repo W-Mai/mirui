@@ -70,6 +70,31 @@ pub(crate) fn deliver_input(
     width: u16,
     height: u16,
 ) {
+    if matches!(
+        event,
+        InputEvent::PointerDown { .. }
+            | InputEvent::PointerMove { .. }
+            | InputEvent::PointerUp { .. }
+            | InputEvent::Wheel { .. }
+    ) && let Some(root) = root
+    {
+        if hit_test::preparation_blocked(world) {
+            cancel_active_input(world, now_ms);
+            dispatch_pending_gestures(world, now_ms);
+            return;
+        }
+        let viewport = world
+            .resource::<crate::app::RenderViewport>()
+            .map(|viewport| viewport.0)
+            .unwrap_or_else(|| crate::types::Viewport::new(width, height, Fixed::ONE));
+        if let Err(error) = crate::ui::render_system::prepare_input_geometry(world, root, &viewport)
+        {
+            crate::warn!("input geometry unavailable: {:?}", error);
+            cancel_active_input(world, now_ms);
+            dispatch_pending_gestures(world, now_ms);
+            return;
+        }
+    }
     dispatch_input(world, root, event, now_ms, width, height);
     dispatch_pending_gestures(world, now_ms);
     if let Err(error) = runtime::flush(world) {

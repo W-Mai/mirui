@@ -33,6 +33,9 @@ struct HitTestGeometry {
     logical_w: u16,
     logical_h: u16,
     revision: u64,
+    layout_revision: u64,
+    visual_revision: u64,
+    preparation_blocked: bool,
     entries: Vec<HitGeometry>,
 }
 
@@ -105,6 +108,40 @@ pub(crate) fn geometry_revision(world: &World) -> u64 {
     world
         .resource::<HitTestGeometry>()
         .map_or(0, |geometry| geometry.revision)
+}
+
+pub(crate) fn prepare_geometry_tracking(world: &mut World) {
+    world.watch_component_revision::<crate::ui::dirty::Dirty>();
+    world.watch_component_revision::<crate::ui::dirty::VisualDirty>();
+}
+
+pub(crate) fn set_preparation_blocked(world: &mut World, blocked: bool) {
+    if let Some(geometry) = world.resource_mut::<HitTestGeometry>() {
+        geometry.preparation_blocked = blocked;
+    } else if blocked {
+        world.insert_resource(HitTestGeometry {
+            preparation_blocked: true,
+            ..HitTestGeometry::default()
+        });
+    }
+}
+
+pub(crate) fn preparation_blocked(world: &World) -> bool {
+    world
+        .resource::<HitTestGeometry>()
+        .is_some_and(|geometry| geometry.preparation_blocked)
+}
+
+pub(crate) fn geometry_changes(world: &World) -> (bool, bool) {
+    world
+        .resource::<HitTestGeometry>()
+        .map_or((true, true), |geometry| {
+            (
+                geometry.layout_revision != world.component_revision::<crate::ui::dirty::Dirty>(),
+                geometry.visual_revision
+                    != world.component_revision::<crate::ui::dirty::VisualDirty>(),
+            )
+        })
 }
 
 pub(crate) fn invalidate_hit_test_geometry(world: &mut World) {
@@ -260,6 +297,7 @@ pub(crate) fn update_hit_test_geometry(
     layout_tree: &LayoutNode,
     entities: &[Entity],
 ) {
+    prepare_geometry_tracking(world);
     let mut geometry = world
         .take_resource_box::<HitTestGeometry>()
         .unwrap_or_default();
@@ -293,6 +331,8 @@ pub(crate) fn update_hit_test_geometry(
     geometry.root = Some(root);
     geometry.logical_w = logical_w;
     geometry.logical_h = logical_h;
+    geometry.layout_revision = world.component_revision::<crate::ui::dirty::Dirty>();
+    geometry.visual_revision = world.component_revision::<crate::ui::dirty::VisualDirty>();
     if geometry_changed {
         geometry.revision = geometry.revision.wrapping_add(1);
     }
@@ -314,9 +354,9 @@ pub fn hit_test(
     if crate::ui::branch::is_hidden_in_tree(world, root) {
         return None;
     }
-    let geometry = world
-        .resource::<HitTestGeometry>()
-        .filter(|geometry| geometry.matches(root, screen_w, screen_h))?;
+    let geometry = world.resource::<HitTestGeometry>().filter(|geometry| {
+        !geometry.preparation_blocked && geometry.matches(root, screen_w, screen_h)
+    })?;
     let point = Point { x, y };
     let mut hit = None;
     for entry in &geometry.entries {

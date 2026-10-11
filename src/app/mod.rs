@@ -238,6 +238,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         #[cfg(feature = "std")]
         install_default_log_sink_once();
         let mut world = World::new();
+        crate::input::event::hit_test::prepare_geometry_tracking(&mut world);
         world.insert_resource(ScrollDragState::default());
         world.insert_resource(ScrollMotion::default());
         world.insert_resource(PointerCursor::default());
@@ -477,6 +478,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// Failed reservations leave both the current cache and declarations intact.
     pub fn prepare_text_layout(&mut self) -> Result<&mut Self, crate::text::TextLayoutError> {
         let TextLayoutReservation::Pending(capacity) = self.text_layout_reservation else {
+            crate::input::event::hit_test::set_preparation_blocked(&mut self.world, false);
             return Ok(self);
         };
         let limits = {
@@ -489,6 +491,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             if cache.is_in_use() {
                 let error = crate::text::TextLayoutError::InUse;
                 self.text_layout_preparation_error = Some(error);
+                drop(storage);
+                crate::input::event::hit_test::set_preparation_blocked(&mut self.world, true);
                 return Err(error);
             }
             cache.limits()
@@ -497,6 +501,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             Ok(cache) => cache,
             Err(error) => {
                 self.text_layout_preparation_error = Some(error);
+                crate::input::event::hit_test::set_preparation_blocked(&mut self.world, true);
                 return Err(error);
             }
         };
@@ -506,6 +511,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             .replace_text_layouts(cache);
         self.text_layout_reservation = TextLayoutReservation::Prepared;
         self.text_layout_preparation_error = None;
+        crate::input::event::hit_test::set_preparation_blocked(&mut self.world, false);
         Ok(self)
     }
 
@@ -1207,6 +1213,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         }
         self.ensure_started();
         let _owner_scope = crate::core::reactive::OwnerGuard::enter(&mut self.world);
+        if let Err(error) = self.prepare_text_layout() {
+            crate::warn!("input layout preparation failed: {:?}", error);
+        }
         self.sync_surface_geometry(self.backend.viewport());
         if self.suspended {
             // Fan-out plugin on_event while suspended so AutoSuspendOnFocus-style
@@ -2152,6 +2161,26 @@ mod app_invariant_tests {
         ));
         assert_eq!(app.last_text_layout_preparation_error(), Some(error));
         assert_eq!(app.last_text_layout_failure(), None);
+        assert!(crate::input::event::hit_test::preparation_blocked(
+            &app.world
+        ));
+        crate::input::event::deliver_input(
+            &mut app.world,
+            Some(root),
+            &InputEvent::PointerDown {
+                id: 0,
+                x: 1.into(),
+                y: 1.into(),
+            },
+            0,
+            64,
+            32,
+        );
+        assert!(
+            app.world
+                .resource::<render_system::LayoutSnapshot>()
+                .is_none()
+        );
         assert_eq!(
             app.world
                 .resource::<Outputs<TextGeometry>>()
@@ -2177,6 +2206,9 @@ mod app_invariant_tests {
         app.with_text_layout_limits(crate::text::TextLayoutLimits::HOST);
         app.prepare_text_layout().unwrap();
         assert_eq!(app.last_text_layout_preparation_error(), None);
+        assert!(!crate::input::event::hit_test::preparation_blocked(
+            &app.world
+        ));
         assert_eq!(
             app.world
                 .resource::<Outputs<TextGeometry>>()

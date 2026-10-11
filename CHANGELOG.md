@@ -41,6 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Pointer and wheel input refresh stale layout and hit geometry before dispatch, preserving pending paint damage and reusing unchanged geometry between inputs.
+
 - Pointer movement coalescing preserves event order across button, touch, wheel, and text input in WGPU surfaces.
 - Queued notifications stop after retained cells change data bindings, including callbacks remaining in an active dispatch.
 - Persistence flushes retain their registry allocation and restore the registry if a save callback unwinds.

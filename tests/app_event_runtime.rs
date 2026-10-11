@@ -108,6 +108,7 @@ enum Step {
     DragStarted,
     DragCancelled,
     DragEnded,
+    LayoutChanged,
     Tap,
 }
 
@@ -120,6 +121,95 @@ fn record_tap(trace: res!(mut Trace)) {
 struct InputGate {
     #[observe]
     visible: bool,
+}
+
+#[mirui::model]
+struct HitLayout {
+    #[observe]
+    expanded: bool,
+}
+
+#[mirui::model]
+impl HitLayout {
+    fn expand(&mut self) {
+        self.expanded = true;
+    }
+}
+
+#[mirui::event]
+fn expand_before_next_hit(layout: model!(HitLayout), trace: res!(mut Trace)) {
+    layout.expand();
+    trace.push(Step::LayoutChanged);
+}
+
+#[mirui::compose]
+fn moving_targets(layout: model!(HitLayout)) -> mirui::ecs::Entity {
+    mirui::ui! {
+        Column (width: 8, height: 8, bg_color: mirui::types::Color::rgb(0, 0, 0)) {
+            View (
+                width: 8,
+                height: ${ if layout.expanded() { 4 } else { 2 } },
+                bg_color: mirui::types::Color::rgb(0, 0, 255)
+            ) on Tap(expand_before_next_hit::callback(layout.clone()))
+            View (width: 8, height: 2, bg_color: mirui::types::Color::rgb(0, 255, 0)) on Tap(record_tap::callback())
+        }
+    }
+}
+
+#[test]
+fn later_input_hits_layout_changed_by_an_earlier_callback_in_the_same_burst() {
+    use mirui::input::event::sim::{SimCommand, SimulatedInput, sim_input_system};
+    for simulated in [false, true] {
+        let mut app = app([]);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        let layout = app.add_model(HitLayout { expanded: false });
+        app.compose(root, moving_targets(layout));
+        app.render().unwrap();
+        let events = [
+            InputEvent::PointerDown {
+                id: 0,
+                x: 1.into(),
+                y: 1.into(),
+            },
+            InputEvent::PointerUp {
+                id: 0,
+                x: 1.into(),
+                y: 1.into(),
+            },
+            InputEvent::PointerDown {
+                id: 0,
+                x: 1.into(),
+                y: 5.into(),
+            },
+            InputEvent::PointerUp {
+                id: 0,
+                x: 1.into(),
+                y: 5.into(),
+            },
+        ];
+        if simulated {
+            app.add_resource(SimulatedInput::new(
+                events
+                    .into_iter()
+                    .map(|event| SimCommand::at(0, event))
+                    .collect(),
+            ));
+            app.add_system(sim_input_system::system());
+        } else {
+            app.backend.events.extend(events);
+        }
+        app.tick();
+        assert_eq!(
+            app.world.resource::<Trace>().unwrap().steps(),
+            &[Step::StartHook, Step::LayoutChanged, Step::Tap],
+            "simulated={simulated}"
+        );
+        app.render_dirty().unwrap();
+        let pixels = app.backend.framebuffer();
+        assert_eq!(pixels.get_pixel(1, 3), mirui::types::Color::rgb(0, 0, 255));
+        assert_eq!(pixels.get_pixel(1, 5), mirui::types::Color::rgb(0, 255, 0));
+    }
 }
 
 #[mirui::model]
