@@ -42,5 +42,5 @@ pub use text::{
 pub use text_document::{TextDocument, TextEditError};
 pub use text_editing::{TextEditing, TextSelection};
 pub use text_input::{Placeholder, TextInput};
-pub use transform::{WidgetTransform, set_transform};
+pub use transform::WidgetTransform;
 pub use transform_3d::{TransformOrigin, WidgetTransform3D};

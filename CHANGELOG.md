@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Removed the World-based `widgets::set_transform` helper. Typed `prop::Transform` updates preserve layout and invalidate changed visual output.
+
 ### Added
 
 - TextInput displays focused selections using prepared text geometry, including reversed selections and horizontally scrolled content.

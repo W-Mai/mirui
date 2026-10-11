@@ -4312,7 +4312,7 @@ mod layout_snapshot_reuse_check {
         collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
         let snapshot = world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot;
 
-        crate::ui::widgets::set_transform(
+        crate::ui::property::apply_to_world::<crate::ui::property::prop::Transform>(
             &mut world,
             child,
             Transform::translate(Fixed::from_int(20), Fixed::ZERO),

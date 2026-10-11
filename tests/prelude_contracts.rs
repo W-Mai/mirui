@@ -63,3 +63,9 @@ fn root_and_tap_world_helpers_are_not_author_entry_points() {
     let cases = trybuild::TestCases::new();
     cases.compile_fail("tests/prelude_contracts/raw_root_tap.rs");
 }
+
+#[test]
+fn transform_updates_use_typed_properties() {
+    let cases = trybuild::TestCases::new();
+    cases.compile_fail("tests/prelude_contracts/raw_transform.rs");
+}

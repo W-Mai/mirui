@@ -311,7 +311,7 @@ fn path_carets_stay_local_while_the_prepared_transform_maps_them_once() {
             .apply_point(before[0].segment()[0])
             .unwrap()
     };
-    crate::ui::widgets::set_transform(
+    crate::ui::property::apply_to_world::<crate::ui::property::prop::Transform>(
         &mut app.world,
         source,
         Transform::translate(Fixed::from_int(11), Fixed::from_int(9)),
@@ -430,7 +430,7 @@ fn ancestor_visual_geometry_changes_repaint_separate_consumers_before_acknowledg
             app.world.invalidate_visual(parent);
             68
         } else {
-            crate::ui::widgets::set_transform(
+            crate::ui::property::apply_to_world::<crate::ui::property::prop::Transform>(
                 &mut app.world,
                 parent,
                 Transform::translate(Fixed::from_int(4), Fixed::ZERO),

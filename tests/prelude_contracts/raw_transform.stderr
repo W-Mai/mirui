@@ -1,0 +1,17 @@
+error[E0432]: unresolved import `mirui::ui::widgets::set_transform`
+ --> tests/prelude_contracts/raw_transform.rs:1:5
+  |
+1 | use mirui::ui::widgets::set_transform;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `set_transform` in `ui::widgets`
+  |
+help: a similar name exists in the module
+  |
+1 - use mirui::ui::widgets::set_transform;
+1 + use mirui::ui::widgets::transform;
+  |
+
+error[E0432]: unresolved import `mirui::ui::widgets::transform::set_transform`
+ --> tests/prelude_contracts/raw_transform.rs:2:5
+  |
+2 | use mirui::ui::widgets::transform::set_transform as raw_transform;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `set_transform` in `ui::widgets::transform`

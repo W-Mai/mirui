@@ -7,6 +7,45 @@ mod tracking_allocator;
 
 use tracking_allocator::tracked_allocations;
 
+#[system]
+fn transform_widgets(
+    nodes: query!(Entity, mirui::ui::widgets::WidgetTransform),
+    commands: commands!(),
+) {
+    for (node, _) in nodes {
+        commands.set::<mirui::ui::property::prop::Transform>(
+            node,
+            mirui::types::Transform::translate(4.into(), 3.into()),
+        );
+    }
+}
+
+#[test]
+fn typed_transform_commands_preserve_layout_without_warm_allocations() {
+    use mirui::types::Transform;
+    use mirui::ui::dirty::Dirty;
+    use mirui::ui::widgets::WidgetTransform;
+
+    let mut app = App::headless(32, 32);
+    let root = app.spawn_root().id();
+    let node = app.compose(root, |tree| {
+        tree.spawn(WidgetTransform(Transform::IDENTITY))
+    });
+    app.add_system(transform_widgets::system());
+    app.world.remove::<Dirty>(node);
+    app.systems.run_all(&mut app.world).unwrap();
+    assert_eq!(
+        app.world.get::<WidgetTransform>(node).unwrap().0,
+        Transform::translate(4.into(), 3.into())
+    );
+    assert!(!app.world.has::<Dirty>(node));
+    assert_eq!(
+        tracked_allocations(|| app.systems.run_all(&mut app.world).unwrap()),
+        0
+    );
+    assert!(!app.world.has::<Dirty>(node));
+}
+
 #[model]
 struct Counter {
     value: i32,
