@@ -21,6 +21,85 @@ use tracking_allocator::tracked_allocations;
 type TestApp =
     App<mirui::surface::framebuf::FramebufSurface<fn(&[u8], mirui::types::PhysicalRect)>>;
 
+#[event]
+fn count_submission(counter: model!(EventCounter)) {
+    counter.increment();
+}
+
+#[compose]
+fn text_notifications(
+    block: model!(EventCounter),
+    closure: model!(EventCounter),
+    function: model!(EventCounter),
+) {
+    use mirui::input::event::input::Key;
+    use mirui::ui::widgets::text_input::{SelectionChanged, Submitted, TextInput};
+    ui! {
+        Column() {
+            TextInput(id: "text_block")
+                on Submitted { block.increment(); }
+                on SelectionChanged { block.increment(); }
+            TextInput(id: "text_closure")
+                on Submitted(move |_: &Submitted| { closure.increment(); })
+                on SelectionChanged(move |_: &SelectionChanged| { closure.increment(); })
+            TextInput(id: "text_function")
+                on Submitted(count_submission::callback(function.clone()))
+                on SelectionChanged(count_submission::callback(function.clone()))
+            TextInput(id: "text_intercepted")
+                on Key(move |_: &Key| true)
+                on Submitted(count_submission::callback(function))
+        }
+    };
+}
+
+#[test]
+fn text_notifications_share_authoring_forms_and_respect_key_consumption() {
+    use mirui::input::event::focus::FocusState;
+    use mirui::input::event::input::{InputEvent, KEY_RETURN};
+    let mut app = App::headless(32, 32);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    let counters = core::array::from_fn::<_, 3, _>(|_| app.add_model(EventCounter { value: 0 }));
+    app.compose(
+        root,
+        text_notifications(
+            counters[0].clone(),
+            counters[1].clone(),
+            counters[2].clone(),
+        ),
+    );
+    for (index, id) in [
+        "text_block",
+        "text_closure",
+        "text_function",
+        "text_intercepted",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let node = app.world.find_by_id(id).unwrap();
+        app.world.insert_resource(FocusState {
+            focused: Some(node),
+        });
+        for input in [
+            InputEvent::CharInput { ch: '界' },
+            InputEvent::Key {
+                code: KEY_RETURN,
+                pressed: true,
+                modifiers: Some(Default::default()),
+                repeat: Some(false),
+            },
+        ] {
+            mirui::input::event::dispatch_input(&mut app.world, Some(root), &input, 0, 32, 32);
+            app.tick();
+        }
+        if index < 3 {
+            assert_eq!(counters[index].value(), 2);
+        }
+    }
+    assert_eq!(counters[2].value(), 2);
+}
+
 #[derive(Debug, PartialEq, Eq)]
 struct Marker(u32);
 

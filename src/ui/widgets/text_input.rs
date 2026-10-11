@@ -2,7 +2,7 @@ use crate::ecs::{Entity, World};
 use crate::input::event::focus::{FocusState, Focusable, TextEditable};
 use crate::input::event::gesture::Tap;
 use crate::input::event::input::{
-    CharInput, KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RIGHT, Key,
+    CharInput, KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RETURN, KEY_RIGHT, Key,
 };
 use crate::render::command::DrawCommand;
 use crate::text::TextGeometry;
@@ -46,6 +46,10 @@ crate::input::event::contract::widget_events! {
     TextInput;
     /// The input accepted an insertion or deletion and now contains `len` bytes.
     Changed { len: u32 },
+    /// The input handler changed the directed selection's UTF-8 byte offsets.
+    SelectionChanged { anchor: u32, cursor: u32 },
+    /// Return was accepted without inserting text or changing focus.
+    Submitted,
 }
 
 /// Single-line UTF-8 text input with explicitly prepared capacity.
@@ -658,6 +662,10 @@ fn textinput_key(
         return false;
     };
     let edit = match event.code {
+        KEY_RETURN => {
+            commands.emit(node, Submitted);
+            return true;
+        }
         KEY_BACKSPACE => InputEdit::Backspace,
         KEY_DELETE => InputEdit::Delete,
         KEY_LEFT => InputEdit::Left,
@@ -733,12 +741,25 @@ fn apply_input_edit(
         return Ok(());
     }
     let input = world.get_mut::<TextInput>(node).expect("validated input");
+    let previous = (input.anchor, input.cursor);
     let content_changed = edit.apply(input);
     let len = input.len() as u32;
-    if content_changed {
-        crate::input::event::emission::submit_if_listened(world, node, Changed { len })?;
-    }
-    Ok(())
+    let selection = SelectionChanged {
+        anchor: input.anchor,
+        cursor: input.cursor,
+    };
+    let selection_changed = previous != (selection.anchor, selection.cursor);
+    let content_result = if content_changed {
+        crate::input::event::emission::submit_if_listened(world, node, Changed { len })
+    } else {
+        Ok(())
+    };
+    let selection_result = if selection_changed {
+        crate::input::event::emission::submit_if_listened(world, node, selection)
+    } else {
+        Ok(())
+    };
+    content_result.and(selection_result)
 }
 
 #[crate::event]
@@ -763,6 +784,10 @@ pub use text_input_render::view;
 #[cfg(test)]
 #[path = "text_input_edit_tests.rs"]
 mod edit_tests;
+
+#[cfg(test)]
+#[path = "text_input_event_tests.rs"]
+mod event_tests;
 
 #[cfg(test)]
 mod tests {

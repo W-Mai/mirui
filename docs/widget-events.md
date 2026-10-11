@@ -28,6 +28,10 @@ assert_eq!(input.as_str(), "Hello Mirui");
 
 Character input replaces the current selection. Backspace and Delete remove a nonempty selection first; otherwise they remove one Unicode scalar. Left and Right collapse a selection to its beginning or end, and otherwise move by one scalar, not a full grapheme cluster. `TextInput::Changed { len: u32 }` reports content accepted by the input handlers, not caret-only changes. Calling component methods directly updates component state without synthesizing input notifications.
 
+`TextInput::SelectionChanged { anchor: u32, cursor: u32 }` reports the resulting directed UTF-8 byte offsets when an input handler changes the selection. An edit that changes both content and selection reports `Changed` first. Replacing selected text with identical text can collapse the selection without reporting a content change. Rejected and unchanged operations do not notify.
+
+`TextInput::Submitted` reports a Return press accepted by the default key handler, including repeated presses. It does not insert a newline, clear content, move the selection, or change focus. An authored key handler can consume Return before the default handler. Both notifications support inline bodies, closures, typed callbacks, and widget builders. Notifications without listeners are skipped; queue failure does not roll back an edit or replay it later.
+
 ## Pointer identity
 
 Raw `InputEvent` pointer records carry `kind: PointerKind` (`Mouse`, `Touch`, `Pen`, or `Unknown`) and `id`. Gesture and scroll capture match both fields; movement or release from another pointer cannot end that capture. Backends report the device category rather than inferring it from the slot number. Simulated cursor actions use `Mouse`; simulated pinch and rotation contacts use `Touch`.

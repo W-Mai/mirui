@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `TextInput::Submitted` reports accepted Return presses; `SelectionChanged` reports directed UTF-8 selection offsets after input edits.
+
 - `TextInput` accepts explicit byte capacities through `capacity` and fallible component and builder methods. Small inputs use inline storage; larger buffers are prepared before allocation-free editing.
 
 - `TextInput` supports validated UTF-8 selections and atomic text replacement without allocating. Editing failures preserve content and selection; text storage is private and change notifications report byte lengths as `u32`.
