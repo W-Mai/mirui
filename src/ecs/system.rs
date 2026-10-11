@@ -689,6 +689,7 @@ impl SystemScheduler {
             }
             let start_ns = clock_fn.map(|f| f()).unwrap_or(0);
             let result = prepared.invoke(world);
+            world.callback_completed();
             if let Some(f) = clock_fn {
                 let elapsed_ns = f().saturating_sub(start_ns);
                 let elapsed_us = (elapsed_ns / 1_000) as u32;

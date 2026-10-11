@@ -113,10 +113,10 @@ impl EventCapacity {
 }
 
 impl Default for EventCapacity {
-    /// 8 notification records per buffer, 4 commands per callback, and 16 deliveries per flush. Payload storage uses the actual layouts of 8 Slider value changes and a combination of one theme change and 3 transform updates.
+    /// 8 notification records per buffer, 4 commands per callback, and 16 deliveries per flush. Payload storage uses the actual layouts of 8 focus changes and a combination of one theme change and 3 transform updates.
     fn default() -> Self {
         Self::new()
-            .notifications::<crate::ui::widgets::slider::ValueChanged>(8)
+            .notifications::<super::focus::FocusChanged>(8)
             .commands(
                 CommandCapacity::new()
                     .set_theme(1)
@@ -187,8 +187,17 @@ mod tests {
         assert_eq!(
             tracked_allocations(|| {
                 let preset = EventCapacity::default().resolve().unwrap();
+                let capacity = preset.notifications.unwrap();
+                assert!(
+                    capacity.payload_bytes
+                        >= 8 * core::mem::size_of::<crate::ui::widgets::slider::ValueChanged>()
+                );
+                assert!(
+                    capacity.payload_alignment
+                        >= core::mem::align_of::<crate::ui::widgets::slider::ValueChanged>()
+                );
                 let payload = PayloadRequirements::new()
-                    .include::<crate::ui::widgets::slider::ValueChanged>(8)
+                    .include::<super::super::focus::FocusChanged>(8)
                     .unwrap()
                     .limits()
                     .unwrap();

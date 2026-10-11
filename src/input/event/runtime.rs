@@ -20,7 +20,7 @@ use super::emission::{
     enqueue_app_notice, flush_notifications_with, has_business_storage,
     prepare_runtime_notifications,
 };
-use super::focus::FocusState;
+use super::focus::{FocusChanged, FocusObserver, FocusState};
 use super::input::{CharInput, InputEvent, Key, Rotary, Wheel};
 use super::layout::{SizeChanged, SizeObservers};
 use super::lifecycle::AppNotice;
@@ -55,6 +55,7 @@ struct EventRuntime {
     listeners: EventListeners,
     configuration: Cell<Configuration>,
     sizes: SizeObservers,
+    focus: FocusObserver,
 }
 
 impl EventRuntime {
@@ -104,6 +105,7 @@ impl EventRuntime {
 
     fn flush(&self, world: &mut World, limit: usize) -> Result<usize, RuntimeRunError> {
         self.check_owner(world)?;
+        self.focus.observe(world);
         match flush_notifications_with(world, &self.listeners, limit, |world| {
             self.prepare(world, 0)
         }) {
@@ -204,12 +206,20 @@ pub(crate) fn initialize(world: &mut World) {
         owner: world.id(),
         listeners,
         sizes: SizeObservers::default(),
+        focus: FocusObserver::default(),
         configuration: Cell::new(Configuration::Open(
             EventCapacity::default()
                 .resolve()
                 .expect("valid UI event preset"),
         )),
     }));
+    world.set_callback_observer(observe_focus);
+}
+
+fn observe_focus(world: &mut World) {
+    if let Some(runtime) = runtime(world) {
+        runtime.focus.observe(world);
+    }
 }
 
 fn runtime(world: &World) -> Option<Rc<EventRuntime>> {
@@ -455,6 +465,9 @@ where
     let listener = runtime
         .listeners
         .install_entity(world, entity, selector, callback, commands)?;
+    if TypeId::of::<E>() == TypeId::of::<FocusChanged>() {
+        runtime.focus.enable(world);
+    }
     if observes_size {
         runtime.sizes.insert(listener, entity);
         world.insert(entity, crate::ui::dirty::Dirty);
@@ -559,6 +572,7 @@ pub fn dispatch_gesture(
         return Ok(super::BubbleControl::Allow);
     }
     let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
+    let origin = crate::core::reactive::retained::InputLease::capture(world, event.target());
     if matches!(event, super::gesture::GestureEvent::Tap { .. })
         && let Some(focus) = world.resource_mut::<FocusState>()
     {
@@ -567,6 +581,21 @@ pub fn dispatch_gesture(
     super::multi_tap::observe_gesture(world, event, now_ms);
     initialize(world);
     let runtime = runtime(world).expect("App event runtime is initialized");
+    if matches!(event, super::gesture::GestureEvent::Tap { .. }) {
+        let limit = runtime
+            .configuration
+            .get()
+            .limits()
+            .flush_limit
+            .unwrap_or(0);
+        if let Err(error) = runtime.flush(world, limit) {
+            crate::warn!(target: "mirui::event::focus", "focus delivery skipped: {:?}", error);
+        }
+    }
+    if origin.is_some_and(|lease| !lease.valid(world)) {
+        return Ok(super::BubbleControl::Allow);
+    }
+    let branch = InputBranch::scan(world, event.target())?;
     runtime.prepare(world, 0)?;
     macro_rules! project {
         ($($kind:ident),+ $(,)?) => {
@@ -1399,7 +1428,7 @@ mod tests {
         );
     }
 
-    struct Oversized([u8; 65]);
+    struct Oversized([u8; 1024]);
 
     #[repr(align(64))]
     struct Aligned(u8);
@@ -1419,6 +1448,11 @@ mod tests {
     fn oversized_payloads_fail_before_freezing_and_explicit_layout_allows_installation() {
         let mut world = world();
         let target = world.spawn(Pad);
+        let capacity = EventCapacity::default()
+            .resolve()
+            .unwrap()
+            .notifications
+            .unwrap();
         assert_eq!(
             install_entity(
                 &mut world,
@@ -1431,8 +1465,8 @@ mod tests {
             Err(RuntimeInstallError::NotificationPayload {
                 event: type_name::<Oversized>(),
                 error: NotificationError::PayloadCapacity {
-                    required: 65,
-                    available: 64
+                    required: core::mem::size_of::<Oversized>(),
+                    available: capacity.payload_bytes,
                 },
             })
         );
@@ -1449,7 +1483,7 @@ mod tests {
                 event: type_name::<Aligned>(),
                 error: NotificationError::PayloadAlignment {
                     required: 64,
-                    available: 4
+                    available: capacity.payload_alignment,
                 },
             })
         );
@@ -1486,7 +1520,7 @@ mod tests {
                     crate::input::event::emission::submit_if_listened(
                         &mut world,
                         target,
-                        Oversized([5; 65]),
+                        Oversized([5; 1024]),
                     )
                     .unwrap();
                     crate::input::event::emission::submit_if_listened(

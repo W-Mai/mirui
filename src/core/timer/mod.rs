@@ -258,6 +258,7 @@ impl TimerRuntime {
             let mut batch = self.commands.begin();
             callback.invoke(entity, batch.commands());
             let result = batch.finish(world);
+            world.callback_completed();
 
             if let Some(timer) = world.get_mut::<Timer>(entity) {
                 let remove = match timer.mode {
@@ -516,12 +517,19 @@ mod tests {
         reset_count();
         let mut world = fresh_world();
         let entity = add(&mut world, TimerSchedule::every(10), cancel_cb);
+        struct CompletionCount(usize);
+        world.insert_resource(CompletionCount(0));
+        world.set_callback_observer(|world| {
+            assert!(world.query::<Timer>().iter().next().is_none());
+            world.resource_mut::<CompletionCount>().unwrap().0 += 1;
+        });
 
         tick(&mut world, 0);
         tick(&mut world, 10);
 
         assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 1);
         assert!(world.get::<Timer>(entity).is_none());
+        assert_eq!(world.resource::<CompletionCount>().unwrap().0, 1);
     }
 
     #[test]

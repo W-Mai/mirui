@@ -554,7 +554,7 @@ impl<E: Event, C: CallbackContext<E>> PreparedEvent<E, C> {
         }
         let _owner = OwnerGuard::enter(world);
         let decision = match &self.run {
-            CallbackRun::Plain(run) => run(world, payload, target),
+            CallbackRun::Plain(run) => Ok(run(world, payload, target)),
             CallbackRun::Deferred { run, commands } => {
                 let mut queue = commands.try_borrow_mut().map_err(|_| CommandError::Busy)?;
                 let mut batch = queue.begin();
@@ -563,12 +563,14 @@ impl<E: Event, C: CallbackContext<E>> PreparedEvent<E, C> {
                     if let Some(decision) = decision {
                         E::Route::discard(world, decision);
                     }
-                    return Err(error);
+                    Err(error)
+                } else {
+                    Ok(decision)
                 }
-                decision
             }
         };
-        Ok(decision)
+        world.callback_completed();
+        decision
     }
 }
 

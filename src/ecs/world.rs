@@ -294,6 +294,7 @@ pub struct World {
     component_changes: alloc::vec::Vec<ComponentChange>,
     drop_hooks: RefCell<alloc::vec::Vec<WorldDropHook>>,
     lifetime: Option<Rc<()>>,
+    callback_observer: Option<fn(&mut World)>,
 }
 
 impl Default for World {
@@ -307,11 +308,22 @@ impl Default for World {
             component_changes: alloc::vec::Vec::new(),
             drop_hooks: RefCell::new(alloc::vec::Vec::new()),
             lifetime: Some(Rc::new(())),
+            callback_observer: None,
         }
     }
 }
 
 impl World {
+    pub(crate) fn set_callback_observer(&mut self, observer: fn(&mut World)) {
+        self.callback_observer = Some(observer);
+    }
+
+    pub(crate) fn callback_completed(&mut self) {
+        if let Some(observer) = self.callback_observer {
+            observer(self);
+        }
+    }
+
     pub(crate) fn id(&self) -> WorldId {
         self.id
     }

@@ -8,6 +8,23 @@ Spatial input refreshes stale layout or transformed hit geometry before dispatch
 
 `Key` carries `code`, `pressed`, `modifiers: Option<KeyModifiers>`, and `repeat: Option<bool>`. Modifiers expose `shift`, `control`, `alt`, and `meta`. `Some(false)` identifies a non-repeated key event; `None` means the platform did not provide that information. SDL and Web supply both snapshots; WGPU modifiers remain unknown until a native modifier update and are cleared on focus loss or suspension. Linux uses the keyboard device state and native repeat flag. NuttX keyboard records do not provide modifiers or repeat metadata. Simulated input supplies the fields explicitly.
 
+## Node focus
+
+`FocusChanged { focused, related }` is a direct node notification. `related` identifies the other node in the transition and may no longer exist when read. Subscribe with an inline body, closure, or `#[event]` callback:
+
+```rust,ignore
+#[event]
+fn focus_changed(event: event!(FocusChanged), state: model!(EditorState)) {
+    state.set_active(event.focused);
+}
+
+TextInput() on FocusChanged(focus_changed::callback(state))
+```
+
+`FocusState.focused` remains the focus resource. Writes within one callback publish the final value; separate Event, System, and Timer callbacks preserve separate transitions. The previous node loses focus before the new node gains it. Tap selects focus and delivers its notifications before authored Tap handlers. Changes made by focus listeners are queued, not delivered recursively. Hidden, disabled, removed, or rebound targets lose eligibility; notifications for destroyed or retired identities are discarded. Registering a listener does not replay existing focus or add pointer feedback. Host focus remains independent.
+
+Focus notifications share `EventCapacity` storage and its flush limit. Failed enqueue attempts are logged and discarded without rolling back focus or retrying the notification.
+
 ## Surface changes
 
 Register `ViewportChanged` and `SafeAreaChanged` through `App::on_event`. Both carry `old` and `new` values. `ViewportChanged` includes changes to physical size or scale even when logical dimensions stay the same; safe-area insets are in logical pixels.

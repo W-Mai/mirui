@@ -285,7 +285,7 @@ impl InputBranch {
         if self.allowed() { self.focusable } else { None }
     }
 
-    fn allowed(&self) -> bool {
+    pub(super) fn allowed(&self) -> bool {
         self.alive && !self.hidden && !self.disabled
     }
 }

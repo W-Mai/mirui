@@ -120,6 +120,7 @@ impl sealed::Source for AppSource {}
 impl<W: Component> sealed::Source for WidgetSource<W> {}
 
 impl EventSource<EntityBubble> for EntitySource {}
+impl EventSource<EntityNotification> for EntitySource {}
 impl EventSource<Initialization> for EntitySource {}
 impl EventSource<LayoutNotification> for LayoutSource {}
 impl EventSource<InputFallback> for InputSource {}

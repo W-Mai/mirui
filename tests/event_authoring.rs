@@ -9,6 +9,7 @@ use mirui::app::App;
 use mirui::ecs::{Component, Entity, World};
 use mirui::input::event::BubbleControl;
 use mirui::input::event::contract::Event;
+use mirui::input::event::focus::{FocusChanged, FocusSelectors, Focusable};
 use mirui::input::event::gesture::{GestureEvent, Tap};
 use mirui::types::Fixed;
 use mirui::ui::widgets::switch::{Switch, Toggled};
@@ -51,6 +52,57 @@ fn model_event(counter: model!(EventCounter)) {
             commands!().insert(event.target, Marker(counter.value()));
         }
     };
+}
+
+#[event]
+fn count_focus(event: event!(FocusChanged), counter: model!(EventCounter)) {
+    if event.focused {
+        counter.increment();
+    }
+}
+
+#[compose]
+fn focus_panel(
+    block: model!(EventCounter),
+    closure: model!(EventCounter),
+    function: model!(EventCounter),
+) {
+    ui! {
+        Column () {
+            View (id: "focus_block") [Focusable] on FocusChanged {
+                if event.focused { block.increment(); }
+            }
+            View (id: "focus_closure") [Focusable] on FocusChanged(move |event: &FocusChanged| {
+                if event.focused { closure.increment(); }
+            })
+            View (id: "focus_function") [Focusable] on FocusChanged(count_focus::callback(function))
+        }
+    };
+}
+
+#[test]
+fn focus_notifications_use_all_three_authoring_forms_without_pointer_feedback() {
+    let mut app = App::headless(32, 32);
+    let root = app.spawn_root().id();
+    let counters = core::array::from_fn::<_, 3, _>(|_| app.add_model(EventCounter { value: 0 }));
+    app.compose(
+        root,
+        focus_panel(
+            counters[0].clone(),
+            counters[1].clone(),
+            counters[2].clone(),
+        ),
+    );
+    for (index, id) in ["focus_block", "focus_closure", "focus_function"]
+        .into_iter()
+        .enumerate()
+    {
+        let node = app.world.find_by_id(id).unwrap();
+        assert!(!app.world.has::<mirui::ui::HitTarget>(node));
+        dispatch(&mut app.world, &tap(node), index as u32);
+        assert_eq!(counters[index].value(), 1);
+    }
+    assert!(counters.iter().all(|counter| counter.value() == 1));
 }
 
 struct DropMarker(Rc<Cell<u32>>);
