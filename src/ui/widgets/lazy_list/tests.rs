@@ -154,7 +154,7 @@ fn horizontal_partial_cells_and_elastic_bounds_use_the_same_axis_contract() {
         assert_eq!(layout.left, Dimension::px(slot.index.unwrap() as i32 * 40));
         assert_eq!(layout.width, Dimension::px(40));
     }
-    let bounds = crate::input::event::scroll::scroll_bounds(&app.world, list).unwrap();
+    let bounds = crate::input::event::scroll::bounds::scroll_bounds(&app.world, list).unwrap();
     assert_eq!(bounds.max_x, Fixed::from_int(320));
     assert_eq!(bounds.max_y, Fixed::ZERO);
     app.world.get_mut::<ScrollOffset>(list).unwrap().x = 420.into();
@@ -173,7 +173,7 @@ fn horizontal_partial_cells_and_elastic_bounds_use_the_same_axis_contract() {
     );
     app.world.get_mut::<LazyList>(list).unwrap().items = 0_u32.into();
     assert_eq!(
-        crate::input::event::scroll::scroll_bounds(&app.world, list)
+        crate::input::event::scroll::bounds::scroll_bounds(&app.world, list)
             .unwrap()
             .max_x,
         Fixed::ZERO

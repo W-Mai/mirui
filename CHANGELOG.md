@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `ScrollBounds` exposes the last successful layout's viewport and content extents through component queries. Configuration changes refresh the snapshot; failed layouts retain the published value.
+
 - `Pressed`, `Released`, and `PressCancelled` report captured press lifecycles with frozen ancestor routing and explicit cancellation reasons.
 
 - `HoverChanged` reports ordered node and ancestor hover transitions, combining mouse and pen paths without adding hit targets or visual feedback.
@@ -37,6 +39,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ModelList` stores ordered Model data with runtime capacity, stable item IDs, and capacity-bounded edits. Owned list fields share parent transactions, separate structural observations from item changes, and reject structural changes during registered iteration. Arrays, vectors, and iterators transfer data without requiring item clones; explicit reservation prepares data and observation storage.
 
 ### Changed
+
+- Scroll geometry is read through `query!(ScrollBounds)` instead of the public `scroll_bounds(World, Entity)` function.
 
 - Pointer boundary events clear hover and cursor feedback without changing drag capture or synthesizing off-screen movement.
 - Raw pointer events carry an explicit device category. Gesture and scroll capture distinguish pointers by category and slot, preserving mouse, touch, pen, and unknown sources through backends and simulation.

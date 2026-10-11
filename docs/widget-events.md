@@ -50,6 +50,21 @@ All three notifications also accept closures and `#[event]` callbacks. They do n
 
 The hit node and its listening ancestors are captured at the initial down and notified from child to parent. Moving, leaving the surface, reparenting, or adding a listener does not redirect that path. Long press retains capture. Scroll takeover, drag or multi-pointer recognition, platform cancellation, suspension, and target invalidation cancel it instead of releasing it. Removed or rebound receivers do not receive notifications for their old identities. Each press has at most one termination; a full notification queue discards delivery without retrying or changing recognition.
 
+## Scroll geometry
+
+`mirui::input::event::scroll::ScrollBounds` is a layout-produced component with `viewport_width`, `viewport_height`, `content_width`, `content_height`, `max_x`, and `max_y`. Read it through `query!(ScrollBounds)` in events, systems, or views. It is absent before the first successful layout; configuration edits take effect in this snapshot after layout succeeds. A failed layout leaves the previous value available.
+
+```rust,ignore
+#[event]
+fn inspect_scroll(node: entity!(), bounds: query!(ScrollBounds), state: model!(ScrollReadout)) {
+    if let Some(bounds) = bounds.get(node) {
+        state.set_max_offset(bounds.max_y);
+    }
+}
+```
+
+Configure scrollable content through `ScrollConfig`, not `ScrollBounds`. Retained descendants, clipping, and explicit extents determine the range; LazyList uses the entire logical item extent rather than the visible cell pool. A successful layout removes published bounds for nodes no longer in its tree or without `ScrollOffset`.
+
 ## Node focus
 
 `FocusChanged { focused, related }` is a direct node notification. `related` identifies the other node in the transition and may no longer exist when read. Subscribe with an inline body, closure, or `#[event]` callback:

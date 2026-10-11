@@ -1,5 +1,6 @@
+use super::bounds::ScrollBounds;
 use super::motion::{ScrollAnimation, project_target};
-use super::system::{ScrollBounds, elastic_resist};
+use super::system::elastic_resist;
 use super::velocity::VelocityTracker;
 use crate::ecs::Entity;
 use crate::types::Fixed;

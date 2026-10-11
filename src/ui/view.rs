@@ -886,6 +886,37 @@ impl ViewRegistry {
         Self::reconcile_observations(world);
     }
 
+    /// Invalidate readers of a published component without re-running attachment or output preparation.
+    pub(crate) fn component_published<T: crate::ecs::Component>(world: &mut World, entity: Entity) {
+        let changed = TypeId::of::<T>();
+        world.with_resource_box::<Self, _>(|registry, world| {
+            for view in &registry.views {
+                let owns_component = view.component_filter() == Some(changed);
+                if !owns_component
+                    && !view
+                        .definition
+                        .query_dependencies
+                        .iter()
+                        .any(|kind| kind() == changed)
+                {
+                    continue;
+                }
+                if !owns_component && view.definition.query_scope.get() != QueryScope::Local {
+                    Self::invalidate_instances(world, view);
+                } else if owns_component
+                    || view
+                        .component_filter()
+                        .is_some_and(|kind| world.has_type(entity, kind))
+                {
+                    match view.invalidation() {
+                        ViewInvalidation::Visual => world.invalidate_visual(entity),
+                        ViewInvalidation::Layout => world.invalidate(entity),
+                    }
+                }
+            }
+        });
+    }
+
     /// Mark consumers of newly published results without invalidating prepared producers.
     pub(crate) fn propagate_output_publications(world: &mut World) {
         world.with_resource_box::<OutputRelations, _>(|relations, world| {

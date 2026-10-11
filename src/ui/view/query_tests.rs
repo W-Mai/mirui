@@ -155,6 +155,33 @@ fn a_view_cannot_shrink_its_scope_after_cross_entity_iteration() {
 }
 
 #[test]
+fn component_publications_invalidate_local_and_cross_entity_readers_without_allocation() {
+    let mut app = crate::app::App::headless(32, 32);
+    app.with_widget(local::view());
+    app.with_widget(cross::view());
+    let first = app.world.spawn_empty();
+    let second = app.world.spawn_empty();
+    let follower = app.world.spawn_empty();
+    app.world.insert(first, Tile);
+    app.world.insert(second, Tile);
+    app.world.insert(follower, CrossTile(first));
+    ViewRegistry::reconcile_observations(&mut app.world);
+    paint(&app.world, first, "local");
+    paint(&app.world, second, "local");
+    paint(&app.world, follower, "cross");
+    clear(&mut app.world, &[first, second, follower]);
+    assert_eq!(
+        tracked_allocations(|| {
+            ViewRegistry::component_published::<Value>(&mut app.world, first);
+        }),
+        0
+    );
+    assert!(app.world.has::<VisualDirty>(first));
+    assert!(app.world.has::<VisualDirty>(follower));
+    assert!(!app.world.has::<VisualDirty>(second));
+}
+
+#[test]
 fn local_presence_filters_and_failed_paint_keep_complete_invalidation() {
     let mut app = crate::app::App::headless(32, 32);
     app.with_widget(filtered::view());

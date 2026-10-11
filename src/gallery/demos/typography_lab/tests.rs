@@ -6,7 +6,7 @@ use super::*;
 use crate::core::reactive::flush_signal_dirty;
 use crate::ecs::World;
 use crate::input::event::gesture::GestureEvent;
-use crate::input::event::scroll::scroll_bounds;
+use crate::input::event::scroll::ScrollBounds;
 use crate::prelude::*;
 use crate::render::font::FontManager;
 use crate::text::TextGeometry;
@@ -87,7 +87,6 @@ fn builds_the_complete_typography_matrix() {
 
 #[test]
 fn phone_layout_stacks_controls_below_the_grid_and_scrolls_to_them() {
-    use crate::input::event::scroll::scroll_bounds;
     use crate::ui::ComputedRect;
 
     for (width, height) in [(320, 568), (422, 600), (480, 320)] {
@@ -107,7 +106,7 @@ fn phone_layout_stacks_controls_below_the_grid_and_scrolls_to_them() {
         let shell_rect = world.get::<ComputedRect>(shell).unwrap().0;
         let grid_rect = world.get::<ComputedRect>(grid).unwrap().0;
         let controls_rect = world.get::<ComputedRect>(controls).unwrap().0;
-        let bounds = scroll_bounds(&world, shell).unwrap();
+        let bounds = world.get::<ScrollBounds>(shell).unwrap();
         let extent = bounds.content_height;
         let max_offset = bounds.max_y;
 
@@ -140,7 +139,7 @@ fn large_phone_scroll_repaints_the_destination_content() {
     app.set_root(root);
     app.render().unwrap();
     let shell = app.world.find_by_id("typography_lab_shell").unwrap();
-    let bounds = scroll_bounds(&app.world, shell).unwrap();
+    let bounds = *app.world.get::<ScrollBounds>(shell).unwrap();
     let max_offset = bounds.max_y;
     app.world.get_mut::<ScrollOffset>(shell).unwrap().y = max_offset;
     app.world.insert(

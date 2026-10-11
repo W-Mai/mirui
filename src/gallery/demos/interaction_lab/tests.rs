@@ -481,7 +481,7 @@ fn medium_portrait_cards_fill_the_single_column() {
 
 #[test]
 fn phone_scroll_extent_keeps_the_last_card_reachable() {
-    use crate::input::event::scroll::scroll_bounds;
+    use crate::input::event::scroll::ScrollBounds;
     use crate::types::Viewport;
     use crate::ui::ComputedRect;
     use crate::ui::render_system::update_layout;
@@ -497,7 +497,7 @@ fn phone_scroll_extent_keeps_the_last_card_reachable() {
         let controls = world.find_by_id("interaction_controls").unwrap();
         let shell_rect = world.get::<ComputedRect>(shell).unwrap().0;
         let controls_rect = world.get::<ComputedRect>(controls).unwrap().0;
-        let bounds = scroll_bounds(&world, shell).unwrap();
+        let bounds = world.get::<ScrollBounds>(shell).unwrap();
         let extent = bounds.content_height;
         let max_offset = bounds.max_y;
 

@@ -178,7 +178,7 @@ fn collection_controls_handle_capacity_emptying_and_refilling() {
 
 #[test]
 fn collection_changes_relayout_rows_and_keep_overflow_scrollable() {
-    use crate::input::event::scroll::scroll_bounds;
+    use crate::input::event::scroll::ScrollBounds;
     use crate::ui::ComputedRect;
 
     let (mut app, summary, original) = todo_app();
@@ -206,7 +206,7 @@ fn collection_changes_relayout_rows_and_keep_overflow_scrollable() {
     let list_rect = app.world.get::<ComputedRect>(list).unwrap().0;
     let last = *app.world.get::<Children>(list).unwrap().0.last().unwrap();
     let last_rect = app.world.get::<ComputedRect>(last).unwrap().0;
-    let bounds = scroll_bounds(&app.world, list).unwrap();
+    let bounds = app.world.get::<ScrollBounds>(list).unwrap();
     assert!(bounds.max_y > Fixed::ZERO);
     assert_eq!(
         bounds.content_height,

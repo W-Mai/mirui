@@ -618,6 +618,7 @@ struct LayoutStorageDemand {
     missing_prev: usize,
     missing_text_handles: usize,
     missing_input_handles: usize,
+    missing_scroll_bounds: usize,
 }
 
 fn count_layout_storage(world: &World, entity: Entity, demand: &mut LayoutStorageDemand) {
@@ -633,6 +634,10 @@ fn count_layout_storage(world: &World, entity: Entity, demand: &mut LayoutStorag
     demand.max_entity_id = demand.max_entity_id.max(entity.id);
     demand.missing_computed += usize::from(world.get::<super::ComputedRect>(entity).is_none());
     demand.missing_prev += usize::from(world.get::<super::dirty::PrevRect>(entity).is_none());
+    demand.missing_scroll_bounds += usize::from(
+        world.has::<crate::input::event::scroll::ScrollOffset>(entity)
+            && !world.has::<crate::input::event::scroll::ScrollBounds>(entity),
+    );
     demand.missing_text_handles += usize::from(
         world.get::<crate::ui::widgets::Text>(entity).is_some()
             && world.get::<crate::text::TextLayoutHandle>(entity).is_none(),
@@ -1197,6 +1202,7 @@ fn compute_layout_snapshot(
     logical_w: u16,
     logical_h: u16,
 ) -> Result<Option<Box<LayoutSnapshot>>, TextLayoutFailure> {
+    world.watch_component_revision::<crate::input::event::scroll::ScrollConfig>();
     output_plan::invalidate_geometry(world);
     let mut previous = world.take_resource_box::<LayoutSnapshot>();
     if super::branch::is_effectively_hidden(world, root) {
@@ -1217,6 +1223,12 @@ fn compute_layout_snapshot(
         demand
     });
     if let Some(demand) = &initial_demand {
+        if demand.missing_scroll_bounds > 0 {
+            world.reserve_component_storage::<crate::input::event::scroll::ScrollBounds>(
+                demand.max_entity_id,
+                demand.missing_scroll_bounds,
+            );
+        }
         if demand.missing_computed > 0 {
             world.reserve_component_storage::<super::ComputedRect>(
                 demand.max_entity_id,
@@ -1297,6 +1309,7 @@ fn compute_layout_snapshot(
                     logical_h,
                     valid: false,
                     bindings_pending: false,
+                    scroll_config_revision: 0,
                     layout_tree,
                     parked,
                     entities,
@@ -2477,7 +2490,8 @@ pub fn try_update_layout(
             return Err(failure);
         }
     };
-    let Some(snapshot) = snapshot else {
+    let Some(mut snapshot) = snapshot else {
+        crate::input::event::scroll::bounds::publish(world, &[]);
         world.remove_resource::<TextLayoutFailure>();
         super::view::ViewRegistry::invalidate_queries(world);
         return Ok(());
@@ -2502,6 +2516,7 @@ pub fn try_update_layout(
         return Err(failure);
     }
     super::view::ViewRegistry::propagate_output_publications(world);
+    snapshot.publish_scroll_bounds(world);
     world.put_resource_box(snapshot);
     world.remove_resource::<TextLayoutFailure>();
     Ok(())
@@ -2527,7 +2542,9 @@ pub(crate) fn prepare_input_geometry(
     }
     let (layout_changed, visual_changed) = hit_test::geometry_changes(world);
     let layout_current = world.resource::<LayoutSnapshot>().is_some_and(|snapshot| {
-        snapshot.matches(root, width, height) && !snapshot.bindings_pending
+        snapshot.matches(root, width, height)
+            && !snapshot.bindings_pending
+            && snapshot.scroll_config_current(world)
     });
     if layout_changed || !layout_current {
         return try_update_layout(world, root, viewport);
@@ -2723,6 +2740,7 @@ pub(crate) struct LayoutSnapshot {
     logical_h: u16,
     valid: bool,
     bindings_pending: bool,
+    scroll_config_revision: u64,
     pub(crate) layout_tree: LayoutNode,
     parked: Vec<LayoutNode>,
     pub(crate) entities: Vec<Entity>,
@@ -2730,6 +2748,17 @@ pub(crate) struct LayoutSnapshot {
 }
 
 impl LayoutSnapshot {
+    fn scroll_config_current(&self, world: &World) -> bool {
+        self.scroll_config_revision
+            == world.component_revision::<crate::input::event::scroll::ScrollConfig>()
+    }
+
+    fn publish_scroll_bounds(&mut self, world: &mut World) {
+        crate::input::event::scroll::bounds::publish(world, &self.entities);
+        self.scroll_config_revision =
+            world.component_revision::<crate::input::event::scroll::ScrollConfig>();
+    }
+
     fn matches(&self, root: Entity, logical_w: u16, logical_h: u16) -> bool {
         self.valid
             && self.root == root
@@ -3175,6 +3204,7 @@ pub(crate) fn try_collect_dirty_regions_into(
             record_text_layout_failure(world, root, failure);
             return Err(failure);
         }
+        crate::input::event::scroll::bounds::publish(world, &[]);
         super::view::ViewRegistry::invalidate_queries(world);
         drain_dirty_rects(world, plan);
         if had_snapshot || !plan.rects.is_empty() {
@@ -3205,7 +3235,9 @@ pub(crate) fn try_collect_dirty_regions_into(
     let hit_geometry_valid =
         crate::input::event::hit_test::geometry_matches(world, root, logical_w, logical_h);
     let snapshot_stale = world.resource::<LayoutSnapshot>().is_some_and(|snapshot| {
-        !snapshot.matches(root, logical_w, logical_h) || snapshot.bindings_pending
+        !snapshot.matches(root, logical_w, logical_h)
+            || snapshot.bindings_pending
+            || !snapshot.scroll_config_current(world)
     });
     if !has_layout_dirty
         && !has_visual_dirty
@@ -3239,6 +3271,7 @@ pub(crate) fn try_collect_dirty_regions_into(
         }
         None => None,
     };
+    let layout_recomputed = !visual_only || existing.is_none();
     let result = if visual_only {
         match existing {
             Some(snapshot) => Ok(Some(snapshot)),
@@ -3280,6 +3313,9 @@ pub(crate) fn try_collect_dirty_regions_into(
         record_text_layout_failure(world, root, failure);
         plan.clear();
         return Err(failure);
+    }
+    if layout_recomputed {
+        snapshot.publish_scroll_bounds(world);
     }
     super::view::ViewRegistry::propagate_output_publications(world);
     let output_plan =
