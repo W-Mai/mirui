@@ -4,8 +4,12 @@ use crate::core::model::{BindType, ModelHandle};
 
 use super::text_document::{TextDocument, TextEditError};
 
+pub(crate) mod geometry;
 mod input;
-pub(crate) use input::Navigation;
+
+/// Caret visibility shared by editors using the App clock.
+#[derive(Default, Clone, Copy)]
+pub struct CursorBlinkPhase(pub bool);
 
 crate::input::event::contract::widget_events! {
     TextEditing;
@@ -54,6 +58,7 @@ pub struct TextEditing {
     document: model!(optional TextDocument),
     selection: TextSelection,
     selection_revision: u64,
+    focused: bool,
 }
 
 impl Default for TextEditing {
@@ -63,6 +68,7 @@ impl Default for TextEditing {
             document: None,
             selection: TextSelection::default(),
             selection_revision: 0,
+            focused: false,
         }
     }
 }
@@ -74,6 +80,7 @@ impl TextEditing {
             document: Some(document),
             selection: TextSelection::default(),
             selection_revision: 0,
+            focused: false,
         }
     }
 
@@ -132,6 +139,17 @@ impl TextEditing {
         self.selection().cursor
     }
 
+    pub fn focused(&self) -> bool {
+        self.focused
+    }
+
+    pub(crate) fn usable(&self, world: &crate::ecs::World) -> bool {
+        self.document.as_ref().is_none_or(|document| {
+            crate::core::model::try_registered_owner(document) == Some(world.id())
+                && document.callback_ready()
+        })
+    }
+
     /// Validate both endpoints before changing either. Selection changes do not modify the shared document or another editor's selection.
     pub fn set_selection(&mut self, selection: TextSelection) -> Result<bool, TextEditError> {
         let previous = self.read(|text| {
@@ -162,7 +180,7 @@ impl TextEditing {
     invalidation = Layout,
     attach = input::attach::callback(),
     input = (input::key::callback(), input::committed::callback()),
-    systems = [input::normalize_selections::system()]
+    systems = [input::normalize_selections::system(), input::cursor_blink::system()]
 )]
 fn text_editing_state(_document: model!(optional component.document, watch(revision, capacity))) {}
 

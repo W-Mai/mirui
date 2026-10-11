@@ -8,7 +8,7 @@
 
 Use `with_capacity` and `with_text` to prepare a component before insertion. For a shared source, these constructors modify the bound document, while selection changes remain local. Registered document bindings retain their App ownership and lifetime rules; they do not fall back to an empty local document when the source expires.
 
-The `TextEditing` View installs focus and native text-input markers and handles committed fragments, deletion, navigation, Shift selection, and Return independently of appearance. Its `Changed`, `SelectionChanged`, and `Submitted` notifications use the existing event callbacks. External selection corrections are retained at input and pre-render boundaries. Input rejects unavailable document bindings; shared edits release component borrows before Model effects and validate the source and revision before updating selection.
+The `TextEditing` View installs focus and hit-testing components and handles committed fragments, deletion, navigation, Shift selection, and Return independently of appearance. Its `Changed`, `SelectionChanged`, and `Submitted` notifications use the existing event callbacks. External selection corrections are retained at input and pre-render boundaries. Input rejects unavailable document bindings; shared edits release component borrows before Model effects and validate the source and revision before updating selection.
 
 ```rust,ignore
 let document = app.add_model(TextDocument::new());
@@ -30,35 +30,45 @@ Spatial input refreshes stale layout or transformed hit geometry before dispatch
 
 ## Text editing
 
-`TextCommitted` delivers one complete UTF-8 fragment through the focused node, its ancestors, and App fallback. Read it with `event.text()`. Inline `on TextCommitted`, closures, and `#[event]` callbacks share this route. Returning `false` lets the default TextInput handler apply the fragment; consuming it prevents default editing.
+`TextCommitted` delivers one complete UTF-8 fragment through the focused node, its ancestors, and App fallback. Read it with `event.text()`. Inline `on TextCommitted`, closures, and `#[event]` callbacks share this route. Returning `false` lets the TextEditing handler apply the fragment; consuming it prevents default editing.
 
 Construct simulated or custom input with `TextCommitted::new("你好").into()` or move an existing `String` into `TextCommitted::new(text)`. Static strings are borrowed and owned strings are moved. Callback execution and deferred editing borrow the event until the current invocation completes; retaining business data requires its own storage. Cloning owned event text copies it. Platform text conversion and input-queue growth are separate from prepared callback and editing storage.
 
 SDL preserves each native text event as one fragment; WGPU preserves each text or IME commit fragment rather than splitting it into characters. Native fragments are not guaranteed to be entire composition sessions or grapheme clusters. The Web keyboard source leaves composing key events to the input method, including Enter, deletion, and navigation keys; it neither cancels their browser default nor dispatches them to editors or shortcuts. Composition lifecycle and candidate-window handling are not supplied by that keyboard source.
 
-`TextInput` keeps its UTF-8 storage private. Read content with `as_str()`, `len()`, and `is_empty()`, and read the caret with `cursor()`. Lengths and positions are byte offsets. `set_selection(TextSelection { anchor, cursor })` validates both endpoints before changing either; reversed selections preserve their direction.
+TextInput stores appearance only. Its attachment installs TextEditing when no capability was supplied on the node. Register both Views, or use App::with_default_widgets. TextEditing owns the document binding, directed selection, focus display state, and cursor animation. TextInput reads those components and the prepared layout when drawing; it does not keep a second copy of the text.
 
-`replace_selection(text)` replaces the entire selection and collapses it to the end of the inserted text. Capacity errors and control characters reject the whole replacement without changing content or selection. A successful result is `true` when content changed and `false` when only the selection collapsed. Editing does not allocate.
+Read content with `TextEditing::read`, and positions with `selection()` and `cursor()`. All lengths and positions are UTF-8 byte offsets. `set_selection(TextSelection { anchor, cursor })` validates both endpoints atomically and preserves reversed selections. The default is 32 inline bytes. `TextInput(capacity: 256)`, `TextInput::build().capacity(256)?`, and `TextEditing::default().with_capacity(256)?` prepare larger buffers before input. An explicit TextEditing attachment replaces the constructor's default capability.
 
-The default capacity is 32 inline bytes. Use `TextInput(capacity: 256)` in `ui!`, `TextInput::new().with_capacity(256)?`, or `TextInput::build().capacity(256)?` to prepare a larger buffer. `capacity()` reports the accepted byte limit. `set_capacity(bytes)` explicitly changes that limit, preserving content and selection; shrinking below the current length fails. Shrinking retains storage for reuse. Zero capacity accepts only empty content, and capacities above `min(u32::MAX, isize::MAX)` are rejected. Allocation failure leaves the existing input unchanged.
+To change content from application logic, bind a TextDocument and use its methods. Changes publish to all bound editors; selections remain independent. Input notifications describe accepted user actions, not programmatic document changes.
 
 ```rust,ignore
-use mirui::ui::widgets::{TextInput, TextSelection};
+#[compose]
+fn search(document: model!(TextDocument)) {
+    ui! {
+        TextInput(width: 240, height: 36) [
+            TextEditing::new(document),
+            Placeholder("Search"),
+        ] on TextEditing::Submitted {
+            // Handle the accepted Return press.
+        }
+    };
+}
 
-let mut input = TextInput::new().with_capacity(256)?;
-input.replace_selection("Hello world")?;
-input.set_selection(TextSelection { anchor: 6, cursor: 11 })?;
-input.replace_selection("Mirui")?;
-assert_eq!(input.as_str(), "Hello Mirui");
+let document = app.add_model(TextDocument::new());
+document.set_capacity(256)?;
+document.set_text("Hello Mirui")?;
+app.compose(root, search(document.clone()));
+document.replace(6..11, "world")?;
 ```
 
-Committed text replaces the current selection as one operation. An accepted fragment produces at most one `TextInput::Changed { len: u32 }`; invalid or oversized fragments are rejected in full with a warning. Backspace and Delete remove a nonempty selection first; otherwise they remove one Unicode scalar. Left and Right collapse a selection to its beginning or end, and otherwise move by one scalar, not a full grapheme cluster. `Changed` reports content accepted by input handlers, not caret-only changes. Calling component methods directly updates component state without synthesizing input notifications.
+Committed text replaces the current selection as one operation. An accepted fragment produces at most one `TextEditing::Changed { len: u32 }`; invalid or oversized fragments are rejected in full with a warning. Backspace and Delete remove a nonempty selection first; otherwise they remove one Unicode scalar. Left and Right collapse a selection to its beginning or end, and otherwise move by one scalar, not a full grapheme cluster. `Changed` reports content accepted by input handlers, not caret-only changes. Calling component methods directly updates component state without synthesizing input notifications.
 
 Shift+Left, Shift+Right, Shift+Home, and Shift+End extend the selection while retaining its anchor. Without Shift metadata, navigation moves or collapses the selection normally. Movement at an unchanged boundary does not dirty the input or notify.
 
-`TextInput::SelectionChanged { anchor: u32, cursor: u32 }` reports the resulting directed UTF-8 byte offsets when an input handler changes the selection. An edit that changes both content and selection reports `Changed` first. Replacing selected text with identical text can collapse the selection without reporting a content change. Rejected and unchanged operations do not notify.
+`TextEditing::SelectionChanged { anchor: u32, cursor: u32 }` reports the resulting directed UTF-8 byte offsets when an input handler changes the selection. An edit that changes both content and selection reports `Changed` first. Replacing selected text with identical text can collapse the selection without reporting a content change. Rejected and unchanged operations do not notify.
 
-`TextInput::Submitted` reports a Return press accepted by the default key handler, including repeated presses. It does not insert a newline, clear content, move the selection, or change focus. An authored key handler can consume Return before the default handler. Both notifications support inline bodies, closures, typed callbacks, and widget builders. Notifications without listeners are skipped; queue failure does not roll back an edit or replay it later.
+`TextEditing::Submitted` reports a Return press accepted by the default key handler, including repeated presses. It does not insert a newline, clear content, move the selection, or change focus. An authored key handler can consume Return before the default handler. Both notifications support inline bodies, closures, typed callbacks, and widget builders. Notifications without listeners are skipped; queue failure does not roll back an edit or replay it later.
 
 ## Pointer identity
 

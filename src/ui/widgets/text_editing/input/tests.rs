@@ -159,7 +159,7 @@ fn capability_view_accepts_fragments_and_keys_without_an_appearance_component() 
         .insert_resource(Notices(alloc::vec::Vec::with_capacity(8)));
     widget_input::attach_handlers_for(&mut app.world, node);
     assert!(app.world.has::<Focusable>(node));
-    assert!(app.world.has::<TextEditable>(node));
+    assert!(app.world.has::<TextEditing>(node));
     runtime::install_entity(
         &mut app.world,
         node,

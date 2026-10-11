@@ -2,7 +2,7 @@ extern crate alloc;
 
 use crate::core::reactive::{Computed, Signal};
 use crate::prelude::*;
-use crate::ui::widgets::{Button, Checkbox, Placeholder, Text, TextInput};
+use crate::ui::widgets::{Button, Checkbox, Placeholder, Text, TextEditing, TextInput};
 
 #[compose]
 pub fn build_widgets() {
@@ -45,7 +45,7 @@ pub fn build_widgets() {
                 border_radius: 10
             ) [
                 Placeholder("Your name"),
-            ] on Changed { name_changed.set(event.len > 0); }
+            ] on TextEditing::Changed { name_changed.set(event.len > 0); }
             Row (
                 width: Dimension::percent(100),
                 max_width: 280,
@@ -113,7 +113,7 @@ mod tests {
             crate::input::event::emission::submit_if_listened(
                 world,
                 entity,
-                crate::ui::widgets::text_input::Changed { len },
+                crate::ui::widgets::text_editing::Changed { len },
             )
             .unwrap();
             crate::__macro_support::flush_entity_events(world).unwrap();
@@ -124,6 +124,7 @@ mod tests {
     #[test]
     fn submit_lights_up_only_when_both_set() {
         let mut app = App::headless(360, 280);
+        app.with_default_widgets();
         let parent = app.spawn_root().id();
         app.compose(parent, build_widgets());
         let world = &mut app.world;

@@ -371,7 +371,7 @@ fn native_text_input_requires_a_focused_editable() {
     world.resource_mut::<FocusState>().unwrap().focused = Some(entity);
     assert!(!text_input_requested(&world));
 
-    world.insert(entity, TextEditable);
+    world.insert(entity, crate::ui::widgets::TextEditing::default());
     assert!(text_input_requested(&world));
 
     world.resource_mut::<FocusState>().unwrap().focused = None;

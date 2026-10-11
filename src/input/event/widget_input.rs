@@ -405,11 +405,13 @@ mod tests {
 
     #[test]
     fn text_input_attach_installs_focus_and_typed_inputs() {
-        use crate::input::event::focus::{Focusable, TextEditable};
+        use crate::input::event::focus::Focusable;
+        use crate::ui::widgets::TextEditing;
 
         let mut world = World::default();
         let mut reg = ViewRegistry::default();
         reg.insert(crate::ui::widgets::text_input::view());
+        reg.insert(crate::ui::widgets::text_editing::view());
         world.insert_resource(reg);
 
         let e = world.spawn_empty();
@@ -418,12 +420,12 @@ mod tests {
         attach_handlers_for(&mut world, e);
 
         assert!(world.get::<Focusable>(e).is_some());
-        assert!(world.get::<TextEditable>(e).is_some());
+        assert!(world.get::<TextEditing>(e).is_some());
         assert!(world.has::<HitTarget>(e));
         assert!(world.has::<InteractionFeedback>(e));
         assert!(
-            crate::ui::widgets::text_input::view().inputs().is_some(),
-            "TextInput view must expose internal gesture for focus + tap-to-focus"
+            crate::ui::widgets::text_editing::view().inputs().is_some(),
+            "TextEditing owns the typed input callbacks"
         );
     }
 

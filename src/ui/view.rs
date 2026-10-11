@@ -1049,6 +1049,7 @@ impl ViewRegistry {
         reg.insert(crate::ui::widgets::progress_bar::view());
         reg.insert(crate::ui::widgets::tabbar::view());
         reg.insert(crate::ui::widgets::text_input::view());
+        reg.insert(crate::ui::widgets::text_editing::view());
         reg.insert(crate::ui::widgets::image::view());
         reg.insert(crate::ui::widgets::text::view());
         reg.insert(crate::ui::widgets::text::static_glyph_run_view());

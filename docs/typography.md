@@ -25,7 +25,7 @@ ui! {
 
 `App::render()` and `App::render_dirty()` return `RenderError::TextLayout` when text preparation fails, including `TextInput` content and placeholders. Drawing, scrolling, and framebuffer flush are skipped for that frame. `App::last_text_layout_failure()` identifies the text entity, preparation stage, and available capacity details; a successful layout clears the diagnostic.
 
-`TextInput` prepares its single-line layout after its final size is known. Glyphs and the cursor read that layout during painting; input edits, placeholder changes, font replacement through `App::with_fonts`, and cache resets prepare it again. Empty inputs keep the cursor at the start, and long content scrolls horizontally to keep the cursor visible.
+`TextEditing` prepares its single-line layout after its final size is known. Glyphs and the cursor read that layout during painting; input edits, placeholder changes, font replacement through `App::with_fonts`, and cache resets prepare it again. Empty inputs keep the cursor at the start, and long content scrolls horizontally to keep the cursor visible.
 
 Low-level callers can use `render_system::try_update_layout` to receive the failure directly. The existing `update_layout` and dirty-region convenience functions retain their return types and record failures as a `TextLayoutFailure` World resource. A failed pass invalidates cached geometry for retry but does not restore text-cache entries already retired during preparation.
 
@@ -314,7 +314,7 @@ fn caret_overlay(
 
 Register `caret_overlay::view()` and attach `CaretOverlay` to the path-text node. `carets_into` and `selection_into` return source-local geometry into caller-provided buffers. The example adds the current paint origin and applies its transform once. `hit_test` accepts screen coordinates; `transform()` provides the prepared source-local-to-screen mapping, including ancestor transforms and scrolling. Linear text exposes its retained layout, font metrics, and local content rectangle through `layout()`, `metrics()`, and `content_rect()`.
 
-Mixed-direction selections are split at visual-run and line boundaries. Exhausted caret storage makes interaction geometry unavailable without discarding prepared glyphs. Selection output remains unchanged when capacity validation fails; hit testing through or behind the near plane returns `PathTextGeometryError::InvalidProjection`. Cache replacement, trimming, hidden sources, and removed text invalidate published geometry until preparation succeeds. TextInput shares layout storage but does not replace the Text result on the same entity.
+Mixed-direction selections are split at visual-run and line boundaries. Exhausted caret storage makes interaction geometry unavailable without discarding prepared glyphs. Selection output remains unchanged when capacity validation fails; hit testing through or behind the near plane returns `PathTextGeometryError::InvalidProjection`. Cache replacement, trimming, hidden sources, and removed text invalidate published geometry until preparation succeeds. TextEditing shares layout storage but does not replace the Text result on the same entity.
 
 ## Backend behavior
 

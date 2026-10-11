@@ -6,7 +6,7 @@ use mirui::prelude::{
     LongPress, MemoryWarning, Pinch, Quit, Resumed, Rotary, Rotate, Started,
     Suspended, Tap, Wheel,
 };
-use mirui::ui::widgets::{Checkbox, ProgressBar, Slider, Switch, TabBar, TextInput};
+use mirui::ui::widgets::{Checkbox, ProgressBar, Slider, Switch, TabBar, TextEditing};
 
 fn widget<W: mirui::ecs::Component, E>(_: EventKey<E>)
 where
@@ -45,7 +45,7 @@ fn main() {
     widget::<Checkbox, _>(Checkbox::Toggled);
     widget::<ProgressBar, _>(ProgressBar::ValueChanged);
     widget::<TabBar, _>(TabBar::SelectionChanged);
-    widget::<TextInput, _>(TextInput::Changed);
+    widget::<TextEditing, _>(TextEditing::Changed);
     notice(Slider::ValueChanged);
     notice(Slider::DragStarted);
     notice(Slider::DragEnded);
@@ -53,7 +53,7 @@ fn main() {
     notice(Checkbox::Toggled);
     notice(ProgressBar::ValueChanged);
     notice(TabBar::SelectionChanged);
-    notice(TextInput::Changed);
+    notice(TextEditing::Changed);
     entity(Tap::EVENT);
     entity(LongPress::EVENT);
     entity(DragStart::EVENT);

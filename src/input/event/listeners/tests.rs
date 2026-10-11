@@ -1029,10 +1029,10 @@ fn keyboard_snapshot_skips_destroyed_generations_without_retargeting_replacement
 
 #[test]
 fn unchanged_editor_actions_are_accepted_without_reaching_app_fallback() {
-    use crate::ui::widgets::text_input::TextInput;
+    use crate::ui::widgets::TextEditing;
     let mut fixture = KeyboardFixture::new(5);
-    fixture.world.insert(fixture.leaf, TextInput::new());
-    let view = crate::ui::widgets::text_input::view();
+    fixture.world.insert(fixture.leaf, TextEditing::default());
+    let view = crate::ui::widgets::text_editing::view();
     fixture.world.remove::<DefaultEditor>(fixture.leaf);
     view.auto_attach()
         .unwrap()
@@ -1043,7 +1043,7 @@ fn unchanged_editor_actions_are_accepted_without_reaching_app_fallback() {
     let called = changes.clone();
     // SAFETY: the only capture is an independent test counter, not a Model.
     let changed = unsafe {
-        TextInput::Changed
+        TextEditing::Changed
             .__bind_plain::<super::super::callback::NodeContext, ()>("changed", move |_, _scope| {
                 called.set(called.get() + 1)
             })
@@ -1051,7 +1051,7 @@ fn unchanged_editor_actions_are_accepted_without_reaching_app_fallback() {
     super::super::binding::install_entity_event(
         &mut fixture.world,
         fixture.leaf,
-        TextInput::Changed,
+        TextEditing::Changed,
         changed,
     );
     for code in [
@@ -1079,7 +1079,11 @@ fn unchanged_editor_actions_are_accepted_without_reaching_app_fallback() {
     }
     assert_eq!(changes.get(), 0);
     assert_eq!(
-        fixture.world.get::<TextInput>(fixture.leaf).unwrap().len(),
+        fixture
+            .world
+            .get::<TextEditing>(fixture.leaf)
+            .unwrap()
+            .len(),
         0
     );
 }

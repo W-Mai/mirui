@@ -33,21 +33,22 @@ fn text_notifications(
     function: model!(EventCounter),
 ) {
     use mirui::input::event::input::Key;
-    use mirui::ui::widgets::text_input::{SelectionChanged, Submitted, TextInput};
+    use mirui::ui::widgets::text_editing::{SelectionChanged, Submitted};
+    use mirui::ui::widgets::{TextEditing, TextInput};
     ui! {
         Column() {
             TextInput(id: "text_block")
-                on Submitted { block.increment(); }
-                on SelectionChanged { block.increment(); }
+                on TextEditing::Submitted { block.increment(); }
+                on TextEditing::SelectionChanged { block.increment(); }
             TextInput(id: "text_closure")
-                on Submitted(move |_: &Submitted| { closure.increment(); })
-                on SelectionChanged(move |_: &SelectionChanged| { closure.increment(); })
+                on TextEditing::Submitted(move |_: &Submitted| { closure.increment(); })
+                on TextEditing::SelectionChanged(move |_: &SelectionChanged| { closure.increment(); })
             TextInput(id: "text_function")
-                on Submitted(count_submission::callback(function.clone()))
-                on SelectionChanged(count_submission::callback(function.clone()))
+                on TextEditing::Submitted(count_submission::callback(function.clone()))
+                on TextEditing::SelectionChanged(count_submission::callback(function.clone()))
             TextInput(id: "text_intercepted")
                 on Key(move |_: &Key| true)
-                on Submitted(count_submission::callback(function))
+                on TextEditing::Submitted(count_submission::callback(function))
         }
     };
 }

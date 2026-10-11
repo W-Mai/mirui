@@ -1003,12 +1003,16 @@ impl MiruiRune {
                 let setters = &cmd.component_fields;
                 let capacity = cmd.capacity.as_ref().map(|capacity| {
                     quote! {
-                        .with_capacity(#capacity)
-                        .expect("TextInput capacity could not be reserved")
+                        (#world).insert(#var,
+                            ::mirui::ui::widgets::TextEditing::default()
+                                .with_capacity(#capacity)
+                                .expect("TextEditing capacity could not be reserved")
+                        );
                     }
                 });
                 tokens.extend(quote! {
-                    (#world).insert(#var, #comp_name::new() #capacity #(#setters)*);
+                    (#world).insert(#var, #comp_name::new() #(#setters)*);
+                    #capacity
                 });
             } else {
                 let comp_fields = &cmd.component_fields;

@@ -4,20 +4,12 @@ error[E0277]: the trait bound `AppSource: mirui::input::event::contract::EntityE
 16 |     let _ = wheel::callback::<NodeContext>();
    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `mirui::input::event::contract::EntityEventSource` is not implemented for `AppSource`
    |
-help: the following other types implement trait `mirui::input::event::contract::EntityEventSource`
-  --> src/input/event/contract.rs
-   |
-   | impl EntityEventSource for EntitySource {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EntitySource`
-...
-   | impl EntityEventSource for LayoutSource {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `mirui::input::event::contract::LayoutSource`
-...
-   | impl EntityEventSource for InputSource {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputSource`
-...
-   | impl<W: Component> EntityEventSource for WidgetSource<W> {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `WidgetSource<W>`
+   = help: the following other types implement trait `mirui::input::event::contract::EntityEventSource`:
+             EntitySource
+             InputSource
+             ScrollSource
+             WidgetSource<W>
+             mirui::input::event::contract::LayoutSource
    = note: required for `mirui::__macro_support::NodeContext` to implement `mirui::__macro_support::CallbackContext<mirui::prelude::Wheel>`
 
 error[E0277]: the trait bound `AppNotification: mirui::input::event::contract::EntityRoute` is not satisfied
@@ -40,18 +32,10 @@ error[E0277]: the trait bound `AppSource: mirui::input::event::contract::EntityE
 17 |     let _ = started::callback::<NodeContext>();
    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `mirui::input::event::contract::EntityEventSource` is not implemented for `AppSource`
    |
-help: the following other types implement trait `mirui::input::event::contract::EntityEventSource`
-  --> src/input/event/contract.rs
-   |
-   | impl EntityEventSource for EntitySource {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EntitySource`
-...
-   | impl EntityEventSource for LayoutSource {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `mirui::input::event::contract::LayoutSource`
-...
-   | impl EntityEventSource for InputSource {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `InputSource`
-...
-   | impl<W: Component> EntityEventSource for WidgetSource<W> {
-   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `WidgetSource<W>`
+   = help: the following other types implement trait `mirui::input::event::contract::EntityEventSource`:
+             EntitySource
+             InputSource
+             ScrollSource
+             WidgetSource<W>
+             mirui::input::event::contract::LayoutSource
    = note: required for `mirui::__macro_support::NodeContext` to implement `mirui::__macro_support::CallbackContext<mirui::prelude::Started>`

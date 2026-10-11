@@ -557,7 +557,7 @@ Switch queries its component together with optional background and thumb-animati
 
 Image queries its component together with its optional resource lease and borrows the texture manager and Theme as optional resources. A cached lease can be used without a manager; replacing a manager affects direct resolutions and newly created leases rather than retargeting an existing lease. Vector paths remain borrowed, and a drawable vector requires Theme only after its geometry is validated.
 
-TextInput queries its optional Placeholder and borrows layout, font, theme, and blink resources. Font-stack resolution receives the font manager directly, validates fallback capacity before handling a missing manager, and retains the existing font selection and layout cache. Attachment, input hooks, cursor animation, and paint priority remain part of its generated descriptor.
+TextInput queries its optional Placeholder and borrows layout, font, theme, and blink resources. Font-stack resolution receives the font manager directly, validates fallback capacity before handling a missing manager, and retains the existing font selection and layout cache. Its attachment installs TextEditing for input and cursor state; painting retains its own priority.
 
 Text queries its optional layout handle and TextPath and borrows font, layout, theme, and path resources. Linear and path text retain their borrowed glyph data, draw clipping, text-run identity, and layout invalidation policy. Layout publishes a handle only when its identity changes, so unrelated layout work does not publish a same-value query change. Cache replacement and memory-pressure resets explicitly invalidate handle dependencies because a new cache can reuse the same handle numbers.
 
@@ -658,7 +658,7 @@ changes to the UI macro's event catalog.
 Built-in notification payloads live in their widget modules:
 `slider::ValueChanged`, `slider::DragStarted`, `slider::DragEnded`, `slider::DragCancelled`,
 `switch::Toggled`, `checkbox::Toggled`, `progress_bar::ValueChanged`,
-`tabbar::SelectionChanged`, and `text_input::Changed`.
+`tabbar::SelectionChanged`, and `text_editing::Changed`.
 The corresponding constants, such as `Slider::ValueChanged`, are typed event
 keys. Qualifying a selector does not permit installing a different widget's
 notification: `Switch::Toggled` retains `WidgetSource<Switch>`.

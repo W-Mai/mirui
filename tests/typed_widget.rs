@@ -229,8 +229,19 @@ mod tests {
             ti.focus_border_color,
             mirui::ui::ColorToken::OnSurface.into()
         );
-        assert!(ti.is_empty());
-        assert_eq!(ti.capacity(), 512);
+        assert!(
+            world
+                .get::<mirui::ui::widgets::TextEditing>(entities[0])
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            world
+                .get::<mirui::ui::widgets::TextEditing>(entities[0])
+                .unwrap()
+                .capacity(),
+            512
+        );
         assert!(!world.has::<mirui::ui::widgets::Text>(entities[0]));
     }
 

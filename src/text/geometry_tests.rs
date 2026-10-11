@@ -6,7 +6,8 @@ use crate::render::DrawCommand;
 use crate::surface::FramebufferAccess;
 use crate::text::{PathCaretGeometry, TextLayoutHandle, TextLayoutLimits, TextPath};
 use crate::types::{Transform, Viewport};
-use crate::ui::widgets::text_input::{Placeholder, TextInputLayoutHandle};
+use crate::ui::widgets::Placeholder;
+use crate::ui::widgets::text_editing::geometry::TextEditingLayoutHandle;
 use crate::ui::widgets::{Text, TextInput};
 use crate::ui::{Hidden, Outputs};
 
@@ -80,7 +81,7 @@ fn declared_text_output_borrows_the_arena_without_overwriting_same_entity_input(
     app.render().unwrap();
 
     let text = *app.world.get::<TextLayoutHandle>(source).unwrap();
-    let input = app.world.get::<TextInputLayoutHandle>(source).unwrap().0;
+    let input = app.world.get::<TextEditingLayoutHandle>(source).unwrap().0;
     assert_ne!(text, input);
     {
         let outputs = outputs(&app);
@@ -102,9 +103,14 @@ fn declared_text_output_borrows_the_arena_without_overwriting_same_entity_input(
     }
 
     let text_version = version(&app, source);
-    assert!(app.world.get_mut::<TextInput>(source).unwrap().insert(b'Q'));
+    app.world.insert(
+        source,
+        crate::ui::widgets::TextEditing::default()
+            .with_text("Q")
+            .unwrap(),
+    );
     app.render_dirty().unwrap();
-    let input = app.world.get::<TextInputLayoutHandle>(source).unwrap().0;
+    let input = app.world.get::<TextEditingLayoutHandle>(source).unwrap().0;
     let storage = outputs(&app).storage();
     assert_eq!(storage.layouts.get(input).unwrap().glyphs().len(), 1);
     assert_eq!(
@@ -175,7 +181,7 @@ fn hidden_or_removed_text_keeps_demand_but_cannot_publish_the_input_layout() {
     let text = app.world.remove::<Text>(source).unwrap();
     app.render_dirty().unwrap();
     assert_missing_with_demand(&app, source);
-    let input = app.world.get::<TextInputLayoutHandle>(source).unwrap().0;
+    let input = app.world.get::<TextEditingLayoutHandle>(source).unwrap().0;
     assert_eq!(
         outputs(&app)
             .storage()

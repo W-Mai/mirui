@@ -41,7 +41,7 @@ fn hit_event(hit: event!(Hit), hits: res!(mut Hits)) {
 
 #[mirui::event]
 fn emit_hit(node: entity!(), commands: commands!()) {
-    commands.emit(node, Hit { strength: 7 });
+    commands.emit_always(node, Hit { strength: 7 });
 }
 
 fn entity<W: Component, E: Event>(_: EventKey<E>)

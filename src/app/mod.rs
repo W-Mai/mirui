@@ -312,7 +312,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.world
             .invalidate_query_dependency::<crate::text::TextLayoutHandle>();
         self.world
-            .invalidate_query_dependency::<crate::ui::widgets::text_input::TextInputLayoutHandle>();
+            .invalidate_query_dependency::<crate::ui::widgets::text_editing::geometry::TextEditingLayoutHandle>();
         self
     }
 
@@ -362,7 +362,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.world
             .invalidate_query_dependency::<crate::text::TextLayoutHandle>();
         self.world
-            .invalidate_query_dependency::<crate::ui::widgets::text_input::TextInputLayoutHandle>();
+            .invalidate_query_dependency::<crate::ui::widgets::text_editing::geometry::TextEditingLayoutHandle>();
         Ok(self)
     }
 
@@ -787,7 +787,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             self.world
                 .invalidate_query_dependency::<crate::text::TextLayoutHandle>();
             self.world.invalidate_query_dependency::<
-                crate::ui::widgets::text_input::TextInputLayoutHandle,
+                crate::ui::widgets::text_editing::geometry::TextEditingLayoutHandle,
             >();
         }
         self.factory.trim_memory();
@@ -2367,7 +2367,7 @@ mod app_invariant_tests {
     #[test]
     fn input_layout_is_prepared_after_cache_replacement_without_manual_invalidation() {
         use crate::ui::widgets::TextInput;
-        use crate::ui::widgets::text_input::TextInputLayoutHandle;
+        use crate::ui::widgets::text_editing::geometry::TextEditingLayoutHandle;
 
         let glyph_count = |world: &World, handle| {
             world
@@ -2397,21 +2397,21 @@ mod app_invariant_tests {
         });
         app.render().unwrap();
         app.render_dirty().unwrap();
-        let handle = app.world.get::<TextInputLayoutHandle>(input).unwrap().0;
+        let handle = app.world.get::<TextEditingLayoutHandle>(input).unwrap().0;
         assert_eq!(glyph_count(&app.world, handle), Some(3));
 
         app.try_with_text_layout_limits(crate::text::TextLayoutLimits::HOST)
             .unwrap();
         assert_eq!(glyph_count(&app.world, handle), None);
         app.render_dirty().unwrap();
-        let replacement = app.world.get::<TextInputLayoutHandle>(input).unwrap().0;
+        let replacement = app.world.get::<TextEditingLayoutHandle>(input).unwrap().0;
         assert_eq!(replacement, handle);
         assert_eq!(glyph_count(&app.world, replacement), Some(3));
 
         app.handle_memory_warning();
         assert_eq!(glyph_count(&app.world, replacement), None);
         app.render_dirty().unwrap();
-        let restored = app.world.get::<TextInputLayoutHandle>(input).unwrap().0;
+        let restored = app.world.get::<TextEditingLayoutHandle>(input).unwrap().0;
         assert_eq!(glyph_count(&app.world, restored), Some(3));
     }
 
@@ -2422,7 +2422,7 @@ mod app_invariant_tests {
             RasterGlyph, default_font_manager,
         };
         use crate::ui::widgets::TextInput;
-        use crate::ui::widgets::text_input::TextInputLayoutHandle;
+        use crate::ui::widgets::text_editing::geometry::TextEditingLayoutHandle;
 
         struct SizedFont;
         impl FontProvider for SizedFont {
@@ -2477,7 +2477,7 @@ mod app_invariant_tests {
             )
         });
         let input_layout = |world: &World| {
-            let handle = world.get::<TextInputLayoutHandle>(input).unwrap().0;
+            let handle = world.get::<TextEditingLayoutHandle>(input).unwrap().0;
             let storage = world.resource::<Outputs<TextGeometry>>().unwrap().storage();
             (handle, storage.layouts.get(handle).unwrap().measure())
         };

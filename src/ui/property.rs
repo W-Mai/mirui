@@ -208,7 +208,6 @@ pub mod prop {
     }
     pub struct SwitchOn;
     pub struct CheckboxChecked;
-    pub(crate) struct TextInputFocused;
     pub struct RowGap;
     pub struct ColumnGap;
     pub struct Left;
@@ -380,21 +379,6 @@ pub mod prop {
                 .map_or(PropertyChange::Unchanged, |checkbox| {
                     checkbox.update_checked(value)
                 })
-        }
-    }
-
-    impl Property for TextInputFocused {
-        type Value = bool;
-
-        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
-            let Some(input) = world.get_mut::<crate::ui::widgets::TextInput>(entity) else {
-                return PropertyChange::Unchanged;
-            };
-            if input.focused == value {
-                return PropertyChange::Unchanged;
-            }
-            input.focused = value;
-            PropertyChange::Visual
         }
     }
 

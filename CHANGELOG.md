@@ -15,13 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `TextDocument` provides observable UTF-8 document data with prepared byte capacity, atomic range replacement, and owned Model nesting. Documents keep content separate from editor selection and composition.
 
-- `TextInput` extends selections with Shift+Left, Shift+Right, Shift+Home, and Shift+End while retaining the selection anchor.
+- `TextEditing` extends selections with Shift+Left, Shift+Right, Shift+Home, and Shift+End while retaining the selection anchor.
 
-- `TextInput::Submitted` reports accepted Return presses; `SelectionChanged` reports directed UTF-8 selection offsets after input edits.
+- `TextEditing::Submitted` reports accepted Return presses; `SelectionChanged` reports directed UTF-8 selection offsets after input edits.
 
-- `TextInput` accepts explicit byte capacities through `capacity` and fallible component and builder methods. Small inputs use inline storage; larger buffers are prepared before allocation-free editing.
+- `TextInput` accepts explicit byte capacities through `capacity` and its builder. `TextEditing` provides fallible capacity preparation; small local documents use inline storage and larger buffers are prepared before allocation-free editing.
 
-- `TextInput` supports validated UTF-8 selections and atomic text replacement without allocating. Editing failures preserve content and selection; text storage is private and change notifications report byte lengths as `u32`.
+- `TextEditing` supports validated UTF-8 selections and atomic text replacement without allocating. Editing failures preserve content and selection; text storage is private and change notifications report byte lengths as `u32`.
 
 - Interaction Lab displays scroll position and active motion through scroll notifications.
 
@@ -57,6 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ModelList` stores ordered Model data with runtime capacity, stable item IDs, and capacity-bounded edits. Owned list fields share parent transactions, separate structural observations from item changes, and reject structural changes during registered iteration. Arrays, vectors, and iterators transfer data without requiring item clones; explicit reservation prepares data and observation storage.
 
 ### Changed
+
+- `TextInput` composes the `TextEditing` capability for document storage, keyboard input, selection, focus, and cursor state. Editing notifications are sourced from `TextEditing`; native keyboard requests inspect that component directly.
 
 - View initialization follows component attachment identities, initializes chained components and late registrations, and prevents stale input callbacks from reaching replacement instances.
 

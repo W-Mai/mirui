@@ -308,7 +308,7 @@ cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/ios 
 
 Android uses a NativeActivity entry point and builds for `aarch64-linux-android` through `cargo-apk`. iOS generates a Rust static library plus a minimal Xcode application host for simulator and device targets. The generated READMEs contain the required Rust targets and launch commands.
 
-Mobile applications retain their world and renderer state across suspend and resume. Touch contacts are mapped to stable compact pointer IDs for their full lifetime, and a focused `TextInput` opens the native software keyboard while preserving UTF-8 text delivered by native input events. Custom editors can opt into the same behavior by attaching both `Focusable` and `TextEditable`.
+Mobile applications retain their world and renderer state across suspend and resume. Touch contacts are mapped to stable compact pointer IDs for their full lifetime, and a focused `TextInput` opens the native software keyboard while preserving UTF-8 text delivered by native input events. Custom editors attach `TextEditing` and register its View to share editing, focus, and native keyboard behavior.
 
 Software-rendered hosts use native device density within an explicit framebuffer budget. Resize admission is transactional: an allocation or budget failure leaves the last valid framebuffer active. WGPU acquisition recovers once from outdated or lost surfaces and skips transient timeout or occlusion frames. Native memory warnings release reconstructible text, path-placement, offscreen, software-raster, and GPU caches while preserving application state; plugins can release their own caches through `Plugin::on_memory_warning`.
 

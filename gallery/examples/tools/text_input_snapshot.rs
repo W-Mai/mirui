@@ -12,37 +12,20 @@ use std::path::PathBuf;
 
 use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
-use mirui::ui::widgets::{Placeholder, TextInput};
+use mirui::ui::widgets::{Placeholder, TextEditing, TextInput, TextSelection};
 
 fn write_png(out_path: &std::path::Path, pixels: &[u8], width: u16, height: u16, stride: usize) {
-    let ppm_path = out_path.with_extension("ppm");
-    {
-        let f = File::create(&ppm_path).expect("create ppm");
-        let mut w = BufWriter::new(f);
-        use std::io::Write;
-        write!(w, "P6\n{width} {height}\n255\n").expect("ppm header");
-        for y in 0..(height as usize) {
-            for x in 0..(width as usize) {
-                let i = y * stride + x * 4;
-                w.write_all(&pixels[i..i + 3]).expect("ppm pixel");
-            }
-        }
-    }
-    let _ = std::process::Command::new("python3")
-        .args([
-            "-c",
-            &format!(
-                "from PIL import Image; Image.open(r'{}').save(r'{}')",
-                ppm_path.display(),
-                out_path.display()
-            ),
-        ])
-        .status();
-    let _ = std::fs::remove_file(&ppm_path);
+    assert_eq!(stride, usize::from(width) * 4);
+    let file = BufWriter::new(File::create(out_path).expect("create snapshot"));
+    let mut encoder = png::Encoder::new(file, width.into(), height.into());
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().expect("write PNG header");
+    writer.write_image_data(pixels).expect("write PNG pixels");
 }
 
 #[compose]
-fn input_panel(input: TextInput) {
+fn input_panel(input: TextEditing) -> Entity {
     ui! {
         View (
             bg_color: Color::rgb(40, 40, 56),
@@ -50,10 +33,11 @@ fn input_panel(input: TextInput) {
             width: 288,
             height: 28
         ) [
+            TextInput::new(),
             input,
             Placeholder("type something..."),
         ]
-    };
+    }
 }
 
 fn main() {
@@ -69,23 +53,18 @@ fn main() {
     let mut app = App::new(backend);
     app.with_default_widgets();
 
-    let mut ti = TextInput::new();
+    let mut editing = TextEditing::default();
     match scenario.as_str() {
-        "empty" => ti.focused = false,
-        "focused-empty" => ti.focused = true,
-        "typed" => {
-            for ch in b"hello world".iter() {
-                ti.insert(*ch);
-            }
-            ti.focused = true;
-        }
+        "empty" | "focused-empty" => {}
+        "typed" => editing = editing.with_text("hello world").unwrap(),
         "cursor-mid" => {
-            for ch in b"hello".iter() {
-                ti.insert(*ch);
-            }
-            ti.move_left();
-            ti.move_left();
-            ti.focused = true;
+            editing = editing.with_text("hello").unwrap();
+            editing
+                .set_selection(TextSelection {
+                    anchor: 3,
+                    cursor: 3,
+                })
+                .unwrap();
         }
         _ => panic!("unknown scenario: {scenario}"),
     }
@@ -108,11 +87,17 @@ fn main() {
         })
         .id();
 
-    app.compose(root, input_panel(ti));
+    let input = app.compose(root, input_panel(editing));
+    if scenario != "empty" {
+        app.add_resource(mirui::input::event::focus::FocusState {
+            focused: Some(input),
+        });
+    }
+    app.tick();
 
     // Deterministic cursor: pin the blink phase ON so the snapshot
     // doesn't flicker by wall-clock timing.
-    app.add_resource(mirui::ui::widgets::text_input::CursorBlinkPhase(true));
+    app.add_resource(mirui::ui::widgets::text_editing::CursorBlinkPhase(true));
 
     use mirui::render::sw::SwRenderer;
     use mirui::surface::FramebufferAccess;

@@ -125,13 +125,6 @@ impl FocusObserver {
 pub struct Focusable;
 impl crate::ecs::Component for Focusable {}
 
-/// Marker for a focusable entity that accepts native text input.
-///
-/// Mobile hosts use this to show or hide the software keyboard without
-/// coupling custom text editors to a concrete widget implementation.
-pub struct TextEditable;
-impl crate::ecs::Component for TextEditable {}
-
 /// World resource tracking which entity currently has keyboard focus.
 #[derive(Default)]
 pub struct FocusState {
@@ -143,7 +136,11 @@ pub(crate) fn text_input_requested(world: &World) -> bool {
     world
         .resource::<FocusState>()
         .and_then(|state| state.focused)
-        .is_some_and(|entity| world.get::<TextEditable>(entity).is_some())
+        .is_some_and(|entity| {
+            world
+                .get::<crate::ui::widgets::TextEditing>(entity)
+                .is_some()
+        })
 }
 
 #[cfg(test)]

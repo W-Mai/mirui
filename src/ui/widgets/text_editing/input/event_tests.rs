@@ -1,6 +1,9 @@
+use super::super::view;
 use super::*;
 use crate::ecs::CommandError;
 use crate::input::event::{EventCapacity, runtime, view_input};
+use crate::ui::dirty::Dirty;
+use crate::ui::widgets::TextInput;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Notice {
@@ -50,9 +53,9 @@ fn fixture(capacity: EventCapacity) -> (World, Entity) {
     let root = world.spawn_empty();
     let node = crate::ui::UiScope::new(&mut world, root).spawn(
         TextInput::build()
-            .on_event(TextInput::Changed, changed::callback())
-            .on_event(TextInput::SelectionChanged, selected::callback())
-            .on_event(TextInput::Submitted, submitted::callback()),
+            .on_event(TextEditing::Changed, changed::callback())
+            .on_event(TextEditing::SelectionChanged, selected::callback())
+            .on_event(TextEditing::Submitted, submitted::callback()),
     );
     (world, node)
 }
@@ -83,8 +86,8 @@ fn character(world: &mut World, node: Entity, ch: char) -> Result<bool, CommandE
 #[test]
 fn input_edits_report_content_before_directed_selection() {
     let (mut world, node) = fixture(EventCapacity::default());
-    let input = world.get_mut::<TextInput>(node).unwrap();
-    input.replace_selection("A中🙂Z").unwrap();
+    let input = world.get_mut::<TextEditing>(node).unwrap();
+    input.local.as_mut().unwrap().set_text("A中🙂Z").unwrap();
     input
         .set_selection(TextSelection {
             anchor: 8,
@@ -93,7 +96,13 @@ fn input_edits_report_content_before_directed_selection() {
         .unwrap();
     assert!(character(&mut world, node, '界').unwrap());
     assert_eq!(runtime::flush(&mut world).unwrap(), 2);
-    assert_eq!(world.get::<TextInput>(node).unwrap().as_str(), "A界Z");
+    assert_eq!(
+        world
+            .get::<TextEditing>(node)
+            .unwrap()
+            .read(|text| text.to_owned()),
+        "A界Z"
+    );
     assert_eq!(
         world.resource::<Trace>().unwrap().as_slice(),
         &[Notice::Content(5), Notice::Selection(4, 4)]
@@ -103,15 +112,15 @@ fn input_edits_report_content_before_directed_selection() {
 #[test]
 fn complete_fragments_replace_selection_once_and_reject_atomically() {
     let (mut world, node) = fixture(EventCapacity::default());
-    let input = world.get_mut::<TextInput>(node).unwrap();
-    input.replace_selection("A中🙂Z").unwrap();
+    let input = world.get_mut::<TextEditing>(node).unwrap();
+    input.local.as_mut().unwrap().set_text("A中🙂Z").unwrap();
     input
         .set_selection(TextSelection {
             anchor: 8,
             cursor: 1,
         })
         .unwrap();
-    let callback = textinput_committed::callback::<crate::__macro_support::NodeContext>()
+    let callback = committed::callback::<crate::__macro_support::NodeContext>()
         .prepare(&mut world, view_input::fixture_capacity())
         .unwrap();
     callback
@@ -119,7 +128,10 @@ fn complete_fragments_replace_selection_once_and_reject_atomically() {
         .unwrap();
     assert_eq!(runtime::flush(&mut world).unwrap(), 2);
     assert_eq!(
-        world.get::<TextInput>(node).unwrap().as_str(),
+        world
+            .get::<TextEditing>(node)
+            .unwrap()
+            .read(|text| text.to_owned()),
         "A文e\u{301}Z"
     );
     assert_eq!(
@@ -128,7 +140,7 @@ fn complete_fragments_replace_selection_once_and_reject_atomically() {
     );
     *world.resource_mut::<Trace>().unwrap() = Trace::default();
     world
-        .get_mut::<TextInput>(node)
+        .get_mut::<TextEditing>(node)
         .unwrap()
         .set_selection(TextSelection {
             anchor: 1,
@@ -144,8 +156,8 @@ fn complete_fragments_replace_selection_once_and_reject_atomically() {
             .invoke(&mut world, &TextCommitted::new(text), node)
             .unwrap();
         assert_eq!(runtime::flush(&mut world).unwrap(), 0);
-        let input = world.get::<TextInput>(node).unwrap();
-        assert_eq!(input.as_str(), "A文e\u{301}Z");
+        let input = world.get::<TextEditing>(node).unwrap();
+        assert_eq!(input.read(|text| text.to_owned()), "A文e\u{301}Z");
         assert_eq!(
             input.selection(),
             TextSelection {
@@ -161,11 +173,14 @@ fn complete_fragments_replace_selection_once_and_reject_atomically() {
 fn large_owned_fragment_uses_the_widget_capacity_without_transport_slots() {
     let (mut world, node) = fixture(EventCapacity::default());
     world
-        .get_mut::<TextInput>(node)
+        .get_mut::<TextEditing>(node)
+        .unwrap()
+        .local
+        .as_mut()
         .unwrap()
         .set_capacity(512)
         .unwrap();
-    let callback = textinput_committed::callback::<crate::__macro_support::NodeContext>()
+    let callback = committed::callback::<crate::__macro_support::NodeContext>()
         .prepare(&mut world, view_input::fixture_capacity())
         .unwrap();
     callback
@@ -174,7 +189,7 @@ fn large_owned_fragment_uses_the_widget_capacity_without_transport_slots() {
     runtime::flush(&mut world).unwrap();
     *world.resource_mut::<Trace>().unwrap() = Trace::default();
     world
-        .get_mut::<TextInput>(node)
+        .get_mut::<TextEditing>(node)
         .unwrap()
         .set_selection(TextSelection {
             anchor: 0,
@@ -187,7 +202,13 @@ fn large_owned_fragment_uses_the_widget_capacity_without_transport_slots() {
         assert_eq!(runtime::flush(&mut world).unwrap(), 2);
     });
     assert_eq!(allocations, 0);
-    assert_eq!(world.get::<TextInput>(node).unwrap().as_str(), event.text());
+    assert_eq!(
+        world
+            .get::<TextEditing>(node)
+            .unwrap()
+            .read(|text| text.to_owned()),
+        event.text()
+    );
     assert_eq!(
         world.resource::<Trace>().unwrap().as_slice(),
         &[Notice::Content(300), Notice::Selection(300, 300)]
@@ -197,7 +218,7 @@ fn large_owned_fragment_uses_the_widget_capacity_without_transport_slots() {
 #[test]
 fn empty_commit_without_selection_does_not_dirty() {
     let (mut world, node) = fixture(EventCapacity::default());
-    let callback = textinput_committed::callback::<crate::__macro_support::NodeContext>()
+    let callback = committed::callback::<crate::__macro_support::NodeContext>()
         .prepare(&mut world, view_input::fixture_capacity())
         .unwrap();
     world.remove::<Dirty>(node);
@@ -211,15 +232,15 @@ fn empty_commit_without_selection_does_not_dirty() {
 #[test]
 fn shift_navigation_keeps_the_anchor_across_utf8_and_direction_changes() {
     let (mut world, node) = fixture(EventCapacity::default());
-    let input = world.get_mut::<TextInput>(node).unwrap();
-    input.replace_selection("A中🙂Z").unwrap();
+    let input = world.get_mut::<TextEditing>(node).unwrap();
+    input.local.as_mut().unwrap().set_text("A中🙂Z").unwrap();
     input
         .set_selection(TextSelection {
             anchor: 4,
             cursor: 4,
         })
         .unwrap();
-    let callback = textinput_key::callback::<crate::__macro_support::NodeContext>()
+    let callback = super::key::callback::<crate::__macro_support::NodeContext>()
         .prepare(&mut world, view_input::fixture_capacity())
         .unwrap();
     for (code, cursor) in [
@@ -233,7 +254,7 @@ fn shift_navigation_keeps_the_anchor_across_utf8_and_direction_changes() {
         (KEY_END, 9),
         (KEY_HOME, 0),
     ] {
-        let previous = world.get::<TextInput>(node).unwrap().cursor();
+        let previous = world.get::<TextEditing>(node).unwrap().cursor();
         world.remove::<Dirty>(node);
         let mut event = key(code, true);
         event.modifiers.as_mut().unwrap().shift = true;
@@ -242,9 +263,9 @@ fn shift_navigation_keeps_the_anchor_across_utf8_and_direction_changes() {
             runtime::flush(&mut world).unwrap(),
             usize::from(previous != cursor)
         );
-        let input = world.get::<TextInput>(node).unwrap();
+        let input = world.get::<TextEditing>(node).unwrap();
         assert_eq!(input.selection(), TextSelection { anchor: 4, cursor });
-        assert_eq!(input.as_str(), "A中🙂Z");
+        assert_eq!(input.read(|text| text.to_owned()), "A中🙂Z");
         if previous == cursor {
             assert!(!world.has::<Dirty>(node));
         }
@@ -254,7 +275,7 @@ fn shift_navigation_keeps_the_anchor_across_utf8_and_direction_changes() {
         .unwrap();
     runtime::flush(&mut world).unwrap();
     assert_eq!(
-        world.get::<TextInput>(node).unwrap().selection(),
+        world.get::<TextEditing>(node).unwrap().selection(),
         TextSelection {
             anchor: 4,
             cursor: 4
@@ -278,12 +299,8 @@ fn shift_navigation_keeps_the_anchor_across_utf8_and_direction_changes() {
 #[test]
 fn prepared_shift_navigation_reuses_commands_and_notifications() {
     let (mut world, node) = fixture(EventCapacity::default());
-    world
-        .get_mut::<TextInput>(node)
-        .unwrap()
-        .replace_selection("中🙂")
-        .unwrap();
-    let callback = textinput_key::callback::<crate::__macro_support::NodeContext>()
+    world.insert(node, TextEditing::default().with_text("中🙂").unwrap());
+    let callback = super::key::callback::<crate::__macro_support::NodeContext>()
         .prepare(&mut world, view_input::fixture_capacity())
         .unwrap();
     for warm in [true, false] {
@@ -304,7 +321,7 @@ fn prepared_shift_navigation_reuses_commands_and_notifications() {
             assert_eq!(allocations, 0);
         }
         assert_eq!(
-            world.get::<TextInput>(node).unwrap().selection(),
+            world.get::<TextEditing>(node).unwrap().selection(),
             TextSelection {
                 anchor: 7,
                 cursor: 7
@@ -317,8 +334,8 @@ fn prepared_shift_navigation_reuses_commands_and_notifications() {
 #[test]
 fn selection_only_edits_and_identical_replacement_do_not_report_content_changes() {
     let (mut world, node) = fixture(EventCapacity::default());
-    let input = world.get_mut::<TextInput>(node).unwrap();
-    input.replace_selection("abc").unwrap();
+    let input = world.get_mut::<TextEditing>(node).unwrap();
+    input.local.as_mut().unwrap().set_text("abc").unwrap();
     input
         .set_selection(TextSelection {
             anchor: 2,
@@ -330,7 +347,13 @@ fn selection_only_edits_and_identical_replacement_do_not_report_content_changes(
     assert!(press(&mut world, node, KEY_HOME).unwrap());
     assert!(press(&mut world, node, KEY_END).unwrap());
     assert_eq!(runtime::flush(&mut world).unwrap(), 3);
-    assert_eq!(world.get::<TextInput>(node).unwrap().as_str(), "abc");
+    assert_eq!(
+        world
+            .get::<TextEditing>(node)
+            .unwrap()
+            .read(|text| text.to_owned()),
+        "abc"
+    );
     assert_eq!(
         world.resource::<Trace>().unwrap().as_slice(),
         &[
@@ -345,7 +368,10 @@ fn selection_only_edits_and_identical_replacement_do_not_report_content_changes(
 fn rejected_edits_and_boundary_movement_do_not_notify_or_dirty() {
     let (mut world, node) = fixture(EventCapacity::default());
     world
-        .get_mut::<TextInput>(node)
+        .get_mut::<TextEditing>(node)
+        .unwrap()
+        .local
+        .as_mut()
         .unwrap()
         .set_capacity(0)
         .unwrap();
@@ -364,8 +390,8 @@ fn return_reports_each_press_without_editing_or_changing_focus() {
     world.insert_resource(FocusState {
         focused: Some(node),
     });
-    let input = world.get_mut::<TextInput>(node).unwrap();
-    input.replace_selection("A中").unwrap();
+    let input = world.get_mut::<TextEditing>(node).unwrap();
+    input.local.as_mut().unwrap().set_text("A中").unwrap();
     input
         .set_selection(TextSelection {
             anchor: 4,
@@ -381,8 +407,8 @@ fn return_reports_each_press_without_editing_or_changing_focus() {
     );
     assert!(press(&mut world, node, KEY_RETURN).unwrap());
     assert_eq!(runtime::flush(&mut world).unwrap(), 2);
-    let input = world.get::<TextInput>(node).unwrap();
-    assert_eq!(input.as_str(), "A中");
+    let input = world.get::<TextEditing>(node).unwrap();
+    assert_eq!(input.read(|text| text.to_owned()), "A中");
     assert_eq!(
         input.selection(),
         TextSelection {
@@ -407,8 +433,14 @@ fn notification_overflow_keeps_the_edit_without_retrying_missing_selection() {
             .flush_limit(1),
     );
     assert!(character(&mut world, node, '中').is_err());
-    assert_eq!(world.get::<TextInput>(node).unwrap().as_str(), "中");
-    assert_eq!(world.get::<TextInput>(node).unwrap().cursor(), 3);
+    assert_eq!(
+        world
+            .get::<TextEditing>(node)
+            .unwrap()
+            .read(|text| text.to_owned()),
+        "中"
+    );
+    assert_eq!(world.get::<TextEditing>(node).unwrap().cursor(), 3);
     assert_eq!(runtime::flush(&mut world).unwrap(), 1);
     assert_eq!(runtime::flush(&mut world).unwrap(), 0);
     assert_eq!(
@@ -435,10 +467,10 @@ fn unobserved_submission_needs_no_notification_storage() {
 #[test]
 fn prepared_edit_and_submission_callbacks_reuse_default_storage() {
     let (mut world, node) = fixture(EventCapacity::default());
-    let character = textinput_committed::callback::<crate::__macro_support::NodeContext>()
+    let character = committed::callback::<crate::__macro_support::NodeContext>()
         .prepare(&mut world, view_input::fixture_capacity())
         .unwrap();
-    let keyboard = textinput_key::callback::<crate::__macro_support::NodeContext>()
+    let keyboard = super::key::callback::<crate::__macro_support::NodeContext>()
         .prepare(&mut world, view_input::fixture_capacity())
         .unwrap();
     for warm in [true, false] {

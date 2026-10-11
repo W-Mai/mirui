@@ -643,8 +643,9 @@ fn count_layout_storage(world: &World, entity: Entity, demand: &mut LayoutStorag
             && world.get::<crate::text::TextLayoutHandle>(entity).is_none(),
     );
     demand.missing_input_handles += usize::from(
-        world.has::<super::widgets::TextInput>(entity)
-            && !world.has::<super::widgets::text_input::TextInputLayoutHandle>(entity),
+        world.has::<super::widgets::TextEditing>(entity)
+            && !world
+                .has::<super::widgets::text_editing::geometry::TextEditingLayoutHandle>(entity),
     );
     if let Some(children) = world.get::<Children>(entity) {
         for &child in &children.0 {
@@ -952,20 +953,20 @@ fn prepare_input_layout(
     entity: Entity,
     rect: Rect,
 ) -> Result<(), TextLayoutFailure> {
-    use super::widgets::text_input::{TextInputLayoutHandle, prepare_layout};
+    use super::widgets::text_editing::geometry::{TextEditingLayoutHandle, prepare_layout};
 
     match prepare_layout(world, entity, rect)? {
         Some(handle) => {
             if world
-                .get::<TextInputLayoutHandle>(entity)
+                .get::<TextEditingLayoutHandle>(entity)
                 .map(|value| value.0)
                 != Some(handle)
             {
-                world.insert(entity, TextInputLayoutHandle(handle));
+                world.insert(entity, TextEditingLayoutHandle(handle));
             }
         }
         None => {
-            world.remove::<TextInputLayoutHandle>(entity);
+            world.remove::<TextEditingLayoutHandle>(entity);
         }
     }
     Ok(())
@@ -973,7 +974,7 @@ fn prepare_input_layout(
 
 fn prepare_text_geometry(world: &mut World, entities: &[Entity]) -> Result<(), TextLayoutFailure> {
     for &entity in entities {
-        if !world.has::<super::widgets::TextInput>(entity)
+        if !world.has::<super::widgets::TextEditing>(entity)
             || crate::ui::branch::is_hidden_in_tree(world, entity)
         {
             continue;
@@ -1248,7 +1249,7 @@ fn compute_layout_snapshot(
             );
         }
         if demand.missing_input_handles > 0 {
-            world.reserve_component_storage::<super::widgets::text_input::TextInputLayoutHandle>(
+            world.reserve_component_storage::<super::widgets::text_editing::geometry::TextEditingLayoutHandle>(
                 demand.max_entity_id,
                 demand.missing_input_handles,
             );
@@ -5222,8 +5223,9 @@ mod text_layout_check {
     fn input_layout_is_prepared_before_paint_and_tracks_its_display_content() {
         use crate::prelude::*;
         use crate::ui::ComputedRect;
+        use crate::ui::widgets::Placeholder;
         use crate::ui::widgets::TextInput;
-        use crate::ui::widgets::text_input::{Placeholder, TextInputLayoutHandle};
+        use crate::ui::widgets::text_editing::geometry::TextEditingLayoutHandle;
 
         #[crate::compose]
         fn input() -> Entity {
@@ -5231,7 +5233,7 @@ mod text_layout_check {
         }
 
         fn prepared(world: &World, input: Entity) -> (crate::text::TextLayoutHandle, usize) {
-            let handle = world.get::<TextInputLayoutHandle>(input).unwrap().0;
+            let handle = world.get::<TextEditingLayoutHandle>(input).unwrap().0;
             let storage = world.resource::<Outputs<TextGeometry>>().unwrap().storage();
             (handle, storage.layouts.get(handle).unwrap().glyphs().len())
         }
@@ -5254,17 +5256,21 @@ mod text_layout_check {
         app.render_dirty().unwrap();
         assert_ne!(prepared(&app.world, input).0, placeholder);
         assert_eq!(prepared(&app.world, input).1, 4);
-        {
-            let input = app.world.get_mut::<TextInput>(input).unwrap();
-            input.insert(b'A');
-            input.insert(b'B');
-            input.focused = true;
-        }
+        let document = app.add_model(crate::ui::widgets::TextDocument::new());
+        app.world.insert(
+            input,
+            crate::ui::widgets::TextEditing::new(document.clone()),
+        );
+        document.set_text("AB").unwrap();
         app.render_dirty().unwrap();
         let (content, glyphs) = prepared(&app.world, input);
         assert_eq!(glyphs, 2);
         assert_ne!(content, placeholder);
-        app.world.get_mut::<TextInput>(input).unwrap().move_home();
+        app.world
+            .get_mut::<crate::ui::widgets::TextEditing>(input)
+            .unwrap()
+            .set_selection(crate::ui::widgets::TextSelection::default())
+            .unwrap();
         app.render_dirty().unwrap();
         assert_eq!(prepared(&app.world, input), (content, 2));
 
@@ -5276,12 +5282,7 @@ mod text_layout_check {
             app.world.get::<ComputedRect>(input).unwrap().0.w,
             Fixed::from_int(32)
         );
-        {
-            let input = app.world.get_mut::<TextInput>(input).unwrap();
-            input.move_end();
-            input.backspace();
-            input.backspace();
-        }
+        document.set_text("").unwrap();
         app.render_dirty().unwrap();
         assert_eq!(prepared(&app.world, input).1, 4);
         app.world.remove::<Placeholder>(input);
@@ -5292,14 +5293,14 @@ mod text_layout_check {
             .remove_resource::<crate::render::font::FontManager>();
         app.handle_memory_warning();
         app.render().unwrap();
-        assert!(app.world.get::<TextInputLayoutHandle>(input).is_none());
+        assert!(app.world.get::<TextEditingLayoutHandle>(input).is_none());
     }
 
     #[test]
     fn input_layout_recycles_bounded_storage_across_content_updates() {
         use crate::text::{TextLayoutCapacity, WorkspaceCapacity};
         use crate::ui::widgets::TextInput;
-        use crate::ui::widgets::text_input::TextInputLayoutHandle;
+        use crate::ui::widgets::text_editing::geometry::TextEditingLayoutHandle;
 
         let mut app = crate::app::App::headless(64, 32);
         app.with_default_widgets();
@@ -5320,12 +5321,17 @@ mod text_layout_check {
         .unwrap();
         let root = app.spawn_root().id();
         let input = app.compose(root, |cx| cx.spawn(TextInput::build()));
+        let document = app.add_model(crate::ui::widgets::TextDocument::new());
+        app.world.insert(
+            input,
+            crate::ui::widgets::TextEditing::new(document.clone()),
+        );
         for byte in b'A'..=b'Z' {
-            let value = app.world.get_mut::<TextInput>(input).unwrap();
-            value.backspace();
-            value.insert(byte);
+            document
+                .set_text(core::str::from_utf8(&[byte]).unwrap())
+                .unwrap();
             app.render_dirty().unwrap();
-            let handle = app.world.get::<TextInputLayoutHandle>(input).unwrap().0;
+            let handle = app.world.get::<TextEditingLayoutHandle>(input).unwrap().0;
             let cache = app
                 .world
                 .resource::<Outputs<TextGeometry>>()
@@ -5338,8 +5344,9 @@ mod text_layout_check {
     #[test]
     fn input_layout_failure_is_reported_before_paint() {
         use crate::prelude::*;
+        use crate::ui::widgets::Placeholder;
         use crate::ui::widgets::TextInput;
-        use crate::ui::widgets::text_input::{Placeholder, TextInputLayoutHandle};
+        use crate::ui::widgets::text_editing::geometry::TextEditingLayoutHandle;
 
         #[crate::compose]
         fn input() -> Entity {
@@ -5355,11 +5362,11 @@ mod text_layout_check {
         let input = app.compose(root, input());
         assert!(matches!(app.render(), Err(RenderError::TextLayout)));
         assert_eq!(app.last_text_layout_failure().unwrap().entity, input);
-        assert!(app.world.get::<TextInputLayoutHandle>(input).is_none());
+        assert!(app.world.get::<TextEditingLayoutHandle>(input).is_none());
         app.world.remove::<Placeholder>(input);
         app.render().unwrap();
         assert!(app.last_text_layout_failure().is_none());
-        assert!(app.world.get::<TextInputLayoutHandle>(input).is_some());
+        assert!(app.world.get::<TextEditingLayoutHandle>(input).is_some());
     }
 
     #[test]

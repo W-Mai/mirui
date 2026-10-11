@@ -1,9 +1,9 @@
 use core::any::TypeId;
 use core::ops::Range;
 
-use crate::core::model::{ModelHandle, try_registered_owner};
+use crate::core::model::ModelHandle;
 use crate::ecs::{CommandError, Entity, World};
-use crate::input::event::focus::{Focusable, TextEditable};
+use crate::input::event::focus::{FocusState, Focusable};
 use crate::input::event::input::{
     KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RETURN, KEY_RIGHT, Key,
     TextCommitted,
@@ -136,18 +136,17 @@ impl<'a> Edit<'a> {
 #[crate::event]
 pub(super) fn attach(
     entity: entity!(),
-    editors: query!(TextEditing, optional Focusable, optional TextEditable),
+    editors: query!(TextEditing, optional Focusable),
     commands: commands!(),
 ) {
-    let Some((_, focusable, editable)) = editors.get(entity) else {
+    let Some((_, focusable)) = editors.get(entity) else {
         return;
     };
     if focusable.is_none() {
         commands.insert(entity, Focusable);
     }
-    if editable.is_none() {
-        commands.insert(entity, TextEditable);
-    }
+    commands.insert(entity, crate::ui::HitTarget);
+    commands.insert(entity, crate::ui::InteractionFeedback);
 }
 
 #[crate::event]
@@ -183,16 +182,10 @@ pub(super) fn key(node: entity!(), event: event!(Key), commands: commands!()) ->
     true
 }
 
-fn usable(input: &TextEditing, world: &World) -> bool {
-    input.document.as_ref().is_none_or(|document| {
-        try_registered_owner(document) == Some(world.id()) && document.callback_ready()
-    })
-}
-
 fn apply(world: &mut World, node: Entity, edit: Edit<'_>) -> Result<(), CommandError> {
     let Some(input) = world
         .get::<TextEditing>(node)
-        .filter(|input| usable(input, world))
+        .filter(|input| input.usable(world))
     else {
         crate::warn!(target: "mirui::text_editing", "edit skipped: editor or document is unavailable");
         return Ok(());
@@ -241,7 +234,7 @@ fn apply(world: &mut World, node: Entity, edit: Edit<'_>) -> Result<(), CommandE
     }
     let Some(input) = world
         .get::<TextEditing>(node)
-        .filter(|input| usable(input, world))
+        .filter(|input| input.usable(world))
     else {
         return Ok(());
     };
@@ -305,5 +298,40 @@ pub(super) fn normalize_selections(editors: query!(Entity, TextEditing), command
     }
 }
 
+#[crate::system(order = PreRender)]
+pub(super) fn cursor_blink(
+    clock: res!(optional crate::ecs::MonoClock),
+    phase: res!(optional super::CursorBlinkPhase),
+    focus: res!(optional FocusState),
+    editors: query!(Entity, TextEditing),
+    commands: commands!(),
+) {
+    let next_phase = clock.is_none_or(|clock| ((clock.clock)() / 500_000_000) % 2 == 0);
+    let phase_changed = phase.is_none_or(|phase| phase.0 != next_phase);
+    if phase_changed {
+        commands.insert_resource(super::CursorBlinkPhase(next_phase));
+    }
+    let focused = focus.and_then(|focus| focus.focused);
+    for (entity, editor) in editors {
+        let now = focused == Some(entity);
+        if editor.focused != now {
+            commands.apply(entity, now, |world, entity, focused| {
+                if let Some(editor) = world.get_mut::<TextEditing>(entity) {
+                    editor.focused = focused;
+                }
+                Ok(())
+            });
+        } else if now && phase_changed {
+            commands.insert(entity, crate::ui::dirty::VisualDirty);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod event_tests;
+
+#[cfg(test)]
+mod queue_tests;
