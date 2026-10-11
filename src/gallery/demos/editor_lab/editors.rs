@@ -24,6 +24,7 @@ fn search_attach(
     node: entity!(),
     rows: query!(SearchEditor),
     editing: query!(TextEditing),
+    appearance: query!(TextInput),
     commands: commands!(),
 ) {
     let Some(editor) = rows.get(node) else {
@@ -39,10 +40,12 @@ fn search_attach(
                 .unwrap_or_default(),
         );
     }
-    commands.insert(
-        node,
-        TextInput::new().with_cursor_color(ColorToken::Primary),
-    );
+    if appearance.get(node).is_none() {
+        commands.insert(
+            node,
+            TextInput::new().with_cursor_color(ColorToken::Primary),
+        );
+    }
 }
 
 #[crate::event]
@@ -50,6 +53,7 @@ fn command_attach(
     node: entity!(),
     rows: query!(CommandEditor),
     editing: query!(TextEditing),
+    appearance: query!(TextInput),
     commands: commands!(),
 ) {
     let Some(editor) = rows.get(node) else {
@@ -65,10 +69,12 @@ fn command_attach(
                 .unwrap_or_default(),
         );
     }
-    commands.insert(
-        node,
-        TextInput::new().with_cursor_color(ColorToken::Success),
-    );
+    if appearance.get(node).is_none() {
+        commands.insert(
+            node,
+            TextInput::new().with_cursor_color(ColorToken::Success),
+        );
+    }
 }
 
 #[crate::event]
@@ -76,6 +82,7 @@ fn shared_attach(
     node: entity!(),
     rows: query!(SharedEditor),
     editing: query!(TextEditing),
+    appearance: query!(TextInput),
     commands: commands!(),
 ) {
     let Some(editor) = rows.get(node) else {
@@ -91,10 +98,12 @@ fn shared_attach(
                 .unwrap_or_default(),
         );
     }
-    commands.insert(
-        node,
-        TextInput::new().with_cursor_color(ColorToken::Secondary),
-    );
+    if appearance.get(node).is_none() {
+        commands.insert(
+            node,
+            TextInput::new().with_cursor_color(ColorToken::Secondary),
+        );
+    }
 }
 
 #[crate::view(component = SearchEditor, attach = search_attach::callback())]

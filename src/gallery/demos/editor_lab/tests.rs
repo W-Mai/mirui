@@ -27,6 +27,40 @@ fn dispatch(app: &mut TestApp, root: Entity, target: Entity, event: InputEvent) 
 }
 
 #[test]
+fn explicit_capabilities_and_appearance_take_precedence_over_attachment_defaults() {
+    use super::editors::{CommandEditor, SearchEditor, SharedEditor};
+
+    #[crate::compose]
+    fn panel() -> [Entity; 3] {
+        let search = ui! { SearchEditor() [
+            TextEditing::default().with_text("explicit").unwrap(),
+            TextInput::new().with_cursor_color(ColorToken::OnSurface),
+        ] };
+        let command = ui! { CommandEditor() [
+            TextEditing::default().with_text("explicit").unwrap(),
+            TextInput::new().with_cursor_color(ColorToken::OnSurface),
+        ] };
+        let shared = ui! { SharedEditor() [
+            TextEditing::default().with_text("explicit").unwrap(),
+            TextInput::new().with_cursor_color(ColorToken::OnSurface),
+        ] };
+        [search, command, shared]
+    }
+
+    let (mut app, root, _) = fixture();
+    for entity in app.compose(root, panel()) {
+        app.world
+            .get::<TextEditing>(entity)
+            .unwrap()
+            .read(|text| assert_eq!(text, "explicit"));
+        assert_eq!(
+            app.world.get::<TextInput>(entity).unwrap().cursor_color,
+            ColorToken::OnSurface.into()
+        );
+    }
+}
+
+#[test]
 fn custom_attachments_share_input_behavior_and_preserve_document_identity() {
     let (mut app, root, model) = fixture();
     for id in [
