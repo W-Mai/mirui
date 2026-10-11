@@ -1,4 +1,4 @@
-//! Per-editor state over inline or shared UTF-8 documents.
+#![doc = include_str!("../../../docs/text-editing.md")]
 
 use crate::core::model::{BindType, ModelHandle};
 

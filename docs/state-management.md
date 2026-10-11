@@ -512,7 +512,7 @@ app.with_widget(paint_counter::view());
 
 Cursor and rotary feedback Views use their overlay marker as the descriptor filter and borrow `res!(optional InputFeedback)` on each paint call. Replacing or removing that resource affects subsequent calls; inserting, replacing, or removing the marker uses the descriptor's visual invalidation policy.
 
-Button, Slider, Switch, Checkbox, ProgressBar, TabBar, Text, TextInput, Icon, Image, and BackgroundBlur use this declaration for built-in paint callbacks. Their widget modules export the generated `view` factory directly; component filters, paint priorities, and internal gesture hooks remain part of the descriptor.
+Button, Slider, Switch, Checkbox, ProgressBar, TabBar, Text, TextInput, Icon, Image, and BackgroundBlur use this declaration for built-in paint callbacks. Their widget modules export the generated `view` factory directly; component filters, paint priorities, and typed input callbacks remain part of the descriptor.
 
 StaticGlyphRun declares its component filter, paint priority 80, and layout invalidation through `#[view]`. It submits its borrowed positioned glyph slice without runtime shaping or a layout workspace. FontManager and Theme are borrowed as optional resources, retaining the empty-run and missing-font-manager early returns; a run that reaches painting requires a Theme.
 
@@ -553,7 +553,7 @@ Required items, optional items, and `with`/`without` filter types form static Vi
 
 Pending dependencies are consumed before layout and after layout before the dirty-region plan. A changed `ComputedRect` therefore reaches querying Views in that frame. Changes produced by dirty-plan generation itself, such as `OffscreenGeneration` or scroll residue, remain pending for the next frame rather than replaying the walker. A View whose redraw changes its own queried dependency can continue to invalidate itself; dependency tracking does not suppress that feedback.
 
-Switch queries its component together with optional background and thumb-animation state. Its generated View retains the same attachment, gesture handler, paint priority, and animation systems.
+Switch queries its component together with optional background and thumb-animation state. Its generated View declares attachment and Tap callbacks, paint priority, and animation systems.
 
 Image queries its component together with its optional resource lease and borrows the texture manager and Theme as optional resources. A cached lease can be used without a manager; replacing a manager affects direct resolutions and newly created leases rather than retargeting an existing lease. Vector paths remain borrowed, and a drawable vector requires Theme only after its geometry is validated.
 
@@ -580,7 +580,7 @@ The generic Style pass uses `#[view]` with a required Theme resource and `paint!
 a body draw fails. Passing raw `PushClip` or `PopClip` commands to `draw` is
 rejected. Paint operations retain the first render error for the frame walker
 instead of requiring callbacks to forward backend results themselves.
-The generated adapter holds no model borrow after paint and rejects model writes inside the callback. Multiple model fields, including two fields that refer to the same instance, can be read together. `invalidation = Layout` promotes watched changes from visual to layout invalidation; visual invalidation is the default. `attach`, `gesture`, and static `systems` declare widget capabilities. An optional `name = "..."` keeps a stable registration name when the paint function name differs from the widget name. Subscriptions reserve visual notification queue capacity when attached; model updates and notifications reuse that capacity. Component replacement and removal update bindings before the next paint.
+The generated adapter holds no model borrow after paint and rejects model writes inside the callback. Multiple model fields, including two fields that refer to the same instance, can be read together. `invalidation = Layout` promotes watched changes from visual to layout invalidation; visual invalidation is the default. `attach = initialize::callback()`, `input = (tap::callback(), key::callback())`, and static `systems` declare widget capabilities. Attachment and input functions use `#[event]` with the existing parameter roles. An optional `name = "..."` keeps a stable registration name when the paint function name differs from the widget name. Subscriptions reserve visual notification queue capacity when attached; model updates and notifications reuse that capacity. Component replacement and removal update bindings before the next paint.
 
 `#[view]` constructs the descriptor returned by `function_name::view()`; `app.with_widget(...)` registers it. Raw descriptor assembly and observation collectors are confined to hidden macro support. The returned `View` supports `with_systems` and `with_invalidation` configuration.
 
@@ -588,10 +588,9 @@ The generated adapter holds no model borrow after paint and rejects model writes
 
 Systems belong to the App scheduler, not widget entities. Hiding or removing a widget does not uninstall its systems, and existing `expect` conditions retain their component-presence semantics. Arrays and source iteration add no heap allocation; bound callbacks and scheduler storage retain their registration-time allocation costs. Installed descriptors do not retain a second system list. `app.with_widgets` accepts Views with the same source type; chain `with_widget` for different array lengths or mixed source types.
 
-A View describes a widget kind, not just its paint function. Paint, attach,
-gesture, observation, and systems are independent capabilities.
+A View describes a widget kind, not just its paint function. Paint, attach, input, observation, and systems are independent capabilities.
 
-Registration retains a shared snapshot of attachment and internal-gesture hooks in registration order. Per-node attachment reuses that snapshot without allocating a hook list. Hooks that replace or extend the registry do not change the active invocation; the next invocation uses the updated registry. Registration can allocate metadata, and whole-tree attachment still uses its traversal stack.
+Registration retains a shared attachment/input plan in registration order. Per-node attachment reuses that plan without allocating a hook list. Components inserted during initialization are initialized before their View inputs become available. Replacing or removing a component retires its previous attachment and pending input hooks. Registration and structural construction can allocate metadata; ordinary component writes do not rerun attachment.
 
 `ui!` seeds the primary component and static text content, prepares binding captures, inserts static component attachments in source order, and invokes matching attachment hooks once before running reactive initial values. Preparing captures does not evaluate reactive expressions or register effects. Layout containers with component attachments participate in the same initialization; plain containers without a matching gesture capability do not gain input feedback. Prepared callbacks stay on the construction stack until installation and reuse the existing effect runtime.
 

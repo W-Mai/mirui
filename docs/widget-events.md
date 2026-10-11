@@ -76,6 +76,8 @@ TextInput paints the focused selection behind the text using its focus border co
 
 ### Custom editor examples
 
+See [Composing text editors](text-editing.md) for a complete custom Component, attachment callback, nested document Model, and View registration example.
+
 Gallery's `editor_lab` contains SearchEditor, CommandEditor, and SharedEditor. Each is a Component with a nonpainting View whose attach callback inserts TextEditing on the same node and reuses TextInput for appearance. Search observes document revisions to filter a fixed catalog; commands handle `TextEditing::Submitted`; two shared editors bind one owned TextDocument with independent selections. The source is split into [components](../src/gallery/demos/editor_lab/editors.rs), [Models](../src/gallery/demos/editor_lab/model.rs), and [composition](../src/gallery/demos/editor_lab/composition.rs).
 
 ## Pointer identity

@@ -1,8 +1,6 @@
 //! Widget-kind descriptors and registration.
 //!
-//! Each [`View`] combines independent paint, attach, gesture, observation,
-//! and system capabilities. Paint priority affects only the paint traversal;
-//! per-entity hooks retain registration order, and systems keep their scheduling slots.
+//! Each [`View`] combines independent paint, attach, input, observation, and system capabilities. Paint priority affects only the paint traversal; per-entity hooks retain registration order, and systems keep their scheduling slots.
 
 use alloc::rc::Rc;
 use alloc::vec::Vec;
