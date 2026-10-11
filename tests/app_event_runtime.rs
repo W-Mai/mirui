@@ -8,16 +8,20 @@ use mirui::ecs::World;
 use mirui::input::event::contract::Event;
 use mirui::input::event::input::{CharInput, InputEvent, Key, Rotary, Wheel};
 use mirui::input::event::lifecycle::{
-    HostInteraction, MemoryWarning, Quit, Resumed, Started, Suspended,
+    HostInteraction, MemoryWarning, Quit, Resumed, SafeAreaChanged, Started, Suspended,
+    ViewportChanged,
 };
 use mirui::render::texture::Texture;
 use mirui::surface::framebuf::FramebufSurface;
-use mirui::surface::{DisplayInfo, FramebufferAccess, Surface};
-use mirui::types::{Fixed, PhysicalRect};
+use mirui::surface::{DisplayInfo, FramebufferAccess, SafeAreaInsets, Surface};
+use mirui::types::{Fixed, PhysicalRect, Viewport};
 
 struct QueuedSurface {
     framebuffer: FramebufSurface<fn(&[u8], PhysicalRect)>,
     events: VecDeque<InputEvent>,
+    viewport: Viewport,
+    safe_area: SafeAreaInsets,
+    pending_geometry: Option<(Viewport, SafeAreaInsets)>,
 }
 
 impl QueuedSurface {
@@ -25,6 +29,9 @@ impl QueuedSurface {
         Self {
             framebuffer: FramebufSurface::new(8, 8, |_, _| {}),
             events: events.into_iter().collect(),
+            viewport: Viewport::new(8, 8, Fixed::ONE),
+            safe_area: SafeAreaInsets::default(),
+            pending_geometry: None,
         }
     }
 }
@@ -33,11 +40,26 @@ impl InspectCaches for QueuedSurface {}
 
 impl Surface for QueuedSurface {
     fn display_info(&self) -> DisplayInfo {
-        self.framebuffer.display_info()
+        let (width, height) = self.viewport.logical_size();
+        DisplayInfo {
+            width,
+            height,
+            scale: self.viewport.scale(),
+            ..self.framebuffer.display_info()
+        }
     }
 
     fn physical_size(&self) -> (u32, u32) {
-        self.framebuffer.physical_size()
+        let (width, height) = self.viewport.physical_size();
+        (u32::from(width), u32::from(height))
+    }
+
+    fn viewport(&self) -> Viewport {
+        self.viewport
+    }
+
+    fn safe_area_insets(&self) -> SafeAreaInsets {
+        self.safe_area
     }
 
     fn flush(&mut self, area: PhysicalRect) {
@@ -45,6 +67,10 @@ impl Surface for QueuedSurface {
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
+        if let Some((viewport, safe_area)) = self.pending_geometry.take() {
+            self.viewport = viewport;
+            self.safe_area = safe_area;
+        }
         self.events.pop_front()
     }
 }
@@ -75,6 +101,93 @@ enum Step {
     CharInput(CharInput),
     Wheel(Wheel),
     Rotary(Rotary),
+    Viewport(ViewportChanged),
+    SafeArea(SafeAreaChanged),
+}
+
+#[mirui::event]
+fn viewport_changed(
+    event: event!(ViewportChanged),
+    info: res!(DisplayInfo),
+    trace: res!(mut Trace),
+) {
+    assert_eq!((info.width, info.height), event.new.logical_size());
+    assert_eq!(info.scale, event.new.scale());
+    trace.push(Step::Viewport(*event));
+}
+
+#[mirui::event]
+fn safe_area_changed(
+    event: event!(SafeAreaChanged),
+    insets: res!(SafeAreaInsets),
+    trace: res!(mut Trace),
+) {
+    assert_eq!(*insets, event.new);
+    trace.push(Step::SafeArea(*event));
+}
+
+#[test]
+fn surface_geometry_publishes_before_input_without_business_capacity_or_duplicate_notices() {
+    let mut app = app([]);
+    app.with_event_capacity(mirui::input::event::EventCapacity::new());
+    app.on_event(ViewportChanged::EVENT, viewport_changed::callback())
+        .on_event(SafeAreaChanged::EVENT, safe_area_changed::callback())
+        .on_event(Key::EVENT, key::callback());
+    app.tick();
+    assert_eq!(
+        app.world.resource::<Trace>().unwrap().steps(),
+        &[Step::StartHook]
+    );
+    let old = app.backend.viewport();
+    let new = Viewport::new(64, 32, Fixed::from_int(2));
+    let safe_area = SafeAreaInsets {
+        top: Fixed::from_int(3),
+        ..SafeAreaInsets::default()
+    };
+    app.backend.pending_geometry = Some((new, safe_area));
+    app.backend.events.push_back(InputEvent::Key {
+        code: 7,
+        pressed: true,
+    });
+    app.tick();
+    let steps = app.world.resource::<Trace>().unwrap().steps();
+    assert_eq!(steps[1], Step::Viewport(ViewportChanged { old, new }));
+    assert_eq!(
+        steps[2],
+        Step::SafeArea(SafeAreaChanged {
+            old: SafeAreaInsets::default(),
+            new: safe_area
+        })
+    );
+    assert!(matches!(steps[3], Step::Key(_)));
+    assert_eq!(steps.len(), 4);
+    app.tick();
+    assert_eq!(app.world.resource::<Trace>().unwrap().steps().len(), 4);
+}
+
+#[test]
+fn surface_geometry_changes_without_input_are_not_replayed_to_later_listeners() {
+    let mut app = app([]);
+    let middle = Viewport::new(24, 16, Fixed::ONE);
+    app.backend.pending_geometry = Some((middle, SafeAreaInsets::default()));
+    app.tick();
+    app.on_event(ViewportChanged::EVENT, viewport_changed::callback());
+    app.tick();
+    assert_eq!(
+        app.world.resource::<Trace>().unwrap().steps(),
+        &[Step::StartHook]
+    );
+    // The physical mapping changes even when logical dimensions are unchanged.
+    let new = Viewport::new(48, 32, Fixed::from_int(2));
+    app.backend.pending_geometry = Some((new, SafeAreaInsets::default()));
+    app.tick();
+    assert_eq!(
+        app.world.resource::<Trace>().unwrap().steps(),
+        &[
+            Step::StartHook,
+            Step::Viewport(ViewportChanged { old: middle, new }),
+        ]
+    );
 }
 
 #[derive(Default)]

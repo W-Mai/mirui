@@ -963,22 +963,31 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.world.reserve_dirty_traversal_stack();
     }
 
-    fn prepare_render(&mut self, viewport: crate::types::Viewport) {
-        self.prepare_dirty_storage();
-        let viewport_changed = {
+    fn sync_surface_geometry(&mut self, viewport: crate::types::Viewport) {
+        let old_viewport = {
             let current = self
                 .world
                 .resource_mut::<RenderViewport>()
                 .expect("App always owns a RenderViewport");
-            let changed = current.0 != viewport;
+            let old = current.0;
             current.0 = viewport;
-            changed
+            old
         };
         let safe_area = self.backend.safe_area_insets();
-        let safe_area_changed = self
-            .world
-            .resource::<crate::surface::SafeAreaInsets>()
-            .is_none_or(|current| *current != safe_area);
+        let old_safe_area = {
+            let current = self
+                .world
+                .resource_mut::<crate::surface::SafeAreaInsets>()
+                .expect("App always owns SafeAreaInsets");
+            let old = *current;
+            *current = safe_area;
+            old
+        };
+        let viewport_changed = old_viewport != viewport;
+        let safe_area_changed = old_safe_area != safe_area;
+        if let Some(info) = self.world.resource_mut::<crate::surface::DisplayInfo>() {
+            *info = self.backend.display_info();
+        }
         if viewport_changed || safe_area_changed {
             // Geometry from the previous viewport is stale, but its layout
             // storage can be reused when the same root is recomputed.
@@ -992,9 +1001,23 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 self.world.mark_subtree_dirty(root);
             }
         }
-        if safe_area_changed {
-            self.world.insert_resource(safe_area);
+        if viewport_changed {
+            self.notify_app(crate::input::event::lifecycle::ViewportChanged {
+                old: old_viewport,
+                new: viewport,
+            });
         }
+        if safe_area_changed {
+            self.notify_app(crate::input::event::lifecycle::SafeAreaChanged {
+                old: old_safe_area,
+                new: safe_area,
+            });
+        }
+    }
+
+    fn prepare_render(&mut self, viewport: crate::types::Viewport) {
+        self.prepare_dirty_storage();
+        self.sync_surface_geometry(viewport);
         for plugin in &mut self.plugins {
             plugin.pre_render(&mut self.world);
         }
@@ -1168,12 +1191,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         }
         self.ensure_started();
         let _owner_scope = crate::core::reactive::OwnerGuard::enter(&mut self.world);
+        self.sync_surface_geometry(self.backend.viewport());
         if self.suspended {
             // Fan-out plugin on_event while suspended so AutoSuspendOnFocus-style
             // plugins can write SuspendRequest::Resume in response to lifecycle events.
             // Widget dispatch is skipped — suspended means no UI interaction.
             loop {
-                match self.poll_event() {
+                let event = self.poll_event();
+                self.sync_surface_geometry(self.backend.viewport());
+                match event {
                     Some(InputEvent::Quit) => {
                         self.finish_quit();
                         return true;
@@ -1208,19 +1234,14 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
         let frame_start = self.clock_ns();
 
-        // Keep the DisplayInfo resource in step with the backend each frame;
-        // systems that read it (not the per-event size) would otherwise see a
-        // stale viewport after the surface changes size.
-        let info = self.backend.display_info();
-        self.world.insert_resource(info);
-
-        let mut logical: Option<(u16, u16)> = None;
         let mut quit = false;
 
         {
             crate::trace_span!("frame.input");
             loop {
-                match self.poll_event() {
+                let event = self.poll_event();
+                self.sync_surface_geometry(self.backend.viewport());
+                match event {
                     Some(InputEvent::Quit) => {
                         quit = true;
                         break;
@@ -1243,10 +1264,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                         {
                             self.apply_suspend_request();
                         } else if (!consumed || !event.is_user_input()) && !self.suspended {
-                            let (lw, lh) = *logical.get_or_insert_with(|| {
-                                let info = self.backend.display_info();
-                                (info.width, info.height)
-                            });
+                            let info = self.backend.display_info();
+                            let (lw, lh) = (info.width, info.height);
                             let now_ms = (self.clock_ns() / 1_000_000) as u32;
                             crate::input::event::dispatch_input(
                                 &mut self.world,

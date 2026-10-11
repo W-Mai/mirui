@@ -27,7 +27,7 @@ impl PayloadLayout {
         }
     }
 
-    const fn required(self, used: usize) -> Result<(usize, usize), PayloadError> {
+    pub(crate) const fn required(self, used: usize) -> Result<(usize, usize), PayloadError> {
         if self.size == 0 {
             return Ok((0, 1));
         }

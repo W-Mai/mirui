@@ -21,6 +21,7 @@ struct PendingNotifications {
     // Runtime limits can shrink without replacing retained storage.
     business: Cell<Option<NotificationCapacity>>,
     app_slot: Cell<bool>,
+    app_payload: Cell<(usize, usize)>,
 }
 
 impl PendingNotifications {
@@ -34,6 +35,7 @@ impl PendingNotifications {
             queue: NotificationQueue::default(),
             business: Cell::new(None),
             app_slot: Cell::new(false),
+            app_payload: Cell::new((0, 1)),
         };
         pending.prepare(business, app_slot)?;
         Ok(pending)
@@ -44,19 +46,48 @@ impl PendingNotifications {
         business: Option<NotificationCapacity>,
         app_slot: bool,
     ) -> Result<(), NotificationError> {
+        self.prepare_with_payload(business, app_slot, self.app_payload.get())
+    }
+
+    fn prepare_with_payload(
+        &self,
+        business: Option<NotificationCapacity>,
+        app_slot: bool,
+        app_payload: (usize, usize),
+    ) -> Result<(), NotificationError> {
         self.queue.check_idle()?;
         let app_slot = self.app_slot.get() || app_slot;
         let capacity = business.unwrap_or_default();
+        if !capacity.payload_alignment.is_power_of_two() {
+            return Err(NotificationError::InvalidLayout);
+        }
         let records = capacity
             .records
             .checked_add(usize::from(app_slot))
             .ok_or(NotificationError::SizeOverflow)?;
+        let alignment = capacity.payload_alignment.max(app_payload.1);
+        // One App payload can split the business payload sequence at two alignment boundaries.
+        let padding = if app_payload.0 > 0 && capacity.payload_bytes > 0 {
+            alignment
+                .checked_sub(1)
+                .and_then(|n| n.checked_mul(2))
+                .ok_or(NotificationError::SizeOverflow)?
+        } else {
+            0
+        };
+        let payload_bytes = capacity
+            .payload_bytes
+            .checked_add(app_payload.0)
+            .and_then(|bytes| bytes.checked_add(padding))
+            .ok_or(NotificationError::SizeOverflow)?;
         self.queue.reserve(NotificationCapacity {
             records,
-            ..capacity
+            payload_bytes,
+            payload_alignment: alignment,
         })?;
         self.business.set(business);
         self.app_slot.set(app_slot);
+        self.app_payload.set(app_payload);
         Ok(())
     }
 
@@ -83,6 +114,20 @@ impl PendingNotifications {
         }
         listeners.flush_notifications_with(world, &self.queue, limit, before_dispatch)
     }
+}
+
+pub(crate) fn prepare_app_payload<E: Event>(world: &World) -> Result<(), NotificationError> {
+    let pending = world
+        .resource::<Rc<PendingNotifications>>()
+        .ok_or(NotificationError::InvalidLayout)?;
+    let (bytes, alignment) = pending.app_payload.get();
+    let (required, required_alignment) =
+        crate::ecs::payload::PayloadLayout::of::<E>().required(0)?;
+    pending.prepare_with_payload(
+        pending.business.get(),
+        true,
+        (bytes.max(required), alignment.max(required_alignment)),
+    )
 }
 
 /// Prepare notification storage without exposing the runtime service.

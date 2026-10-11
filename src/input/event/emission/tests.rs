@@ -318,6 +318,112 @@ fn preparation_reuses_the_service_and_preserves_pending_records_and_monotonic_ca
 
 struct EmptyHit;
 
+#[repr(align(64))]
+#[derive(Debug)]
+struct AlignedAppNotice(u8);
+
+impl Event for AlignedAppNotice {
+    type Route = crate::input::event::contract::AppNotification;
+    type Source = crate::input::event::contract::AppSource;
+    type Options = ();
+}
+
+impl crate::input::event::lifecycle::AppNotice for AlignedAppNotice {}
+
+#[crate::event]
+fn record_aligned_app(input: event!(AlignedAppNotice), trace: res!(mut Trace)) {
+    assert_eq!(
+        core::ptr::from_ref(input).addr() % align_of::<AlignedAppNotice>(),
+        0
+    );
+    trace.record(u8::MAX, input.0);
+}
+
+#[test]
+fn app_payload_reservation_preserves_business_limits_alignment_fifo_and_hot_storage() {
+    for app_position in 0..=2 {
+        let mut fixture = Fixture::new(notification_capacity::<Hit>(2));
+        prepare_app_payload::<AlignedAppNotice>(&fixture.world).unwrap();
+        fixture
+            .listeners
+            .install_app(
+                &mut fixture.world,
+                ListenerSelector::new(AlignedAppNotice::EVENT, |(), _| true),
+                record_aligned_app::callback(),
+                CommandCapacity::default(),
+            )
+            .unwrap();
+        // Retained App alignment must not hide an invalid business layout.
+        assert_eq!(
+            prepare_runtime_notifications(
+                &mut fixture.world,
+                Some(NotificationCapacity {
+                    payload_alignment: 3,
+                    ..notification_capacity::<Hit>(2)
+                }),
+                true
+            ),
+            Err(NotificationError::InvalidLayout)
+        );
+        // Keep a spare business record so failure must come from its byte limit.
+        prepare_runtime_notifications(
+            &mut fixture.world,
+            Some(NotificationCapacity {
+                records: 3,
+                ..notification_capacity::<Hit>(2)
+            }),
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            tracked_allocations(|| {
+                for cycle in 0..2 {
+                    for position in 0..=2 {
+                        if position == app_position {
+                            enqueue_app_notice(&mut fixture.world, AlignedAppNotice(7)).unwrap();
+                        }
+                        if position < 2 {
+                            submit(
+                                &mut fixture.world,
+                                fixture.node,
+                                Hit {
+                                    old: 0,
+                                    new: position + 1,
+                                },
+                            )
+                            .unwrap();
+                        }
+                    }
+                    assert_eq!(
+                        submit(&mut fixture.world, fixture.node, Hit { old: 0, new: 3 }),
+                        Err(CommandError::Commit(CommandCommitError::PayloadCapacity {
+                            required: 3 * size_of::<Hit>(),
+                            available: 2 * size_of::<Hit>(),
+                        }))
+                    );
+                    assert_eq!(
+                        fixture
+                            .pending
+                            .flush(&fixture.listeners, &mut fixture.world, 3),
+                        Ok(3)
+                    );
+                    let trace = fixture.world.resource::<Trace>().unwrap();
+                    let values = &trace.values[cycle * 3..cycle * 3 + 3];
+                    assert_eq!(values[usize::from(app_position)], (u8::MAX, 7));
+                    assert!(
+                        values
+                            .iter()
+                            .filter(|(old, _)| *old == 0)
+                            .copied()
+                            .eq([(0, 1), (0, 2)])
+                    );
+                }
+            }),
+            0
+        );
+    }
+}
+
 #[test]
 fn default_emit_checks_subscriptions_at_commit_and_does_not_replay_skipped_events() {
     use crate::input::event::{EventCapacity, runtime};

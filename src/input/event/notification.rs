@@ -6,7 +6,7 @@ use core::ptr::NonNull;
 
 use crate::core::reactive::retained::InputLease;
 use crate::ecs::Entity;
-use crate::ecs::payload::{PayloadArena, PayloadError, drop_stored};
+use crate::ecs::payload::{PayloadArena, PayloadError, PayloadLayout, drop_stored};
 
 use super::contract::{AppNotification, EntityNotification, Event};
 use super::lifecycle::AppNotice;
@@ -109,6 +109,7 @@ struct NotificationBuffer {
     payload: PayloadArena,
     cursor: usize,
     entity_records: usize,
+    entity_payload_used: usize,
 }
 
 impl NotificationBuffer {
@@ -157,6 +158,14 @@ impl NotificationBuffer {
                 value,
             ));
         }
+        let entity_payload_used = if target.entity().is_some() {
+            match PayloadLayout::of::<E>().required(self.entity_payload_used) {
+                Ok((used, _)) => used.max(self.entity_payload_used),
+                Err(error) => return Err((error.into(), value)),
+            }
+        } else {
+            self.entity_payload_used
+        };
         let offset = match self.payload.try_store(value) {
             Ok(offset) => offset,
             Err((error, value)) => return Err((error.into(), value)),
@@ -168,6 +177,7 @@ impl NotificationBuffer {
             drop_payload: drop_stored::<E>,
         });
         self.entity_records += usize::from(target.entity().is_some());
+        self.entity_payload_used = entity_payload_used;
         Ok(())
     }
 
@@ -193,6 +203,7 @@ impl NotificationBuffer {
         self.payload.clear();
         self.cursor = 0;
         self.entity_records = 0;
+        self.entity_payload_used = 0;
     }
 }
 
@@ -345,10 +356,30 @@ impl NotificationQueue {
                 value,
             ));
         }
-        let capacity = NotificationCapacity {
-            records: state.capacity.records,
-            ..capacity
-        };
+        let (required, alignment) =
+            match PayloadLayout::of::<E>().required(state.write.entity_payload_used) {
+                Ok(layout) => layout,
+                Err(error) => return Err((error.into(), value)),
+            };
+        if alignment > capacity.payload_alignment {
+            return Err((
+                NotificationError::PayloadAlignment {
+                    required: alignment,
+                    available: capacity.payload_alignment,
+                },
+                value,
+            ));
+        }
+        if required > capacity.payload_bytes {
+            return Err((
+                NotificationError::PayloadCapacity {
+                    required,
+                    available: capacity.payload_bytes,
+                },
+                value,
+            ));
+        }
+        let capacity = state.capacity;
         let target = lease.map_or(
             NotificationTarget::Entity(entity),
             NotificationTarget::Retained,

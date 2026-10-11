@@ -383,6 +383,11 @@ where
     let app_slot = runtime.listeners.has_app_notifications(world)?
         || TypeId::of::<E::Route>() == TypeId::of::<AppNotification>();
     runtime.prepare_notifications::<E>(world, callback.uses_commands(), app_slot)?;
+    if TypeId::of::<E::Route>() == TypeId::of::<AppNotification>() {
+        super::emission::prepare_app_payload::<E>(world)
+            .map_err(EventCapacityError::Storage)
+            .map_err(RuntimeInstallError::Capacity)?;
+    }
     runtime.listeners.install_app(
         world,
         ListenerSelector::new(key, |(), _| true),
