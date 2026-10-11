@@ -20,9 +20,6 @@ use web_sys::{
 use super::backbuffer_invalidation::BackbufferInvalidation;
 use super::{BackbufferPersistence, DisplayInfo, InputEvent, PointerKind, Surface};
 use crate::core::cache::InspectCaches;
-use crate::input::event::input::{
-    KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_ESCAPE, KEY_HOME, KEY_LEFT, KEY_RETURN, KEY_RIGHT,
-};
 use crate::render::texture::ColorFormat;
 use crate::types::Fixed;
 
@@ -461,39 +458,23 @@ fn keyboard_listener(
     let q = queue.clone();
     let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
         let evt: KeyboardEvent = raw.unchecked_into();
-        let key = evt.key();
-        if let Some(code) = map_key(&key) {
-            evt.prevent_default();
-            q.borrow_mut().push_back(InputEvent::Key {
-                code,
-                pressed,
-                modifiers: Some(crate::input::event::input::KeyModifiers {
-                    shift: evt.shift_key(),
-                    control: evt.ctrl_key(),
-                    alt: evt.alt_key(),
-                    meta: evt.meta_key(),
-                }),
-                repeat: Some(evt.repeat()),
-            });
-        }
-        if pressed && !evt.is_composing() && key.chars().count() == 1 {
-            q.borrow_mut()
-                .push_back(crate::input::event::input::TextCommitted::new(key).into());
+        if let Some(input) = super::web_input::keyboard_input(
+            evt.key(),
+            pressed,
+            crate::input::event::input::KeyModifiers {
+                shift: evt.shift_key(),
+                control: evt.ctrl_key(),
+                alt: evt.alt_key(),
+                meta: evt.meta_key(),
+            },
+            evt.repeat(),
+            evt.is_composing(),
+        ) {
+            if matches!(input, InputEvent::Key { .. }) {
+                evt.prevent_default();
+            }
+            q.borrow_mut().push_back(input);
         }
     });
     register_listener(canvas.clone().into(), name, closure)
-}
-
-fn map_key(key: &str) -> Option<u32> {
-    Some(match key {
-        "Backspace" => KEY_BACKSPACE,
-        "Delete" => KEY_DELETE,
-        "ArrowLeft" => KEY_LEFT,
-        "ArrowRight" => KEY_RIGHT,
-        "Home" => KEY_HOME,
-        "End" => KEY_END,
-        "Enter" => KEY_RETURN,
-        "Escape" => KEY_ESCAPE,
-        _ => return None,
-    })
 }

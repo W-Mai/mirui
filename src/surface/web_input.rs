@@ -1,5 +1,44 @@
-use crate::input::event::input::{PointerKind, WHEEL_LINE_PIXELS};
+use crate::input::event::input::{
+    InputEvent, KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_ESCAPE, KEY_HOME, KEY_LEFT, KEY_RETURN,
+    KEY_RIGHT, KeyModifiers, PointerKind, TextCommitted, WHEEL_LINE_PIXELS,
+};
 use crate::types::Fixed;
+use alloc::string::String;
+
+pub(super) fn keyboard_input(
+    key: String,
+    pressed: bool,
+    modifiers: KeyModifiers,
+    repeat: bool,
+    composing: bool,
+) -> Option<InputEvent> {
+    if composing {
+        return None;
+    }
+    let code = match key.as_str() {
+        "Backspace" => Some(KEY_BACKSPACE),
+        "Delete" => Some(KEY_DELETE),
+        "ArrowLeft" => Some(KEY_LEFT),
+        "ArrowRight" => Some(KEY_RIGHT),
+        "Home" => Some(KEY_HOME),
+        "End" => Some(KEY_END),
+        "Enter" => Some(KEY_RETURN),
+        "Escape" => Some(KEY_ESCAPE),
+        _ => None,
+    };
+    if let Some(code) = code {
+        Some(InputEvent::Key {
+            code,
+            pressed,
+            modifiers: Some(modifiers),
+            repeat: Some(repeat),
+        })
+    } else if pressed && key.chars().count() == 1 {
+        Some(TextCommitted::new(key).into())
+    } else {
+        None
+    }
+}
 
 #[derive(Clone, Copy)]
 pub(super) enum PointerPhase {
@@ -116,6 +155,60 @@ pub(super) fn wheel_delta(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn composing_keys_do_not_escape_into_editing_or_shortcuts() {
+        for key in [
+            "Enter",
+            "Backspace",
+            "Delete",
+            "ArrowLeft",
+            "ArrowRight",
+            "Home",
+            "End",
+            "Escape",
+            "a",
+            "中",
+            "Process",
+        ] {
+            for pressed in [false, true] {
+                assert!(
+                    keyboard_input(key.into(), pressed, KeyModifiers::default(), false, true)
+                        .is_none()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ordinary_keys_keep_metadata_and_move_text_without_copying() {
+        let modifiers = KeyModifiers {
+            shift: true,
+            ..Default::default()
+        };
+        for pressed in [false, true] {
+            assert!(
+                matches!(keyboard_input("Enter".into(), pressed, modifiers, true, false),
+                Some(InputEvent::Key { code: KEY_RETURN, pressed: actual, modifiers: Some(actual_modifiers), repeat: Some(true) })
+                if actual == pressed && actual_modifiers == modifiers)
+            );
+        }
+        let key = String::from("中");
+        let pointer = key.as_ptr();
+        let allocations = crate::test_support::tracked_allocations(|| {
+            let Some(InputEvent::TextCommitted(text)) =
+                keyboard_input(key, true, modifiers, false, false)
+            else {
+                panic!("text input")
+            };
+            assert_eq!(text.text(), "中");
+            assert_eq!(text.text().as_ptr(), pointer);
+        });
+        assert_eq!(allocations, 0);
+        for key in ["中", "Dead", "Process", "Unidentified"] {
+            assert!(keyboard_input(key.into(), false, modifiers, false, false).is_none());
+        }
+    }
 
     #[test]
     fn pointer_identity_survives_colliding_native_ids_without_allocations() {
