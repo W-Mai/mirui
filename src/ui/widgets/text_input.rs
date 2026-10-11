@@ -11,6 +11,9 @@ use crate::ui::dirty::Dirty;
 use crate::ui::outputs::Outputs;
 use crate::ui::theme::{ColorToken, ThemedColor};
 
+mod storage;
+use storage::Storage;
+
 /// Caret on/off, toggled by `cursor_blink_system` every ~500 ms.
 #[derive(Default, Clone, Copy)]
 pub struct CursorBlinkPhase(pub bool);
@@ -35,6 +38,8 @@ pub enum TextEditError {
     InvalidBoundary { offset: usize },
     ControlCharacter,
     Capacity { required: usize, capacity: usize },
+    CapacityLimit { capacity: usize, maximum: usize },
+    ReserveFailed { capacity: usize },
 }
 
 crate::input::event::contract::widget_events! {
@@ -43,14 +48,15 @@ crate::input::event::contract::widget_events! {
     Changed { len: u32 },
 }
 
-/// Single-line UTF-8 text input with a fixed-capacity buffer.
+/// Single-line UTF-8 text input with explicitly prepared capacity.
 #[crate::component]
 #[derive(Clone)]
 pub struct TextInput {
-    buffer: [u8; TEXT_INPUT_CAP],
-    len: u8,
-    cursor: u8,
-    anchor: u8,
+    buffer: Storage,
+    capacity: u32,
+    len: u32,
+    cursor: u32,
+    anchor: u32,
     pub focused: bool,
     pub text_color: ThemedColor,
     pub placeholder_color: ThemedColor,
@@ -61,7 +67,8 @@ pub struct TextInput {
 impl TextInput {
     pub fn new() -> Self {
         Self {
-            buffer: [0u8; TEXT_INPUT_CAP],
+            buffer: Storage::Inline([0u8; TEXT_INPUT_CAP]),
+            capacity: TEXT_INPUT_CAP as u32,
             len: 0,
             cursor: 0,
             anchor: 0,
@@ -71,6 +78,29 @@ impl TextInput {
             cursor_color: ThemedColor::Token(ColorToken::OnSurface),
             focus_border_color: ThemedColor::Token(ColorToken::Primary),
         }
+    }
+
+    /// Set the byte limit, preparing storage before editing. Existing content and selection are preserved on failure.
+    pub fn set_text_capacity(&mut self, capacity: usize) -> Result<(), TextEditError> {
+        if capacity < self.len() {
+            return Err(TextEditError::Capacity {
+                required: self.len(),
+                capacity,
+            });
+        }
+        self.buffer.prepare(capacity)?;
+        self.capacity = capacity as u32;
+        Ok(())
+    }
+
+    pub fn with_text_capacity(mut self, capacity: usize) -> Result<Self, TextEditError> {
+        self.set_text_capacity(capacity)?;
+        Ok(self)
+    }
+
+    /// The accepted byte limit, independent of retained allocation size.
+    pub fn capacity(&self) -> usize {
+        self.capacity as usize
     }
 
     pub fn with_text_color(mut self, color: impl Into<ThemedColor>) -> Self {
@@ -99,7 +129,7 @@ impl TextInput {
     }
 
     pub fn len(&self) -> usize {
-        usize::from(self.len)
+        self.len as usize
     }
 
     pub fn is_empty(&self) -> bool {
@@ -107,12 +137,12 @@ impl TextInput {
     }
 
     pub fn cursor(&self) -> usize {
-        usize::from(self.cursor)
+        self.cursor as usize
     }
 
     pub fn selection(&self) -> TextSelection {
         TextSelection {
-            anchor: usize::from(self.anchor),
+            anchor: self.anchor as usize,
             cursor: self.cursor(),
         }
     }
@@ -125,8 +155,8 @@ impl TextInput {
             }
         }
         let changed = self.selection() != selection;
-        self.anchor = selection.anchor as u8;
-        self.cursor = selection.cursor as u8;
+        self.anchor = selection.anchor as u32;
+        self.cursor = selection.cursor as u32;
         Ok(changed)
     }
 
@@ -139,8 +169,8 @@ impl TextInput {
         let end = self.len();
         self.buffer.copy_within(range.end..end, cursor);
         self.buffer[range.start..cursor].copy_from_slice(text.as_bytes());
-        self.len = required as u8;
-        self.collapse(cursor as u8);
+        self.len = required as u32;
+        self.collapse(cursor as u32);
         Ok(changed)
     }
 
@@ -151,16 +181,16 @@ impl TextInput {
         let range = self.selection().range();
         let retained = self.len() - range.len();
         let required = retained.saturating_add(text.len());
-        if required > TEXT_INPUT_CAP {
+        if required > self.capacity() {
             return Err(TextEditError::Capacity {
                 required,
-                capacity: TEXT_INPUT_CAP,
+                capacity: self.capacity(),
             });
         }
         Ok(required)
     }
 
-    fn collapse(&mut self, cursor: u8) {
+    fn collapse(&mut self, cursor: u32) {
         self.cursor = cursor;
         self.anchor = cursor;
     }
@@ -190,7 +220,7 @@ impl TextInput {
         while pos > 0 && is_utf8_continuation(self.buffer[pos]) {
             pos -= 1;
         }
-        self.anchor = pos as u8;
+        self.anchor = pos as u32;
         self.replace_selection("")
             .expect("deletion fits existing storage")
     }
@@ -210,7 +240,7 @@ impl TextInput {
         while next < end && is_utf8_continuation(self.buffer[next]) {
             next += 1;
         }
-        self.anchor = next as u8;
+        self.anchor = next as u32;
         self.replace_selection("")
             .expect("deletion fits existing storage")
     }
@@ -282,6 +312,11 @@ pub struct TextInputBuilder<P = (), B = ()> {
 }
 
 impl<P, B> TextInputBuilder<P, B> {
+    pub fn text_capacity(mut self, capacity: usize) -> Result<Self, TextEditError> {
+        self.text_input.set_text_capacity(capacity)?;
+        Ok(self)
+    }
+
     pub fn style(mut self, style: crate::ui::Style) -> Self {
         self.style = Some(style);
         self
@@ -506,7 +541,7 @@ fn text_input_render(
         layout
             .carets()
             .iter()
-            .find(|caret| caret.text_offset == u32::from(ti.cursor))
+            .find(|caret| caret.text_offset == ti.cursor)
             .map(|caret| crate::types::fixed::from_textflow(caret.position.x))
             .unwrap_or(Fixed::ZERO)
     };
@@ -1301,6 +1336,51 @@ mod tests {
         assert!(invoke_key(&mut world, entity, &InputEvent::CharInput { ch: 'a' }).unwrap());
         assert_eq!(runtime::flush(&mut world).unwrap(), 1);
         assert_eq!(world.resource::<ChangeTrace>().unwrap().calls, 1);
+    }
+
+    #[test]
+    fn prepared_large_input_uses_default_notifications_without_hot_allocation() {
+        let mut world = World::new();
+        world.insert_resource(ChangeTrace::default());
+        runtime::configure(&mut world, EventCapacity::default()).unwrap();
+        let parent = world.spawn_empty();
+        let entity = crate::ui::UiScope::new(&mut world, parent).spawn(
+            TextInput::build()
+                .text_capacity(512)
+                .unwrap()
+                .on_event(TextInput::Changed, record_changed::callback()),
+        );
+        let callback = textinput_character::callback::<crate::__macro_support::NodeContext>()
+            .prepare(
+                &mut world,
+                crate::input::event::view_input::fixture_capacity(),
+            )
+            .unwrap();
+        callback
+            .invoke(&mut world, &CharInput { ch: 'a' }, entity)
+            .unwrap();
+        runtime::flush(&mut world).unwrap();
+        *world.resource_mut::<ChangeTrace>().unwrap() = ChangeTrace::default();
+        world.get_mut::<TextInput>(entity).unwrap().backspace();
+        world
+            .get_mut::<TextInput>(entity)
+            .unwrap()
+            .replace_selection(&"a".repeat(300))
+            .unwrap();
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                callback
+                    .invoke(&mut world, &CharInput { ch: '中' }, entity)
+                    .unwrap();
+                assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+            }),
+            0
+        );
+        let trace = world.resource::<ChangeTrace>().unwrap();
+        assert_eq!(trace.calls, 1);
+        assert_eq!(trace.lengths[0], 303);
+        assert_eq!(trace.current_lengths[0], 303);
+        assert_eq!(world.get::<TextInput>(entity).unwrap().cursor(), 303);
     }
 
     #[test]

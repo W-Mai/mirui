@@ -203,6 +203,7 @@ mod tests {
         app.compose(root, |cx| {
             ui! {
                 TextInput (
+                    text_capacity: 512,
                     text_color: mirui::ui::ColorToken::Primary,
                     placeholder_color: mirui::ui::ColorToken::Secondary,
                     cursor_color: mirui::ui::ColorToken::OnPrimary,
@@ -229,6 +230,8 @@ mod tests {
             mirui::ui::ColorToken::OnSurface.into()
         );
         assert!(ti.is_empty());
+        assert_eq!(ti.capacity(), 512);
+        assert!(!world.has::<mirui::ui::widgets::Text>(entities[0]));
     }
 
     #[test]

@@ -492,7 +492,9 @@ impl MiruiRune {
                 .map(|n| n.span())
                 .unwrap_or_else(|| syn::spanned::Spanned::span(&attr.value));
 
-            if name == "text_capacity" && (is_text_widget || is_button_widget) {
+            if name == "text_capacity"
+                && (is_text_widget || is_button_widget || is_text_input_widget)
+            {
                 if text_capacity.is_some() {
                     errors.push(
                         syn::Error::new(attr_span, "duplicate `text_capacity`").to_compile_error(),
@@ -1004,8 +1006,14 @@ impl MiruiRune {
                 });
             } else if cmd.name == "TextInput" {
                 let setters = &cmd.component_fields;
+                let capacity = cmd.text_capacity.as_ref().map(|capacity| {
+                    quote! {
+                        .with_text_capacity(#capacity)
+                        .expect("TextInput text_capacity could not be reserved")
+                    }
+                });
                 tokens.extend(quote! {
-                    (#world).insert(#var, #comp_name::new() #(#setters)*);
+                    (#world).insert(#var, #comp_name::new() #capacity #(#setters)*);
                 });
             } else {
                 let comp_fields = &cmd.component_fields;
@@ -1042,6 +1050,7 @@ impl MiruiRune {
         }
 
         if let Some(capacity) = &cmd.text_capacity
+            && (cmd.name == "Text" || cmd.name == "Button")
             && !cmd
                 .reactive_binds
                 .iter()
@@ -1080,6 +1089,7 @@ impl MiruiRune {
             let property = &binding.property;
             let expr = &binding.expr;
             let body = if property == "TextContent"
+                && (cmd.name == "Text" || cmd.name == "Button")
                 && let Some(capacity) = &cmd.text_capacity
             {
                 direct_format_args_call(&binding.format_expr, &quote! { #var }, capacity)
