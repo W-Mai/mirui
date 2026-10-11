@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `TextDocument` provides observable UTF-8 document data with prepared byte capacity, atomic range replacement, and owned Model nesting. Documents keep content separate from editor selection and composition.
+
 - `TextInput` extends selections with Shift+Left, Shift+Right, Shift+Home, and Shift+End while retaining the selection anchor.
 
 - `TextInput::Submitted` reports accepted Return presses; `SelectionChanged` reports directed UTF-8 selection offsets after input edits.

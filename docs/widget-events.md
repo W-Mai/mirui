@@ -1,5 +1,19 @@
 # Widget initialization, input, and notifications
 
+## Text documents
+
+`mirui::ui::widgets::TextDocument` stores UTF-8 content independently of an editor's selection, composition, and appearance. It can be registered with `App::add_model` or nested using `model!(owned TextDocument)`. Its default byte capacity is 32; `set_capacity` prepares larger buffers explicitly. Capacity changes are observable independently of the content revision.
+
+```rust,ignore
+let document = app.add_model(TextDocument::new());
+document.set_capacity(256)?;
+document.set_text("Search")?;
+document.replace(0..6, "Find")?;
+document.read(|text| assert_eq!(text, "Find"));
+```
+
+`replace` uses UTF-8 byte ranges and rejects invalid boundaries, reversed ranges, and insufficient capacity before changing content. Successful content changes advance the observable `revision`; identical replacements and failures do not. `read` borrows text only during its callback and does not copy it; subscribe to `revision` when observing content changes. Documents accept multiline text; single-line restrictions belong to the editor. Prepared replacements do not allocate.
+
 ## Input delivery
 
 Native and simulated input use the same delivery order. Recognized gestures, their deferred commands, business notifications, and reactive updates complete before the next raw input is handled. A Tap followed by a Key in one input batch therefore delivers Tap first. Callback changes that hide, remove, or rebind a node affect subsequent inputs. Systems and painting retain their frame schedule.

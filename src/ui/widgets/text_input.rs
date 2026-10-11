@@ -12,14 +12,13 @@ use crate::ui::dirty::Dirty;
 use crate::ui::outputs::Outputs;
 use crate::ui::theme::{ColorToken, ThemedColor};
 
-mod storage;
-use storage::Storage;
+use super::text_document::{INLINE_CAPACITY, TextEditError, storage::Storage};
 
 /// Caret on/off, toggled by `cursor_blink_system` every ~500 ms.
 #[derive(Default, Clone, Copy)]
 pub struct CursorBlinkPhase(pub bool);
 
-pub const TEXT_INPUT_CAP: usize = 32;
+pub const TEXT_INPUT_CAP: usize = INLINE_CAPACITY;
 
 /// Directed selection expressed as UTF-8 byte offsets.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -32,15 +31,6 @@ impl TextSelection {
     pub fn range(self) -> core::ops::Range<usize> {
         self.anchor.min(self.cursor)..self.anchor.max(self.cursor)
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TextEditError {
-    InvalidBoundary { offset: usize },
-    ControlCharacter,
-    Capacity { required: usize, capacity: usize },
-    CapacityLimit { capacity: usize, maximum: usize },
-    ReserveFailed { capacity: usize },
 }
 
 crate::input::event::contract::widget_events! {
@@ -129,8 +119,7 @@ impl TextInput {
     }
 
     pub fn as_str(&self) -> &str {
-        core::str::from_utf8(&self.buffer[..self.len()])
-            .expect("validated text edits preserve UTF-8")
+        self.buffer.text(self.len())
     }
 
     pub fn len(&self) -> usize {
@@ -167,14 +156,12 @@ impl TextInput {
 
     /// Replace the selection without allocating. Failure preserves content and selection; the result indicates whether content changed.
     pub fn replace_selection(&mut self, text: &str) -> Result<bool, TextEditError> {
-        let required = self.replacement_len(text)?;
+        self.replacement_len(text)?;
         let range = self.selection().range();
-        let changed = &self.as_str()[range.clone()] != text;
         let cursor = range.start + text.len();
-        let end = self.len();
-        self.buffer.copy_within(range.end..end, cursor);
-        self.buffer[range.start..cursor].copy_from_slice(text.as_bytes());
-        self.len = required as u32;
+        let changed = self
+            .buffer
+            .replace(&mut self.len, self.capacity as usize, range, text)?;
         self.collapse(cursor as u32);
         Ok(changed)
     }
@@ -183,16 +170,8 @@ impl TextInput {
         if text.chars().any(char::is_control) {
             return Err(TextEditError::ControlCharacter);
         }
-        let range = self.selection().range();
-        let retained = self.len() - range.len();
-        let required = retained.saturating_add(text.len());
-        if required > self.capacity() {
-            return Err(TextEditError::Capacity {
-                required,
-                capacity: self.capacity(),
-            });
-        }
-        Ok(required)
+        self.buffer
+            .replacement_len(self.len(), self.capacity(), &self.selection().range(), text)
     }
 
     fn collapse(&mut self, cursor: u32) {

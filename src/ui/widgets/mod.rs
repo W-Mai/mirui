@@ -14,6 +14,7 @@ pub mod tab_pages;
 pub mod tabbar;
 pub mod temporal_mix;
 pub mod text;
+pub mod text_document;
 pub mod text_input;
 pub mod transform;
 pub mod transform_3d;
@@ -37,6 +38,7 @@ pub use text::{
     PathCaretHit, PathSelectionRibbon, PathTextGeometryError, ShapingPolicy, StaticGlyphRun, Text,
     TextAlign, TextContent, TextDirection, TextOverflow, TextVerticalAlign, TextWrap,
 };
+pub use text_document::{TextDocument, TextEditError};
 pub use text_input::{Placeholder, TextInput};
 pub use transform::{WidgetTransform, set_transform};
 pub use transform_3d::{TransformOrigin, WidgetTransform3D};
