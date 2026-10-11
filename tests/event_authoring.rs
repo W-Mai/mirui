@@ -11,6 +11,7 @@ use mirui::input::event::BubbleControl;
 use mirui::input::event::contract::Event;
 use mirui::input::event::focus::{FocusChanged, FocusSelectors, Focusable};
 use mirui::input::event::gesture::{GestureEvent, Tap};
+use mirui::input::event::hover::{HoverChanged, HoverSelectors};
 use mirui::types::Fixed;
 use mirui::ui::widgets::switch::{Switch, Toggled};
 use mirui::{compose, event, model, ui};
@@ -102,6 +103,70 @@ fn focus_notifications_use_all_three_authoring_forms_without_pointer_feedback() 
         dispatch(&mut app.world, &tap(node), index as u32);
         assert_eq!(counters[index].value(), 1);
     }
+    assert!(counters.iter().all(|counter| counter.value() == 1));
+}
+
+#[event]
+fn count_hover(event: event!(HoverChanged), counter: model!(EventCounter)) {
+    if event.hovered {
+        counter.increment();
+    }
+}
+
+#[compose]
+fn hover_panel(
+    block: model!(EventCounter),
+    closure: model!(EventCounter),
+    function: model!(EventCounter),
+) {
+    ui! {
+        Column (width: 32, height: 32, id: "hover_block") {
+            Column (width: 32, height: 32, id: "hover_closure") {
+                View (width: 32, height: 32, id: "hover_function")
+                    on HoverChanged(count_hover::callback(function))
+                    on Tap {}
+            } on HoverChanged(move |event: &HoverChanged| {
+                if event.hovered { closure.increment(); }
+            })
+        } on HoverChanged {
+            if event.hovered { block.increment(); }
+        }
+    };
+}
+
+#[test]
+fn hover_notifications_use_all_authoring_forms_and_preserve_container_hit_semantics() {
+    use mirui::input::event::input::{InputEvent, PointerKind};
+    let mut app = App::headless(32, 32);
+    let root = app.spawn_root().id();
+    let counters = core::array::from_fn::<_, 3, _>(|_| app.add_model(EventCounter { value: 0 }));
+    app.compose(
+        root,
+        hover_panel(
+            counters[0].clone(),
+            counters[1].clone(),
+            counters[2].clone(),
+        ),
+    );
+    app.render().unwrap();
+    for id in ["hover_block", "hover_closure"] {
+        let node = app.world.find_by_id(id).unwrap();
+        assert!(!app.world.has::<mirui::ui::HitTarget>(node));
+    }
+    mirui::input::event::dispatch_input(
+        &mut app.world,
+        Some(root),
+        &InputEvent::PointerMove {
+            kind: PointerKind::Mouse,
+            id: 0,
+            x: 10.into(),
+            y: 10.into(),
+        },
+        0,
+        32,
+        32,
+    );
+    mirui::__macro_support::flush_entity_events(&mut app.world).unwrap();
     assert!(counters.iter().all(|counter| counter.value() == 1));
 }
 

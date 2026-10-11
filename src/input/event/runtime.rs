@@ -21,6 +21,7 @@ use super::emission::{
     prepare_runtime_notifications,
 };
 use super::focus::{FocusChanged, FocusObserver, FocusState};
+use super::hover::{HoverChanged, HoverObservers};
 use super::input::{CharInput, InputEvent, Key, Rotary, Wheel};
 use super::layout::{SizeChanged, SizeObservers};
 use super::lifecycle::AppNotice;
@@ -56,6 +57,7 @@ struct EventRuntime {
     configuration: Cell<Configuration>,
     sizes: SizeObservers,
     focus: FocusObserver,
+    hover: HoverObservers,
 }
 
 impl EventRuntime {
@@ -106,6 +108,7 @@ impl EventRuntime {
     fn flush(&self, world: &mut World, limit: usize) -> Result<usize, RuntimeRunError> {
         self.check_owner(world)?;
         self.focus.observe(world);
+        self.hover.observe(world, &self.listeners)?;
         match flush_notifications_with(world, &self.listeners, limit, |world| {
             self.prepare(world, 0)
         }) {
@@ -207,18 +210,40 @@ pub(crate) fn initialize(world: &mut World) {
         listeners,
         sizes: SizeObservers::default(),
         focus: FocusObserver::default(),
+        hover: HoverObservers::default(),
         configuration: Cell::new(Configuration::Open(
             EventCapacity::default()
                 .resolve()
                 .expect("valid UI event preset"),
         )),
     }));
-    world.set_callback_observer(observe_focus);
+    world.set_callback_observer(observe_interaction);
 }
 
-fn observe_focus(world: &mut World) {
+fn observe_interaction(world: &mut World) {
     if let Some(runtime) = runtime(world) {
         runtime.focus.observe(world);
+        if let Err(error) = runtime.hover.observe(world, &runtime.listeners) {
+            crate::warn!("hover observation skipped: {:?}", error);
+        }
+    }
+}
+
+pub(crate) fn observe_pointer(world: &mut World, event: &InputEvent, width: u16, height: u16) {
+    if let Some(runtime) = runtime(world) {
+        runtime.hover.input(event, width, height);
+        if let Err(error) = runtime.hover.observe(world, &runtime.listeners) {
+            crate::warn!("hover observation skipped: {:?}", error);
+        }
+    }
+}
+
+pub(crate) fn cancel_hover(world: &mut World) {
+    if let Some(runtime) = runtime(world) {
+        runtime.hover.cancel();
+        if let Err(error) = runtime.hover.observe(world, &runtime.listeners) {
+            crate::warn!("hover observation skipped: {:?}", error);
+        }
     }
 }
 
@@ -462,11 +487,18 @@ where
     if observes_size {
         runtime.sizes.reserve(&runtime.listeners, world)?;
     }
+    let observes_hover = TypeId::of::<E>() == TypeId::of::<HoverChanged>();
+    if observes_hover {
+        runtime.hover.reserve(world, &runtime.listeners, entity)?;
+    }
     let listener = runtime
         .listeners
         .install_entity(world, entity, selector, callback, commands)?;
     if TypeId::of::<E>() == TypeId::of::<FocusChanged>() {
         runtime.focus.enable(world);
+    }
+    if observes_hover {
+        runtime.hover.insert(world, entity);
     }
     if observes_size {
         runtime.sizes.insert(listener, entity);

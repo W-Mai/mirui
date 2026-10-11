@@ -110,6 +110,14 @@ pub(crate) fn geometry_revision(world: &World) -> u64 {
         .map_or(0, |geometry| geometry.revision)
 }
 
+pub(super) fn geometry_viewport(world: &World) -> Option<(Entity, u16, u16)> {
+    let geometry = world.resource::<HitTestGeometry>()?;
+    if geometry.preparation_blocked {
+        return None;
+    }
+    Some((geometry.root?, geometry.logical_w, geometry.logical_h))
+}
+
 pub(crate) fn prepare_geometry_tracking(world: &mut World) {
     world.watch_component_revision::<crate::ui::dirty::Dirty>();
     world.watch_component_revision::<crate::ui::dirty::VisualDirty>();

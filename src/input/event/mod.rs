@@ -6,6 +6,7 @@ pub(crate) mod emission;
 pub mod focus;
 pub mod gesture;
 pub mod hit_test;
+pub mod hover;
 pub mod input;
 pub mod layout;
 pub mod lifecycle;
@@ -166,6 +167,9 @@ pub(crate) fn deliver_input(
         }
     }
     dispatch_input(world, root, event, now_ms, width, height);
+    if let Err(error) = runtime::flush(world) {
+        crate::warn!("input notification flush failed: {:?}", error);
+    }
     dispatch_pending_gestures(world, now_ms);
     if let Err(error) = runtime::flush(world) {
         crate::warn!("input notification flush failed: {:?}", error);
@@ -222,6 +226,7 @@ pub fn dispatch_input(
     }
     if event.pointer_identity().is_some() {
         update_pointer_cursor(world, |cursor| cursor.update(event, lw, lh));
+        runtime::observe_pointer(world, event, lw, lh);
     }
 
     let Some(root) = root else {
@@ -252,6 +257,7 @@ pub fn dispatch_input(
 }
 
 pub(crate) fn cancel_active_input(world: &mut World, now_ms: u32) {
+    runtime::cancel_hover(world);
     if let Some(cursor) = world.resource_mut::<PointerCursor>() {
         cursor.down = false;
         cursor.present = false;

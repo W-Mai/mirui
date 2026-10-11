@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `HoverChanged` reports ordered node and ancestor hover transitions, combining mouse and pen paths without adding hit targets or visual feedback.
+
 - `FocusChanged` reports node focus transitions across input, event callbacks, systems, and timers, with ordered loss/gain delivery and retained-identity checks.
 
 - `Key` events carry optional modifier and auto-repeat metadata through native input, simulation, and typed callbacks. Linux keyboard auto-repeat is delivered as pressed input.

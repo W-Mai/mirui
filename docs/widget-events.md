@@ -16,6 +16,25 @@ Raw `InputEvent` pointer records carry `kind: PointerKind` (`Mouse`, `Touch`, `P
 
 Web and WGPU map active native pointers to stable slots: mouse uses 0, with up to 16 other pointers occupying separate slots. A full map ignores new contacts without replacing active ones. Touch slots retire on release or cancellation; Web hovering pointers retain their slots until leaving without an active press. Host focus/visibility loss clears the mapping. Web lost pointer capture cancels an active press; a capture-loss event following normal release does not cancel it again. Pointer slot numbers are not persistent device identifiers.
 
+## Node hover
+
+`HoverChanged { hovered, x, y }` reports whether a mouse or hovering pen's hit path includes the node. It supports inline bodies, closures, and `#[event]` callbacks:
+
+```rust,ignore
+#[event]
+fn hovered(event: event!(HoverChanged), state: model!(CardState)) {
+    state.set_hovered(event.hovered);
+}
+
+Column() {
+    Button("Open") on Tap { open(); }
+} on HoverChanged(hovered::callback(state))
+```
+
+Subscribing does not make an otherwise non-interactive node hit-testable or add visual feedback. Containers observe their existing interactive descendants. Touch and unknown pointer sources do not hover. Multiple hovering pointers share membership; a node leaves only when none remain. Pressing does not clear hover, and leaving the surface does not end drag capture.
+
+Leaves are delivered from child to parent, followed by entries from parent to child. Shared ancestors do not toggle when moving between children. Coordinates are logical surface coordinates, not local node coordinates. Hidden, disabled, removed, and rebound nodes lose eligibility; published layout changes update stationary hover. Registering a listener does not replay prior transitions. Notifications share `EventCapacity`; failed enqueue attempts are logged and discarded without retry.
+
 ## Node focus
 
 `FocusChanged { focused, related }` is a direct node notification. `related` identifies the other node in the transition and may no longer exist when read. Subscribe with an inline body, closure, or `#[event]` callback:
