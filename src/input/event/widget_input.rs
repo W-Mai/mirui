@@ -1,19 +1,132 @@
 use crate::ecs::{Entity, World};
+use alloc::rc::Rc;
+use alloc::vec::Vec;
+use core::cell::{Cell, RefCell};
+
+#[derive(Clone, Copy)]
+struct AttachedInstance {
+    entity: Entity,
+    generation: u64,
+    ready: bool,
+}
+
+#[crate::component]
+struct AttachTarget;
+
+#[derive(Default)]
+struct ActiveAttachments(Rc<RefCell<Vec<Entity>>>);
+
+struct AttachmentGuard {
+    active: Rc<RefCell<Vec<Entity>>>,
+    entity: Entity,
+}
+
+impl AttachmentGuard {
+    fn enter(world: &mut World, entity: Entity) -> Option<Self> {
+        if world.resource::<ActiveAttachments>().is_none() {
+            world.insert_resource(ActiveAttachments::default());
+        }
+        let active = world.resource::<ActiveAttachments>().unwrap().0.clone();
+        if active.borrow().contains(&entity) {
+            return None;
+        }
+        active.borrow_mut().push(entity);
+        Some(Self { active, entity })
+    }
+}
+
+impl Drop for AttachmentGuard {
+    fn drop(&mut self) {
+        let mut active = self.active.borrow_mut();
+        if let Some(index) = active.iter().position(|entity| *entity == self.entity) {
+            active.remove(index);
+        }
+    }
+}
+
+#[derive(Default)]
+struct AttachedInstances {
+    values: RefCell<Vec<AttachedInstance>>,
+    tracking_ready: Cell<bool>,
+}
 
 #[derive(Clone)]
 pub(crate) struct InputAttach {
+    registration: u64,
     component_filter: Option<core::any::TypeId>,
     attach: Option<super::view_attach::Attachment>,
     inputs: Option<super::view_input::SharedInputs>,
+    instances: Rc<AttachedInstances>,
 }
 
 impl InputAttach {
     pub(crate) fn for_view(view: &crate::ui::view::View) -> Option<Self> {
         let attach = view.auto_attach().cloned();
         (attach.is_some() || view.inputs().is_some()).then(|| Self {
+            registration: view.registration_id(),
             component_filter: view.component_filter(),
             attach,
             inputs: view.inputs().cloned(),
+            instances: Rc::new(AttachedInstances::default()),
+        })
+    }
+
+    fn generation(&self, world: &World, entity: Entity) -> Option<u64> {
+        if !world.is_alive(entity) {
+            return None;
+        }
+        self.component_filter
+            .map_or(Some(0), |kind| world.component_generation(entity, kind))
+    }
+
+    fn begin(&self, world: &World, entity: Entity, generation: u64) -> bool {
+        let mut instances = self.instances.values.borrow_mut();
+        if let Some(instance) = instances
+            .iter_mut()
+            .find(|instance| instance.entity == entity)
+        {
+            if instance.generation == generation {
+                return false;
+            }
+            *instance = AttachedInstance {
+                entity,
+                generation,
+                ready: false,
+            };
+        } else {
+            let instance = AttachedInstance {
+                entity,
+                generation,
+                ready: false,
+            };
+            if let Some(retired) = instances.iter_mut().find(|instance| {
+                self.generation(world, instance.entity) != Some(instance.generation)
+            }) {
+                *retired = instance;
+            } else {
+                instances.push(instance);
+            }
+        }
+        true
+    }
+
+    fn finish(&self, entity: Entity, generation: u64, ready: bool) {
+        if let Some(instance) = self
+            .instances
+            .values
+            .borrow_mut()
+            .iter_mut()
+            .find(|instance| instance.entity == entity && instance.generation == generation)
+        {
+            instance.ready = ready;
+        }
+    }
+
+    fn ready(&self, world: &World, entity: Entity) -> bool {
+        self.generation(world, entity).is_some_and(|generation| {
+            self.instances.values.borrow().iter().any(|instance| {
+                instance.entity == entity && instance.generation == generation && instance.ready
+            })
         })
     }
 }
@@ -24,39 +137,140 @@ fn input_attach_plan(world: &World) -> Option<alloc::rc::Rc<alloc::vec::Vec<Inpu
         .input_attach_plan()
 }
 
-fn apply_input_attach_plan(world: &mut World, entity: Entity, plan: &[InputAttach]) {
-    let mut has_internal_gesture = false;
+fn prepare_plan(world: &mut World, plan: &[InputAttach]) {
     for hook in plan {
-        if hook
-            .component_filter
-            .is_some_and(|filter| !world.has_type(entity, filter))
-        {
+        if hook.instances.tracking_ready.replace(true) {
             continue;
         }
-        if let Some(attach) = &hook.attach {
-            attach.invoke(world, entity);
+        if let Some(kind) = hook.component_filter {
+            world.watch_component_lifetime(kind);
         }
-        if let Some(inputs) = &hook.inputs {
-            super::view_input::prepare(inputs, world);
-            if let super::view_input::InputState::Ready(prepared) = &*inputs.borrow() {
-                has_internal_gesture |= prepared.hooks.iter().any(|hook| hook.gesture);
+        world.queue_existing_attachments(
+            hook.component_filter
+                .unwrap_or(core::any::TypeId::of::<AttachTarget>()),
+        );
+    }
+}
+
+fn apply_input_attach_plan(world: &mut World, entity: Entity, plan: &[InputAttach]) {
+    prepare_plan(world, plan);
+    let mut remaining = 1024_usize;
+    loop {
+        let mut progress = false;
+        for hook in plan {
+            let Some(generation) = hook.generation(world, entity) else {
+                continue;
+            };
+            if !hook.begin(world, entity, generation) {
+                continue;
+            }
+            if remaining == 0 {
+                crate::warn!("View initialization stopped after repeated component replacement");
+                return;
+            }
+            remaining -= 1;
+            progress = true;
+            let mut ready = hook
+                .attach
+                .as_ref()
+                .is_none_or(|attach| attach.invoke(world, entity));
+            if ready && hook.generation(world, entity) == Some(generation) {
+                if let Some(inputs) = &hook.inputs {
+                    super::view_input::prepare(inputs, world);
+                    if let super::view_input::InputState::Ready(prepared) = &*inputs.borrow() {
+                        if prepared.hooks.iter().any(|hook| hook.gesture) {
+                            world.insert(entity, crate::ui::HitTarget);
+                            world.insert(entity, crate::ui::InteractionFeedback);
+                        }
+                    } else {
+                        ready = false;
+                    }
+                }
+                hook.finish(entity, generation, ready);
             }
         }
-    }
-
-    if has_internal_gesture {
-        world.insert(entity, crate::ui::HitTarget);
-    }
-    if has_internal_gesture {
-        world.insert(entity, crate::ui::InteractionFeedback);
+        if !progress {
+            return;
+        }
     }
 }
 
 pub(crate) fn attach_handlers_for(world: &mut World, entity: Entity) {
+    if !world.is_alive(entity) {
+        return;
+    }
+    let Some(_guard) = AttachmentGuard::enter(world, entity) else {
+        return;
+    };
+    if !world.has::<AttachTarget>(entity) {
+        world.insert(entity, AttachTarget);
+    }
     if let Some(plan) = input_attach_plan(world) {
         apply_input_attach_plan(world, entity, &plan);
     }
 }
+
+pub(crate) fn reconcile(world: &mut World) {
+    if let Some(plan) = input_attach_plan(world) {
+        prepare_plan(world, &plan);
+    }
+    for _ in 0..1024 {
+        let pending = world.pending_attachment_changes();
+        if pending == 0 {
+            return;
+        }
+        for _ in 0..pending {
+            let Some(entity) = world.next_attachment_change() else {
+                break;
+            };
+            if world.has::<AttachTarget>(entity) {
+                attach_handlers_for(world, entity);
+            }
+        }
+    }
+    if world.pending_attachment_changes() != 0 {
+        crate::warn!("View initialization stopped after repeated structural changes");
+        while world.next_attachment_change().is_some() {}
+    }
+}
+
+pub(crate) struct ViewInputGuard {
+    registration: u64,
+    generation: u64,
+    instances: Rc<AttachedInstances>,
+}
+
+impl ViewInputGuard {
+    pub(crate) fn valid(&self, world: &World, entity: Entity) -> bool {
+        input_attach_plan(world).is_some_and(|plan| {
+            plan.iter()
+                .find(|hook| hook.registration == self.registration)
+                .is_some_and(|hook| {
+                    Rc::ptr_eq(&hook.instances, &self.instances)
+                        && hook.generation(world, entity) == Some(self.generation)
+                        && hook.ready(world, entity)
+                })
+        })
+    }
+}
+
+pub(crate) fn view_input_guard(
+    world: &World,
+    entity: Entity,
+    registration: u64,
+) -> Option<ViewInputGuard> {
+    let plan = input_attach_plan(world)?;
+    let hook = plan.iter().find(|hook| hook.registration == registration)?;
+    hook.ready(world, entity).then(|| ViewInputGuard {
+        registration,
+        generation: hook.generation(world, entity).unwrap(),
+        instances: hook.instances.clone(),
+    })
+}
+
+#[cfg(test)]
+#[path = "widget_attach_tests.rs"]
+mod lifecycle_tests;
 
 #[cfg(test)]
 mod tests {
@@ -340,27 +554,30 @@ mod tests {
         registry.insert(View::systems_only("first", &[]).with_attach(first));
         registry.insert(View::systems_only("second", &[]).with_attach(second));
         world.insert_resource(registry);
-        world.insert_resource(Calls::default());
+        world.insert_resource(Calls {
+            append: true,
+            ..Calls::default()
+        });
         drop(crate::ui::UiScope::new(&mut world, node));
+        attach_handlers_for(&mut world, node);
+        assert_eq!(world.resource::<Calls>().unwrap().first, 1);
+        assert_eq!(world.resource::<Calls>().unwrap().second, 1);
+        assert_eq!(world.resource::<Calls>().unwrap().third, 0);
+        attach_handlers_for(&mut world, node);
+        assert_eq!(world.resource::<Calls>().unwrap().third, 1);
         assert_eq!(
             tracked_allocations(|| attach_handlers_for(&mut world, node)),
             0
         );
         assert_eq!(world.resource::<Calls>().unwrap().first, 1);
         assert_eq!(world.resource::<Calls>().unwrap().second, 1);
-        world.resource_mut::<Calls>().unwrap().append = true;
-        attach_handlers_for(&mut world, node);
+        world.resource_mut::<Calls>().unwrap().replace = true;
+        let second = world.spawn_empty();
+        attach_handlers_for(&mut world, second);
         assert_eq!(world.resource::<Calls>().unwrap().first, 2);
         assert_eq!(world.resource::<Calls>().unwrap().second, 2);
-        assert_eq!(world.resource::<Calls>().unwrap().third, 0);
-        attach_handlers_for(&mut world, node);
-        assert_eq!(world.resource::<Calls>().unwrap().third, 1);
-        world.resource_mut::<Calls>().unwrap().replace = true;
-        attach_handlers_for(&mut world, node);
-        assert_eq!(world.resource::<Calls>().unwrap().first, 4);
-        assert_eq!(world.resource::<Calls>().unwrap().second, 4);
         assert_eq!(world.resource::<Calls>().unwrap().third, 2);
         attach_handlers_for(&mut world, node);
-        assert_eq!(world.resource::<Calls>().unwrap().first, 4);
+        assert_eq!(world.resource::<Calls>().unwrap().first, 2);
     }
 }

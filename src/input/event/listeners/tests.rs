@@ -107,6 +107,7 @@ fn retained_input_snapshot_stops_after_a_handler_rebinds_the_cell() {
             .with_inputs(&mut world, recycle::callback()),
     );
     world.insert_resource(registry);
+    super::super::widget_input::attach_handlers_for(&mut world, cell);
     let pool = EventListeners::new(&mut world);
     pool.reserve(ListenerCapacity {
         listeners: 1,
@@ -338,6 +339,7 @@ impl RouteFixture {
         // Install out of tree order; route order must still be leaf to root.
         for node in [root, alternate, parent, leaf] {
             world.insert(node, RouteMarker);
+            super::super::widget_input::attach_handlers_for(&mut world, node);
             pool.install_entity::<DragMove, EntityContext<RouteMarker>>(
                 &mut world,
                 node,
@@ -370,7 +372,7 @@ impl RouteFixture {
 }
 
 #[test]
-fn gesture_route_freezes_all_parents_and_internal_matches_before_any_body() {
+fn gesture_route_freezes_parents_but_skips_removed_component_instances() {
     let mut fixture = RouteFixture::new(9);
     let event = fixture.event();
     let allocations = tracked_allocations(|| {
@@ -386,7 +388,7 @@ fn gesture_route_freezes_all_parents_and_internal_matches_before_any_body() {
     assert_eq!(allocations, 0);
     assert_eq!(
         fixture.trace.borrow().values(),
-        &[102, 202, 302, 101, 201, 301, 100, 200, 300]
+        &[102, 202, 302, 301, 100, 200, 300]
     );
     assert_eq!(
         fixture.world.get::<Parent>(fixture.leaf).unwrap().0,
@@ -446,7 +448,7 @@ fn gesture_route_rejects_cycles_and_capacity_before_any_partial_execution() {
         .unwrap()
         .run(&mut fixture.world)
         .unwrap();
-    assert_eq!(fixture.trace.borrow().len, 9);
+    assert_eq!(fixture.trace.borrow().len, 7);
 }
 
 #[test]
@@ -550,7 +552,7 @@ fn disabled_gesture_branches_skip_internal_and_author_hooks_without_using_steps(
             }),
             0
         );
-        assert_eq!(fixture.trace.borrow().len, 9);
+        assert_eq!(fixture.trace.borrow().len, 7);
     }
 }
 
@@ -569,7 +571,7 @@ fn input_eligibility_is_frozen_with_the_route_not_rechecked_between_steps() {
         }),
         0
     );
-    assert_eq!(fixture.trace.borrow().len, 9);
+    assert_eq!(fixture.trace.borrow().len, 7);
     fixture.trace.borrow_mut().len = 0;
     fixture.world.insert(fixture.leaf, Parent(fixture.parent));
     assert_eq!(
@@ -640,10 +642,7 @@ fn internal_and_authored_prevention_stop_the_same_frozen_route() {
         );
     });
     assert_eq!(allocations, 0);
-    assert_eq!(
-        fixture.trace.borrow().values(),
-        &[102, 202, 302, 101, 201, 301]
-    );
+    assert_eq!(fixture.trace.borrow().values(), &[102, 202, 302, 301]);
 }
 
 #[test]
@@ -680,7 +679,7 @@ fn a_failed_snapshot_reservation_does_not_expand_listener_or_step_quotas() {
             .unwrap();
     });
     assert_eq!(allocations, 0);
-    assert_eq!(fixture.trace.borrow().len, 9);
+    assert_eq!(fixture.trace.borrow().len, 7);
 }
 
 struct Widget;
@@ -702,6 +701,7 @@ fn internal_only_gesture_routes_prepare_and_restore_reactive_owner_without_alloc
     );
     world.insert_resource(registry);
     world.insert_resource(world.id());
+    super::super::widget_input::attach_handlers_for(&mut world, node);
     let before = crate::core::reactive::current_world_id();
     let pool = EventListeners::new(&mut world);
     assert_eq!(crate::core::reactive::current_world_id(), before);
@@ -806,6 +806,7 @@ impl KeyboardFixture {
         .unwrap();
         for node in [root, leaf] {
             world.insert(node, DefaultEditor);
+            super::super::widget_input::attach_handlers_for(&mut world, node);
             pool.install_entity::<Key, EntityContext<Widget>>(
                 &mut world,
                 node,
@@ -912,7 +913,7 @@ fn keyboard_consumption_stops_before_later_defaults_and_fallback() {
 }
 
 #[test]
-fn keyboard_selection_freezes_focus_parents_and_default_hooks() {
+fn keyboard_selection_freezes_focus_and_parents_but_skips_retired_defaults() {
     let mut fixture = KeyboardFixture::new(5);
     let key = Key {
         code: 7,
@@ -928,7 +929,7 @@ fn keyboard_selection_freezes_focus_parents_and_default_hooks() {
     fixture.world.remove::<DefaultEditor>(fixture.root);
     fixture.world.resource_mut::<FocusState>().unwrap().focused = Some(fixture.root);
     assert_eq!(snapshot.run(&mut fixture.world), Ok(BubbleControl::Allow));
-    assert_eq!(fixture.trace.borrow().values(), &[101, 201, 100, 200, 900]);
+    assert_eq!(fixture.trace.borrow().values(), &[101, 201, 100, 900]);
     fixture.trace.borrow_mut().len = 0;
     assert_eq!(fixture.dispatch(&key), Ok(BubbleControl::Allow));
     assert_eq!(fixture.trace.borrow().values(), &[100, 900]);
@@ -1037,6 +1038,7 @@ fn unchanged_editor_actions_are_accepted_without_reaching_app_fallback() {
         .unwrap()
         .invoke(&mut fixture.world, fixture.leaf);
     super::super::view_input::fixture_inputs(view, &mut fixture.world);
+    super::super::widget_input::attach_handlers_for(&mut fixture.world, fixture.leaf);
     let changes = Rc::new(Cell::new(0));
     let called = changes.clone();
     // SAFETY: the only capture is an independent test counter, not a Model.

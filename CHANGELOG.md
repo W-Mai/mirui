@@ -54,6 +54,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- View initialization follows component attachment identities, initializes chained components and late registrations, and prevents stale input callbacks from reaching replacement instances.
+
 - Web keyboard events marked as composing remain with the input method instead of triggering editor commands or shortcuts.
 
 - `TextCommitted` replaces character input with complete UTF-8 fragments. SDL moves native text without truncating it; WGPU commits remain intact, and TextInput applies each fragment atomically through borrowed callback commands.

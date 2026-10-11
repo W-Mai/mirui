@@ -239,6 +239,7 @@ enum DispatchStep {
     Listener {
         target: ListenerTarget,
         callback: Rc<dyn ErasedListener>,
+        view: Option<super::widget_input::ViewInputGuard>,
     },
 }
 
@@ -361,6 +362,7 @@ impl EventListeners {
             snapshot.push(DispatchStep::Listener {
                 target: entry.target,
                 callback: Rc::clone(&entry.callback),
+                view: None,
             })?;
         }
         Ok(snapshot)
@@ -765,6 +767,11 @@ impl ListenerSnapshot<'_, '_> {
             let Some(inputs) = view.inputs() else {
                 continue;
             };
+            if super::widget_input::view_input_guard(world, entity, view.registration_id())
+                .is_none()
+            {
+                continue;
+            }
             let inputs = inputs.try_borrow().map_err(|_| ListenerError::Busy)?;
             let super::view_input::InputState::Ready(inputs) = &*inputs else {
                 continue;
@@ -774,6 +781,11 @@ impl ListenerSnapshot<'_, '_> {
                     self.push(DispatchStep::Listener {
                         target: ListenerTarget::Entity(entity),
                         callback: Rc::clone(&hook.callback),
+                        view: super::widget_input::view_input_guard(
+                            world,
+                            entity,
+                            view.registration_id(),
+                        ),
                     })?;
                 }
             }
@@ -806,6 +818,7 @@ impl ListenerSnapshot<'_, '_> {
                 self.push(DispatchStep::Listener {
                     target: entry.target,
                     callback: Rc::clone(&entry.callback),
+                    view: None,
                 })?;
             }
         }
@@ -822,7 +835,19 @@ impl ListenerSnapshot<'_, '_> {
                 break;
             }
             let result = match step {
-                DispatchStep::Listener { target, callback } => {
+                DispatchStep::Listener {
+                    target,
+                    callback,
+                    view,
+                } => {
+                    if let Some(guard) = view {
+                        let ListenerTarget::Entity(entity) = target else {
+                            continue;
+                        };
+                        if !guard.valid(world, *entity) {
+                            continue;
+                        }
+                    }
                     callback.invoke(world, &self.event, *target)?
                 }
             };

@@ -53,19 +53,22 @@ impl From<AttachDefinition> for Attachment {
 }
 
 impl Attachment {
-    pub(crate) fn invoke(&self, world: &mut World, entity: Entity) {
+    pub(crate) fn invoke(&self, world: &mut World, entity: Entity) -> bool {
         if !world.is_alive(entity) {
-            return;
+            return false;
         }
         match self {
-            Self::Composition(compose) => compose(&mut UiScope::new(world, entity)),
+            Self::Composition(compose) => {
+                compose(&mut UiScope::new(world, entity));
+                world.is_alive(entity)
+            }
             Self::Callback(callback) => callback.invoke(world, entity),
         }
     }
 }
 
 impl ViewAttach {
-    fn invoke(&self, world: &mut World, entity: Entity) {
+    fn invoke(&self, world: &mut World, entity: Entity) -> bool {
         let factory = match &*self.0.borrow() {
             AttachState::Pending(factory) => Some(*factory),
             _ => None,
@@ -81,10 +84,15 @@ impl ViewAttach {
         }
         let prepared = match &*self.0.borrow() {
             AttachState::Ready(prepared) => prepared.clone(),
-            _ => return,
+            _ => return false,
         };
-        if let Err(error) = prepared.invoke(world, &Initialize, entity) {
-            crate::warn!(target: "mirui::event::attach", "View attachment skipped: {:?}", error);
+        match prepared.invoke(world, &Initialize, entity) {
+            Ok(Some(())) => true,
+            Ok(None) => false,
+            Err(error) => {
+                crate::warn!(target: "mirui::event::attach", "View attachment skipped: {:?}", error);
+                false
+            }
         }
     }
 }
@@ -149,6 +157,7 @@ mod tests {
         world.insert(second, Ready(0));
         super::super::widget_input::attach_handlers_for(&mut world, first);
         assert_eq!(world.resource::<[u8; 2]>(), Some(&[1, 3]));
+        super::super::widget_input::attach_handlers_for(&mut world, second);
         assert_eq!(
             tracked_allocations(|| {
                 super::super::widget_input::attach_handlers_for(&mut world, second);
@@ -157,7 +166,7 @@ mod tests {
             0
         );
         assert_eq!(world.get::<Ready>(second), Some(&Ready(7)));
-        assert_eq!(world.resource::<[u8; 2]>(), Some(&[3, 3]));
+        assert_eq!(world.resource::<[u8; 2]>(), Some(&[2, 7]));
         assert!(!world.has::<crate::ui::HitTarget>(first));
         assert_eq!(runtime::flush(&mut world), Ok(0));
     }

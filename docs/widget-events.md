@@ -188,7 +188,9 @@ fn slider_behavior() {}
 
 Static components, parent links, and IDs are installed before initialization runs. Callback borrows end and deferred commands commit before the next attachment executes. Reactive properties, authored event bindings, and children follow their normal assembly order. Initialization does not bubble, add pointer feedback, or consume business notification storage.
 
-Each registered View prepares its initializer on the first matching entity and reuses it for later instances in that App. Configure event capacity before constructing widgets. Preparation failure logs a warning and disables that initializer; execution failure skips the failed invocation without rolling back completed mutations. Niche declarations retain their composition lifecycle and slot construction.
+Each registered View prepares its initializer on the first matching entity and reuses it for later instances in that App. Initialization runs once per component attachment: ordinary field writes retain the attachment, while component replacement or removal followed by insertion creates a new one. Components installed by an initializer receive their own registered initialization regardless of View registration order. Newly registered Views also initialize existing assembled widgets at the next input or render boundary.
+
+Configure event capacity before constructing widgets. Preparation failure logs a warning and disables that initializer; execution failure leaves the instance unavailable for View input without rolling back completed mutations or retrying automatically. Repeated structural feedback is bounded and logged. Niche declarations retain their composition lifecycle and slot construction.
 
 ## Input
 
@@ -221,7 +223,7 @@ Use a tuple for multiple input callbacks: `input = (tap::callback(), drag::callb
 
 Callbacks are prepared when the first matching widget is assembled, after the App's event capacity has been configured. Matching instances share prepared callback storage; they do not each allocate command queues. Each callback invocation receives its current entity and borrows parameters afresh. Stable input dispatch reuses prepared storage.
 
-Gesture hooks run before authored listeners on the same node. Keyboard hooks run after authored listeners on the focused node and its ancestors, before App fallback. Within a View, matching hooks run in tuple order. Returning `true` or `()` consumes input; returning `false` continues the route. Keyboard-only hooks do not add pointer hit targets or interaction feedback. Entity lifetime and retained-cell guards apply to the frozen route.
+Gesture hooks run before authored listeners on the same node. Keyboard hooks run after authored listeners on the focused node and its ancestors, before App fallback. Within a View, matching hooks run in tuple order. Returning `true` or `()` consumes input; returning `false` continues the route. Keyboard-only hooks do not add pointer hit targets or interaction feedback. Entity lifetime and retained-cell guards apply to the frozen route. View hooks additionally require a successfully initialized, unchanged component attachment; replacing or removing that component invalidates its remaining frozen hooks even if a replacement is initialized before dispatch resumes.
 
 ## Notification delivery
 

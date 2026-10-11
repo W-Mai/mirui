@@ -810,6 +810,7 @@ struct ViewBinding {
 impl ViewRegistry {
     /// Rebind changed components before layout and paint inspect their state.
     pub(crate) fn reconcile_observations(world: &mut World) {
+        crate::input::event::widget_input::reconcile(world);
         let registered = world.with_resource_box::<Self, _>(|registry, world| {
             let owner = world.id();
             match registry.owner {

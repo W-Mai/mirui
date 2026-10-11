@@ -11,6 +11,9 @@ use super::bundle::Component;
 use super::entity::{Entity, EntityAllocator};
 use super::sparse_set::{SparseSet, SparseSetParts};
 
+mod component_lifetimes;
+use component_lifetimes::ComponentLifetimes;
+
 type ResourceSlot = Option<Box<dyn Any>>;
 type ResourceMap = HashMap<TypeId, ResourceSlot, FxBuildHasher>;
 
@@ -309,6 +312,7 @@ pub struct World {
     drop_hooks: RefCell<alloc::vec::Vec<WorldDropHook>>,
     lifetime: Option<Rc<()>>,
     callback_observer: Option<fn(&mut World)>,
+    component_lifetimes: Option<Box<ComponentLifetimes>>,
 }
 
 impl Default for World {
@@ -323,6 +327,7 @@ impl Default for World {
             drop_hooks: RefCell::new(alloc::vec::Vec::new()),
             lifetime: Some(Rc::new(())),
             callback_observer: None,
+            component_lifetimes: None,
         }
     }
 }
@@ -378,6 +383,9 @@ impl World {
         for storage in self.storages.values_mut() {
             storage.remove_entity(entity);
         }
+        if let Some(lifetimes) = &mut self.component_lifetimes {
+            lifetimes.despawn(entity);
+        }
         true
     }
 
@@ -405,12 +413,18 @@ impl World {
         }
         let storage = self.storage_mut::<T>();
         storage.insert(entity, component);
+        if let Some(lifetimes) = &mut self.component_lifetimes {
+            lifetimes.replace(entity, TypeId::of::<T>());
+        }
         self.record_component_change(entity, TypeId::of::<T>());
     }
 
     pub fn remove<T: 'static>(&mut self, entity: Entity) -> Option<T> {
         let removed = self.storage_mut_if_exists::<T>()?.remove(entity);
         if removed.is_some() {
+            if let Some(lifetimes) = &mut self.component_lifetimes {
+                lifetimes.remove(entity, TypeId::of::<T>());
+            }
             self.record_component_change(entity, TypeId::of::<T>());
         }
         removed
@@ -431,6 +445,45 @@ impl World {
                 .expect("observed storage")
                 .entities()[index];
             self.record_component_change(entity, type_id);
+        }
+    }
+
+    pub(crate) fn watch_component_lifetime(&mut self, kind: TypeId) {
+        let lifetimes = self
+            .component_lifetimes
+            .get_or_insert_with(|| Box::new(ComponentLifetimes::default()));
+        if !lifetimes.watch(kind) {
+            return;
+        }
+        if let Some(storage) = self.storages.get(&kind) {
+            for &entity in storage.entities() {
+                lifetimes.replace(entity, kind);
+            }
+        }
+    }
+
+    pub(crate) fn component_generation(&self, entity: Entity, kind: TypeId) -> Option<u64> {
+        self.component_lifetimes.as_ref()?.generation(entity, kind)
+    }
+
+    pub(crate) fn next_attachment_change(&mut self) -> Option<Entity> {
+        self.component_lifetimes.as_mut()?.next_pending()
+    }
+
+    pub(crate) fn pending_attachment_changes(&self) -> usize {
+        self.component_lifetimes
+            .as_ref()
+            .map_or(0, |lifetimes| lifetimes.pending_len())
+    }
+
+    pub(crate) fn queue_existing_attachments(&mut self, kind: TypeId) {
+        let lifetimes = self
+            .component_lifetimes
+            .get_or_insert_with(|| Box::new(ComponentLifetimes::default()));
+        if let Some(storage) = self.storages.get(&kind) {
+            for &entity in storage.entities() {
+                lifetimes.enqueue(entity);
+            }
         }
     }
 

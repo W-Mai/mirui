@@ -674,6 +674,7 @@ pub fn dispatch_gesture(
     use super::gesture::{
         DragCancel, DragEnd, DragMove, DragStart, GesturePayload, LongPress, Pinch, Rotate, Tap,
     };
+    super::widget_input::reconcile(world);
     let branch = InputBranch::scan(world, event.target())?;
     if branch.is_hidden() || !crate::core::reactive::retained::enabled(world, event.target()) {
         return Ok(super::BubbleControl::Allow);
@@ -797,6 +798,7 @@ pub(crate) fn dispatch_input(
 
 #[doc(hidden)]
 pub fn flush(world: &mut World) -> Result<usize, RuntimeRunError> {
+    super::widget_input::reconcile(world);
     match runtime(world) {
         Some(runtime) => {
             let limit = runtime
@@ -1282,6 +1284,8 @@ mod tests {
         );
         world.insert_resource(registry);
         world.insert(child, crate::ui::Parent(parent));
+        super::super::widget_input::attach_handlers_for(&mut world, parent);
+        super::super::widget_input::attach_handlers_for(&mut world, child);
         world.insert_resource(FocusState {
             focused: Some(child),
         });

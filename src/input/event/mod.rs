@@ -206,6 +206,7 @@ pub fn dispatch_input(
         return;
     }
     runtime::initialize(world);
+    widget_input::reconcile(world);
     if let Some(invalid) = world
         .resource::<GestureSystem>()
         .and_then(|system| system.recognizer.captured_target())
@@ -450,7 +451,7 @@ mod tests {
     }
 
     #[test]
-    fn internal_handlers_keep_registration_order_and_snapshot_filter_matches() {
+    fn internal_handlers_keep_registration_order_and_skip_removed_components() {
         let mut world = World::new();
         let entity = world.spawn_empty();
         world.insert(entity, RouteMarker);
@@ -488,7 +489,7 @@ mod tests {
                 .with_inputs(&mut world, route_second::callback()),
         );
         world.insert_resource(registry);
-
+        widget_input::attach_handlers_for(&mut world, entity);
         runtime::dispatch_gesture(
             &mut world,
             &GestureEvent::Tap {
@@ -500,7 +501,7 @@ mod tests {
         )
         .unwrap();
         let calls = world.resource::<RouteCalls>().unwrap();
-        assert_eq!((calls.first, calls.second, calls.user), (1, 1, 0));
+        assert_eq!((calls.first, calls.second, calls.user), (1, 0, 1));
     }
 
     #[test]
@@ -1033,6 +1034,7 @@ mod tests {
             world.insert_resource(registry);
             let e = world.spawn_empty();
             world.insert(e, ChannelMarker);
+            widget_input::attach_handlers_for(&mut world, e);
             runtime::dispatch_gesture(&mut world, &tap_event(e), 0).unwrap();
             assert_eq!(INTERNAL_FIRES.load(Ordering::SeqCst), 1);
             assert_eq!(USER_FIRES.load(Ordering::SeqCst), 0);
@@ -1047,6 +1049,7 @@ mod tests {
             world.insert_resource(registry);
             let e = world.spawn_empty();
             world.insert(e, ChannelMarker);
+            widget_input::attach_handlers_for(&mut world, e);
             binding::install_entity_event(
                 &mut world,
                 e,
@@ -1071,6 +1074,7 @@ mod tests {
             world.insert_resource(registry);
             let e = world.spawn_empty();
             world.insert(e, ChannelMarker);
+            widget_input::attach_handlers_for(&mut world, e);
             binding::install_entity_event(
                 &mut world,
                 e,
