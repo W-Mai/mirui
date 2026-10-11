@@ -113,14 +113,16 @@ impl EventCapacity {
 }
 
 impl Default for EventCapacity {
-    /// 8 notification records per buffer, 4 commands per callback, and 16 deliveries per flush. Payload storage uses the actual layouts of 8 focus changes and a combination of one theme change and 3 transform updates.
+    /// 8 notification records per buffer, 4 commands per callback, and 16 deliveries per flush. Payload storage uses the actual layouts of 8 focus changes and a combination of one theme change, one transform update, and TextEditing and TextInput insertions.
     fn default() -> Self {
         Self::new()
             .notifications::<super::focus::FocusChanged>(8)
             .commands(
                 CommandCapacity::new()
                     .set_theme(1)
-                    .set::<crate::ui::property::prop::Transform>(3),
+                    .set::<crate::ui::property::prop::Transform>(1)
+                    .insert::<crate::ui::widgets::TextEditing>(1)
+                    .insert::<crate::ui::widgets::TextInput>(1),
             )
             .flush_limit(16)
     }
@@ -214,7 +216,9 @@ mod tests {
                     Some(
                         CommandCapacity::new()
                             .set_theme(1)
-                            .set::<crate::ui::property::prop::Transform>(3)
+                            .set::<crate::ui::property::prop::Transform>(1)
+                            .insert::<crate::ui::widgets::TextEditing>(1)
+                            .insert::<crate::ui::widgets::TextInput>(1)
                     )
                 );
                 assert_eq!(preset.flush_limit, Some(16));

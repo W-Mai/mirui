@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Default event command storage supports editor attachment and input payload alignment on WebAssembly.
+
 - Gallery preview generation accepts the registered demo set without a hard-coded image count.
 
 ### Removed

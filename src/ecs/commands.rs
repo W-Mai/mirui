@@ -890,6 +890,53 @@ mod tests {
     }
 
     #[test]
+    fn default_ui_budget_covers_editor_payloads_and_transform_batches() {
+        use crate::ui::widgets::{TextEditing, TextInput};
+
+        let capacity = crate::input::event::EventCapacity::default()
+            .resolve()
+            .unwrap()
+            .commands
+            .unwrap();
+        let limits = capacity.limits().unwrap();
+        for requirements in [
+            CommandCapacity::new()
+                .insert::<TextEditing>(1)
+                .insert::<TextInput>(1),
+            CommandCapacity::new()
+                .set_theme(1)
+                .set::<crate::ui::property::prop::Transform>(3),
+        ] {
+            let required = requirements.limits().unwrap();
+            assert!(limits.records >= required.records);
+            assert!(limits.payload_bytes >= required.payload_bytes);
+            assert!(limits.payload_alignment >= required.payload_alignment);
+        }
+        assert_eq!(limits.records, 4);
+
+        let mut world = World::new();
+        let entity = world.spawn(TextEditing::default());
+        world.insert(entity, TextInput::default());
+        let mut queue = CommandQueue::bounded(capacity).unwrap();
+        for reverse in [false, true] {
+            assert_eq!(
+                tracked_allocations(|| {
+                    let mut batch = queue.begin();
+                    if reverse {
+                        batch.commands().insert(entity, TextInput::default());
+                        batch.commands().insert(entity, TextEditing::default());
+                    } else {
+                        batch.commands().insert(entity, TextEditing::default());
+                        batch.commands().insert(entity, TextInput::default());
+                    }
+                    batch.finish(&mut world).unwrap();
+                }),
+                0
+            );
+        }
+    }
+
+    #[test]
     fn semantic_requirements_are_const_and_build_without_allocation() {
         const CAPACITY: CommandCapacity = CommandCapacity::new()
             .insert::<Marker>(1)
