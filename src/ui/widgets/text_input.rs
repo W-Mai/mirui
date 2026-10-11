@@ -13,7 +13,7 @@ use crate::ui::outputs::Outputs;
 use crate::ui::theme::{ColorToken, ThemedColor};
 
 use super::text_document::{INLINE_CAPACITY, TextEditError, storage::Storage};
-use super::text_editing::TextSelection;
+use super::text_editing::{Navigation, TextSelection};
 
 /// Caret on/off, toggled by `cursor_blink_system` every ~500 ms.
 #[derive(Default, Clone, Copy)]
@@ -234,7 +234,7 @@ impl TextInput {
     }
 
     fn navigate(&mut self, direction: Navigation, extend: bool) {
-        let selection = direction.selection(self, extend);
+        let selection = direction.selection(self.as_str(), self.selection(), extend);
         self.anchor = selection.anchor as u32;
         self.cursor = selection.cursor as u32;
     }
@@ -650,42 +650,6 @@ enum InputEdit<'text> {
     Navigate(Navigation, bool),
 }
 
-#[derive(Clone, Copy)]
-enum Navigation {
-    Left,
-    Right,
-    Home,
-    End,
-}
-
-impl Navigation {
-    fn selection(self, input: &TextInput, extend: bool) -> TextSelection {
-        let selection = input.selection();
-        let collapse = !extend && selection.anchor != selection.cursor;
-        let cursor = match self {
-            Self::Left if collapse => selection.range().start,
-            Self::Right if collapse => selection.range().end,
-            Self::Left => input.as_str()[..selection.cursor]
-                .char_indices()
-                .next_back()
-                .map_or(0, |(offset, _)| offset),
-            Self::Right => {
-                selection.cursor
-                    + input.as_str()[selection.cursor..]
-                        .chars()
-                        .next()
-                        .map_or(0, char::len_utf8)
-            }
-            Self::Home => 0,
-            Self::End => input.len(),
-        };
-        TextSelection {
-            anchor: if extend { selection.anchor } else { cursor },
-            cursor,
-        }
-    }
-}
-
 impl InputEdit<'_> {
     fn changes(self, input: &TextInput) -> bool {
         let selection = input.selection();
@@ -700,7 +664,9 @@ impl InputEdit<'_> {
             },
             Self::Backspace => selected || selection.cursor > 0,
             Self::Delete => selected || selection.cursor < input.len(),
-            Self::Navigate(direction, extend) => direction.selection(input, extend) != selection,
+            Self::Navigate(direction, extend) => {
+                direction.selection(input.as_str(), selection, extend) != selection
+            }
         }
     }
 

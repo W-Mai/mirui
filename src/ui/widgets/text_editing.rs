@@ -4,6 +4,19 @@ use crate::core::model::{BindType, ModelHandle};
 
 use super::text_document::{TextDocument, TextEditError};
 
+mod input;
+pub(crate) use input::Navigation;
+
+crate::input::event::contract::widget_events! {
+    TextEditing;
+    /// The editor changed the document's content.
+    Changed { len: u32 },
+    /// The editor changed its directed UTF-8 selection.
+    SelectionChanged { anchor: u32, cursor: u32 },
+    /// The editor accepted Return.
+    Submitted,
+}
+
 /// Directed selection expressed as UTF-8 byte offsets.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct TextSelection {
@@ -143,7 +156,14 @@ impl TextEditing {
     }
 }
 
-#[crate::view(component = TextEditing, name = "TextEditing", invalidation = Layout)]
+#[crate::view(
+    component = TextEditing,
+    name = "TextEditing",
+    invalidation = Layout,
+    attach = input::attach::callback(),
+    input = (input::key::callback(), input::committed::callback()),
+    systems = [input::normalize_selections::system()]
+)]
 fn text_editing_state(_document: model!(optional component.document, watch(revision, capacity))) {}
 
 pub use text_editing_state::view;

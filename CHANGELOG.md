@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `TextEditing` handles committed text, keyboard navigation, deletion, and submission through its nonpainting View, with independent selection and content notifications for local and shared documents.
+
 - `TextEditing` binds local or shared documents with independent, validated selections and nonpainting document observation. `TextSelection` is exported from `ui::widgets`.
 
 - `TextDocument` provides observable UTF-8 document data with prepared byte capacity, atomic range replacement, and owned Model nesting. Documents keep content separate from editor selection and composition.

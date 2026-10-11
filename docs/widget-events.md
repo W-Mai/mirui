@@ -8,6 +8,8 @@
 
 Use `with_capacity` and `with_text` to prepare a component before insertion. For a shared source, these constructors modify the bound document, while selection changes remain local. Registered document bindings retain their App ownership and lifetime rules; they do not fall back to an empty local document when the source expires.
 
+The `TextEditing` View installs focus and native text-input markers and handles committed fragments, deletion, navigation, Shift selection, and Return independently of appearance. Its `Changed`, `SelectionChanged`, and `Submitted` notifications use the existing event callbacks. External selection corrections are retained at input and pre-render boundaries. Input rejects unavailable document bindings; shared edits release component borrows before Model effects and validate the source and revision before updating selection.
+
 ```rust,ignore
 let document = app.add_model(TextDocument::new());
 document.set_capacity(256)?;
