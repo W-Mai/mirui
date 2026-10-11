@@ -64,6 +64,8 @@ macro_rules! typed_inputs {
             PointerMove { kind: PointerKind, id: u8, x: Fixed, y: Fixed },
             PointerUp { kind: PointerKind, id: u8, x: Fixed, y: Fixed },
             PointerCancel { kind: PointerKind, id: u8, x: Fixed, y: Fixed },
+            PointerEnter { kind: PointerKind, id: u8 },
+            PointerLeave { kind: PointerKind, id: u8 },
             HostFocus { focused: bool },
             HostVisibility { visible: bool },
             $($(#[$doc])* $kind { $($(#[$field_doc])* $field: $ty),+ },)+
@@ -148,6 +150,7 @@ impl InputEvent {
             | Self::PointerMove { kind, id, .. }
             | Self::PointerUp { kind, id, .. }
             | Self::PointerCancel { kind, id, .. } => Some((*kind, *id)),
+            Self::PointerEnter { kind, id } | Self::PointerLeave { kind, id } => Some((*kind, *id)),
             _ => None,
         }
     }
@@ -158,6 +161,8 @@ impl InputEvent {
             | Self::PointerMove { .. }
             | Self::PointerUp { .. }
             | Self::PointerCancel { .. }
+            | Self::PointerEnter { .. }
+            | Self::PointerLeave { .. }
             | Self::Rotary { .. }
             | Self::Wheel { .. }
             | Self::Key { .. }

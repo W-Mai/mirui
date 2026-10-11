@@ -12,6 +12,8 @@ Spatial input refreshes stale layout or transformed hit geometry before dispatch
 
 Raw `InputEvent` pointer records carry `kind: PointerKind` (`Mouse`, `Touch`, `Pen`, or `Unknown`) and `id`. Gesture and scroll capture match both fields; movement or release from another pointer cannot end that capture. Backends report the device category rather than inferring it from the slot number. Simulated cursor actions use `Mouse`; simulated pinch and rotation contacts use `Touch`.
 
+`PointerEnter` and `PointerLeave` report surface boundaries without inventing coordinates. Entering waits for a position-bearing input before hit testing. Leaving clears hover and cursor feedback without releasing an active drag; captured movement still uses its actual coordinates. Touch does not produce hover feedback, and pen hover requires an explicit enter or non-contact movement.
+
 Web and WGPU map active native pointers to stable slots: mouse uses 0, with up to 16 other pointers occupying separate slots. A full map ignores new contacts without replacing active ones. Touch slots retire on release or cancellation; Web hovering pointers retain their slots until leaving without an active press. Host focus/visibility loss clears the mapping. Web lost pointer capture cancels an active press; a capture-loss event following normal release does not cancel it again. Pointer slot numbers are not persistent device identifiers.
 
 ## Node focus

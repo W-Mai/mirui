@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use std::time::Instant;
 
 use sdl2::EventPump;
-use sdl2::event::{Event, WindowEvent};
+use sdl2::event::Event;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::rect::Rect as SdlRect;
 use sdl2::render::{Canvas, Texture as SdlTexture, TextureCreator};
@@ -366,24 +366,10 @@ impl Surface for SdlSurface {
                         self.pending.push_back(InputEvent::CharInput { ch });
                     }
                 }
-                Event::Window {
-                    win_event: WindowEvent::Leave,
-                    ..
-                } => {
-                    // SDL has no hover-leave InputEvent; synthesize a
-                    // miss. Don't touch `last_mouse_x/y` so a wheel
-                    // event arriving before the next motion still
-                    // anchors at the last in-window position.
-                    const OFF: i32 = i16::MIN as i32;
-                    self.pending.push_back(InputEvent::PointerMove {
-                        kind: crate::input::event::input::PointerKind::Mouse,
-                        id: 0,
-                        x: Fixed::from_int(OFF),
-                        y: Fixed::from_int(OFF),
-                    });
-                }
                 Event::Window { win_event, .. } => {
-                    if let Some(input) = super::sdl_events::host_window_input(win_event) {
+                    if let Some(input) = super::sdl_events::pointer_window_input(win_event)
+                        .or_else(|| super::sdl_events::host_window_input(win_event))
+                    {
                         self.pending.push_back(input);
                     }
                 }

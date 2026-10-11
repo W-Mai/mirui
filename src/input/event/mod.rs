@@ -27,27 +27,97 @@ use crate::ui::{Parent, UserState};
 
 use gesture::GestureSystem;
 use hit_test::hit_test;
-use input::InputEvent;
+use input::{InputEvent, PointerKind};
 use scroll::{ScrollDragState, scroll_system_with_target};
-
-const INACTIVE_POINTER_COORDINATE: Fixed = Fixed::from_int(-1);
 
 #[derive(Clone, Copy)]
 pub struct PointerCursor {
+    pub kind: PointerKind,
+    pub id: u8,
+    /// Whether the cursor has a current position inside the surface.
+    pub present: bool,
+    pub(crate) hover_capable: bool,
     pub x: Fixed,
     pub y: Fixed,
     pub down: bool,
-    /// Bumps on every pointer press, release, or cancellation.
+    /// Interaction sequence used by cursor feedback.
     pub event_seq: u32,
 }
 
 impl Default for PointerCursor {
     fn default() -> Self {
         Self {
-            x: INACTIVE_POINTER_COORDINATE,
-            y: INACTIVE_POINTER_COORDINATE,
+            kind: PointerKind::Unknown,
+            id: 0,
+            present: false,
+            hover_capable: false,
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
             down: false,
             event_seq: 0,
+        }
+    }
+}
+
+impl PointerCursor {
+    fn update(&mut self, event: &InputEvent, width: u16, height: u16) {
+        let Some((kind, id)) = event.pointer_identity() else {
+            return;
+        };
+        let same = (self.kind, self.id) == (kind, id);
+        if self.down && !same {
+            return;
+        }
+        let inside = |x: Fixed, y: Fixed| {
+            x >= Fixed::ZERO
+                && y >= Fixed::ZERO
+                && x < Fixed::from_int(width as i32)
+                && y < Fixed::from_int(height as i32)
+        };
+        match event {
+            InputEvent::PointerEnter { .. } => {
+                self.kind = kind;
+                self.id = id;
+                self.present = false;
+                self.hover_capable = matches!(kind, PointerKind::Mouse | PointerKind::Pen);
+            }
+            InputEvent::PointerLeave { .. } if same => self.present = false,
+            InputEvent::PointerDown { x, y, .. } | InputEvent::PointerMove { x, y, .. } => {
+                if !same {
+                    self.hover_capable = false;
+                }
+                self.kind = kind;
+                self.id = id;
+                self.x = *x;
+                self.y = *y;
+                self.present = inside(*x, *y);
+                self.hover_capable |= kind == PointerKind::Mouse
+                    || (kind == PointerKind::Pen
+                        && !self.down
+                        && matches!(event, InputEvent::PointerMove { .. }));
+                if matches!(event, InputEvent::PointerDown { .. }) && !self.down {
+                    self.down = true;
+                    self.event_seq = self.event_seq.wrapping_add(1);
+                }
+            }
+            InputEvent::PointerUp { x, y, .. } if same && self.down => {
+                self.x = *x;
+                self.y = *y;
+                self.present &= inside(*x, *y) && self.hover_capable;
+                self.down = false;
+                self.event_seq = self.event_seq.wrapping_add(1);
+            }
+            InputEvent::PointerCancel { x, y, .. } if same => {
+                self.x = *x;
+                self.y = *y;
+                self.present = false;
+                self.hover_capable = false;
+                if self.down {
+                    self.event_seq = self.event_seq.wrapping_add(1);
+                }
+                self.down = false;
+            }
+            _ => {}
         }
     }
 }
@@ -150,30 +220,8 @@ pub fn dispatch_input(
             return;
         }
     }
-    match event {
-        InputEvent::PointerDown { x, y, .. } => {
-            update_pointer_cursor(world, |cursor| {
-                cursor.x = *x;
-                cursor.y = *y;
-                cursor.down = true;
-                cursor.event_seq = cursor.event_seq.wrapping_add(1);
-            });
-        }
-        InputEvent::PointerMove { x, y, .. } => {
-            update_pointer_cursor(world, |cursor| {
-                cursor.x = *x;
-                cursor.y = *y;
-            });
-        }
-        InputEvent::PointerUp { x, y, .. } | InputEvent::PointerCancel { x, y, .. } => {
-            update_pointer_cursor(world, |cursor| {
-                cursor.x = *x;
-                cursor.y = *y;
-                cursor.down = false;
-                cursor.event_seq = cursor.event_seq.wrapping_add(1);
-            });
-        }
-        _ => {}
+    if event.pointer_identity().is_some() {
+        update_pointer_cursor(world, |cursor| cursor.update(event, lw, lh));
     }
 
     let Some(root) = root else {
@@ -206,6 +254,8 @@ pub fn dispatch_input(
 pub(crate) fn cancel_active_input(world: &mut World, now_ms: u32) {
     if let Some(cursor) = world.resource_mut::<PointerCursor>() {
         cursor.down = false;
+        cursor.present = false;
+        cursor.hover_capable = false;
         cursor.event_seq = cursor.event_seq.wrapping_add(1);
     }
     scroll::system::cancel_scroll_drag(world);
@@ -598,6 +648,10 @@ mod tests {
         let mut world = World::new();
         let root = world.spawn_empty();
         world.insert_resource(PointerCursor {
+            kind: crate::surface::PointerKind::Mouse,
+            id: 0,
+            present: true,
+            hover_capable: true,
             x: Fixed::ZERO,
             y: Fixed::ZERO,
             down: true,
@@ -623,6 +677,156 @@ mod tests {
         assert_eq!(cursor.y, Fixed::from_int(18));
         assert!(!cursor.down);
         assert_eq!(cursor.event_seq, 8);
+    }
+
+    #[test]
+    fn pointer_boundaries_preserve_capture_and_require_a_current_position() {
+        let mut cursor = PointerCursor::default();
+        let kind = PointerKind::Mouse;
+        let down = InputEvent::PointerDown {
+            kind,
+            id: 0,
+            x: 12.into(),
+            y: 18.into(),
+        };
+        cursor.update(&down, 64, 64);
+        assert!(cursor.present && cursor.down);
+        let sequence = cursor.event_seq;
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                cursor.update(&InputEvent::PointerLeave { kind, id: 0 }, 64, 64);
+                assert!(!cursor.present && cursor.down);
+                assert_eq!((cursor.x, cursor.y), (12.into(), 18.into()));
+                cursor.update(&InputEvent::PointerEnter { kind, id: 0 }, 64, 64);
+                assert!(!cursor.present && cursor.down);
+                cursor.update(
+                    &InputEvent::PointerMove {
+                        kind,
+                        id: 0,
+                        x: 20.into(),
+                        y: 30.into(),
+                    },
+                    64,
+                    64,
+                );
+                assert!(cursor.present && cursor.down);
+                cursor.update(
+                    &InputEvent::PointerMove {
+                        kind,
+                        id: 0,
+                        x: 65.into(),
+                        y: 30.into(),
+                    },
+                    64,
+                    64,
+                );
+                assert!(!cursor.present && cursor.down);
+            }),
+            0
+        );
+        assert_eq!(cursor.event_seq, sequence);
+        cursor.update(
+            &InputEvent::PointerUp {
+                kind,
+                id: 0,
+                x: 20.into(),
+                y: 30.into(),
+            },
+            64,
+            64,
+        );
+        assert!(!cursor.present && !cursor.down);
+        assert_eq!(cursor.event_seq, sequence + 1);
+    }
+
+    #[test]
+    fn display_capture_ignores_other_pointers_and_touch_does_not_hover() {
+        let mut cursor = PointerCursor::default();
+        cursor.update(
+            &InputEvent::PointerDown {
+                kind: PointerKind::Touch,
+                id: 2,
+                x: 10.into(),
+                y: 12.into(),
+            },
+            64,
+            64,
+        );
+        for event in [
+            InputEvent::PointerLeave {
+                kind: PointerKind::Mouse,
+                id: 0,
+            },
+            InputEvent::PointerDown {
+                kind: PointerKind::Touch,
+                id: 3,
+                x: 40.into(),
+                y: 40.into(),
+            },
+            InputEvent::PointerUp {
+                kind: PointerKind::Touch,
+                id: 3,
+                x: 40.into(),
+                y: 40.into(),
+            },
+            InputEvent::PointerCancel {
+                kind: PointerKind::Pen,
+                id: 2,
+                x: 40.into(),
+                y: 40.into(),
+            },
+        ] {
+            cursor.update(&event, 64, 64);
+        }
+        assert!(cursor.present && cursor.down && !cursor.hover_capable);
+        assert_eq!(
+            (cursor.kind, cursor.id, cursor.x, cursor.y, cursor.event_seq),
+            (PointerKind::Touch, 2, 10.into(), 12.into(), 1)
+        );
+        cursor.update(
+            &InputEvent::PointerUp {
+                kind: PointerKind::Touch,
+                id: 2,
+                x: 10.into(),
+                y: 12.into(),
+            },
+            64,
+            64,
+        );
+        assert!(!cursor.present && !cursor.down);
+        cursor.update(
+            &InputEvent::PointerDown {
+                kind: PointerKind::Pen,
+                id: 1,
+                x: 10.into(),
+                y: 12.into(),
+            },
+            64,
+            64,
+        );
+        assert!(!cursor.hover_capable);
+        cursor.update(
+            &InputEvent::PointerUp {
+                kind: PointerKind::Pen,
+                id: 1,
+                x: 10.into(),
+                y: 12.into(),
+            },
+            64,
+            64,
+        );
+        assert!(!cursor.present);
+        cursor.update(
+            &InputEvent::PointerMove {
+                kind: PointerKind::Pen,
+                id: 1,
+                x: 10.into(),
+                y: 12.into(),
+            },
+            64,
+            64,
+        );
+        assert!(cursor.present && cursor.hover_capable);
     }
 
     #[test]

@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Pointer boundary events clear hover and cursor feedback without changing drag capture or synthesizing off-screen movement.
 - Raw pointer events carry an explicit device category. Gesture and scroll capture distinguish pointers by category and slot, preserving mouse, touch, pen, and unknown sources through backends and simulation.
 
 - Native and simulated input deliver recognized gestures, notifications, and reactive updates before handling the next raw input.

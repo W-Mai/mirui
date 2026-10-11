@@ -171,7 +171,7 @@ fn attach_listeners(
 ) -> Vec<Listener> {
     use super::web_input::{PointerPhase, WebPointers};
     let pointers = Rc::new(RefCell::new(WebPointers::new()));
-    let mut listeners = Vec::with_capacity(14);
+    let mut listeners = Vec::with_capacity(15);
     listeners.push(pointer_listener(
         canvas,
         queue,
@@ -217,7 +217,24 @@ fn attach_listeners(
         PointerPhase::Cancel,
         |kind, id, x, y| InputEvent::PointerCancel { kind, id, x, y },
     ));
-    listeners.push(leave_listener(canvas, queue, &pointers));
+    listeners.push(pointer_listener(
+        canvas,
+        queue,
+        logical_size,
+        &pointers,
+        "pointerenter",
+        PointerPhase::Enter,
+        |kind, id, _, _| InputEvent::PointerEnter { kind, id },
+    ));
+    listeners.push(pointer_listener(
+        canvas,
+        queue,
+        logical_size,
+        &pointers,
+        "pointerleave",
+        PointerPhase::Leave,
+        |kind, id, _, _| InputEvent::PointerLeave { kind, id },
+    ));
     listeners.push(wheel_listener(canvas, queue, logical_size));
     listeners.push(keyboard_listener(canvas, queue, "keydown", true));
     listeners.push(keyboard_listener(canvas, queue, "keyup", false));
@@ -323,7 +340,11 @@ fn pointer_listener(
             evt.client_y() as f64,
             logical_size.get(),
         );
-        q.borrow_mut().push_back(map(kind, id, x, y));
+        let mut queue = q.borrow_mut();
+        queue.push_back(map(kind, id, x, y));
+        if matches!(phase, super::web_input::PointerPhase::Enter) {
+            queue.push_back(InputEvent::PointerMove { kind, id, x, y });
+        }
     });
     register_listener(canvas.clone().into(), name, closure)
 }
@@ -374,38 +395,6 @@ fn register_listener(
         event: name.into(),
         closure,
     }
-}
-
-/// Synthetic off-screen `PointerMove` so `hover_system` clears the
-/// active widget. Skipped while a button is held — the captured
-/// pointer is still delivering real coordinates and would race.
-fn leave_listener(
-    canvas: &HtmlCanvasElement,
-    queue: &EventQueue,
-    pointers: &Rc<RefCell<super::web_input::WebPointers>>,
-) -> Listener {
-    let q = queue.clone();
-    let pointers = pointers.clone();
-    let types = PointerTypes::new();
-    let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
-        let evt: PointerEvent = raw.unchecked_into();
-        let kind = types.classify(&evt);
-        let Some(id) = pointers.borrow_mut().translate(
-            evt.pointer_id(),
-            kind,
-            super::web_input::PointerPhase::Leave,
-        ) else {
-            return;
-        };
-        const OFF: i32 = i16::MIN as i32;
-        q.borrow_mut().push_back(InputEvent::PointerMove {
-            kind,
-            id,
-            x: Fixed::from_int(OFF),
-            y: Fixed::from_int(OFF),
-        });
-    });
-    register_listener(canvas.clone().into(), "pointerleave", closure)
 }
 
 fn wheel_listener(

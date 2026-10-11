@@ -26,13 +26,20 @@ fn cursor_dot_rect(visual: &CursorVisual) -> Rect {
 }
 
 fn current_visual(world: &World, cursor: PointerCursor) -> CursorVisual {
-    let target = world.resource::<WidgetRoot>().copied().and_then(|root| {
-        world
-            .resource::<crate::surface::DisplayInfo>()
-            .and_then(|info| hit_test(world, root.0, cursor.x, cursor.y, info.width, info.height))
-    });
+    let target = world
+        .resource::<WidgetRoot>()
+        .copied()
+        .filter(|_| cursor.present)
+        .and_then(|root| {
+            world
+                .resource::<crate::surface::DisplayInfo>()
+                .and_then(|info| {
+                    hit_test(world, root.0, cursor.x, cursor.y, info.width, info.height)
+                })
+        });
     let target_rect = target.and_then(|e| world.get::<ComputedRect>(e).map(|r| r.0));
     CursorVisual {
+        present: cursor.present,
         x: cursor.x,
         y: cursor.y,
         down: cursor.down,
@@ -92,6 +99,9 @@ pub(crate) fn cursor_feedback_system(world: &mut World) -> Result<(), crate::ecs
     let Some(cursor) = world.resource::<PointerCursor>().copied() else {
         return Ok(());
     };
+    if !cursor.present && feedback.cursor.entity.is_none() {
+        return Ok(());
+    }
     // event_seq doesn't tick on Move events, so it can't gate this
     // whole system; compare the raw pointer fields instead and skip
     // the ~3 ms hit_test in `current_visual` when nothing changed.
@@ -105,6 +115,7 @@ pub(crate) fn cursor_feedback_system(world: &mut World) -> Result<(), crate::ecs
     // `RegionShift` published) or when scroll containers carry a
     // pending `ScrollDelta` this frame.
     if feedback.cursor.entity.is_some()
+        && feedback.cursor.current.present == cursor.present
         && feedback.cursor.current.x == cursor.x
         && feedback.cursor.current.y == cursor.y
         && feedback.cursor.current.down == cursor.down
@@ -152,6 +163,9 @@ fn cursor_render(feedback: res!(optional InputFeedback), paint: paint!()) {
         return;
     }
     paint.set_background_handled(true);
+    if !feedback.cursor.current.present {
+        return;
+    }
     let rect = paint.rect();
     let corner = rect.h / Fixed::from_int(2);
     match feedback.cursor.mode {
@@ -229,6 +243,7 @@ mod tests {
         let entity = world.spawn_empty();
         world.insert(entity, OverlayCursor);
         let mut feedback = InputFeedback::enabled();
+        feedback.cursor.current.present = true;
         feedback.cursor.mode = CursorFeedbackMode::MagneticRect;
         feedback.cursor.current.target_rect = Some(Rect::new(0, 0, 16, 16));
         world.insert_resource(feedback);
@@ -249,6 +264,24 @@ mod tests {
             paint.error(),
             Some(RenderError::Unsupported(RenderFeature::AffineGeometry))
         );
+        world
+            .resource_mut::<InputFeedback>()
+            .unwrap()
+            .cursor
+            .current
+            .present = false;
+        let mut paint = PaintCtx::new(
+            &mut renderer,
+            &style,
+            &rect,
+            &rect,
+            Transform::IDENTITY,
+            None,
+            crate::ui::theme::WidgetState::Enabled,
+        );
+        view().render().unwrap()(&world, entity, &mut paint);
+        assert_eq!(paint.error(), None);
+        assert!(paint.background_handled());
     }
 
     fn spawn_widget(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
@@ -313,6 +346,10 @@ mod tests {
         let mut world = make_world();
         root_with_target(&mut world);
         world.insert_resource(PointerCursor {
+            kind: crate::surface::PointerKind::Mouse,
+            id: 0,
+            present: true,
+            hover_capable: true,
             x: Fixed::from_int(10),
             y: Fixed::from_int(10),
             down: false,
@@ -345,6 +382,10 @@ mod tests {
         let mut world = make_world();
         root_with_target(&mut world);
         world.insert_resource(PointerCursor {
+            kind: crate::surface::PointerKind::Mouse,
+            id: 0,
+            present: true,
+            hover_capable: true,
             x: Fixed::from_int(10),
             y: Fixed::from_int(10),
             down: false,
@@ -362,6 +403,10 @@ mod tests {
 
         world.remove::<Dirty>(entity);
         world.insert_resource(PointerCursor {
+            kind: crate::surface::PointerKind::Mouse,
+            id: 0,
+            present: true,
+            hover_capable: true,
             x: Fixed::from_int(20),
             y: Fixed::from_int(20),
             down: false,
@@ -375,10 +420,51 @@ mod tests {
     }
 
     #[test]
+    fn absent_cursor_does_not_spawn_and_leaving_invalidates_existing_overlay() {
+        let mut world = make_world();
+        root_with_target(&mut world);
+        world.insert_resource(PointerCursor::default());
+        cursor_feedback_system(&mut world).unwrap();
+        assert!(
+            world
+                .resource::<InputFeedback>()
+                .unwrap()
+                .cursor
+                .entity
+                .is_none()
+        );
+        let cursor = world.resource_mut::<PointerCursor>().unwrap();
+        cursor.present = true;
+        cursor.x = 12.into();
+        cursor.y = 14.into();
+        cursor_feedback_system(&mut world).unwrap();
+        let entity = world
+            .resource::<InputFeedback>()
+            .unwrap()
+            .cursor
+            .entity
+            .unwrap();
+        world.remove::<Dirty>(entity);
+        world.resource_mut::<PointerCursor>().unwrap().present = false;
+        cursor_feedback_system(&mut world).unwrap();
+        let feedback = world.resource::<InputFeedback>().unwrap();
+        assert!(!feedback.cursor.current.present);
+        assert!(feedback.cursor.current.target.is_none());
+        assert!(world.get::<Dirty>(entity).is_some());
+        world.remove::<Dirty>(entity);
+        cursor_feedback_system(&mut world).unwrap();
+        assert!(world.get::<Dirty>(entity).is_none());
+    }
+
+    #[test]
     fn cursor_system_recomputes_when_layout_shifts_under_static_pointer() {
         let mut world = make_world();
         let root = root_with_target(&mut world);
         world.insert_resource(PointerCursor {
+            kind: crate::surface::PointerKind::Mouse,
+            id: 0,
+            present: true,
+            hover_capable: true,
             x: Fixed::from_int(40),
             y: Fixed::from_int(40),
             down: false,
@@ -465,6 +551,10 @@ mod tests {
         let mut world = make_world();
         root_with_target(&mut world);
         world.insert_resource(PointerCursor {
+            kind: crate::surface::PointerKind::Mouse,
+            id: 0,
+            present: true,
+            hover_capable: true,
             x: Fixed::from_int(10),
             y: Fixed::from_int(10),
             down: false,

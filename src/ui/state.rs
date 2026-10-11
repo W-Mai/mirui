@@ -13,6 +13,8 @@ struct PointerSnapshot {
     x: Fixed,
     y: Fixed,
     down: bool,
+    present: bool,
+    hover_capable: bool,
     seq: u32,
     geometry_revision: u64,
 }
@@ -33,6 +35,8 @@ fn cursor_snapshot(world: &World) -> PointerSnapshot {
         x: cursor.x,
         y: cursor.y,
         down: cursor.down,
+        present: cursor.present,
+        hover_capable: cursor.hover_capable,
         seq: cursor.event_seq,
         geometry_revision: crate::input::event::hit_test::geometry_revision(world),
     }
@@ -63,7 +67,7 @@ pub(crate) fn hover_system(world: &mut World) -> Result<(), crate::ecs::CommandE
         return Ok(());
     }
     world.insert_resource(HoverSnapshot(snap));
-    let new_hover = if snap.down {
+    let new_hover = if snap.down || !snap.present || !snap.hover_capable {
         None
     } else {
         compute_pointer_target(world, snap.x, snap.y)
@@ -91,7 +95,7 @@ pub(crate) fn press_system(world: &mut World) -> Result<(), crate::ecs::CommandE
 
     // Mid-drag: skip the ~1.4 ms hit_test while the pointer stays
     // inside the deepest Pressed entity's rect.
-    if snap.down && last.down && snap.geometry_revision == last.geometry_revision {
+    if snap.present && snap.down && last.down && snap.geometry_revision == last.geometry_revision {
         let prev_pressed: Option<Entity> = world
             .resource::<PressSnapshot>()
             .and_then(|snapshot| snapshot.target);
@@ -110,7 +114,7 @@ pub(crate) fn press_system(world: &mut World) -> Result<(), crate::ecs::CommandE
         }
     }
 
-    let new_pressed = if snap.down {
+    let new_pressed = if snap.present && snap.down {
         compute_pointer_target(world, snap.x, snap.y)
     } else {
         None
@@ -515,6 +519,10 @@ mod hover_press_e2e {
             Some(child)
         );
         world.insert_resource(PointerCursor {
+            kind: crate::surface::PointerKind::Mouse,
+            id: 0,
+            present: true,
+            hover_capable: true,
             x: probe,
             y: probe,
             down: false,
@@ -528,6 +536,10 @@ mod hover_press_e2e {
         assert!(world.get::<InteractionState>(root).is_none());
 
         world.insert_resource(PointerCursor {
+            kind: crate::surface::PointerKind::Mouse,
+            id: 0,
+            present: true,
+            hover_capable: true,
             x: Fixed::from_int(56),
             y: Fixed::from_int(56),
             down: false,
@@ -546,6 +558,10 @@ mod hover_press_e2e {
         refresh_hit_geometry(&mut world, root);
         let probe = Fixed::from_int(16);
         world.insert_resource(PointerCursor {
+            kind: crate::surface::PointerKind::Mouse,
+            id: 0,
+            present: true,
+            hover_capable: true,
             x: probe,
             y: probe,
             down: false,
@@ -592,6 +608,10 @@ mod hover_press_e2e {
         refresh_hit_geometry(&mut world, root);
         let probe = Fixed::from_int(16);
         world.insert_resource(PointerCursor {
+            kind: crate::surface::PointerKind::Mouse,
+            id: 0,
+            present: true,
+            hover_capable: true,
             x: probe,
             y: probe,
             down: false,
@@ -605,6 +625,10 @@ mod hover_press_e2e {
         assert!(world.get::<InteractionState>(root).is_none());
 
         world.insert_resource(PointerCursor {
+            kind: crate::surface::PointerKind::Mouse,
+            id: 0,
+            present: true,
+            hover_capable: true,
             x: probe,
             y: probe,
             down: true,
@@ -628,6 +652,10 @@ mod hover_press_e2e {
         refresh_hit_geometry(&mut world, root);
         let probe = Fixed::from_int(16);
         world.insert_resource(PointerCursor {
+            kind: crate::surface::PointerKind::Mouse,
+            id: 0,
+            present: true,
+            hover_capable: true,
             x: probe,
             y: probe,
             down: true,
@@ -644,6 +672,10 @@ mod hover_press_e2e {
         );
 
         world.insert_resource(PointerCursor {
+            kind: crate::surface::PointerKind::Mouse,
+            id: 0,
+            present: true,
+            hover_capable: true,
             x: probe,
             y: probe,
             down: false,
@@ -661,6 +693,10 @@ mod hover_press_e2e {
         world.insert(root, InteractionFeedback);
         refresh_hit_geometry(&mut world, root);
         world.insert_resource(PointerCursor {
+            kind: crate::surface::PointerKind::Mouse,
+            id: 0,
+            present: true,
+            hover_capable: true,
             x: Fixed::from_int(32),
             y: Fixed::from_int(32),
             down: false,
@@ -674,6 +710,63 @@ mod hover_press_e2e {
     }
 
     #[test]
+    fn boundary_and_touch_input_do_not_leave_a_stale_hover_marker() {
+        use crate::surface::{InputEvent, PointerKind};
+        let (mut world, root) = make_world_with_button();
+        world.insert(root, HitTarget);
+        world.insert(root, InteractionFeedback);
+        refresh_hit_geometry(&mut world, root);
+        let mouse = PointerKind::Mouse;
+        for (event, hovered) in [
+            (
+                InputEvent::PointerMove {
+                    kind: mouse,
+                    id: 0,
+                    x: 32.into(),
+                    y: 32.into(),
+                },
+                true,
+            ),
+            (InputEvent::PointerLeave { kind: mouse, id: 0 }, false),
+            (InputEvent::PointerEnter { kind: mouse, id: 0 }, false),
+            (
+                InputEvent::PointerMove {
+                    kind: mouse,
+                    id: 0,
+                    x: 32.into(),
+                    y: 32.into(),
+                },
+                true,
+            ),
+            (
+                InputEvent::PointerDown {
+                    kind: PointerKind::Touch,
+                    id: 1,
+                    x: 32.into(),
+                    y: 32.into(),
+                },
+                false,
+            ),
+            (
+                InputEvent::PointerUp {
+                    kind: PointerKind::Touch,
+                    id: 1,
+                    x: 32.into(),
+                    y: 32.into(),
+                },
+                false,
+            ),
+        ] {
+            crate::input::event::dispatch_input(&mut world, Some(root), &event, 0, 64, 64);
+            hover_system(&mut world).unwrap();
+            assert_eq!(
+                world.get::<InteractionState>(root) == Some(&InteractionState::Hovered),
+                hovered
+            );
+        }
+    }
+
+    #[test]
     fn hover_system_clears_when_down() {
         let (mut world, root) = make_world_with_button();
         world.insert(root, HitTarget);
@@ -681,6 +774,10 @@ mod hover_press_e2e {
         refresh_hit_geometry(&mut world, root);
         world.insert(root, InteractionState::Hovered);
         world.insert_resource(PointerCursor {
+            kind: crate::surface::PointerKind::Mouse,
+            id: 0,
+            present: true,
+            hover_capable: true,
             x: Fixed::from_int(32),
             y: Fixed::from_int(32),
             down: true,
@@ -697,6 +794,10 @@ mod hover_press_e2e {
         world.insert(root, InteractionFeedback);
         refresh_hit_geometry(&mut world, root);
         world.insert_resource(PointerCursor {
+            kind: crate::surface::PointerKind::Mouse,
+            id: 0,
+            present: true,
+            hover_capable: true,
             x: Fixed::from_int(32),
             y: Fixed::from_int(32),
             down: true,

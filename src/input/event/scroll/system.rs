@@ -762,6 +762,23 @@ mod tests {
         );
         let offset = world.get::<ScrollOffset>(root).unwrap().y;
         assert!(offset > Fixed::ZERO);
+        for event in [
+            InputEvent::PointerLeave {
+                kind: PointerKind::Mouse,
+                id: 0,
+            },
+            InputEvent::PointerEnter {
+                kind: PointerKind::Mouse,
+                id: 0,
+            },
+        ] {
+            assert!(!scroll_system_with_target(
+                &mut world, root, &event, 100, 100, None, 15
+            ));
+            assert!(world.resource::<ScrollDragState>().unwrap().active);
+            assert!(world.resource::<ScrollDragState>().unwrap().resolved);
+            assert_eq!(world.get::<ScrollOffset>(root).unwrap().y, offset);
+        }
         for kind in [PointerKind::Touch, PointerKind::Pen, PointerKind::Unknown] {
             for event in [
                 InputEvent::PointerDown {

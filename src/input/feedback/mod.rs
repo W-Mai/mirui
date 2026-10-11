@@ -24,6 +24,7 @@ pub enum CursorFeedbackMode {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CursorVisual {
+    pub present: bool,
     pub x: Fixed,
     pub y: Fixed,
     pub down: bool,
@@ -203,6 +204,7 @@ mod tests {
             let style = Style::default();
             let rect = Rect::new(0, 0, 36, 128);
             let mut feedback = InputFeedback::enabled();
+            feedback.cursor.current.present = true;
             feedback.rotary.opacity = Fixed::ONE;
             for (value, active) in [
                 (None, false),

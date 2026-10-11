@@ -86,6 +86,22 @@ pub(crate) fn host_window_input(
     }
 }
 
+pub(crate) fn pointer_window_input(event: sdl2::event::WindowEvent) -> Option<InputEvent> {
+    use crate::surface::PointerKind;
+    use sdl2::event::WindowEvent;
+    match event {
+        WindowEvent::Enter => Some(InputEvent::PointerEnter {
+            kind: PointerKind::Mouse,
+            id: 0,
+        }),
+        WindowEvent::Leave => Some(InputEvent::PointerLeave {
+            kind: PointerKind::Mouse,
+            id: 0,
+        }),
+        _ => None,
+    }
+}
+
 fn supported_event_type(kind: u32) -> bool {
     // SDL2 defines only Window (0x200) and SysWM (0x201) in this range.
     !(0x202..0x300).contains(&kind)
@@ -150,6 +166,26 @@ mod tests {
                     if code == expected && actual == pressed));
             }
         }
+    }
+
+    #[test]
+    fn window_boundaries_do_not_synthesize_motion_or_release() {
+        use sdl2::event::WindowEvent;
+        assert!(matches!(
+            pointer_window_input(WindowEvent::Enter),
+            Some(InputEvent::PointerEnter {
+                kind: PointerKind::Mouse,
+                id: 0
+            })
+        ));
+        assert!(matches!(
+            pointer_window_input(WindowEvent::Leave),
+            Some(InputEvent::PointerLeave {
+                kind: PointerKind::Mouse,
+                id: 0
+            })
+        ));
+        assert!(pointer_window_input(WindowEvent::FocusLost).is_none());
     }
 
     #[test]

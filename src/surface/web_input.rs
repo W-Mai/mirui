@@ -7,12 +7,14 @@ pub(super) enum PointerPhase {
     Move,
     Up,
     Cancel,
+    Enter,
     Leave,
 }
 
 pub(super) struct WebPointers {
     slots: super::pointer_slots::PointerSlots<i32, 16>,
     down: u32,
+    outside: u32,
 }
 
 impl WebPointers {
@@ -20,12 +22,14 @@ impl WebPointers {
         Self {
             slots: super::pointer_slots::PointerSlots::new(),
             down: 0,
+            outside: 0,
         }
     }
 
     pub(super) fn clear(&mut self) {
         self.slots.clear();
         self.down = 0;
+        self.outside = 0;
     }
 
     pub(super) fn translate(
@@ -39,7 +43,9 @@ impl WebPointers {
         } else {
             match phase {
                 PointerPhase::Down => self.slots.insert(native_id)?,
-                PointerPhase::Move if kind == PointerKind::Pen => self.slots.insert(native_id)?,
+                PointerPhase::Move | PointerPhase::Enter if kind == PointerKind::Pen => {
+                    self.slots.insert(native_id)?
+                }
                 _ => self.slots.get(native_id)?,
             }
         };
@@ -50,6 +56,7 @@ impl WebPointers {
                     return None;
                 }
                 self.down |= mask;
+                self.outside &= !mask;
             }
             PointerPhase::Up | PointerPhase::Cancel => {
                 if self.down & mask == 0 {
@@ -57,19 +64,20 @@ impl WebPointers {
                 }
                 self.down &= !mask;
                 if kind != PointerKind::Mouse
-                    && (kind != PointerKind::Pen || matches!(phase, PointerPhase::Cancel))
+                    && (kind != PointerKind::Pen
+                        || self.outside & mask != 0
+                        || matches!(phase, PointerPhase::Cancel))
                 {
                     self.slots.remove(native_id);
                 }
             }
             PointerPhase::Leave => {
-                if self.down & mask != 0 {
-                    return None;
-                }
-                if kind != PointerKind::Mouse {
+                self.outside |= mask;
+                if self.down & mask == 0 && kind != PointerKind::Mouse {
                     self.slots.remove(native_id);
                 }
             }
+            PointerPhase::Enter => self.outside &= !mask,
             PointerPhase::Move => {}
         }
         Some(id)
@@ -138,7 +146,8 @@ mod tests {
         let mut pointers = WebPointers::new();
         assert_eq!(pointers.translate(80, PointerKind::Pen, Move), Some(1));
         assert_eq!(pointers.translate(80, PointerKind::Pen, Down), Some(1));
-        assert_eq!(pointers.translate(80, PointerKind::Pen, Leave), None);
+        assert_eq!(pointers.translate(80, PointerKind::Pen, Leave), Some(1));
+        assert_eq!(pointers.translate(80, PointerKind::Pen, Enter), Some(1));
         assert_eq!(pointers.translate(80, PointerKind::Pen, Up), Some(1));
         assert_eq!(pointers.translate(80, PointerKind::Pen, Move), Some(1));
         assert_eq!(pointers.translate(80, PointerKind::Pen, Leave), Some(1));
@@ -167,6 +176,26 @@ mod tests {
         assert_eq!(pointers.translate(18, PointerKind::Touch, Up), None);
         assert_eq!(pointers.translate(2, PointerKind::Touch, Move), None);
         assert_eq!(pointers.translate(19, PointerKind::Touch, Down), Some(1));
+    }
+
+    #[test]
+    fn leaving_during_capture_keeps_the_slot_until_release() {
+        use PointerPhase::*;
+        let mut pointers = WebPointers::new();
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                assert_eq!(pointers.translate(80, PointerKind::Pen, Enter), Some(1));
+                assert_eq!(pointers.translate(80, PointerKind::Pen, Down), Some(1));
+                assert_eq!(pointers.translate(80, PointerKind::Pen, Leave), Some(1));
+                assert_eq!(pointers.translate(81, PointerKind::Touch, Down), Some(2));
+                assert_eq!(pointers.translate(80, PointerKind::Pen, Up), Some(1));
+                assert_eq!(pointers.translate(80, PointerKind::Pen, Cancel), None);
+                assert_eq!(pointers.translate(82, PointerKind::Pen, Enter), Some(1));
+                assert_eq!(pointers.translate(83, PointerKind::Unknown, Enter), None);
+                assert_eq!(pointers.translate(84, PointerKind::Touch, Enter), None);
+            }),
+            0
+        );
     }
 
     #[test]

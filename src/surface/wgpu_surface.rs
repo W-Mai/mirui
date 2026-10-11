@@ -477,6 +477,20 @@ impl WgpuRuntime {
                 self.pending_move = Some((x, y));
                 false
             }
+            WindowEvent::CursorEntered { .. } => {
+                self.event_queue.push_back(InputEvent::PointerEnter {
+                    kind: crate::surface::PointerKind::Mouse,
+                    id: 0,
+                });
+                false
+            }
+            WindowEvent::CursorLeft { .. } => {
+                self.event_queue.push_back(InputEvent::PointerLeave {
+                    kind: crate::surface::PointerKind::Mouse,
+                    id: 0,
+                });
+                false
+            }
             WindowEvent::MouseInput { state, button, .. } => {
                 if button == MouseButton::Left {
                     let (x, y) = self.last_cursor;
@@ -1427,6 +1441,54 @@ mod tests {
             }
         });
         assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn cursor_boundaries_preserve_position_and_native_input_order() {
+        let mut runtime = WgpuRuntime::new();
+        let device_id = winit::event::DeviceId::dummy();
+        runtime.event_queue.reserve(4);
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                runtime.window_event(WindowEvent::CursorEntered { device_id });
+                runtime.window_event(WindowEvent::CursorMoved {
+                    device_id,
+                    position: winit::dpi::PhysicalPosition::new(18.0, 24.0),
+                });
+                runtime.window_event(WindowEvent::CursorLeft { device_id });
+                runtime.window_event(WindowEvent::MouseInput {
+                    device_id,
+                    state: ElementState::Released,
+                    button: MouseButton::Left,
+                });
+            }),
+            0
+        );
+        assert!(matches!(
+            runtime.poll_event(),
+            Some(InputEvent::PointerEnter {
+                kind: crate::surface::PointerKind::Mouse,
+                id: 0
+            })
+        ));
+        assert!(
+            matches!(runtime.poll_event(), Some(InputEvent::PointerMove { x, y, .. }) if x == Fixed::from_int(18) && y == Fixed::from_int(24))
+        );
+        assert!(matches!(
+            runtime.poll_event(),
+            Some(InputEvent::PointerLeave {
+                kind: crate::surface::PointerKind::Mouse,
+                id: 0
+            })
+        ));
+        assert!(
+            matches!(runtime.poll_event(), Some(InputEvent::PointerUp { x, y, .. }) if x == Fixed::from_int(18) && y == Fixed::from_int(24))
+        );
+        assert!(runtime.poll_event().is_none());
+        assert_eq!(
+            runtime.last_cursor,
+            (Fixed::from_int(18), Fixed::from_int(24))
+        );
     }
 
     #[test]

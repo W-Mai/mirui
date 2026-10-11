@@ -363,20 +363,10 @@ impl Surface for SdlGpuSurface {
                         self.pending.push_back(InputEvent::CharInput { ch });
                     }
                 }
-                Event::Window {
-                    win_event: sdl2::event::WindowEvent::Leave,
-                    ..
-                } => {
-                    const OFF: i32 = i16::MIN as i32;
-                    self.pending.push_back(InputEvent::PointerMove {
-                        kind: crate::input::event::input::PointerKind::Mouse,
-                        id: 0,
-                        x: Fixed::from_int(OFF),
-                        y: Fixed::from_int(OFF),
-                    });
-                }
                 Event::Window { win_event, .. } => {
-                    if let Some(input) = crate::surface::sdl_events::host_window_input(win_event) {
+                    if let Some(input) = crate::surface::sdl_events::pointer_window_input(win_event)
+                        .or_else(|| crate::surface::sdl_events::host_window_input(win_event))
+                    {
                         self.pending.push_back(input);
                     }
                 }

@@ -1208,6 +1208,10 @@ mod tests {
         let mut world = world();
         install_app(&mut world, Started::EVENT, started::callback()).unwrap();
         world.insert_resource(super::super::PointerCursor {
+            kind: crate::surface::PointerKind::Mouse,
+            id: 0,
+            present: true,
+            hover_capable: true,
             x: Fixed::ZERO,
             y: Fixed::ZERO,
             down: true,

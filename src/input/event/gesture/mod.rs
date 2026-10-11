@@ -38,6 +38,21 @@ mod tests {
             Some(entity(1)),
             &mut events,
         );
+        for event in [
+            InputEvent::PointerLeave {
+                kind: PointerKind::Mouse,
+                id: 0,
+            },
+            InputEvent::PointerEnter {
+                kind: PointerKind::Mouse,
+                id: 0,
+            },
+        ] {
+            rec.update(&event, 5, None, &mut events);
+            assert_eq!(rec.state, GestureState::Pending);
+            assert_eq!(rec.captured_target(), Some(entity(1)));
+            assert!(events.buffer.is_empty());
+        }
         for kind in [PointerKind::Touch, PointerKind::Pen, PointerKind::Unknown] {
             for event in [
                 InputEvent::PointerMove {
