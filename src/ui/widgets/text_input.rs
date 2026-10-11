@@ -244,6 +244,49 @@ fn text_input_render(
     let visible_width = (content_rect.w - Fixed::ONE).max(Fixed::ZERO);
     let scroll = (caret - visible_width).max(Fixed::ZERO);
     let transform = paint.transform();
+    let selection = editing.selection().range();
+    if editing.focused() && !selection.is_empty() && !editing.is_empty() {
+        let selection = selection.start as u32..selection.end as u32;
+        for line in layout.lines() {
+            let range = line.carets();
+            let carets = &layout.carets()[range.start as usize..range.end as usize];
+            for run in layout.runs_for(*line).unwrap_or_default() {
+                let span = carets
+                    .windows(2)
+                    .filter(|pair| {
+                        super::text::selected_pair(pair, run.text(), run.bidi_level(), &selection)
+                    })
+                    .fold(None, |span: Option<(i32, i32)>, pair| {
+                        let left = pair[0].position.x.min(pair[1].position.x);
+                        let right = pair[0].position.x.max(pair[1].position.x);
+                        Some(span.map_or((left, right), |(start, end)| {
+                            (start.min(left), end.max(right))
+                        }))
+                    });
+                if let Some((left, right)) = span.filter(|(left, right)| left < right) {
+                    paint.draw_clipped(
+                        &DrawCommand::Fill {
+                            area: Rect {
+                                x: content_rect.x - scroll
+                                    + crate::types::fixed::from_textflow(left),
+                                y: content_rect.y
+                                    + crate::types::fixed::from_textflow(line.origin().y)
+                                    - metrics.ascender,
+                                w: crate::types::fixed::from_textflow(right - left),
+                                h: metrics.line_height,
+                            },
+                            transform,
+                            quad: paint.quad(),
+                            color: focus_border_color,
+                            radius: Fixed::ZERO,
+                            opa: 80,
+                        },
+                        content_clip,
+                    );
+                }
+            }
+        }
+    }
     super::text::draw_text_layout(
         paint,
         &layout,
@@ -361,6 +404,8 @@ mod tests {
     struct RecordingRenderer {
         glyph_runs: Vec<(Point, usize)>,
         fills: Vec<Rect>,
+        fill_clips: Vec<Rect>,
+        fills_before_glyphs: usize,
     }
 
     impl Renderer for RecordingRenderer {
@@ -378,9 +423,13 @@ mod tests {
             self.route(request)?;
             match request.command {
                 DrawCommand::GlyphRun { pos, glyphs, .. } => {
+                    self.fills_before_glyphs = self.fills.len();
                     self.glyph_runs.push((*pos, glyphs.len()));
                 }
-                DrawCommand::Fill { area, .. } => self.fills.push(*area),
+                DrawCommand::Fill { area, .. } => {
+                    self.fills.push(*area);
+                    self.fill_clips.push(request.clip);
+                }
                 _ => {}
             }
             Ok(())
@@ -438,7 +487,23 @@ mod tests {
         placeholder: Option<&'static str>,
         width: i32,
     ) -> RecordingRenderer {
+        render_selected_input(text, placeholder, width, None)
+    }
+
+    fn render_selected_input(
+        text: &[u8],
+        placeholder: Option<&'static str>,
+        width: i32,
+        selection: Option<super::super::TextSelection>,
+    ) -> RecordingRenderer {
         let (mut world, entity, style, rect) = input_fixture(text, placeholder, width);
+        if let Some(selection) = selection {
+            world
+                .get_mut::<TextEditing>(entity)
+                .unwrap()
+                .set_selection(selection)
+                .unwrap();
+        }
         let handle = prepare_layout(&world, entity, rect).unwrap().unwrap();
         world.insert(entity, TextEditingLayoutHandle(handle));
         let clip = Rect::new(0, 0, 100, 30);
@@ -466,6 +531,34 @@ mod tests {
         assert_eq!(renderer.fills.len(), 1);
         assert_eq!(renderer.fills[0].x, Fixed::from_int(15));
         assert_eq!(renderer.fills[0].h, Fixed::from_int(12));
+    }
+
+    #[test]
+    fn selection_uses_visual_advances_before_glyphs_in_either_direction() {
+        for (anchor, cursor) in [(0, 2), (2, 0)] {
+            let renderer = render_selected_input(
+                b"Wi",
+                None,
+                100,
+                Some(super::super::TextSelection { anchor, cursor }),
+            );
+            assert_eq!(renderer.fills_before_glyphs, 1);
+            assert_eq!(renderer.fills[0], Rect::new(2, 2, 13, 12));
+            assert_eq!(renderer.fills.len(), 2);
+        }
+        let renderer = render_selected_input(
+            b"WWW",
+            None,
+            20,
+            Some(super::super::TextSelection {
+                anchor: 1,
+                cursor: 3,
+            }),
+        );
+        assert_eq!(renderer.fills_before_glyphs, 1);
+        assert_eq!(renderer.fills[0], Rect::new(-3, 2, 20, 12));
+        assert_eq!(renderer.fill_clips[0], Rect::new(2, 2, 16, 16));
+        assert_eq!(renderer.glyph_runs[0].0.x, Fixed::from_int(-13));
     }
 
     #[test]
@@ -613,6 +706,16 @@ mod tests {
             (&b""[..], Some("Wi"), Fixed::from_int(2)),
         ] {
             let (mut world, entity, style, rect) = input_fixture(text, placeholder, 100);
+            if !text.is_empty() {
+                world
+                    .get_mut::<TextEditing>(entity)
+                    .unwrap()
+                    .set_selection(super::super::TextSelection {
+                        anchor: 0,
+                        cursor: text.len(),
+                    })
+                    .unwrap();
+            }
             let render = view().render().unwrap();
             for stage in 0..3 {
                 if stage == 1 {

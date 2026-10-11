@@ -66,6 +66,8 @@ Committed text replaces the current selection as one operation. An accepted frag
 
 Shift+Left, Shift+Right, Shift+Home, and Shift+End extend the selection while retaining its anchor. Without Shift metadata, navigation moves or collapses the selection normally. Movement at an unchanged boundary does not dirty the input or notify.
 
+TextInput paints the focused selection behind the text using its focus border color. Selection geometry uses the prepared visual runs and shares the text's scrolling, transforms, and clipping; placeholder text is not selected.
+
 `TextEditing::SelectionChanged { anchor: u32, cursor: u32 }` reports the resulting directed UTF-8 byte offsets when an input handler changes the selection. An edit that changes both content and selection reports `Changed` first. Replacing selected text with identical text can collapse the selection without reporting a content change. Rejected and unchanged operations do not notify.
 
 `TextEditing::Submitted` reports a Return press accepted by the default key handler, including repeated presses. It does not insert a newline, clear content, move the selection, or change focus. An authored key handler can consume Return before the default handler. Both notifications support inline bodies, closures, typed callbacks, and widget builders. Notifications without listeners are skipped; queue failure does not roll back an edit or replay it later.

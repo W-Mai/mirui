@@ -9,6 +9,7 @@ MIRUI_SNAPSHOT_DIR=.local/screenshots cargo run -p gallery --example lazy_list_s
 cargo run -p gallery --example effect_demo_snapshot --no-default-features --features snapshot -- .local/screenshots/effects.ppm
 cargo run -p gallery --example offscreen_modal_snapshot --no-default-features --features snapshot -- .local/screenshots/modal
 cargo run -p gallery --example demo_previews_snapshot --no-default-features --features snapshot -- .local/screenshots editor_lab
+MIRUI_SNAPSHOT_DIR=.local/screenshots cargo run -p gallery --example text_input_snapshot --no-default-features --features snapshot -- selection
 ```
 
 The tab snapshot accepts a selected index from 0 to 2. The list accepts `top`, `mid`, or `bottom`. The modal tool captures 30 frames for each of the inline (`inl-*.ppm`) and offscreen (`off-*.ppm`) rendering modes.

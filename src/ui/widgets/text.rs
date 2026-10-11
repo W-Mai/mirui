@@ -1196,7 +1196,7 @@ fn selected_caret_pairs<'a>(
     })
 }
 
-fn selected_pair(
+pub(super) fn selected_pair(
     carets: &[textflow::shaping::CaretStop],
     run: textflow::shaping::TextRange,
     bidi_level: u8,

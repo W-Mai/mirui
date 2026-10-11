@@ -1,6 +1,4 @@
-//! Headless snapshot for TextInput. Runs three states (empty +
-//! focused, mid-typing, full-buffer) and saves PNGs to
-//! .local/screenshots/.
+//! Headless snapshots for TextInput content, caret, and selection states.
 
 extern crate alloc;
 
@@ -57,6 +55,15 @@ fn main() {
     match scenario.as_str() {
         "empty" | "focused-empty" => {}
         "typed" => editing = editing.with_text("hello world").unwrap(),
+        "selection" => {
+            editing = editing.with_text("hello world").unwrap();
+            editing
+                .set_selection(TextSelection {
+                    anchor: 6,
+                    cursor: 11,
+                })
+                .unwrap();
+        }
         "cursor-mid" => {
             editing = editing.with_text("hello").unwrap();
             editing
