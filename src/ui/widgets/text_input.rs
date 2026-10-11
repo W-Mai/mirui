@@ -251,40 +251,25 @@ impl TextInput {
     }
 
     pub fn move_left(&mut self) {
-        if self.anchor != self.cursor {
-            self.collapse(self.anchor.min(self.cursor));
-            return;
-        }
-        if self.cursor > 0 {
-            self.cursor -= 1;
-            while self.cursor > 0 && is_utf8_continuation(self.buffer[self.cursor as usize]) {
-                self.cursor -= 1;
-            }
-        }
-        self.anchor = self.cursor;
+        self.navigate(Navigation::Left, false);
     }
 
     pub fn move_right(&mut self) {
-        if self.anchor != self.cursor {
-            self.collapse(self.anchor.max(self.cursor));
-            return;
-        }
-        if (self.cursor as usize) < (self.len as usize) {
-            self.cursor += 1;
-            while self.cursor < self.len && is_utf8_continuation(self.buffer[self.cursor as usize])
-            {
-                self.cursor += 1;
-            }
-        }
-        self.anchor = self.cursor;
+        self.navigate(Navigation::Right, false);
     }
 
     pub fn move_home(&mut self) {
-        self.collapse(0);
+        self.navigate(Navigation::Home, false);
     }
 
     pub fn move_end(&mut self) {
-        self.collapse(self.len);
+        self.navigate(Navigation::End, false);
+    }
+
+    fn navigate(&mut self, direction: Navigation, extend: bool) {
+        let selection = direction.selection(self, extend);
+        self.anchor = selection.anchor as u32;
+        self.cursor = selection.cursor as u32;
     }
 
     pub fn build() -> TextInputBuilder {
@@ -670,6 +655,7 @@ fn textinput_key(
     let Some(input) = inputs.get(node) else {
         return false;
     };
+    let extend = event.modifiers.is_some_and(|modifiers| modifiers.shift);
     let edit = match event.code {
         KEY_RETURN => {
             commands.emit(node, Submitted);
@@ -677,10 +663,10 @@ fn textinput_key(
         }
         KEY_BACKSPACE => InputEdit::Backspace,
         KEY_DELETE => InputEdit::Delete,
-        KEY_LEFT => InputEdit::Left,
-        KEY_RIGHT => InputEdit::Right,
-        KEY_HOME => InputEdit::Home,
-        KEY_END => InputEdit::End,
+        KEY_LEFT => InputEdit::Navigate(Navigation::Left, extend),
+        KEY_RIGHT => InputEdit::Navigate(Navigation::Right, extend),
+        KEY_HOME => InputEdit::Navigate(Navigation::Home, extend),
+        KEY_END => InputEdit::Navigate(Navigation::End, extend),
         _ => return false,
     };
     if edit.changes(input) {
@@ -694,10 +680,43 @@ enum InputEdit<'text> {
     Replace(&'text str),
     Backspace,
     Delete,
+    Navigate(Navigation, bool),
+}
+
+#[derive(Clone, Copy)]
+enum Navigation {
     Left,
     Right,
     Home,
     End,
+}
+
+impl Navigation {
+    fn selection(self, input: &TextInput, extend: bool) -> TextSelection {
+        let selection = input.selection();
+        let collapse = !extend && selection.anchor != selection.cursor;
+        let cursor = match self {
+            Self::Left if collapse => selection.range().start,
+            Self::Right if collapse => selection.range().end,
+            Self::Left => input.as_str()[..selection.cursor]
+                .char_indices()
+                .next_back()
+                .map_or(0, |(offset, _)| offset),
+            Self::Right => {
+                selection.cursor
+                    + input.as_str()[selection.cursor..]
+                        .chars()
+                        .next()
+                        .map_or(0, char::len_utf8)
+            }
+            Self::Home => 0,
+            Self::End => input.len(),
+        };
+        TextSelection {
+            anchor: if extend { selection.anchor } else { cursor },
+            cursor,
+        }
+    }
 }
 
 impl InputEdit<'_> {
@@ -712,10 +731,9 @@ impl InputEdit<'_> {
                     false
                 }
             },
-            Self::Backspace | Self::Left => selected || selection.cursor > 0,
-            Self::Delete | Self::Right => selected || selection.cursor < input.len(),
-            Self::Home => selected || selection.cursor != 0,
-            Self::End => selected || selection.cursor != input.len(),
+            Self::Backspace => selected || selection.cursor > 0,
+            Self::Delete => selected || selection.cursor < input.len(),
+            Self::Navigate(direction, extend) => direction.selection(input, extend) != selection,
         }
     }
 
@@ -724,20 +742,8 @@ impl InputEdit<'_> {
             Self::Replace(text) => input.replace_selection(text).unwrap_or(false),
             Self::Backspace => input.backspace(),
             Self::Delete => input.delete_forward(),
-            Self::Left => {
-                input.move_left();
-                false
-            }
-            Self::Right => {
-                input.move_right();
-                false
-            }
-            Self::Home => {
-                input.move_home();
-                false
-            }
-            Self::End => {
-                input.move_end();
+            Self::Navigate(direction, extend) => {
+                input.navigate(direction, extend);
                 false
             }
         }

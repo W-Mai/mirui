@@ -34,6 +34,8 @@ assert_eq!(input.as_str(), "Hello Mirui");
 
 Committed text replaces the current selection as one operation. An accepted fragment produces at most one `TextInput::Changed { len: u32 }`; invalid or oversized fragments are rejected in full with a warning. Backspace and Delete remove a nonempty selection first; otherwise they remove one Unicode scalar. Left and Right collapse a selection to its beginning or end, and otherwise move by one scalar, not a full grapheme cluster. `Changed` reports content accepted by input handlers, not caret-only changes. Calling component methods directly updates component state without synthesizing input notifications.
 
+Shift+Left, Shift+Right, Shift+Home, and Shift+End extend the selection while retaining its anchor. Without Shift metadata, navigation moves or collapses the selection normally. Movement at an unchanged boundary does not dirty the input or notify.
+
 `TextInput::SelectionChanged { anchor: u32, cursor: u32 }` reports the resulting directed UTF-8 byte offsets when an input handler changes the selection. An edit that changes both content and selection reports `Changed` first. Replacing selected text with identical text can collapse the selection without reporting a content change. Rejected and unchanged operations do not notify.
 
 `TextInput::Submitted` reports a Return press accepted by the default key handler, including repeated presses. It does not insert a newline, clear content, move the selection, or change focus. An authored key handler can consume Return before the default handler. Both notifications support inline bodies, closures, typed callbacks, and widget builders. Notifications without listeners are skipped; queue failure does not roll back an edit or replay it later.

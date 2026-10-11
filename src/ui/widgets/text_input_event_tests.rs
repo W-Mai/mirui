@@ -209,6 +209,112 @@ fn empty_commit_without_selection_does_not_dirty() {
 }
 
 #[test]
+fn shift_navigation_keeps_the_anchor_across_utf8_and_direction_changes() {
+    let (mut world, node) = fixture(EventCapacity::default());
+    let input = world.get_mut::<TextInput>(node).unwrap();
+    input.replace_selection("A中🙂Z").unwrap();
+    input
+        .set_selection(TextSelection {
+            anchor: 4,
+            cursor: 4,
+        })
+        .unwrap();
+    let callback = textinput_key::callback::<crate::__macro_support::NodeContext>()
+        .prepare(&mut world, view_input::fixture_capacity())
+        .unwrap();
+    for (code, cursor) in [
+        (KEY_LEFT, 1),
+        (KEY_LEFT, 0),
+        (KEY_LEFT, 0),
+        (KEY_RIGHT, 1),
+        (KEY_RIGHT, 4),
+        (KEY_RIGHT, 8),
+        (KEY_END, 9),
+        (KEY_END, 9),
+        (KEY_HOME, 0),
+    ] {
+        let previous = world.get::<TextInput>(node).unwrap().cursor();
+        world.remove::<Dirty>(node);
+        let mut event = key(code, true);
+        event.modifiers.as_mut().unwrap().shift = true;
+        callback.invoke(&mut world, &event, node).unwrap();
+        assert_eq!(
+            runtime::flush(&mut world).unwrap(),
+            usize::from(previous != cursor)
+        );
+        let input = world.get::<TextInput>(node).unwrap();
+        assert_eq!(input.selection(), TextSelection { anchor: 4, cursor });
+        assert_eq!(input.as_str(), "A中🙂Z");
+        if previous == cursor {
+            assert!(!world.has::<Dirty>(node));
+        }
+    }
+    callback
+        .invoke(&mut world, &key(KEY_RIGHT, true), node)
+        .unwrap();
+    runtime::flush(&mut world).unwrap();
+    assert_eq!(
+        world.get::<TextInput>(node).unwrap().selection(),
+        TextSelection {
+            anchor: 4,
+            cursor: 4
+        }
+    );
+    assert_eq!(
+        world.resource::<Trace>().unwrap().as_slice(),
+        &[
+            Notice::Selection(4, 1),
+            Notice::Selection(4, 0),
+            Notice::Selection(4, 1),
+            Notice::Selection(4, 4),
+            Notice::Selection(4, 8),
+            Notice::Selection(4, 9),
+            Notice::Selection(4, 0),
+            Notice::Selection(4, 4),
+        ]
+    );
+}
+
+#[test]
+fn prepared_shift_navigation_reuses_commands_and_notifications() {
+    let (mut world, node) = fixture(EventCapacity::default());
+    world
+        .get_mut::<TextInput>(node)
+        .unwrap()
+        .replace_selection("中🙂")
+        .unwrap();
+    let callback = textinput_key::callback::<crate::__macro_support::NodeContext>()
+        .prepare(&mut world, view_input::fixture_capacity())
+        .unwrap();
+    for warm in [true, false] {
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for (code, shift) in [
+                (KEY_HOME, true),
+                (KEY_END, true),
+                (KEY_HOME, false),
+                (KEY_END, false),
+            ] {
+                let mut event = key(code, true);
+                event.modifiers.as_mut().unwrap().shift = shift;
+                callback.invoke(&mut world, &event, node).unwrap();
+                runtime::flush(&mut world).unwrap();
+            }
+        });
+        if !warm {
+            assert_eq!(allocations, 0);
+        }
+        assert_eq!(
+            world.get::<TextInput>(node).unwrap().selection(),
+            TextSelection {
+                anchor: 7,
+                cursor: 7
+            }
+        );
+        *world.resource_mut::<Trace>().unwrap() = Trace::default();
+    }
+}
+
+#[test]
 fn selection_only_edits_and_identical_replacement_do_not_report_content_changes() {
     let (mut world, node) = fixture(EventCapacity::default());
     let input = world.get_mut::<TextInput>(node).unwrap();
