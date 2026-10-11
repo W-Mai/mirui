@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Pointer movement coalescing preserves event order across button, touch, wheel, and text input in WGPU surfaces.
 - Queued notifications stop after retained cells change data bindings, including callbacks remaining in an active dispatch.
 - Persistence flushes retain their registry allocation and restore the registry if a save callback unwinds.
 - Hidden collection cells remain idle after the data becomes empty and resume their bindings when members return.

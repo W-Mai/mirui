@@ -252,22 +252,31 @@ struct WgpuHandler {
 pub(crate) struct WgpuRuntime {
     context: Option<Arc<WgpuDeviceContext>>,
     pub(crate) state: Option<WgpuState>,
-    pub(crate) event_queue: VecDeque<InputEvent>,
+    event_queue: VecDeque<InputEvent>,
     /// Last known cursor position, in logical pixels. Updated on
     /// every `CursorMoved` so `MouseInput` (which doesn't carry a
     /// position in winit 0.30) can attach one to the synthetic
     /// `PointerDown`/`PointerUp`.
     pub(crate) last_cursor: (Fixed, Fixed),
-    /// `Some` while a `PointerMove` is queued for emission this pump
-    /// cycle. Only the latest position is sent — winit can fire
-    /// CursorMoved 100+ times per gesture and dispatch_input is too
-    /// expensive to walk that on every event.
-    pub(crate) pending_move: Option<(Fixed, Fixed)>,
+    /// Consecutive cursor moves share one pending position until another event or polling.
+    pending_move: Option<(Fixed, Fixed)>,
     native_touches: NativeTouchMap<MAX_NATIVE_TOUCHES>,
     reconfigure_before_acquire: bool,
 }
 
 impl WgpuRuntime {
+    fn flush_pointer_move(&mut self) {
+        if let Some((x, y)) = self.pending_move.take() {
+            self.event_queue
+                .push_back(InputEvent::PointerMove { id: 0, x, y });
+        }
+    }
+
+    pub(crate) fn poll_event(&mut self) -> Option<InputEvent> {
+        self.flush_pointer_move();
+        self.event_queue.pop_front()
+    }
+
     fn keyboard_input(&mut self, key: &Key, state: ElementState, text: Option<&str>) -> bool {
         use crate::input::event::input::{
             KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RETURN, KEY_RIGHT,
@@ -404,6 +413,9 @@ impl WgpuRuntime {
     }
 
     pub(crate) fn window_event(&mut self, event: WindowEvent) -> bool {
+        if !matches!(event, WindowEvent::CursorMoved { .. }) {
+            self.flush_pointer_move();
+        }
         match event {
             WindowEvent::CloseRequested => {
                 self.event_queue.push_back(InputEvent::Quit);
@@ -762,7 +774,7 @@ impl Surface for WgpuSurface {
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
-        if let Some(e) = self.handler.runtime.event_queue.pop_front() {
+        if let Some(e) = self.handler.runtime.poll_event() {
             return Some(e);
         }
         if self.pumped_this_frame {
@@ -771,13 +783,7 @@ impl Surface for WgpuSurface {
         self.pumped_this_frame = true;
 
         self.pump_once();
-        if let Some((x, y)) = self.handler.runtime.pending_move.take() {
-            self.handler
-                .runtime
-                .event_queue
-                .push_back(InputEvent::PointerMove { id: 0, x, y });
-        }
-        self.handler.runtime.event_queue.pop_front()
+        self.handler.runtime.poll_event()
     }
 
     fn persistence(&self) -> BackbufferPersistence {
@@ -1043,12 +1049,7 @@ impl Surface for MobileWgpuSurface {
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
-        if let Some((x, y)) = self.runtime.pending_move.take() {
-            self.runtime
-                .event_queue
-                .push_back(InputEvent::PointerMove { id: 0, x, y });
-        }
-        self.runtime.event_queue.pop_front()
+        self.runtime.poll_event()
     }
 
     fn persistence(&self) -> BackbufferPersistence {
@@ -1276,6 +1277,71 @@ fn window_event_is_current<T: Eq>(active: Option<&T>, incoming: &T) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pointer_moves_only_coalesce_between_ordered_input_boundaries() {
+        let mut runtime = WgpuRuntime::new();
+        let device_id = winit::event::DeviceId::dummy();
+        let moved = |x| WindowEvent::CursorMoved {
+            device_id,
+            position: winit::dpi::PhysicalPosition::new(x, 0.0),
+        };
+        let button = |state| WindowEvent::MouseInput {
+            device_id,
+            state,
+            button: MouseButton::Left,
+        };
+
+        runtime.window_event(moved(1.0));
+        runtime.window_event(moved(2.0));
+        runtime.window_event(button(ElementState::Pressed));
+        runtime.window_event(moved(3.0));
+        runtime.window_event(moved(4.0));
+        runtime.window_event(button(ElementState::Released));
+        runtime.window_event(moved(5.0));
+        runtime.window_event(WindowEvent::Ime(Ime::Commit("x".into())));
+
+        assert!(matches!(runtime.event_queue.pop_front(),
+            Some(InputEvent::PointerMove { x, .. }) if x == Fixed::from_int(2)));
+        assert!(matches!(runtime.event_queue.pop_front(),
+            Some(InputEvent::PointerDown { x, .. }) if x == Fixed::from_int(2)));
+        assert!(matches!(runtime.event_queue.pop_front(),
+            Some(InputEvent::PointerMove { x, .. }) if x == Fixed::from_int(4)));
+        assert!(matches!(runtime.event_queue.pop_front(),
+            Some(InputEvent::PointerUp { x, .. }) if x == Fixed::from_int(4)));
+        assert!(matches!(runtime.event_queue.pop_front(),
+            Some(InputEvent::PointerMove { x, .. }) if x == Fixed::from_int(5)));
+        assert!(matches!(
+            runtime.event_queue.pop_front(),
+            Some(InputEvent::CharInput { ch: 'x' })
+        ));
+        assert!(runtime.event_queue.is_empty());
+        assert!(runtime.pending_move.is_none());
+    }
+
+    #[test]
+    fn polling_retains_trailing_moves_and_reuses_queue_storage() {
+        let mut runtime = WgpuRuntime::new();
+        runtime.event_queue.reserve(2);
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for x in 0..8 {
+                runtime.event_queue.push_back(InputEvent::PointerDown {
+                    id: 0,
+                    x: Fixed::from_int(x),
+                    y: Fixed::ZERO,
+                });
+                runtime.pending_move = Some((Fixed::from_int(x + 1), Fixed::ZERO));
+                assert!(matches!(
+                    runtime.poll_event(),
+                    Some(InputEvent::PointerDown { .. })
+                ));
+                assert!(matches!(runtime.poll_event(),
+                    Some(InputEvent::PointerMove { x: next, .. }) if next == Fixed::from_int(x + 1)));
+                assert!(runtime.poll_event().is_none());
+            }
+        });
+        assert_eq!(allocations, 0);
+    }
 
     #[test]
     fn keyboard_translation_preserves_pressed_and_released_states() {

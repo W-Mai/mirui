@@ -443,12 +443,7 @@ impl Surface for SoftwareUploadSurface {
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
-        if let Some((x, y)) = self.runtime.pending_move.take() {
-            self.runtime
-                .event_queue
-                .push_back(InputEvent::PointerMove { id: 0, x, y });
-        }
-        self.runtime.event_queue.pop_front()
+        self.runtime.poll_event()
     }
 
     fn persistence(&self) -> BackbufferPersistence {
