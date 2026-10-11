@@ -656,7 +656,7 @@ an event key. Declaring a payload does not require an event-definition macro or
 changes to the UI macro's event catalog.
 
 Built-in notification payloads live in their widget modules:
-`slider::ValueChanged`, `slider::DragStarted`, `slider::DragEnded`,
+`slider::ValueChanged`, `slider::DragStarted`, `slider::DragEnded`, `slider::DragCancelled`,
 `switch::Toggled`, `checkbox::Toggled`, `progress_bar::ValueChanged`,
 `tabbar::SelectionChanged`, and `text_input::Changed`.
 The corresponding constants, such as `Slider::ValueChanged`, are typed event

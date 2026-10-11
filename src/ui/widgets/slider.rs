@@ -1,5 +1,5 @@
 use crate::ecs::{Entity, World};
-use crate::input::event::gesture::{DragEnd, DragMove, DragStart, Tap};
+use crate::input::event::gesture::{DragCancel, DragEnd, DragMove, DragStart, Tap};
 use crate::render::command::DrawCommand;
 use crate::types::{Fixed, Rect};
 use crate::ui::ComputedRect;
@@ -11,6 +11,7 @@ crate::input::event::contract::widget_events! {
     ValueChanged { new: Fixed, old: Fixed },
     DragStarted,
     DragEnded,
+    DragCancelled,
 }
 
 #[crate::component]
@@ -160,7 +161,7 @@ fn knob_center_offset(ratio: Fixed, track_w: Fixed, thumb_size: Fixed) -> Fixed 
     name = "Slider",
     priority = 60,
     attach = slider_attach::callback(),
-    input = (slider_tap::callback(), slider_drag::callback(), slider_start::callback(), slider_end::callback())
+    input = (slider_tap::callback(), slider_drag::callback(), slider_start::callback(), slider_end::callback(), slider_cancel::callback())
 )]
 fn slider_render(component: component!(), paint: paint!(), theme: res!(crate::ui::Theme)) {
     let rect = paint.rect();
@@ -282,6 +283,11 @@ fn slider_end(node: entity!(), _input: event!(DragEnd), commands: commands!()) {
 }
 
 #[crate::event]
+fn slider_cancel(node: entity!(), _input: event!(DragCancel), commands: commands!()) {
+    commands.emit(node, DragCancelled);
+}
+
+#[crate::event]
 fn slider_attach(entity: entity!(), commands: commands!()) {
     commands.insert(entity, crate::input::event::scroll::TouchAction::PanY);
 }
@@ -333,6 +339,11 @@ mod tests {
     }
 
     #[crate::event]
+    fn record_cancel(trace: res!(mut EventLog)) {
+        trace.push("DragCancelled");
+    }
+
+    #[crate::event]
     fn record_second(input: event!(ValueChanged), trace: res!(mut EventLog)) {
         trace.push("second");
         trace.value = Some(*input);
@@ -354,6 +365,7 @@ mod tests {
                 .notifications::<ValueChanged>(2)
                 .notifications::<DragStarted>(1)
                 .notifications::<DragEnded>(1)
+                .notifications::<DragCancelled>(1)
                 .flush_limit(4),
         )
         .unwrap();
@@ -362,7 +374,8 @@ mod tests {
             Slider::build(Fixed::ZERO, Fixed::from_int(100))
                 .on_event(Slider::ValueChanged, record_value::callback())
                 .on_event(Slider::DragStarted, record_start::callback())
-                .on_event(Slider::DragEnded, record_end::callback()),
+                .on_event(Slider::DragEnded, record_end::callback())
+                .on_event(Slider::DragCancelled, record_cancel::callback()),
         );
         world.insert(entity, ComputedRect(Rect::new(0, 0, 100, 20)));
         (world, entity)
@@ -397,42 +410,70 @@ mod tests {
 
     #[test]
     fn drag_lifecycle_notifies_in_fifo_order() {
-        let (mut world, entity) = fresh();
-        for event in [
-            GestureEvent::DragStart {
-                x: 40.into(),
-                y: Fixed::ZERO,
-                target: entity,
-            },
-            GestureEvent::DragMove {
-                x: 75.into(),
-                y: Fixed::ZERO,
-                dx: Fixed::ZERO,
-                dy: Fixed::ZERO,
-                target: entity,
-            },
-            GestureEvent::DragEnd {
-                x: 75.into(),
-                y: Fixed::ZERO,
-                vx: Fixed::ZERO,
-                vy: Fixed::ZERO,
-                target: entity,
-            },
-        ] {
-            assert!(
-                crate::input::event::view_input::invoke_gesture(view(), &mut world, entity, &event)
+        for cancelled in [false, true] {
+            let (mut world, entity) = fresh();
+            let terminal = if cancelled {
+                GestureEvent::DragCancel {
+                    x: 75.into(),
+                    y: Fixed::ZERO,
+                    target: entity,
+                }
+            } else {
+                GestureEvent::DragEnd {
+                    x: 75.into(),
+                    y: Fixed::ZERO,
+                    vx: Fixed::ZERO,
+                    vy: Fixed::ZERO,
+                    target: entity,
+                }
+            };
+            for event in [
+                GestureEvent::DragStart {
+                    x: 40.into(),
+                    y: Fixed::ZERO,
+                    target: entity,
+                },
+                GestureEvent::DragMove {
+                    x: 75.into(),
+                    y: Fixed::ZERO,
+                    dx: Fixed::ZERO,
+                    dy: Fixed::ZERO,
+                    target: entity,
+                },
+                terminal,
+            ] {
+                assert!(
+                    crate::input::event::view_input::invoke_gesture(
+                        view(),
+                        &mut world,
+                        entity,
+                        &event
+                    )
                     .unwrap()
+                );
+            }
+            assert!(world.has::<VisualDirty>(entity));
+            assert!(!world.has::<crate::ui::dirty::Dirty>(entity));
+            assert_eq!(runtime::flush(&mut world).unwrap(), 3);
+            let trace = world.resource::<EventLog>().unwrap();
+            assert_eq!(
+                &trace.order[..trace.len],
+                &[
+                    Some("DragStarted"),
+                    Some("ValueChanged"),
+                    Some(if cancelled {
+                        "DragCancelled"
+                    } else {
+                        "DragEnded"
+                    })
+                ]
+            );
+            assert_eq!(trace.value.unwrap().new, Fixed::from_int(75));
+            assert_eq!(
+                world.get::<Slider>(entity).unwrap().value,
+                Fixed::from_int(75)
             );
         }
-        assert!(world.has::<VisualDirty>(entity));
-        assert!(!world.has::<crate::ui::dirty::Dirty>(entity));
-        assert_eq!(runtime::flush(&mut world).unwrap(), 3);
-        let trace = world.resource::<EventLog>().unwrap();
-        assert_eq!(
-            &trace.order[..trace.len],
-            &[Some("DragStarted"), Some("ValueChanged"), Some("DragEnded")]
-        );
-        assert_eq!(trace.value.unwrap().new, Fixed::from_int(75));
     }
 
     #[test]

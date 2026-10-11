@@ -48,7 +48,7 @@ mod tests {
                     let _ = event.old;
                     log_event("ValueChanged");
                     LAST_NEW.store(event.new.to_int() as i64, std::sync::atomic::Ordering::SeqCst);
-                } on DragStarted { log_event("DragStarted"); } on DragEnded { log_event("DragEnded"); }
+                } on DragStarted { log_event("DragStarted"); } on DragEnded { log_event("DragEnded"); } on DragCancelled { log_event("DragCancelled"); }
             }
         });
         app.world.insert(
@@ -156,6 +156,66 @@ mod tests {
             &["DragStarted", "ValueChanged", "DragEnded"],
             "drag lifecycle order: start → value change → end",
         );
+    }
+
+    #[test]
+    fn cancelled_pointer_ends_drag_once_without_reverting_value() {
+        use mirui::input::event::input::InputEvent;
+        use mirui::input::event::sim::{SimCommand, SimulatedInput, sim_input_system};
+
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        reset();
+        let (mut app, slider) = slider_app();
+        app.render().unwrap();
+        let events = [
+            InputEvent::PointerDown {
+                id: 0,
+                x: 10.into(),
+                y: 10.into(),
+            },
+            InputEvent::PointerMove {
+                id: 0,
+                x: 70.into(),
+                y: 10.into(),
+            },
+            InputEvent::PointerMove {
+                id: 0,
+                x: 80.into(),
+                y: 10.into(),
+            },
+            InputEvent::PointerCancel {
+                id: 0,
+                x: 80.into(),
+                y: 10.into(),
+            },
+            InputEvent::PointerUp {
+                id: 0,
+                x: 80.into(),
+                y: 10.into(),
+            },
+        ];
+        app.add_resource(SimulatedInput::new(
+            events
+                .into_iter()
+                .map(|event| SimCommand::at(0, event))
+                .collect(),
+        ));
+        app.add_system(sim_input_system::system());
+        app.tick();
+        let events = drain_log();
+        assert_eq!(events.first(), Some(&"DragStarted"));
+        assert_eq!(events.last(), Some(&"DragCancelled"));
+        assert_eq!(
+            events
+                .iter()
+                .filter(|&&event| event == "DragCancelled")
+                .count(),
+            1
+        );
+        assert!(!events.contains(&"DragEnded"));
+        let value = app.world.get::<Slider>(slider).unwrap().value.to_int() as i64;
+        assert!(value > 0);
+        assert_eq!(value, LAST_NEW.load(Ordering::SeqCst));
     }
 
     #[test]

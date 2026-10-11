@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Slider exposes `DragCancelled` separately from normal drag completion, preserving the last value on cancellation.
+
 - `ViewportChanged` and `SafeAreaChanged` App notifications report old and new surface geometry before subsequent input dispatch.
 - View `attach` accepts typed event callbacks for initialization, sharing prepared callbacks across matching entities and committing commands before subsequent attachments.
 - View `input` accepts typed event callbacks for gestures, keys, and character input, sharing prepared callbacks across matching widget instances.
