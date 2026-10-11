@@ -106,6 +106,8 @@ pub trait EventSource<R: EventRoute>: sealed::Source + 'static {}
 pub struct EntitySource;
 /// Node geometry produced by layout, independent of widget kind or input state.
 pub struct LayoutSource;
+/// Scroll notifications from nodes with a scroll offset.
+pub struct ScrollSource;
 /// Focused keyboard input with an App fallback.
 pub struct InputSource;
 /// App notifications or input with only an App listener.
@@ -115,12 +117,14 @@ pub struct WidgetSource<W: Component>(PhantomData<fn() -> W>);
 
 impl sealed::Source for EntitySource {}
 impl sealed::Source for LayoutSource {}
+impl sealed::Source for ScrollSource {}
 impl sealed::Source for InputSource {}
 impl sealed::Source for AppSource {}
 impl<W: Component> sealed::Source for WidgetSource<W> {}
 
 impl EventSource<EntityBubble> for EntitySource {}
 impl EventSource<EntityNotification> for EntitySource {}
+impl EventSource<EntityNotification> for ScrollSource {}
 impl EventSource<Initialization> for EntitySource {}
 impl EventSource<LayoutNotification> for LayoutSource {}
 impl EventSource<InputFallback> for InputSource {}
@@ -145,6 +149,11 @@ impl EntityEventSource for LayoutSource {
         world.has::<crate::ui::Widget>(entity)
     }
 }
+impl EntityEventSource for ScrollSource {
+    fn present(world: &World, entity: Entity) -> bool {
+        world.has::<super::scroll::ScrollOffset>(entity)
+    }
+}
 impl EntityEventSource for InputSource {
     fn present(_world: &World, _entity: Entity) -> bool {
         true
@@ -161,10 +170,12 @@ impl<W: Component> EntityEventSource for WidgetSource<W> {
 pub trait EntitySourceFor<W: Component>: EntityEventSource + sealed::EntitySourceFor<W> {}
 impl<W: Component> sealed::EntitySourceFor<W> for EntitySource {}
 impl<W: Component> sealed::EntitySourceFor<W> for LayoutSource {}
+impl<W: Component> sealed::EntitySourceFor<W> for ScrollSource {}
 impl<W: Component> sealed::EntitySourceFor<W> for InputSource {}
 impl<W: Component> sealed::EntitySourceFor<W> for WidgetSource<W> {}
 impl<W: Component> EntitySourceFor<W> for EntitySource {}
 impl<W: Component> EntitySourceFor<W> for LayoutSource {}
+impl<W: Component> EntitySourceFor<W> for ScrollSource {}
 impl<W: Component> EntitySourceFor<W> for InputSource {}
 impl<W: Component> EntitySourceFor<W> for WidgetSource<W> {}
 

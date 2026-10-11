@@ -229,6 +229,9 @@ pub mod prelude {
     pub use crate::input::event::press::{
         PressCancelReason, PressCancelled, PressSelectors, Pressed, Released,
     };
+    pub use crate::input::event::scroll::{
+        ScrollChanged, ScrollEndReason, ScrollEnded, ScrollSelectors, ScrollStarted,
+    };
     pub use crate::render::font::FontToken;
     pub use crate::render::path::{Path, PathId};
     pub use crate::surface::{SafeAreaInsets, Surface};

@@ -10,6 +10,12 @@ Web pixel deltas follow the canvas's current CSS-to-logical scale; line deltas u
 
 For SDL runtime requirements and macOS trackpad setup, see the [desktop setup](quickstart.md#desktop-sdl).
 
+## Observing content movement
+
+Use `on ScrollChanged` to observe actual offsets and `on ScrollStarted` / `on ScrollEnded` to observe motion segments. These notifications include programmatic writes and retain fractional and elastic positions. `ScrollEnded` follows inertia and rebound, not the pointer release. All three support inline bodies, closures, and `#[event]` callbacks on nodes with `ScrollOffset`; see [scroll notifications](widget-events.md#scroll-notifications).
+
+Read `query!(ScrollBounds)` for the viewport, content extent, and maximum offsets from the last successful layout. Configuration changes appear after layout succeeds; reading this component does not perform layout.
+
 ## Virtualized cells
 
 `LazyList` creates cells after its first nonempty layout and retains them across scrolling. Supply `items`, the cell extent, and one `on CreateCell` callback returning a new cell root. `items` accepts a row count (`u32`) or a registered ModelList/ModelMap instance through automatic `Into` conversion. A count generates indexed rows without creating Models. The list owns pool sizing, positions, and recycling; authors do not prebuild slots or maintain a pool.

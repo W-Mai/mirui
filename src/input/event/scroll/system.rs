@@ -94,6 +94,7 @@ pub(crate) fn cancel_scroll_drag(world: &mut World) {
         .filter(|state| state.active && state.resolved)
         .map(|state| state.target);
     if let Some(target) = target {
+        crate::input::event::runtime::cancel_scroll(world, target);
         settle_offset(world, target);
     }
     settle_previous_motion(world, None);
@@ -126,6 +127,7 @@ fn settle_previous_motion(world: &mut World, next_target: Option<Entity>) {
         return;
     }
     if let Some(previous) = previous {
+        crate::input::event::runtime::cancel_scroll(world, previous);
         settle_offset(world, previous);
     }
     if let Some(motion) = world.resource_mut::<ScrollMotion>() {

@@ -65,6 +65,32 @@ fn inspect_scroll(node: entity!(), bounds: query!(ScrollBounds), state: model!(S
 
 Configure scrollable content through `ScrollConfig`, not `ScrollBounds`. Retained descendants, clipping, and explicit extents determine the range; LazyList uses the entire logical item extent rather than the visible cell pool. A successful layout removes published bounds for nodes no longer in its tree or without `ScrollOffset`.
 
+## Scroll notifications
+
+`ScrollStarted { offset }` marks the first actual displacement. `ScrollChanged { old, new }` reports content offsets, including fractional and elastic positions. `ScrollEnded { offset, reason }` follows completion of input, inertia, and rebound; `reason` is `ScrollEndReason::Settled` or `Cancelled`. Releasing a pointer does not end a segment while its content still moves.
+
+```rust,ignore
+#[event]
+fn track_scroll(change: event!(ScrollChanged), readout: model!(ScrollReadout)) {
+    readout.set_position(change.new.y);
+}
+
+#[compose]
+fn panel(readout: model!(ScrollReadout)) {
+    ui! {
+        Column(height: 240, clip_children: true) [
+            ScrollOffset::default(), ScrollConfig::default(),
+        ] on ScrollChanged(track_scroll::callback(readout)) {
+            Text("Content", height: 480)
+        }
+    };
+}
+```
+
+Inline bodies and closures use the same notifications. Nodes must have `ScrollOffset`; subscriptions do not add hit targets, input consumption, or visual feedback. Wheel, pointer, rotary, and programmatic writes share observation after callback completion. A discrete write without an active motion produces `Started`, `Changed`, then `Ended`; writes restored to their original offset within the same callback produce no notification.
+
+Switching scroll targets or cancelling input ends the old segment with `Cancelled`. Removed, hidden, detached, or rebound sources discard their old observation. New listeners do not replay earlier movement, and a full notification budget drops delivery without retrying or rolling back the scroll position.
+
 ## Node focus
 
 `FocusChanged { focused, related }` is a direct node notification. `related` identifies the other node in the transition and may no longer exist when read. Subscribe with an inline body, closure, or `#[event]` callback:

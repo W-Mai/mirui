@@ -31,6 +31,7 @@ use super::listeners::{
 };
 use super::notification::{NotificationError, NotificationFlushError};
 use super::press::{PressCancelReason, PressCancelled, PressObserver, Pressed, Released};
+use super::scroll::{ScrollChanged, ScrollEnded, ScrollStarted, notification::ScrollObservers};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Configuration {
@@ -60,6 +61,7 @@ struct EventRuntime {
     focus: FocusObserver,
     hover: HoverObservers,
     press: PressObserver,
+    scroll: ScrollObservers,
 }
 
 impl EventRuntime {
@@ -112,6 +114,7 @@ impl EventRuntime {
         self.focus.observe(world);
         self.hover.observe(world, &self.listeners)?;
         self.press.observe(world);
+        self.scroll.observe(world, &self.listeners)?;
         match flush_notifications_with(world, &self.listeners, limit, |world| {
             self.prepare(world, 0)
         }) {
@@ -215,6 +218,7 @@ pub(crate) fn initialize(world: &mut World) {
         focus: FocusObserver::default(),
         hover: HoverObservers::default(),
         press: PressObserver::default(),
+        scroll: ScrollObservers::default(),
         configuration: Cell::new(Configuration::Open(
             EventCapacity::default()
                 .resolve()
@@ -231,6 +235,15 @@ fn observe_interaction(world: &mut World) {
             crate::warn!("hover observation skipped: {:?}", error);
         }
         runtime.press.observe(world);
+        if let Err(error) = runtime.scroll.observe(world, &runtime.listeners) {
+            crate::warn!("scroll observation skipped: {:?}", error);
+        }
+    }
+}
+
+pub(crate) fn cancel_scroll(world: &World, entity: Entity) {
+    if let Some(runtime) = runtime(world) {
+        runtime.scroll.cancel(entity);
     }
 }
 
@@ -538,6 +551,15 @@ where
     if observes_press {
         runtime.press.reserve(world, &runtime.listeners, entity)?;
     }
+    let observes_scroll = [
+        TypeId::of::<ScrollStarted>(),
+        TypeId::of::<ScrollChanged>(),
+        TypeId::of::<ScrollEnded>(),
+    ]
+    .contains(&TypeId::of::<E>());
+    if observes_scroll {
+        runtime.scroll.reserve(world, &runtime.listeners, entity)?;
+    }
     let listener = runtime
         .listeners
         .install_entity(world, entity, selector, callback, commands)?;
@@ -549,6 +571,9 @@ where
     }
     if observes_press {
         runtime.press.insert(entity);
+    }
+    if observes_scroll {
+        runtime.scroll.insert(world, entity);
     }
     if observes_size {
         runtime.sizes.insert(listener, entity);
