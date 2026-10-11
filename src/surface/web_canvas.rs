@@ -392,7 +392,17 @@ fn keyboard_listener(
         let key = evt.key();
         if let Some(code) = map_key(&key) {
             evt.prevent_default();
-            q.borrow_mut().push_back(InputEvent::Key { code, pressed });
+            q.borrow_mut().push_back(InputEvent::Key {
+                code,
+                pressed,
+                modifiers: Some(crate::input::event::input::KeyModifiers {
+                    shift: evt.shift_key(),
+                    control: evt.ctrl_key(),
+                    alt: evt.alt_key(),
+                    meta: evt.meta_key(),
+                }),
+                repeat: Some(evt.repeat()),
+            });
         }
         if pressed && key.chars().count() == 1 {
             // `key` is post-IME / post-shift / post-dead-key — emit it

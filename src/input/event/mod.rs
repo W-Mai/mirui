@@ -319,6 +319,8 @@ mod tests {
         let input = InputEvent::Key {
             code: 42,
             pressed: true,
+            modifiers: Some(Default::default()),
+            repeat: Some(false),
         };
         deliver_input(&mut world, None, &input, 0, 8, 8);
         assert_eq!(

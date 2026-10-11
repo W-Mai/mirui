@@ -30,6 +30,8 @@ fn main() {
     let payload = Key {
         code: 1,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     assert_eq!(
         callback.invoke(&mut world, &payload, ()),

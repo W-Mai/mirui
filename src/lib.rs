@@ -217,7 +217,9 @@ pub mod prelude {
     pub use crate::input::event::gesture::{
         DragCancel, DragEnd, DragMove, DragStart, GestureSelectors, LongPress, Pinch, Rotate, Tap,
     };
-    pub use crate::input::event::input::{CharInput, InputSelectors, Key, Rotary, Wheel};
+    pub use crate::input::event::input::{
+        CharInput, InputSelectors, Key, KeyModifiers, Rotary, Wheel,
+    };
     pub use crate::input::event::layout::{LayoutSelectors, LayoutSize, SizeChanged};
     pub use crate::input::event::lifecycle::{
         HostFocusChanged, HostInteraction, HostVisibilityChanged, MemoryWarning, Quit, Resumed,

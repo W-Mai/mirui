@@ -6,6 +6,8 @@ Native and simulated input use the same delivery order. Recognized gestures, the
 
 Spatial input refreshes stale layout or transformed hit geometry before dispatch. Unchanged geometry is reused; pending paint damage remains for the frame renderer. A layout failure skips spatial dispatch and cancels active input instead of hitting stale coordinates.
 
+`Key` carries `code`, `pressed`, `modifiers: Option<KeyModifiers>`, and `repeat: Option<bool>`. Modifiers expose `shift`, `control`, `alt`, and `meta`. `Some(false)` identifies a non-repeated key event; `None` means the platform did not provide that information. SDL and Web supply both snapshots; WGPU modifiers remain unknown until a native modifier update and are cleared on focus loss or suspension. Linux uses the keyboard device state and native repeat flag. NuttX keyboard records do not provide modifiers or repeat metadata. Simulated input supplies the fields explicitly.
+
 ## Surface changes
 
 Register `ViewportChanged` and `SafeAreaChanged` through `App::on_event`. Both carry `old` and `new` values. `ViewportChanged` includes changes to physical size or scale even when logical dimensions stay the same; safe-area insets are in logical pixels.

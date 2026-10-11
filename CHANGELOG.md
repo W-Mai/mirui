@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Key` events carry optional modifier and auto-repeat metadata through native input, simulation, and typed callbacks. Linux keyboard auto-repeat is delivered as pressed input.
+
 - `HostFocusChanged` and `HostVisibilityChanged` report platform state independently of App suspension across SDL, WGPU, and Web surfaces. Losing focus or visibility cancels active input before notification.
 
 - Slider exposes `DragCancelled` separately from normal drag completion, preserving the last value on cancellation.

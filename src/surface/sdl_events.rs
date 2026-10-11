@@ -5,17 +5,21 @@ use sdl2::event::Event;
 
 pub(crate) fn keyboard_input(event: &Event) -> Option<InputEvent> {
     use crate::input::event::input::*;
-    use sdl2::keyboard::Keycode;
+    use sdl2::keyboard::{Keycode, Mod};
 
-    let (keycode, pressed) = match event {
+    let (keycode, pressed, keymod, repeat) = match event {
         Event::KeyDown {
             keycode: Some(keycode),
+            keymod,
+            repeat,
             ..
-        } => (*keycode, true),
+        } => (*keycode, true, *keymod, *repeat),
         Event::KeyUp {
             keycode: Some(keycode),
+            keymod,
+            repeat,
             ..
-        } => (*keycode, false),
+        } => (*keycode, false, *keymod, *repeat),
         _ => return None,
     };
     let code = match keycode {
@@ -29,7 +33,17 @@ pub(crate) fn keyboard_input(event: &Event) -> Option<InputEvent> {
         Keycode::Escape if pressed => return Some(InputEvent::Quit),
         _ => return None,
     };
-    Some(InputEvent::Key { code, pressed })
+    Some(InputEvent::Key {
+        code,
+        pressed,
+        modifiers: Some(KeyModifiers {
+            shift: keymod.intersects(Mod::LSHIFTMOD | Mod::RSHIFTMOD),
+            control: keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD),
+            alt: keymod.intersects(Mod::LALTMOD | Mod::RALTMOD),
+            meta: keymod.intersects(Mod::LGUIMOD | Mod::RGUIMOD),
+        }),
+        repeat: Some(repeat),
+    })
 }
 
 pub(crate) fn init() -> Result<sdl2::Sdl, String> {
@@ -132,7 +146,7 @@ mod tests {
         ] {
             for pressed in [true, false] {
                 assert!(matches!(keyboard_input(&key_event(key, pressed)),
-                    Some(InputEvent::Key { code, pressed: actual })
+                    Some(InputEvent::Key { code, pressed: actual, .. })
                     if code == expected && actual == pressed));
             }
         }
@@ -147,6 +161,67 @@ mod tests {
         assert!(keyboard_input(&key_event(Keycode::Escape, false)).is_none());
         for pressed in [true, false] {
             assert!(keyboard_input(&key_event(Keycode::A, pressed)).is_none());
+        }
+    }
+
+    #[test]
+    fn keyboard_metadata_preserves_each_modifier_and_repeat() {
+        for (mods, expected) in [
+            (
+                Mod::LSHIFTMOD,
+                KeyModifiers {
+                    shift: true,
+                    ..Default::default()
+                },
+            ),
+            (
+                Mod::RSHIFTMOD,
+                KeyModifiers {
+                    shift: true,
+                    ..Default::default()
+                },
+            ),
+            (
+                Mod::LCTRLMOD | Mod::RCTRLMOD,
+                KeyModifiers {
+                    control: true,
+                    ..Default::default()
+                },
+            ),
+            (
+                Mod::LALTMOD | Mod::RALTMOD,
+                KeyModifiers {
+                    alt: true,
+                    ..Default::default()
+                },
+            ),
+            (
+                Mod::LGUIMOD | Mod::RGUIMOD,
+                KeyModifiers {
+                    meta: true,
+                    ..Default::default()
+                },
+            ),
+            (Mod::NOMOD, KeyModifiers::default()),
+        ] {
+            for pressed in [true, false] {
+                let mut event = key_event(Keycode::Left, pressed);
+                match &mut event {
+                    Event::KeyDown { keymod, repeat, .. } | Event::KeyUp { keymod, repeat, .. } => {
+                        *keymod = mods;
+                        *repeat = pressed;
+                    }
+                    _ => unreachable!(),
+                }
+                let Some(InputEvent::Key {
+                    modifiers, repeat, ..
+                }) = keyboard_input(&event)
+                else {
+                    panic!("key")
+                };
+                assert_eq!(modifiers, Some(expected));
+                assert_eq!(repeat, Some(pressed));
+            }
         }
     }
 

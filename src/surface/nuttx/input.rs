@@ -160,6 +160,8 @@ impl KeyInput {
                 queue.push_back(InputEvent::Key {
                     code: x11_keysym_to_mirui(ev.code),
                     pressed,
+                    modifiers: None,
+                    repeat: None,
                 });
             }
         }

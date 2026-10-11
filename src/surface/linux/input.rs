@@ -4,9 +4,9 @@ use alloc::collections::VecDeque;
 use std::io;
 use std::os::fd::AsRawFd;
 
-use evdev::Device;
+use evdev::{AttributeSet, Device, KeyCode};
 
-use crate::input::event::input::InputEvent;
+use crate::input::event::input::{InputEvent, KeyModifiers};
 
 pub(super) fn detect_pointer_device() -> Option<alloc::string::String> {
     use alloc::string::String;
@@ -66,6 +66,8 @@ pub(super) struct EvdevInput {
     _device: Device,
     state: PointerState,
     buffer: alloc::vec::Vec<u8>,
+    keys: Option<AttributeSet<KeyCode>>,
+    keys_dropped: bool,
 }
 
 const EV_SYN: u16 = 0x00;
@@ -73,6 +75,7 @@ const EV_KEY: u16 = 0x01;
 const EV_REL: u16 = 0x02;
 const EV_ABS: u16 = 0x03;
 const SYN_REPORT: u16 = 0x00;
+const SYN_DROPPED: u16 = 0x03;
 const ABS_X: u16 = 0x00;
 const ABS_Y: u16 = 0x01;
 const ABS_MT_SLOT: u16 = 0x2f;
@@ -115,6 +118,8 @@ impl EvdevInput {
         let fd = device.as_raw_fd();
         Ok(Self {
             fd,
+            keys: device.get_key_state().ok(),
+            keys_dropped: false,
             _device: device,
             state: PointerState::new(width, height, abs_min_x, abs_max_x, abs_min_y, abs_max_y),
             buffer: alloc::vec![0u8; 64 * core::mem::size_of::<libc::input_event>()],
@@ -126,6 +131,8 @@ impl EvdevInput {
         let fd = device.as_raw_fd();
         Ok(Self {
             fd,
+            keys: device.get_key_state().ok(),
+            keys_dropped: false,
             _device: device,
             state: PointerState::new(0, 0, 0, 0, 0, 0),
             buffer: alloc::vec![0u8; 64 * core::mem::size_of::<libc::input_event>()],
@@ -183,18 +190,37 @@ impl EvdevInput {
                     EV_KEY => {
                         if raw.code == BTN_LEFT || raw.code == BTN_TOUCH {
                             Some(InputAxis::Button(raw.value == 1))
-                        } else if raw.value == 0 || raw.value == 1 {
-                            // value=2 is auto-repeat — long-press handles it.
+                        } else if (0..=2).contains(&raw.value) && !self.keys_dropped {
+                            if let Some(keys) = &mut self.keys {
+                                if raw.value == 0 {
+                                    keys.remove(KeyCode(raw.code));
+                                } else {
+                                    keys.insert(KeyCode(raw.code));
+                                }
+                            }
                             queue.push_back(InputEvent::Key {
                                 code: linux_keycode_to_mirui(raw.code),
-                                pressed: raw.value == 1,
+                                pressed: raw.value != 0,
+                                modifiers: self.keys.as_ref().map(key_modifiers),
+                                repeat: Some(raw.value == 2),
                             });
                             None
                         } else {
                             None
                         }
                     }
-                    EV_SYN if raw.code == SYN_REPORT => Some(InputAxis::Sync),
+                    EV_SYN if raw.code == SYN_DROPPED => {
+                        self.keys = None;
+                        self.keys_dropped = true;
+                        None
+                    }
+                    EV_SYN if raw.code == SYN_REPORT => {
+                        if self.keys_dropped {
+                            self.keys = self._device.get_key_state().ok();
+                            self.keys_dropped = false;
+                        }
+                        Some(InputAxis::Sync)
+                    }
                     _ => None,
                 };
                 if let Some(axis) = axis {
@@ -202,6 +228,15 @@ impl EvdevInput {
                 }
             }
         }
+    }
+}
+
+fn key_modifiers(keys: &AttributeSet<KeyCode>) -> KeyModifiers {
+    KeyModifiers {
+        shift: keys.contains(KeyCode::KEY_LEFTSHIFT) || keys.contains(KeyCode::KEY_RIGHTSHIFT),
+        control: keys.contains(KeyCode::KEY_LEFTCTRL) || keys.contains(KeyCode::KEY_RIGHTCTRL),
+        alt: keys.contains(KeyCode::KEY_LEFTALT) || keys.contains(KeyCode::KEY_RIGHTALT),
+        meta: keys.contains(KeyCode::KEY_LEFTMETA) || keys.contains(KeyCode::KEY_RIGHTMETA),
     }
 }
 

@@ -3393,6 +3393,8 @@ mod lifecycle_tests {
         let input = InputEvent::Key {
             code: 1,
             pressed: true,
+            modifiers: Some(Default::default()),
+            repeat: Some(false),
         };
         app.backend
             .events

@@ -862,6 +862,8 @@ fn keyboard_and_character_routes_order_authors_defaults_ancestors_and_app_withou
     let key = Key {
         code: 7,
         pressed: false,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     let before = crate::core::reactive::current_world_id();
     assert_eq!(
@@ -891,6 +893,8 @@ fn keyboard_consumption_stops_before_later_defaults_and_fallback() {
     let key = Key {
         code: 7,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     fixture
         .world
@@ -913,6 +917,8 @@ fn keyboard_selection_freezes_focus_parents_and_default_hooks() {
     let key = Key {
         code: 7,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     let snapshot = fixture
         .pool
@@ -934,6 +940,8 @@ fn keyboard_suppressed_or_stale_focus_only_reaches_app_fallback() {
     let key = Key {
         code: 7,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     fixture.world.insert(fixture.root, UserState::Disabled);
     assert_eq!(fixture.dispatch(&key), Ok(BubbleControl::Allow));
@@ -962,6 +970,8 @@ fn keyboard_capacity_and_cycles_fail_before_any_body_and_release_scratch() {
     let key = Key {
         code: 7,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     assert_eq!(
         tracked_allocations(|| {
@@ -1002,6 +1012,8 @@ fn keyboard_snapshot_skips_destroyed_generations_without_retargeting_replacement
     let key = Key {
         code: 7,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     let snapshot = fixture
         .pool
@@ -1052,6 +1064,8 @@ fn unchanged_editor_actions_are_accepted_without_reaching_app_fallback() {
         let key = Key {
             code,
             pressed: true,
+            modifiers: Some(Default::default()),
+            repeat: Some(false),
         };
         assert_eq!(
             tracked_allocations(|| {
@@ -2539,10 +2553,14 @@ fn consumable_input_uses_the_same_pool_and_stops_in_installation_order() {
     let pressed = Key {
         code: 1,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     let released = Key {
         code: 1,
         pressed: false,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     let allocations = tracked_allocations(|| {
         assert_eq!(

@@ -6,7 +6,7 @@ use mirui::app::{App, RendererFactory};
 use mirui::core::cache::InspectCaches;
 use mirui::ecs::World;
 use mirui::input::event::contract::Event;
-use mirui::input::event::input::{CharInput, InputEvent, Key, Rotary, Wheel};
+use mirui::input::event::input::{CharInput, InputEvent, Key, KeyModifiers, Rotary, Wheel};
 use mirui::input::event::lifecycle::{
     HostFocusChanged, HostInteraction, HostVisibilityChanged, MemoryWarning, Quit, Resumed,
     SafeAreaChanged, Started, Suspended, ViewportChanged,
@@ -306,6 +306,8 @@ fn native_and_scheduled_input_deliver_taps_before_the_following_key() {
             InputEvent::Key {
                 code: 42,
                 pressed: true,
+                modifiers: Some(Default::default()),
+                repeat: Some(false),
             },
         ];
         let mut app = app([]);
@@ -341,7 +343,9 @@ fn native_and_scheduled_input_deliver_taps_before_the_following_key() {
                     Step::Tap,
                     Step::Key(Key {
                         code: 42,
-                        pressed: true
+                        pressed: true,
+                        modifiers: Some(Default::default()),
+                        repeat: Some(false),
                     }),
                 ]),
             "simulated={simulated}: {:?}",
@@ -393,6 +397,8 @@ fn surface_geometry_publishes_before_input_without_business_capacity_or_duplicat
     app.backend.events.push_back(InputEvent::Key {
         code: 7,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     });
     app.tick();
     let steps = app.world.resource::<Trace>().unwrap().steps();
@@ -467,6 +473,8 @@ fn host_state_is_ordered_deduplicated_and_independent_of_suspension() {
         InputEvent::Key {
             code: 7,
             pressed: true,
+            modifiers: Some(Default::default()),
+            repeat: Some(false),
         },
     ]);
     app.tick();
@@ -480,7 +488,9 @@ fn host_state_is_ordered_deduplicated_and_independent_of_suspension() {
             Step::HostFocus(false),
             Step::Key(Key {
                 code: 7,
-                pressed: true
+                pressed: true,
+                modifiers: Some(Default::default()),
+                repeat: Some(false),
             }),
         ]
     );
@@ -700,6 +710,13 @@ fn rootless_app_dispatches_all_four_typed_input_kinds_once() {
     let key_input = Key {
         code: 42,
         pressed: true,
+        modifiers: Some(KeyModifiers {
+            shift: true,
+            control: false,
+            alt: true,
+            meta: true,
+        }),
+        repeat: Some(true),
     };
     let text = CharInput { ch: '界' };
     let wheel_input = Wheel {
@@ -797,6 +814,8 @@ fn plugin_consumption_blocks_user_callbacks_but_not_lifecycle_requests() {
     let input = InputEvent::Key {
         code: 42,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     let mut app = app([input.clone(), InputEvent::AppSuspend]);
     install_notices(&mut app);
@@ -867,6 +886,8 @@ fn resume_delivers_the_remaining_input_burst_in_the_same_tick() {
     let input = Key {
         code: 19,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     let mut app = app([InputEvent::AppResume, input.into()]);
     app.add_plugin(AutoSuspendPlugin);
@@ -942,6 +963,8 @@ fn rejected_model_and_access_bindings_warn_once_and_leave_valid_callbacks_runnin
     let input = Key {
         code: 23,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     let mut app = app([input.into()]);
     let local = app.add_model(InstallModel { value: 0 });

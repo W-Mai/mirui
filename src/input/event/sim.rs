@@ -1050,12 +1050,16 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                 let event = InputEvent::Key {
                     code: crate::input::event::input::KEY_ROTARY_PRESS,
                     pressed: true,
+                    modifiers: Some(Default::default()),
+                    repeat: Some(false),
                 };
                 super::deliver_input(world, root, &event, now_ms, lw, lh);
             } else if action_elapsed >= 50 {
                 let event = InputEvent::Key {
                     code: crate::input::event::input::KEY_ROTARY_PRESS,
                     pressed: false,
+                    modifiers: Some(Default::default()),
+                    repeat: Some(false),
                 };
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
@@ -1389,6 +1393,8 @@ mod tests {
                         InputEvent::Key {
                             code: crate::input::event::input::KEY_ROTARY_PRESS,
                             pressed: true,
+                            modifiers: Some(Default::default()),
+                            repeat: Some(false),
                         },
                     ),
                     SimCommand::at(
@@ -1396,6 +1402,8 @@ mod tests {
                         InputEvent::Key {
                             code: crate::input::event::input::KEY_ROTARY_PRESS,
                             pressed: false,
+                            modifiers: Some(Default::default()),
+                            repeat: Some(false),
                         },
                     ),
                 ]));

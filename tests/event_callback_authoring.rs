@@ -412,7 +412,9 @@ fn generated_commands_commit_after_query_borrows_end() {
                 &mut app.world,
                 &Key {
                     code: 1,
-                    pressed: true
+                    pressed: true,
+                    modifiers: Some(Default::default()),
+                    repeat: Some(false),
                 },
                 node
             ),

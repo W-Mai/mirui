@@ -23,7 +23,7 @@ pub(crate) fn record_input(world: &mut World, event: &InputEvent) {
             input.wheel_delta_y += *dy;
             input.event_seq = input.event_seq.wrapping_add(1);
         }
-        InputEvent::Key { code, pressed } if *code == KEY_ROTARY_PRESS && *pressed => {
+        InputEvent::Key { code, pressed, .. } if *code == KEY_ROTARY_PRESS && *pressed => {
             input.click_pulse = true;
             input.event_seq = input.event_seq.wrapping_add(1);
         }

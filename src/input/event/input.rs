@@ -26,6 +26,15 @@ mod sealed {
     pub trait InputPayload {}
 }
 
+/// Keyboard modifiers active when a key event was produced.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct KeyModifiers {
+    pub shift: bool,
+    pub control: bool,
+    pub alt: bool,
+    pub meta: bool,
+}
+
 /// Projection from platform input to a concrete input callback payload.
 #[doc(hidden)]
 pub trait InputPayload: Event<Route = InputFallback> + sealed::InputPayload {
@@ -102,7 +111,14 @@ typed_inputs! {
         /// Pointer anchor in logical surface coordinates.
         y: Fixed,
     },
-    Key(InputSource) { code: u32, pressed: bool },
+    Key(InputSource) {
+        code: u32,
+        pressed: bool,
+        /// Platform modifier snapshot, or `None` when unavailable.
+        modifiers: Option<KeyModifiers>,
+        /// Platform auto-repeat flag, or `None` when unavailable.
+        repeat: Option<bool>,
+    },
     CharInput(InputSource) { ch: char },
 }
 
@@ -172,6 +188,8 @@ mod tests {
             InputEvent::Key {
                 code: KEY_RETURN,
                 pressed: true,
+                modifiers: Some(Default::default()),
+                repeat: Some(false),
             },
             InputEvent::CharInput { ch: 'a' },
         ] {
@@ -207,10 +225,19 @@ mod tests {
         round_trip(Key {
             code: KEY_BACKSPACE,
             pressed: true,
+            modifiers: Some(KeyModifiers {
+                shift: true,
+                control: true,
+                alt: true,
+                meta: true,
+            }),
+            repeat: Some(true),
         });
         round_trip(Key {
             code: KEY_RETURN,
             pressed: false,
+            modifiers: None,
+            repeat: None,
         });
         round_trip(CharInput { ch: '界' });
     }

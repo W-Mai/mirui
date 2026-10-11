@@ -671,13 +671,20 @@ mod tests {
     ) -> Result<bool, crate::ecs::CommandError> {
         use crate::input::event::view_input::invoke_payload;
         match event {
-            InputEvent::Key { code, pressed } => invoke_payload(
+            InputEvent::Key {
+                code,
+                pressed,
+                modifiers,
+                repeat,
+            } => invoke_payload(
                 view(),
                 world,
                 node,
                 &Key {
                     code: *code,
                     pressed: *pressed,
+                    modifiers: *modifiers,
+                    repeat: *repeat,
                 },
                 None,
             ),
@@ -1230,6 +1237,8 @@ mod tests {
                 &InputEvent::Key {
                     code: KEY_BACKSPACE,
                     pressed: true,
+                    modifiers: Some(Default::default()),
+                    repeat: Some(false),
                 }
             )
             .unwrap()
@@ -1282,6 +1291,8 @@ mod tests {
                     &InputEvent::Key {
                         code,
                         pressed: true,
+                        modifiers: Some(Default::default()),
+                        repeat: Some(false),
                     }
                 )
                 .unwrap()

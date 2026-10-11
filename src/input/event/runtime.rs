@@ -595,7 +595,12 @@ pub(crate) fn dispatch_input(
     };
     runtime.check_owner(world)?;
     match event {
-        InputEvent::Key { code, pressed } => {
+        InputEvent::Key {
+            code,
+            pressed,
+            modifiers,
+            repeat,
+        } => {
             runtime
                 .listeners
                 .snapshot_keyboard(
@@ -603,6 +608,8 @@ pub(crate) fn dispatch_input(
                     &Key {
                         code: *code,
                         pressed: *pressed,
+                        modifiers: *modifiers,
+                        repeat: *repeat,
                     },
                 )?
                 .run(world)?;
@@ -1015,7 +1022,9 @@ mod tests {
                 None,
                 &InputEvent::Key {
                     code: 7,
-                    pressed: true
+                    pressed: true,
+                    modifiers: Some(Default::default()),
+                    repeat: Some(false),
                 },
                 32,
                 32,
@@ -1045,7 +1054,9 @@ mod tests {
                             None,
                             &InputEvent::Key {
                                 code,
-                                pressed: true
+                                pressed: true,
+                                modifiers: Some(Default::default()),
+                                repeat: Some(false),
                             },
                             0,
                             0,
@@ -1140,6 +1151,8 @@ mod tests {
         let input = InputEvent::Key {
             code: 7,
             pressed: true,
+            modifiers: Some(Default::default()),
+            repeat: Some(false),
         };
         assert_eq!(
             dispatch_input(&mut world, None, &input, 0, 0),
@@ -1271,7 +1284,9 @@ mod tests {
                             None,
                             &InputEvent::Key {
                                 code,
-                                pressed: true
+                                pressed: true,
+                                modifiers: Some(Default::default()),
+                                repeat: Some(false),
                             },
                             0,
                             0

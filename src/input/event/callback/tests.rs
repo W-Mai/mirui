@@ -192,6 +192,8 @@ fn installed_owner_is_checked_before_body_execution() {
     let payload = Key {
         code: 1,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         callback.invoke(&mut second, &payload, ())
@@ -239,6 +241,8 @@ fn input_callback_normalizes_consume_results() {
     let mut payload = Key {
         code: 1,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     assert_eq!(
         callback.invoke(&mut world, &payload, ()),
@@ -270,6 +274,8 @@ fn model_capture_uses_the_invocation_owner_and_preserves_instance_identity() {
     let payload = Key {
         code: 1,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     assert_eq!(
         callback.invoke(&mut app.world, &payload, ()),
@@ -322,6 +328,8 @@ fn shared_capture_preparation_and_first_repeated_invocation_do_not_allocate() {
     let payload = Key {
         code: 1,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     assert_eq!(
         tracked_allocations(|| {
@@ -585,6 +593,8 @@ fn panic_releases_invocation_borrows_and_preserves_prepared_callback() {
     let mut payload = Key {
         code: 1,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         callback.invoke(&mut world, &payload, ())
@@ -627,6 +637,8 @@ fn deferred_body_reads_live_parameters_before_ordered_commit_without_allocating(
     let payload = Key {
         code: 1,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     assert_eq!(
         tracked_allocations(|| {
@@ -698,6 +710,8 @@ fn deferred_capacity_error_does_not_commit_partial_commands_or_rollback_resource
     let mut payload = Key {
         code: 1,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     assert_eq!(
         callback.invoke(&mut world, &payload, ()),
@@ -747,6 +761,8 @@ fn deferred_snapshot_shares_storage_and_reports_busy_without_panicking() {
     let payload = Key {
         code: 1,
         pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
     };
     assert_eq!(
         snapshot.invoke(&mut world, &payload, ()),
@@ -807,6 +823,8 @@ fn deferred_body_and_apply_panic_drop_pending_values_and_leave_executor_reusable
         let mut payload = Key {
             code: 1,
             pressed: true,
+            modifiers: Some(Default::default()),
+            repeat: Some(false),
         };
         let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             callback.invoke(&mut world, &payload, ())
