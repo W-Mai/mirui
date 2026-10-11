@@ -1,4 +1,3 @@
-use core::any::TypeId;
 use core::ops::Range;
 
 use crate::core::model::ModelHandle;
@@ -208,16 +207,15 @@ fn apply(world: &mut World, node: Entity, edit: Edit<'_>) -> Result<(), CommandE
     if !selection_changed && !plan.content_changed && !matches!(edit, Edit::Submit) {
         return Ok(());
     }
-    let generation = world.component_generation(node, TypeId::of::<TextEditing>());
-    let previous_selection_revision = input.selection_revision;
-    let document_revision = input.read_document(|document| document.revision());
-    let document = input.document.clone();
+    let Some(target) = super::edit_target::EditTarget::capture(world, node) else {
+        return Ok(());
+    };
     if plan.content_changed {
         let (range, text) = plan
             .replacement
             .as_ref()
             .expect("content edit has a replacement");
-        let result = match &document {
+        let result = match &target.document {
             Some(document) => document.replace(range.clone(), text),
             None => world
                 .get_mut::<TextEditing>(node)
@@ -232,25 +230,9 @@ fn apply(world: &mut World, node: Entity, edit: Edit<'_>) -> Result<(), CommandE
             return Ok(());
         }
     }
-    let Some(input) = world
-        .get::<TextEditing>(node)
-        .filter(|input| input.usable(world))
-    else {
+    let Some(input) = target.after_edit(world, plan.content_changed) else {
         return Ok(());
     };
-    let same_document = match (&document, &input.document) {
-        (Some(old), Some(current)) => old.access().same_identity(current.access()),
-        (None, None) => true,
-        _ => false,
-    };
-    if world.component_generation(node, TypeId::of::<TextEditing>()) != generation
-        || !same_document
-        || input.selection_revision != previous_selection_revision
-        || input.read_document(|document| document.revision())
-            != document_revision + u64::from(plan.content_changed)
-    {
-        return Ok(());
-    }
     let len = input.len() as u32;
     if selection_changed {
         let input = world.get_mut::<TextEditing>(node).unwrap();

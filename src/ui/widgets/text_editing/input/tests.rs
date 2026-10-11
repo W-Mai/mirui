@@ -317,3 +317,51 @@ fn nested_effects_read_committed_content_and_do_not_receive_stale_selection() {
         );
     }
 }
+
+#[test]
+fn document_effect_retiring_the_bound_item_does_not_publish_stale_editor_state() {
+    use crate::core::reactive::retained::RetainedEffects;
+    use crate::input::event::runtime;
+    use alloc::rc::Rc;
+    use core::cell::Cell;
+
+    struct BindingValid(Rc<Cell<bool>>);
+
+    let (mut app, node) = fixture();
+    let draft = app.add_model(Draft {
+        document: TextDocument::new().into(),
+        seen: 0,
+        rewrite: false,
+    });
+    let document = draft.document();
+    let valid = Rc::new(Cell::new(true));
+    app.world.insert_resource(BindingValid(valid.clone()));
+    let gate = RetainedEffects::new(&mut app.world, |world, _| {
+        world.resource::<BindingValid>().unwrap().0.get()
+    });
+    app.world.insert(node, gate);
+    app.world.insert(node, TextEditing::new(document.clone()));
+    app.world
+        .insert_resource(Notices(alloc::vec::Vec::with_capacity(4)));
+    runtime::install_entity(
+        &mut app.world,
+        node,
+        TextEditing::Changed,
+        changed::callback::<crate::__macro_support::NodeContext>(),
+    )
+    .unwrap();
+    runtime::install_entity(
+        &mut app.world,
+        node,
+        TextEditing::SelectionChanged,
+        selected::callback::<crate::__macro_support::NodeContext>(),
+    )
+    .unwrap();
+    draft.on_effect(move |_: &u64| valid.set(false)).unwrap();
+
+    apply(&mut app.world, node, Edit::Replace("A")).unwrap();
+    document.read(|text| assert_eq!(text, "A"));
+    assert_eq!(app.world.get::<TextEditing>(node).unwrap().cursor(), 0);
+    assert_eq!(runtime::flush(&mut app.world).unwrap(), 0);
+    assert!(app.world.resource::<Notices>().unwrap().0.is_empty());
+}

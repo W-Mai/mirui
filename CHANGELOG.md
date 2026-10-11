@@ -86,6 +86,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Text editing revalidates retained item identity after document effects, preventing stale caret updates and notifications when an edited row is rebound.
+
 - Temporarily borrowed framework resources retain their registry slots, avoiding hash table allocation when resources are restored during rendering and callbacks.
 
 - Web and WGPU preserve active pointer identities without native ID truncation or mouse/touch collisions. Web cancels presses on lost pointer capture without duplicating normal release.

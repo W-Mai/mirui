@@ -4,6 +4,7 @@ use crate::core::model::{BindType, ModelHandle};
 
 use super::text_document::{TextDocument, TextEditError};
 
+mod edit_target;
 pub(crate) mod geometry;
 mod input;
 
