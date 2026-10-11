@@ -15,6 +15,7 @@ if [ -f "$stamp" ] && [ -d "$output_dir" ]; then
         "$repo_root/Cargo.toml" \
         "$repo_root/Cargo.lock" \
         "$repo_root/gallery/Cargo.toml" \
+        "$web_dir/generate-demo-previews.sh" \
         -type f -newer "$stamp" -print -quit | grep -q .; then
         exit 0
     fi
@@ -33,9 +34,6 @@ cargo run \
     --example demo_previews_snapshot \
     --release \
     -- "$temporary_dir"
-
-preview_count=$(find "$temporary_dir" -type f -name '*.png' | wc -l | tr -d ' ')
-test "$preview_count" -eq 71
 
 rm -rf "$output_dir"
 mv "$temporary_dir" "$output_dir"

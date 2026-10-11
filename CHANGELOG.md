@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Gallery preview generation accepts the registered demo set without a hard-coded image count.
+
 ### Removed
 
 - Removed the World-based `widgets::set_transform` helper. Typed `prop::Transform` updates preserve layout and invalidate changed visual output.
