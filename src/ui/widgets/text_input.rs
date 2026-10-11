@@ -132,6 +132,19 @@ impl TextInput {
 
     /// Replace the selection without allocating. Failure preserves content and selection; the result indicates whether content changed.
     pub fn replace_selection(&mut self, text: &str) -> Result<bool, TextEditError> {
+        let required = self.replacement_len(text)?;
+        let range = self.selection().range();
+        let changed = &self.as_str()[range.clone()] != text;
+        let cursor = range.start + text.len();
+        let end = self.len();
+        self.buffer.copy_within(range.end..end, cursor);
+        self.buffer[range.start..cursor].copy_from_slice(text.as_bytes());
+        self.len = required as u8;
+        self.collapse(cursor as u8);
+        Ok(changed)
+    }
+
+    fn replacement_len(&self, text: &str) -> Result<usize, TextEditError> {
         if text.chars().any(char::is_control) {
             return Err(TextEditError::ControlCharacter);
         }
@@ -144,14 +157,7 @@ impl TextInput {
                 capacity: TEXT_INPUT_CAP,
             });
         }
-        let changed = &self.as_str()[range.clone()] != text;
-        let cursor = range.start + text.len();
-        let end = self.len();
-        self.buffer.copy_within(range.end..end, cursor);
-        self.buffer[range.start..cursor].copy_from_slice(text.as_bytes());
-        self.len = required as u8;
-        self.collapse(cursor as u8);
-        Ok(changed)
+        Ok(required)
     }
 
     fn collapse(&mut self, cursor: u8) {
@@ -596,14 +602,9 @@ fn textinput_character(
     let Some(input) = inputs.get(node) else {
         return false;
     };
-    let mut updated = input.clone();
-    let content_changed = updated.insert_char(event.ch);
-    let len = updated.len();
-    if content_changed || updated.selection() != input.selection() {
-        commands.insert(node, updated);
-    }
-    if content_changed {
-        commands.emit(node, Changed { len: len as u32 });
+    let edit = InputEdit::Character(event.ch);
+    if edit.changes(input) {
+        commands.apply(node, edit, apply_input_edit);
     }
     true
 }
@@ -621,37 +622,88 @@ fn textinput_key(
     let Some(input) = inputs.get(node) else {
         return false;
     };
-    let old_selection = input.selection();
-    let mut updated = input.clone();
-    let content_changed = match event.code {
-        KEY_BACKSPACE => updated.backspace(),
-        KEY_DELETE => updated.delete_forward(),
-        KEY_LEFT => {
-            updated.move_left();
-            false
-        }
-        KEY_RIGHT => {
-            updated.move_right();
-            false
-        }
-        KEY_HOME => {
-            updated.move_home();
-            false
-        }
-        KEY_END => {
-            updated.move_end();
-            false
-        }
+    let edit = match event.code {
+        KEY_BACKSPACE => InputEdit::Backspace,
+        KEY_DELETE => InputEdit::Delete,
+        KEY_LEFT => InputEdit::Left,
+        KEY_RIGHT => InputEdit::Right,
+        KEY_HOME => InputEdit::Home,
+        KEY_END => InputEdit::End,
         _ => return false,
     };
-    let len = updated.len();
-    if content_changed || updated.selection() != old_selection {
-        commands.insert(node, updated);
-    }
-    if content_changed {
-        commands.emit(node, Changed { len: len as u32 });
+    if edit.changes(input) {
+        commands.apply(node, edit, apply_input_edit);
     }
     true
+}
+
+#[derive(Clone, Copy)]
+enum InputEdit {
+    Character(char),
+    Backspace,
+    Delete,
+    Left,
+    Right,
+    Home,
+    End,
+}
+
+impl InputEdit {
+    fn changes(self, input: &TextInput) -> bool {
+        let selection = input.selection();
+        let selected = selection.anchor != selection.cursor;
+        match self {
+            Self::Character(ch) => input.replacement_len(ch.encode_utf8(&mut [0; 4])).is_ok(),
+            Self::Backspace | Self::Left => selected || selection.cursor > 0,
+            Self::Delete | Self::Right => selected || selection.cursor < input.len(),
+            Self::Home => selected || selection.cursor != 0,
+            Self::End => selected || selection.cursor != input.len(),
+        }
+    }
+
+    fn apply(self, input: &mut TextInput) -> bool {
+        match self {
+            Self::Character(ch) => input.insert_char(ch),
+            Self::Backspace => input.backspace(),
+            Self::Delete => input.delete_forward(),
+            Self::Left => {
+                input.move_left();
+                false
+            }
+            Self::Right => {
+                input.move_right();
+                false
+            }
+            Self::Home => {
+                input.move_home();
+                false
+            }
+            Self::End => {
+                input.move_end();
+                false
+            }
+        }
+    }
+}
+
+fn apply_input_edit(
+    world: &mut World,
+    node: Entity,
+    edit: InputEdit,
+) -> Result<(), crate::ecs::CommandError> {
+    if !world
+        .get::<TextInput>(node)
+        .is_some_and(|input| edit.changes(input))
+    {
+        return Ok(());
+    }
+    let input = world.get_mut::<TextInput>(node).expect("validated input");
+    let content_changed = edit.apply(input);
+    let len = input.len() as u32;
+    if content_changed {
+        crate::input::event::emission::submit_if_listened(world, node, Changed { len })?;
+    }
+    Ok(())
 }
 
 #[crate::event]
@@ -1389,6 +1441,19 @@ mod tests {
         assert_eq!(trace.lengths, [1, 0]);
         assert_eq!(trace.current_lengths, [0, 0]);
         assert_eq!(trace.calls, 2);
+    }
+
+    #[test]
+    fn notification_capacity_failure_does_not_repeat_or_roll_back_the_edit() {
+        let (mut world, entity) = changed_fixture();
+        for ch in ['a', 'b'] {
+            assert!(invoke_key(&mut world, entity, &InputEvent::CharInput { ch }).unwrap());
+        }
+        assert!(invoke_key(&mut world, entity, &InputEvent::CharInput { ch: 'c' }).is_err());
+        assert_eq!(world.get::<TextInput>(entity).unwrap().as_str(), "abc");
+        runtime::flush(&mut world).unwrap();
+        assert_eq!(world.get::<TextInput>(entity).unwrap().as_str(), "abc");
+        assert_eq!(world.resource::<ChangeTrace>().unwrap().calls, 2);
     }
 
     #[test]
