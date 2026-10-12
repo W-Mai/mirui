@@ -13,9 +13,11 @@ pub(super) enum TextInputAction {
 }
 
 pub(super) fn text_input_action(composing: bool, input_type: &str) -> TextInputAction {
-    if composing {
+    if input_type == "insertFromPaste" {
+        TextInputAction::Ignore
+    } else if composing {
         TextInputAction::Preview
-    } else if matches!(input_type, "insertText" | "insertFromPaste") {
+    } else if input_type == "insertText" {
         TextInputAction::Commit
     } else {
         TextInputAction::Ignore
@@ -170,10 +172,14 @@ mod tests {
 
     #[test]
     fn only_ordinary_dom_insertions_commit_outside_composition() {
-        for kind in ["insertText", "insertFromPaste"] {
-            assert_eq!(text_input_action(false, kind), TextInputAction::Commit);
-            assert_eq!(text_input_action(true, kind), TextInputAction::Preview);
-        }
+        assert_eq!(
+            text_input_action(false, "insertText"),
+            TextInputAction::Commit
+        );
+        assert_eq!(
+            text_input_action(true, "insertText"),
+            TextInputAction::Preview
+        );
         for kind in [
             "insertCompositionText",
             "insertFromComposition",
@@ -181,6 +187,12 @@ mod tests {
         ] {
             assert_eq!(text_input_action(true, kind), TextInputAction::Preview);
             assert_eq!(text_input_action(false, kind), TextInputAction::Ignore);
+        }
+        for composing in [false, true] {
+            assert_eq!(
+                text_input_action(composing, "insertFromPaste"),
+                TextInputAction::Ignore
+            );
         }
         for kind in [
             "historyUndo",

@@ -197,6 +197,10 @@ impl Transport {
                 "beforeinput",
                 Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
                     let event: web_sys::InputEvent = raw.unchecked_into();
+                    if event.input_type() == "insertFromPaste" {
+                        event.prevent_default();
+                        return;
+                    }
                     if composing.get() || event.is_composing() {
                         return;
                     }
@@ -205,10 +209,7 @@ impl Transport {
                         "deleteContentBackward" => Some(KEY_BACKSPACE),
                         "deleteContentForward" => Some(KEY_DELETE),
                         "insertLineBreak" | "insertParagraph" => Some(KEY_RETURN),
-                        "insertText"
-                        | "insertFromPaste"
-                        | "insertCompositionText"
-                        | "insertFromComposition" => return,
+                        "insertText" | "insertCompositionText" | "insertFromComposition" => return,
                         _ => None,
                     };
                     event.prevent_default();

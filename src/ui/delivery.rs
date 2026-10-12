@@ -52,6 +52,15 @@ pub(crate) fn dispatch_input(
 ) -> Result<bool, ListenerError> {
     use crate::input::event::input::{InputEvent, Key};
     match event {
+        InputEvent::ClipboardInput(input) => {
+            if let Some(target) = world
+                .resource::<FocusState>()
+                .and_then(|focus| focus.focused)
+            {
+                input.deliver(world, target);
+            }
+            return Ok(true);
+        }
         InputEvent::Clipboard(response) => {
             super::clipboard::complete(world, response);
             return Ok(true);

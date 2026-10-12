@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Web native clipboard menu actions use component capabilities; paste preserves string MIME representations and avoids duplicate hidden-input insertion. Unsupported file pastes leave the component unchanged.
 - Pixel Loom copies, cuts, and pastes indexed frames through component clipboard capabilities. Imports validate dimensions, palette, and pixels before one undoable edit; stale results cannot modify a changed selection.
 - Web clipboard writes support a single item with multiple MIME representations, including binary custom formats. Unsupported multi-item writes are rejected without discarding data.
 - Ctrl/Command+X and V use the focused component's cut and paste capabilities. Key handlers can intercept these defaults; target changes and repeated keys cannot redirect or duplicate them.

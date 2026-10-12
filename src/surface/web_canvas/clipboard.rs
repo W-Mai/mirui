@@ -1,13 +1,76 @@
-use super::EventQueue;
+use super::{DomFocus, EventQueue, Listener, register_listener};
 use crate::surface::InputEvent;
 use crate::surface::web_clipboard_format;
 use crate::ui::clipboard::{
-    ClipboardData, ClipboardDispatch, ClipboardError, ClipboardFormat, ClipboardItem,
-    ClipboardRead, ClipboardWrite,
+    ClipboardData, ClipboardDispatch, ClipboardError, ClipboardFormat, ClipboardInput,
+    ClipboardItem, ClipboardRead, ClipboardWrite,
 };
-use alloc::vec::Vec;
-use wasm_bindgen::{JsCast, JsValue};
+use alloc::{rc::Rc, vec::Vec};
+use wasm_bindgen::{JsCast, JsValue, closure::Closure};
 use wasm_bindgen_futures::JsFuture;
+
+pub(super) fn attach(
+    document: &web_sys::Document,
+    queue: &EventQueue,
+    focus: &Rc<DomFocus>,
+    listeners: &mut Vec<Listener>,
+) {
+    for name in ["copy", "cut", "paste"] {
+        let queue = queue.clone();
+        let focus = focus.clone();
+        let owner = document.clone();
+        listeners.push(register_listener(
+            document.clone().into(),
+            name,
+            Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
+                let event: web_sys::ClipboardEvent = raw.unchecked_into();
+                if !event.is_trusted() || event.default_prevented() || !focus.focused(&owner) {
+                    return;
+                }
+                let Some(target) = event
+                    .target()
+                    .and_then(|target| target.dyn_into::<web_sys::Element>().ok())
+                else {
+                    return;
+                };
+                if !focus.contains(&target) {
+                    return;
+                }
+                event.prevent_default();
+                let input = match name {
+                    "copy" => ClipboardInput::copy(),
+                    "cut" => ClipboardInput::cut(),
+                    _ => ClipboardInput::paste(read_native(&event)),
+                };
+                queue
+                    .borrow_mut()
+                    .push_back(InputEvent::ClipboardInput(input));
+            }),
+        ));
+    }
+}
+
+fn read_native(event: &web_sys::ClipboardEvent) -> Result<ClipboardData, ClipboardError> {
+    let source = event.clipboard_data().ok_or(ClipboardError::InvalidData)?;
+    let types = source.types();
+    if types.iter().any(|mime| {
+        mime.as_string()
+            .is_some_and(|mime| mime.eq_ignore_ascii_case("Files"))
+    }) {
+        return Err(ClipboardError::Unsupported);
+    }
+    let mut item = ClipboardItem::with_capacity(types.length() as usize)?;
+    for mime in types.iter() {
+        let mime = mime.as_string().ok_or(ClipboardError::InvalidData)?;
+        let text = source.get_data(&mime).map_err(failure)?;
+        let mime = alloc::string::String::from(web_clipboard_format::decode(&mime));
+        item.push(ClipboardFormat::new(mime, text.into_bytes()))?;
+    }
+    let mut data = ClipboardData::with_capacity(1, usize::MAX)?;
+    data.push(item)?;
+    data.validate()?;
+    Ok(data)
+}
 
 pub(super) fn read(request: ClipboardRead, queue: EventQueue) -> ClipboardDispatch {
     let promise = match invoke("read", None) {

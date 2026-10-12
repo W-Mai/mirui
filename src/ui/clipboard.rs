@@ -186,6 +186,60 @@ pub enum ClipboardDispatch {
     Pending,
 }
 
+/// A host clipboard action without a physical key, such as a native menu command.
+#[derive(Clone, Debug)]
+pub struct ClipboardInput(ClipboardIntent);
+
+#[derive(Clone, Debug)]
+enum ClipboardIntent {
+    Copy,
+    Cut,
+    Paste(Result<PasteSelection, ClipboardError>),
+}
+
+impl ClipboardInput {
+    pub fn copy() -> Self {
+        Self(ClipboardIntent::Copy)
+    }
+
+    pub fn cut() -> Self {
+        Self(ClipboardIntent::Cut)
+    }
+
+    /// Own the complete native paste payload before the platform event expires.
+    pub fn paste(data: Result<ClipboardData, ClipboardError>) -> Self {
+        Self(ClipboardIntent::Paste(
+            data.map(|data| PasteSelection { data }),
+        ))
+    }
+
+    pub(crate) fn deliver(&self, world: &mut World, target: Entity) {
+        match &self.0 {
+            ClipboardIntent::Copy => copy(world, target),
+            ClipboardIntent::Cut => cut(world, target),
+            ClipboardIntent::Paste(data) => {
+                let operation = match operation(world) {
+                    Ok(operation) => operation,
+                    Err(error) => {
+                        crate::warn!(target: "mirui::clipboard", "clipboard operation skipped: {:?}", error);
+                        return;
+                    }
+                };
+                let result = data.as_ref().map_err(|error| *error).and_then(|event| {
+                    event.data.validate()?;
+                    capture_paste(world, target)?.apply(world, event)
+                });
+                finish(
+                    world,
+                    target,
+                    operation,
+                    result.map(|()| ClipboardOutcome::Pasted),
+                );
+            }
+        }
+    }
+}
+
 #[doc(hidden)]
 pub trait ClipboardSelectors {
     #[allow(non_upper_case_globals)]
@@ -416,18 +470,7 @@ pub(crate) fn paste(world: &mut World, target: Entity) {
             return;
         }
     };
-    let mut capture = || -> Result<SelectionGuard<PasteSelection>, ClipboardError> {
-        let request = request::resolve(world, target)?;
-        let inspect = request::resolve(world, target)?;
-        let state = inspect.invoke(world, &InspectSelection)??;
-        request.validate(world)?;
-        Ok(SelectionGuard {
-            state,
-            inspect,
-            request,
-        })
-    };
-    match capture() {
+    match capture_paste(world, target) {
         Ok(guard) => enqueue(
             world,
             Pending {
@@ -438,6 +481,21 @@ pub(crate) fn paste(world: &mut World, target: Entity) {
         ),
         Err(error) => finish(world, target, operation, Err(error)),
     }
+}
+
+fn capture_paste(
+    world: &mut World,
+    target: Entity,
+) -> Result<SelectionGuard<PasteSelection>, ClipboardError> {
+    let request = request::resolve(world, target)?;
+    let inspect = request::resolve(world, target)?;
+    let state = inspect.invoke(world, &InspectSelection)??;
+    request.validate(world)?;
+    Ok(SelectionGuard {
+        state,
+        inspect,
+        request,
+    })
 }
 
 pub(crate) fn take_request(world: &mut World) -> Option<ClipboardRequest> {

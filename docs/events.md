@@ -73,6 +73,8 @@ The first handler runs on every click and allows the second handler to run on a 
 
 SDL, WGPU, and Web forward Ctrl/Command+A, C, X, and V as `Key` with `KEY_A`, `KEY_C`, `KEY_X`, and `KEY_V`. Ordinary letters remain text input. After Key propagation is allowed, the UI invokes the focused component's selection or clipboard capability; `()` or `true` consumes the Key and prevents that default. Clipboard operations still require the Surface's platform bridge. See [Clipboard](clipboard.md) for selection and completion behavior.
 
+Native clipboard menu actions arrive as `InputEvent::ClipboardInput` and use the focused component's clipboard requests directly. They do not represent a physical key and therefore do not invoke Key listeners. Native paste supplies its owned data; copying and cutting still require a successful platform write.
+
 SDL and WGPU preserve press and release for supported editing keys. Character input is produced by text input or key presses, not key releases. Escape retains its quit-request behavior; releasing it does not generate a second request.
 
 `Started`, `Suspended`, `Resumed`, `MemoryWarning`, `HostInteraction`, and `Quit` are App notification payloads with unit options and results. They do not implement platform-input projection: raw suspend/resume/quit requests must not be treated as notifications of completed lifecycle transitions.

@@ -121,6 +121,7 @@ macro_rules! typed_inputs {
             TextCommitted(TextCommitted),
             TextInput(crate::ui::text_input::TextInputEvent),
             Clipboard(crate::ui::clipboard::ClipboardResponse),
+            ClipboardInput(crate::ui::clipboard::ClipboardInput),
             $($(#[$doc])* $kind { $($(#[$field_doc])* $field: $ty),+ },)+
             AppSuspend,
             AppResume,
@@ -216,7 +217,8 @@ impl InputEvent {
             | Self::Wheel { .. }
             | Self::Key { .. }
             | Self::TextCommitted(_)
-            | Self::TextInput(_) => true,
+            | Self::TextInput(_)
+            | Self::ClipboardInput(_) => true,
             Self::AppSuspend
             | Self::Clipboard(_)
             | Self::AppResume

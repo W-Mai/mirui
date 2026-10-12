@@ -191,7 +191,13 @@ fn attach_listeners(
 ) -> Vec<Listener> {
     use super::web_input::{PointerPhase, WebPointers};
     let pointers = Rc::new(RefCell::new(WebPointers::new()));
-    let mut listeners = Vec::with_capacity(15);
+    let mut listeners = Vec::with_capacity(18);
+    clipboard::attach(
+        &canvas.owner_document().expect("canvas document"),
+        queue,
+        focus,
+        &mut listeners,
+    );
     listeners.push(pointer_listener(
         canvas,
         queue,

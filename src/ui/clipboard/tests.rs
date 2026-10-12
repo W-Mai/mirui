@@ -5,6 +5,7 @@ use crate::ui::widgets::{TextEditing, TextInput, TextSelection};
 use alloc::{string::String, vec::Vec};
 
 mod cut;
+mod native;
 mod paste;
 
 pub(crate) fn take_write(world: &mut World) -> Option<ClipboardWrite> {
