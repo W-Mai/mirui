@@ -71,6 +71,8 @@ The first handler runs on every click and allows the second handler to run on a 
 
 `Key` carries keyboard metadata; `TextCommitted::text()` borrows a complete UTF-8 fragment. Both support entity and App input source capabilities. `InputSelectors` supplies their component-node keys; focused nodes and ancestors run before App fallback. `Wheel` carries its position and deltas; `Rotary` carries its device id and delta, without fabricated pointer coordinates. Wheel and rotary callback sources are App-only.
 
+SDL, WGPU, and Web forward Ctrl/Command+A and Ctrl/Command+C as `Key` with `KEY_A` and `KEY_C`. Ordinary letters remain text input. After Key propagation is allowed, the UI invokes the focused component's select-all or copy capability; `()` or `true` consumes the Key and prevents that default. See [Clipboard](clipboard.md) for selection and completion behavior.
+
 SDL and WGPU preserve press and release for supported editing keys. Character input is produced by text input or key presses, not key releases. Escape retains its quit-request behavior; releasing it does not generate a second request.
 
 `Started`, `Suspended`, `Resumed`, `MemoryWarning`, `HostInteraction`, and `Quit` are App notification payloads with unit options and results. They do not implement platform-input projection: raw suspend/resume/quit requests must not be treated as notifications of completed lifecycle transitions.

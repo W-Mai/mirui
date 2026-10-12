@@ -22,6 +22,9 @@ pub const KEY_HOME: u32 = 0x0052;
 pub const KEY_END: u32 = 0x0053;
 pub const KEY_RETURN: u32 = 0x000D;
 pub const KEY_ESCAPE: u32 = 0x001B;
+/// Letter keys delivered with selection shortcut modifiers.
+pub const KEY_A: u32 = 0x0061;
+pub const KEY_C: u32 = 0x0063;
 
 mod sealed {
     pub trait InputPayload {}
@@ -34,6 +37,17 @@ pub struct KeyModifiers {
     pub control: bool,
     pub alt: bool,
     pub meta: bool,
+}
+
+pub(crate) fn selection_shortcut_key(key: &str, modifiers: KeyModifiers) -> Option<u32> {
+    if (!modifiers.control && !modifiers.meta) || modifiers.alt || modifiers.shift {
+        return None;
+    }
+    match key.as_bytes() {
+        [b'a' | b'A'] => Some(KEY_A),
+        [b'c' | b'C'] => Some(KEY_C),
+        _ => None,
+    }
 }
 
 /// Platform-reported pointer device category.

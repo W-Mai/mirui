@@ -454,11 +454,22 @@ pub(crate) fn keyboard_from<E>(
 where
     E: super::input::InputPayload + Event<Source = super::contract::InputSource>,
 {
+    keyboard(world, Some(origin), event)
+}
+
+pub(crate) fn keyboard<E>(
+    world: &mut World,
+    origin: Option<Entity>,
+    event: &E,
+) -> Result<super::BubbleControl, ListenerError>
+where
+    E: super::input::InputPayload + Event<Source = super::contract::InputSource>,
+{
     let runtime = runtime(world).expect("initialized event runtime");
     runtime.prepare(world, 0)?;
     runtime
         .listeners
-        .snapshot_keyboard_from(world, event, Some(origin))?
+        .snapshot_keyboard_from(world, event, origin)?
         .run(world)
 }
 

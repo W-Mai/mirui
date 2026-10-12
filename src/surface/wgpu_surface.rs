@@ -298,7 +298,14 @@ impl WgpuRuntime {
             KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RETURN, KEY_RIGHT,
         };
 
-        if self.text_input.composing() {
+        let shortcut = match key {
+            Key::Character(text) => crate::input::event::input::selection_shortcut_key(
+                text,
+                self.modifiers.unwrap_or_default(),
+            ),
+            _ => None,
+        };
+        if self.text_input.composing() && shortcut.is_none() {
             return false;
         }
 
@@ -317,7 +324,7 @@ impl WgpuRuntime {
                 }
                 return pressed;
             }
-            _ => None,
+            _ => shortcut,
         };
         if let Some(code) = code {
             self.event_queue.push_back(InputEvent::Key {
@@ -328,6 +335,7 @@ impl WgpuRuntime {
             });
         }
         if pressed
+            && shortcut.is_none()
             && let Some(text) = text
             && !text.chars().all(char::is_control)
         {
@@ -1794,6 +1802,33 @@ mod tests {
             wheel_delta(MouseScrollDelta::LineDelta(0.125, -0.5), 2.0),
             (Fixed::from_ratio(-5, 2), Fixed::from_int(-10))
         );
+    }
+
+    #[test]
+    fn selection_shortcuts_do_not_duplicate_reported_keyboard_text() {
+        use crate::input::event::input::{KEY_A, KEY_C, KeyModifiers};
+        let mut runtime = WgpuRuntime::new();
+        for modifiers in [
+            KeyModifiers {
+                control: true,
+                ..Default::default()
+            },
+            KeyModifiers {
+                meta: true,
+                ..Default::default()
+            },
+        ] {
+            runtime.modifiers = Some(modifiers);
+            for (text, code) in [("a", KEY_A), ("C", KEY_C)] {
+                for state in [ElementState::Pressed, ElementState::Released] {
+                    runtime.keyboard_input(&Key::Character(text.into()), state, Some(text), true);
+                    assert!(
+                        matches!(runtime.event_queue.pop_front(), Some(InputEvent::Key { code: actual, pressed, modifiers: Some(actual_modifiers), repeat: Some(true) }) if actual == code && pressed == (state == ElementState::Pressed) && actual_modifiers == modifiers)
+                    );
+                    assert!(runtime.event_queue.is_empty());
+                }
+            }
+        }
     }
 
     #[test]

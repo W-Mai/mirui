@@ -78,6 +78,60 @@ fn native(app: &mut TestApp, event: crate::surface::InputEvent) {
 }
 
 #[test]
+fn copy_shortcut_uses_formal_selection_without_ending_composition() {
+    use crate::input::event::input::{InputEvent, KEY_A, KEY_C, KeyModifiers};
+    use crate::ui::clipboard;
+
+    let (mut app, editor, _, _) = fixture();
+    app.with_input_method(InputMethod::native());
+    let session = native_state(&mut app.world, 0).unwrap().session;
+    native(&mut app, session.commit("A中🙂"));
+    let shortcut = |code| InputEvent::Key {
+        code,
+        pressed: true,
+        modifiers: Some(KeyModifiers {
+            meta: true,
+            ..Default::default()
+        }),
+        repeat: Some(false),
+    };
+    native(&mut app, shortcut(KEY_A));
+    let selection = app.world.get::<TextEditing>(editor).unwrap().selection();
+    assert_eq!(
+        selection,
+        TextSelection {
+            anchor: 0,
+            cursor: 8
+        }
+    );
+    native(&mut app, session.preedit("ni", Some(2..2)));
+    native(&mut app, shortcut(KEY_C));
+    let write = clipboard::take_write(&mut app.world).unwrap();
+    assert_eq!(write.data().plain_text(), Ok("A中🙂"));
+    let input = app.world.get::<TextEditing>(editor).unwrap();
+    assert_eq!(input.selection(), selection);
+    assert!(input.read(|text| text == "A中🙂"));
+    assert!(
+        service(&app.world)
+            .unwrap()
+            .state
+            .borrow()
+            .active
+            .as_ref()
+            .unwrap()
+            .composition
+            .is_some()
+    );
+    native(&mut app, session.commit("你"));
+    assert!(
+        app.world
+            .get::<TextEditing>(editor)
+            .unwrap()
+            .read(|text| text == "你")
+    );
+}
+
+#[test]
 fn native_composition_borrows_payload_and_keeps_empty_preview_until_commit() {
     let (mut app, editor, _, _) = fixture();
     app.with_input_method(InputMethod::native());

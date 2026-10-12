@@ -245,7 +245,7 @@ fn capture(world: &mut World, target: Entity) -> Result<Option<ClipboardData>, C
     Ok(Some(data))
 }
 
-fn copy(world: &mut World, target: Entity) {
+pub(crate) fn copy(world: &mut World, target: Entity) {
     let operation = match operation(world) {
         Ok(operation) => operation,
         Err(error) => {

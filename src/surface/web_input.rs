@@ -29,7 +29,8 @@ pub(super) fn keyboard_input(
     repeat: bool,
     composing: bool,
 ) -> Option<InputEvent> {
-    if composing {
+    let shortcut = crate::input::event::input::selection_shortcut_key(&key, modifiers);
+    if composing && shortcut.is_none() {
         return None;
     }
     let code = match key.as_str() {
@@ -41,7 +42,7 @@ pub(super) fn keyboard_input(
         "End" => Some(KEY_END),
         "Enter" => Some(KEY_RETURN),
         "Escape" => Some(KEY_ESCAPE),
-        _ => None,
+        _ => shortcut,
     };
     code.map(|code| InputEvent::Key {
         code,
@@ -188,6 +189,46 @@ mod tests {
             "unknown",
         ] {
             assert_eq!(text_input_action(false, kind), TextInputAction::Ignore);
+        }
+    }
+
+    #[test]
+    fn selection_shortcuts_are_available_during_composition_without_changing_metadata() {
+        use crate::input::event::input::{KEY_A, KEY_C};
+        for (key, expected) in [("a", KEY_A), ("A", KEY_A), ("c", KEY_C), ("C", KEY_C)] {
+            for modifiers in [
+                KeyModifiers {
+                    control: true,
+                    ..Default::default()
+                },
+                KeyModifiers {
+                    meta: true,
+                    ..Default::default()
+                },
+            ] {
+                for composing in [false, true] {
+                    for pressed in [false, true] {
+                        assert!(
+                            matches!(keyboard_input(key.into(), pressed, modifiers, true, composing), Some(InputEvent::Key { code, pressed: actual, modifiers: Some(actual_modifiers), repeat: Some(true) }) if code == expected && actual == pressed && actual_modifiers == modifiers)
+                        );
+                    }
+                }
+            }
+            for modifiers in [
+                KeyModifiers::default(),
+                KeyModifiers {
+                    control: true,
+                    alt: true,
+                    ..Default::default()
+                },
+                KeyModifiers {
+                    meta: true,
+                    shift: true,
+                    ..Default::default()
+                },
+            ] {
+                assert!(keyboard_input(key.into(), true, modifiers, false, false).is_none());
+            }
         }
     }
 

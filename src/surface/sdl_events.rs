@@ -42,6 +42,12 @@ pub(crate) fn keyboard_input(event: &Event) -> Option<InputEvent> {
         } => (*keycode, false, *keymod, *repeat),
         _ => return None,
     };
+    let modifiers = KeyModifiers {
+        shift: keymod.intersects(Mod::LSHIFTMOD | Mod::RSHIFTMOD),
+        control: keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD),
+        alt: keymod.intersects(Mod::LALTMOD | Mod::RALTMOD),
+        meta: keymod.intersects(Mod::LGUIMOD | Mod::RGUIMOD),
+    };
     let code = match keycode {
         Keycode::Backspace => KEY_BACKSPACE,
         Keycode::Delete => KEY_DELETE,
@@ -50,18 +56,15 @@ pub(crate) fn keyboard_input(event: &Event) -> Option<InputEvent> {
         Keycode::Home => KEY_HOME,
         Keycode::End => KEY_END,
         Keycode::Return => KEY_RETURN,
+        Keycode::A => selection_shortcut_key("a", modifiers)?,
+        Keycode::C => selection_shortcut_key("c", modifiers)?,
         Keycode::Escape if pressed => return Some(InputEvent::Quit),
         _ => return None,
     };
     Some(InputEvent::Key {
         code,
         pressed,
-        modifiers: Some(KeyModifiers {
-            shift: keymod.intersects(Mod::LSHIFTMOD | Mod::RSHIFTMOD),
-            control: keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD),
-            alt: keymod.intersects(Mod::LALTMOD | Mod::RALTMOD),
-            meta: keymod.intersects(Mod::LGUIMOD | Mod::RGUIMOD),
-        }),
+        modifiers: Some(modifiers),
         repeat: Some(repeat),
     })
 }
@@ -165,6 +168,51 @@ mod tests {
                 scancode: None,
                 keymod: Mod::NOMOD,
                 repeat: false,
+            }
+        }
+    }
+
+    #[test]
+    fn selection_shortcuts_keep_key_metadata_without_turning_plain_letters_into_keys() {
+        for (keycode, expected) in [(Keycode::A, KEY_A), (Keycode::C, KEY_C)] {
+            for keymod in [Mod::LCTRLMOD, Mod::RGUIMOD] {
+                for pressed in [false, true] {
+                    let mut event = key_event(keycode, pressed);
+                    match &mut event {
+                        Event::KeyDown {
+                            keymod: mods,
+                            repeat,
+                            ..
+                        }
+                        | Event::KeyUp {
+                            keymod: mods,
+                            repeat,
+                            ..
+                        } => {
+                            *mods = keymod;
+                            *repeat = true;
+                        }
+                        _ => unreachable!(),
+                    }
+                    assert!(
+                        matches!(keyboard_input(&event), Some(InputEvent::Key { code, pressed: actual, repeat: Some(true), .. }) if code == expected && actual == pressed)
+                    );
+                }
+            }
+            for keymod in [
+                Mod::NOMOD,
+                Mod::LCTRLMOD | Mod::RALTMOD,
+                Mod::LGUIMOD | Mod::LSHIFTMOD,
+            ] {
+                let event = Event::KeyDown {
+                    timestamp: 0,
+                    window_id: 0,
+                    keycode: Some(keycode),
+                    scancode: None,
+                    keymod,
+                    repeat: false,
+                };
+                assert!(keyboard_input(&event).is_none());
             }
         }
     }

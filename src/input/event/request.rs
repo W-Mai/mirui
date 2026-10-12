@@ -174,7 +174,7 @@ where
         Ok(result)
     }
 
-    fn validate(&self, world: &World) -> Result<(), RequestError> {
+    pub(crate) fn validate(&self, world: &World) -> Result<(), RequestError> {
         if self.owner != world.id()
             || self.retained.is_some_and(|lease| !lease.valid(world))
             || E::Source::component_kind()

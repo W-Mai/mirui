@@ -31,6 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Ctrl/Command+A and Ctrl/Command+C invoke focused component selection capabilities after Key handlers without redirecting the target. Copy preserves active composition. SDL, WGPU, and Web forward shortcut metadata without inserting duplicate characters.
+
 - Clipboard copy commands capture editor-local selections and report platform acknowledgment, empty selections, or errors. Web and SDL surfaces support text writes; custom components export immutable, capacity-bounded clipboard data through typed requests.
 
 - Selection commands target text and custom components through typed request callbacks. TextEditing supplies select-all behavior, and Editor Lab includes a selection toolbar.

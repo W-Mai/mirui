@@ -28,6 +28,46 @@ fn dispatch(app: &mut TestApp, root: Entity, target: Entity, event: InputEvent) 
 }
 
 #[test]
+fn selection_shortcuts_copy_only_the_focused_shared_editors_selection() {
+    use crate::input::event::input::{KEY_A, KEY_C, KeyModifiers};
+    use crate::ui::clipboard;
+    let (mut app, _, model) = fixture();
+    let first = app.world.find_by_id("editor_shared_a").unwrap();
+    let second = app.world.find_by_id("editor_shared_b").unwrap();
+    app.world.resource_mut::<FocusState>().unwrap().focused = Some(first);
+    let second_selection = app.world.get::<TextEditing>(second).unwrap().selection();
+    for code in [KEY_A, KEY_C] {
+        crate::input::event::deliver_input(
+            &mut app.world,
+            app.root,
+            &InputEvent::Key {
+                code,
+                pressed: true,
+                modifiers: Some(KeyModifiers {
+                    meta: true,
+                    ..Default::default()
+                }),
+                repeat: Some(false),
+            },
+            0,
+            440,
+            760,
+        );
+    }
+    let write = clipboard::take_write(&mut app.world).unwrap();
+    model
+        .shared()
+        .read(|text| assert_eq!(write.data().plain_text(), Ok(text)));
+    assert_eq!(
+        app.world.get::<TextEditing>(second).unwrap().selection(),
+        second_selection
+    );
+    clipboard::complete(&mut app.world, &write.complete(Ok(())));
+    crate::ui::delivery::flush(&mut app.world).unwrap();
+    assert_eq!(model.clipboard_status(), "Copied");
+}
+
+#[test]
 fn selection_toolbar_uses_the_target_editors_range_without_moving_focus() {
     let (mut app, _, model) = fixture();
     let first = app.world.find_by_id("editor_shared_a").unwrap();
@@ -117,18 +157,24 @@ fn explicit_capabilities_and_appearance_take_precedence_over_attachment_defaults
 
     #[crate::compose]
     fn panel() -> [Entity; 3] {
-        let search = ui! { SearchEditor() [
-            TextEditing::default().with_text("explicit").unwrap(),
-            TextInput::new().with_cursor_color(ColorToken::OnSurface),
-        ] };
-        let command = ui! { CommandEditor() [
-            TextEditing::default().with_text("explicit").unwrap(),
-            TextInput::new().with_cursor_color(ColorToken::OnSurface),
-        ] };
-        let shared = ui! { SharedEditor() [
-            TextEditing::default().with_text("explicit").unwrap(),
-            TextInput::new().with_cursor_color(ColorToken::OnSurface),
-        ] };
+        let search = ui! {
+            SearchEditor () [
+                TextEditing::default().with_text("explicit").unwrap(),
+                TextInput::new().with_cursor_color(ColorToken::OnSurface),
+            ]
+        };
+        let command = ui! {
+            CommandEditor () [
+                TextEditing::default().with_text("explicit").unwrap(),
+                TextInput::new().with_cursor_color(ColorToken::OnSurface),
+            ]
+        };
+        let shared = ui! {
+            SharedEditor () [
+                TextEditing::default().with_text("explicit").unwrap(),
+                TextInput::new().with_cursor_color(ColorToken::OnSurface),
+            ]
+        };
         [search, command, shared]
     }
 

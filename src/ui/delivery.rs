@@ -35,16 +35,26 @@ pub(crate) fn dispatch_input(
             pressed,
             modifiers,
             repeat,
-        } if super::text_input::intercept_key(
-            world,
-            &Key {
+        } => {
+            let key = Key {
                 code: *code,
                 pressed: *pressed,
                 modifiers: *modifiers,
                 repeat: *repeat,
-            },
-        ) =>
-        {
+            };
+            let origin = world
+                .resource::<FocusState>()
+                .and_then(|focus| focus.focused);
+            let shortcut =
+                origin.and_then(|target| super::selection::Shortcut::capture(world, target, &key));
+            if super::text_input::intercept_key(world, &key) {
+                return Ok(true);
+            }
+            if runtime::keyboard(world, origin, &key)? == BubbleControl::Allow
+                && let Some(shortcut) = shortcut
+            {
+                shortcut.apply(world);
+            }
             return Ok(true);
         }
         InputEvent::TextCommitted(_) if super::text_input::software_selected(world) => {

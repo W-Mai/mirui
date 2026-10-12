@@ -11,6 +11,8 @@ on Tap {
 
 Commands execute in order. `select_all(editor)` followed by `copy(editor)` copies the full selection; reversing these calls copies the selection that existed before select-all. The copy command captures immutable data before returning, so subsequent document edits cannot change the pending platform write.
 
+Ctrl/Command+A selects all and Ctrl/Command+C copies the focused component's selection. These defaults run after Key handlers allow propagation; a consumed Key prevents the default operation. The target and capability provider are fixed before callbacks, so changing focus cannot redirect the operation. Removed, hidden, replaced, or rebound targets are rejected. Key releases, auto-repeat, and Alt/Shift combinations do not run these defaults. Copy during composition reads the formal document selection without committing or cancelling preedit.
+
 ## Completion
 
 Listen for `mirui::ui::clipboard::ClipboardFinished` on the target editor, not the toolbar button. Its operation ID identifies one request. `result` distinguishes `ClipboardOutcome::Copied`, `ClipboardOutcome::EmptySelection`, and `ClipboardError`. Copied means the platform write acknowledged success; permission rejection, unsupported data, and platform failure are not success. Completion never retries a write. Duplicate or foreign-App acknowledgments are ignored.
