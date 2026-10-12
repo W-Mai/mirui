@@ -79,7 +79,7 @@ impl<K: Ord + 'static> ModelSet<K> {
         Ok(input)
     }
 
-    fn install(&mut self, input: Vec<K>) {
+    pub(super) fn install(&mut self, input: Vec<K>) {
         self.prepared = self.prepared.max(input.len());
         let old = core::mem::replace(&mut self.values, input);
         self.changed();

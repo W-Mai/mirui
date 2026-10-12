@@ -7,7 +7,8 @@ pub(in crate::core::model) struct PreparedLoad<M: Model> {
     binding: Option<PreparedBinding<M>>,
 }
 
-pub(in crate::core::model) struct StagedLoad<M: Model> {
+#[doc(hidden)]
+pub struct StagedLoad<M: Model> {
     replacement: ModelList<M>,
     binding: Option<PreparedBinding<M>>,
 }
@@ -58,7 +59,7 @@ impl<M: Model> ModelList<M> {
         replacement.revision = self
             .revision
             .checked_add(1)
-            .expect("model list revision exhausted");
+            .ok_or(CollectionError::IdentityExhausted)?;
         let binding = binding
             .map(|binding| PreparedBinding::new(binding, capacity))
             .transpose()?;

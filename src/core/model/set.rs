@@ -6,6 +6,8 @@ use core::{
 };
 
 mod load;
+#[cfg(feature = "persistence")]
+mod persistence;
 mod registered;
 
 /// Observable membership of sorted, immutable values.

@@ -23,6 +23,38 @@ impl Settings {}
 
 Field codecs match names and archive types, not declaration order. Missing or incompatible fields retain their current values; incompatible types emit a warning. Invalid records are rejected before applying prepared values. Fields without `#[persist]` are not encoded or reset. These declarations do not change the raw Model's memory layout. Disabling mirui's `persistence` feature removes codec implementations and their field trait requirements; the application does not need a same-named feature.
 
+## Collections
+
+Mark an owned `ModelList`, `ModelMap`, or `ModelSet` field with `#[persist]` to include it in the root archive:
+
+```rust
+#[model(persistence)]
+#[derive(Default)]
+struct TodoItem {
+    #[persist]
+    #[observe]
+    done: bool,
+}
+
+#[model]
+impl TodoItem {}
+
+#[model(persistence(key = "todo"))]
+struct Todo {
+    #[persist]
+    items: model!(owned ModelList<TodoItem>),
+}
+
+#[model]
+impl Todo {}
+```
+
+Lists preserve item order. Maps encode business keys in key order; sets encode immutable values in value order. Runtime identities, observers, reserved capacity, and effect handlers are not stored. List and Map members require `Default` and a field codec; Map keys and Set values require `Default`, an ordered comparison, and a supported field codec. Missing fields in newly constructed members retain their default values.
+
+Restoration prepares the entire root, including member observation storage, before replacing current data. Exceeding a collection's hard limit or finding duplicate Map keys or Set values rejects the record. Explicit restoration may allocate preparation storage but does not change the configured hard limit. Installation does not allocate framework storage or invoke effect extractors and handlers.
+
+Restoring a collection retires its previous members and creates new identities, even for unchanged keys or values. The collection handle, its observers, and its aggregate effect handler remain installed; callbacks bound to retired members stop executing. Empty stored collections clear membership while retaining prepared capacity. Ordinary reordering and reconciliation continue to preserve matched member identities.
+
 ## Registering a Model
 
 Install the plugin before registering persistent Models. `add_model(value)` creates a pending builder; `finish()` performs registration and returns the shared handle. Restoration completes before observation sources are initialized. Discarding a builder performs no registration or storage access; the type's `must_use` warning reminds callers to finish it.

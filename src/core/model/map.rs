@@ -6,6 +6,8 @@ use core::{
 };
 
 mod load;
+#[cfg(feature = "persistence")]
+mod persistence;
 mod reconcile;
 mod registered;
 

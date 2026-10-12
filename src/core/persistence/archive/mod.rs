@@ -7,7 +7,7 @@ use super::PersistenceError;
 mod read;
 mod write;
 
-pub use read::{Archive, Value, Values};
+pub use read::{Archive, Pairs, Value, Values};
 pub use write::Writer;
 
 const MAGIC: &[u8; 4] = b"MPS1";

@@ -3,6 +3,10 @@ use alloc::rc::Rc;
 use alloc::vec::Vec;
 
 mod load;
+#[cfg(feature = "persistence")]
+pub(in crate::core::model) use load::StagedLoad;
+#[cfg(feature = "persistence")]
+mod persistence;
 mod reconcile;
 mod registered;
 mod state;

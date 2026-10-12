@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Model field archives support owned lists, maps, and sets with deterministic encoding, capacity checks, and whole-root restoration. Collection restoration retires old member identities and preserves collection observers and effect handlers.
+
 - `commands.persistence()` queues Model saves, restores, pending saves, and IO enablement after callback borrows end. Requests retain weak instance identities and use the shared command capacity.
 
 - `Persistence::status` reports Model registration, pending saves, operation failures, and automatic-overwrite protection without storage access or allocation.

@@ -94,7 +94,57 @@ impl<'a> Value<'a> {
             remaining: count as usize,
         })
     }
+
+    pub fn pairs(self) -> Result<Pairs<'a>> {
+        let Shape::Map { key, value } = shape(self.schema)? else {
+            return Err(PersistenceError::InvalidArchive);
+        };
+        let mut bytes = Cursor(self.bytes);
+        let remaining = bytes.count()? as usize;
+        Ok(Pairs {
+            key,
+            value,
+            bytes,
+            remaining,
+        })
+    }
 }
+
+/// Iterates validated map entries without allocating a key index.
+pub struct Pairs<'a> {
+    key: &'a [u8],
+    value: &'a [u8],
+    bytes: Cursor<'a>,
+    remaining: usize,
+}
+
+impl<'a> Iterator for Pairs<'a> {
+    type Item = (Value<'a>, Value<'a>);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+        self.remaining -= 1;
+        Some((
+            Value {
+                schema: self.key,
+                bytes: self.bytes.sized().expect("validated archive key"),
+            },
+            Value {
+                schema: self.value,
+                bytes: self.bytes.sized().expect("validated archive value"),
+            },
+        ))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+impl ExactSizeIterator for Pairs<'_> {}
+impl core::iter::FusedIterator for Pairs<'_> {}
 
 /// Iterates validated collection values without building a temporary index.
 pub struct Values<'a> {

@@ -68,6 +68,7 @@ mod enabled {
     use super::*;
     use mirui::core::model::PersistModel;
 
+    mod collections;
     mod commands;
     mod manual;
     mod status;
