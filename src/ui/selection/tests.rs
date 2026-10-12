@@ -1,9 +1,10 @@
 use super::{RequestError, SelectAll};
 use crate::input::event::focus::FocusState;
-use crate::input::event::input::{InputEvent, KEY_A, KEY_C, Key, KeyModifiers};
+use crate::input::event::input::{InputEvent, KEY_A, KEY_C, KEY_V, KEY_X, Key, KeyModifiers};
 use crate::prelude::*;
 use crate::ui::clipboard::{
-    self, ClipboardData, ClipboardError, CopySelection, InspectSelection, SelectionState,
+    self, ClipboardData, ClipboardError, CopySelection, CutSelection, InspectSelection,
+    PasteSelection, SelectionState,
 };
 
 #[crate::component]
@@ -11,6 +12,8 @@ use crate::ui::clipboard::{
 struct Paper {
     selected: bool,
     revision: u64,
+    cut: bool,
+    pasted: bool,
 }
 
 #[crate::event]
@@ -40,7 +43,33 @@ fn export(_event: event!(CopySelection)) -> Result<ClipboardData, ClipboardError
     ClipboardData::text("paper")
 }
 
-#[crate::view(component = Paper, input = (choose::callback(), inspect::callback(), export::callback()))]
+#[crate::event]
+fn cut(
+    node: entity!(),
+    _event: event!(CutSelection),
+    papers: query!(mut Paper),
+) -> Result<(), ClipboardError> {
+    let paper = papers.get(node).ok_or(ClipboardError::Unavailable)?;
+    paper.cut = true;
+    paper.selected = false;
+    paper.revision += 1;
+    Ok(())
+}
+
+#[crate::event]
+fn paste(
+    node: entity!(),
+    event: event!(PasteSelection),
+    papers: query!(mut Paper),
+) -> Result<(), ClipboardError> {
+    assert_eq!(event.data().plain_text(), Ok("new"));
+    let paper = papers.get(node).ok_or(ClipboardError::Unavailable)?;
+    paper.pasted = true;
+    paper.revision += 1;
+    Ok(())
+}
+
+#[crate::view(component = Paper, input = (choose::callback(), inspect::callback(), export::callback(), cut::callback(), paste::callback()))]
 fn paper_view() {}
 
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
@@ -111,8 +140,98 @@ fn shortcuts_use_custom_component_requests_and_ignore_repeat_release_and_altgr()
                 },
             ),
         ] {
-            key(&mut app, KEY_C, pressed, repeat, mods);
-            assert!(clipboard::tests::take_write(&mut app.world).is_none());
+            for code in [KEY_C, KEY_X, KEY_V] {
+                key(&mut app, code, pressed, repeat, mods);
+                assert!(clipboard::take_request(&mut app.world).is_none());
+            }
+        }
+    }
+}
+
+#[test]
+fn cut_and_paste_shortcuts_use_captured_component_capabilities() {
+    for code in [KEY_X, KEY_V] {
+        for redirect_focus in [false, true] {
+            let (mut app, original) = fixture();
+            app.world.get_mut::<Paper>(original).unwrap().selected = true;
+            let root = app.root.unwrap();
+            let other = app.compose(root, |cx| ui! { View () [Paper::default()] });
+            if redirect_focus {
+                crate::input::event::runtime::install_entity(
+                    &mut app.world,
+                    original,
+                    Key::EVENT,
+                    redirect::callback::<crate::input::event::callback::NodeContext>(other),
+                )
+                .unwrap();
+            }
+            key(
+                &mut app,
+                code,
+                true,
+                false,
+                KeyModifiers {
+                    control: true,
+                    ..Default::default()
+                },
+            );
+            let paper = app.world.get::<Paper>(original).unwrap();
+            assert!(!paper.cut && !paper.pasted);
+            let response = match clipboard::take_request(&mut app.world).unwrap() {
+                clipboard::ClipboardRequest::Write(write) => {
+                    assert_eq!(code, KEY_X);
+                    assert_eq!(write.data().plain_text(), Ok("paper"));
+                    write.complete(Ok(()))
+                }
+                clipboard::ClipboardRequest::Read(read) => {
+                    assert_eq!(code, KEY_V);
+                    read.complete(ClipboardData::text("new"))
+                }
+            };
+            clipboard::complete(&mut app.world, &response);
+            let paper = app.world.get::<Paper>(original).unwrap();
+            assert_eq!(paper.cut, code == KEY_X);
+            assert_eq!(paper.pasted, code == KEY_V);
+            let paper = app.world.get::<Paper>(other).unwrap();
+            assert!(!paper.cut && !paper.pasted);
+        }
+    }
+}
+
+#[test]
+fn consumed_or_replaced_cut_and_paste_targets_do_not_start_platform_work() {
+    for code in [KEY_X, KEY_V] {
+        for replace_provider in [false, true] {
+            let (mut app, node) = fixture();
+            app.world.get_mut::<Paper>(node).unwrap().selected = true;
+            if replace_provider {
+                crate::input::event::runtime::install_entity(
+                    &mut app.world,
+                    node,
+                    Key::EVENT,
+                    replace::callback::<crate::input::event::callback::NodeContext>(),
+                )
+                .unwrap();
+            } else {
+                crate::input::event::runtime::install_entity(
+                    &mut app.world,
+                    node,
+                    Key::EVENT,
+                    prevent::callback::<crate::input::event::callback::NodeContext>(),
+                )
+                .unwrap();
+            }
+            key(
+                &mut app,
+                code,
+                true,
+                false,
+                KeyModifiers {
+                    meta: true,
+                    ..Default::default()
+                },
+            );
+            assert!(clipboard::take_request(&mut app.world).is_none());
         }
     }
 }

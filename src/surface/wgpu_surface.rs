@@ -1806,7 +1806,7 @@ mod tests {
 
     #[test]
     fn selection_shortcuts_do_not_duplicate_reported_keyboard_text() {
-        use crate::input::event::input::{KEY_A, KEY_C, KeyModifiers};
+        use crate::input::event::input::{KEY_A, KEY_C, KEY_V, KEY_X, KeyModifiers};
         let mut runtime = WgpuRuntime::new();
         for modifiers in [
             KeyModifiers {
@@ -1819,7 +1819,7 @@ mod tests {
             },
         ] {
             runtime.modifiers = Some(modifiers);
-            for (text, code) in [("a", KEY_A), ("C", KEY_C)] {
+            for (text, code) in [("a", KEY_A), ("C", KEY_C), ("v", KEY_V), ("X", KEY_X)] {
                 for state in [ElementState::Pressed, ElementState::Released] {
                     runtime.keyboard_input(&Key::Character(text.into()), state, Some(text), true);
                     assert!(

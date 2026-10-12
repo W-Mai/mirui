@@ -64,6 +64,17 @@ pub(crate) enum Shortcut {
         inspect: ResolvedRequest<super::clipboard::InspectSelection>,
         export: ResolvedRequest<super::clipboard::CopySelection>,
     },
+    Cut {
+        target: Entity,
+        inspect: ResolvedRequest<super::clipboard::InspectSelection>,
+        export: ResolvedRequest<super::clipboard::CopySelection>,
+        cut: ResolvedRequest<super::clipboard::CutSelection>,
+    },
+    Paste {
+        target: Entity,
+        inspect: ResolvedRequest<super::clipboard::InspectSelection>,
+        paste: ResolvedRequest<super::clipboard::PasteSelection>,
+    },
 }
 
 impl Shortcut {
@@ -72,13 +83,15 @@ impl Shortcut {
         target: Entity,
         key: &crate::input::event::input::Key,
     ) -> Option<Self> {
-        use crate::input::event::input::{KEY_A, KEY_C, selection_shortcut_key};
+        use crate::input::event::input::{KEY_A, KEY_C, KEY_V, KEY_X, selection_shortcut_key};
         if !key.pressed || key.repeat == Some(true) {
             return None;
         }
         let name = match key.code {
             KEY_A => "a",
             KEY_C => "c",
+            KEY_V => "v",
+            KEY_X => "x",
             _ => return None,
         };
         selection_shortcut_key(name, key.modifiers?)?;
@@ -88,6 +101,17 @@ impl Shortcut {
                 target,
                 inspect: request::resolve(world, target).ok()?,
                 export: request::resolve(world, target).ok()?,
+            }),
+            KEY_X => Some(Self::Cut {
+                target,
+                inspect: request::resolve(world, target).ok()?,
+                export: request::resolve(world, target).ok()?,
+                cut: request::resolve(world, target).ok()?,
+            }),
+            KEY_V => Some(Self::Paste {
+                target,
+                inspect: request::resolve(world, target).ok()?,
+                paste: request::resolve(world, target).ok()?,
             }),
             _ => None,
         }
@@ -106,6 +130,24 @@ impl Shortcut {
                 .validate(world)
                 .and_then(|()| export.validate(world))
                 .map(|()| super::clipboard::copy(world, target)),
+            Self::Cut {
+                target,
+                inspect,
+                export,
+                cut,
+            } => inspect
+                .validate(world)
+                .and_then(|()| export.validate(world))
+                .and_then(|()| cut.validate(world))
+                .map(|()| super::clipboard::cut(world, target)),
+            Self::Paste {
+                target,
+                inspect,
+                paste,
+            } => inspect
+                .validate(world)
+                .and_then(|()| paste.validate(world))
+                .map(|()| super::clipboard::paste(world, target)),
         };
         if let Err(error) = result {
             crate::warn!(target: "mirui::selection", "selection shortcut skipped: {:?}", error);

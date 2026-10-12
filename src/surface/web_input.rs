@@ -194,8 +194,17 @@ mod tests {
 
     #[test]
     fn selection_shortcuts_are_available_during_composition_without_changing_metadata() {
-        use crate::input::event::input::{KEY_A, KEY_C};
-        for (key, expected) in [("a", KEY_A), ("A", KEY_A), ("c", KEY_C), ("C", KEY_C)] {
+        use crate::input::event::input::{KEY_A, KEY_C, KEY_V, KEY_X};
+        for (key, expected) in [
+            ("a", KEY_A),
+            ("A", KEY_A),
+            ("c", KEY_C),
+            ("C", KEY_C),
+            ("v", KEY_V),
+            ("V", KEY_V),
+            ("x", KEY_X),
+            ("X", KEY_X),
+        ] {
             for modifiers in [
                 KeyModifiers {
                     control: true,

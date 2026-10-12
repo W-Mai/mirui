@@ -225,7 +225,7 @@ impl ClipboardCommands<'_, '_> {
     }
     pub fn cut(&mut self, target: Entity) {
         self.0.apply(target, (), |world, target, ()| {
-            write_selection(world, target, true);
+            cut(world, target);
             Ok(())
         });
     }
@@ -358,6 +358,10 @@ fn capture(
 
 pub(crate) fn copy(world: &mut World, target: Entity) {
     write_selection(world, target, false);
+}
+
+pub(crate) fn cut(world: &mut World, target: Entity) {
+    write_selection(world, target, true);
 }
 
 fn write_selection(world: &mut World, target: Entity, cut: bool) {

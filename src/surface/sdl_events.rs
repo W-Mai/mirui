@@ -75,6 +75,8 @@ pub(crate) fn keyboard_input(event: &Event) -> Option<InputEvent> {
         Keycode::Return => KEY_RETURN,
         Keycode::A => selection_shortcut_key("a", modifiers)?,
         Keycode::C => selection_shortcut_key("c", modifiers)?,
+        Keycode::V => selection_shortcut_key("v", modifiers)?,
+        Keycode::X => selection_shortcut_key("x", modifiers)?,
         Keycode::Escape if pressed => return Some(InputEvent::Quit),
         _ => return None,
     };
@@ -191,7 +193,12 @@ mod tests {
 
     #[test]
     fn selection_shortcuts_keep_key_metadata_without_turning_plain_letters_into_keys() {
-        for (keycode, expected) in [(Keycode::A, KEY_A), (Keycode::C, KEY_C)] {
+        for (keycode, expected) in [
+            (Keycode::A, KEY_A),
+            (Keycode::C, KEY_C),
+            (Keycode::V, KEY_V),
+            (Keycode::X, KEY_X),
+        ] {
             for keymod in [Mod::LCTRLMOD, Mod::RGUIMOD] {
                 for pressed in [false, true] {
                     let mut event = key_event(keycode, pressed);

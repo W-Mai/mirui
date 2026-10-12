@@ -28,8 +28,8 @@ fn dispatch(app: &mut TestApp, root: Entity, target: Entity, event: InputEvent) 
 }
 
 #[test]
-fn selection_shortcuts_copy_only_the_focused_shared_editors_selection() {
-    use crate::input::event::input::{KEY_A, KEY_C, KeyModifiers};
+fn clipboard_shortcuts_use_the_focused_shared_editors_selection() {
+    use crate::input::event::input::{KEY_A, KEY_C, KEY_V, KEY_X, KeyModifiers};
     use crate::ui::clipboard;
     let (mut app, _, model) = fixture();
     let first = app.world.find_by_id("editor_shared_a").unwrap();
@@ -65,6 +65,47 @@ fn selection_shortcuts_copy_only_the_focused_shared_editors_selection() {
     clipboard::complete(&mut app.world, &write.complete(Ok(())));
     crate::ui::delivery::flush(&mut app.world).unwrap();
     assert_eq!(model.clipboard_status(), "Copied");
+    let original = model
+        .shared()
+        .read(|text| alloc::string::String::from(text));
+    for code in [KEY_X, KEY_V] {
+        crate::input::event::deliver_input(
+            &mut app.world,
+            app.root,
+            &InputEvent::Key {
+                code,
+                pressed: true,
+                modifiers: Some(KeyModifiers {
+                    meta: true,
+                    ..Default::default()
+                }),
+                repeat: Some(false),
+            },
+            0,
+            440,
+            760,
+        );
+        let response = match clipboard::take_request(&mut app.world).unwrap() {
+            clipboard::ClipboardRequest::Write(write) => {
+                assert_eq!(code, KEY_X);
+                assert_eq!(write.data().plain_text(), Ok(original.as_str()));
+                write.complete(Ok(()))
+            }
+            clipboard::ClipboardRequest::Read(read) => {
+                assert_eq!(code, KEY_V);
+                read.complete(clipboard::ClipboardData::text(&original))
+            }
+        };
+        clipboard::complete(&mut app.world, &response);
+        crate::ui::delivery::flush(&mut app.world).unwrap();
+        model
+            .shared()
+            .read(|text| assert_eq!(text, if code == KEY_X { "" } else { &original }));
+        assert_eq!(
+            model.clipboard_status(),
+            if code == KEY_X { "Cut" } else { "Pasted" }
+        );
+    }
 }
 
 #[test]
