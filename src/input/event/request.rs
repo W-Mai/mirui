@@ -3,7 +3,9 @@ use core::any::{Any, TypeId};
 use core::cell::Cell;
 
 use crate::core::reactive::retained::InputLease;
+use crate::ecs::world::WorldId;
 use crate::ecs::{Component, Entity, World};
+use crate::ui::lifecycle::ViewInputGuard;
 use crate::ui::view::ViewRegistry;
 
 use super::callback::{CallbackContext, EventCallback, PreparedEvent};
@@ -47,24 +49,14 @@ where
         target: Entity,
         payload: &E,
     ) -> Result<Decision<E>, RequestError> {
-        if !world.is_alive(target)
-            || !E::Source::present(world, target)
-            || !crate::core::reactive::retained::enabled(world, target)
-        {
-            return Err(RequestError::Unavailable);
-        }
         if self.active.replace(true) {
             return Err(RequestError::Busy);
         }
         let _active = Active(&self.active);
-        let lease = InputLease::capture(world, target);
         let result = self
             .callback
             .invoke(world, payload, target)
             .map_err(RequestError::Command)?;
-        if !world.is_alive(target) || lease.is_some_and(|lease| !lease.valid(world)) {
-            return Err(RequestError::Unavailable);
-        }
         result.ok_or(RequestError::Unavailable)
     }
 }
@@ -108,8 +100,12 @@ where
     C: CallbackContext<E, Target = Entity>,
     E::Source: EntityEventSource,
 {
+    let callback = prepare_shared_callback(world, callback)?;
+    if let Some(kind) = E::Source::component_kind() {
+        world.watch_component_lifetime(kind);
+    }
     Ok(Provider(Rc::new(Installed {
-        callback: prepare_shared_callback(world, callback)?,
+        callback,
         active: Cell::new(false),
     })))
 }
@@ -148,21 +144,89 @@ where
     E: Event<Route = EntityRequest<D>>,
     E::Source: EntityEventSource,
 {
-    if !super::listeners::InputBranch::scan(world, target)
-        .map_err(|_| RequestError::Unavailable)?
-        .allowed()
-    {
-        return Err(RequestError::Unavailable);
+    resolve(world, target)?.invoke(world, payload)
+}
+
+enum Origin {
+    Explicit,
+    View(ViewInputGuard),
+}
+
+pub(crate) struct ResolvedRequest<E: Event> {
+    owner: WorldId,
+    target: Entity,
+    provider: Provider<E>,
+    origin: Origin,
+    source_generation: Option<u64>,
+    retained: Option<InputLease>,
+}
+
+impl<E, D> ResolvedRequest<E>
+where
+    D: 'static,
+    E: Event<Route = EntityRequest<D>>,
+    E::Source: EntityEventSource,
+{
+    pub(crate) fn invoke(&self, world: &mut World, payload: &E) -> Result<D, RequestError> {
+        self.validate(world)?;
+        let result = self.provider.0.invoke(world, self.target, payload)?;
+        self.validate(world)?;
+        Ok(result)
     }
-    if let Some(provider) = world.get::<Provider<E>>(target).cloned() {
-        let result = provider.0.invoke(world, target, payload)?;
-        if world
-            .get::<Provider<E>>(target)
-            .is_none_or(|current| !Rc::ptr_eq(&provider.0, &current.0))
+
+    fn validate(&self, world: &World) -> Result<(), RequestError> {
+        if self.owner != world.id()
+            || self.retained.is_some_and(|lease| !lease.valid(world))
+            || E::Source::component_kind()
+                .and_then(|kind| world.component_generation(self.target, kind))
+                != self.source_generation
+            || matches!(&self.origin, Origin::View(guard) if !guard.valid(world, self.target))
         {
             return Err(RequestError::Unavailable);
         }
-        return Ok(result);
+        let current = resolve::<E, D>(world, self.target)?;
+        if !Rc::ptr_eq(&self.provider.0, &current.provider.0) {
+            return Err(RequestError::Unavailable);
+        }
+        Ok(())
+    }
+}
+
+pub(crate) fn resolve<E, D>(
+    world: &World,
+    target: Entity,
+) -> Result<ResolvedRequest<E>, RequestError>
+where
+    D: 'static,
+    E: Event<Route = EntityRequest<D>>,
+    E::Source: EntityEventSource,
+{
+    if !super::listeners::InputBranch::scan(world, target)
+        .map_err(|_| RequestError::Unavailable)?
+        .allowed()
+        || !E::Source::present(world, target)
+        || !crate::core::reactive::retained::enabled(world, target)
+    {
+        return Err(RequestError::Unavailable);
+    }
+    let source_generation = match E::Source::component_kind() {
+        Some(kind) => Some(
+            world
+                .component_generation(target, kind)
+                .ok_or(RequestError::Unavailable)?,
+        ),
+        None => None,
+    };
+    let capture = |provider, origin| ResolvedRequest {
+        owner: world.id(),
+        target,
+        provider,
+        origin,
+        source_generation,
+        retained: InputLease::capture(world, target),
+    };
+    if let Some(provider) = world.get::<Provider<E>>(target).cloned() {
+        return Ok(capture(provider, Origin::Explicit));
     }
     let mut selected = None;
     if let Some(registry) = world.resource::<ViewRegistry>() {
@@ -197,11 +261,7 @@ where
         }
     }
     let (provider, guard) = selected.ok_or(RequestError::Unsupported)?;
-    let result = provider.0.invoke(world, target, payload)?;
-    if !guard.valid(world, target) {
-        return Err(RequestError::Unavailable);
-    }
-    Ok(result)
+    Ok(capture(provider, Origin::View(guard)))
 }
 
 #[cfg(test)]

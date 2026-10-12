@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Selection requests reject replaced providers, changed component attachments, and rebound retained rows before accepting callback results.
+
 - Editor Lab source includes the on-screen keyboard implementation.
 
 - Text editors extend selections during pointer drags and preserve the selected range on release.

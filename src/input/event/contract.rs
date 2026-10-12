@@ -163,6 +163,11 @@ impl<W: Component, D: 'static> EventSource<EntityRequest<D>> for WidgetSource<W>
 pub trait EntityEventSource: sealed::Source {
     #[doc(hidden)]
     fn present(world: &World, entity: Entity) -> bool;
+
+    #[doc(hidden)]
+    fn component_kind() -> Option<core::any::TypeId> {
+        None
+    }
 }
 impl EntityEventSource for EntitySource {
     fn present(_world: &World, _entity: Entity) -> bool {
@@ -187,6 +192,10 @@ impl EntityEventSource for InputSource {
 impl<W: Component> EntityEventSource for WidgetSource<W> {
     fn present(world: &World, entity: Entity) -> bool {
         world.get::<W>(entity).is_some()
+    }
+
+    fn component_kind() -> Option<core::any::TypeId> {
+        Some(core::any::TypeId::of::<W>())
     }
 }
 

@@ -243,3 +243,130 @@ fn request_view_rejects_duplicate_types_before_installing_any_hooks() {
     crate::input::event::runtime::configure(&mut world, crate::input::event::EventCapacity::new())
         .unwrap();
 }
+
+#[test]
+fn resolved_requests_do_not_follow_replaced_widgets_or_explicit_overrides() {
+    let mut app = App::headless(32, 32);
+    app.with_widget(selectable::view());
+    let root = app.spawn_root().id();
+    let node = app.compose(root, |cx| ui! { View () [Selectable::default()] });
+    let original = resolve::<SelectAll, _>(&app.world, node).unwrap();
+    app.world.insert(node, Selectable::default());
+    crate::ui::lifecycle::prepare(&mut app.world);
+    assert_eq!(
+        original.invoke(&mut app.world, &SelectAll),
+        Err(RequestError::Unavailable)
+    );
+    assert_eq!(app.world.get::<Selectable>(node).unwrap().0, 0);
+
+    let replacement = resolve::<SelectAll, _>(&app.world, node).unwrap();
+    install(
+        &mut app.world,
+        node,
+        choose::callback::<crate::input::event::callback::NodeContext>(),
+    )
+    .unwrap();
+    assert_eq!(
+        replacement.invoke(&mut app.world, &SelectAll),
+        Err(RequestError::Unavailable)
+    );
+    assert_eq!(invoke(&mut app.world, node, &SelectAll), Ok(Ok(())));
+    assert_eq!(app.world.get::<Selectable>(node).unwrap().0, 1);
+}
+
+#[test]
+fn resolved_requests_reject_foreign_worlds_and_retained_rebinding_without_allocation() {
+    use crate::core::reactive::retained::{RetainedEffects, retire};
+    let mut app = App::headless(32, 32);
+    app.with_widget(selectable::view());
+    let root = app.spawn_root().id();
+    let node = app.compose(root, |cx| ui! { View () [Selectable::default()] });
+    let gate = RetainedEffects::new(&mut app.world, |_, _| true);
+    app.world.insert(root, gate);
+    let request = resolve::<SelectAll, _>(&app.world, node).unwrap();
+    let mut other = App::headless(32, 32);
+    assert_eq!(
+        request.invoke(&mut other.world, &SelectAll),
+        Err(RequestError::Unavailable)
+    );
+    assert_eq!(
+        tracked_allocations(|| {
+            assert_eq!(request.invoke(&mut app.world, &SelectAll), Ok(Ok(())));
+            retire(&mut app.world, root);
+            assert_eq!(
+                request.invoke(&mut app.world, &SelectAll),
+                Err(RequestError::Unavailable)
+            );
+            assert_eq!(invoke(&mut app.world, node, &SelectAll), Ok(Ok(())));
+        }),
+        0
+    );
+    assert_eq!(app.world.get::<Selectable>(node).unwrap().0, 2);
+}
+
+struct WidgetRequest;
+impl Event for WidgetRequest {
+    type Route = EntityRequest<Result<(), RequestError>>;
+    type Source = crate::input::event::contract::WidgetSource<Selectable>;
+    type Options = ();
+}
+
+#[crate::event]
+fn widget_request(
+    node: entity!(),
+    _request: event!(WidgetRequest),
+    values: query!(mut Selectable),
+) -> Result<(), RequestError> {
+    values.get(node).ok_or(RequestError::Unavailable)?.0 += 1;
+    Ok(())
+}
+
+#[test]
+fn explicit_widget_requests_retain_source_attachment_identity() {
+    let mut app = App::headless(32, 32);
+    let root = app.spawn_root().id();
+    let node = app.compose(root, |cx| ui! { View () [Selectable::default()] });
+    install(
+        &mut app.world,
+        node,
+        widget_request::callback::<crate::input::event::callback::NodeContext>(),
+    )
+    .unwrap();
+    let request = resolve::<WidgetRequest, _>(&app.world, node).unwrap();
+    app.world.get_mut::<Selectable>(node).unwrap().0 = 10;
+    assert_eq!(request.invoke(&mut app.world, &WidgetRequest), Ok(Ok(())));
+    app.world.insert(node, Selectable::default());
+    assert_eq!(
+        request.invoke(&mut app.world, &WidgetRequest),
+        Err(RequestError::Unavailable)
+    );
+    assert_eq!(app.world.get::<Selectable>(node).unwrap().0, 0);
+    assert_eq!(invoke(&mut app.world, node, &WidgetRequest), Ok(Ok(())));
+}
+
+#[crate::event]
+fn replacing_source(
+    node: entity!(),
+    _request: event!(WidgetRequest),
+    commands: commands!(),
+) -> Result<(), RequestError> {
+    commands.insert(node, Selectable::default());
+    Ok(())
+}
+
+#[test]
+fn request_results_are_rejected_when_callback_commands_replace_their_source() {
+    let mut app = App::headless(32, 32);
+    let root = app.spawn_root().id();
+    let node = app.compose(root, |cx| ui! { View () [Selectable::default()] });
+    install(
+        &mut app.world,
+        node,
+        replacing_source::callback::<crate::input::event::callback::NodeContext>(),
+    )
+    .unwrap();
+    assert_eq!(
+        invoke(&mut app.world, node, &WidgetRequest),
+        Err(RequestError::Unavailable)
+    );
+}

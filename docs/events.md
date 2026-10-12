@@ -6,6 +6,8 @@ Declare typed payloads, bind callbacks, and configure bounded notification and c
 
 Selection requests use `ui::selection::SelectAll` and return `Result<(), RequestError>`. `commands.selection().select_all(entity)` invokes one provider on that node without bubbling, App fallback, or notification storage. TextEditing registers a default provider. Custom components can register `#[event]` callbacks in a View's `input` tuple, or use any existing `on SelectAll` callback form to override the default on a specific node. Multiple matching View providers are rejected before invocation unless an explicit node handler resolves the ambiguity. Request-only bindings do not add pointer feedback or hit targets. Commands run after callback parameter borrows end and before the next command; unavailable, conflicting, or recursive requests warn and are skipped.
 
+Requests retain their resolved provider and validate its identity before and after execution. Replacing the provider, its View component, or a declared `WidgetSource` component invalidates the request; ordinary field writes do not replace an attachment. Retained-row rebinding also invalidates the original request. A rejected result does not roll back changes already made by the callback.
+
 `input::event::contract::Event` declares a payload's route, source, and options. `EventKey<E>` stores only the options and preserves the payload type; it does not own a payload, a model, or a callback. A key with `Options = ()` occupies no memory.
 
 Widget notification types use `EntityNotification` and `WidgetSource<W>`:
