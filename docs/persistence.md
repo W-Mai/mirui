@@ -96,6 +96,8 @@ let game = app.add_model(GameModel::default()).finish();
 
 `GameArchive::Model` selects the target type. The plugin selects the codec before reading an instance's record and retains it for that registration. All independent instances of the type share the configured codec; different Apps can use different configurations. Duplicate configurations for one Model type emit a warning and retain the first. Nested Models remain part of their root's archive, without separate codec selection or storage keys.
 
+The Gallery's Tidal Atlas and Echo Walker codecs encode replay logs into the plugin's reusable output buffer. Their `prepare` methods validate the log and reconstruct temporary game data; `apply` installs that data. The plugin is installed before `add_model(...).finish()`, so UI composition reads the restored game state.
+
 Without a custom codec, declared fields use the built-in field archive. A persistent root with no declared fields and no custom codec remains unregistered with storage and emits a warning. A custom codec can handle opaque business fields that do not implement field serialization; omit `#[persist]` on those fields.
 
 `ModelCodec` defines a complete archive format for an associated `Model` type. `encode` writes into a reusable byte buffer; `prepare` validates the entire stored record and prepares a restoration without changing the current Model; `apply` consumes that prepared value. Application must not allocate, deliver business effects, or perform additional fallible validation. A custom codec receives and produces complete storage bytes without an added framework prefix. It can access the raw Model's business data, not only fields marked `#[persist]`.

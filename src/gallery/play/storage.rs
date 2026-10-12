@@ -206,13 +206,21 @@ impl<const N: usize> ReplayLog<N> {
     }
 
     #[cfg(feature = "persistence")]
-    pub(crate) fn encode_vec(&self) -> alloc::vec::Vec<u8> {
-        let mut bytes = alloc::vec![0; self.encoded_len()];
-        let len = self
-            .encode_into(&mut bytes)
-            .expect("exact replay buffer length");
-        bytes.truncate(len);
+    pub(crate) fn encode_archive(
+        &self,
+        bytes: &mut alloc::vec::Vec<u8>,
+    ) -> Result<(), crate::core::persistence::PersistenceError> {
+        use crate::core::persistence::PersistenceError;
+        bytes.clear();
         bytes
+            .try_reserve_exact(self.encoded_len())
+            .map_err(|_| PersistenceError::Capacity)?;
+        bytes.resize(self.encoded_len(), 0);
+        let len = self
+            .encode_into(bytes)
+            .map_err(|_| PersistenceError::Encoding)?;
+        bytes.truncate(len);
+        Ok(())
     }
 }
 

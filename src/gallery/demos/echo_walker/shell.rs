@@ -673,9 +673,9 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(PlayFontPlugin);
-    let model = app.add_model(EchoModel::default()).finish();
     #[cfg(feature = "persistence")]
-    install_persistence(app, model.clone());
+    install_persistence(app);
+    let model = app.add_model(EchoModel::default()).finish();
     app.with_widget(surface_render::view())
         .with_widget(modal_render::view());
     app.on_event(TextCommitted::EVENT, keyboard::callback(model.clone()));

@@ -74,7 +74,7 @@ impl EchoHistory {
     }
 }
 
-#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
+#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL), persistence(key = "echo_walker/replay"))]
 pub(crate) struct EchoModel {
     seed: u32,
     level: u8,
@@ -345,8 +345,11 @@ impl EchoModel {
     }
 
     #[cfg(feature = "persistence")]
-    pub(crate) fn encode_replay(&self) -> alloc::vec::Vec<u8> {
-        self.replay.encode_vec()
+    pub(crate) fn encode_replay(
+        &self,
+        output: &mut alloc::vec::Vec<u8>,
+    ) -> Result<(), crate::core::persistence::PersistenceError> {
+        self.replay.encode_archive(output)
     }
 
     #[cfg(all(feature = "persistence", test))]
@@ -521,12 +524,6 @@ impl EchoModel {
             Some(ghost)
         };
         self.set_peek_ghost_raw(next)
-    }
-
-    #[cfg(feature = "persistence")]
-    pub(crate) fn restore_replay(&mut self, restored: EchoModel) -> ChangeSet {
-        *self = restored;
-        ChangeSet::MODEL | ChangeSet::VISUAL
     }
 }
 fn route_position(start: u8, route: PackedRoute, beat: u8) -> u8 {

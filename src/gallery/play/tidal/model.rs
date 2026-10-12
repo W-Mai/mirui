@@ -139,7 +139,7 @@ pub(crate) struct TidePreview {
     pub(crate) delta: i16,
 }
 
-#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
+#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL), persistence(key = "tidal_atlas/replay"))]
 pub(crate) struct TideModel {
     pub(super) state: TideState,
     pub(super) history: TideHistory,
@@ -647,8 +647,11 @@ impl TideModel {
     }
 
     #[cfg(feature = "persistence")]
-    pub(crate) fn encode_replay(&self) -> alloc::vec::Vec<u8> {
-        self.replay.encode_vec()
+    pub(crate) fn encode_replay(
+        &self,
+        output: &mut alloc::vec::Vec<u8>,
+    ) -> Result<(), crate::core::persistence::PersistenceError> {
+        self.replay.encode_archive(output)
     }
 
     #[cfg(all(feature = "persistence", test))]
@@ -817,12 +820,6 @@ impl TideModel {
 
     pub(crate) fn continue_voyage(&mut self, perk: Option<Perk>) -> ChangeSet {
         self.apply_command(TideCommand::Continue { perk })
-    }
-
-    #[cfg(feature = "persistence")]
-    pub(crate) fn restore_replay(&mut self, restored: TideModel) -> ChangeSet {
-        *self = restored;
-        ChangeSet::MODEL | ChangeSet::VISUAL
     }
 }
 

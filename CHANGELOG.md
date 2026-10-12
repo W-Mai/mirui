@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Tidal Atlas and Echo Walker use Model persistence codecs for replay saves, retaining their archive format and restoring before UI observation is installed.
+
 - `App::add_model` returns a pending builder. Call `.finish()` to register the Model; `.with_key(...)` configures a persistent instance before any storage access.
 
 - Storage operations report errors and distinguish unchanged writes. File and browser storage constructors return errors instead of silently replacing unavailable or corrupt data with empty state. Persistence callbacks propagate restore failures and retain retryable saves.

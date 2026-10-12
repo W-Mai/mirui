@@ -84,8 +84,11 @@ fn keyboard_wait_advances_exactly_one_beat() {
     assert_eq!(with_model(&world, EchoModel::tick), 1);
     #[cfg(feature = "persistence")]
     {
-        let bytes =
-            crate::core::model::ModelHandle::read(&model_handle(&world), EchoModel::encode_replay);
+        let mut bytes = alloc::vec::Vec::new();
+        crate::core::model::ModelHandle::read(&model_handle(&world), |model| {
+            model.encode_replay(&mut bytes)
+        })
+        .unwrap();
         let log = EchoReplayLog::decode(&bytes, ReplayKind::Echo).unwrap();
         assert_eq!(log.len(), 1);
     }
