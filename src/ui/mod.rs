@@ -29,6 +29,7 @@ pub mod render_system;
 #[doc(hidden)]
 pub mod resource_access;
 pub mod scope;
+pub mod selection;
 pub mod state;
 pub mod style_view;
 pub mod text_input;

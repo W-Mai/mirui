@@ -4,6 +4,8 @@
 
 Dragging from an editor fixes the selection anchor at the starting caret and extends the other endpoint. Release or cancellation retains the selected range. Dragging stops when the editor is no longer focused or its content or selection has changed externally. Editors install `TouchAction::PanY` unless an explicit policy is present, keeping horizontal drags available for selection and vertical drags available for ancestor scrolling.
 
+Use `commands.selection().select_all(editor)` to select an editor's complete document without changing keyboard focus. `editor` is the target entity; `TextEditing` supplies its own selection behavior, including for custom editors that attach it. Other editors sharing the document retain their independent selections. Toolbars can attach `PointerFocus::Preserve` to keep the editor focused. Selection changes use the existing `SelectionChanged` notification.
+
 ## A custom search editor
 
 This example owns the query in an application Model. `SearchEditor()` attaches the editing capability and standard appearance; a second `TextInput()` shares the query while keeping its own selection. Return invokes the application's submit method through the existing notification API.

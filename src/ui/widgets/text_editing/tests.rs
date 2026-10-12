@@ -4,6 +4,32 @@ use crate::test_support::tracked_allocations;
 use crate::ui::{dirty::Dirty, view::ViewRegistry};
 
 #[test]
+fn selection_requests_reject_foreign_and_expired_document_bindings() {
+    use crate::input::event::{callback::NodeContext, request};
+    use crate::ui::selection::{RequestError, SelectAll};
+    let mut owner = App::headless(32, 32);
+    let document = owner.add_model(TextDocument::new());
+    document.set_text("old").unwrap();
+    let mut world = crate::ecs::World::new();
+    let node = world.spawn(TextEditing::new(document));
+    request::install(
+        &mut world,
+        node,
+        input::select_all::callback::<NodeContext>(),
+    )
+    .unwrap();
+    assert_eq!(
+        request::invoke(&mut world, node, &SelectAll),
+        Ok(Err(RequestError::Unavailable))
+    );
+    drop(owner);
+    assert_eq!(
+        request::invoke(&mut world, node, &SelectAll),
+        Ok(Err(RequestError::Unavailable))
+    );
+}
+
+#[test]
 fn default_inline_document_and_selection_require_no_allocation() {
     assert_eq!(
         tracked_allocations(|| {

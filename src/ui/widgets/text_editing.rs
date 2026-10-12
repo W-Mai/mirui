@@ -152,8 +152,13 @@ impl TextEditing {
     }
 
     pub(crate) fn usable(&self, world: &crate::ecs::World) -> bool {
+        self.usable_by(Some(world.id()))
+    }
+
+    fn usable_by(&self, owner: Option<crate::ecs::world::WorldId>) -> bool {
         self.document.as_ref().is_none_or(|document| {
-            crate::core::model::try_registered_owner(document) == Some(world.id())
+            owner.is_some()
+                && crate::core::model::try_registered_owner(document) == owner
                 && document.callback_ready()
         })
     }
@@ -187,7 +192,7 @@ impl TextEditing {
     name = "TextEditing",
     invalidation = Layout,
     attach = input::attach::callback(),
-    input = (input::key::callback(), input::committed::callback(), input::tap::callback(), input::preedit::callback(), input::composition_ended::callback(), input::drag_start::callback(), input::drag_move::callback(), input::drag_end::callback(), input::drag_cancel::callback()),
+    input = (input::key::callback(), input::committed::callback(), input::tap::callback(), input::preedit::callback(), input::composition_ended::callback(), input::drag_start::callback(), input::drag_move::callback(), input::drag_end::callback(), input::drag_cancel::callback(), input::select_all::callback()),
     systems = [input::normalize_selections::system(), input::cursor_blink::system()]
 )]
 fn text_editing_state(_document: model!(optional component.document, watch(revision, capacity))) {}

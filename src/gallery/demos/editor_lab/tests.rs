@@ -28,6 +28,45 @@ fn dispatch(app: &mut TestApp, root: Entity, target: Entity, event: InputEvent) 
 }
 
 #[test]
+fn selection_toolbar_uses_the_target_editors_range_without_moving_focus() {
+    let (mut app, _, model) = fixture();
+    let first = app.world.find_by_id("editor_shared_a").unwrap();
+    let second = app.world.find_by_id("editor_shared_b").unwrap();
+    let button = app.world.find_by_id("editor_select_all").unwrap();
+    let second_selection = app.world.get::<TextEditing>(second).unwrap().selection();
+    app.world.resource_mut::<FocusState>().unwrap().focused = Some(first);
+    let content = model
+        .shared()
+        .read(|text| alloc::string::String::from(text));
+    crate::ui::delivery::dispatch_gesture(
+        &mut app.world,
+        &crate::input::event::gesture::GestureEvent::Tap {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            target: button,
+        },
+        0,
+    )
+    .unwrap();
+    assert_eq!(
+        app.world.resource::<FocusState>().unwrap().focused,
+        Some(first)
+    );
+    assert_eq!(
+        app.world.get::<TextEditing>(first).unwrap().selection(),
+        TextSelection {
+            anchor: 0,
+            cursor: content.len()
+        }
+    );
+    assert_eq!(
+        app.world.get::<TextEditing>(second).unwrap().selection(),
+        second_selection
+    );
+    model.shared().read(|text| assert_eq!(text, content));
+}
+
+#[test]
 fn screen_keyboard_composes_into_custom_editors_without_changing_the_shared_preview() {
     let (mut app, _, model) = fixture();
     app.with_input_method(InputMethod::software((

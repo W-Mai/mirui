@@ -25,7 +25,7 @@ pub trait Event: Sized + 'static {
 /// The callback decision required by an event route.
 ///
 /// Route implementations are supplied by the library. Notifications require
-/// `()`; consumable routes require a [`BubbleControl`] decision.
+/// `()`; consumable routes require a [`BubbleControl`] decision. Direct requests retain their declared return type.
 pub trait EventRoute: sealed::Route + 'static {
     type Decision;
     #[doc(hidden)]
@@ -46,6 +46,18 @@ pub struct InputNotification;
 pub struct Initialization;
 /// A synchronous, single-provider request that constructs a widget subtree.
 pub struct WidgetConstruction;
+/// A direct, single-provider request with a typed return value.
+pub struct EntityRequest<D: 'static>(PhantomData<fn() -> D>);
+/// A direct capability request that could not be completed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RequestError {
+    Unsupported,
+    Ambiguous,
+    Unavailable,
+    Busy,
+    Rejected,
+    Command(crate::ecs::CommandError),
+}
 /// Input handled by the focus/scroll route before reaching App listeners.
 pub struct InputFallback;
 /// A non-consumable App lifecycle notification.
@@ -93,6 +105,12 @@ impl EntityRoute for LayoutNotification {}
 impl EntityRoute for InputNotification {}
 impl EntityRoute for Initialization {}
 impl EntityRoute for WidgetConstruction {}
+impl<D: 'static> sealed::Route for EntityRequest<D> {}
+impl<D: 'static> EventRoute for EntityRequest<D> {
+    type Decision = D;
+    type Scope<'world> = ();
+}
+impl<D: 'static> EntityRoute for EntityRequest<D> {}
 impl EntityRoute for InputFallback {}
 
 /// A route accepted by an App event installer.
@@ -130,6 +148,7 @@ impl EventSource<EntityBubble> for EntitySource {}
 impl EventSource<EntityNotification> for EntitySource {}
 impl EventSource<EntityNotification> for ScrollSource {}
 impl EventSource<Initialization> for EntitySource {}
+impl<D: 'static> EventSource<EntityRequest<D>> for EntitySource {}
 impl EventSource<LayoutNotification> for LayoutSource {}
 impl EventSource<InputFallback> for InputSource {}
 impl EventSource<InputNotification> for InputSource {}
@@ -137,6 +156,7 @@ impl EventSource<InputFallback> for AppSource {}
 impl EventSource<AppNotification> for AppSource {}
 impl<W: Component> EventSource<EntityNotification> for WidgetSource<W> {}
 impl<W: Component> EventSource<WidgetConstruction> for WidgetSource<W> {}
+impl<W: Component, D: 'static> EventSource<EntityRequest<D>> for WidgetSource<W> {}
 
 /// A source checked against an entity's installed components.
 #[doc(hidden)]
@@ -258,9 +278,16 @@ impl<E: Event> EventKey<E> {
 /// A callback result permitted by route `R`.
 ///
 /// Notifications accept only `()`. Consumable events accept `()`, `bool`,
-/// or [`BubbleControl`]; `()` and `true` stop propagation.
+/// or [`BubbleControl`]; `()` and `true` stop propagation. `EntityRequest<D>` accepts exactly `D`.
 pub trait EventResult<R: EventRoute>: sealed::Result<R> {
     fn into_decision(self) -> R::Decision;
+}
+
+impl<D: 'static> sealed::Result<EntityRequest<D>> for D {}
+impl<D: 'static> EventResult<EntityRequest<D>> for D {
+    fn into_decision(self) -> D {
+        self
+    }
 }
 
 macro_rules! consumable_results {

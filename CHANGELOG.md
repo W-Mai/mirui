@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Selection commands target text and custom components through typed request callbacks. TextEditing supplies select-all behavior, and Editor Lab includes a selection toolbar.
+
 - Web Canvas routes DOM composition and text commits through editor sessions, converts native selection offsets, and positions the input-method anchor at the caret.
 
 - WGPU desktop and mobile surfaces share native editor sessions, retain captured input ownership, and update soft-keyboard visibility through the Surface protocol.

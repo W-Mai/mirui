@@ -176,6 +176,9 @@ impl EventRuntime {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RuntimeInstallError {
+    DuplicateRequest {
+        event: &'static str,
+    },
     Capacity(EventCapacityError),
     Listener(ListenerError),
     MissingCommandCapacity,

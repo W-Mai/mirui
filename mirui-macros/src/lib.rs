@@ -925,6 +925,8 @@ impl MiruiRune {
                     use ::mirui::input::event::input::InputSelectors as _;
                     #[allow(unused_imports)]
                     use ::mirui::input::event::layout::LayoutSelectors as _;
+                    #[allow(unused_imports)]
+                    use ::mirui::ui::selection::SelectionSelectors as _;
                     #binding
                 }
             });

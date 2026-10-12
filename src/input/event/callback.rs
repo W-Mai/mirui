@@ -172,6 +172,20 @@ struct ConstructionGuard<'world> {
     accepted: bool,
 }
 
+impl<D: 'static, P: SystemParamSet, T> CallbackInvocation<P, T>
+    for super::contract::EntityRequest<D>
+{
+    unsafe fn invoke<R: EventResult<Self>>(
+        world: &mut World,
+        _target: T,
+        name: &'static str,
+        body: impl for<'world> FnOnce(P::Item<'world>, &mut ()) -> R,
+    ) -> D {
+        // SAFETY: the caller validated the complete parameter access plan.
+        body(unsafe { fetch_system_params::<P>(world, name) }, &mut ()).into_decision()
+    }
+}
+
 impl Drop for ConstructionGuard<'_> {
     fn drop(&mut self) {
         if self.accepted {

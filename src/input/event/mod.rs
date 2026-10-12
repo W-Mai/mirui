@@ -14,6 +14,7 @@ pub(crate) mod listeners;
 pub mod multi_tap;
 pub(crate) mod notification;
 pub mod press;
+pub(crate) mod request;
 pub(crate) mod runtime;
 pub mod scroll;
 pub mod sim;

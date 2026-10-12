@@ -84,6 +84,20 @@ pub fn build_widgets(model: model!(EditorLab)) {
                 bg_color: ColorToken::SurfaceVariant,
                 border_radius: 8
             )
+            shared_actions (model.clone(), id("editor_shared_a"))
+            keyboard_panel (model.keyboard())
+        }
+    };
+}
+
+#[compose]
+fn shared_actions(model: model!(EditorLab), editor: Entity) -> Entity {
+    ui! {
+        Row (height: 34, column_gap: 8) {
+            Button (id: "editor_select_all", width: 112, font_size: 12, border_radius: 8) [
+                PointerFocus::Preserve,
+                Text::label("Select all"),
+            ] on Tap { commands!().selection().select_all(editor); }
             Button (id: "editor_replace", height: 34, width: 200, font_size: 12, border_radius: 8) [
                 PointerFocus::Preserve,
                 Text::label("Replace document"),
@@ -92,7 +106,6 @@ pub fn build_widgets(model: model!(EditorLab)) {
                     crate::warn!("document rejected: {:?}", error);
                 }
             }
-            keyboard_panel (model.keyboard())
         }
-    };
+    }
 }

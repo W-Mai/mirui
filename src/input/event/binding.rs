@@ -65,6 +65,27 @@ unit_routes!(
 );
 
 impl<E: Event<Route = WidgetConstruction, Options = ()>> sealed::Install<E> for WidgetConstruction {}
+impl<D: 'static, E: Event<Route = super::contract::EntityRequest<D>, Options = ()>>
+    sealed::Install<E> for super::contract::EntityRequest<D>
+{
+}
+
+impl<D: 'static, E: Event<Route = super::contract::EntityRequest<D>, Options = ()>>
+    EntityInstallRoute<E> for super::contract::EntityRequest<D>
+{
+    fn install<C: CallbackContext<E, Target = Entity>>(
+        world: &mut World,
+        entity: Entity,
+        _key: EventKey<E>,
+        callback: EventCallback<E, C>,
+    ) -> Result<(), super::runtime::RuntimeInstallError>
+    where
+        E::Source: EntityEventSource,
+    {
+        super::request::install(world, entity, callback)
+    }
+}
+
 impl<E: Event<Route = WidgetConstruction, Options = ()>> EntityInstallRoute<E>
     for WidgetConstruction
 {

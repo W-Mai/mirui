@@ -17,6 +17,7 @@ pub(crate) struct InputHook {
 #[doc(hidden)]
 pub struct PreparedInputs {
     pub(crate) hooks: Vec<InputHook>,
+    pub(crate) requests: Vec<super::request::RequestHook>,
     pub(crate) max_dispatch: usize,
 }
 
@@ -78,7 +79,7 @@ gesture_inputs!(
     super::gesture::Rotate,
 );
 
-macro_rules! keyboard_inputs {
+macro_rules! direct_inputs {
     ($($event:ty),+ $(,)?) => {$(
         impl sealed::Input for $event {}
         impl ViewInput for $event {
@@ -90,8 +91,9 @@ macro_rules! keyboard_inputs {
     )+};
 }
 
-keyboard_inputs!(super::input::Key, super::input::TextCommitted);
-keyboard_inputs!(
+direct_inputs!(super::input::Key, super::input::TextCommitted);
+direct_inputs!(crate::ui::selection::SelectAll);
+direct_inputs!(
     crate::ui::text_input::CompositionStarted,
     crate::ui::text_input::CompositionUpdated,
     crate::ui::text_input::CompositionEnded
@@ -100,6 +102,7 @@ keyboard_inputs!(
 #[doc(hidden)]
 pub trait ViewInputs {
     const COUNT: usize;
+    const REQUESTS: usize;
     fn prepare(
         self,
         world: &mut World,
@@ -111,30 +114,106 @@ impl<E> ViewInputs for EventCallback<E, NodeContext>
 where
     E: ViewInput,
     NodeContext: super::callback::CallbackContext<E, Target = crate::ecs::Entity>,
-    <E::Route as EventRoute>::Decision: ListenerDecision,
+    E::Route: PrepareInput<E>,
 {
     const COUNT: usize = 1;
+    const REQUESTS: usize = E::Route::REQUEST as usize;
 
     fn prepare(
         self,
         world: &mut World,
         inputs: &mut PreparedInputs,
     ) -> Result<(), RuntimeInstallError> {
-        let callback = prepare_shared_callback(world, self)?;
-        let matching = inputs
-            .hooks
+        E::Route::prepare(self, world, inputs)
+    }
+}
+
+#[doc(hidden)]
+pub trait PrepareInput<E: ViewInput>: EventRoute
+where
+    NodeContext: super::callback::CallbackContext<E, Target = crate::ecs::Entity>,
+{
+    const REQUEST: bool;
+    fn prepare(
+        callback: EventCallback<E, NodeContext>,
+        world: &mut World,
+        inputs: &mut PreparedInputs,
+    ) -> Result<(), RuntimeInstallError>;
+}
+
+fn prepare_listener<E>(
+    callback: EventCallback<E, NodeContext>,
+    world: &mut World,
+    inputs: &mut PreparedInputs,
+) -> Result<(), RuntimeInstallError>
+where
+    E: ViewInput,
+    NodeContext: super::callback::CallbackContext<E, Target = crate::ecs::Entity>,
+    <E::Route as EventRoute>::Decision: ListenerDecision,
+{
+    let callback = prepare_shared_callback(world, callback)?;
+    let matching = inputs
+        .hooks
+        .iter()
+        .filter(|hook| hook.callback.kind() == core::any::TypeId::of::<E>())
+        .count()
+        + 1;
+    inputs.max_dispatch = inputs.max_dispatch.max(matching);
+    inputs.hooks.push(InputHook {
+        callback: Rc::new(InstalledListener {
+            callback,
+            selector: E::selector(),
+        }),
+        gesture: E::GESTURE,
+    });
+    Ok(())
+}
+
+macro_rules! listener_routes {
+    ($($route:ty),+ $(,)?) => {$(
+        impl<E> PrepareInput<E> for $route
+        where
+            E: ViewInput<Route = Self>,
+            NodeContext: super::callback::CallbackContext<E, Target = crate::ecs::Entity>,
+        {
+            const REQUEST: bool = false;
+            fn prepare(callback: EventCallback<E, NodeContext>, world: &mut World, inputs: &mut PreparedInputs) -> Result<(), RuntimeInstallError> {
+                prepare_listener(callback, world, inputs)
+            }
+        }
+    )+};
+}
+
+listener_routes!(
+    super::contract::EntityBubble,
+    super::contract::InputFallback,
+    super::contract::InputNotification
+);
+
+impl<E, D: 'static> PrepareInput<E> for super::contract::EntityRequest<D>
+where
+    E: ViewInput<Route = Self>,
+    E::Source: super::contract::EntityEventSource,
+    NodeContext: super::callback::CallbackContext<E, Target = crate::ecs::Entity>,
+{
+    const REQUEST: bool = true;
+    fn prepare(
+        callback: EventCallback<E, NodeContext>,
+        world: &mut World,
+        inputs: &mut PreparedInputs,
+    ) -> Result<(), RuntimeInstallError> {
+        if inputs
+            .requests
             .iter()
-            .filter(|hook| hook.callback.kind() == core::any::TypeId::of::<E>())
-            .count()
-            + 1;
-        inputs.max_dispatch = inputs.max_dispatch.max(matching);
-        inputs.hooks.push(InputHook {
-            callback: Rc::new(InstalledListener {
-                callback,
-                selector: E::selector(),
-            }),
-            gesture: E::GESTURE,
-        });
+            .any(|hook| hook.kind == core::any::TypeId::of::<E>())
+        {
+            return Err(RuntimeInstallError::DuplicateRequest {
+                event: core::any::type_name::<E>(),
+            });
+        }
+        inputs
+            .requests
+            .push(super::request::RequestHook::prepare(world, callback)?);
         Ok(())
     }
 }
@@ -143,6 +222,7 @@ macro_rules! input_tuple {
     ($($item:ident),+) => {
         impl<$($item: ViewInputs),+> ViewInputs for ($($item,)+) {
             const COUNT: usize = 0 $(+ $item::COUNT)+;
+            const REQUESTS: usize = 0 $(+ $item::REQUESTS)+;
             fn prepare(self, world: &mut World, inputs: &mut PreparedInputs) -> Result<(), RuntimeInstallError> {
                 #[allow(non_snake_case)]
                 let ($($item,)+) = self;
@@ -170,7 +250,8 @@ pub fn prepare_inputs<I: ViewInputs>(
     inputs: I,
 ) -> Result<PreparedInputs, RuntimeInstallError> {
     let mut prepared = PreparedInputs {
-        hooks: Vec::with_capacity(I::COUNT),
+        hooks: Vec::with_capacity(I::COUNT - I::REQUESTS),
+        requests: Vec::with_capacity(I::REQUESTS),
         max_dispatch: 0,
     };
     inputs.prepare(world, &mut prepared)?;

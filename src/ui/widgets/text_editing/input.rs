@@ -361,6 +361,37 @@ fn apply_committed(
 }
 
 #[crate::event]
+pub(super) fn select_all(
+    node: entity!(),
+    _event: event!(crate::ui::selection::SelectAll),
+    editors: query!(mut TextEditing),
+    commands: commands!(),
+) -> Result<(), crate::ui::selection::RequestError> {
+    use crate::ui::selection::RequestError;
+    let editor = editors.get(node).ok_or(RequestError::Unavailable)?;
+    if !editor.usable_by(crate::core::reactive::current_world_id()) {
+        return Err(RequestError::Unavailable);
+    }
+    let selection = TextSelection {
+        anchor: 0,
+        cursor: editor.len(),
+    };
+    if editor
+        .set_selection(selection)
+        .map_err(|_| RequestError::Rejected)?
+    {
+        commands.emit(
+            node,
+            SelectionChanged {
+                anchor: 0,
+                cursor: selection.cursor as u32,
+            },
+        );
+    }
+    Ok(())
+}
+
+#[crate::event]
 pub(super) fn key(node: entity!(), event: event!(Key), commands: commands!()) -> bool {
     if !event.pressed {
         return false;
