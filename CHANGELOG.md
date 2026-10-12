@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- WGPU desktop and mobile surfaces share native editor sessions, retain captured input ownership, and update soft-keyboard visibility through the Surface protocol.
+
 - Native text-input sessions carry preedit, commit and cancellation to their original editor. SDL software and GPU surfaces update the system input method and caret area between individual input events.
 
 - Software input methods use App-owned sessions, deferred preedit/commit/cancel/key commands, and typed provider callbacks. Editor Lab includes an on-screen keyboard and source switching.

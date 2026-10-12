@@ -452,19 +452,3 @@ fn focus_callback_hiding_an_ancestor_cancels_the_original_tap() {
     assert!(events[0].1.focused);
     assert!(!events[1].1.focused);
 }
-
-#[test]
-fn native_text_input_requires_a_focused_editable() {
-    let mut world = World::new();
-    world.insert_resource(FocusState::default());
-    let entity = world.spawn_empty();
-    world.insert(entity, Focusable);
-    world.resource_mut::<FocusState>().unwrap().focused = Some(entity);
-    assert!(!text_input_requested(&world));
-
-    world.insert(entity, crate::ui::widgets::TextEditing::default());
-    assert!(text_input_requested(&world));
-
-    world.resource_mut::<FocusState>().unwrap().focused = None;
-    assert!(!text_input_requested(&world));
-}

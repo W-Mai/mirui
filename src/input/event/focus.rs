@@ -142,17 +142,5 @@ pub struct FocusState {
     pub focused: Option<Entity>,
 }
 
-#[cfg(any(target_os = "android", target_os = "ios", test))]
-pub(crate) fn text_input_requested(world: &World) -> bool {
-    world
-        .resource::<FocusState>()
-        .and_then(|state| state.focused)
-        .is_some_and(|entity| {
-            world
-                .get::<crate::ui::widgets::TextEditing>(entity)
-                .is_some()
-        })
-}
-
 #[cfg(test)]
 mod tests;

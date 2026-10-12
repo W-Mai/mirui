@@ -373,6 +373,10 @@ impl SoftwareUploadSurface {
 impl InspectCaches for SoftwareUploadSurface {}
 
 impl MobileSurface for SoftwareUploadSurface {
+    fn finish_input_batch(&mut self) {
+        self.runtime.finish_input_batch();
+    }
+
     fn resume_window(&mut self, window: Arc<Window>) -> Result<(), MobileSurfaceError> {
         self.runtime.resume(window);
         self.presenter = None;
@@ -406,6 +410,10 @@ impl MobileSurface for SoftwareUploadSurface {
 }
 
 impl Surface for SoftwareUploadSurface {
+    fn set_text_input(&mut self, state: Option<crate::ui::text_input::TextInputState>) {
+        self.runtime.set_text_input(state);
+    }
+
     fn display_info(&self) -> DisplayInfo {
         let (width, height) =
             super::logical_from_physical(self.width, self.height, self.render_scale);

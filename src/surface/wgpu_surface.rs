@@ -25,6 +25,9 @@ use crate::core::cache::InspectCaches;
 use crate::render::texture::ColorFormat;
 use crate::types::Fixed;
 
+mod text_input;
+use text_input::NativeTextInput;
+
 const MAX_NATIVE_TOUCHES: usize = 16;
 
 struct NativeTouchMap<const N: usize> {
@@ -108,16 +111,6 @@ fn wheel_delta(delta: MouseScrollDelta, scale: f64) -> (Fixed, Fixed) {
             (Fixed::from_f32(-x * step), Fixed::from_f32(y * step))
         }
         MouseScrollDelta::PixelDelta(p) => physical_to_logical(-p.x, p.y, scale),
-    }
-}
-
-fn enqueue_text(
-    queue: &mut VecDeque<InputEvent>,
-    text: impl Into<alloc::borrow::Cow<'static, str>>,
-) {
-    let text = crate::input::event::input::TextCommitted::new(text);
-    if !text.text().is_empty() {
-        queue.push_back(text.into());
     }
 }
 
@@ -259,6 +252,7 @@ pub(crate) struct WgpuRuntime {
     pending_move: Option<(Fixed, Fixed)>,
     native_touches: NativeTouchMap<MAX_NATIVE_TOUCHES>,
     modifiers: Option<crate::input::event::input::KeyModifiers>,
+    text_input: NativeTextInput,
     reconfigure_before_acquire: bool,
 }
 
@@ -279,6 +273,20 @@ impl WgpuRuntime {
         self.event_queue.pop_front()
     }
 
+    pub(crate) fn set_text_input(&mut self, state: Option<crate::ui::text_input::TextInputState>) {
+        self.text_input.set(
+            state,
+            self.state.as_ref().map(|state| state.window.as_ref()),
+        );
+    }
+
+    pub(crate) fn finish_input_batch(&mut self) {
+        self.flush_pointer_move();
+        if let Some(event) = self.text_input.finish_batch() {
+            self.event_queue.push_back(event);
+        }
+    }
+
     fn keyboard_input(
         &mut self,
         key: &Key,
@@ -289,6 +297,10 @@ impl WgpuRuntime {
         use crate::input::event::input::{
             KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RETURN, KEY_RIGHT,
         };
+
+        if self.text_input.composing() {
+            return false;
+        }
 
         let pressed = state == ElementState::Pressed;
         let code = match key {
@@ -319,7 +331,9 @@ impl WgpuRuntime {
             && let Some(text) = text
             && !text.chars().all(char::is_control)
         {
-            enqueue_text(&mut self.event_queue, alloc::string::String::from(text));
+            if let Some(event) = self.text_input.keyboard_text(text) {
+                self.event_queue.push_back(event);
+            }
         }
         false
     }
@@ -333,6 +347,7 @@ impl WgpuRuntime {
             pending_move: None,
             native_touches: NativeTouchMap::new(),
             modifiers: None,
+            text_input: NativeTextInput::default(),
             reconfigure_before_acquire: false,
         }
     }
@@ -350,6 +365,7 @@ impl WgpuRuntime {
     }
 
     pub(crate) fn suspend(&mut self) {
+        self.set_text_input(None);
         self.modifiers = None;
         self.state = None;
         self.event_queue.clear();
@@ -557,8 +573,10 @@ impl WgpuRuntime {
                 });
                 false
             }
-            WindowEvent::Ime(Ime::Commit(text)) => {
-                enqueue_text(&mut self.event_queue, text);
+            WindowEvent::Ime(event) => {
+                if let Some(event) = self.text_input.ime(event) {
+                    self.event_queue.push_back(event);
+                }
                 false
             }
             _ => false,
@@ -568,6 +586,10 @@ impl WgpuRuntime {
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl ApplicationHandler for WgpuHandler {
+    fn about_to_wait(&mut self, _: &ActiveEventLoop) {
+        self.runtime.finish_input_batch();
+    }
+
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.runtime.state.is_some() {
             return;
@@ -855,6 +877,10 @@ impl Surface for WgpuSurface {
         self.handler.runtime.poll_event()
     }
 
+    fn set_text_input(&mut self, state: Option<crate::ui::text_input::TextInputState>) {
+        self.handler.runtime.set_text_input(state);
+    }
+
     fn persistence(&self) -> BackbufferPersistence {
         BackbufferPersistence::Transient
     }
@@ -866,6 +892,9 @@ pub trait MobileSurface: Surface {
     fn resume_window(&mut self, window: Arc<Window>) -> Result<(), MobileSurfaceError>;
 
     fn suspend_window(&mut self);
+
+    /// Finish the native event batch before the platform loop waits.
+    fn finish_input_batch(&mut self);
 
     fn handle_window_event(
         &mut self,
@@ -1054,6 +1083,10 @@ impl WgpuTarget for MobileWgpuSurface {
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 impl MobileSurface for MobileWgpuSurface {
+    fn finish_input_batch(&mut self) {
+        self.runtime.finish_input_batch();
+    }
+
     fn resume_window(&mut self, window: Arc<Window>) -> Result<(), MobileSurfaceError> {
         self.runtime.resume(window);
         Ok(())
@@ -1077,6 +1110,10 @@ impl MobileSurface for MobileWgpuSurface {
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 impl Surface for MobileWgpuSurface {
+    fn set_text_input(&mut self, state: Option<crate::ui::text_input::TextInputState>) {
+        self.runtime.set_text_input(state);
+    }
+
     fn display_info(&self) -> DisplayInfo {
         let state = self
             .runtime
@@ -1157,7 +1194,6 @@ where
     build: Option<Build>,
     app: Option<crate::app::App<B, F>>,
     window: Option<Arc<Window>>,
-    ime_allowed: bool,
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -1175,21 +1211,6 @@ where
             build: Some(build),
             app: None,
             window: None,
-            ime_allowed: false,
-        }
-    }
-
-    fn sync_text_input(&mut self) {
-        let requested = self
-            .app
-            .as_ref()
-            .is_some_and(|app| crate::input::event::focus::text_input_requested(&app.world));
-        if requested == self.ime_allowed {
-            return;
-        }
-        if let Some(window) = self.window.as_ref() {
-            window.set_ime_allowed(requested);
-            self.ime_allowed = requested;
         }
     }
 
@@ -1266,12 +1287,6 @@ where
     }
 
     fn suspended(&mut self, event_loop: &ActiveEventLoop) {
-        if self.ime_allowed {
-            if let Some(window) = self.window.as_ref() {
-                window.set_ime_allowed(false);
-            }
-            self.ime_allowed = false;
-        }
         if let Some(app) = self.app.as_mut() {
             app.suspend();
             app.backend.suspend_window();
@@ -1309,7 +1324,6 @@ where
                 event_loop.exit();
                 return;
             }
-            self.sync_text_input();
         } else {
             match app.backend.handle_window_event(event) {
                 Ok(MobileEventFlow::Continue) => {}
@@ -1330,6 +1344,9 @@ where
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(app) = self.app.as_mut() {
+            app.backend.finish_input_batch();
+        }
         if self.app.as_ref().is_some_and(|app| !app.is_suspended())
             && let Some(window) = self.window.as_ref()
         {
@@ -1346,6 +1363,40 @@ fn window_event_is_current<T: Eq>(active: Option<&T>, incoming: &T) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{app::App, ecs::Entity, input::event::focus::FocusState, ui::widgets::TextInput};
+
+    type TestApp =
+        App<crate::surface::framebuf::FramebufSurface<fn(&[u8], crate::types::PhysicalRect)>>;
+
+    fn native_fixture() -> (TestApp, Entity, WgpuRuntime) {
+        #[crate::compose]
+        fn editor() -> Entity {
+            crate::ui! {
+                TextInput (width: 160, height: 36)
+            }
+        }
+        let mut app = App::headless(200, 100);
+        app.with_default_widgets().with_default_systems();
+        let root = app.spawn_root().id();
+        let editor = app.compose(root, editor());
+        app.world.resource_mut::<FocusState>().unwrap().focused = Some(editor);
+        let mut runtime = WgpuRuntime::new();
+        runtime.set_text_input(crate::ui::text_input::native_state(&mut app.world, 0));
+        (app, editor, runtime)
+    }
+
+    fn deliver(app: &mut TestApp, runtime: &mut WgpuRuntime) {
+        while let Some(event) = runtime.poll_event() {
+            crate::input::event::deliver_input(&mut app.world, None, &event, 0, 200, 100);
+        }
+    }
+
+    fn display(app: &TestApp, editor: Entity, expected: &str) {
+        app.world
+            .get::<crate::ui::widgets::TextEditing>(editor)
+            .unwrap()
+            .read_display(|text| assert_eq!(text, expected));
+    }
 
     #[test]
     fn host_state_preserves_input_order_without_requesting_suspend() {
@@ -1403,7 +1454,7 @@ mod tests {
         runtime.window_event(moved(4.0));
         runtime.window_event(button(ElementState::Released));
         runtime.window_event(moved(5.0));
-        runtime.window_event(WindowEvent::Ime(Ime::Commit("x".into())));
+        runtime.window_event(WindowEvent::Focused(true));
 
         assert!(matches!(runtime.event_queue.pop_front(),
             Some(InputEvent::PointerMove { x, .. }) if x == Fixed::from_int(2)));
@@ -1417,7 +1468,7 @@ mod tests {
             Some(InputEvent::PointerMove { x, .. }) if x == Fixed::from_int(5)));
         assert!(matches!(
             runtime.event_queue.pop_front(),
-            Some(InputEvent::TextCommitted(text)) if text.text() == "x"
+            Some(InputEvent::HostFocus { focused: true })
         ));
         assert!(runtime.event_queue.is_empty());
         assert!(runtime.pending_move.is_none());
@@ -1524,7 +1575,7 @@ mod tests {
 
     #[test]
     fn keyboard_translation_does_not_duplicate_quit_or_text() {
-        let mut runtime = WgpuRuntime::new();
+        let (mut app, editor, mut runtime) = native_fixture();
         for key in [NamedKey::Escape, NamedKey::BrowserBack] {
             assert!(runtime.keyboard_input(&Key::Named(key), ElementState::Pressed, None, false));
             assert!(matches!(
@@ -1536,8 +1587,9 @@ mod tests {
         }
         let key = Key::Character("A中🙂".into());
         assert!(!runtime.keyboard_input(&key, ElementState::Pressed, Some("A中🙂"), false));
-        assert!(matches!(runtime.event_queue.pop_front(),
-            Some(InputEvent::TextCommitted(text)) if text.text() == "A中🙂"));
+        assert_eq!(runtime.event_queue.len(), 1);
+        deliver(&mut app, &mut runtime);
+        display(&app, editor, "A中🙂");
         assert!(!runtime.keyboard_input(&key, ElementState::Released, Some("A中🙂"), false));
         assert!(runtime.event_queue.is_empty());
     }
@@ -1745,28 +1797,87 @@ mod tests {
     }
 
     #[test]
-    fn text_event_translation_preserves_the_whole_fragment() {
-        let mut queue = VecDeque::new();
-        enqueue_text(&mut queue, "A中\n🙂");
-        assert!(matches!(
-            queue.pop_front(),
-            Some(InputEvent::TextCommitted(text)) if text.text() == "A中\n🙂"
+    fn native_preedit_and_commit_share_a_session_without_duplicate_keyboard_text() {
+        let (mut app, editor, mut runtime) = native_fixture();
+        runtime.window_event(WindowEvent::Ime(Ime::Enabled));
+        runtime.window_event(WindowEvent::Ime(Ime::Preedit("ni".into(), Some((2, 2)))));
+        deliver(&mut app, &mut runtime);
+        display(&app, editor, "ni");
+        assert!(!runtime.keyboard_input(
+            &Key::Character("n".into()),
+            ElementState::Pressed,
+            Some("n"),
+            false
         ));
-        assert!(queue.is_empty());
+        assert!(runtime.event_queue.is_empty());
+        runtime.window_event(WindowEvent::Ime(Ime::Preedit("".into(), None)));
+        runtime.window_event(WindowEvent::Ime(Ime::Commit("你".into())));
+        runtime.finish_input_batch();
+        assert_eq!(runtime.event_queue.len(), 2);
+        deliver(&mut app, &mut runtime);
+        display(&app, editor, "你");
+        runtime.window_event(WindowEvent::Ime(Ime::Preedit("hao".into(), Some((3, 3)))));
+        deliver(&mut app, &mut runtime);
+        display(&app, editor, "你hao");
+        runtime.window_event(WindowEvent::Ime(Ime::Preedit("".into(), None)));
+        runtime.finish_input_batch();
+        assert_eq!(runtime.event_queue.len(), 2);
+        deliver(&mut app, &mut runtime);
+        display(&app, editor, "你");
+        assert!(!runtime.text_input.composing());
+        runtime.window_event(WindowEvent::Ime(Ime::Preedit("x".into(), Some((1, 1)))));
+        runtime.window_event(WindowEvent::Ime(Ime::Preedit("".into(), None)));
+        runtime.keyboard_input(
+            &Key::Character("a".into()),
+            ElementState::Pressed,
+            Some("a"),
+            false,
+        );
+        runtime.finish_input_batch();
+        assert_eq!(runtime.event_queue.len(), 3);
+        deliver(&mut app, &mut runtime);
+        display(&app, editor, "你a");
     }
 
     #[test]
     fn owned_commit_moves_into_the_prepared_queue_without_copying() {
-        let mut queue = VecDeque::with_capacity(1);
+        let (mut app, editor, mut runtime) = native_fixture();
+        runtime.event_queue.reserve(1);
+        runtime.window_event(WindowEvent::Ime(Ime::Enabled));
         let text = alloc::string::String::from("A中🙂");
-        let pointer = text.as_ptr();
-        let allocations =
-            crate::test_support::tracked_allocations(|| enqueue_text(&mut queue, text));
+        let allocations = crate::test_support::tracked_allocations(|| {
+            runtime.window_event(WindowEvent::Ime(Ime::Commit(text)));
+        });
         assert_eq!(allocations, 0);
-        let Some(InputEvent::TextCommitted(event)) = queue.pop_front() else {
-            panic!("text input")
-        };
-        assert_eq!(event.text().as_ptr(), pointer);
+        deliver(&mut app, &mut runtime);
+        display(&app, editor, "A中🙂");
+    }
+
+    #[test]
+    fn retired_ime_source_is_not_retagged_when_the_editor_session_changes() {
+        let (mut app, editor, mut runtime) = native_fixture();
+        runtime.window_event(WindowEvent::Ime(Ime::Enabled));
+        runtime.window_event(WindowEvent::Ime(Ime::Commit("old".into())));
+        app.world.resource_mut::<FocusState>().unwrap().focused = None;
+        runtime.set_text_input(crate::ui::text_input::native_state(&mut app.world, 0));
+        app.world.resource_mut::<FocusState>().unwrap().focused = Some(editor);
+        runtime.set_text_input(crate::ui::text_input::native_state(&mut app.world, 0));
+        runtime.window_event(WindowEvent::Ime(Ime::Commit("late".into())));
+        deliver(&mut app, &mut runtime);
+        display(&app, editor, "");
+        runtime.window_event(WindowEvent::Ime(Ime::Disabled));
+        runtime.window_event(WindowEvent::Ime(Ime::Enabled));
+        runtime.window_event(WindowEvent::Ime(Ime::Commit("new".into())));
+        deliver(&mut app, &mut runtime);
+        display(&app, editor, "new");
+        runtime.set_text_input(None);
+        runtime.keyboard_input(
+            &Key::Character("x".into()),
+            ElementState::Pressed,
+            Some("x"),
+            false,
+        );
+        assert!(runtime.poll_event().is_none());
     }
 
     #[test]
