@@ -406,8 +406,7 @@ mod tests {
 
     #[test]
     fn iir_blur_rgb565_centre_pixel_spreads() {
-        let mut buf = alloc::vec::Vec::with_capacity(9 * 9 * 2);
-        buf.resize(9 * 9 * 2, 0);
+        let mut buf = alloc::vec![0; 9 * 9 * 2];
         let centre_x = 4;
         let centre_y = 4;
         let i = (centre_y * 9 + centre_x) * 2;

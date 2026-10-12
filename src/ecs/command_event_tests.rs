@@ -8,6 +8,10 @@ struct Observed {
     calls: usize,
 }
 
+#[expect(
+    clippy::ptr_arg,
+    reason = "The callback must match the owned String event type."
+)]
 fn observe(world: &mut World, _: Entity, event: &String) -> Result<(), CommandError> {
     let observed = world.resource_mut::<Observed>().unwrap();
     observed.pointer = event.as_ptr() as usize;

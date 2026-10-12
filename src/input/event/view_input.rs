@@ -266,41 +266,6 @@ pub fn prepare_inputs<I: ViewInputs>(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::input::event::{EventCapacity, gesture::Tap, runtime};
-
-    #[crate::event]
-    fn passthrough(_tap: event!(Tap)) -> bool {
-        false
-    }
-
-    #[crate::event]
-    fn remove(node: entity!(), _tap: event!(Tap), commands: commands!()) {
-        commands.despawn(node);
-    }
-
-    #[test]
-    fn failed_input_tuple_does_not_freeze_capacity_or_install_partial_callbacks() {
-        let mut world = World::new();
-        runtime::configure(&mut world, EventCapacity::new()).unwrap();
-        assert!(matches!(
-            prepare_inputs(&mut world, (passthrough::callback(), remove::callback())),
-            Err(RuntimeInstallError::MissingCommandCapacity)
-        ));
-        runtime::configure(&mut world, EventCapacity::default()).unwrap();
-        let prepared =
-            prepare_inputs(&mut world, (passthrough::callback(), remove::callback())).unwrap();
-        assert_eq!(prepared.hooks.len(), 2);
-        assert_eq!(prepared.max_dispatch, 2);
-        assert_eq!(
-            runtime::configure(&mut world, EventCapacity::new()),
-            Err(super::super::capacity::EventCapacityError::FrozenConfiguration)
-        );
-    }
-}
-
-#[cfg(test)]
 pub(crate) fn fixture_capacity() -> crate::ecs::CommandCapacity {
     super::EventCapacity::default()
         .resolve()
@@ -417,4 +382,39 @@ pub(crate) fn invoke_gesture(
             target
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::input::event::{EventCapacity, gesture::Tap, runtime};
+
+    #[crate::event]
+    fn passthrough(_tap: event!(Tap)) -> bool {
+        false
+    }
+
+    #[crate::event]
+    fn remove(node: entity!(), _tap: event!(Tap), commands: commands!()) {
+        commands.despawn(node);
+    }
+
+    #[test]
+    fn failed_input_tuple_does_not_freeze_capacity_or_install_partial_callbacks() {
+        let mut world = World::new();
+        runtime::configure(&mut world, EventCapacity::new()).unwrap();
+        assert!(matches!(
+            prepare_inputs(&mut world, (passthrough::callback(), remove::callback())),
+            Err(RuntimeInstallError::MissingCommandCapacity)
+        ));
+        runtime::configure(&mut world, EventCapacity::default()).unwrap();
+        let prepared =
+            prepare_inputs(&mut world, (passthrough::callback(), remove::callback())).unwrap();
+        assert_eq!(prepared.hooks.len(), 2);
+        assert_eq!(prepared.max_dispatch, 2);
+        assert_eq!(
+            runtime::configure(&mut world, EventCapacity::new()),
+            Err(super::super::capacity::EventCapacityError::FrozenConfiguration)
+        );
+    }
 }

@@ -11,7 +11,7 @@ fn reference_circuits_pass_exhaustive_truth_tables() {
         let mut model = CircuitModel::default();
         model.load_task(task, true);
         model.verify();
-        assert_eq!(model.verify_result().is_some_and(|result| result.won), true);
+        assert!(model.verify_result().is_some_and(|result| result.won));
     }
 }
 
@@ -21,10 +21,7 @@ fn starter_circuits_are_incomplete_or_incorrect() {
         let mut model = CircuitModel::default();
         model.load_task(task, false);
         model.verify();
-        assert_eq!(
-            model.verify_result().is_some_and(|result| result.won),
-            false
-        );
+        assert!(!model.verify_result().is_some_and(|result| result.won));
     }
 }
 
@@ -33,7 +30,7 @@ fn xor_edit_fixes_first_task() {
     let mut model = CircuitModel::default();
     model.set_selected_kind(GateKind::Xor).unwrap();
     model.verify();
-    assert_eq!(model.verify_result().is_some_and(|result| result.won), true);
+    assert!(model.verify_result().is_some_and(|result| result.won));
 }
 
 #[test]
@@ -141,7 +138,7 @@ fn not_gate_ignores_and_clears_second_input() {
     model.set_selected_kind(GateKind::Not).unwrap();
     assert_eq!(model.gate_by_id(1).unwrap().b, SignalSource::None);
     model.inputs = 0;
-    assert_eq!(model.evaluation().value, true);
+    assert!(model.evaluation().value);
 }
 
 #[test]

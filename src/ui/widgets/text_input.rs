@@ -534,7 +534,6 @@ mod tests {
         );
 
         view().render().unwrap()(&world, entity, &mut paint);
-        drop(paint);
         renderer
     }
 

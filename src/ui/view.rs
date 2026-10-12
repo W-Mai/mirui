@@ -1612,7 +1612,6 @@ mod tests {
                         0
                     );
                     assert_eq!(paint.error(), None);
-                    drop(paint);
                     assert!(trace.calls > 0);
                     assert_eq!(trace.color, Some(colors[i]));
                     if stage == 0 {
@@ -3503,7 +3502,6 @@ mod tests {
             );
             paint.draw(command);
             assert_eq!(paint.error(), Some(RenderError::InvalidScope));
-            drop(paint);
             assert_eq!(renderer.submissions, 0);
         }
     }
@@ -3577,7 +3575,6 @@ mod tests {
 
             assert!(paint.sample_target_region(rect).is_none());
             assert_eq!(paint.error(), error);
-            drop(paint);
             assert_eq!(renderer.samples.get(), samples);
         }
     }
@@ -3641,7 +3638,6 @@ mod tests {
         paint.draw_text_run(&command, rect, identity);
         paint.draw(&command);
         assert_eq!(paint.error(), Some(RenderError::TextLayout));
-        drop(paint);
         assert_eq!(renderer.text_runs, 1);
         assert_eq!(renderer.draws, 0);
     }

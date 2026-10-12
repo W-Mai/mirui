@@ -334,7 +334,7 @@ mod tests {
         }
 
         fn physical_size(&self) -> (u32, u32) {
-            (self.0.physical_width.into(), self.0.physical_height.into())
+            (self.0.physical_width, self.0.physical_height)
         }
 
         fn flush(&mut self, _area: PhysicalRect) {}

@@ -63,7 +63,6 @@ fn failed_content_still_pops_clip() {
     );
 
     assert_eq!(paint.error(), Some(RenderError::BackendFailure));
-    drop(paint);
     assert!(!renderer.pushed);
     assert_eq!(renderer.pops, 1);
 }

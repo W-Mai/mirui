@@ -7,12 +7,7 @@ mod tests {
     #[test]
     fn fill_rect_opaque() {
         let mut buf = vec![0u8; 10 * 10 * 4]; // 10x10 RGBA
-        let mut r = SwRenderer::new(Texture::new(
-            &mut buf,
-            10 as u16,
-            10 as u16,
-            ColorFormat::RGBA8888,
-        ));
+        let mut r = SwRenderer::new(Texture::new(&mut buf, 10, 10, ColorFormat::RGBA8888));
         let cmd = DrawCommand::Fill {
             area: Rect {
                 x: Fixed::from_int(2),
@@ -51,12 +46,7 @@ mod tests {
     #[test]
     fn fill_rect_clipped() {
         let mut buf = vec![0u8; 10 * 10 * 4];
-        let mut r = SwRenderer::new(Texture::new(
-            &mut buf,
-            10 as u16,
-            10 as u16,
-            ColorFormat::RGBA8888,
-        ));
+        let mut r = SwRenderer::new(Texture::new(&mut buf, 10, 10, ColorFormat::RGBA8888));
         let cmd = DrawCommand::Fill {
             area: Rect {
                 x: Fixed::ZERO,
@@ -100,12 +90,7 @@ mod tests {
             chunk[2] = 255;
             chunk[3] = 255;
         }
-        let mut r = SwRenderer::new(Texture::new(
-            &mut buf,
-            4 as u16,
-            4 as u16,
-            ColorFormat::RGBA8888,
-        ));
+        let mut r = SwRenderer::new(Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888));
         let cmd = DrawCommand::Fill {
             area: Rect {
                 x: Fixed::ZERO,

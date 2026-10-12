@@ -266,7 +266,6 @@ mod paint_contract_tests {
                                 None
                             }
                         );
-                        drop(paint);
                         assert_eq!(
                             renderer.calls,
                             if fail {

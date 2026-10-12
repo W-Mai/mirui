@@ -32,7 +32,10 @@ mod tests {
                 assert_eq!(utf8_selection("a🙂你z", 1..3, false), Some(1..8));
                 assert_eq!(utf8_selection("a🙂你z", 2..2, true), None);
                 assert_eq!(utf8_selection("a🙂你z", 5..5, true), Some(9..9));
-                assert_eq!(utf8_selection("a🙂你z", 3..1, true), None);
+                assert_eq!(
+                    utf8_selection("a🙂你z", Range { start: 3, end: 1 }, true),
+                    None
+                );
                 assert_eq!(utf8_selection("a🙂你z", 0..6, true), None);
                 assert_eq!(utf8_selection("", 0..0, true), Some(0..0));
             }),

@@ -530,6 +530,57 @@ fn find_scroll_target_for_direction(
     last_matching
 }
 
+pub(super) fn elastic_resist(offset: Fixed, delta: Fixed, max: Fixed, viewport: Fixed) -> Fixed {
+    let next = offset + delta;
+    let (edge, distance, pull, sign) = if next < Fixed::ZERO && delta < Fixed::ZERO {
+        (
+            Fixed::ZERO,
+            (-offset).max(Fixed::ZERO),
+            (-delta).min(-next),
+            -Fixed::ONE,
+        )
+    } else if next > max && delta > Fixed::ZERO {
+        (
+            max,
+            (offset - max).max(Fixed::ZERO),
+            delta.min(next - max),
+            Fixed::ONE,
+        )
+    } else {
+        return delta;
+    };
+    if viewport <= Fixed::ZERO {
+        return edge - offset;
+    }
+    let distance = distance.min(viewport);
+    let remaining = Fixed64::from_fixed(viewport - distance);
+    let extent = Fixed64::from_fixed(viewport);
+    // Integrate the rubber-band curve in displacement space, independent of event batching.
+    let pull = Fixed64::from_fixed(pull) * Fixed64::from_ratio(55, 100) * (remaining / extent);
+    let stretch = (remaining * (pull / (extent + pull))).to_fixed();
+    edge + sign * (distance + stretch) - offset
+}
+fn is_at_boundary(world: &World, entity: Entity, delta_x: Fixed, delta_y: Fixed) -> bool {
+    let Some(scroll) = world.get::<ScrollOffset>(entity) else {
+        return false;
+    };
+    let config = world.get::<ScrollConfig>(entity);
+    let bounds = scroll_bounds(world, entity).unwrap_or_default();
+    let (max_x, max_y) = (bounds.max_x, bounds.max_y);
+
+    let at_y = (scroll.y <= Fixed::ZERO && delta_y < Fixed::ZERO)
+        || (scroll.y >= max_y && delta_y > Fixed::ZERO);
+    let at_x = (scroll.x <= Fixed::ZERO && delta_x < Fixed::ZERO)
+        || (scroll.x >= max_x && delta_x > Fixed::ZERO);
+
+    let dir = config.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
+    match dir {
+        ScrollAxis::Vertical => at_y,
+        ScrollAxis::Horizontal => at_x,
+        ScrollAxis::Both => at_y || at_x,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1759,56 +1810,5 @@ mod tests {
             "expected |dy| ≈ 20, got {:?}",
             delta.dy
         );
-    }
-}
-
-pub(super) fn elastic_resist(offset: Fixed, delta: Fixed, max: Fixed, viewport: Fixed) -> Fixed {
-    let next = offset + delta;
-    let (edge, distance, pull, sign) = if next < Fixed::ZERO && delta < Fixed::ZERO {
-        (
-            Fixed::ZERO,
-            (-offset).max(Fixed::ZERO),
-            (-delta).min(-next),
-            -Fixed::ONE,
-        )
-    } else if next > max && delta > Fixed::ZERO {
-        (
-            max,
-            (offset - max).max(Fixed::ZERO),
-            delta.min(next - max),
-            Fixed::ONE,
-        )
-    } else {
-        return delta;
-    };
-    if viewport <= Fixed::ZERO {
-        return edge - offset;
-    }
-    let distance = distance.min(viewport);
-    let remaining = Fixed64::from_fixed(viewport - distance);
-    let extent = Fixed64::from_fixed(viewport);
-    // Integrate the rubber-band curve in displacement space, independent of event batching.
-    let pull = Fixed64::from_fixed(pull) * Fixed64::from_ratio(55, 100) * (remaining / extent);
-    let stretch = (remaining * (pull / (extent + pull))).to_fixed();
-    edge + sign * (distance + stretch) - offset
-}
-fn is_at_boundary(world: &World, entity: Entity, delta_x: Fixed, delta_y: Fixed) -> bool {
-    let Some(scroll) = world.get::<ScrollOffset>(entity) else {
-        return false;
-    };
-    let config = world.get::<ScrollConfig>(entity);
-    let bounds = scroll_bounds(world, entity).unwrap_or_default();
-    let (max_x, max_y) = (bounds.max_x, bounds.max_y);
-
-    let at_y = (scroll.y <= Fixed::ZERO && delta_y < Fixed::ZERO)
-        || (scroll.y >= max_y && delta_y > Fixed::ZERO);
-    let at_x = (scroll.x <= Fixed::ZERO && delta_x < Fixed::ZERO)
-        || (scroll.x >= max_x && delta_x > Fixed::ZERO);
-
-    let dir = config.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
-    match dir {
-        ScrollAxis::Vertical => at_y,
-        ScrollAxis::Horizontal => at_x,
-        ScrollAxis::Both => at_y || at_x,
     }
 }

@@ -11,11 +11,9 @@ fn assert_conserved(model: &FactoryModel) {
         model.delivered + model.rejected + u16::from(model.wip())
     );
     let mut ids = [0_u16; CELL_COUNT];
-    let mut len = 0;
-    for item in model.items.iter().flatten() {
+    for (len, item) in model.items.iter().flatten().enumerate() {
         assert!(!ids[..len].contains(&item.id));
         ids[len] = item.id;
-        len += 1;
     }
 }
 

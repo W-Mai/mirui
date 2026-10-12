@@ -870,7 +870,7 @@ mod tests {
         let cases: [(i32, f32); 5] = [
             (1, 1.0),
             (4, 0.5),
-            (2, 1.0 / 1.4142),
+            (2, core::f32::consts::FRAC_1_SQRT_2),
             (9, 1.0 / 3.0),
             (16, 0.25),
         ];
@@ -910,7 +910,7 @@ mod tests {
         let cases = [
             (0, 0.0f32),
             (30, 0.5),
-            (45, 0.7071),
+            (45, core::f32::consts::FRAC_1_SQRT_2),
             (60, 0.8660),
             (90, 1.0),
             (180, 0.0),
@@ -967,7 +967,7 @@ mod tests {
     #[test]
     fn div_precision_past_old_ceiling() {
         let q = (Fixed::from_int(1_000_000) / Fixed::from_int(7)).to_f32();
-        assert!((q - 142857.142857).abs() < 1.0);
+        assert!((q - 1_000_000.0 / 7.0).abs() < 1.0);
     }
 
     #[test]

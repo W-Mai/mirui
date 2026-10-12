@@ -1908,7 +1908,6 @@ mod projective_transform_tests {
                 crate::render::RenderFeature::ProjectiveGeometry
             ))
         );
-        drop(scoped);
         assert_eq!(renderer.draws, 0);
     }
 

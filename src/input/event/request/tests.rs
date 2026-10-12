@@ -95,6 +95,10 @@ fn conflicting_defaults_do_not_run_and_explicit_handlers_override_them() {
 }
 
 #[test]
+#[expect(
+    clippy::let_and_return,
+    reason = "Exercise an inline request body with statements and a returned value."
+)]
 fn request_callbacks_use_all_author_forms_and_keep_results() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();

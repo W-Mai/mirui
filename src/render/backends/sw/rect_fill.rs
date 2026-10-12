@@ -663,10 +663,8 @@ mod corner_check {
     #[test]
     fn shape_symmetric_vertical() {
         let g = render_circle(32, 32, 16);
-        for y in 0..16 {
-            for x in 0..32 {
-                let t = g[y][x];
-                let b = g[31 - y][x];
+        for (y, (top, bottom)) in g.iter().zip(g.iter().rev()).take(16).enumerate() {
+            for (x, (&t, &b)) in top.iter().zip(bottom).enumerate() {
                 assert!(t.abs_diff(b) <= 2, "col {x} y={y}: top {t} vs bot {b}",);
             }
         }
@@ -726,19 +724,17 @@ mod corner_check {
         // r_int = ceil(6) = 6.
         // mid_x0 = ceil(2.5 + 6) = 9. mid_x1 = (2.5 + 40 - 6).to_int() = 36.
         // mid_y0 = ceil(3.5 + 6) = 10. mid_y1 = (3.5 + 24 - 6).to_int() = 21.
-        for y in 10..21 {
-            for x in 9..36 {
+        for (y, row) in g.iter().enumerate().take(21).skip(10) {
+            for (x, &alpha) in row.iter().enumerate().take(36).skip(9) {
                 assert_eq!(
-                    g[y][x], 255,
-                    "fractional-origin inner pixel ({x},{y}) not solid: alpha={}",
-                    g[y][x]
+                    alpha, 255,
+                    "fractional-origin inner pixel ({x},{y}) not solid: alpha={alpha}"
                 );
             }
         }
         // Fractional edges must still anti-alias — top row of the
         // fractional area must be partially transparent (cov_y < 1).
-        for x in 9..36 {
-            let edge = g[3][x];
+        for (x, &edge) in g[3].iter().enumerate().take(36).skip(9) {
             assert!(
                 edge > 0 && edge < 255,
                 "fractional top-edge pixel ({x},3) should AA but got {edge}"
@@ -754,30 +750,25 @@ mod corner_check {
         let g = render_circle(40, 24, 6);
         // r_px is ceil(6) = 6, so corner bboxes are [0..6) × [0..6) etc.
         // Inner cross x/y range fully solid: x∈[6, 34), y∈[6, 18).
-        for y in 6..18 {
-            for x in 6..34 {
-                assert_eq!(
-                    g[y][x], 255,
-                    "inner pixel ({x},{y}) not solid: alpha={}",
-                    g[y][x]
-                );
+        for (y, row) in g.iter().enumerate().take(18).skip(6) {
+            for (x, &alpha) in row.iter().enumerate().take(34).skip(6) {
+                assert_eq!(alpha, 255, "inner pixel ({x},{y}) not solid: alpha={alpha}");
             }
         }
         for y in [0, 5, 18, 23] {
-            for x in 6..34 {
+            for (x, &alpha) in g[y].iter().enumerate().take(34).skip(6) {
                 assert_eq!(
-                    g[y][x], 255,
-                    "straight band pixel ({x},{y}) not solid: alpha={}",
-                    g[y][x]
+                    alpha, 255,
+                    "straight band pixel ({x},{y}) not solid: alpha={alpha}"
                 );
             }
         }
-        for y in 6..18 {
+        for (y, row) in g.iter().enumerate().take(18).skip(6) {
             for x in [0, 5, 34, 39] {
                 assert_eq!(
-                    g[y][x], 255,
+                    row[x], 255,
                     "straight band pixel ({x},{y}) not solid: alpha={}",
-                    g[y][x]
+                    row[x]
                 );
             }
         }
@@ -856,6 +847,10 @@ mod corner_check {
         out
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The fixture varies target size, subpixel geometry, and paint independently."
+    )]
     fn render_at_with_color(
         w: i32,
         h: i32,

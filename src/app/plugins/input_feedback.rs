@@ -91,8 +91,9 @@ mod tests {
     use crate::ui::view::ViewRegistry;
     use crate::ui::{Children, WidgetRoot};
 
-    fn make_app()
-    -> App<crate::surface::framebuf::FramebufSurface<fn(&[u8], crate::types::PhysicalRect)>> {
+    type TestSurface = crate::surface::framebuf::FramebufSurface<crate::app::HeadlessFlush>;
+
+    fn make_app() -> App<TestSurface> {
         let mut app = crate::app::App::headless(64, 64);
         app.with_default_widgets();
         app

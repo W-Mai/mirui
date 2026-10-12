@@ -68,7 +68,7 @@ fn gallery_containers_do_not_carry_text_attributes() {
         root.join("gallery/examples"),
     ] {
         visit_rust_sources(&directory, &mut |path| {
-            let source = fs::read_to_string(&path).expect("gallery demo source");
+            let source = fs::read_to_string(path).expect("gallery demo source");
             for widget in container_text_attributes(&source) {
                 violations.push(format!("{}: {widget}", path.display()));
             }

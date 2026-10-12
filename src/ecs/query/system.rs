@@ -1024,7 +1024,7 @@ mod tests {
             (EntityItem, Write<Velocity>),
             (With<Active>,),
         >;
-        drop(Rows::new(&mut world));
+        let _ = Rows::new(&mut world);
 
         let allocations = tracked_allocations(|| {
             let mut rows = Rows::new(&mut world);
@@ -1326,7 +1326,7 @@ mod tests {
 
         type Rows<'w> =
             SystemQuery<'w, ComponentDriver<Position>, (Write<Velocity>, Read<Position>), ()>;
-        drop(Rows::new(&mut world));
+        let _ = Rows::new(&mut world);
         let allocations = tracked_allocations(|| {
             let mut rows = Rows::new(&mut world);
             for _ in 0..64 {
@@ -1394,14 +1394,13 @@ mod tests {
         type Rows<'world> =
             SystemQuery<'world, ComponentDriver<Velocity>, (EntityItem, Write<Velocity>), ()>;
 
-        drop(Rows::new(&mut world));
+        let _ = Rows::new(&mut world);
         let mut changes = alloc::vec::Vec::new();
         world.drain_component_changes(|_, change| changes.push(change));
         assert!(changes.is_empty());
 
         let mut rows = Rows::new(&mut world).into_iter();
         let (yielded, _) = rows.next().expect("first mutable row");
-        drop(rows);
         world.drain_component_changes(|_, change| changes.push(change));
 
         assert_eq!(yielded, first);
@@ -1624,7 +1623,6 @@ mod tests {
         first_value.0 += 10;
         second_value.0 += 20;
         assert!(rows.next().is_none());
-        drop(rows);
 
         assert_eq!((first_entity, first_value.0), (first, 11));
         assert_eq!((second_entity, second_value.0), (second, 22));

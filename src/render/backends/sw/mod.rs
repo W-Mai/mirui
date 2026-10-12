@@ -2777,8 +2777,8 @@ mod tests {
         let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
 
         let mut dst_a = vec![0u8; 6 * 6 * 2];
-        for i in 0..dst_a.len() {
-            dst_a[i] = (i * 5) as u8;
+        for (i, byte) in dst_a.iter_mut().enumerate() {
+            *byte = (i * 5) as u8;
         }
         let mut dst_b = dst_a.clone();
 
@@ -3242,7 +3242,7 @@ mod tests {
         // ±2 tolerance for u8 rounding in two-step source-over.
         let expected = 100 + (100 * 155) / 255;
         assert!(
-            (p.a as i32 - expected as i32).abs() <= 2,
+            (p.a as i32 - expected).abs() <= 2,
             "blend mode source-over: expected ~{expected}, got {}",
             p.a,
         );

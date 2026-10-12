@@ -533,7 +533,6 @@ mod paint_contract_tests {
                             None
                         }
                     );
-                    drop(paint);
                     if present && !fail {
                         assert!(renderer.calls > 0);
                     } else {

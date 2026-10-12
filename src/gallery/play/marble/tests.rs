@@ -221,11 +221,9 @@ fn deleting_and_adding_preserves_unique_ids() {
     assert_eq!(model.pad_count(), 1);
     let _ = model.add_pad(Vec2::new(143, 108));
     let mut ids = [0_u32; MAX_PADS];
-    let mut len = 0;
-    for pad in model.pads.iter().flatten() {
+    for (len, pad) in model.pads.iter().flatten().enumerate() {
         assert!(!ids[..len].contains(&pad.id));
         ids[len] = pad.id;
-        len += 1;
     }
 }
 

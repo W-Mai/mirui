@@ -204,7 +204,6 @@ mod paint_contract_tests {
                                 None
                             }
                         );
-                        drop(paint);
                         assert_eq!(renderer.calls != 0, draws);
                         if fail && draws {
                             assert_eq!(renderer.calls, 1);

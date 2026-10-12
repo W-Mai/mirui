@@ -37,8 +37,10 @@ fn assert_layout(width: u16, height: u16) {
 
 #[test]
 fn held_scope_keeps_trace_stable() {
-    let mut state = ScopeModel::default();
-    state.running = false;
+    let mut state = ScopeModel {
+        running: false,
+        ..ScopeModel::default()
+    };
     let trace_clock_ms = state.trace_clock_ms;
     assert_eq!(state.advance_ms(16), ChangeSet::NONE);
     assert_eq!(state.trace_clock_ms, trace_clock_ms);
@@ -46,8 +48,10 @@ fn held_scope_keeps_trace_stable() {
 
 #[test]
 fn stop_and_trigger_actions_are_stable() {
-    let mut state = ScopeModel::default();
-    state.trace_clock_ms = 80;
+    let mut state = ScopeModel {
+        trace_clock_ms: 80,
+        ..ScopeModel::default()
+    };
     state.activate(ScopeControl::Stop);
     assert_eq!(state.trace_clock_ms, 80);
     assert_eq!(TriggerEdge::Rising.toggled().toggled(), TriggerEdge::Rising);
@@ -69,8 +73,10 @@ fn acquisition_clock_does_not_move_the_triggered_phase() {
 
 #[test]
 fn phosphor_traces_only_deviate_slightly_from_triggered_signal() {
-    let mut state = ScopeModel::default();
-    state.trace_clock_ms = 1_337;
+    let state = ScopeModel {
+        trace_clock_ms: 1_337,
+        ..ScopeModel::default()
+    };
     for position in [
         Fixed::from_ratio(1, 5),
         Fixed::from_ratio(1, 2),
