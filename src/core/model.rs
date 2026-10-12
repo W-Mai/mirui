@@ -31,11 +31,11 @@ pub use set::{ModelSetHandle, ModelSetOwned};
 pub use identity::ModelRef;
 #[doc(hidden)]
 pub use owned::{OwnedModel, OwnedStorage};
-#[cfg(feature = "persistence")]
-#[doc(hidden)]
-pub use persistence::Candidate;
 #[doc(hidden)]
 pub use persistence::PersistenceState;
+#[cfg(feature = "persistence")]
+#[doc(hidden)]
+pub use persistence::{Candidate, SaveEndpoint};
 #[doc(hidden)]
 pub use projection::{ModelChildField, ModelPath, ModelPathThen};
 #[doc(hidden)]

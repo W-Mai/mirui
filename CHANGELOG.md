@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Model archive codecs separate encoding, restoration preparation, and application. Weak save endpoints validate root lifetimes and confirm candidates only after successful storage writes.
+
 ### Changed
 
 - Storage operations report errors and distinguish unchanged writes. File and browser storage constructors return errors instead of silently replacing unavailable or corrupt data with empty state. Persistence callbacks propagate restore failures and retain retryable saves.

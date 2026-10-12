@@ -8,11 +8,15 @@ extern crate alloc;
 pub mod archive;
 mod autosave;
 mod error;
+mod model_codec;
 #[doc(hidden)]
 pub mod value;
 use autosave::Autosave;
 pub use autosave::IntoDuration;
 pub use error::PersistenceError;
+#[doc(hidden)]
+pub use model_codec::FieldCodec;
+pub use model_codec::ModelCodec;
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;

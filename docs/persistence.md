@@ -25,6 +25,12 @@ Field codecs match names and archive types, not declaration order. Missing or in
 
 Registered roots with persistence declarations retain one save-candidate state for the complete owned tree. Mutations mark it without allocating or copying saved fields, including mutations that return an error; reads do not mark it. Models without a persistence declaration use zero-sized persistence state. Candidate tracking is separate from the storage registration and write acknowledgment.
 
+## Model codecs
+
+`ModelCodec` defines a complete archive format for an associated `Model` type. `encode` writes into a reusable byte buffer; `prepare` validates the entire stored record and prepares a restoration without changing the current Model; `apply` consumes that prepared value. Application must not allocate, deliver business effects, or perform additional fallible validation. A custom codec receives and produces complete storage bytes without an added framework prefix. It can access the raw Model's business data, not only fields marked `#[persist]`.
+
+The internal Model save endpoint keeps a weak registration reference, rejects retired, foreign, busy, or poisoned roots, and confirms only the candidate encoded by a successful storage write. An explicit save makes a clean root retryable if encoding or writing fails. A mutation during a write remains pending after that write succeeds. Encoding buffers are reused independently of storage-backend allocations.
+
 ## Automatic saves
 
 Configure the interval with `autosave(interval)`. Integer arguments are milliseconds; `core::time::Duration` and `std::time::Duration` specify a duration directly.

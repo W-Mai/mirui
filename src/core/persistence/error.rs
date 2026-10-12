@@ -13,6 +13,12 @@ pub enum PersistenceError {
     Capacity,
     /// No endpoint is registered for the requested key.
     Unregistered,
+    /// The Model belongs to a different application.
+    WrongOwner,
+    /// A Model transaction or conflicting borrow is still active.
+    ModelBusy,
+    /// An unwound Model update left its root poisoned.
+    Poisoned,
 }
 
 impl From<StorageError> for PersistenceError {
@@ -29,6 +35,9 @@ impl core::fmt::Display for PersistenceError {
             Self::Encoding => f.write_str("persistence encoding failed"),
             Self::Capacity => f.write_str("persistence capacity unavailable"),
             Self::Unregistered => f.write_str("persistence key is not registered"),
+            Self::WrongOwner => f.write_str("persistent model belongs to a different App"),
+            Self::ModelBusy => f.write_str("persistent model is busy"),
+            Self::Poisoned => f.write_str("persistent model is poisoned"),
         }
     }
 }

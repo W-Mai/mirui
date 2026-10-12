@@ -4,6 +4,11 @@ pub trait PersistenceState: sealed::Sealed + Default + 'static {
     fn changed(&self);
 }
 
+#[cfg(feature = "persistence")]
+mod endpoint;
+#[cfg(feature = "persistence")]
+pub use endpoint::SaveEndpoint;
+
 mod sealed {
     pub trait Sealed {}
     impl Sealed for () {}
