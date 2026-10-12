@@ -758,6 +758,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         }
     }
 
+    #[expect(clippy::too_many_arguments, reason = "Canvas stroke parameters")]
     fn set_stroke_style(
         &self,
         paint: &Paint,
@@ -836,6 +837,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         self.pop_rect_clip();
     }
 
+    #[expect(clippy::too_many_arguments, reason = "DrawCommand border parameters")]
     fn stroke_quad_inner(
         &mut self,
         q: &[Point; 4],
@@ -900,11 +902,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         let h = area.h.to_f32() as f64;
         let r = radius.to_f32().max(0.0) as f64;
         ctx.begin_path();
-        if r <= 0.0 {
-            ctx.rect(x, y, w, h);
-        } else if ctx
-            .round_rect_with_f64(x, y, w, h, r.min(w * 0.5).min(h * 0.5))
-            .is_err()
+        if r <= 0.0
+            || ctx
+                .round_rect_with_f64(x, y, w, h, r.min(w * 0.5).min(h * 0.5))
+                .is_err()
         {
             ctx.rect(x, y, w, h);
         }
