@@ -121,6 +121,51 @@ fn acknowledgments_are_ordered_single_use_and_owned_by_the_issuing_app() {
 }
 
 #[test]
+fn clipboard_completions_do_not_cross_retained_item_rebinding() {
+    use crate::core::reactive::retained::{RetainedEffects, retire};
+
+    for (cut_source, rebind_queued) in [(false, false), (true, false), (false, true), (true, true)]
+    {
+        for response in [Ok(()), Err(ClipboardError::PermissionDenied)] {
+            let (mut app, node) = fixture();
+            let root = app.root.unwrap();
+            let gate = RetainedEffects::new(&mut app.world, |_, _| true);
+            app.world.insert(root, gate);
+            select(&mut app, node, 0, 1);
+            write_selection(&mut app.world, node, cut_source);
+            if rebind_queued {
+                retire(&mut app.world, root);
+            }
+            let write = take_write(&mut app.world).unwrap();
+            if !rebind_queued {
+                retire(&mut app.world, root);
+            }
+            let response = write.complete(response);
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| {
+                    complete(&mut app.world, &response);
+                }),
+                0
+            );
+            flush(&mut app);
+            assert!(app.world.resource::<Results>().unwrap().0.is_empty());
+            app.world
+                .get::<TextEditing>(node)
+                .unwrap()
+                .read(|text| assert_eq!(text, "A中🙂Z"));
+
+            copy(&mut app.world, node);
+            let write = take_write(&mut app.world).unwrap();
+            complete(&mut app.world, &write.complete(Ok(())));
+            flush(&mut app);
+            let results = &app.world.resource::<Results>().unwrap().0;
+            assert_eq!(results.len(), 1);
+            assert_eq!(results[0].result, Ok(ClipboardOutcome::Copied));
+        }
+    }
+}
+
+#[test]
 fn commands_snapshot_the_selection_at_their_own_execution_position() {
     let (mut app, node) = fixture();
     let root = app.root.unwrap();

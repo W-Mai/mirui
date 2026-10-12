@@ -3,6 +3,7 @@
 use alloc::{boxed::Box, collections::VecDeque};
 use core::any::Any;
 
+use crate::core::reactive::retained::InputLease;
 use crate::ecs::{CommandCapacity, Entity, World, commands::DeferredCommands, world::WorldId};
 use crate::input::event::{
     contract::{EntityNotification, EntityRequest, EntitySource, Event, RequestError},
@@ -218,6 +219,7 @@ impl ClipboardInput {
             ClipboardIntent::Copy => copy(world, target),
             ClipboardIntent::Cut => cut(world, target),
             ClipboardIntent::Paste(data) => {
+                let completion_target = CompletionTarget::capture(world, target);
                 let operation = match operation(world) {
                     Ok(operation) => operation,
                     Err(error) => {
@@ -231,7 +233,7 @@ impl ClipboardInput {
                 });
                 finish(
                     world,
-                    target,
+                    completion_target,
                     operation,
                     result.map(|()| ClipboardOutcome::Pasted),
                 );
@@ -314,14 +316,39 @@ enum Completion {
     Cut(SelectionGuard<CutSelection>),
     Paste(SelectionGuard<PasteSelection>),
 }
+#[derive(Clone, Copy)]
+enum CompletionTarget {
+    Entity(Entity),
+    Retained(InputLease),
+}
+impl CompletionTarget {
+    fn capture(world: &World, entity: Entity) -> Self {
+        InputLease::capture(world, entity).map_or(Self::Entity(entity), Self::Retained)
+    }
+
+    fn entity(self) -> Entity {
+        match self {
+            Self::Entity(entity) => entity,
+            Self::Retained(lease) => lease.target(),
+        }
+    }
+
+    fn valid(self, world: &World) -> bool {
+        match self {
+            Self::Entity(entity) => world.is_alive(entity),
+            Self::Retained(lease) => lease.valid(world),
+        }
+    }
+}
+
 struct Pending {
-    target: Entity,
+    target: CompletionTarget,
     request: ClipboardRequest,
     completion: Completion,
 }
 struct Running {
     operation: ClipboardOperationId,
-    target: Entity,
+    target: CompletionTarget,
     completion: Completion,
 }
 struct Service {
@@ -364,16 +391,21 @@ fn operation(world: &mut World) -> Result<ClipboardOperationId, ClipboardError> 
 
 fn finish(
     world: &mut World,
-    target: Entity,
+    target: CompletionTarget,
     operation: ClipboardOperationId,
     result: Result<ClipboardOutcome, ClipboardError>,
 ) {
     if let Err(error) = result {
         crate::warn!(target: "mirui::clipboard", "clipboard operation failed: {:?}", error);
     }
-    if let Err(error) =
-        emission::submit_if_listened(world, target, ClipboardFinished { operation, result })
-    {
+    if !target.valid(world) {
+        return;
+    }
+    if let Err(error) = emission::submit_if_listened(
+        world,
+        target.entity(),
+        ClipboardFinished { operation, result },
+    ) {
         crate::warn!(target: "mirui::clipboard", "clipboard notification skipped: {:?}", error);
     }
 }
@@ -419,6 +451,7 @@ pub(crate) fn cut(world: &mut World, target: Entity) {
 }
 
 fn write_selection(world: &mut World, target: Entity, cut: bool) {
+    let completion_target = CompletionTarget::capture(world, target);
     let operation = match operation(world) {
         Ok(operation) => operation,
         Err(error) => {
@@ -432,7 +465,7 @@ fn write_selection(world: &mut World, target: Entity, cut: bool) {
             enqueue(
                 world,
                 Pending {
-                    target,
+                    target: completion_target,
                     request: ClipboardRequest::Write(ClipboardWrite { operation, data }),
                     completion,
                 },
@@ -440,11 +473,11 @@ fn write_selection(world: &mut World, target: Entity, cut: bool) {
         }
         Ok(None) => finish(
             world,
-            target,
+            completion_target,
             operation,
             Ok(ClipboardOutcome::EmptySelection),
         ),
-        Err(error) => finish(world, target, operation, Err(error)),
+        Err(error) => finish(world, completion_target, operation, Err(error)),
     }
 }
 
@@ -463,6 +496,7 @@ fn enqueue(world: &mut World, pending: Pending) {
 }
 
 pub(crate) fn paste(world: &mut World, target: Entity) {
+    let completion_target = CompletionTarget::capture(world, target);
     let operation = match operation(world) {
         Ok(operation) => operation,
         Err(error) => {
@@ -474,12 +508,12 @@ pub(crate) fn paste(world: &mut World, target: Entity) {
         Ok(guard) => enqueue(
             world,
             Pending {
-                target,
+                target: completion_target,
                 request: ClipboardRequest::Read(ClipboardRead { operation }),
                 completion: Completion::Paste(guard),
             },
         ),
-        Err(error) => finish(world, target, operation, Err(error)),
+        Err(error) => finish(world, completion_target, operation, Err(error)),
     }
 }
 

@@ -31,6 +31,8 @@ TextInput () on ClipboardFinished(|event: event!(ClipboardFinished)| {
 
 The normal bounded event preset supports clipboard completion notifications. Explicit budgets can reserve `CommandCapacity::clipboard(count)` and `EventCapacity::notifications::<ClipboardFinished>(count)`. Completion is not queued without a listener; failure is still logged.
 
+Completion belongs to the entity and retained item binding that issued the operation. Deleted targets and reused cells do not receive the previous item's result. A captured copy can still finish its platform write after the original item disappears; pending cut and paste operations cannot edit the replacement item.
+
 ## Custom selectable components
 
 A component registers `InspectSelection` and `CopySelection` through the existing `#[event]` callbacks and View `input` list, or explicit `on` handlers. They are synchronous, single-provider requests, not bubbling gestures or queued notifications.

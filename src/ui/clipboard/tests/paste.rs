@@ -24,6 +24,37 @@ fn result(app: &mut TestApp) -> Result<ClipboardOutcome, ClipboardError> {
 }
 
 #[test]
+fn paste_completions_do_not_cross_retained_item_rebinding() {
+    use crate::core::reactive::retained::{RetainedEffects, retire};
+
+    for denied in [false, true] {
+        let (mut app, node) = fixture();
+        let root = app.root.unwrap();
+        let gate = RetainedEffects::new(&mut app.world, |_, _| true);
+        app.world.insert(root, gate);
+        let read = start(&mut app, node);
+        retire(&mut app.world, root);
+        let response = if denied {
+            Err(ClipboardError::PermissionDenied)
+        } else {
+            ClipboardData::text("stale")
+        };
+        complete(&mut app.world, &read.complete(response));
+        flush(&mut app);
+        assert!(app.world.resource::<Results>().unwrap().0.is_empty());
+        app.world
+            .get::<TextEditing>(node)
+            .unwrap()
+            .read(|text| assert_eq!(text, "A中🙂Z"));
+
+        let read = start(&mut app, node);
+        complete(&mut app.world, &read.complete(ClipboardData::text("new")));
+        assert_eq!(result(&mut app), Ok(ClipboardOutcome::Pasted));
+        assert_eq!(app.world.resource::<Results>().unwrap().0.len(), 1);
+    }
+}
+
+#[test]
 fn paste_replaces_reversed_selection_or_inserts_at_the_caret_once() {
     for (anchor, cursor, expected, end) in [(8, 1, "A你好Z", 7), (4, 4, "A中你好🙂Z", 10)] {
         let (mut app, node) = fixture();
