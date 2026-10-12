@@ -203,6 +203,77 @@ fn copy_shortcut_uses_formal_selection_without_ending_composition() {
     );
 }
 
+#[derive(Default)]
+struct CutObserved(alloc::vec::Vec<alloc::string::String>);
+
+#[crate::event]
+fn observe_cut_end(
+    node: entity!(),
+    event: event!(CompositionEnded),
+    editors: query!(TextEditing),
+    seen: res!(mut CutObserved),
+) {
+    assert_eq!(event.reason, CompositionEndReason::Interrupted);
+    editors
+        .get(node)
+        .unwrap()
+        .read(|text| seen.0.push(text.into()));
+}
+
+#[test]
+fn clipboard_cut_ends_composition_after_editing_and_rejects_late_session_input() {
+    use crate::ui::clipboard;
+    let (mut app, editor, _, _) = fixture();
+    app.add_resource(CutObserved::default());
+    crate::input::event::runtime::install_entity(
+        &mut app.world,
+        editor,
+        CompositionEnded::EVENT,
+        observe_cut_end::callback::<crate::input::event::callback::NodeContext>(),
+    )
+    .unwrap();
+    app.with_input_method(InputMethod::native());
+    let session = native_state(&mut app.world, 0).unwrap().session;
+    native(&mut app, session.commit("A中🙂Z"));
+    app.world
+        .get_mut::<TextEditing>(editor)
+        .unwrap()
+        .set_selection(TextSelection {
+            anchor: 8,
+            cursor: 1,
+        })
+        .unwrap();
+    native(&mut app, session.preedit("ni", Some(2..2)));
+    let mut queue = crate::ecs::commands::CommandQueue::bounded(
+        crate::ecs::CommandCapacity::new().clipboard(1),
+    )
+    .unwrap();
+    let mut batch = queue.begin();
+    batch.commands().clipboard().cut(editor);
+    batch.finish(&mut app.world).unwrap();
+    let write = clipboard::take_write(&mut app.world).unwrap();
+    assert_eq!(write.data().plain_text(), Ok("中🙂"));
+    assert!(app.world.resource::<CutObserved>().unwrap().0.is_empty());
+    clipboard::complete(&mut app.world, &write.complete(Ok(())));
+    assert_eq!(&app.world.resource::<CutObserved>().unwrap().0[..], &["AZ"]);
+    app.world
+        .get::<TextEditing>(editor)
+        .unwrap()
+        .read_display(|text| assert_eq!(text, "AZ"));
+    native(&mut app, session.commit("stale"));
+    app.world
+        .get::<TextEditing>(editor)
+        .unwrap()
+        .read(|text| assert_eq!(text, "AZ"));
+    let next = native_state(&mut app.world, 0).unwrap().session;
+    assert_ne!(next, session);
+    native(&mut app, next.commit("新"));
+    app.world
+        .get::<TextEditing>(editor)
+        .unwrap()
+        .read(|text| assert_eq!(text, "A新Z"));
+}
+
 #[test]
 fn native_composition_borrows_payload_and_keeps_empty_preview_until_commit() {
     let (mut app, editor, _, _) = fixture();

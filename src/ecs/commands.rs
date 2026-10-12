@@ -204,6 +204,9 @@ pub enum CommandError {
 /// A deferred operation rejected after callback borrows have ended.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CommandCommitError {
+    OperationRejected {
+        operation: &'static str,
+    },
     MissingTarget {
         entity: Entity,
     },

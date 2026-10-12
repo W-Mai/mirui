@@ -11,13 +11,15 @@ on Tap {
 
 Commands execute in order. `select_all(editor)` followed by `copy(editor)` copies the full selection; reversing these calls copies the selection that existed before select-all. The copy command captures immutable data before returning, so subsequent document edits cannot change the pending platform write.
 
+`commands.clipboard().cut(editor)` captures the same selection and waits for a successful platform write before deleting it. Empty selections do nothing. Write failures preserve the document, selection, and preedit. If the source, selection, provider, or composition changes while the write is pending, the clipboard keeps the captured data but the editor is not modified. Changes that are later reversed still invalidate the pending cut. TextEditing collapses the caret to the deleted range's start; successful edits retire the old input-method session before changing the document and notify composition end afterward.
+
 Ctrl/Command+A selects all and Ctrl/Command+C copies the focused component's selection. These defaults run after Key handlers allow propagation; a consumed Key prevents the default operation. The target and capability provider are fixed before callbacks, so changing focus cannot redirect the operation. Removed, hidden, replaced, or rebound targets are rejected. Key releases, auto-repeat, and Alt/Shift combinations do not run these defaults. Copy during composition reads the formal document selection without committing or cancelling preedit.
 
 Software input methods can send the same keys through `commands.text_input().key(session, key)`. They use the session's editor and the same selection defaults without reentering the input method's own Key interceptor.
 
 ## Completion
 
-Listen for `mirui::ui::clipboard::ClipboardFinished` on the target editor, not the toolbar button. Its operation ID identifies one request. `result` distinguishes `ClipboardOutcome::Copied`, `ClipboardOutcome::EmptySelection`, and `ClipboardError`. Copied means the platform write acknowledged success; permission rejection, unsupported data, and platform failure are not success. Completion never retries a write. Duplicate or foreign-App acknowledgments are ignored.
+Listen for `mirui::ui::clipboard::ClipboardFinished` on the target editor, not the toolbar button. Its operation ID identifies one request. `result` distinguishes `Copied`, `Cut`, `CopiedWithoutCut`, `EmptySelection`, and `ClipboardError`. Copied means the platform write acknowledged success; Cut also confirms that the component accepted deletion. CopiedWithoutCut means the write succeeded but the source became unavailable or refused deletion. Permission rejection, unsupported data, and platform failure are not success. Completion never retries a write or deletion. Duplicate or foreign-App acknowledgments are ignored.
 
 ```rust,ignore
 TextInput () on ClipboardFinished(|event: event!(ClipboardFinished)| {
@@ -32,6 +34,8 @@ The normal bounded event preset supports clipboard completion notifications. Exp
 A component registers `InspectSelection` and `CopySelection` through the existing `#[event]` callbacks and View `input` list, or explicit `on` handlers. They are synchronous, single-provider requests, not bubbling gestures or queued notifications.
 
 `InspectSelection` returns `Result<SelectionState, ClipboardError>`. Construct the state with `SelectionState::new(has_selection, context)`, where `context: Eq + 'static` owns a snapshot of source identity and content/selection revisions. Changes that are later reversed must still change the revisions. Do not store a live lookup closure. `CopySelection` returns `Result<ClipboardData, ClipboardError>` and must not modify the source. The framework compares selection context before and after export and separately validates the node, provider, component attachment, and retained-row identity. A rejected callback does not roll back arbitrary application mutations.
+
+Components supporting deletion also register `CutSelection`, returning `Result<(), ClipboardError>`. The clipboard service calls it only after a successful write and an unchanged selection context. Include every mutable editing context in InspectSelection, such as composition state, not just content length or the currently selected value. Validate the entire operation before mutating the source. Deferred-command rejection propagates as a request error even if the callback body returned Ok. Arbitrary user mutations are not rolled back; built-in text editing logs notification-capacity failures without retrying an already committed edit.
 
 ## Data and allocation
 

@@ -95,7 +95,8 @@ direct_inputs!(super::input::Key, super::input::TextCommitted);
 direct_inputs!(crate::ui::selection::SelectAll);
 direct_inputs!(
     crate::ui::clipboard::InspectSelection,
-    crate::ui::clipboard::CopySelection
+    crate::ui::clipboard::CopySelection,
+    crate::ui::clipboard::CutSelection
 );
 direct_inputs!(
     crate::ui::text_input::CompositionStarted,

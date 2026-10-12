@@ -157,6 +157,35 @@ fn checked_edit_separates_committed_content_from_failed_notification_delivery() 
 }
 
 #[test]
+fn clipboard_edit_does_not_retry_when_only_notifications_exhaust_their_budget() {
+    use crate::input::event::EventCapacity;
+    use crate::prelude::*;
+    let mut app = App::headless(32, 32);
+    app.with_event_capacity(EventCapacity::new());
+    app.add_resource(Notices::default());
+    let root = app.spawn_root().id();
+    let node = app.compose(root, |cx| {
+        crate::ui! {
+            View () [TextEditing::default().with_text("ABC").unwrap()]
+            on TextEditing::Changed(changed::callback())
+        }
+    });
+    app.world
+        .get_mut::<TextEditing>(node)
+        .unwrap()
+        .set_selection(TextSelection {
+            anchor: 1,
+            cursor: 2,
+        })
+        .unwrap();
+    assert_eq!(replace_from_clipboard(&mut app.world, node, ""), Ok(()));
+    let editor = app.world.get::<TextEditing>(node).unwrap();
+    editor.read(|text| assert_eq!(text, "AC"));
+    assert_eq!(editor.cursor(), 1);
+    assert!(app.world.resource::<Notices>().unwrap().0.is_empty());
+}
+
+#[test]
 fn external_shrink_normalization_persists_before_later_growth() {
     let (mut app, node) = fixture();
     let document = app.add_model(TextDocument::new());

@@ -322,6 +322,44 @@ fn end(world: &mut World, active: &mut Active, reason: CompositionEndReason) {
     }
 }
 
+pub(crate) struct InterruptedEdit(Option<Active>);
+
+pub(crate) fn interrupt_edit(world: &mut World, entity: Entity) -> InterruptedEdit {
+    let retired = service(world).and_then(|service| {
+        let mut state = service.state.borrow_mut();
+        if state
+            .active
+            .as_ref()
+            .is_some_and(|active| active.entity == entity)
+        {
+            state.active.take()
+        } else {
+            None
+        }
+    });
+    if let Some(editor) = world.get_mut::<TextEditing>(entity) {
+        editor.clear_preedit();
+    }
+    InterruptedEdit(retired)
+}
+
+impl InterruptedEdit {
+    pub(crate) fn finish(self, world: &mut World) {
+        if let Some(active) = self.0
+            && active.composition.is_some()
+            && active.identity.resolve(world).is_some()
+        {
+            notice(
+                world,
+                active.entity,
+                &CompositionEnded {
+                    reason: CompositionEndReason::Interrupted,
+                },
+            );
+        }
+    }
+}
+
 fn reconcile(world: &mut World, service: &Service) {
     observe(world);
     let retired = {

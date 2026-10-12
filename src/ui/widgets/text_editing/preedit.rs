@@ -5,6 +5,7 @@ use super::{TextEditError, TextEditing, TextSelection};
 
 #[derive(Clone, Default)]
 pub(super) struct Preedit {
+    pub(super) revision: u64,
     display: Vec<u8>,
     explicit_capacity: Option<usize>,
     capacity: usize,
@@ -111,6 +112,11 @@ impl TextEditing {
         text: &str,
         selection: Option<Range<usize>>,
     ) -> Result<(), TextEditError> {
+        self.preedit.revision = self
+            .preedit
+            .revision
+            .checked_add(1)
+            .ok_or(TextEditError::RevisionExhausted)?;
         if let Err(error) = self.prepare_preedit() {
             self.clear_preedit();
             return Err(error);
@@ -134,6 +140,9 @@ impl TextEditing {
 
     pub(crate) fn clear_preedit(&mut self) -> bool {
         let active = self.preedit.active;
+        if active {
+            self.preedit.revision = self.preedit.revision.saturating_add(1);
+        }
         self.preedit.active = false;
         self.preedit.display.clear();
         self.preedit.selection = None;

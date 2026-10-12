@@ -4,6 +4,8 @@ use crate::prelude::*;
 use crate::ui::widgets::{TextEditing, TextInput, TextSelection};
 use alloc::{string::String, vec::Vec};
 
+mod cut;
+
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 #[derive(Default)]

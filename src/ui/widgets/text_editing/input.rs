@@ -445,6 +445,25 @@ fn apply_checked(
     node: Entity,
     edit: Edit<'_>,
 ) -> Result<EditOutcome, EditFailure> {
+    match prepare_edit(world, node, edit)? {
+        Some(edit) => commit_edit(world, node, edit),
+        None => Ok(EditOutcome::Complete),
+    }
+}
+
+struct PreparedEdit<'a> {
+    plan: Plan<'a>,
+    target: super::edit_target::EditTarget,
+    selection_changed: bool,
+    selection_revision: u64,
+    submit: bool,
+}
+
+fn prepare_edit<'a>(
+    world: &World,
+    node: Entity,
+    edit: Edit<'a>,
+) -> Result<Option<PreparedEdit<'a>>, EditFailure> {
     let Some(input) = world
         .get::<TextEditing>(node)
         .filter(|input| input.usable(world))
@@ -458,11 +477,32 @@ fn apply_checked(
         .checked_add(u64::from(selection_changed))
         .ok_or(TextEditError::RevisionExhausted)?;
     if !selection_changed && !plan.content_changed && !matches!(edit, Edit::Submit) {
-        return Ok(EditOutcome::Complete);
+        return Ok(None);
     }
     let Some(target) = super::edit_target::EditTarget::capture(world, node) else {
         return Err(EditFailure::Unavailable);
     };
+    Ok(Some(PreparedEdit {
+        plan,
+        target,
+        selection_changed,
+        selection_revision,
+        submit: matches!(edit, Edit::Submit),
+    }))
+}
+
+fn commit_edit(
+    world: &mut World,
+    node: Entity,
+    edit: PreparedEdit<'_>,
+) -> Result<EditOutcome, EditFailure> {
+    let PreparedEdit {
+        plan,
+        target,
+        selection_changed,
+        selection_revision,
+        submit,
+    } = edit;
     if plan.content_changed {
         let (range, text) = plan
             .replacement
@@ -506,7 +546,7 @@ fn apply_checked(
     } else {
         Ok(())
     };
-    let submit_result = if matches!(edit, Edit::Submit) {
+    let submit_result = if submit {
         crate::input::event::emission::submit_if_listened(world, node, Submitted)
     } else {
         Ok(())
@@ -517,6 +557,41 @@ fn apply_checked(
             Err(error) => EditOutcome::NotificationFailed(error),
         },
     )
+}
+
+pub(super) fn validate_replacement(editor: &TextEditing, text: &str) -> Result<(), TextEditError> {
+    let plan = Edit::Replace(text).plan(editor)?;
+    editor
+        .selection_revision
+        .checked_add(u64::from(editor.selection != plan.selection))
+        .ok_or(TextEditError::RevisionExhausted)?;
+    Ok(())
+}
+
+pub(super) fn replace_from_clipboard(
+    world: &mut World,
+    node: Entity,
+    text: &str,
+) -> Result<(), CommandError> {
+    let rejected = |error| {
+        crate::warn!(target: "mirui::text_editing", "clipboard edit rejected: {:?}", error);
+        CommandError::Commit(crate::ecs::CommandCommitError::OperationRejected {
+            operation: "text replacement",
+        })
+    };
+    let Some(edit) = prepare_edit(world, node, Edit::Replace(text)).map_err(rejected)? else {
+        return Ok(());
+    };
+    let interrupted = crate::ui::text_input::interrupt_edit(world, node);
+    let result = commit_edit(world, node, edit);
+    interrupted.finish(world);
+    match result.map_err(rejected)? {
+        EditOutcome::Complete => {}
+        EditOutcome::NotificationFailed(error) => {
+            crate::warn!(target: "mirui::text_editing", "clipboard edit notification skipped: {:?}", error);
+        }
+    }
+    Ok(())
 }
 
 #[crate::system(order = PreRender)]

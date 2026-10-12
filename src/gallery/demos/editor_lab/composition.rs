@@ -102,13 +102,17 @@ fn shared_actions(model: model!(EditorLab), editor: Entity) -> Entity {
                 PointerFocus::Preserve,
                 Text::label("Select all"),
             ] on Tap { commands!().selection().select_all(editor); }
-            Button (id: "editor_copy", width: 80, font_size: 12, border_radius: 8) [
+            Button (id: "editor_copy", width: 60, font_size: 12, border_radius: 8) [
                 PointerFocus::Preserve,
                 Text::label("Copy"),
             ] on Tap { commands!().clipboard().copy(editor); }
-            Button (id: "editor_replace", height: 34, width: 144, font_size: 12, border_radius: 8) [
+            Button (id: "editor_cut", width: 60, font_size: 12, border_radius: 8) [
                 PointerFocus::Preserve,
-                Text::label("Replace document"),
+                Text::label("Cut"),
+            ] on Tap { commands!().clipboard().cut(editor); }
+            Button (id: "editor_replace", height: 34, width: 120, font_size: 12, border_radius: 8) [
+                PointerFocus::Preserve,
+                Text::label("Replace text"),
             ] on Tap {
                 if let Err(error) = model.reset_shared() {
                     crate::warn!("document rejected: {:?}", error);

@@ -44,10 +44,12 @@ impl EditorLab {
         use crate::ui::clipboard::{ClipboardError, ClipboardOutcome};
         self.clipboard_status = match result {
             Ok(ClipboardOutcome::Copied) => "Copied",
+            Ok(ClipboardOutcome::Cut) => "Cut",
+            Ok(ClipboardOutcome::CopiedWithoutCut) => "Copied; selection changed, not cut",
             Ok(ClipboardOutcome::EmptySelection) => "No selection",
             Err(ClipboardError::PermissionDenied) => "Clipboard permission denied",
             Err(ClipboardError::Unsupported) => "Clipboard unavailable",
-            Err(_) => "Copy failed",
+            Err(_) => "Clipboard operation failed",
         };
     }
     #[observe]
