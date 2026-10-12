@@ -140,6 +140,11 @@ impl<R: Model, P: ModelPath<R>> Projection<R, P> {
 }
 
 impl<R: Model, P: ModelPath<R>> ModelAccess<P::Target> for Projection<R, P> {
+    #[cfg(feature = "persistence")]
+    fn erased_identity(self: alloc::rc::Rc<Self>) -> alloc::rc::Rc<dyn core::any::Any> {
+        self
+    }
+
     fn generation(&self) -> Option<u64> {
         let root = self.root.upgrade()?;
         root.generation()?;

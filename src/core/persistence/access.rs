@@ -1,6 +1,6 @@
 use super::{PersistenceError, PersistenceRegistry, PersistenceStatus};
 use crate::{
-    core::model::{ModelHandle, try_registered_owner},
+    core::model::{ModelHandle, PersistenceTarget, try_registered_owner},
     ecs::World,
 };
 
@@ -36,10 +36,13 @@ impl<'a> Persistence<'a> {
                 protected: false,
             };
         }
+        let Some(target) = model.access().persistence_target() else {
+            return PersistenceStatus::Unregistered;
+        };
         let Some(entry) = registry
             .models
             .iter()
-            .find(|entry| entry.endpoint.matches(model.access()))
+            .find(|entry| entry.endpoint.matches(&target))
         else {
             return PersistenceStatus::Unregistered;
         };
@@ -51,14 +54,28 @@ impl<'a> Persistence<'a> {
 
     /// Save a registered root from its current data. A successful write clears failed-restore protection.
     pub fn save<H: ModelHandle>(&mut self, model: &H) -> Result<(), PersistenceError> {
-        self.with_model(model, |registry, world, index| {
+        self.save_target(model.access().persistence_target())
+    }
+
+    pub(super) fn save_target(
+        &mut self,
+        target: Option<PersistenceTarget>,
+    ) -> Result<(), PersistenceError> {
+        self.with_target(target, |registry, world, index| {
             registry.models[index].save(world, &mut *registry.storage, &mut registry.output, true)
         })
     }
 
     /// Restore a registered root and publish observations without delivering business effects. Missing data leaves the current value unchanged; invalid data is rejected before application.
     pub fn restore<H: ModelHandle>(&mut self, model: &H) -> Result<(), PersistenceError> {
-        self.with_model(model, |registry, world, index| {
+        self.restore_target(model.access().persistence_target())
+    }
+
+    pub(super) fn restore_target(
+        &mut self,
+        target: Option<PersistenceTarget>,
+    ) -> Result<(), PersistenceError> {
+        self.with_target(target, |registry, world, index| {
             registry.models[index].restore(world, &*registry.storage)
         })
     }
@@ -85,9 +102,9 @@ impl<'a> Persistence<'a> {
             .ok_or(PersistenceError::Unavailable)?
     }
 
-    fn with_model<H: ModelHandle>(
+    fn with_target(
         &mut self,
-        model: &H,
+        target: Option<PersistenceTarget>,
         operation: impl FnOnce(
             &mut PersistenceRegistry,
             &mut World,
@@ -95,8 +112,8 @@ impl<'a> Persistence<'a> {
         ) -> Result<(), PersistenceError>,
     ) -> Result<(), PersistenceError> {
         self.with_registry(|registry, world| {
-            let owner = try_registered_owner(model).ok_or(PersistenceError::Unregistered)?;
-            if owner != world.id() {
+            let target = target.ok_or(PersistenceError::Unregistered)?;
+            if target.owner != world.id() {
                 return Err(PersistenceError::WrongOwner);
             }
             if !registry.enabled {
@@ -105,7 +122,7 @@ impl<'a> Persistence<'a> {
             let index = registry
                 .models
                 .iter()
-                .position(|entry| entry.endpoint.matches(model.access()))
+                .position(|entry| entry.endpoint.matches(&target))
                 .ok_or(PersistenceError::Unregistered)?;
             operation(registry, world, index)
         })

@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     core::{
-        model::{self, Candidate, Model, PersistModel, PersistenceEndpoint},
+        model::{self, Candidate, Model, PersistModel, PersistenceEndpoint, PersistenceTarget},
         storage::Storage,
     },
     ecs::World,
@@ -16,7 +16,7 @@ use crate::{
 mod tests;
 
 pub(super) trait ModelEndpoint {
-    fn matches(&self, reference: &dyn core::any::Any) -> bool;
+    fn matches(&self, reference: &PersistenceTarget) -> bool;
     fn restore(
         &self,
         world: &World,
@@ -40,7 +40,7 @@ impl<C: ModelCodec> ModelEndpoint for PersistenceEndpoint<C>
 where
     C::Model: Model<Persistence = Candidate>,
 {
-    fn matches(&self, reference: &dyn core::any::Any) -> bool {
+    fn matches(&self, reference: &PersistenceTarget) -> bool {
         self.matches(reference)
     }
     fn restore(

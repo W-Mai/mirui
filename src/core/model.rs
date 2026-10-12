@@ -34,10 +34,10 @@ pub use owned::{OwnedModel, OwnedStorage};
 #[cfg(feature = "persistence")]
 #[doc(hidden)]
 pub use persistence::Candidate;
-#[cfg(feature = "persistence")]
-pub(crate) use persistence::PersistenceEndpoint;
 #[doc(hidden)]
 pub use persistence::{ModelRegistration, PersistModel, PersistenceState};
+#[cfg(feature = "persistence")]
+pub(crate) use persistence::{PersistenceEndpoint, PersistenceTarget};
 #[doc(hidden)]
 pub use projection::{ModelChildField, ModelPath, ModelPathThen};
 #[doc(hidden)]
@@ -450,6 +450,9 @@ pub trait ModelAccess<M: Model> {
     fn binding_owner(&self) -> BindingOwner;
 
     #[cfg(feature = "persistence")]
+    fn erased_identity(self: Rc<Self>) -> Rc<dyn core::any::Any>;
+
+    #[cfg(feature = "persistence")]
     fn persistence_registration_error(&self) -> Option<crate::core::persistence::PersistenceError> {
         None
     }
@@ -526,6 +529,11 @@ impl<M: Model> Drop for UpdateGuard<'_, M> {
 }
 
 impl<M: Model> ModelAccess<M> for ModelRoot<M> {
+    #[cfg(feature = "persistence")]
+    fn erased_identity(self: Rc<Self>) -> Rc<dyn core::any::Any> {
+        self
+    }
+
     #[cfg(feature = "persistence")]
     fn persistence_registration_error(&self) -> Option<crate::core::persistence::PersistenceError> {
         self.persistence.registration_error()

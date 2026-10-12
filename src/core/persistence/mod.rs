@@ -7,6 +7,7 @@ mod access;
 pub mod archive;
 mod autosave;
 mod codec_registry;
+mod commands;
 mod error;
 mod model_codec;
 mod models;
@@ -16,6 +17,7 @@ pub mod value;
 pub use access::Persistence;
 use autosave::Autosave;
 pub use autosave::IntoDuration;
+pub use commands::PersistenceCommands;
 pub use error::PersistenceError;
 #[doc(hidden)]
 pub use model_codec::FieldCodec;

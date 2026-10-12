@@ -5,7 +5,7 @@ use alloc::{
 
 use crate::{
     core::{
-        model::{Model, ModelAccess, ModelChildren, ModelRef, ModelRoot},
+        model::{Model, ModelAccess, ModelChildren, ModelRoot, PersistenceTarget},
         persistence::{ModelCodec, PersistenceError},
         storage::{Storage, WriteOutcome},
     },
@@ -25,18 +25,13 @@ impl<C: ModelCodec> PersistenceEndpoint<C>
 where
     C::Model: Model<Persistence = Candidate>,
 {
-    pub(crate) fn matches(&self, reference: &dyn core::any::Any) -> bool {
-        let Some(reference) = reference.downcast_ref::<ModelRef<C::Model>>() else {
-            return false;
-        };
+    pub(crate) fn matches(&self, reference: &PersistenceTarget) -> bool {
         let Some(root) = self.root.upgrade() else {
             return false;
         };
-        let Some(generation) = self.generation else {
-            return false;
-        };
-        let access: Rc<dyn ModelAccess<C::Model>> = root;
-        reference.same_identity(&ModelRef::new(&access, generation))
+        self.generation.is_some()
+            && self.generation == root.generation()
+            && reference.matches(&root)
     }
 
     pub(crate) fn restore(

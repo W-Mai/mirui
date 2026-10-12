@@ -66,6 +66,10 @@ pub trait PersistenceState: sealed::Sealed + Default + 'static {
 mod endpoint;
 #[cfg(feature = "persistence")]
 pub(crate) use endpoint::PersistenceEndpoint;
+#[cfg(feature = "persistence")]
+mod target;
+#[cfg(feature = "persistence")]
+pub(crate) use target::PersistenceTarget;
 
 mod sealed {
     pub trait Sealed {}

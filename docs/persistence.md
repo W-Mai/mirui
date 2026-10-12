@@ -90,6 +90,21 @@ Missing records leave data unchanged. Failed decoding or storage reads leave dat
 
 `Failed` reports the latest operation error and whether automatic overwrite is blocked. Ordinary Model changes do not clear failures; successful saves or restorations do. Reading a missing record preserves existing restore protection. Disabling persistence hides a registered entry's saved error behind `Disabled` without discarding it; re-enabling retains the error and marks current data for saving.
 
+## Deferred operations
+
+Event, system, and timer callbacks record persistence operations through `commands.persistence()`. Commands run in order after callback borrows end and use the Model's data at that time, not a snapshot captured by the callback.
+
+```rust
+#[event]
+fn save_settings(settings: model!(Settings), commands: commands!()) {
+    commands.persistence().save(settings);
+}
+```
+
+The same facade provides `restore(model)`, `save_all()`, and `set_enabled(bool)`. Requests retain weak instance identities; retiring a Model invalidates its queued requests even if another instance later uses the same storage key. Storage failures emit a warning and skip that request; later commands still run. Recording a request is not confirmation of successful IO. Read `app.persistence().status(&model)` outside the callback to inspect saved state and errors.
+
+For an explicit command budget, use `CommandCapacity::new().persistence(count)`. Recording requests uses the existing reusable command storage; encoding, restoring, and storage IO have their own memory costs. Exceeding the callback's command budget discards its entire unsubmitted batch.
+
 ## Automatic saves
 
 Configure the interval with `autosave(interval)`. Integer arguments are milliseconds; `core::time::Duration` and `std::time::Duration` specify a duration directly.

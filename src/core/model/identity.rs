@@ -61,6 +61,20 @@ impl<M: Model> Clone for ModelRef<M> {
 }
 
 impl<M: Model> ModelRef<M> {
+    #[cfg(feature = "persistence")]
+    pub(crate) fn persistence_target(&self) -> Option<super::PersistenceTarget> {
+        let access = self.upgrade()?;
+        let owner = match access.binding_owner().0 {
+            super::OwnerState::Bound(owner) => owner,
+            _ => return None,
+        };
+        Some(super::PersistenceTarget::new(
+            access.erased_identity(),
+            self.generation,
+            owner,
+        ))
+    }
+
     pub(super) fn new(access: &Rc<dyn ModelAccess<M>>, generation: u64) -> Self {
         Self {
             access: Rc::downgrade(access),

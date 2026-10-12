@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `commands.persistence()` queues Model saves, restores, pending saves, and IO enablement after callback borrows end. Requests retain weak instance identities and use the shared command capacity.
+
 - `Persistence::status` reports Model registration, pending saves, operation failures, and automatic-overwrite protection without storage access or allocation.
 
 - `App::persistence()` saves and restores registered Models by handle. Restoration publishes observations across static owned trees without replaying effects, preserves child identities, and protects invalid records from automatic overwrite.
