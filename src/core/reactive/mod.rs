@@ -961,17 +961,15 @@ fn reclaim_dead_effects(world: &World) {
 /// Reclaim effects bound to `entity` in `world` during widget teardown.
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn cleanup_effects_for(world: &World, entity: Entity) {
-    let bound: Vec<EffectId> = with_reactive(|r| {
-        r.effects
-            .iter()
-            .filter(|(_, e)| {
+    loop {
+        let bound = with_reactive(|r| {
+            r.effects.iter().find_map(|(id, e)| {
                 let effect = e.borrow();
-                effect.owner_entity == Some(entity) && effect.owner_world == Some(world.id())
+                (effect.owner_entity == Some(entity) && effect.owner_world == Some(world.id()))
+                    .then_some(*id)
             })
-            .map(|(id, _)| *id)
-            .collect()
-    });
-    for id in bound {
+        });
+        let Some(id) = bound else { break };
         unregister_effect(id);
     }
     with_reactive(|r| {
@@ -2721,6 +2719,34 @@ mod tests {
         assert_eq!(effect_count(), 1);
         b.despawn(entity_b);
         flush_signal_dirty(&mut b);
+        assert_eq!(effect_count(), 0);
+    }
+
+    #[test]
+    fn widget_effect_retirement_releases_captures_without_allocating_or_borrowing_registry() {
+        reset();
+        let mut world = World::new();
+        let widget = world.spawn_empty();
+        let survivor = world.spawn_empty();
+        let source = Signal::new(1u8);
+        with_world_scope(&mut world, || {
+            for _ in 0..8 {
+                let captured = source.clone();
+                effect_with_widget(widget, move || {
+                    let _ = captured.get();
+                });
+            }
+            effect_with_widget(survivor, || {});
+        });
+        drop(source);
+        assert_eq!(effect_count(), 9);
+
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| cleanup_effects_for(&world, widget)),
+            0,
+        );
+        assert_eq!(effect_count(), 1);
+        cleanup_effects_for(&world, survivor);
         assert_eq!(effect_count(), 0);
     }
 

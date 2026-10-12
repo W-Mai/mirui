@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+
+- Widget effect cleanup no longer allocates a temporary list of effect IDs.
+
 ### Fixed
 
 - Clipboard completion notifications retain their originating item identity and do not reach reused list cells.
