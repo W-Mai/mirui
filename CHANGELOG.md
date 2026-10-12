@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- World-based effect cleanup and ancestor-disabled checks are internal to widget retirement and input dispatch.
+
 - Raw `ui::despawn_subtree` is internal; author callbacks use `commands.despawn`.
 
 - Removed the World-based `widgets::set_transform` helper. Typed `prop::Transform` updates preserve layout and invalidate changed visual output.

@@ -363,7 +363,7 @@ pub(crate) fn retire_subtree_interaction(world: &mut World, root: Entity) {
     crate::ui::state::clear_subtree_interaction_states(world, root);
 }
 
-pub fn entity_or_ancestor_disabled(world: &World, entity: Entity) -> bool {
+pub(crate) fn entity_or_ancestor_disabled(world: &World, entity: Entity) -> bool {
     let mut cur = Some(entity);
     while let Some(e) = cur {
         if matches!(world.get::<UserState>(e), Some(UserState::Disabled)) {

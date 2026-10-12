@@ -959,8 +959,7 @@ fn reclaim_dead_effects(world: &World) {
 }
 
 /// Reclaim effects bound to `entity` in `world` during widget teardown.
-#[cfg_attr(not(test), allow(dead_code))]
-pub fn cleanup_effects_for(world: &World, entity: Entity) {
+pub(crate) fn cleanup_effects_for(world: &World, entity: Entity) {
     loop {
         let bound = with_reactive(|r| {
             r.effects.iter().find_map(|(id, e)| {
