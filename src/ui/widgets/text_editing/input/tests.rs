@@ -82,6 +82,81 @@ fn invalid_replacements_leave_content_selection_and_revision_unchanged() {
 }
 
 #[test]
+fn checked_edit_reports_rejection_without_changing_document_or_selection() {
+    let (mut app, node) = fixture();
+    app.world.insert(
+        node,
+        TextEditing::default()
+            .with_capacity(4)
+            .unwrap()
+            .with_text("中")
+            .unwrap(),
+    );
+    for (text, error) in [
+        (
+            "🙂",
+            TextEditError::Capacity {
+                required: 7,
+                capacity: 4,
+            },
+        ),
+        ("\n", TextEditError::ControlCharacter),
+    ] {
+        assert_eq!(
+            apply_checked(&mut app.world, node, Edit::Replace(text)),
+            Err(EditFailure::Rejected(error))
+        );
+        let editor = app.world.get::<TextEditing>(node).unwrap();
+        editor.read(|text| assert_eq!(text, "中"));
+        assert_eq!(editor.cursor(), 3);
+    }
+    app.world
+        .get_mut::<TextEditing>(node)
+        .unwrap()
+        .selection_revision = u64::MAX;
+    assert_eq!(
+        apply_checked(&mut app.world, node, Edit::Backspace),
+        Err(EditFailure::Rejected(TextEditError::RevisionExhausted))
+    );
+    app.world.despawn(node);
+    assert_eq!(
+        apply_checked(&mut app.world, node, Edit::Replace("A")),
+        Err(EditFailure::Unavailable)
+    );
+}
+
+#[test]
+fn checked_edit_separates_committed_content_from_failed_notification_delivery() {
+    use crate::input::event::{EventCapacity, runtime};
+    use crate::prelude::*;
+    let mut app = App::headless(32, 32);
+    app.with_event_capacity(EventCapacity::new());
+    app.world.insert_resource(Notices::default());
+    let root = app.spawn_root().id();
+    let node = app.compose(root, |cx| {
+        crate::ui! {
+            View () [TextEditing::default()] on TextEditing::Changed(changed::callback())
+        }
+    });
+    assert!(matches!(
+        apply_checked(&mut app.world, node, Edit::Replace("A")),
+        Ok(EditOutcome::NotificationFailed(_))
+    ));
+    let editor = app.world.get::<TextEditing>(node).unwrap();
+    editor.read(|text| assert_eq!(text, "A"));
+    assert_eq!(editor.cursor(), 1);
+    assert_eq!(
+        apply_checked(&mut app.world, node, Edit::Replace("")),
+        Ok(EditOutcome::Complete)
+    );
+    assert_eq!(
+        runtime::flush(&mut app.world, crate::ui::lifecycle::prepare).unwrap(),
+        0
+    );
+    assert!(app.world.resource::<Notices>().unwrap().0.is_empty());
+}
+
+#[test]
 fn external_shrink_normalization_persists_before_later_growth() {
     let (mut app, node) = fixture();
     let document = app.add_model(TextDocument::new());

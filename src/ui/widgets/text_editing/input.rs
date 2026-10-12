@@ -412,33 +412,56 @@ pub(super) fn key(node: entity!(), event: event!(Key), commands: commands!()) ->
 }
 
 fn apply(world: &mut World, node: Entity, edit: Edit<'_>) -> Result<(), CommandError> {
+    match apply_checked(world, node, edit) {
+        Ok(EditOutcome::Complete) => Ok(()),
+        Ok(EditOutcome::NotificationFailed(error)) => Err(error),
+        Err(error) => {
+            crate::warn!(target: "mirui::text_editing", "text edit rejected: {:?}", error);
+            Ok(())
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EditFailure {
+    Unavailable,
+    Rejected(TextEditError),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EditOutcome {
+    Complete,
+    NotificationFailed(CommandError),
+}
+
+impl From<TextEditError> for EditFailure {
+    fn from(error: TextEditError) -> Self {
+        Self::Rejected(error)
+    }
+}
+
+fn apply_checked(
+    world: &mut World,
+    node: Entity,
+    edit: Edit<'_>,
+) -> Result<EditOutcome, EditFailure> {
     let Some(input) = world
         .get::<TextEditing>(node)
         .filter(|input| input.usable(world))
     else {
-        crate::warn!(target: "mirui::text_editing", "edit skipped: editor or document is unavailable");
-        return Ok(());
+        return Err(EditFailure::Unavailable);
     };
-    let plan = match edit.plan(input) {
-        Ok(plan) => plan,
-        Err(error) => {
-            crate::warn!(target: "mirui::text_editing", "text edit rejected: {:?}", error);
-            return Ok(());
-        }
-    };
+    let plan = edit.plan(input)?;
     let selection_changed = input.selection != plan.selection;
-    let Some(selection_revision) = input
+    let selection_revision = input
         .selection_revision
         .checked_add(u64::from(selection_changed))
-    else {
-        crate::warn!(target: "mirui::text_editing", "selection revision exhausted");
-        return Ok(());
-    };
+        .ok_or(TextEditError::RevisionExhausted)?;
     if !selection_changed && !plan.content_changed && !matches!(edit, Edit::Submit) {
-        return Ok(());
+        return Ok(EditOutcome::Complete);
     }
     let Some(target) = super::edit_target::EditTarget::capture(world, node) else {
-        return Ok(());
+        return Err(EditFailure::Unavailable);
     };
     if plan.content_changed {
         let (range, text) = plan
@@ -455,13 +478,10 @@ fn apply(world: &mut World, node: Entity, edit: Edit<'_>) -> Result<(), CommandE
                 .unwrap()
                 .replace(range.clone(), text),
         };
-        if let Err(error) = result {
-            crate::warn!(target: "mirui::text_editing", "text edit rejected: {:?}", error);
-            return Ok(());
-        }
+        result?;
     }
     let Some(input) = target.after_edit(world, plan.content_changed) else {
-        return Ok(());
+        return Err(EditFailure::Unavailable);
     };
     let len = input.len() as u32;
     if selection_changed {
@@ -491,7 +511,12 @@ fn apply(world: &mut World, node: Entity, edit: Edit<'_>) -> Result<(), CommandE
     } else {
         Ok(())
     };
-    content_result.and(selection_result).and(submit_result)
+    Ok(
+        match content_result.and(selection_result).and(submit_result) {
+            Ok(()) => EditOutcome::Complete,
+            Err(error) => EditOutcome::NotificationFailed(error),
+        },
+    )
 }
 
 #[crate::system(order = PreRender)]
