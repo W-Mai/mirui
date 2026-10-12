@@ -140,7 +140,18 @@ fn paint_pixel_surface(painter: &mut PlayPainter<'_, '_>, model: &PixelModel) {
     );
 }
 
-#[crate::view(component = PixelSurface, name = "PixelSurface", priority = 60)]
+#[crate::view(
+    component = PixelSurface,
+    name = "PixelSurface",
+    priority = 60,
+    input = (
+        super::clipboard::select_all::callback(),
+        super::clipboard::inspect::callback(),
+        super::clipboard::copy::callback(),
+        super::clipboard::cut::callback(),
+        super::clipboard::paste::callback(),
+    ),
+)]
 pub(super) fn surface_render(
     model: model!(component.model, watch(visual_revision)),
     paint: paint!(),

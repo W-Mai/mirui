@@ -41,6 +41,8 @@ Components supporting deletion also register `CutSelection`, returning `Result<(
 
 Components accepting imported data register `PasteSelection`, returning `Result<(), ClipboardError>`. Read the immutable payload through `event.data()`. The event owns the platform result; the callback and its deferred commands borrow it until execution finishes. TextEditing accepts one item and selects its `text/plain` representation, even when the same item also offers HTML or another format. It rejects multiple items instead of silently choosing one. Custom components define their own representation and item rules.
 
+Pixel Loom registers these requests on PixelSurface. Its selection is the editing frame, independent of the animated preview. The toolbar copies, cuts, and pastes a 12×12 indexed frame using `application/x-mirui-pixel-frame`, including dimensions and palette data. Import validates the entire snapshot before changing pixels and records one undo step. Switching frames, editing, undoing, or replacing the component invalidates pending edits; preview playback does not. Binary transfer requires a platform bridge supporting the custom format, such as Web custom clipboard formats.
+
 ## Data and allocation
 
 ClipboardData contains items; each ClipboardItem contains MIME representations described by ClipboardFormat. Static items, formats, MIME strings, and bytes can remain borrowed for their entire lifetime. Dynamic `with_capacity` builders reserve explicit item/format counts and impose a total byte limit. Appending does not expand these limits or truncate data. Duplicate MIME representations are rejected case-insensitively. `ClipboardData::text(text)` creates an independent UTF-8 snapshot.

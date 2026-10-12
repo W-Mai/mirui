@@ -1,6 +1,6 @@
 use super::types::{
-    COLOR_COUNT, FRAME_COUNT, GRID_HEIGHT, GRID_WIDTH, History, PaintTransaction, PixelFrames,
-    PixelModal, PixelTool, Snapshot,
+    COLOR_COUNT, FRAME_COUNT, GRID_HEIGHT, GRID_WIDTH, History, PaintTransaction,
+    PixelClipboardStatus, PixelFrame, PixelFrames, PixelModal, PixelTool, Snapshot,
 };
 use crate::gallery::play::change::ChangeSet;
 
@@ -21,6 +21,8 @@ pub(crate) struct PixelModel {
     mirror: bool,
     onion: bool,
     playing: bool,
+    edit_revision: u64,
+    clipboard_status: PixelClipboardStatus,
 }
 
 impl Default for PixelModel {
@@ -40,11 +42,17 @@ impl Default for PixelModel {
             mirror: false,
             onion: false,
             playing: false,
+            edit_revision: 0,
+            clipboard_status: PixelClipboardStatus::Ready,
         }
     }
 }
 
 impl PixelModel {
+    fn edited(&mut self) {
+        self.edit_revision = self.edit_revision.saturating_add(1);
+    }
+
     pub(crate) const fn frames(&self) -> &PixelFrames {
         &self.frames
     }
@@ -84,12 +92,65 @@ impl PixelModel {
         if self.mirror {
             changed |= self.frames.set(self.frame, GRID_WIDTH - 1 - x, y, color);
         }
+        if changed {
+            self.edited();
+        }
         changed
+    }
+}
+
+#[cfg(test)]
+mod revision_tests {
+    use super::*;
+
+    #[test]
+    fn exhausted_edit_revision_never_revalidates_an_old_snapshot() {
+        let mut model = PixelModel {
+            edit_revision: u64::MAX - 1,
+            ..PixelModel::default()
+        };
+        model.select_frame(1);
+        assert_eq!(model.selection_revision(), None);
+        model.select_frame(0);
+        assert_eq!(model.selection_revision(), None);
+        assert!(model.replace_frame(PixelFrame::EMPTY).is_err());
     }
 }
 
 #[crate::model]
 impl PixelModel {
+    pub(crate) fn selection_revision(&self) -> Option<u64> {
+        (self.transaction.is_none()
+            && self.modal == PixelModal::None
+            && self.edit_revision != u64::MAX)
+            .then_some(self.edit_revision)
+    }
+
+    pub(crate) fn selected_frame(&self) -> PixelFrame {
+        self.frames.frame(self.frame)
+    }
+
+    pub(crate) fn replace_frame(&mut self, pixels: PixelFrame) -> Result<ChangeSet, ()> {
+        self.selection_revision().ok_or(())?;
+        if self.selected_frame() == pixels {
+            return Ok(ChangeSet::NONE);
+        }
+        self.push_current();
+        self.frames.replace_frame(self.frame, pixels);
+        self.edited();
+        Ok(ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE)
+    }
+
+    #[observe]
+    pub(crate) fn clipboard_status(&self) -> PixelClipboardStatus {
+        self.clipboard_status
+    }
+
+    pub(crate) fn set_clipboard_status(&mut self, status: PixelClipboardStatus) -> ChangeSet {
+        self.clipboard_status = status;
+        ChangeSet::MODEL
+    }
+
     #[observe]
     pub(crate) fn frame(&self) -> u8 {
         self.frame
@@ -154,6 +215,7 @@ impl PixelModel {
             return ChangeSet::NONE;
         }
         if self.transaction.is_none() {
+            self.edited();
             self.transaction = Some(PaintTransaction {
                 snapshot: self.snapshot(),
                 last_x: x,
@@ -209,6 +271,9 @@ impl PixelModel {
         if cancelled {
             let changed = self.frames != transaction.snapshot.frames;
             self.frames = transaction.snapshot.frames;
+            if changed {
+                self.edited();
+            }
             return if changed {
                 ChangeSet::VISUAL
             } else {
@@ -238,6 +303,7 @@ impl PixelModel {
         self.end_stroke(true);
         self.frame = frame;
         self.display_frame = frame;
+        self.edited();
         ChangeSet::MODEL | ChangeSet::VISUAL
     }
 
@@ -282,6 +348,7 @@ impl PixelModel {
         self.push_current();
         self.frames
             .copy_frame(self.frame, (self.frame + FRAME_COUNT - 1) % FRAME_COUNT);
+        self.edited();
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::PERSISTENCE
     }
 
@@ -291,6 +358,7 @@ impl PixelModel {
         }
         self.end_stroke(true);
         self.modal = PixelModal::Clear;
+        self.edited();
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::LAYOUT
     }
 
@@ -299,6 +367,7 @@ impl PixelModel {
         self.playing = false;
         self.playback_ms = 0;
         self.modal = PixelModal::Templates;
+        self.edited();
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::LAYOUT
     }
 
@@ -316,6 +385,7 @@ impl PixelModel {
         }
         self.push_current();
         self.frames.clear_frame(self.frame);
+        self.edited();
         self.modal = PixelModal::None;
         ChangeSet::MODEL | ChangeSet::VISUAL | ChangeSet::LAYOUT | ChangeSet::PERSISTENCE
     }
@@ -327,6 +397,7 @@ impl PixelModel {
         self.end_stroke(true);
         self.push_current();
         self.frames = frames;
+        self.edited();
         self.frame = 0;
         self.display_frame = 0;
         self.template_id = template_id;
@@ -345,6 +416,7 @@ impl PixelModel {
             return ChangeSet::NONE;
         };
         self.frames = snapshot.frames;
+        self.edited();
         self.frame = snapshot.frame;
         self.display_frame = snapshot.frame;
         self.template_id = snapshot.template_id;

@@ -138,3 +138,49 @@ fn model_storage_is_bounded() {
     assert!(core::mem::size_of::<PixelModel>() <= 5_500);
     assert_eq!(core::mem::size_of::<PixelFrames>(), 288);
 }
+
+#[test]
+fn clipboard_edits_are_atomic_undoable_and_independent_of_playback() {
+    use super::types::PixelFrame;
+    let mut model = PixelModel::default();
+    let original = model.selected_frame();
+    let revision = model.selection_revision();
+    model.toggle_onion();
+    model.toggle_playback();
+    model.advance_ms(250);
+    assert_eq!(model.selection_revision(), revision);
+    assert_eq!(model.selected_frame(), original);
+    assert_ne!(model.visible_frame(), model.frame());
+    model.replace_frame(PixelFrame::EMPTY).unwrap();
+    assert_eq!(model.history_len(), 1);
+    assert_eq!(model.selected_frame(), PixelFrame::EMPTY);
+    assert_ne!(model.selection_revision(), revision);
+    model.replace_frame(PixelFrame::EMPTY).unwrap();
+    assert_eq!(model.history_len(), 1);
+    model.toggle_playback();
+    model.undo();
+    assert_eq!(model.selected_frame(), original);
+    assert_ne!(model.selection_revision(), revision);
+}
+
+#[test]
+fn selection_and_edit_transactions_invalidate_pending_import_even_after_restoration() {
+    let mut model = PixelModel::default();
+    let original = model.selected_frame();
+    let revision = model.selection_revision();
+    model.select_frame(1);
+    model.select_frame(0);
+    assert_ne!(model.selection_revision(), revision);
+    let revision = model.selection_revision();
+    model.begin_stroke(0, 0);
+    assert_eq!(model.selection_revision(), None);
+    assert!(model.replace_frame(original).is_err());
+    model.end_stroke(true);
+    assert_eq!(model.selected_frame(), original);
+    assert_ne!(model.selection_revision(), revision);
+    let revision = model.selection_revision();
+    model.open_templates();
+    assert_eq!(model.selection_revision(), None);
+    model.close_modal();
+    assert_ne!(model.selection_revision(), revision);
+}

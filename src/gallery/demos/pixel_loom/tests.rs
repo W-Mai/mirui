@@ -192,3 +192,90 @@ fn visual_changes_dirty_the_bound_surface_without_node_sync() {
 
     assert!(world.has::<VisualDirty>(surface));
 }
+
+#[test]
+fn clipboard_buttons_use_the_same_atomic_frame_capabilities() {
+    use crate::gallery::play::pixel::{PixelClipboardStatus, PixelFrame};
+    use crate::ui::clipboard::{self, ClipboardRequest};
+    let mut world = fixture();
+    let surface = world.find_by_id("pixel_surface").unwrap();
+    let original = with_model(&world, PixelModel::selected_frame);
+    assert!(world.has::<crate::input::event::focus::Focusable>(surface));
+    assert_eq!(
+        crate::input::event::request::invoke(&mut world, surface, &crate::ui::selection::SelectAll),
+        Ok(Ok(()))
+    );
+    let tap = |world: &mut World, id| {
+        let target = world.find_by_id(id).unwrap();
+        assert!(trigger(
+            world,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target
+            }
+        ));
+    };
+    tap(&mut world, "pixel_cut");
+    let write = clipboard::tests::take_write(&mut world).unwrap();
+    let snapshot = write.data().clone();
+    assert_eq!(with_model(&world, PixelModel::selected_frame), original);
+    clipboard::complete(&mut world, &write.complete(Ok(())));
+    crate::ui::delivery::flush(&mut world).unwrap();
+    assert_eq!(
+        with_model(&world, PixelModel::selected_frame),
+        PixelFrame::EMPTY
+    );
+    assert_eq!(with_model(&world, PixelModel::history_len), 1);
+    assert_eq!(
+        with_model(&world, PixelModel::clipboard_status),
+        PixelClipboardStatus::Cut
+    );
+
+    tap(&mut world, "pixel_paste");
+    let ClipboardRequest::Read(read) = clipboard::take_request(&mut world).unwrap() else {
+        panic!("expected read")
+    };
+    clipboard::complete(&mut world, &read.complete(Ok(snapshot)));
+    crate::ui::delivery::flush(&mut world).unwrap();
+    assert_eq!(with_model(&world, PixelModel::selected_frame), original);
+    assert_eq!(with_model(&world, PixelModel::history_len), 2);
+    assert_eq!(
+        with_model(&world, PixelModel::clipboard_status),
+        PixelClipboardStatus::Pasted
+    );
+    world.get::<PixelSurface>(surface).unwrap().model.undo();
+    assert_eq!(
+        with_model(&world, PixelModel::selected_frame),
+        PixelFrame::EMPTY
+    );
+}
+
+#[test]
+fn delayed_clipboard_edits_reject_changed_selection_and_replaced_sources() {
+    use crate::ui::clipboard::{self, ClipboardRequest};
+    let mut world = fixture();
+    let surface = world.find_by_id("pixel_surface").unwrap();
+    let model = world.get::<PixelSurface>(surface).unwrap().model.clone();
+    let original = with_model(&world, |model| *model.frames());
+    clipboard::cut(&mut world, surface);
+    let write = clipboard::tests::take_write(&mut world).unwrap();
+    let snapshot = write.data().clone();
+    model.select_frame(1);
+    model.select_frame(0);
+    clipboard::complete(&mut world, &write.complete(Ok(())));
+    crate::ui::delivery::flush(&mut world).unwrap();
+    assert_eq!(with_model(&world, |model| *model.frames()), original);
+    assert_eq!(with_model(&world, PixelModel::history_len), 0);
+
+    clipboard::paste(&mut world, surface);
+    let ClipboardRequest::Read(read) = clipboard::take_request(&mut world).unwrap() else {
+        panic!("expected read")
+    };
+    world.insert(surface, PixelSurface { model });
+    ViewRegistry::reconcile_observations(&mut world);
+    clipboard::complete(&mut world, &read.complete(Ok(snapshot)));
+    crate::ui::delivery::flush(&mut world).unwrap();
+    assert_eq!(with_model(&world, |model| *model.frames()), original);
+    assert_eq!(with_model(&world, PixelModel::history_len), 0);
+}

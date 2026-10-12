@@ -1,3 +1,4 @@
+mod clipboard;
 mod input;
 mod render;
 mod shell;

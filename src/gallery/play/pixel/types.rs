@@ -7,6 +7,51 @@ const PACKED_BYTES: usize = PIXELS_PER_FRAME * FRAME_COUNT as usize / 2;
 const HISTORY_CAPACITY: usize = 16;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PixelClipboardStatus {
+    Ready,
+    Copied,
+    Cut,
+    Pasted,
+    Changed,
+    Unavailable,
+}
+
+impl PixelClipboardStatus {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Ready => "",
+            Self::Copied => "Copied",
+            Self::Cut => "Cut",
+            Self::Pasted => "Pasted",
+            Self::Changed => "Copied; frame changed",
+            Self::Unavailable => "Clipboard unavailable",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct PixelFrame([u8; PIXELS_PER_FRAME / 2]);
+
+impl PixelFrame {
+    pub(crate) const EMPTY: Self = Self([0; PIXELS_PER_FRAME / 2]);
+
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let bytes: [u8; PIXELS_PER_FRAME / 2] = bytes.try_into().ok()?;
+        if bytes
+            .iter()
+            .any(|byte| byte & 0x0f > COLOR_COUNT || byte >> 4 > COLOR_COUNT)
+        {
+            return None;
+        }
+        Some(Self(bytes))
+    }
+
+    pub(crate) fn bytes(&self) -> &[u8] {
+        &self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct PixelFrames {
     bytes: [u8; PACKED_BYTES],
 }
@@ -57,6 +102,20 @@ impl PixelFrames {
     pub(super) fn clear_frame(&mut self, frame: u8) {
         let start = usize::from(frame) * PIXELS_PER_FRAME / 2;
         self.bytes[start..start + PIXELS_PER_FRAME / 2].fill(0);
+    }
+
+    pub(super) fn frame(&self, frame: u8) -> PixelFrame {
+        let start = usize::from(frame) * PIXELS_PER_FRAME / 2;
+        let mut result = PixelFrame::EMPTY;
+        result
+            .0
+            .copy_from_slice(&self.bytes[start..start + PIXELS_PER_FRAME / 2]);
+        result
+    }
+
+    pub(super) fn replace_frame(&mut self, frame: u8, pixels: PixelFrame) {
+        let start = usize::from(frame) * PIXELS_PER_FRAME / 2;
+        self.bytes[start..start + PIXELS_PER_FRAME / 2].copy_from_slice(pixels.bytes());
     }
 
     pub(super) fn copy_frame(&mut self, destination: u8, source: u8) {

@@ -7,10 +7,12 @@ use super::style::{ACTIVE, BACKGROUND, CONTROL, MUTED, PALETTE, TEMPLATE_NAMES, 
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::gallery::play::font::PlayFontPlugin;
-use crate::gallery::play::pixel::{PixelModal, PixelModel, PixelTool};
+use crate::gallery::play::pixel::{PixelClipboardStatus, PixelModal, PixelModel, PixelTool};
+use crate::input::event::focus::Focusable;
 use crate::input::event::scroll::TouchAction;
 use crate::prelude::*;
 use crate::ui::ComputedRect;
+use crate::ui::clipboard::{ClipboardFinished, ClipboardOutcome};
 use crate::ui::widgets::{Button, ButtonSize, ParagraphStyle, Text, TextAlign};
 use core::fmt;
 
@@ -78,6 +80,21 @@ fn palette_border(active: bool) -> Color {
 
 #[compose]
 fn compose_header(model: model!(PixelModel)) -> Entity {
+    ui! {
+        Text (
+            text: ${ model.clipboard_status().label() },
+            capacity: 24,
+            id: "pixel_clipboard_status",
+            position: Position::Absolute,
+            left: 230,
+            top: 37,
+            width: 238,
+            height: 15,
+            font_size: 9,
+            text_color: ACTIVE,
+            paragraph: ParagraphStyle::label().with_align(TextAlign::End)
+        )
+    };
     ui! {
         Text (
             "PIXEL LOOM",
@@ -484,14 +501,14 @@ fn compose_edit_actions(model: model!(PixelModel)) -> Entity {
 }
 
 #[compose]
-fn compose_footer(model: model!(PixelModel)) -> Entity {
+fn compose_footer(model: model!(PixelModel), editor: Entity) -> Entity {
     ui! {
         Button (
             "模板",
             position: Position::Absolute,
             left: 12,
             top: 288,
-            width: 117,
+            width: 58,
             height: 26,
             size: ButtonSize::Compact,
             font_size: 10,
@@ -506,9 +523,9 @@ fn compose_footer(model: model!(PixelModel)) -> Entity {
             "撤销",
             id: "pixel_undo",
             position: Position::Absolute,
-            left: 136,
+            left: 77,
             top: 288,
-            width: 117,
+            width: 58,
             height: 26,
             size: ButtonSize::Compact,
             font_size: 10,
@@ -520,13 +537,70 @@ fn compose_footer(model: model!(PixelModel)) -> Entity {
     };
     ui! {
         Button (
+            "Copy",
+            id: "pixel_copy",
+            position: Position::Absolute,
+            left: 142,
+            top: 288,
+            width: 58,
+            height: 26,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: CONTROL,
+            pressed_color: ACTIVE,
+            text_color: TEXT,
+            border_radius: 7
+        ) [
+            PointerFocus::Preserve,
+        ] on Tap { commands!().clipboard().copy(editor); }
+    };
+    ui! {
+        Button (
+            "Cut",
+            id: "pixel_cut",
+            position: Position::Absolute,
+            left: 207,
+            top: 288,
+            width: 58,
+            height: 26,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: CONTROL,
+            pressed_color: ACTIVE,
+            text_color: TEXT,
+            border_radius: 7
+        ) [
+            PointerFocus::Preserve,
+        ] on Tap { commands!().clipboard().cut(editor); }
+    };
+    ui! {
+        Button (
+            "Paste",
+            id: "pixel_paste",
+            position: Position::Absolute,
+            left: 272,
+            top: 288,
+            width: 58,
+            height: 26,
+            size: ButtonSize::Compact,
+            font_size: 10,
+            normal_color: CONTROL,
+            pressed_color: ACTIVE,
+            text_color: TEXT,
+            border_radius: 7
+        ) [
+            PointerFocus::Preserve,
+        ] on Tap { commands!().clipboard().paste(editor); }
+    };
+    ui! {
+        Button (
             text: ${ if model.playing() { "暂停预览" } else { "播放动画" } },
             capacity: 12,
             id: "pixel_play",
             position: Position::Absolute,
-            left: 260,
+            left: 337,
             top: 288,
-            width: 208,
+            width: 131,
             height: 26,
             size: ButtonSize::Compact,
             font_size: 10,
@@ -717,15 +791,30 @@ pub(super) fn build_widgets(model: model!(PixelModel)) {
             PixelSurface {
                 model: model.clone(),
             },
+            Focusable,
             TouchAction::None,
         ] {
             compose_header (model)
             compose_frame_selector (model)
             compose_tool_controls (model)
             compose_edit_actions (model)
-            compose_footer (model)
+            compose_footer (model, id("pixel_surface"))
             compose_modal (model)
-        } on Tap(|event: event!(Tap), rows: query!(PixelSurface, ComputedRect)| {
+        } on ClipboardFinished(|event: event!(ClipboardFinished)| {
+            model
+                .set_clipboard_status(
+                    match event.result {
+                        Ok(ClipboardOutcome::Copied) => PixelClipboardStatus::Copied,
+                        Ok(ClipboardOutcome::Cut) => PixelClipboardStatus::Cut,
+                        Ok(ClipboardOutcome::Pasted) => PixelClipboardStatus::Pasted,
+                        Ok(ClipboardOutcome::CopiedWithoutCut) => {
+                            PixelClipboardStatus::Changed
+                        }
+                        Ok(ClipboardOutcome::EmptySelection) => PixelClipboardStatus::Ready,
+                        Err(_) => PixelClipboardStatus::Unavailable,
+                    },
+                );
+        }) on Tap(|event: event!(Tap), rows: query!(PixelSurface, ComputedRect)| {
             let Some((surface, rect)) = rows.get(event.target) else {
                 return false;
             };
