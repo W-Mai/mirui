@@ -184,7 +184,7 @@ fn default_event_storage_routes_controls_through_real_setup() {
         },
     )
     .unwrap();
-    assert_eq!(crate::input::event::runtime::flush(&mut app.world), Ok(2));
+    assert_eq!(crate::ui::delivery::flush(&mut app.world), Ok(2));
     assert_eq!(model.bpm(), 128);
     assert_eq!(model.trails(), !previous_trails);
     crate::core::reactive::flush_signal_dirty(&mut app.world);

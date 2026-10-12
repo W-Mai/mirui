@@ -398,7 +398,7 @@ mod tests {
             .unwrap()
         );
         assert_eq!(world.resource::<EventLog>().unwrap().len, 0);
-        assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 1);
         assert_eq!(
             world.resource::<EventLog>().unwrap().value,
             Some(ValueChanged {
@@ -454,7 +454,7 @@ mod tests {
             }
             assert!(world.has::<VisualDirty>(entity));
             assert!(!world.has::<crate::ui::dirty::Dirty>(entity));
-            assert_eq!(runtime::flush(&mut world).unwrap(), 3);
+            assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 3);
             let trace = world.resource::<EventLog>().unwrap();
             assert_eq!(
                 &trace.order[..trace.len],
@@ -495,7 +495,7 @@ mod tests {
             )
             .unwrap()
         );
-        assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
         assert_eq!(world.resource::<EventLog>().unwrap().len, 0);
         assert!(!world.has::<VisualDirty>(entity));
     }
@@ -516,7 +516,7 @@ mod tests {
             world.get::<Slider>(entity).unwrap().value,
             Fixed::from_int(75)
         );
-        assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
         crate::ui::view::ViewRegistry::reconcile_observations(&mut world);
         world.remove::<VisualDirty>(entity);
         assert!(
@@ -532,7 +532,7 @@ mod tests {
             )
             .unwrap()
         );
-        assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
         assert_eq!(world.resource::<EventLog>().unwrap().len, 0);
         assert!(!world.has::<VisualDirty>(entity));
     }
@@ -566,7 +566,7 @@ mod tests {
             .unwrap()
         );
         assert!(world.is_alive(entity));
-        assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 1);
         assert!(!world.is_alive(entity));
     }
 
@@ -602,7 +602,7 @@ mod tests {
             },
         )
         .unwrap();
-        assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 1);
         assert_eq!(world.resource::<EventLog>().unwrap().len, 1);
     }
 
@@ -638,7 +638,7 @@ mod tests {
             )
             .unwrap()
         );
-        assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 1);
         let trace = world.resource::<EventLog>().unwrap();
         assert_eq!(
             &trace.order[..trace.len],
@@ -676,7 +676,7 @@ mod tests {
             .unwrap()
         );
         assert_eq!(world.get::<Slider>(entity).unwrap().value, Fixed::ONE);
-        assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
         assert!(world.has::<crate::ui::Style>(entity));
     }
 
@@ -725,7 +725,7 @@ mod tests {
             )
             .unwrap()
         );
-        assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
         assert_eq!(world.resource::<EventLog>().unwrap().len, 0);
         assert!(
             crate::input::event::view_input::invoke_gesture(
@@ -740,7 +740,7 @@ mod tests {
             )
             .unwrap()
         );
-        assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 1);
         assert_eq!(world.resource::<EventLog>().unwrap().len, 1);
     }
 

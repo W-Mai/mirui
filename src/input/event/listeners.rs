@@ -239,11 +239,11 @@ enum DispatchStep {
     Listener {
         target: ListenerTarget,
         callback: Rc<dyn ErasedListener>,
-        view: Option<super::widget_input::ViewInputGuard>,
+        view: Option<crate::ui::lifecycle::ViewInputGuard>,
     },
 }
 
-pub(super) struct InputBranch {
+pub(crate) struct InputBranch {
     alive: bool,
     hidden: bool,
     disabled: bool,
@@ -251,7 +251,7 @@ pub(super) struct InputBranch {
 }
 
 impl InputBranch {
-    pub(super) fn scan(world: &World, mut entity: Entity) -> Result<Self, ListenerError> {
+    pub(crate) fn scan(world: &World, mut entity: Entity) -> Result<Self, ListenerError> {
         let mut branch = Self {
             alive: world.is_alive(entity),
             hidden: false,
@@ -278,11 +278,11 @@ impl InputBranch {
         Ok(branch)
     }
 
-    pub(super) fn is_hidden(&self) -> bool {
+    pub(crate) fn is_hidden(&self) -> bool {
         self.hidden
     }
 
-    pub(super) fn focus_target(&self) -> Option<Entity> {
+    pub(crate) fn focus_target(&self) -> Option<Entity> {
         if self.allowed() { self.focusable } else { None }
     }
 
@@ -779,7 +779,7 @@ impl ListenerSnapshot<'_, '_> {
             let Some(inputs) = view.inputs() else {
                 continue;
             };
-            if super::widget_input::view_input_guard(world, entity, view.registration_id())
+            if crate::ui::lifecycle::view_input_guard(world, entity, view.registration_id())
                 .is_none()
             {
                 continue;
@@ -793,7 +793,7 @@ impl ListenerSnapshot<'_, '_> {
                     self.push(DispatchStep::Listener {
                         target: ListenerTarget::Entity(entity),
                         callback: Rc::clone(&hook.callback),
-                        view: super::widget_input::view_input_guard(
+                        view: crate::ui::lifecycle::view_input_guard(
                             world,
                             entity,
                             view.registration_id(),

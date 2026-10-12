@@ -11,7 +11,7 @@ fn fixture() -> (TestApp, Entity) {
     app.with_widget(super::super::view());
     let root = app.spawn_root().id();
     app.world.insert(root, TextEditing::default());
-    crate::input::event::widget_input::reconcile(&mut app.world);
+    crate::ui::lifecycle::prepare(&mut app.world);
     (app, root)
 }
 
@@ -153,11 +153,11 @@ fn submitted(_event: event!(Submitted), notices: res!(mut Notices)) {
 
 #[test]
 fn capability_view_accepts_fragments_and_keys_without_an_appearance_component() {
-    use crate::input::event::{runtime, view_input, widget_input};
+    use crate::input::event::{runtime, view_input};
     let (mut app, node) = fixture();
     app.world
         .insert_resource(Notices(alloc::vec::Vec::with_capacity(8)));
-    widget_input::attach_handlers_for(&mut app.world, node);
+    crate::ui::lifecycle::attach_handlers_for(&mut app.world, node);
     assert!(app.world.has::<Focusable>(node));
     assert!(app.world.has::<TextEditing>(node));
     runtime::install_entity(
@@ -191,7 +191,7 @@ fn capability_view_accepts_fragments_and_keys_without_an_appearance_component() 
         )
         .unwrap()
     );
-    runtime::flush(&mut app.world).unwrap();
+    crate::ui::delivery::flush(&mut app.world).unwrap();
     app.world
         .get::<TextEditing>(node)
         .unwrap()
@@ -210,7 +210,7 @@ fn capability_view_accepts_fragments_and_keys_without_an_appearance_component() 
         view_input::invoke_payload(super::super::view(), &mut app.world, node, &enter, None)
             .unwrap()
     );
-    runtime::flush(&mut app.world).unwrap();
+    crate::ui::delivery::flush(&mut app.world).unwrap();
     assert_eq!(
         app.world.resource::<Notices>().unwrap().0,
         ["content", "selection", "submit"]
@@ -243,7 +243,7 @@ fn prepared_typed_callback_and_notifications_allocate_nothing() {
     callback
         .invoke(&mut app.world, &TextCommitted::new("warm"), node)
         .unwrap();
-    runtime::flush(&mut app.world).unwrap();
+    crate::ui::delivery::flush(&mut app.world).unwrap();
     app.world
         .get_mut::<TextEditing>(node)
         .unwrap()
@@ -257,7 +257,7 @@ fn prepared_typed_callback_and_notifications_allocate_nothing() {
             callback
                 .invoke(&mut app.world, &TextCommitted::new("中🙂"), node)
                 .unwrap();
-            runtime::flush(&mut app.world).unwrap();
+            crate::ui::delivery::flush(&mut app.world).unwrap();
         }),
         0
     );
@@ -362,6 +362,6 @@ fn document_effect_retiring_the_bound_item_does_not_publish_stale_editor_state()
     apply(&mut app.world, node, Edit::Replace("A")).unwrap();
     document.read(|text| assert_eq!(text, "A"));
     assert_eq!(app.world.get::<TextEditing>(node).unwrap().cursor(), 0);
-    assert_eq!(runtime::flush(&mut app.world).unwrap(), 0);
+    assert_eq!(crate::ui::delivery::flush(&mut app.world).unwrap(), 0);
     assert!(app.world.resource::<Notices>().unwrap().0.is_empty());
 }

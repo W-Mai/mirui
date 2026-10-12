@@ -56,12 +56,108 @@ fn world(reverse: bool) -> World {
 }
 
 #[test]
+fn event_executor_does_not_initialize_pending_widgets() {
+    let mut world = world(false);
+    let node = world.spawn_empty();
+    attach_handlers_for(&mut world, node);
+    world.insert(node, Source(1));
+    crate::input::event::runtime::initialize(&mut world);
+
+    crate::input::event::runtime::flush(&mut world, |_| {}).unwrap();
+    assert!(!world.has::<Capability>(node));
+    assert_eq!(world.resource::<Trace>().unwrap().sources, 0);
+
+    crate::ui::delivery::flush(&mut world).unwrap();
+    assert!(world.has::<Capability>(node));
+    assert_eq!(world.resource::<Trace>().unwrap().sources, 1);
+}
+
+struct InitializeStep(u8);
+
+impl crate::input::event::contract::Event for InitializeStep {
+    type Route = crate::input::event::contract::EntityNotification;
+    type Source = crate::input::event::contract::WidgetSource<crate::ui::Widget>;
+    type Options = ();
+}
+
+#[crate::event]
+fn initialize_step(
+    event: event!(InitializeStep),
+    node: entity!(),
+    capabilities: query!(Capability),
+    commands: commands!(),
+) {
+    match event.0 {
+        0 => commands.insert(node, Source(1)),
+        _ => assert!(capabilities.get(node).is_some()),
+    }
+}
+
+#[test]
+fn notification_delivery_initializes_changes_before_the_next_notification() {
+    use crate::input::event::{contract::Event, emission, runtime};
+    let mut world = world(true);
+    let node = world.spawn(crate::ui::Widget);
+    attach_handlers_for(&mut world, node);
+    runtime::install_entity(
+        &mut world,
+        node,
+        InitializeStep::EVENT,
+        initialize_step::callback::<crate::input::event::callback::NodeContext>(),
+    )
+    .unwrap();
+    emission::submit(&mut world, node, InitializeStep(0)).unwrap();
+    emission::submit(&mut world, node, InitializeStep(1)).unwrap();
+
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 2);
+    assert_eq!(world.resource::<Trace>().unwrap().sources, 1);
+    assert_eq!(world.resource::<Trace>().unwrap().capabilities, 1);
+}
+
+#[test]
+fn attachment_effects_settle_before_delivery_preparation_returns() {
+    use crate::core::reactive::{Effect, Signal, with_world, with_world_scope};
+    #[crate::component]
+    struct Wake;
+    fn wake(scope: &mut crate::ui::UiScope<'_>) {
+        scope
+            .world_mut()
+            .resource::<Signal<bool>>()
+            .unwrap()
+            .set(true);
+    }
+    let mut world = world(false);
+    world.resource_mut::<ViewRegistry>().unwrap().insert(
+        View::systems_only("wake", &[])
+            .with_filter::<Wake>()
+            .with_attach(wake),
+    );
+    let node = world.spawn_empty();
+    attach_handlers_for(&mut world, node);
+    let signal = Signal::new(false);
+    world.insert_resource(signal.clone());
+    let _effect = with_world_scope(&mut world, || {
+        Effect::new(move || {
+            if signal.get() {
+                with_world(|world| world.insert(node, Capability));
+            }
+        })
+    });
+    world.insert(node, Wake);
+
+    prepare(&mut world);
+
+    assert!(world.has::<Capability>(node));
+    assert_eq!(world.resource::<Trace>().unwrap().capabilities, 1);
+}
+
+#[test]
 fn component_chains_initialize_once_independently_of_registration_order() {
     for reverse in [false, true] {
         let mut world = world(reverse);
         let node = world.spawn(Source(1));
         attach_handlers_for(&mut world, node);
-        reconcile(&mut world);
+        prepare(&mut world);
         let trace = world.resource::<Trace>().unwrap();
         assert_eq!((trace.sources, trace.capabilities), (1, 1));
         let guard = view_input_guard(&world, node, if reverse { 0 } else { 1 }).unwrap();
@@ -70,7 +166,7 @@ fn component_chains_initialize_once_independently_of_registration_order() {
             crate::test_support::tracked_allocations(|| {
                 world.get_mut::<Source>(node).unwrap().0 += 1;
                 attach_handlers_for(&mut world, node);
-                reconcile(&mut world);
+                prepare(&mut world);
             }),
             0
         );
@@ -84,13 +180,13 @@ fn replacements_invalidate_old_input_even_after_the_new_instance_is_ready() {
     let mut world = world(true);
     let node = world.spawn(Source(1));
     attach_handlers_for(&mut world, node);
-    reconcile(&mut world);
+    prepare(&mut world);
     let old = view_input_guard(&world, node, 0).unwrap();
     assert_eq!(
         crate::test_support::tracked_allocations(|| {
             world.insert(node, Capability);
             assert!(!old.valid(&world, node));
-            reconcile(&mut world);
+            prepare(&mut world);
         }),
         0
     );
@@ -102,7 +198,7 @@ fn replacements_invalidate_old_input_even_after_the_new_instance_is_ready() {
     );
     world.remove::<Capability>(node);
     world.insert(node, Capability);
-    reconcile(&mut world);
+    prepare(&mut world);
     assert_eq!(world.resource::<Trace>().unwrap().capabilities, 3);
     world.despawn(node);
     let replacement = world.spawn(Source(2));
@@ -121,20 +217,20 @@ fn late_view_registration_initializes_existing_constructed_nodes() {
         .resource_mut::<ViewRegistry>()
         .unwrap()
         .insert(source_view());
-    reconcile(&mut world);
+    prepare(&mut world);
     assert_eq!(world.resource::<Trace>().unwrap().sources, 1);
     world
         .resource_mut::<ViewRegistry>()
         .unwrap()
         .insert(capability_view());
-    reconcile(&mut world);
+    prepare(&mut world);
     assert_eq!(world.resource::<Trace>().unwrap().capabilities, 1);
     let old = view_input_guard(&world, node, 1).unwrap();
     let mut registry = ViewRegistry::default();
     registry.insert(source_view());
     registry.insert(capability_view());
     world.insert_resource(registry);
-    reconcile(&mut world);
+    prepare(&mut world);
     assert!(!old.valid(&world, node));
     assert_eq!(world.resource::<Trace>().unwrap().capabilities, 2);
 }
@@ -145,7 +241,7 @@ fn incomplete_nodes_wait_for_the_construction_boundary() {
     let first = world.spawn(Source(1));
     attach_handlers_for(&mut world, first);
     let unfinished = world.spawn(Source(2));
-    reconcile(&mut world);
+    prepare(&mut world);
     assert!(!world.has::<Capability>(unfinished));
     attach_handlers_for(&mut world, unfinished);
     assert!(world.has::<Capability>(unfinished));
@@ -173,7 +269,7 @@ fn replacement_cycles_stop_without_exposing_uninitialized_input() {
     assert!(view_input_guard(&world, node, 0).is_none());
     let calls = world.resource::<Trace>().unwrap().sources;
     assert!(calls > 0 && calls <= 1024);
-    reconcile(&mut world);
+    prepare(&mut world);
     assert_eq!(world.resource::<Trace>().unwrap().sources, calls);
 }
 
@@ -240,7 +336,7 @@ fn typed_attachment_commands_finish_before_input_and_never_retarget_old_snapshot
     world.insert_resource(registry);
     let node = world.spawn_empty();
     attach_handlers_for(&mut world, node);
-    super::super::binding::install_entity_event(
+    crate::input::event::binding::install_entity_event(
         &mut world,
         node,
         Tap::EVENT,
@@ -257,7 +353,7 @@ fn typed_attachment_commands_finish_before_input_and_never_retarget_old_snapshot
         snapshot_steps: 1,
     })
     .unwrap();
-    super::super::runtime::dispatch_gesture(
+    crate::ui::delivery::dispatch_gesture(
         &mut world,
         &crate::input::event::gesture::GestureEvent::Tap {
             target: node,
@@ -268,11 +364,11 @@ fn typed_attachment_commands_finish_before_input_and_never_retarget_old_snapshot
     )
     .unwrap();
     assert!(view_input_guard(&world, node, 0).is_none());
-    super::super::runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(world.resource::<Trace>().unwrap().capabilities, 1);
     let snapshot = pool.snapshot_gesture(&world, &tap).unwrap();
     world.insert(node, Capability);
-    reconcile(&mut world);
+    prepare(&mut world);
     snapshot.run(&mut world).unwrap();
     assert_eq!(world.resource::<Trace>().unwrap().sources, 0);
     pool.snapshot_gesture(&world, &tap)
@@ -306,7 +402,7 @@ fn nested_construction_keeps_parent_and_child_initialization_distinct() {
     );
     let parent = world.spawn(Container);
     attach_handlers_for(&mut world, parent);
-    reconcile(&mut world);
+    prepare(&mut world);
     let child = world.get::<crate::ui::Children>(parent).unwrap().0[0];
     assert_eq!(world.get::<crate::ui::Parent>(child).unwrap().0, parent);
     assert!(view_input_guard(&world, parent, 0).is_some());
@@ -327,6 +423,6 @@ fn late_registration_does_not_limit_the_number_of_existing_nodes() {
         .resource_mut::<ViewRegistry>()
         .unwrap()
         .insert(capability_view());
-    reconcile(&mut world);
+    prepare(&mut world);
     assert_eq!(world.resource::<Trace>().unwrap().capabilities, 1100);
 }

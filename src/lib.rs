@@ -172,14 +172,14 @@ pub mod __macro_support {
         Notification, NotificationCapacity, NotificationError, NotificationFlushError,
         NotificationQueue,
     };
-    pub use crate::input::event::runtime::{
-        RuntimeInstallError, RuntimeRunError, dispatch_gesture as dispatch_entity_gesture,
-        flush as flush_entity_events,
-    };
+    pub use crate::input::event::runtime::{RuntimeInstallError, RuntimeRunError};
     pub use crate::input::event::view_attach::{AttachDefinition, PreparedAttach, prepare_attach};
     pub use crate::input::event::view_input::{PreparedInputs, prepare_inputs};
     pub use crate::ui::builder::WidgetBuilder;
     pub use crate::ui::construction::{ReservedWidget, finish_widget_static};
+    pub use crate::ui::delivery::{
+        dispatch_gesture as dispatch_entity_gesture, flush as flush_entity_events,
+    };
     pub use crate::ui::layout_binding::LayoutBinding;
     pub use crate::ui::recipe::{PropertyBindings, WidgetRecipe};
     pub use crate::ui::view::generated::{

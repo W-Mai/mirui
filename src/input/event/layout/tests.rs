@@ -29,14 +29,14 @@ fn prepared_size_capture_and_dispatch_allocate_nothing_and_restore_owner() {
     runtime::capture_sizes(&app.world, &[node], true)
         .unwrap()
         .unwrap()
-        .dispatch(&mut app.world);
+        .dispatch(&mut app.world, crate::ui::lifecycle::prepare);
     let allocations = tracked_allocations(|| {
         for width in 31..95 {
             app.world.get_mut::<ComputedRect>(node).unwrap().0.w = Fixed::from_int(width);
             runtime::capture_sizes(&app.world, &[node], true)
                 .unwrap()
                 .unwrap()
-                .dispatch(&mut app.world);
+                .dispatch(&mut app.world, crate::ui::lifecycle::prepare);
         }
     });
     assert_eq!(allocations, 0);
@@ -69,7 +69,7 @@ fn observation_identity_does_not_transfer_to_reused_entities() {
     app.world
         .insert(fresh, ComputedRect(Rect::new(0, 0, 40, 20)));
     if let Some(batch) = runtime::capture_sizes(&app.world, &[fresh], true).unwrap() {
-        batch.dispatch(&mut app.world);
+        batch.dispatch(&mut app.world, crate::ui::lifecycle::prepare);
     }
     assert_eq!(runtime::size_observer_count(&app.world), 0);
     assert_eq!(app.world.resource::<Count>().unwrap().0, 0);

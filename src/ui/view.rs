@@ -790,7 +790,7 @@ impl<Systems> View<Systems> {
 #[derive(Default)]
 pub struct ViewRegistry {
     views: Vec<View>,
-    input_attach_plan: Option<Rc<Vec<crate::input::event::widget_input::InputAttach>>>,
+    input_attach_plan: Option<Rc<Vec<crate::ui::lifecycle::InputAttach>>>,
     paint_order: Vec<usize>,
     next_registration: u64,
     bindings: Vec<ViewBinding>,
@@ -808,7 +808,7 @@ struct ViewBinding {
 impl ViewRegistry {
     /// Rebind changed components before layout and paint inspect their state.
     pub(crate) fn reconcile_observations(world: &mut World) {
-        crate::input::event::widget_input::reconcile(world);
+        super::lifecycle::prepare(world);
         let registered = world.with_resource_box::<Self, _>(|registry, world| {
             let owner = world.id();
             match registry.owner {
@@ -1085,7 +1085,7 @@ impl ViewRegistry {
             .expect("View registration identity exhausted");
         let index = self.views.len();
         let paint_priority = view.priority();
-        if let Some(hook) = crate::input::event::widget_input::InputAttach::for_view(&view) {
+        if let Some(hook) = crate::ui::lifecycle::InputAttach::for_view(&view) {
             let plan = self
                 .input_attach_plan
                 .get_or_insert_with(|| Rc::new(Vec::new()));
@@ -1107,9 +1107,7 @@ impl ViewRegistry {
         self.views.iter()
     }
 
-    pub(crate) fn input_attach_plan(
-        &self,
-    ) -> Option<Rc<Vec<crate::input::event::widget_input::InputAttach>>> {
+    pub(crate) fn input_attach_plan(&self) -> Option<Rc<Vec<crate::ui::lifecycle::InputAttach>>> {
         self.input_attach_plan.as_ref().map(Rc::clone)
     }
 

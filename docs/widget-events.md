@@ -216,6 +216,8 @@ Static components, parent links, and IDs are installed before initialization run
 
 Each registered View prepares its initializer on the first matching entity and reuses it for later instances in that App. Initialization runs once per component attachment: ordinary field writes retain the attachment, while component replacement or removal followed by insertion creates a new one. Components installed by an initializer receive their own registered initialization regardless of View registration order. Newly registered Views also initialize existing assembled widgets at the next input or render boundary.
 
+UI delivery prepares pending attachments before freezing each input or notification route. A callback can install a component for the next event without adding its input hooks to the event already being delivered. Initialization also runs at render preparation when no input is pending.
+
 Configure event capacity before constructing widgets. Preparation failure logs a warning and disables that initializer; execution failure leaves the instance unavailable for View input without rolling back completed mutations or retrying automatically. Repeated structural feedback is bounded and logged. Niche declarations retain their composition lifecycle and slot construction.
 
 ## Input

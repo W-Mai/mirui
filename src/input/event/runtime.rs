@@ -20,7 +20,7 @@ use super::emission::{
     enqueue_app_notice, flush_notifications_with, has_business_storage,
     prepare_runtime_notifications,
 };
-use super::focus::{FocusChanged, FocusObserver, FocusState};
+use super::focus::{FocusChanged, FocusObserver};
 use super::hover::{HoverChanged, HoverObservers};
 use super::input::{InputEvent, Key, Rotary, Wheel};
 use super::layout::{SizeChanged, SizeObservers};
@@ -109,13 +109,19 @@ impl EventRuntime {
         })
     }
 
-    fn flush(&self, world: &mut World, limit: usize) -> Result<usize, RuntimeRunError> {
+    fn flush(
+        &self,
+        world: &mut World,
+        limit: usize,
+        before_dispatch: fn(&mut World),
+    ) -> Result<usize, RuntimeRunError> {
         self.check_owner(world)?;
         self.focus.observe(world);
         self.hover.observe(world, &self.listeners)?;
         self.press.observe(world);
         self.scroll.observe(world, &self.listeners)?;
         match flush_notifications_with(world, &self.listeners, limit, |world| {
+            before_dispatch(world);
             self.prepare(world, 0)
         }) {
             Some(result) => result.map_err(RuntimeRunError::Notification),
@@ -597,8 +603,9 @@ pub(crate) struct SizeChangeBatch {
 }
 
 impl SizeChangeBatch {
-    pub(crate) fn dispatch(self, world: &mut World) {
+    pub(crate) fn dispatch(self, world: &mut World, before_dispatch: fn(&mut World)) {
         for index in 0..self.length {
+            before_dispatch(world);
             let Some((listener, entity, event)) = self.runtime.sizes.take(index) else {
                 continue;
             };
@@ -622,7 +629,8 @@ impl SizeChangeBatch {
                 .limits()
                 .flush_limit
                 .unwrap_or(0);
-            if let Err(error) = self.runtime.flush(world, limit) {
+            before_dispatch(world);
+            if let Err(error) = self.runtime.flush(world, limit, before_dispatch) {
                 crate::warn!(target: "mirui::layout", "size callback notifications skipped: {:?}", error);
             }
         }
@@ -665,45 +673,20 @@ pub(crate) fn has_entity_listener<E: Event>(
 }
 
 /// Dispatch a recognizer gesture through the shared prepared event runtime.
-#[doc(hidden)]
-pub fn dispatch_gesture(
+pub(crate) fn dispatch_gesture(
     world: &mut World,
     event: &super::gesture::GestureEvent,
-    now_ms: u32,
 ) -> Result<super::BubbleControl, ListenerError> {
     use super::gesture::{
         DragCancel, DragEnd, DragMove, DragStart, GesturePayload, LongPress, Pinch, Rotate, Tap,
     };
-    super::widget_input::reconcile(world);
     let branch = InputBranch::scan(world, event.target())?;
     if branch.is_hidden() || !crate::core::reactive::retained::enabled(world, event.target()) {
         return Ok(super::BubbleControl::Allow);
     }
     let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
-    let origin = crate::core::reactive::retained::InputLease::capture(world, event.target());
-    if matches!(event, super::gesture::GestureEvent::Tap { .. })
-        && let Some(focus) = world.resource_mut::<FocusState>()
-    {
-        focus.focused = branch.focus_target();
-    }
-    super::multi_tap::observe_gesture(world, event, now_ms);
     initialize(world);
     let runtime = runtime(world).expect("App event runtime is initialized");
-    if matches!(event, super::gesture::GestureEvent::Tap { .. }) {
-        let limit = runtime
-            .configuration
-            .get()
-            .limits()
-            .flush_limit
-            .unwrap_or(0);
-        if let Err(error) = runtime.flush(world, limit) {
-            crate::warn!(target: "mirui::event::focus", "focus delivery skipped: {:?}", error);
-        }
-    }
-    if origin.is_some_and(|lease| !lease.valid(world)) {
-        return Ok(super::BubbleControl::Allow);
-    }
-    let branch = InputBranch::scan(world, event.target())?;
     runtime.prepare(world, 0)?;
     macro_rules! project {
         ($($kind:ident),+ $(,)?) => {
@@ -796,9 +779,10 @@ pub(crate) fn dispatch_input(
     Ok(true)
 }
 
-#[doc(hidden)]
-pub fn flush(world: &mut World) -> Result<usize, RuntimeRunError> {
-    super::widget_input::reconcile(world);
+pub(crate) fn flush(
+    world: &mut World,
+    before_dispatch: fn(&mut World),
+) -> Result<usize, RuntimeRunError> {
     match runtime(world) {
         Some(runtime) => {
             let limit = runtime
@@ -807,7 +791,7 @@ pub fn flush(world: &mut World) -> Result<usize, RuntimeRunError> {
                 .limits()
                 .flush_limit
                 .unwrap_or(0);
-            runtime.flush(world, limit)
+            runtime.flush(world, limit, before_dispatch)
         }
         None => Ok(0),
     }
@@ -816,6 +800,7 @@ pub fn flush(world: &mut World) -> Result<usize, RuntimeRunError> {
 pub(crate) fn notify_app<E: AppNotice>(
     world: &mut World,
     event: E,
+    before_dispatch: fn(&mut World),
 ) -> Result<usize, RuntimeRunError> {
     let Some(runtime) = runtime(world) else {
         return Ok(0);
@@ -828,11 +813,11 @@ pub(crate) fn notify_app<E: AppNotice>(
         .flush_limit
         .unwrap_or(0);
     if !runtime.listeners.has_app_listener::<E>(world)? {
-        return runtime.flush(world, limit);
+        return runtime.flush(world, limit, before_dispatch);
     }
     let limit = limit.checked_add(1).ok_or(RuntimeRunError::SizeOverflow)?;
     enqueue_app_notice(world, event)?;
-    runtime.flush(world, limit)
+    runtime.flush(world, limit, before_dispatch)
 }
 
 #[cfg(test)]
@@ -840,12 +825,14 @@ mod tests {
     use super::*;
     use crate::input::event::callback::NodeContext;
     use crate::input::event::contract::{EntityNotification, WidgetSource};
+    use crate::input::event::focus::FocusState;
     use crate::input::event::focus::Focusable;
     use crate::input::event::gesture::{DragStart, GestureEvent, Tap};
     use crate::input::event::lifecycle::{Resumed, Started};
     use crate::input::event::multi_tap::{MultiTapEntry, MultiTapTracker};
     use crate::test_support::tracked_allocations;
     use crate::types::Fixed;
+    use crate::ui::delivery::{dispatch_gesture, flush, notify_app};
     use crate::ui::{Hidden, Parent, UserState};
 
     #[derive(Default)]
@@ -1284,8 +1271,8 @@ mod tests {
         );
         world.insert_resource(registry);
         world.insert(child, crate::ui::Parent(parent));
-        super::super::widget_input::attach_handlers_for(&mut world, parent);
-        super::super::widget_input::attach_handlers_for(&mut world, child);
+        crate::ui::lifecycle::attach_handlers_for(&mut world, parent);
+        crate::ui::lifecycle::attach_handlers_for(&mut world, child);
         world.insert_resource(FocusState {
             focused: Some(child),
         });

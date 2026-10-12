@@ -211,7 +211,7 @@ mod tests {
             .unwrap()
         );
         assert_eq!(world.resource::<ToggleTrace>().unwrap().calls, 0);
-        assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 1);
         let trace = world.resource::<ToggleTrace>().unwrap();
         assert_eq!(trace.calls, 1);
         assert!(trace.checked);
@@ -237,7 +237,7 @@ mod tests {
             .unwrap()
         );
         assert!(world.get::<Checkbox>(entity).unwrap().checked);
-        assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
     }
 
     #[test]
@@ -303,7 +303,7 @@ mod tests {
             .unwrap()
         );
         assert!(world.is_alive(entity));
-        assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 1);
         assert!(!world.is_alive(entity));
     }
 
@@ -325,7 +325,7 @@ mod tests {
         crate::ui::property::apply_to_world::<crate::ui::property::prop::CheckboxChecked>(
             &mut world, entity, true,
         );
-        assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
         assert_eq!(world.resource::<ToggleTrace>().unwrap().calls, 0);
     }
 }

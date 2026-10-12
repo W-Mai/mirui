@@ -266,7 +266,7 @@ mod tests {
         assert!(world.has::<TabIndicatorTween>(entity));
         assert!(world.has::<VisualDirty>(entity));
         assert_eq!(world.resource::<SelectionTrace>().unwrap().0, None);
-        assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 1);
         assert_eq!(
             world.resource::<SelectionTrace>().unwrap().0,
             Some(SelectionChanged { old: 0, new: 1 })
@@ -285,7 +285,7 @@ mod tests {
             )
             .unwrap()
         );
-        assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
         assert_eq!(world.resource::<SelectionTrace>().unwrap().0, None);
     }
 
@@ -310,7 +310,7 @@ mod tests {
             .unwrap()
         );
         assert_eq!(world.get::<TabBar>(entity).unwrap().selected, 1);
-        assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
     }
 
     #[test]
@@ -342,7 +342,7 @@ mod tests {
             .unwrap()
         );
         assert!(world.is_alive(entity));
-        assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 1);
         assert!(!world.is_alive(entity));
     }
 }

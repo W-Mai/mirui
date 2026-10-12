@@ -149,7 +149,7 @@ fn tapping_a_prepared_editor_collapses_selection_without_editing_content() {
                     node,
                 )
                 .unwrap();
-            assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+            assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 1);
             callback
                 .invoke(
                     &mut world,
@@ -161,7 +161,7 @@ fn tapping_a_prepared_editor_collapses_selection_without_editing_content() {
                     node,
                 )
                 .unwrap();
-            assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+            assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
         });
         if !warm {
             assert_eq!(allocations, 0);
@@ -194,7 +194,7 @@ fn input_edits_report_content_before_directed_selection() {
         })
         .unwrap();
     assert!(character(&mut world, node, '界').unwrap());
-    assert_eq!(runtime::flush(&mut world).unwrap(), 2);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 2);
     assert_eq!(
         world
             .get::<TextEditing>(node)
@@ -225,7 +225,7 @@ fn complete_fragments_replace_selection_once_and_reject_atomically() {
     callback
         .invoke(&mut world, &TextCommitted::new("文e\u{301}"), node)
         .unwrap();
-    assert_eq!(runtime::flush(&mut world).unwrap(), 2);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 2);
     assert_eq!(
         world
             .get::<TextEditing>(node)
@@ -254,7 +254,7 @@ fn complete_fragments_replace_selection_once_and_reject_atomically() {
         callback
             .invoke(&mut world, &TextCommitted::new(text), node)
             .unwrap();
-        assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
         let input = world.get::<TextEditing>(node).unwrap();
         assert_eq!(input.read(|text| text.to_owned()), "A文e\u{301}Z");
         assert_eq!(
@@ -285,7 +285,7 @@ fn large_owned_fragment_uses_the_widget_capacity_without_transport_slots() {
     callback
         .invoke(&mut world, &TextCommitted::new("warm"), node)
         .unwrap();
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     *world.resource_mut::<Trace>().unwrap() = Trace::default();
     world
         .get_mut::<TextEditing>(node)
@@ -298,7 +298,7 @@ fn large_owned_fragment_uses_the_widget_capacity_without_transport_slots() {
     let event = TextCommitted::new("界".repeat(100));
     let allocations = crate::test_support::tracked_allocations(|| {
         callback.invoke(&mut world, &event, node).unwrap();
-        assert_eq!(runtime::flush(&mut world).unwrap(), 2);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 2);
     });
     assert_eq!(allocations, 0);
     assert_eq!(
@@ -324,7 +324,7 @@ fn empty_commit_without_selection_does_not_dirty() {
     callback
         .invoke(&mut world, &TextCommitted::new(""), node)
         .unwrap();
-    assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
     assert!(!world.has::<Dirty>(node));
 }
 
@@ -359,7 +359,7 @@ fn shift_navigation_keeps_the_anchor_across_utf8_and_direction_changes() {
         event.modifiers.as_mut().unwrap().shift = true;
         callback.invoke(&mut world, &event, node).unwrap();
         assert_eq!(
-            runtime::flush(&mut world).unwrap(),
+            crate::ui::delivery::flush(&mut world).unwrap(),
             usize::from(previous != cursor)
         );
         let input = world.get::<TextEditing>(node).unwrap();
@@ -372,7 +372,7 @@ fn shift_navigation_keeps_the_anchor_across_utf8_and_direction_changes() {
     callback
         .invoke(&mut world, &key(KEY_RIGHT, true), node)
         .unwrap();
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(
         world.get::<TextEditing>(node).unwrap().selection(),
         TextSelection {
@@ -413,7 +413,7 @@ fn prepared_shift_navigation_reuses_commands_and_notifications() {
                 let mut event = key(code, true);
                 event.modifiers.as_mut().unwrap().shift = shift;
                 callback.invoke(&mut world, &event, node).unwrap();
-                runtime::flush(&mut world).unwrap();
+                crate::ui::delivery::flush(&mut world).unwrap();
             }
         });
         if !warm {
@@ -445,7 +445,7 @@ fn selection_only_edits_and_identical_replacement_do_not_report_content_changes(
     assert!(press(&mut world, node, KEY_HOME).unwrap());
     assert!(press(&mut world, node, KEY_HOME).unwrap());
     assert!(press(&mut world, node, KEY_END).unwrap());
-    assert_eq!(runtime::flush(&mut world).unwrap(), 3);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 3);
     assert_eq!(
         world
             .get::<TextEditing>(node)
@@ -479,7 +479,7 @@ fn rejected_edits_and_boundary_movement_do_not_notify_or_dirty() {
     assert!(character(&mut world, node, '界').unwrap());
     assert!(press(&mut world, node, KEY_LEFT).unwrap());
     assert!(press(&mut world, node, KEY_DELETE).unwrap());
-    assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
     assert!(!world.has::<Dirty>(node));
 }
 
@@ -505,7 +505,7 @@ fn return_reports_each_press_without_editing_or_changing_focus() {
             .unwrap()
     );
     assert!(press(&mut world, node, KEY_RETURN).unwrap());
-    assert_eq!(runtime::flush(&mut world).unwrap(), 2);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 2);
     let input = world.get::<TextEditing>(node).unwrap();
     assert_eq!(input.read(|text| text.to_owned()), "A中");
     assert_eq!(
@@ -540,8 +540,8 @@ fn notification_overflow_keeps_the_edit_without_retrying_missing_selection() {
         "中"
     );
     assert_eq!(world.get::<TextEditing>(node).unwrap().cursor(), 3);
-    assert_eq!(runtime::flush(&mut world).unwrap(), 1);
-    assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 1);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
     assert_eq!(
         world.resource::<Trace>().unwrap().as_slice(),
         &[Notice::Content(3)]
@@ -560,7 +560,7 @@ fn unobserved_submission_needs_no_notification_storage() {
     let node = crate::ui::UiScope::new(&mut world, root).spawn(TextInput::build());
     assert!(press(&mut world, node, KEY_RETURN).unwrap());
     assert!(character(&mut world, node, 'a').unwrap());
-    assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
 }
 
 #[test]
@@ -577,15 +577,15 @@ fn prepared_edit_and_submission_callbacks_reuse_default_storage() {
             character
                 .invoke(&mut world, &TextCommitted::new("中"), node)
                 .unwrap();
-            runtime::flush(&mut world).unwrap();
+            crate::ui::delivery::flush(&mut world).unwrap();
             keyboard
                 .invoke(&mut world, &key(KEY_BACKSPACE, true), node)
                 .unwrap();
-            runtime::flush(&mut world).unwrap();
+            crate::ui::delivery::flush(&mut world).unwrap();
             keyboard
                 .invoke(&mut world, &key(KEY_RETURN, true), node)
                 .unwrap();
-            runtime::flush(&mut world).unwrap();
+            crate::ui::delivery::flush(&mut world).unwrap();
         });
         if !warm {
             assert_eq!(allocations, 0);

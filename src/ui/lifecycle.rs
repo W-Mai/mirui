@@ -1,4 +1,5 @@
 use crate::ecs::{Entity, World};
+use crate::input::event::{view_attach, view_input};
 use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cell::{Cell, RefCell};
@@ -54,8 +55,8 @@ struct AttachedInstances {
 pub(crate) struct InputAttach {
     registration: u64,
     component_filter: Option<core::any::TypeId>,
-    attach: Option<super::view_attach::Attachment>,
-    inputs: Option<super::view_input::SharedInputs>,
+    attach: Option<view_attach::Attachment>,
+    inputs: Option<view_input::SharedInputs>,
     instances: Rc<AttachedInstances>,
 }
 
@@ -176,8 +177,8 @@ fn apply_input_attach_plan(world: &mut World, entity: Entity, plan: &[InputAttac
                 .is_none_or(|attach| attach.invoke(world, entity));
             if ready && hook.generation(world, entity) == Some(generation) {
                 if let Some(inputs) = &hook.inputs {
-                    super::view_input::prepare(inputs, world);
-                    if let super::view_input::InputState::Ready(prepared) = &*inputs.borrow() {
+                    view_input::prepare(inputs, world);
+                    if let view_input::InputState::Ready(prepared) = &*inputs.borrow() {
                         if prepared.hooks.iter().any(|hook| hook.gesture) {
                             world.insert(entity, crate::ui::HitTarget);
                             world.insert(entity, crate::ui::InteractionFeedback);
@@ -210,11 +211,12 @@ pub(crate) fn attach_handlers_for(world: &mut World, entity: Entity) {
     }
 }
 
-pub(crate) fn reconcile(world: &mut World) {
-    if let Some(plan) = input_attach_plan(world) {
-        prepare_plan(world, &plan);
-    }
+pub(crate) fn prepare(world: &mut World) {
     for _ in 0..1024 {
+        crate::core::reactive::flush_signal_dirty(world);
+        if let Some(plan) = input_attach_plan(world) {
+            prepare_plan(world, &plan);
+        }
         let pending = world.pending_attachment_changes();
         if pending == 0 {
             return;
@@ -269,7 +271,7 @@ pub(crate) fn view_input_guard(
 }
 
 #[cfg(test)]
-#[path = "widget_attach_tests.rs"]
+#[path = "lifecycle/tests.rs"]
 mod lifecycle_tests;
 
 #[cfg(test)]
@@ -371,7 +373,7 @@ mod tests {
         assert!(world.has::<InteractionFeedback>(e));
 
         assert!(crate::input::event::runtime::has_entity_listener::<Tap>(&world, e).unwrap());
-        crate::input::event::runtime::dispatch_gesture(
+        crate::ui::delivery::dispatch_gesture(
             &mut world,
             &GestureEvent::Tap {
                 x: Fixed::ZERO,

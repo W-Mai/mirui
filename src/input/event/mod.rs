@@ -19,7 +19,6 @@ pub mod scroll;
 pub mod sim;
 pub(crate) mod view_attach;
 pub(crate) mod view_input;
-pub mod widget_input;
 
 pub use capacity::EventCapacity;
 
@@ -142,6 +141,7 @@ pub(crate) fn deliver_input(
     width: u16,
     height: u16,
 ) {
+    crate::ui::lifecycle::prepare(world);
     if matches!(
         event,
         InputEvent::PointerDown { .. }
@@ -167,12 +167,12 @@ pub(crate) fn deliver_input(
             return;
         }
     }
-    dispatch_input(world, root, event, now_ms, width, height);
-    if let Err(error) = runtime::flush(world) {
+    dispatch_prepared_input(world, root, event, now_ms, width, height);
+    if let Err(error) = crate::ui::delivery::flush(world) {
         crate::warn!("input notification flush failed: {:?}", error);
     }
     dispatch_pending_gestures(world, now_ms);
-    if let Err(error) = runtime::flush(world) {
+    if let Err(error) = crate::ui::delivery::flush(world) {
         crate::warn!("input notification flush failed: {:?}", error);
     }
     crate::core::reactive::flush_signal_dirty(world);
@@ -180,8 +180,8 @@ pub(crate) fn deliver_input(
 
 pub(crate) fn dispatch_pending_gestures(world: &mut World, now_ms: u32) {
     if let Err(error) = gesture::system::drain_gestures(world, |world, gesture| {
-        runtime::dispatch_gesture(world, gesture, now_ms)?;
-        runtime::flush(world)?;
+        crate::ui::delivery::dispatch_gesture(world, gesture, now_ms)?;
+        crate::ui::delivery::flush(world)?;
         crate::core::reactive::flush_signal_dirty(world);
         Ok::<(), runtime::RuntimeRunError>(())
     }) {
@@ -200,13 +200,24 @@ pub fn dispatch_input(
     lw: u16,
     lh: u16,
 ) {
+    crate::ui::lifecycle::prepare(world);
+    dispatch_prepared_input(world, root, event, now_ms, lw, lh);
+}
+
+fn dispatch_prepared_input(
+    world: &mut World,
+    root: Option<Entity>,
+    event: &InputEvent,
+    now_ms: u32,
+    lw: u16,
+    lh: u16,
+) {
     let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
     if matches!(event, InputEvent::AppSuspend) {
         cancel_active_input(world, now_ms, press::PressCancelReason::Suspended);
         return;
     }
     runtime::initialize(world);
-    widget_input::reconcile(world);
     if let Some(invalid) = world
         .resource::<GestureSystem>()
         .and_then(|system| system.recognizer.captured_target())
@@ -320,7 +331,7 @@ pub(crate) fn retire_subtree_interaction(world: &mut World, root: Entity) {
         }
     }
     if let Some(event) = cancellation
-        && let Err(error) = runtime::dispatch_gesture(world, &event, 0)
+        && let Err(error) = runtime::dispatch_gesture(world, &event)
     {
         crate::warn!(target: "mirui::event", "retained cell cancellation skipped: {:?}", error);
     }
@@ -489,8 +500,8 @@ mod tests {
                 .with_inputs(&mut world, route_second::callback()),
         );
         world.insert_resource(registry);
-        widget_input::attach_handlers_for(&mut world, entity);
-        runtime::dispatch_gesture(
+        crate::ui::lifecycle::attach_handlers_for(&mut world, entity);
+        crate::ui::delivery::dispatch_gesture(
             &mut world,
             &GestureEvent::Tap {
                 x: Fixed::ZERO,
@@ -532,7 +543,7 @@ mod tests {
             target,
         };
 
-        runtime::dispatch_gesture(&mut world, &tap, 0).unwrap();
+        crate::ui::delivery::dispatch_gesture(&mut world, &tap, 0).unwrap();
         assert_eq!(world.resource::<TapCount>().unwrap().0, 0);
         assert!(world.resource::<multi_tap::MultiTapTracker>().is_none());
         assert_eq!(
@@ -544,7 +555,7 @@ mod tests {
             .get_mut::<crate::ui::branch::CachedBranchVisibility>(branch)
             .unwrap()
             .selected = true;
-        runtime::dispatch_gesture(&mut world, &tap, 0).unwrap();
+        crate::ui::delivery::dispatch_gesture(&mut world, &tap, 0).unwrap();
         assert_eq!(world.resource::<TapCount>().unwrap().0, 1);
         let recorded = world
             .resource::<multi_tap::MultiTapTracker>()
@@ -562,7 +573,7 @@ mod tests {
 
         world.insert(branch, crate::ui::Hidden);
         world.resource_mut::<focus::FocusState>().unwrap().focused = Some(previous_focus);
-        runtime::dispatch_gesture(&mut world, &tap, 0).unwrap();
+        crate::ui::delivery::dispatch_gesture(&mut world, &tap, 0).unwrap();
         assert_eq!(world.resource::<TapCount>().unwrap().0, 1);
         let preserved = world
             .resource::<multi_tap::MultiTapTracker>()
@@ -600,7 +611,7 @@ mod tests {
             gesture::Tap::EVENT,
             check_owner::callback::<gesture::Tap, callback::NodeContext>(),
         );
-        runtime::dispatch_gesture(
+        crate::ui::delivery::dispatch_gesture(
             &mut world,
             &GestureEvent::Tap {
                 x: Fixed::ZERO,
@@ -624,7 +635,7 @@ mod tests {
             panic_handler::callback::<gesture::Tap, callback::NodeContext>(),
         );
         let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            runtime::dispatch_gesture(
+            crate::ui::delivery::dispatch_gesture(
                 &mut world,
                 &GestureEvent::Tap {
                     x: Fixed::ZERO,
@@ -1020,7 +1031,7 @@ mod tests {
                 gesture::Tap::EVENT,
                 user_handler::callback::<gesture::Tap, callback::NodeContext>(),
             );
-            runtime::dispatch_gesture(&mut world, &tap_event(e), 0).unwrap();
+            crate::ui::delivery::dispatch_gesture(&mut world, &tap_event(e), 0).unwrap();
             assert_eq!(INTERNAL_FIRES.load(Ordering::SeqCst), 0);
             assert_eq!(USER_FIRES.load(Ordering::SeqCst), 1);
         }
@@ -1034,8 +1045,8 @@ mod tests {
             world.insert_resource(registry);
             let e = world.spawn_empty();
             world.insert(e, ChannelMarker);
-            widget_input::attach_handlers_for(&mut world, e);
-            runtime::dispatch_gesture(&mut world, &tap_event(e), 0).unwrap();
+            crate::ui::lifecycle::attach_handlers_for(&mut world, e);
+            crate::ui::delivery::dispatch_gesture(&mut world, &tap_event(e), 0).unwrap();
             assert_eq!(INTERNAL_FIRES.load(Ordering::SeqCst), 1);
             assert_eq!(USER_FIRES.load(Ordering::SeqCst), 0);
         }
@@ -1049,14 +1060,14 @@ mod tests {
             world.insert_resource(registry);
             let e = world.spawn_empty();
             world.insert(e, ChannelMarker);
-            widget_input::attach_handlers_for(&mut world, e);
+            crate::ui::lifecycle::attach_handlers_for(&mut world, e);
             binding::install_entity_event(
                 &mut world,
                 e,
                 gesture::Tap::EVENT,
                 user_handler::callback::<gesture::Tap, callback::NodeContext>(),
             );
-            runtime::dispatch_gesture(&mut world, &tap_event(e), 0).unwrap();
+            crate::ui::delivery::dispatch_gesture(&mut world, &tap_event(e), 0).unwrap();
             assert_eq!(INTERNAL_FIRES.load(Ordering::SeqCst), 1);
             assert_eq!(
                 USER_FIRES.load(Ordering::SeqCst),
@@ -1074,14 +1085,14 @@ mod tests {
             world.insert_resource(registry);
             let e = world.spawn_empty();
             world.insert(e, ChannelMarker);
-            widget_input::attach_handlers_for(&mut world, e);
+            crate::ui::lifecycle::attach_handlers_for(&mut world, e);
             binding::install_entity_event(
                 &mut world,
                 e,
                 gesture::Tap::EVENT,
                 user_handler::callback::<gesture::Tap, callback::NodeContext>(),
             );
-            runtime::dispatch_gesture(&mut world, &tap_event(e), 0).unwrap();
+            crate::ui::delivery::dispatch_gesture(&mut world, &tap_event(e), 0).unwrap();
             assert_eq!(INTERNAL_FIRES.load(Ordering::SeqCst), 1);
             assert_eq!(
                 USER_FIRES.load(Ordering::SeqCst),

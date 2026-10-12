@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     fn input_updates_model_bindings_and_reset_restores_controls() {
-        use crate::input::event::{gesture::GestureEvent, runtime};
+        use crate::input::event::gesture::GestureEvent;
         use crate::ui::ComputedRect;
 
         let mut app = App::headless(420, 360);
@@ -231,9 +231,9 @@ mod tests {
             target,
         };
 
-        runtime::dispatch_gesture(&mut app.world, &tap(slider), 1).unwrap();
-        runtime::dispatch_gesture(&mut app.world, &tap(switch), 1).unwrap();
-        runtime::flush(&mut app.world).unwrap();
+        crate::ui::delivery::dispatch_gesture(&mut app.world, &tap(slider), 1).unwrap();
+        crate::ui::delivery::dispatch_gesture(&mut app.world, &tap(switch), 1).unwrap();
+        crate::ui::delivery::flush(&mut app.world).unwrap();
         crate::core::reactive::flush_signal_dirty(&mut app.world);
         assert_eq!(
             app.world.get::<Slider>(slider).unwrap().value,
@@ -242,8 +242,8 @@ mod tests {
         assert_eq!(app.world.get::<ProgressBar>(progress).unwrap().value, 0.75);
         assert!(app.world.get::<Switch>(switch).unwrap().on);
 
-        runtime::dispatch_gesture(&mut app.world, &tap(reset), 1).unwrap();
-        runtime::flush(&mut app.world).unwrap();
+        crate::ui::delivery::dispatch_gesture(&mut app.world, &tap(reset), 1).unwrap();
+        crate::ui::delivery::flush(&mut app.world).unwrap();
         crate::core::reactive::flush_signal_dirty(&mut app.world);
         assert_eq!(app.world.get::<Slider>(slider).unwrap().value, Fixed::ZERO);
         assert_eq!(app.world.get::<ProgressBar>(progress).unwrap().value, 0.0);

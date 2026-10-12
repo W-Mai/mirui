@@ -802,13 +802,13 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 
     fn notify_app<E: crate::input::event::lifecycle::AppNotice>(&mut self, notice: E) {
-        if let Err(error) = crate::input::event::runtime::notify_app(&mut self.world, notice) {
+        if let Err(error) = crate::ui::delivery::notify_app(&mut self.world, notice) {
             crate::warn!("App notification failed: {:?}", error);
         }
     }
 
     fn flush_event_notifications(&mut self) {
-        if let Err(error) = crate::input::event::runtime::flush(&mut self.world) {
+        if let Err(error) = crate::ui::delivery::flush(&mut self.world) {
             crate::warn!("event notification flush failed: {:?}", error);
         }
     }
@@ -1685,7 +1685,7 @@ impl<B: Surface, F: RendererFactory<B>> RootBuilder<'_, B, F> {
 
     /// Initialize the completed root, select it via [`App::set_root`], and return its entity.
     pub fn id(self) -> Entity {
-        crate::input::event::widget_input::attach_handlers_for(&mut self.app.world, self.entity);
+        crate::ui::lifecycle::attach_handlers_for(&mut self.app.world, self.entity);
         self.app.set_root(self.entity);
         self.entity
     }
@@ -1938,9 +1938,9 @@ mod multi_tap_initialization_tests {
             target,
         };
 
-        crate::input::event::runtime::dispatch_gesture(&mut app.world, &tap, 100).unwrap();
+        crate::ui::delivery::dispatch_gesture(&mut app.world, &tap, 100).unwrap();
         assert_eq!(current_count(&app.world, target), 1);
-        crate::input::event::runtime::dispatch_gesture(&mut app.world, &tap, 200).unwrap();
+        crate::ui::delivery::dispatch_gesture(&mut app.world, &tap, 200).unwrap();
         assert_eq!(current_count(&app.world, target), 2);
     }
 }

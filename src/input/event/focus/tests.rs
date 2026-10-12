@@ -103,7 +103,7 @@ fn author_callback_folds_local_writes_and_systems_keep_separate_transitions() {
             a,
         )
         .unwrap();
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(
         take(&mut world),
         alloc::vec![(
@@ -120,7 +120,7 @@ fn author_callback_folds_local_writes_and_systems_keep_separate_transitions() {
     assert_eq!(
         tracked_allocations(|| {
             systems.run_all(&mut world).unwrap();
-            runtime::flush(&mut world).unwrap();
+            crate::ui::delivery::flush(&mut world).unwrap();
         }),
         0
     );
@@ -163,13 +163,13 @@ fn author_callback_folds_local_writes_and_systems_keep_separate_transitions() {
 fn transitions_preserve_each_commit_loss_before_gain_and_reentrant_redirect() {
     let (mut world, [a, b, c]) = setup();
     select(&mut world, Some(a));
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     take(&mut world);
     world.resource_mut::<Trace>().unwrap().redirect = Some(c);
     assert_eq!(
         tracked_allocations(|| {
             select(&mut world, Some(b));
-            runtime::flush(&mut world).unwrap();
+            crate::ui::delivery::flush(&mut world).unwrap();
         }),
         0
     );
@@ -209,19 +209,19 @@ fn transitions_preserve_each_commit_loss_before_gain_and_reentrant_redirect() {
     assert_eq!(world.resource::<FocusState>().unwrap().focused, Some(c));
     select(&mut world, Some(a));
     select(&mut world, Some(c));
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(take(&mut world).len(), 4);
-    assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
 }
 
 #[test]
 fn hidden_and_destroyed_focus_clears_without_retargeting_reused_bindings() {
     let (mut world, [a, b, _]) = setup();
     select(&mut world, Some(a));
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     take(&mut world);
     world.insert(a, crate::ui::UserState::Disabled);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(world.resource::<FocusState>().unwrap().focused, None);
     assert_eq!(
         take(&mut world),
@@ -237,7 +237,7 @@ fn hidden_and_destroyed_focus_clears_without_retargeting_reused_bindings() {
     world.insert(b, gate);
     select(&mut world, Some(b));
     crate::core::reactive::retained::retire(&mut world, b);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert!(take(&mut world).is_empty());
     assert_eq!(world.resource::<FocusState>().unwrap().focused, None);
     world.despawn(a);
@@ -268,9 +268,9 @@ fn first_listener_does_not_replay_existing_focus_and_overflow_is_not_retried() {
         )
         .unwrap();
     }
-    assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
     select(&mut world, Some(b));
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(
         take(&mut world),
         alloc::vec![(
@@ -282,7 +282,7 @@ fn first_listener_does_not_replay_existing_focus_and_overflow_is_not_retried() {
         )]
     );
     assert_eq!(world.resource::<FocusState>().unwrap().focused, Some(b));
-    assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
 }
 
 #[crate::event]
@@ -307,7 +307,7 @@ fn tap_delivers_focus_before_authored_tap() {
         y: Fixed::ZERO,
     }
     .into();
-    runtime::dispatch_gesture(&mut world, &event, 0).unwrap();
+    crate::ui::delivery::dispatch_gesture(&mut world, &event, 0).unwrap();
     assert_eq!(world.resource::<Trace>().unwrap().len, 1);
 }
 
@@ -344,7 +344,7 @@ fn focus_callback_hiding_an_ancestor_cancels_the_original_tap() {
         unexpected_tap::callback::<Tap, NodeContext>(),
     )
     .unwrap();
-    runtime::dispatch_gesture(
+    crate::ui::delivery::dispatch_gesture(
         &mut world,
         &Tap {
             target: a,

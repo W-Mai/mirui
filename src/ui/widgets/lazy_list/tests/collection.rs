@@ -451,10 +451,10 @@ fn collection_callbacks_resolve_current_identity_after_reordering_and_slot_reuse
         y: 10.into(),
     };
     rows.rotate_left(1).unwrap();
-    crate::input::event::runtime::dispatch_gesture(&mut app.world, &tap, 100).unwrap();
+    crate::ui::delivery::dispatch_gesture(&mut app.world, &tap, 100).unwrap();
     assert_eq!(rows.get(0).unwrap().title(), "second");
     viewport(&mut app.world, list, 200, 80, 0);
-    crate::input::event::runtime::dispatch_gesture(&mut app.world, &tap, 200).unwrap();
+    crate::ui::delivery::dispatch_gesture(&mut app.world, &tap, 200).unwrap();
     crate::core::reactive::flush_signal_dirty(&mut app.world);
     assert_eq!(rows.get(0).unwrap().title(), "clicked");
     assert_eq!(original.title(), "first");
@@ -469,7 +469,7 @@ fn collection_callbacks_resolve_current_identity_after_reordering_and_slot_reuse
     let replacement = rows.try_insert(0, RowData { title: "new" }).unwrap();
     assert_ne!(removed, replacement);
     viewport(&mut app.world, list, 200, 80, 0);
-    crate::input::event::runtime::dispatch_gesture(&mut app.world, &tap, 300).unwrap();
+    crate::ui::delivery::dispatch_gesture(&mut app.world, &tap, 300).unwrap();
     crate::core::reactive::flush_signal_dirty(&mut app.world);
     assert_eq!(rows.get_by_id(replacement).unwrap().title(), "clicked");
     assert!(rows.get_by_id(removed).is_none());

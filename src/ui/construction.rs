@@ -46,5 +46,5 @@ pub fn finish_widget_static(world: &mut World, parent: Entity, entity: Entity) {
     {
         ids.insert(name, entity);
     }
-    crate::input::event::widget_input::attach_handlers_for(world, entity);
+    crate::ui::lifecycle::attach_handlers_for(world, entity);
 }

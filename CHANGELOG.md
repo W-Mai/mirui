@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Widget attachments become ready before subsequent input and notification delivery.
+
 - Editor Lab preserves explicitly attached editor appearance and document state.
 
 - Default event command storage supports editor attachment and input payload alignment on WebAssembly.

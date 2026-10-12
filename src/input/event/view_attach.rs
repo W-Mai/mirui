@@ -155,20 +155,20 @@ mod tests {
         let second = world.spawn(Seed(7));
         world.insert(first, Ready(0));
         world.insert(second, Ready(0));
-        super::super::widget_input::attach_handlers_for(&mut world, first);
+        crate::ui::lifecycle::attach_handlers_for(&mut world, first);
         assert_eq!(world.resource::<[u8; 2]>(), Some(&[1, 3]));
-        super::super::widget_input::attach_handlers_for(&mut world, second);
+        crate::ui::lifecycle::attach_handlers_for(&mut world, second);
         assert_eq!(
             tracked_allocations(|| {
-                super::super::widget_input::attach_handlers_for(&mut world, second);
-                super::super::widget_input::attach_handlers_for(&mut world, first);
+                crate::ui::lifecycle::attach_handlers_for(&mut world, second);
+                crate::ui::lifecycle::attach_handlers_for(&mut world, first);
             }),
             0
         );
         assert_eq!(world.get::<Ready>(second), Some(&Ready(7)));
         assert_eq!(world.resource::<[u8; 2]>(), Some(&[2, 7]));
         assert!(!world.has::<crate::ui::HitTarget>(first));
-        assert_eq!(runtime::flush(&mut world), Ok(0));
+        assert_eq!(crate::ui::delivery::flush(&mut world), Ok(0));
     }
 
     #[test]

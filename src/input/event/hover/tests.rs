@@ -86,7 +86,7 @@ fn input(world: &mut World, root: Entity, input: InputEvent) {
         Some(root)
     );
     runtime::observe_pointer(world, &input, 100, 100);
-    runtime::flush(world).unwrap();
+    crate::ui::delivery::flush(world).unwrap();
 }
 
 fn moved(kind: PointerKind, id: u8, y: i32) -> InputEvent {
@@ -196,7 +196,7 @@ fn hiding_or_disabling_a_hit_leaf_updates_ancestors_without_new_pointer_input() 
             world.insert(a, crate::ui::Hidden);
         }
         world.callback_completed();
-        runtime::flush(&mut world).unwrap();
+        crate::ui::delivery::flush(&mut world).unwrap();
         assert_eq!(take(&mut world), [(a, false), (root, false)]);
     }
 }
@@ -209,14 +209,14 @@ fn published_geometry_survives_paint_dirty_cleanup_and_moves_stationary_hover() 
     world.get_mut::<Style>(a).unwrap().layout.height = Dimension::px(60);
     world.insert(a, crate::ui::dirty::Dirty);
     world.callback_completed();
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert!(take(&mut world).is_empty());
     layout(&mut world, root);
     for entity in [root, a, b] {
         world.remove::<crate::ui::dirty::Dirty>(entity);
         world.remove::<crate::ui::dirty::VisualDirty>(entity);
     }
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(take(&mut world), [(b, false), (a, true)]);
 }
 
@@ -226,7 +226,7 @@ fn duplicate_listener_does_not_duplicate_emission_or_replay_hover() {
     input(&mut world, root, moved(PointerKind::Mouse, 0, 10));
     take(&mut world);
     listen(&mut world, a);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert!(take(&mut world).is_empty());
     input(
         &mut world,
@@ -249,7 +249,7 @@ fn failed_enqueue_advances_baseline_and_does_not_retry() {
     );
     input(&mut world, root, moved(PointerKind::Mouse, 0, 10));
     assert_eq!(take(&mut world), [(root, true)]);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert!(take(&mut world).is_empty());
     input(&mut world, root, moved(PointerKind::Mouse, 0, 50));
     assert_eq!(take(&mut world), [(a, false)]);
@@ -275,13 +275,13 @@ fn retired_identity_drops_queued_notifications_without_retargeting() {
         .get_mut::<crate::core::reactive::retained::RetainedEffects>(a)
         .unwrap()
         .active = false;
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(take(&mut world), [(root, true), (root, false)]);
     world
         .get_mut::<crate::core::reactive::retained::RetainedEffects>(a)
         .unwrap()
         .active = true;
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(take(&mut world), [(root, true), (a, true)]);
 }
 
@@ -311,7 +311,7 @@ fn listener_on_an_already_hovered_ancestor_starts_without_replay() {
     input(&mut world, root, moved(PointerKind::Mouse, 0, 10));
     take(&mut world);
     listen(&mut world, ancestor);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert!(take(&mut world).is_empty());
     input(
         &mut world,
@@ -353,7 +353,7 @@ fn exhausted_pointer_storage_never_replaces_a_live_identity() {
     input(&mut world, root, moved(PointerKind::Pen, 17, 50));
     assert_eq!(take(&mut world), [(b, true)]);
     runtime::cancel_hover(&mut world);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     let events = take(&mut world);
     assert_eq!(events.len(), 3);
     assert_eq!(events.last(), Some(&(root, false)));
@@ -366,7 +366,7 @@ fn deleting_a_hovered_leaf_clears_surviving_ancestors() {
     input(&mut world, root, moved(PointerKind::Mouse, 0, 10));
     take(&mut world);
     world.despawn(a);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(take(&mut world), [(root, false)]);
 }
 

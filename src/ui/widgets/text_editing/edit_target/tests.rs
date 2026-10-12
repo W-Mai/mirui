@@ -11,7 +11,7 @@ fn edit_target_separates_instance_identity_from_content_and_selection_versions()
     let document = app.add_model(TextDocument::new());
     document.set_text("A中").unwrap();
     app.world.insert(node, TextEditing::new(document.clone()));
-    crate::input::event::widget_input::reconcile(&mut app.world);
+    crate::ui::lifecycle::prepare(&mut app.world);
     assert_eq!(
         tracked_allocations(|| {
             let target = EditTarget::capture(&app.world, node).unwrap();

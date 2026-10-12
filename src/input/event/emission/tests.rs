@@ -438,7 +438,7 @@ fn default_emit_checks_subscriptions_at_commit_and_does_not_replay_skipped_event
             let mut batch = queue.begin();
             batch.commands().emit(node, Hit { old: 0, new: 1 });
             batch.finish(&mut world).unwrap();
-            assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+            assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
         }),
         0
     );
@@ -465,11 +465,11 @@ fn default_emit_checks_subscriptions_at_commit_and_does_not_replay_skipped_event
         record::callback::<NodeContext>(),
     )
     .unwrap();
-    assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
     let mut batch = queue.begin();
     batch.commands().emit(node, Hit { old: 2, new: 3 });
     batch.finish(&mut world).unwrap();
-    assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 1);
     assert_eq!(world.resource::<Trace>().unwrap().values[0], (2, 3));
 }
 
@@ -488,7 +488,7 @@ fn emit_always_can_reach_a_listener_installed_before_flush_but_keeps_no_history(
     let mut batch = queue.begin();
     batch.commands().emit_always(node, Hit { old: 0, new: 1 });
     batch.finish(&mut world).unwrap();
-    assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 1);
     let mut batch = queue.begin();
     batch.commands().emit_always(node, Hit { old: 1, new: 2 });
     batch.finish(&mut world).unwrap();
@@ -499,7 +499,7 @@ fn emit_always_can_reach_a_listener_installed_before_flush_but_keeps_no_history(
         record::callback::<NodeContext>(),
     )
     .unwrap();
-    assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 1);
     assert_eq!(world.resource::<Trace>().unwrap().len, 1);
     assert_eq!(world.resource::<Trace>().unwrap().values[0], (1, 2));
 }

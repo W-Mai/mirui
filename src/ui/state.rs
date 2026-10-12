@@ -478,7 +478,7 @@ mod hover_press_e2e {
             y: probe,
             target,
         };
-        crate::input::event::runtime::dispatch_gesture(&mut world, &tap, 0).unwrap();
+        crate::ui::delivery::dispatch_gesture(&mut world, &tap, 0).unwrap();
         assert_eq!(world.resource::<TapCounts>().unwrap().parent, 1);
 
         crate::input::event::binding::install_entity_event(
@@ -492,7 +492,7 @@ mod hover_press_e2e {
         let target = crate::input::event::hit_test::hit_test(&world, root, probe, probe, 64, 64)
             .expect("interactive text target");
         assert_eq!(target, child);
-        crate::input::event::runtime::dispatch_gesture(
+        crate::ui::delivery::dispatch_gesture(
             &mut world,
             &GestureEvent::Tap {
                 x: probe,

@@ -135,14 +135,14 @@ fn triplet(node: Entity, old: Fixed, new: Fixed) -> [(Entity, Notice); 3] {
 #[test]
 fn program_changes_publish_fractional_triplets_without_hot_allocations() {
     let (mut world, node) = setup(EventCapacity::default());
-    assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
     let next = -Fixed::ONE / 4;
     assert_eq!(
         tracked_allocations(|| {
             write(&mut world, node, 100.into());
             write(&mut world, node, next);
             world.callback_completed();
-            runtime::flush(&mut world).unwrap();
+            crate::ui::delivery::flush(&mut world).unwrap();
         }),
         0
     );
@@ -150,7 +150,7 @@ fn program_changes_publish_fractional_triplets_without_hot_allocations() {
     write(&mut world, node, 80.into());
     write(&mut world, node, next);
     world.callback_completed();
-    assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
 }
 
 #[test]
@@ -164,18 +164,18 @@ fn active_motion_survives_stationary_samples_and_ends_only_after_controller() {
             8,
         );
         write(&mut world, node, Fixed::ONE);
-        runtime::flush(&mut world).unwrap();
+        crate::ui::delivery::flush(&mut world).unwrap();
         let notices = take(&mut world);
         assert_eq!(notices.len(), 2);
         assert_eq!(notices[0], triplet(node, Fixed::ZERO, Fixed::ONE)[0]);
-        assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
         *world.resource_mut::<ScrollMotion>().unwrap() = ScrollMotion::default();
-        runtime::flush(&mut world).unwrap();
+        crate::ui::delivery::flush(&mut world).unwrap();
         assert_eq!(
             take(&mut world),
             [triplet(node, Fixed::ZERO, Fixed::ONE)[2]]
         );
-        assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
     }
 }
 
@@ -189,10 +189,10 @@ fn cancellation_publishes_clamping_before_one_terminal_notice() {
         8,
     );
     write(&mut world, node, -Fixed::ONE);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     take(&mut world);
     super::super::system::cancel_scroll_drag(&mut world);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(
         take(&mut world),
         [
@@ -213,7 +213,7 @@ fn cancellation_publishes_clamping_before_one_terminal_notice() {
         ]
     );
     super::super::system::cancel_scroll_drag(&mut world);
-    assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
 }
 
 #[test]
@@ -223,7 +223,7 @@ fn callbacks_publish_subsequent_changes_without_reentering_observer_borrows() {
     write(&mut world, node, Fixed::ONE);
     assert_eq!(
         tracked_allocations(|| {
-            runtime::flush(&mut world).unwrap();
+            crate::ui::delivery::flush(&mut world).unwrap();
         }),
         0
     );
@@ -242,14 +242,14 @@ fn dropped_notifications_advance_the_baseline_without_replay() {
             .flush_limit(1),
     );
     write(&mut world, node, Fixed::ONE);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(
         take(&mut world),
         [triplet(node, Fixed::ZERO, Fixed::ONE)[0]]
     );
-    assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
     write(&mut world, node, 2.into());
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(take(&mut world), [triplet(node, Fixed::ONE, 2.into())[0]]);
 }
 
@@ -258,23 +258,23 @@ fn invalid_sources_and_retired_rows_never_deliver_old_motion() {
     let (mut world, node) = setup(EventCapacity::default());
     let gate = retained::RetainedEffects::new(&mut world, |_, _| true);
     world.insert(node, gate);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     // Install the retained identity before taking a new observation baseline.
     world.remove::<ScrollOffset>(node);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     world.insert(node, ScrollOffset::default());
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     write(&mut world, node, Fixed::ONE);
     world.callback_completed();
     retained::retire(&mut world, node);
     write(&mut world, node, 90.into());
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert!(take(&mut world).is_empty());
     write(&mut world, node, 91.into());
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(take(&mut world), triplet(node, 90.into(), 91.into()));
     world.despawn(node);
-    assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
 }
 
 #[test]
@@ -289,12 +289,12 @@ fn installing_during_motion_does_not_replay_its_start() {
         8,
     );
     listen(&mut world, node);
-    assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+    assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
     write(&mut world, node, 11.into());
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(take(&mut world), [triplet(node, 10.into(), 11.into())[1]]);
     *world.resource_mut::<ScrollMotion>().unwrap() = ScrollMotion::default();
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(take(&mut world), [triplet(node, 10.into(), 11.into())[2]]);
 }
 
@@ -363,7 +363,7 @@ fn scrolling_world() -> (World, Entity) {
 fn input(world: &mut World, node: Entity, input: crate::input::event::input::InputEvent, now: u32) {
     TIME.with(|time| time.set(u64::from(now) * 1_000_000));
     super::super::system::scroll_system_with_target(world, node, &input, 100, 100, Some(node), now);
-    runtime::flush(world).unwrap();
+    crate::ui::delivery::flush(world).unwrap();
 }
 
 #[test]
@@ -426,7 +426,7 @@ fn wheel_stream_and_pointer_inertia_end_after_real_controller_settles() {
         for frame in 4..300 {
             TIME.with(|time| time.set(frame * 8_000_000));
             super::super::system::scroll_inertia_system(&mut world).unwrap();
-            runtime::flush(&mut world).unwrap();
+            crate::ui::delivery::flush(&mut world).unwrap();
             for (_, notice) in take(&mut world) {
                 assert!(!matches!(notice, Notice::Start(_)));
                 if let Notice::End(end) = notice {
@@ -454,7 +454,7 @@ fn rotary_is_a_discrete_segment_and_hard_boundaries_do_not_start_motion() {
         .unwrap()
         .elastic = false;
     write(&mut world, node, Fixed::ZERO);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     take(&mut world);
     input(
         &mut world,
@@ -470,7 +470,7 @@ fn rotary_is_a_discrete_segment_and_hard_boundaries_do_not_start_motion() {
     assert!(take(&mut world).is_empty());
     TIME.with(|time| time.set(200_000_000));
     super::super::system::scroll_inertia_system(&mut world).unwrap();
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert!(take(&mut world).is_empty());
 }
 
@@ -480,24 +480,24 @@ fn hidden_detached_and_removed_sources_rebase_without_sending_old_segments() {
     world.insert_resource(crate::ui::WidgetRoot(node));
     world.insert(node, crate::ui::Hidden);
     write(&mut world, node, Fixed::ONE);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     world.remove::<crate::ui::Hidden>(node);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert!(take(&mut world).is_empty());
     let root = world.spawn_empty();
     world.resource_mut::<crate::ui::WidgetRoot>().unwrap().0 = root;
     write(&mut world, node, 2.into());
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     world.insert(node, crate::ui::Parent(root));
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert!(take(&mut world).is_empty());
     world.remove::<ScrollOffset>(node);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     world.insert(node, offset(100.into()));
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert!(take(&mut world).is_empty());
     write(&mut world, node, 101.into());
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(take(&mut world), triplet(node, 100.into(), 101.into()));
 }
 

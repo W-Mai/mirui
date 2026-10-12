@@ -2436,7 +2436,7 @@ fn reconcile_layout_snapshot(
         if let Some(sizes) = sizes {
             changed |= sizes.changed;
             if invoke {
-                sizes.dispatch(world);
+                sizes.dispatch(world, super::lifecycle::prepare);
             }
         }
         if !changed || !invoke {

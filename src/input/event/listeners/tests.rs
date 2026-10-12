@@ -107,7 +107,7 @@ fn retained_input_snapshot_stops_after_a_handler_rebinds_the_cell() {
             .with_inputs(&mut world, recycle::callback()),
     );
     world.insert_resource(registry);
-    super::super::widget_input::attach_handlers_for(&mut world, cell);
+    crate::ui::lifecycle::attach_handlers_for(&mut world, cell);
     let pool = EventListeners::new(&mut world);
     pool.reserve(ListenerCapacity {
         listeners: 1,
@@ -339,7 +339,7 @@ impl RouteFixture {
         // Install out of tree order; route order must still be leaf to root.
         for node in [root, alternate, parent, leaf] {
             world.insert(node, RouteMarker);
-            super::super::widget_input::attach_handlers_for(&mut world, node);
+            crate::ui::lifecycle::attach_handlers_for(&mut world, node);
             pool.install_entity::<DragMove, EntityContext<RouteMarker>>(
                 &mut world,
                 node,
@@ -701,7 +701,7 @@ fn internal_only_gesture_routes_prepare_and_restore_reactive_owner_without_alloc
     );
     world.insert_resource(registry);
     world.insert_resource(world.id());
-    super::super::widget_input::attach_handlers_for(&mut world, node);
+    crate::ui::lifecycle::attach_handlers_for(&mut world, node);
     let before = crate::core::reactive::current_world_id();
     let pool = EventListeners::new(&mut world);
     assert_eq!(crate::core::reactive::current_world_id(), before);
@@ -806,7 +806,7 @@ impl KeyboardFixture {
         .unwrap();
         for node in [root, leaf] {
             world.insert(node, DefaultEditor);
-            super::super::widget_input::attach_handlers_for(&mut world, node);
+            crate::ui::lifecycle::attach_handlers_for(&mut world, node);
             pool.install_entity::<Key, EntityContext<Widget>>(
                 &mut world,
                 node,
@@ -1072,7 +1072,7 @@ fn unchanged_editor_actions_are_accepted_without_reaching_app_fallback() {
         .unwrap()
         .invoke(&mut fixture.world, fixture.leaf);
     super::super::view_input::fixture_inputs(view, &mut fixture.world);
-    super::super::widget_input::attach_handlers_for(&mut fixture.world, fixture.leaf);
+    crate::ui::lifecycle::attach_handlers_for(&mut fixture.world, fixture.leaf);
     let changes = Rc::new(Cell::new(0));
     let called = changes.clone();
     // SAFETY: the only capture is an independent test counter, not a Model.

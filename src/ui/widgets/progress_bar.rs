@@ -228,7 +228,7 @@ mod tests {
         );
         assert!(world.has::<VisualDirty>(entity));
         assert_eq!(world.resource::<ValueTrace>().unwrap().0, None);
-        assert_eq!(runtime::flush(&mut world).unwrap(), 1);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 1);
         assert_eq!(
             world.resource::<ValueTrace>().unwrap().0,
             Some(ValueChanged {
@@ -250,7 +250,7 @@ mod tests {
             )
             .unwrap()
         );
-        assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
         assert_eq!(world.resource::<ValueTrace>().unwrap().0, None);
     }
 
@@ -276,6 +276,6 @@ mod tests {
             .unwrap()
         );
         assert_eq!(world.get::<ProgressBar>(entity).unwrap().value, 1.0);
-        assert_eq!(runtime::flush(&mut world).unwrap(), 0);
+        assert_eq!(crate::ui::delivery::flush(&mut world).unwrap(), 0);
     }
 }

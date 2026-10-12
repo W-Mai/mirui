@@ -116,7 +116,7 @@ fn moved(x: i32) -> InputEvent {
 }
 fn input(world: &mut World, root: Entity, input: InputEvent) {
     super::super::dispatch_input(world, Some(root), &input, 10, 100, 100);
-    runtime::flush(world).unwrap();
+    crate::ui::delivery::flush(world).unwrap();
 }
 fn take(world: &mut World) -> Vec<(Entity, Notice)> {
     let trace = world.resource_mut::<Trace>().unwrap();
@@ -225,7 +225,7 @@ fn long_press_keeps_capture_and_release_need_not_be_a_tap() {
     gestures
         .recognizer
         .check_long_press(600, &mut gestures.events);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert!(take(&mut world).is_empty());
     input(
         &mut world,
@@ -256,7 +256,7 @@ fn cancellation_reasons_and_unavailable_targets_do_not_become_releases() {
         } else {
             super::super::cancel_active_input(&mut world, 20, reason);
         }
-        runtime::flush(&mut world).unwrap();
+        crate::ui::delivery::flush(&mut world).unwrap();
         assert_eq!(
             take(&mut world),
             [
@@ -277,7 +277,7 @@ fn retired_target_does_not_deliver_termination_to_replacement_data() {
     input(&mut world, root, down());
     take(&mut world);
     super::super::retire_subtree_interaction(&mut world, child);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert_eq!(
         take(&mut world),
         [(root, Notice::Cancel(PressCancelReason::Unavailable))]
@@ -297,7 +297,7 @@ fn notification_overflow_does_not_retry_or_change_recognition() {
     assert_eq!(take(&mut world), [(child, Notice::Down)]);
     input(&mut world, root, up());
     assert_eq!(take(&mut world), [(child, Notice::Up)]);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert!(take(&mut world).is_empty());
 }
 
@@ -371,7 +371,7 @@ fn listening_after_capture_does_not_join_the_frozen_path() {
     input(&mut world, root, down());
     take(&mut world);
     listen(&mut world, outer);
-    runtime::flush(&mut world).unwrap();
+    crate::ui::delivery::flush(&mut world).unwrap();
     assert!(take(&mut world).is_empty());
     input(&mut world, root, up());
     assert_eq!(take(&mut world), [(child, Notice::Up), (root, Notice::Up)]);
@@ -389,7 +389,7 @@ fn disabled_or_removed_targets_end_the_surviving_capture_path() {
             world.insert(child, crate::ui::UserState::Disabled);
         }
         world.callback_completed();
-        runtime::flush(&mut world).unwrap();
+        crate::ui::delivery::flush(&mut world).unwrap();
         let events = take(&mut world);
         assert_eq!(
             events.last(),

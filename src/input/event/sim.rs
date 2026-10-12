@@ -2526,8 +2526,8 @@ mod tests {
             crate::input::event::gesture::system::drain_gestures(
                 &mut world,
                 |world, gesture| -> Result<(), crate::input::event::runtime::RuntimeRunError> {
-                    crate::input::event::runtime::dispatch_gesture(world, gesture, now_ms)?;
-                    crate::input::event::runtime::flush(world).map(|_| ())
+                    crate::ui::delivery::dispatch_gesture(world, gesture, now_ms)?;
+                    crate::ui::delivery::flush(world).map(|_| ())
                 },
             ),
             Ok(1)
@@ -2605,8 +2605,8 @@ mod tests {
             crate::input::event::gesture::system::drain_gestures(
                 &mut world,
                 |world, gesture| -> Result<(), crate::input::event::runtime::RuntimeRunError> {
-                    crate::input::event::runtime::dispatch_gesture(world, gesture, now_ms)?;
-                    crate::input::event::runtime::flush(world).map(|_| ())
+                    crate::ui::delivery::dispatch_gesture(world, gesture, now_ms)?;
+                    crate::ui::delivery::flush(world).map(|_| ())
                 },
             )
             .unwrap();
