@@ -82,6 +82,11 @@ impl<P, B> TextInputBuilder<P, B> {
         Ok(self)
     }
 
+    pub fn preedit_capacity(mut self, capacity: usize) -> Result<Self, TextEditError> {
+        self.editing = self.editing.with_preedit_capacity(capacity)?;
+        Ok(self)
+    }
+
     pub fn style(mut self, style: crate::ui::Style) -> Self {
         self.style = Some(style);
         self
@@ -228,52 +233,71 @@ fn text_input_render(
     let Some(content_clip) = paint.clip().intersect(&content_rect) else {
         return;
     };
-    let color = if editing.is_empty() {
+    let display_empty = editing.read_display(str::is_empty);
+    let color = if display_empty {
         placeholder_color
     } else {
         text_color
     };
     let (caret, scroll) = caret_and_scroll(&layout, editing, content_rect);
     let transform = paint.transform();
-    let selection = editing.selection().range();
-    if editing.focused() && !selection.is_empty() && !editing.is_empty() {
-        let selection = selection.start as u32..selection.end as u32;
-        for line in layout.lines() {
-            let range = line.carets();
-            let carets = &layout.carets()[range.start as usize..range.end as usize];
-            for run in layout.runs_for(*line).unwrap_or_default() {
-                let span = carets
-                    .windows(2)
-                    .filter(|pair| {
-                        super::text::selected_pair(pair, run.text(), run.bidi_level(), &selection)
-                    })
-                    .fold(None, |span: Option<(i32, i32)>, pair| {
-                        let left = pair[0].position.x.min(pair[1].position.x);
-                        let right = pair[0].position.x.max(pair[1].position.x);
-                        Some(span.map_or((left, right), |(start, end)| {
-                            (start.min(left), end.max(right))
-                        }))
-                    });
-                if let Some((left, right)) = span.filter(|(left, right)| left < right) {
-                    paint.draw_clipped(
-                        &DrawCommand::Fill {
-                            area: Rect {
-                                x: content_rect.x - scroll
-                                    + crate::types::fixed::from_textflow(left),
-                                y: content_rect.y
-                                    + crate::types::fixed::from_textflow(line.origin().y)
-                                    - metrics.ascender,
-                                w: crate::types::fixed::from_textflow(right - left),
-                                h: metrics.line_height,
+    for (selection, underline) in [
+        (editing.display_selection(), false),
+        (editing.preedit_range().unwrap_or(0..0), true),
+    ] {
+        if editing.focused() && !selection.is_empty() && !display_empty {
+            let selection = selection.start as u32..selection.end as u32;
+            for line in layout.lines() {
+                let range = line.carets();
+                let carets = &layout.carets()[range.start as usize..range.end as usize];
+                for run in layout.runs_for(*line).unwrap_or_default() {
+                    let span = carets
+                        .windows(2)
+                        .filter(|pair| {
+                            super::text::selected_pair(
+                                pair,
+                                run.text(),
+                                run.bidi_level(),
+                                &selection,
+                            )
+                        })
+                        .fold(None, |span: Option<(i32, i32)>, pair| {
+                            let left = pair[0].position.x.min(pair[1].position.x);
+                            let right = pair[0].position.x.max(pair[1].position.x);
+                            Some(span.map_or((left, right), |(start, end)| {
+                                (start.min(left), end.max(right))
+                            }))
+                        });
+                    if let Some((left, right)) = span.filter(|(left, right)| left < right) {
+                        paint.draw_clipped(
+                            &DrawCommand::Fill {
+                                area: Rect {
+                                    x: content_rect.x - scroll
+                                        + crate::types::fixed::from_textflow(left),
+                                    y: content_rect.y
+                                        + crate::types::fixed::from_textflow(line.origin().y)
+                                        - metrics.ascender
+                                        + if underline {
+                                            metrics.line_height - Fixed::ONE
+                                        } else {
+                                            Fixed::ZERO
+                                        },
+                                    w: crate::types::fixed::from_textflow(right - left),
+                                    h: if underline {
+                                        Fixed::ONE
+                                    } else {
+                                        metrics.line_height
+                                    },
+                                },
+                                transform,
+                                quad: paint.quad(),
+                                color: focus_border_color,
+                                radius: Fixed::ZERO,
+                                opa: if underline { 255 } else { 80 },
                             },
-                            transform,
-                            quad: paint.quad(),
-                            color: focus_border_color,
-                            radius: Fixed::ZERO,
-                            opa: 80,
-                        },
-                        content_clip,
-                    );
+                            content_clip,
+                        );
+                    }
                 }
             }
         }
@@ -295,7 +319,7 @@ fn text_input_render(
 
     if editing.focused() {
         let blink_on = phase.map(|phase| phase.0).unwrap_or(true);
-        if blink_on {
+        if blink_on && let Some(caret) = caret {
             paint.draw_clipped(
                 &DrawCommand::Fill {
                     area: Rect {

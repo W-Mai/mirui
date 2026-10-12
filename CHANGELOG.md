@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Software input methods use App-owned sessions, deferred preedit/commit/cancel/key commands, and typed provider callbacks. Editor Lab includes an on-screen keyboard and source switching.
+
+- TextEditing keeps composition previews separate from shared document content. TextInput renders preedit selections and underlines with configurable `preedit_capacity`; composition lifecycle notifications use direct, non-consumable delivery.
+
 - `PointerFocus` preserves editor focus during toolbar and on-screen keyboard activation, with nearest-ancestor overrides.
 
 - TextEditing positions the caret from taps using prepared visual geometry, including scrolled and transformed editors.

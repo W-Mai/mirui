@@ -57,7 +57,12 @@ macro_rules! unit_routes {
     };
 }
 
-unit_routes!(EntityNotification, LayoutNotification, InputFallback);
+unit_routes!(
+    EntityNotification,
+    LayoutNotification,
+    InputFallback,
+    super::contract::InputNotification
+);
 
 impl<E: Event<Route = WidgetConstruction, Options = ()>> sealed::Install<E> for WidgetConstruction {}
 impl<E: Event<Route = WidgetConstruction, Options = ()>> EntityInstallRoute<E>

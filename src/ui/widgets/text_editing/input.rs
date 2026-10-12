@@ -10,6 +10,36 @@ use crate::input::event::input::{
 
 use super::{Changed, SelectionChanged, Submitted, TextEditError, TextEditing, TextSelection};
 
+#[crate::event]
+pub(super) fn preedit(
+    entity: entity!(),
+    _event: event!(crate::ui::text_input::CompositionUpdated),
+    commands: commands!(),
+) {
+    commands.apply_event::<crate::ui::text_input::CompositionUpdated>(
+        entity,
+        |world, entity, event| {
+            if let Some(editor) = world.get_mut::<TextEditing>(entity)
+                && let Err(error) = editor.update_preedit(event.text(), event.selection())
+            {
+                crate::warn!(target: "mirui::input", "preedit rejected: {:?}", error);
+            }
+            Ok(())
+        },
+    );
+}
+
+#[crate::event]
+pub(super) fn composition_ended(
+    entity: entity!(),
+    _event: event!(crate::ui::text_input::CompositionEnded),
+    editors: query!(mut TextEditing),
+) {
+    if let Some(editor) = editors.get(entity) {
+        editor.clear_preedit();
+    }
+}
+
 #[derive(Clone, Copy)]
 pub(crate) enum Navigation {
     Left,
@@ -148,10 +178,10 @@ impl<'a> Edit<'a> {
 #[crate::event]
 pub(super) fn attach(
     entity: entity!(),
-    editors: query!(TextEditing, optional Focusable),
+    editors: query!(mut TextEditing, optional Focusable),
     commands: commands!(),
 ) {
-    let Some((_, focusable)) = editors.get(entity) else {
+    let Some((editor, focusable)) = editors.get(entity) else {
         return;
     };
     if focusable.is_none() {
@@ -159,6 +189,9 @@ pub(super) fn attach(
     }
     commands.insert(entity, crate::ui::HitTarget);
     commands.insert(entity, crate::ui::InteractionFeedback);
+    if let Err(error) = editor.prepare_preedit() {
+        crate::warn!("preedit preparation failed: {:?}", error);
+    }
 }
 
 #[crate::event]
@@ -199,6 +232,9 @@ fn apply_committed(
     node: Entity,
     event: &TextCommitted,
 ) -> Result<(), CommandError> {
+    if !crate::ui::text_input::accepts_commit(world, node) {
+        return Ok(());
+    }
     apply(world, node, Edit::Replace(event.text()))
 }
 

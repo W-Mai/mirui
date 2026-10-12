@@ -200,6 +200,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         handle
     }
 
+    pub(crate) fn text_input_unavailable(&self) -> u8 {
+        u8::from(self.host_focus == Some(false))
+            | (u8::from(self.host_visibility == Some(false)) << 1)
+            | (u8::from(self.suspended) << 2)
+    }
+
     /// Override the bounded UI event preset before installing callbacks. Invalid changes log a warning and retain the installed configuration.
     ///
     /// Ordinary callbacks use [`EventCapacity::default`] automatically. Supply an explicit declaration for larger payloads, operation batches, or smaller limits; dispatch never expands these capacities.
@@ -748,6 +754,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     pub fn suspend(&mut self) {
         if !self.suspended {
+            crate::ui::text_input::host_input(&self.world, &InputEvent::AppSuspend);
             self.suspended = true;
             let now_ms = (self.clock_ns() / 1_000_000) as u32;
             crate::input::event::cancel_active_input(
@@ -765,6 +772,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     pub fn resume(&mut self) {
         if self.suspended {
+            crate::ui::text_input::host_input(&self.world, &InputEvent::AppResume);
             self.suspended = false;
             for p in &mut self.plugins {
                 p.on_resume(&mut self.world);
@@ -858,6 +866,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 
     fn notify_raw_input(&mut self, event: &InputEvent) -> bool {
+        crate::ui::text_input::host_input(&self.world, event);
         if matches!(
             event,
             InputEvent::HostFocus { focused: false }

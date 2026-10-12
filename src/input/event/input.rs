@@ -160,6 +160,12 @@ typed_inputs! {
 /// Focused keyboard selectors available on component nodes.
 #[allow(non_upper_case_globals)]
 pub trait InputSelectors: Component {
+    const CompositionStarted: EventKey<crate::ui::text_input::CompositionStarted> =
+        crate::ui::text_input::CompositionStarted::EVENT;
+    const CompositionUpdated: EventKey<crate::ui::text_input::CompositionUpdated> =
+        crate::ui::text_input::CompositionUpdated::EVENT;
+    const CompositionEnded: EventKey<crate::ui::text_input::CompositionEnded> =
+        crate::ui::text_input::CompositionEnded::EVENT;
     const Key: EventKey<Key> = Key::EVENT;
     const TextCommitted: EventKey<TextCommitted> = TextCommitted::EVENT;
 }

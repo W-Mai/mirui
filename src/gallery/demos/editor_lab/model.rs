@@ -4,6 +4,7 @@ pub(super) const TOOLS: [&str; 4] = ["Canvas", "Components", "Animation", "Textu
 
 #[crate::model]
 pub struct EditorLab {
+    pub(super) keyboard: model!(owned super::keyboard::Keyboard),
     pub(super) search: model!(owned TextDocument),
     pub(super) command: model!(owned TextDocument),
     pub(super) shared: model!(owned TextDocument),
@@ -18,6 +19,7 @@ impl Default for EditorLab {
         let mut shared = TextDocument::new();
         shared.set_text("Edit either copy").unwrap();
         Self {
+            keyboard: super::keyboard::Keyboard::default().into(),
             search: TextDocument::new().into(),
             command: TextDocument::new().into(),
             shared: shared.into(),

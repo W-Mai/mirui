@@ -87,7 +87,7 @@ fn with_layout_request<R>(
         return Ok(None);
     };
     let metrics = fonts.primary().metrics(fonts.primary().size);
-    input.read(|text| {
+    input.read_display(|text| {
         let content = if text.is_empty() {
             world
                 .get::<Placeholder>(entity)
@@ -110,20 +110,21 @@ pub(crate) fn caret_and_scroll(
     layout: &TextLayout<'_>,
     editing: &TextEditing,
     content_rect: Rect,
-) -> (Fixed, Fixed) {
-    let caret = if editing.is_empty() {
-        Fixed::ZERO
-    } else {
+) -> (Option<Fixed>, Fixed) {
+    let caret = editing.display_cursor().map(|cursor| {
         layout
             .carets()
             .iter()
-            .find(|caret| caret.text_offset as usize == editing.cursor())
+            .find(|caret| caret.text_offset as usize == cursor)
             .map_or(Fixed::ZERO, |caret| {
                 crate::types::fixed::from_textflow(caret.position.x)
             })
-    };
+    });
     let visible_width = (content_rect.w - Fixed::ONE).max(Fixed::ZERO);
-    (caret, (caret - visible_width).max(Fixed::ZERO))
+    (
+        caret,
+        (caret.unwrap_or(Fixed::ZERO) - visible_width).max(Fixed::ZERO),
+    )
 }
 
 pub(super) fn hit_caret(world: &World, entity: Entity, point: Point) -> Option<usize> {
@@ -149,7 +150,7 @@ pub(super) fn hit_caret(world: &World, entity: Entity, point: Point) -> Option<u
         ) else {
             return Ok(None);
         };
-        if editing.is_empty() {
+        if editing.read_display(str::is_empty) {
             return Ok(Some(0));
         }
         let content_rect = input_content_rect(rect);
@@ -159,7 +160,49 @@ pub(super) fn hit_caret(world: &World, entity: Entity, point: Point) -> Option<u
             .carets()
             .iter()
             .min_by_key(|caret| (crate::types::fixed::from_textflow(caret.position.x) - x).abs())
-            .map(|caret| caret.text_offset as usize))
+            .map(|caret| editing.document_offset(caret.text_offset as usize)))
+    })
+    .ok()
+    .flatten()
+    .flatten()
+}
+
+pub(crate) fn caret_rect(world: &World, entity: Entity) -> Option<Rect> {
+    let editing = world
+        .get::<TextEditing>(entity)
+        .filter(|editor| editor.usable(world))?;
+    let (rect, affine, projective) =
+        crate::ui::render_system::widget_render_geometry(world, entity)?;
+    let handle = world.get::<TextEditingLayoutHandle>(entity)?.0;
+    with_layout_request(world, entity, rect, |_, request, fingerprint| {
+        let outputs = world.resource::<Outputs<TextGeometry>>().unwrap();
+        let storage = outputs.storage();
+        let Some(layout) = storage.layouts.get_matching(
+            handle,
+            u64::from(entity.id) | (u64::from(entity.generation) << 32),
+            fingerprint,
+            request,
+        ) else {
+            return Ok(None);
+        };
+        let content = input_content_rect(rect);
+        let (caret, scroll) = caret_and_scroll(&layout, editing, content);
+        let Some(caret) = caret else {
+            return Ok(None);
+        };
+        let caret = Rect {
+            x: content.x + caret - scroll,
+            y: content.y,
+            w: Fixed::ONE,
+            h: content.h,
+        };
+        Ok(if projective.is_identity() {
+            Some(affine.apply_rect_bbox(caret))
+        } else {
+            projective
+                .apply_rect(caret)
+                .map(|points| Rect::bounding_quad(&points))
+        })
     })
     .ok()
     .flatten()

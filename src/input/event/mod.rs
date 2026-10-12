@@ -218,6 +218,7 @@ fn dispatch_prepared_input(
         return;
     }
     runtime::initialize(world);
+    crate::ui::text_input::flush(world);
     if let Some(invalid) = world
         .resource::<GestureSystem>()
         .and_then(|system| system.recognizer.captured_target())
@@ -229,7 +230,7 @@ fn dispatch_prepared_input(
         crate::warn!("input route preparation failed: {:?}", error);
         return;
     }
-    match runtime::dispatch_input(world, root, event, lw, lh) {
+    match crate::ui::delivery::dispatch_input(world, root, event, lw, lh) {
         Ok(true) => return,
         Ok(false) => {}
         Err(error) => {

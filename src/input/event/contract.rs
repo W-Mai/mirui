@@ -40,6 +40,8 @@ pub struct EntityBubble;
 pub struct EntityNotification;
 /// A direct layout notification emitted by the framework.
 pub struct LayoutNotification;
+/// A non-consumable input fact delivered only to its original node.
+pub struct InputNotification;
 #[doc(hidden)]
 pub struct Initialization;
 /// A synchronous, single-provider request that constructs a widget subtree.
@@ -65,6 +67,7 @@ routes!(
     EntityBubble => BubbleControl,
     EntityNotification => (),
     LayoutNotification => (),
+    InputNotification => (),
     Initialization => (),
     InputFallback => BubbleControl,
     AppNotification => (),
@@ -87,6 +90,7 @@ pub trait EntityRoute: EventRoute {}
 impl EntityRoute for EntityBubble {}
 impl EntityRoute for EntityNotification {}
 impl EntityRoute for LayoutNotification {}
+impl EntityRoute for InputNotification {}
 impl EntityRoute for Initialization {}
 impl EntityRoute for WidgetConstruction {}
 impl EntityRoute for InputFallback {}
@@ -128,6 +132,7 @@ impl EventSource<EntityNotification> for ScrollSource {}
 impl EventSource<Initialization> for EntitySource {}
 impl EventSource<LayoutNotification> for LayoutSource {}
 impl EventSource<InputFallback> for InputSource {}
+impl EventSource<InputNotification> for InputSource {}
 impl EventSource<InputFallback> for AppSource {}
 impl EventSource<AppNotification> for AppSource {}
 impl<W: Component> EventSource<EntityNotification> for WidgetSource<W> {}
@@ -306,6 +311,7 @@ macro_rules! notification_results {
 }
 
 notification_results!(
+    InputNotification,
     EntityNotification,
     LayoutNotification,
     AppNotification,

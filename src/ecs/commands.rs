@@ -62,6 +62,9 @@ pub struct CommandCapacity {
 }
 
 impl CommandCapacity {
+    pub(crate) const fn record_count(self) -> usize {
+        self.records
+    }
     /// Declare no deferred operations.
     pub const fn new() -> Self {
         Self {

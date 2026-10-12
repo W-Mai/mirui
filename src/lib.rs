@@ -243,6 +243,10 @@ pub mod prelude {
     pub use crate::ui::layout::{
         AlignItems, FlexDirection, FlexWrap, JustifyContent, LayoutStyle, Padding, Position,
     };
+    pub use crate::ui::text_input::{
+        CompositionEndReason, CompositionEnded, CompositionStarted, CompositionUpdated,
+        InputMethod, TextInputChanged, TextInputMode, TextInputSession, TextInputState,
+    };
     pub use crate::ui::theme::{
         ColorToken, Theme, ThemeCatalog, ThemeError, ThemeId, ThemeInfo, ThemeSource, ThemedColor,
     };

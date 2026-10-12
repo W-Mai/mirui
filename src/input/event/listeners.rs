@@ -295,7 +295,7 @@ impl InputBranch {
         self.pointer_focus == Some(PointerFocus::Preserve)
     }
 
-    pub(super) fn allowed(&self) -> bool {
+    pub(crate) fn allowed(&self) -> bool {
         self.alive && !self.hidden && !self.disabled
     }
 }
@@ -677,6 +677,22 @@ impl EventListeners {
             }
         }
         snapshot.select_listeners(&self.entries, ListenerTarget::App, None)?;
+        Ok(snapshot)
+    }
+
+    pub(crate) fn snapshot_input_notice<'pool, 'event, E>(
+        &'pool self,
+        world: &World,
+        event: &'event E,
+        origin: Entity,
+    ) -> Result<ListenerSnapshot<'pool, 'event>, ListenerError>
+    where
+        E: Event<Route = super::contract::InputNotification>,
+    {
+        let mut snapshot = self.empty_snapshot(world, BorrowedEvent::new(event))?;
+        snapshot.input = InputLease::capture(world, origin);
+        snapshot.select_view_inputs(world, origin, None, false)?;
+        snapshot.select_listeners(&self.entries, ListenerTarget::Entity(origin), None)?;
         Ok(snapshot)
     }
 

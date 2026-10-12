@@ -31,6 +31,7 @@ pub mod resource_access;
 pub mod scope;
 pub mod state;
 pub mod style_view;
+pub mod text_input;
 pub mod theme;
 pub mod view;
 pub mod visibility;

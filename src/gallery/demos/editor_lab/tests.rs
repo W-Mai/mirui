@@ -7,8 +7,9 @@ use crate::ui::widgets::{TextEditing, TextInput, TextSelection};
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 fn fixture() -> (TestApp, Entity, <model::EditorLab as BindType>::Shared) {
-    let mut app = App::headless(440, 640);
+    let mut app = App::headless(440, 760);
     app.with_default_widgets().with_default_systems();
+    app.add_plugin(crate::gallery::play::font::PlayFontPlugin);
     app.with_widget(editors::search_view::view())
         .with_widget(editors::command_view::view())
         .with_widget(editors::shared_view::view());
@@ -22,8 +23,53 @@ fn dispatch(app: &mut TestApp, root: Entity, target: Entity, event: InputEvent) 
     app.add_resource(FocusState {
         focused: Some(target),
     });
-    crate::input::event::dispatch_input(&mut app.world, Some(root), &event, 0, 440, 640);
+    crate::input::event::dispatch_input(&mut app.world, Some(root), &event, 0, 440, 760);
     crate::__macro_support::flush_entity_events(&mut app.world).unwrap();
+}
+
+#[test]
+fn screen_keyboard_composes_into_custom_editors_without_changing_the_shared_preview() {
+    let (mut app, _, model) = fixture();
+    app.with_input_method(InputMethod::software((
+        keyboard::session_changed::callback(model.keyboard()),
+        keyboard::editing_key::callback(model.keyboard()),
+    )));
+    let first = app.world.find_by_id("editor_shared_a").unwrap();
+    let second = app.world.find_by_id("editor_shared_b").unwrap();
+    model.shared().set_text("").unwrap();
+    app.world.resource_mut::<FocusState>().unwrap().focused = Some(first);
+    app.tick();
+    app.render().unwrap();
+    for (id, expected) in [("ime_n", "n"), ("ime_i", "ni"), ("ime_choose", "你")] {
+        let target = app.world.find_by_id(id).unwrap();
+        let rect = app.world.get::<crate::ui::ComputedRect>(target).unwrap().0;
+        for event in [
+            InputEvent::PointerDown {
+                kind: PointerKind::Mouse,
+                id: 0,
+                x: rect.x + Fixed::from_int(4),
+                y: rect.y + Fixed::from_int(4),
+            },
+            InputEvent::PointerUp {
+                kind: PointerKind::Mouse,
+                id: 0,
+                x: rect.x + Fixed::from_int(4),
+                y: rect.y + Fixed::from_int(4),
+            },
+        ] {
+            crate::input::event::deliver_input(&mut app.world, app.root, &event, 1, 440, 760);
+        }
+        app.tick();
+        app.render().unwrap();
+        app.world
+            .get::<TextEditing>(first)
+            .unwrap()
+            .read_display(|text| assert_eq!(text, expected));
+        app.world
+            .get::<TextEditing>(second)
+            .unwrap()
+            .read_display(|text| assert_eq!(text, if expected == "你" { "你" } else { "" }));
+    }
 }
 
 #[test]
@@ -97,7 +143,7 @@ fn custom_attachments_share_input_behavior_and_preserve_document_identity() {
         ),
         (3, TextCommitted::new("CAN").into()),
     ] {
-        crate::input::event::deliver_input(&mut app.world, Some(root), &event, time, 440, 640);
+        crate::input::event::deliver_input(&mut app.world, Some(root), &event, time, 440, 760);
     }
     assert_eq!(
         app.world.resource::<FocusState>().unwrap().focused,
@@ -184,7 +230,7 @@ fn custom_attachments_share_input_behavior_and_preserve_document_identity() {
         ),
         (12, TextCommitted::new(">").into()),
     ] {
-        crate::input::event::deliver_input(&mut app.world, Some(root), &event, time, 440, 640);
+        crate::input::event::deliver_input(&mut app.world, Some(root), &event, time, 440, 760);
     }
     assert_eq!(app.world.get::<TextEditing>(first).unwrap().cursor(), 1);
     assert_eq!(app.world.get::<TextEditing>(second).unwrap().cursor(), 0);
@@ -227,7 +273,7 @@ fn document_toolbar_preserves_editor_focus_and_accepts_subsequent_text() {
                 &event,
                 1 + index as u32 * 10 + offset as u32,
                 440,
-                640,
+                760,
             );
         }
     }
@@ -239,6 +285,6 @@ fn document_toolbar_preserves_editor_focus_and_accepts_subsequent_text() {
         .shared()
         .read(|text| assert_eq!(text, "Hello from the document"));
     let event = TextCommitted::new("!").into();
-    crate::input::event::deliver_input(&mut app.world, Some(root), &event, 30, 440, 640);
+    crate::input::event::deliver_input(&mut app.world, Some(root), &event, 30, 440, 760);
     model.shared().read(|text| assert!(text.contains('!')));
 }

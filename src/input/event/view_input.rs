@@ -91,6 +91,11 @@ macro_rules! keyboard_inputs {
 }
 
 keyboard_inputs!(super::input::Key, super::input::TextCommitted);
+keyboard_inputs!(
+    crate::ui::text_input::CompositionStarted,
+    crate::ui::text_input::CompositionUpdated,
+    crate::ui::text_input::CompositionEnded
+);
 
 #[doc(hidden)]
 pub trait ViewInputs {

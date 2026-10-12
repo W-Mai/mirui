@@ -108,4 +108,68 @@ Programmatic changes go through `form.query()` and publish to its observers. The
 
 The `document` field supplies the binding when the custom component is attached. Replacing that field alone is not a request to rebind an already attached TextEditing; replace the TextEditing component through `commands.insert` when changing an existing editor's source.
 
-See [Widget input and notifications](https://github.com/W-Mai/mirui/blob/main/docs/widget-events.md) for accepted input and notification ordering. Gallery's [Editor Lab](https://github.com/W-Mai/mirui/tree/main/src/gallery/demos/editor_lab) includes search filtering, command submission, and shared-document editing.
+## Software input methods
+
+`InputMethod::software` installs a `TextInputChanged` callback and an optional `Key` callback once per App. `TextInputChanged::state` contains the focused editor's session and caret geometry when available. A changed session invalidates old candidates; changes to caret geometry alone do not. `None` means the provider has no active editor.
+
+```rust
+use mirui::prelude::*;
+use mirui::ui::widgets::{Button, Text, TextInput};
+
+#[model]
+#[derive(Default)]
+struct Keyboard { session: Option<TextInputSession> }
+
+#[model]
+impl Keyboard {
+    fn session(&self) -> Option<TextInputSession> { self.session }
+    fn set_session(&mut self, session: Option<TextInputSession>) { self.session = session; }
+}
+
+#[event]
+fn context(event: event!(TextInputChanged), keyboard: model!(Keyboard)) {
+    keyboard.set_session(event.state.map(|state| state.session));
+}
+
+#[compose]
+fn keyboard_panel(keyboard: model!(Keyboard)) {
+    ui! {
+        Column(row_gap: 8) {
+            TextInput(width: 240, height: 36, capacity: 128, preedit_capacity: 256)
+            Row(height: 36, column_gap: 8) [PointerFocus::Preserve] {
+                Button(width: 80) [Text::label("ni")]
+                    on Tap {
+                        if let Some(session) = keyboard.session() {
+                            commands!().text_input().preedit(session, "ni", Some(2..2));
+                        }
+                    }
+                Button(width: 80) [Text::label("你")]
+                    on Tap {
+                        if let Some(session) = keyboard.session() {
+                            commands!().text_input().commit(session, "你");
+                        }
+                    }
+            }
+        }
+    };
+}
+
+# fn main() {
+let mut app = App::headless(320, 160);
+app.with_default_widgets();
+let keyboard = app.add_model(Keyboard::default());
+app.with_input_method(InputMethod::software((context::callback(keyboard.clone()),)));
+let root = app.spawn_root().id();
+app.compose(root, keyboard_panel(keyboard));
+# }
+```
+
+Select the editor, then use the keyboard buttons. Preedit replaces the selected range only in that editor's display; other editors sharing the document retain its committed content. `commit` sends `TextCommitted` through the original editor's normal interception and editing route. `cancel` clears the preview without editing the document. `key` sends an editing key to the editor without returning it to the software provider.
+
+`commands.text_input().set_mode(TextInputMode::Native)` selects platform text input; `Software` selects the installed software provider. Switching modes cancels the current composition and invalidates its session. Software mode ignores platform-committed text. The optional provider `Key` callback handles supported editing keys before the editor; returning `false` leaves normal editor handling enabled. This callback does not supply raw character translation or keyboard-layout mapping.
+
+`capacity` limits committed UTF-8 bytes. `preedit_capacity` limits the uncommitted fragment and defaults to twice `capacity`; explicit values are independent. Display storage is prepared at attachment or explicit capacity changes and reused for updates. Oversized previews are cleared, not truncated, and a later valid preview can display normally. Static fragments are borrowed; an existing `String` can be moved into a request. Dynamically constructing text remains the input source's responsibility.
+
+Requests are delivered after callback borrows are released. The default event preset includes text-input commands; explicit configurations use `CommandCapacity::text_input(count)` and a nonzero flush limit. The software request queue is prepared from the configured command record count. Invalid sessions are discarded; capacity exhaustion logs a warning and drops the new request without replay or rollback.
+
+See [Widget input and notifications](https://github.com/W-Mai/mirui/blob/main/docs/widget-events.md) for notification ordering. Gallery's [Editor Lab](https://github.com/W-Mai/mirui/tree/main/src/gallery/demos/editor_lab) includes search filtering, command submission, shared-document editing, and a software keyboard with a static n → ni → 你 sequence.

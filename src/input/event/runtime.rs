@@ -235,6 +235,7 @@ pub(crate) fn initialize(world: &mut World) {
 }
 
 fn observe_interaction(world: &mut World) {
+    crate::ui::text_input::observe(world);
     if let Some(runtime) = runtime(world) {
         runtime.focus.observe(world);
         if let Err(error) = runtime.hover.observe(world, &runtime.listeners) {
@@ -387,7 +388,7 @@ pub(crate) fn prepare_shared_callback<E, C>(
 ) -> Result<super::callback::PreparedEvent<E, C>, RuntimeInstallError>
 where
     E: Event,
-    C: CallbackContext<E, Target = Entity>,
+    C: CallbackContext<E>,
 {
     initialize(world);
     let runtime = runtime(world).expect("initialized event runtime");
@@ -415,6 +416,47 @@ pub(crate) fn freeze_shared_callbacks(world: &World) {
             .configuration
             .set(runtime.configuration.get().freeze());
     }
+}
+
+pub(crate) fn delivery_limits(world: &World) -> EventLimits {
+    runtime(world)
+        .expect("initialized event runtime")
+        .configuration
+        .get()
+        .limits()
+}
+
+pub(crate) fn input_notice<E>(
+    world: &mut World,
+    origin: Entity,
+    event: &E,
+) -> Result<(), ListenerError>
+where
+    E: Event<Route = super::contract::InputNotification>,
+{
+    let runtime = runtime(world).expect("initialized event runtime");
+    runtime.prepare(world, 0)?;
+    runtime
+        .listeners
+        .snapshot_input_notice(world, event, origin)?
+        .run(world)?;
+    Ok(())
+}
+
+pub(crate) fn keyboard_from<E>(
+    world: &mut World,
+    origin: Entity,
+    event: &E,
+) -> Result<super::BubbleControl, ListenerError>
+where
+    E: super::input::InputPayload + Event<Source = super::contract::InputSource>,
+{
+    let runtime = runtime(world).expect("initialized event runtime");
+    runtime.prepare(world, 0)?;
+    runtime
+        .listeners
+        .snapshot_keyboard_from(world, event, Some(origin))?
+        .run(world)
 }
 
 pub(crate) fn configure(
@@ -1443,12 +1485,14 @@ mod tests {
             tracked_allocations(|| {
                 for _ in 0..2 {
                     let mut batch = queue.begin();
-                    for n in 0..5 {
-                        batch.commands().insert(target, Marker(n));
+                    for _ in 0..=capacity.record_count() {
+                        batch.commands().insert(target, Marker(1));
                     }
                     assert_eq!(
                         batch.finish(&mut world),
-                        Err(CommandError::RecordCapacity { available: 4 })
+                        Err(CommandError::RecordCapacity {
+                            available: capacity.record_count(),
+                        })
                     );
                     assert_eq!(world.get::<Marker>(target), Some(&Marker(7)));
                 }

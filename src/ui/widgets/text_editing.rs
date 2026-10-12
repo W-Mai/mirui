@@ -4,9 +4,10 @@ use crate::core::model::{BindType, ModelHandle};
 
 use super::text_document::{TextDocument, TextEditError};
 
-mod edit_target;
+pub(crate) mod edit_target;
 pub(crate) mod geometry;
 mod input;
+mod preedit;
 
 /// Caret visibility shared by editors using the App clock.
 #[derive(Default, Clone, Copy)]
@@ -60,6 +61,7 @@ pub struct TextEditing {
     selection: TextSelection,
     selection_revision: u64,
     focused: bool,
+    preedit: preedit::Preedit,
 }
 
 impl Default for TextEditing {
@@ -70,6 +72,7 @@ impl Default for TextEditing {
             selection: TextSelection::default(),
             selection_revision: 0,
             focused: false,
+            preedit: preedit::Preedit::default(),
         }
     }
 }
@@ -82,6 +85,7 @@ impl TextEditing {
             selection: TextSelection::default(),
             selection_revision: 0,
             focused: false,
+            preedit: preedit::Preedit::default(),
         }
     }
 
@@ -180,7 +184,7 @@ impl TextEditing {
     name = "TextEditing",
     invalidation = Layout,
     attach = input::attach::callback(),
-    input = (input::key::callback(), input::committed::callback(), input::tap::callback()),
+    input = (input::key::callback(), input::committed::callback(), input::tap::callback(), input::preedit::callback(), input::composition_ended::callback()),
     systems = [input::normalize_selections::system(), input::cursor_blink::system()]
 )]
 fn text_editing_state(_document: model!(optional component.document, watch(revision, capacity))) {}

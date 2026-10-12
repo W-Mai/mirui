@@ -156,6 +156,7 @@ macro_rules! borrowed_invocation {
 }
 
 borrowed_invocation!(
+    super::contract::InputNotification,
     super::contract::EntityBubble,
     super::contract::EntityNotification,
     super::contract::LayoutNotification,

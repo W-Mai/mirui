@@ -1,4 +1,5 @@
 use super::editors::{CommandEditor, SearchEditor, SharedEditor};
+use super::keyboard::panel as keyboard_panel;
 use super::model::{EditorLab, TOOLS};
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ParagraphStyle, Placeholder, Text, TextEditing};
@@ -91,6 +92,7 @@ pub fn build_widgets(model: model!(EditorLab)) {
                     crate::warn!("document rejected: {:?}", error);
                 }
             }
+            keyboard_panel (model.keyboard())
         }
     };
 }

@@ -7,7 +7,8 @@ use crate::ecs::{Entity, World};
 
 use super::{TextDocument, TextEditing};
 
-pub(super) struct EditorIdentity {
+#[derive(Clone)]
+pub(crate) struct EditorIdentity {
     owner: WorldId,
     entity: Entity,
     attachment: Option<u64>,
@@ -16,7 +17,7 @@ pub(super) struct EditorIdentity {
 }
 
 impl EditorIdentity {
-    pub(super) fn capture(world: &World, entity: Entity) -> Option<Self> {
+    pub(crate) fn capture(world: &World, entity: Entity) -> Option<Self> {
         let editor = world.get::<TextEditing>(entity)?;
         if !editor.usable(world) {
             return None;
@@ -34,7 +35,7 @@ impl EditorIdentity {
         })
     }
 
-    pub(super) fn resolve<'world>(&self, world: &'world World) -> Option<&'world TextEditing> {
+    pub(crate) fn resolve<'world>(&self, world: &'world World) -> Option<&'world TextEditing> {
         if self.owner != world.id()
             || !world.is_alive(self.entity)
             || self.retained.is_some_and(|lease| !lease.valid(world))
@@ -78,19 +79,20 @@ impl EditVersion {
     }
 }
 
-pub(super) struct EditTarget {
+#[derive(Clone)]
+pub(crate) struct EditTarget {
     pub(super) identity: EditorIdentity,
     version: EditVersion,
 }
 
 impl EditTarget {
-    pub(super) fn capture(world: &World, entity: Entity) -> Option<Self> {
+    pub(crate) fn capture(world: &World, entity: Entity) -> Option<Self> {
         let identity = EditorIdentity::capture(world, entity)?;
         let version = EditVersion::capture(world.get::<TextEditing>(entity)?);
         Some(Self { identity, version })
     }
 
-    pub(super) fn after_edit<'world>(
+    pub(crate) fn after_edit<'world>(
         &self,
         world: &'world World,
         content_changed: bool,

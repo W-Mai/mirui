@@ -8,7 +8,43 @@ use crate::input::event::{BubbleControl, multi_tap, runtime};
 
 pub fn flush(world: &mut World) -> Result<usize, runtime::RuntimeRunError> {
     prepare(world);
-    runtime::flush(world, prepare)
+    let result = runtime::flush(world, prepare);
+    super::text_input::flush(world);
+    result
+}
+
+pub(crate) fn dispatch_input(
+    world: &mut World,
+    root: Option<crate::ecs::Entity>,
+    event: &crate::input::event::input::InputEvent,
+    width: u16,
+    height: u16,
+) -> Result<bool, ListenerError> {
+    use crate::input::event::input::{InputEvent, Key};
+    match event {
+        InputEvent::Key {
+            code,
+            pressed,
+            modifiers,
+            repeat,
+        } if super::text_input::intercept_key(
+            world,
+            &Key {
+                code: *code,
+                pressed: *pressed,
+                modifiers: *modifiers,
+                repeat: *repeat,
+            },
+        ) =>
+        {
+            return Ok(true);
+        }
+        InputEvent::TextCommitted(_) if super::text_input::software_selected(world) => {
+            return Ok(true);
+        }
+        _ => {}
+    }
+    runtime::dispatch_input(world, root, event, width, height)
 }
 
 pub(crate) fn notify_app<E: AppNotice>(
@@ -16,7 +52,9 @@ pub(crate) fn notify_app<E: AppNotice>(
     event: E,
 ) -> Result<usize, runtime::RuntimeRunError> {
     prepare(world);
-    runtime::notify_app(world, event, prepare)
+    let result = runtime::notify_app(world, event, prepare);
+    super::text_input::flush(world);
+    result
 }
 
 pub fn dispatch_gesture(

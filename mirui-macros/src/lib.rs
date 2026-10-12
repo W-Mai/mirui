@@ -331,6 +331,7 @@ struct WidgetCmd {
     component_fields: Vec<proc_macro2::TokenStream>,
     text_tuple_value: Option<proc_macro2::TokenStream>,
     capacity: Option<proc_macro2::TokenStream>,
+    preedit_capacity: Option<proc_macro2::TokenStream>,
     text_paragraph_value: Option<proc_macro2::TokenStream>,
     id: Option<syn::LitStr>,
     id_lookups: Vec<(syn::Ident, String)>,
@@ -347,6 +348,7 @@ struct ParsedAttrs {
     component_fields: Vec<proc_macro2::TokenStream>,
     text_tuple_value: Option<proc_macro2::TokenStream>,
     capacity: Option<proc_macro2::TokenStream>,
+    preedit_capacity: Option<proc_macro2::TokenStream>,
     text_paragraph_value: Option<proc_macro2::TokenStream>,
     id: Option<syn::LitStr>,
     id_lookups: Vec<(syn::Ident, String)>,
@@ -424,6 +426,7 @@ impl MiruiRune {
         let mut component_fields = Vec::new();
         let mut text_tuple_value: Option<proc_macro2::TokenStream> = None;
         let mut capacity: Option<proc_macro2::TokenStream> = None;
+        let mut preedit_capacity: Option<proc_macro2::TokenStream> = None;
         let mut text_paragraph_value: Option<proc_macro2::TokenStream> = None;
         let mut id = None;
         let mut id_lookups: Vec<(syn::Ident, String)> = Vec::new();
@@ -492,6 +495,25 @@ impl MiruiRune {
                 .map(|n| n.span())
                 .unwrap_or_else(|| syn::spanned::Spanned::span(&attr.value));
 
+            if name == "preedit_capacity" && is_text_input_widget {
+                if preedit_capacity.is_some() {
+                    errors.push(
+                        syn::Error::new(attr_span, "duplicate `preedit_capacity`")
+                            .to_compile_error(),
+                    );
+                } else if attr.reactive {
+                    errors.push(
+                        syn::Error::new(
+                            attr_span,
+                            "`preedit_capacity` must be a compile-time constant",
+                        )
+                        .to_compile_error(),
+                    );
+                } else {
+                    preedit_capacity = Some(quote! { #value });
+                }
+                continue;
+            }
             if name == "capacity" && (is_text_widget || is_button_widget || is_text_input_widget) {
                 if capacity.is_some() {
                     errors.push(
@@ -697,6 +719,7 @@ impl MiruiRune {
             component_fields,
             text_tuple_value,
             capacity,
+            preedit_capacity,
             text_paragraph_value,
             id,
             id_lookups,
@@ -1001,18 +1024,24 @@ impl MiruiRune {
                 });
             } else if cmd.name == "TextInput" {
                 let setters = &cmd.component_fields;
-                let capacity = cmd.capacity.as_ref().map(|capacity| {
-                    quote! {
-                        (#world).insert(#var,
-                            ::mirui::ui::widgets::TextEditing::default()
-                                .with_capacity(#capacity)
-                                .expect("TextEditing capacity could not be reserved")
-                        );
-                    }
+                let capacity = cmd.capacity.as_ref().map(|capacity| quote! {
+                    .with_capacity(#capacity).expect("TextEditing capacity could not be reserved")
                 });
+                let preedit_capacity = cmd.preedit_capacity.as_ref().map(|capacity| quote! {
+                    .with_preedit_capacity(#capacity).expect("TextEditing preedit capacity could not be reserved")
+                });
+                let editing =
+                    (cmd.capacity.is_some() || cmd.preedit_capacity.is_some()).then(|| {
+                        quote! {
+                            (#world).insert(#var,
+                                ::mirui::ui::widgets::TextEditing::default()
+                                    #capacity #preedit_capacity
+                            );
+                        }
+                    });
                 tokens.extend(quote! {
                     (#world).insert(#var, #comp_name::new() #(#setters)*);
-                    #capacity
+                    #editing
                 });
             } else {
                 let comp_fields = &cmd.component_fields;
@@ -2000,6 +2029,7 @@ impl DsRune for MiruiRune {
             component_fields: parsed.component_fields,
             text_tuple_value: parsed.text_tuple_value,
             capacity: parsed.capacity,
+            preedit_capacity: parsed.preedit_capacity,
             text_paragraph_value: parsed.text_paragraph_value,
             id: parsed.id,
             id_lookups,
