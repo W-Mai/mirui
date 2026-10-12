@@ -157,6 +157,8 @@ let plugin = plugin.autosave(Duration::from_secs(2));
 
 Periodic saving is disabled unless configured. Zero disables it again. Negative or unrepresentable integer intervals emit a warning and leave the previous configuration unchanged. Suspend and quit still attempt to save registered data.
 
+Disabling persistence also suppresses suspend and quit IO. Re-enabling keeps current Model data. Failed saves remain pending and are retried at subsequent save boundaries; a failed periodic attempt does not retry on every intervening frame. Without a clock, suspend and quit saves still run while periodic saves do not.
+
 Install a clock plugin before the persistence plugin to enable periodic saves. Due saves run at a persistence scheduling boundary, not on a separate timer thread. Submillisecond intervals retain their precision but cannot schedule saves more frequently than those boundaries.
 
 ## Storage results
