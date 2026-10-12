@@ -101,6 +101,7 @@ macro_rules! typed_inputs {
             HostFocus { focused: bool },
             HostVisibility { visible: bool },
             TextCommitted(TextCommitted),
+            TextInput(crate::ui::text_input::TextInputEvent),
             $($(#[$doc])* $kind { $($(#[$field_doc])* $field: $ty),+ },)+
             AppSuspend,
             AppResume,
@@ -195,7 +196,8 @@ impl InputEvent {
             | Self::Rotary { .. }
             | Self::Wheel { .. }
             | Self::Key { .. }
-            | Self::TextCommitted(_) => true,
+            | Self::TextCommitted(_)
+            | Self::TextInput(_) => true,
             Self::AppSuspend
             | Self::AppResume
             | Self::Quit

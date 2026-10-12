@@ -130,6 +130,10 @@ pub trait Surface: crate::core::cache::InspectCaches {
 
     fn poll_event(&mut self) -> Option<InputEvent>;
 
+    /// Select the native editor session and its logical surface-space caret.
+    /// `None` stops native text input. Backends without text input may ignore this.
+    fn set_text_input(&mut self, _state: Option<crate::ui::text_input::TextInputState>) {}
+
     /// Full logical-pixel screen rect.
     fn screen_rect(&self) -> Rect {
         let info = self.display_info();

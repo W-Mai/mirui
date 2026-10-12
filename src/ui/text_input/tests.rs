@@ -33,8 +33,14 @@ fn spelling(provider: model!(Provider), commands: commands!()) {
 
 #[crate::compose]
 fn panel(provider: model!(Provider)) -> (Entity, Entity) {
-    let editor = ui! { TextInput(width: 160, height: 36, capacity: 32, preedit_capacity: 8) };
-    let key = ui! { View(width: 24, height: 24) [PointerFocus::Preserve] on Tap(spelling::callback(provider)) };
+    let editor = ui! {
+        TextInput (width: 160, height: 36, capacity: 32, preedit_capacity: 8)
+    };
+    let key = ui! {
+        View (width: 24, height: 24) [
+            PointerFocus::Preserve,
+        ] on Tap(spelling::callback(provider))
+    };
     (editor, key)
 }
 
@@ -65,6 +71,100 @@ fn preview(session: TextInputSession, text: &'static str) -> Request {
             selection: Some(text.len()..text.len()),
         },
     )
+}
+
+fn native(app: &mut TestApp, event: crate::surface::InputEvent) {
+    crate::input::event::deliver_input(&mut app.world, None, &event, 0, 200, 100);
+}
+
+#[test]
+fn native_composition_borrows_payload_and_keeps_empty_preview_until_commit() {
+    let (mut app, editor, _, _) = fixture();
+    app.with_input_method(InputMethod::native());
+    let session = native_state(&mut app.world, 0).unwrap().session;
+    let text = alloc::string::String::from("A中🙂");
+    let pointer = text.as_ptr();
+    let event = session.commit(text);
+    let crate::surface::InputEvent::TextInput(TextInputEvent(Request::Commit(_, text))) = &event
+    else {
+        panic!("native commit")
+    };
+    assert_eq!(text.text().as_ptr(), pointer);
+    native(&mut app, event);
+    let allocations = crate::test_support::tracked_allocations(|| {
+        native(&mut app, session.preedit("ni", Some(2..2)));
+        native(&mut app, session.preedit("", Some(0..0)));
+        assert!(
+            service(&app.world)
+                .unwrap()
+                .state
+                .borrow()
+                .active
+                .as_ref()
+                .unwrap()
+                .composition
+                .is_some()
+        );
+        native(&mut app, session.commit("你"));
+        assert_eq!(native_state(&mut app.world, 0).unwrap().session, session);
+    });
+    assert_eq!(allocations, 0);
+    app.world
+        .get::<TextEditing>(editor)
+        .unwrap()
+        .read_display(|text| assert_eq!(text, "A中🙂你"));
+    let state = service(&app.world).unwrap();
+    let state = state.state.borrow();
+    assert!(state.active.as_ref().unwrap().composition.is_none());
+    assert_eq!(state.pending.capacity(), 0);
+}
+
+#[test]
+fn native_sessions_reject_retired_targets_foreign_apps_and_software_tokens() {
+    let (mut app, editor, _, provider) = fixture();
+    let software = provider.session().unwrap();
+    app.with_input_method(InputMethod::native());
+    let first = native_state(&mut app.world, 0).unwrap().session;
+    native(&mut app, software.commit("old"));
+    app.world.resource_mut::<FocusState>().unwrap().focused = None;
+    assert!(native_state(&mut app.world, 0).is_none());
+    app.world.resource_mut::<FocusState>().unwrap().focused = Some(editor);
+    let next = native_state(&mut app.world, 0).unwrap().session;
+    assert_ne!(first, next);
+    native(&mut app, first.commit("old"));
+    let (mut other, _, _, _) = fixture();
+    other.with_input_method(InputMethod::native());
+    let foreign = native_state(&mut other.world, 0).unwrap().session;
+    native(&mut app, foreign.commit("foreign"));
+    native(&mut app, next.preedit("ni", Some(2..2)));
+    native(&mut app, next.cancel());
+    app.world
+        .get::<TextEditing>(editor)
+        .unwrap()
+        .read_display(|text| assert_eq!(text, ""));
+    native(&mut app, next.commit("OK"));
+    app.world
+        .get::<TextEditing>(editor)
+        .unwrap()
+        .read_display(|text| assert_eq!(text, "OK"));
+}
+
+#[test]
+fn native_service_is_lazy_and_native_mode_does_not_notify_the_software_provider() {
+    let mut empty = App::headless(200, 100);
+    assert!(native_state(&mut empty.world, 0).is_none());
+    assert!(service(&empty.world).is_none());
+    let (mut app, _, _, provider) = fixture();
+    run(&mut app, Request::Mode(TextInputMode::Native));
+    assert_eq!(provider.session(), None);
+    let state = native_state(&mut app.world, 0).unwrap();
+    native(&mut app, state.session.commit("OK"));
+    assert_eq!(provider.session(), None);
+    run(&mut app, Request::Mode(TextInputMode::Software));
+    let software = provider.session().unwrap();
+    assert!(native_state(&mut app.world, 0).is_none());
+    native(&mut app, software.commit("wrong producer"));
+    assert_eq!(provider.session(), Some(software));
 }
 
 #[test]
@@ -177,7 +277,9 @@ fn oversized_preview_clears_display_but_later_valid_updates_recover() {
 fn rejected_commit_still_ends_composition_and_modes_do_not_reuse_tokens() {
     #[crate::compose]
     fn reject() -> Entity {
-        ui! { TextInput() on TextCommitted(|_| true) }
+        ui! {
+            TextInput () on TextCommitted(|_| true)
+        }
     }
     let (mut app, _, _, provider) = fixture();
     let root = app.spawn_root().id();
@@ -260,14 +362,10 @@ fn composition_facts_use_all_callback_forms() {
     #[crate::compose]
     fn observed(started: Rc<Cell<usize>>, ended: Rc<Cell<usize>>) -> Entity {
         ui! {
-            TextInput()
-                on CompositionStarted { started.set(started.get() + 1); }
-                on CompositionUpdated(updated::callback())
-                on CompositionEnded(move |event: &CompositionEnded| {
-                    assert_eq!(event.reason, CompositionEndReason::Committed);
-                    ended.set(ended.get() + 1);
-                })
-                on TextEditing::Changed(document_changed::callback())
+            TextInput () on CompositionStarted { started.set(started.get() + 1); } on CompositionUpdated(updated::callback()) on CompositionEnded(move |event: &CompositionEnded| {
+                assert_eq!(event.reason, CompositionEndReason::Committed);
+                ended.set(ended.get() + 1);
+            }) on TextEditing::Changed(document_changed::callback())
         }
     }
     let (mut app, _, _, provider) = fixture();
@@ -308,7 +406,11 @@ fn move_selection(
 fn a_commit_listener_cannot_redirect_a_frozen_composition_to_another_selection() {
     #[crate::compose]
     fn observed() -> Entity {
-        ui! { TextInput() [TextEditing::default().with_text("AB").unwrap()] on TextCommitted(move_selection::callback()) }
+        ui! {
+            TextInput () [
+                TextEditing::default().with_text("AB").unwrap(),
+            ] on TextCommitted(move_selection::callback())
+        }
     }
     let (mut app, _, _, provider) = fixture();
     let root = app.spawn_root().id();

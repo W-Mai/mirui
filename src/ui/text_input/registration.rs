@@ -130,25 +130,8 @@ fn install<C: InputMethodCallbacks>(
     if software && (capacity == 0 || limits.flush_limit.unwrap_or(0) == 0) {
         return Err(InputMethodError::MissingDeliveryCapacity);
     }
-    let Some(service) = existing.or_else(|| {
-        software.then(|| {
-            Rc::new(Service {
-                state: RefCell::new(State {
-                    mode: TextInputMode::Native,
-                    generation: 0,
-                    active: None,
-                    changed: None,
-                    key: None,
-                    published: None,
-                    pending: VecDeque::new(),
-                    capacity: 0,
-                    unavailable: 0,
-                    committing: None,
-                }),
-                delivering: Cell::new(false),
-            })
-        })
-    }) else {
+    let Some(service) = existing.or_else(|| software.then(|| Rc::new(Service::new(unavailable))))
+    else {
         return Ok(());
     };
     if software {

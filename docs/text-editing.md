@@ -173,3 +173,11 @@ Select the editor, then use the keyboard buttons. Preedit replaces the selected 
 Requests are delivered after callback borrows are released. The default event preset includes text-input commands; explicit configurations use `CommandCapacity::text_input(count)` and a nonzero flush limit. The software request queue is prepared from the configured command record count. Invalid sessions are discarded; capacity exhaustion logs a warning and drops the new request without replay or rollback.
 
 See [Widget input and notifications](https://github.com/W-Mai/mirui/blob/main/docs/widget-events.md) for notification ordering. Gallery's [Editor Lab](https://github.com/W-Mai/mirui/tree/main/src/gallery/demos/editor_lab) includes search filtering, command submission, shared-document editing, and a software keyboard with a static n → ni → 你 sequence.
+
+## Native input backends
+
+App calls `Surface::set_text_input(Option<TextInputState>)` before polling input and after layout and rendering. `Some` selects a native editor session and its logical surface-space caret rectangle; `None` stops native text input. Moving the caret does not replace the session. Surfaces without a text-input service can use the default no-op implementation.
+
+A backend captures `state.session` with its native input and returns `session.preedit(text, selection)`, `session.commit(text)`, or `session.cancel()` from `poll_event`. Preedit selections use UTF-8 byte offsets. These constructors move owned strings or borrow static strings; dispatch borrows the payload. Retired sessions are discarded rather than reassigned to the currently focused editor.
+
+SDL software and GPU surfaces share this protocol. Session changes clear platform composition and queued text events before restarting the native input method. Caret-only updates do not restart it. Empty previews remain part of the composition until a queued commit arrives or the SDL queue becomes idle. SDL does not attach an editor identity to later OS callbacks; the adapter relies on platform cancellation for input not yet captured. The SDL binding exposes fixed-size native text events, not extended preedit events.

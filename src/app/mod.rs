@@ -1156,6 +1156,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 p.post_render(&mut self.world, render_ns);
             }
         }
+        self.sync_text_input();
         Ok(())
     }
 
@@ -1210,7 +1211,14 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// Poll one event
     pub fn poll_event(&mut self) -> Option<InputEvent> {
+        self.sync_text_input();
         self.backend.poll_event()
+    }
+
+    fn sync_text_input(&mut self) {
+        let unavailable = self.text_input_unavailable();
+        let state = crate::ui::text_input::native_state(&mut self.world, unavailable);
+        self.backend.set_text_input(state);
     }
 
     /// Systems + render + poll until quit. Persistent backends take the
@@ -1616,6 +1624,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 }
             }
             self.dirty_plan = plan;
+            self.sync_text_input();
             return Ok(());
         }
 
@@ -1648,6 +1657,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             }
         }
         self.dirty_plan = plan;
+        self.sync_text_input();
         Ok(())
     }
 
@@ -2959,6 +2969,7 @@ mod queued_surface {
     pub(super) struct QueuedSurface {
         framebuffer: FramebufSurface<FlushFn>,
         pub(super) events: VecDeque<InputEvent>,
+        pub(super) text_input: Option<crate::ui::text_input::TextInputState>,
     }
 
     impl QueuedSurface {
@@ -2967,6 +2978,7 @@ mod queued_surface {
             Self {
                 framebuffer: FramebufSurface::with_scale(physical_w, physical_h, scale, flush),
                 events: VecDeque::new(),
+                text_input: None,
             }
         }
     }
@@ -2989,12 +3001,53 @@ mod queued_surface {
         fn poll_event(&mut self) -> Option<InputEvent> {
             self.events.pop_front()
         }
+
+        fn set_text_input(&mut self, state: Option<crate::ui::text_input::TextInputState>) {
+            self.text_input = state;
+        }
     }
 
     impl FramebufferAccess for QueuedSurface {
         fn framebuffer(&mut self) -> Texture<'_> {
             self.framebuffer.framebuffer()
         }
+    }
+
+    #[test]
+    fn native_editor_context_is_updated_before_poll_and_after_layout() {
+        use crate::input::event::focus::FocusState;
+        use crate::ui::widgets::TextInput;
+        #[crate::compose]
+        fn panel() -> Entity {
+            crate::ui! {
+                TextInput (width: 160, height: 36)
+            }
+        }
+        let mut app = App::new(QueuedSurface::new(400, 200, Fixed::from_int(2)));
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        let editor = app.compose(root, panel());
+        app.render().unwrap();
+        assert!(app.backend.text_input.is_none());
+        app.world.resource_mut::<FocusState>().unwrap().focused = Some(editor);
+        assert!(app.poll_event().is_none());
+        let first = app.backend.text_input.unwrap();
+        assert!(first.caret.is_some());
+        crate::input::event::deliver_input(
+            &mut app.world,
+            Some(root),
+            &first.session.commit("abc"),
+            0,
+            200,
+            100,
+        );
+        app.render_dirty().unwrap();
+        let next = app.backend.text_input.unwrap();
+        assert_eq!(first.session, next.session);
+        assert!(next.caret.unwrap().x > first.caret.unwrap().x);
+        app.world.resource_mut::<FocusState>().unwrap().focused = None;
+        app.poll_event();
+        assert!(app.backend.text_input.is_none());
     }
 }
 

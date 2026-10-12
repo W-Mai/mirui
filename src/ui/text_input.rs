@@ -40,6 +40,44 @@ pub struct TextInputSession {
     generation: u64,
 }
 
+impl TextInputSession {
+    /// Capture a native preview with a selection expressed in UTF-8 byte offsets.
+    pub fn preedit(
+        self,
+        text: impl Into<Cow<'static, str>>,
+        selection: Option<Range<usize>>,
+    ) -> crate::surface::InputEvent {
+        TextInputEvent(Request::Preedit(
+            self,
+            CompositionUpdated {
+                text: text.into(),
+                selection,
+            },
+        ))
+        .into()
+    }
+
+    /// Capture a native text commit without copying an owned string.
+    pub fn commit(self, text: impl Into<Cow<'static, str>>) -> crate::surface::InputEvent {
+        TextInputEvent(Request::Commit(self, TextCommitted::new(text))).into()
+    }
+
+    /// Capture cancellation of this session's composition.
+    pub fn cancel(self) -> crate::surface::InputEvent {
+        TextInputEvent(Request::Cancel(self)).into()
+    }
+}
+
+/// Native text captured for a specific App-issued session.
+#[derive(Clone, Debug)]
+pub struct TextInputEvent(Request);
+
+impl From<TextInputEvent> for crate::surface::InputEvent {
+    fn from(event: TextInputEvent) -> Self {
+        Self::TextInput(event)
+    }
+}
+
 /// Current editor session and its surface-space caret, when layout is available.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TextInputState {
@@ -63,6 +101,7 @@ impl Event for TextInputChanged {
 pub struct CompositionStarted;
 
 /// A replacement preview. The document has not been edited.
+#[derive(Clone, Debug)]
 pub struct CompositionUpdated {
     text: Cow<'static, str>,
     selection: Option<Range<usize>>,
@@ -97,6 +136,7 @@ macro_rules! notices {
 }
 notices!(CompositionStarted, CompositionUpdated, CompositionEnded);
 
+#[derive(Clone, Debug)]
 enum Request {
     Preedit(TextInputSession, CompositionUpdated),
     Commit(TextInputSession, TextCommitted),
@@ -173,6 +213,25 @@ struct State {
 struct Service {
     state: RefCell<State>,
     delivering: Cell<bool>,
+}
+impl Service {
+    fn new(unavailable: u8) -> Self {
+        Self {
+            state: RefCell::new(State {
+                mode: TextInputMode::Native,
+                generation: 0,
+                active: None,
+                changed: None,
+                key: None,
+                published: None,
+                pending: VecDeque::new(),
+                capacity: 0,
+                unavailable,
+                committing: None,
+            }),
+            delivering: Cell::new(false),
+        }
+    }
 }
 fn service(world: &World) -> Option<Rc<Service>> {
     world.resource::<Rc<Service>>().cloned()
@@ -278,7 +337,6 @@ fn reconcile(world: &mut World, service: &Service) {
     }
     let mut state = service.state.borrow_mut();
     if state.active.is_none()
-        && state.mode == TextInputMode::Software
         && state.unavailable == 0
         && let Some(entity) = focused(world)
         && let Some(identity) = EditorIdentity::capture(world, entity)
@@ -303,7 +361,9 @@ fn reconcile(world: &mut World, service: &Service) {
         active.state.caret =
             super::widgets::text_editing::geometry::caret_rect(world, active.entity);
     }
-    let next = state.active.as_ref().map(|active| active.state);
+    let next = (state.mode == TextInputMode::Software)
+        .then(|| state.active.as_ref().map(|active| active.state))
+        .flatten();
     let changed = (state.published != Some(next))
         .then(|| state.changed.clone())
         .flatten();
@@ -316,18 +376,18 @@ fn reconcile(world: &mut World, service: &Service) {
     }
 }
 
-fn deliver(world: &mut World, service: &Service, request: Request) {
+fn deliver(world: &mut World, service: &Service, request: &Request) {
     observe(world);
     if let Request::Mode(mode) = request {
         let mut state = service.state.borrow_mut();
-        if state.mode == mode {
+        if state.mode == *mode {
             return;
         }
-        if mode == TextInputMode::Software && state.changed.is_none() {
+        if *mode == TextInputMode::Software && state.changed.is_none() {
             crate::warn!(target: "mirui::input", "no software input method installed");
             return;
         }
-        state.mode = mode;
+        state.mode = *mode;
         let retired = state.active.take();
         drop(state);
         if let Some(mut active) = retired {
@@ -354,6 +414,9 @@ fn deliver(world: &mut World, service: &Service, request: Request) {
     drop(state);
     match request {
         Request::Preedit(_, update) => {
+            if update.text.is_empty() && active.composition.is_none() {
+                return;
+            }
             let valid = update.selection.as_ref().is_none_or(|range| {
                 range.start <= range.end
                     && update.text.is_char_boundary(range.start)
@@ -383,7 +446,7 @@ fn deliver(world: &mut World, service: &Service, request: Request) {
                         .as_ref()
                         .is_some_and(|target| target.after_edit(world, false).is_some())
                 {
-                    notice(world, active.entity, &update);
+                    notice(world, active.entity, update);
                 }
             } else {
                 crate::warn!(target: "mirui::input", "invalid preedit UTF-8 selection");
@@ -398,7 +461,7 @@ fn deliver(world: &mut World, service: &Service, request: Request) {
                 state.active.as_mut().unwrap().composition = None;
                 state.committing = composition.map(|target| (active.entity, target));
             }
-            if let Err(error) = runtime::keyboard_from(world, active.entity, &text) {
+            if let Err(error) = runtime::keyboard_from(world, active.entity, text) {
                 crate::warn!(target: "mirui::input", "text commit skipped: {:?}", error);
             }
             service.state.borrow_mut().committing = None;
@@ -417,7 +480,7 @@ fn deliver(world: &mut World, service: &Service, request: Request) {
         }
         Request::Cancel(_) => end(world, &mut active, CompositionEndReason::Cancelled),
         Request::Key(_, key) => {
-            if let Err(error) = runtime::keyboard_from(world, active.entity, &key) {
+            if let Err(error) = runtime::keyboard_from(world, active.entity, key) {
                 crate::warn!(target: "mirui::input", "editing key skipped: {:?}", error);
             }
         }
@@ -461,7 +524,11 @@ pub(crate) fn flush(world: &mut World) {
             }
             return;
         };
-        deliver(world, &service, request);
+        if matches!(request, Request::Mode(_))
+            || service.state.borrow().mode == TextInputMode::Software
+        {
+            deliver(world, &service, &request);
+        }
         if let Err(error) = runtime::flush(world, super::lifecycle::prepare) {
             crate::warn!(target: "mirui::input", "editing notifications skipped: {:?}", error);
         }
@@ -494,6 +561,31 @@ pub(crate) fn intercept_key(world: &mut World, key: &Key) -> bool {
 
 pub(crate) fn software_selected(world: &World) -> bool {
     service(world).is_some_and(|service| service.state.borrow().mode == TextInputMode::Software)
+}
+
+pub(crate) fn native_state(world: &mut World, unavailable: u8) -> Option<TextInputState> {
+    super::lifecycle::prepare(world);
+    if service(world).is_none() {
+        let entity = focused(world)?;
+        EditorIdentity::capture(world, entity)?;
+        world.insert_resource(Rc::new(Service::new(unavailable)));
+    }
+    flush(world);
+    let service = service(world)?;
+    let state = service.state.borrow();
+    (state.mode == TextInputMode::Native)
+        .then(|| state.active.as_ref().map(|active| active.state))
+        .flatten()
+}
+
+pub(crate) fn deliver_native(world: &mut World, event: &TextInputEvent) {
+    let Some(service) = service(world) else {
+        return;
+    };
+    if service.state.borrow().mode != TextInputMode::Native {
+        return;
+    }
+    deliver(world, &service, &event.0);
 }
 
 pub(crate) fn accepts_commit(world: &World, entity: Entity) -> bool {

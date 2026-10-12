@@ -54,6 +54,7 @@ pub struct SdlSurface {
     canvas: Canvas<Window>,
     pending_present: bool,
     _event_pump: EventPump,
+    text_input: super::sdl_events::NativeTextInput,
     buf: Vec<u8>,
     width: u16,
     height: u16,
@@ -92,6 +93,10 @@ impl SdlSurface {
         let texture_creator: &'static TextureCreator<WindowContext> =
             Box::leak(Box::new(canvas.texture_creator()));
         let event_pump = sdl.event_pump().expect("SDL2 event pump failed");
+        let text_input = super::sdl_events::NativeTextInput::new(
+            &video,
+            sdl.event().expect("SDL2 event subsystem failed"),
+        );
 
         let (draw_w, _) = canvas.output_size().unwrap();
         let scale_int = (draw_w as u16) / width;
@@ -113,6 +118,7 @@ impl SdlSurface {
             canvas,
             pending_present: false,
             _event_pump: event_pump,
+            text_input,
             buf,
             width: phys_w,
             height: phys_h,
@@ -289,6 +295,10 @@ impl Surface for SdlSurface {
         self.pending_present = false;
     }
 
+    fn set_text_input(&mut self, state: Option<crate::ui::text_input::TextInputState>) {
+        self.text_input.set(state);
+    }
+
     fn poll_event(&mut self) -> Option<InputEvent> {
         if let Some(e) = self.pending.pop_front() {
             return Some(e);
@@ -362,7 +372,17 @@ impl Surface for SdlSurface {
                     self.handle_multi_gesture(cx, cy, d_theta, d_dist, win_w, win_h);
                 }
                 Event::TextInput { text, .. } => {
-                    if let Some(input) = super::sdl_events::text_input(text) {
+                    if let Some(input) = self.text_input.commit(text) {
+                        self.pending.push_back(input);
+                    }
+                }
+                Event::TextEditing {
+                    text,
+                    start,
+                    length,
+                    ..
+                } => {
+                    if let Some(input) = self.text_input.preedit(text, start, length) {
                         self.pending.push_back(input);
                     }
                 }
@@ -375,8 +395,11 @@ impl Surface for SdlSurface {
                 }
                 _ => {}
             }
+            if let Some(input) = self.pending.pop_front() {
+                return Some(input);
+            }
         }
-        self.pending.pop_front()
+        self.text_input.idle()
     }
 }
 

@@ -83,6 +83,7 @@ pub struct SdlGpuSurface {
     canvas: SdlCanvas<Window>,
     label_cache: LabelCache,
     _event_pump: EventPump,
+    text_input: crate::surface::sdl_events::NativeTextInput,
     tessellator: TessellationCache,
     width: u16,
     height: u16,
@@ -131,6 +132,10 @@ impl SdlGpuSurface {
         let canvas = canvas_builder.build().expect("SDL2 canvas failed");
         let texture_creator = canvas.texture_creator();
         let event_pump = sdl.event_pump().expect("SDL2 event pump failed");
+        let text_input = crate::surface::sdl_events::NativeTextInput::new(
+            &video,
+            sdl.event().expect("SDL2 event subsystem failed"),
+        );
 
         let (draw_w, _) = canvas.output_size().unwrap();
         let scale_int = (draw_w as u16) / width;
@@ -144,6 +149,7 @@ impl SdlGpuSurface {
             canvas,
             label_cache: LabelCache::new(texture_creator),
             _event_pump: event_pump,
+            text_input,
             tessellator: TessellationCache::new(),
             width: phys_w,
             height: phys_h,
@@ -286,6 +292,10 @@ impl Surface for SdlGpuSurface {
         self.canvas.present();
     }
 
+    fn set_text_input(&mut self, state: Option<crate::ui::text_input::TextInputState>) {
+        self.text_input.set(state);
+    }
+
     fn poll_event(&mut self) -> Option<InputEvent> {
         if let Some(e) = self.pending.pop_front() {
             return Some(e);
@@ -359,7 +369,17 @@ impl Surface for SdlGpuSurface {
                     self.handle_multi_gesture(cx, cy, d_theta, d_dist, win_w, win_h);
                 }
                 Event::TextInput { text, .. } => {
-                    if let Some(input) = crate::surface::sdl_events::text_input(text) {
+                    if let Some(input) = self.text_input.commit(text) {
+                        self.pending.push_back(input);
+                    }
+                }
+                Event::TextEditing {
+                    text,
+                    start,
+                    length,
+                    ..
+                } => {
+                    if let Some(input) = self.text_input.preedit(text, start, length) {
                         self.pending.push_back(input);
                     }
                 }
@@ -372,8 +392,11 @@ impl Surface for SdlGpuSurface {
                 }
                 _ => {}
             }
+            if let Some(input) = self.pending.pop_front() {
+                return Some(input);
+            }
         }
-        self.pending.pop_front()
+        self.text_input.idle()
     }
 
     fn persistence(&self) -> crate::surface::BackbufferPersistence {
