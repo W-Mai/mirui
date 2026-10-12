@@ -31,6 +31,13 @@ pub(crate) mod sdl_events;
 pub mod sdl_gpu;
 #[cfg(feature = "std")]
 pub mod slow;
+#[cfg(any(
+    test,
+    feature = "sdl",
+    feature = "sdl-gpu",
+    all(feature = "web-canvas", target_arch = "wasm32")
+))]
+mod text_input_range;
 #[cfg(all(feature = "web-canvas", target_arch = "wasm32"))]
 pub mod web_canvas;
 #[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]

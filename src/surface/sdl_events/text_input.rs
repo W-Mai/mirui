@@ -80,23 +80,7 @@ impl NativeTextInput {
 fn selection(text: &str, start: i32, length: i32, utf16: bool) -> Option<Range<usize>> {
     let start = usize::try_from(start).ok()?;
     let end = start.checked_add(usize::try_from(length).ok()?)?;
-    let mut units = 0;
-    let mut first = None;
-    for (byte, character) in text.char_indices() {
-        if units == start {
-            first = Some(byte);
-        }
-        if units == end {
-            return Some(first?..byte);
-        }
-        units += if utf16 { character.len_utf16() } else { 1 };
-    }
-    if units == start {
-        first = Some(text.len());
-    }
-    (units == end)
-        .then(|| first.map(|first| first..text.len()))
-        .flatten()
+    crate::surface::text_input_range::utf8_selection(text, start..end, utf16)
 }
 
 #[cfg(test)]

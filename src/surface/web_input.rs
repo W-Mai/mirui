@@ -1,9 +1,26 @@
 use crate::input::event::input::{
     InputEvent, KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_ESCAPE, KEY_HOME, KEY_LEFT, KEY_RETURN,
-    KEY_RIGHT, KeyModifiers, PointerKind, TextCommitted, WHEEL_LINE_PIXELS,
+    KEY_RIGHT, KeyModifiers, PointerKind, WHEEL_LINE_PIXELS,
 };
 use crate::types::Fixed;
 use alloc::string::String;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TextInputAction {
+    Preview,
+    Commit,
+    Ignore,
+}
+
+pub(super) fn text_input_action(composing: bool, input_type: &str) -> TextInputAction {
+    if composing {
+        TextInputAction::Preview
+    } else if matches!(input_type, "insertText" | "insertFromPaste") {
+        TextInputAction::Commit
+    } else {
+        TextInputAction::Ignore
+    }
+}
 
 pub(super) fn keyboard_input(
     key: String,
@@ -26,18 +43,12 @@ pub(super) fn keyboard_input(
         "Escape" => Some(KEY_ESCAPE),
         _ => None,
     };
-    if let Some(code) = code {
-        Some(InputEvent::Key {
-            code,
-            pressed,
-            modifiers: Some(modifiers),
-            repeat: Some(repeat),
-        })
-    } else if pressed && key.chars().count() == 1 {
-        Some(TextCommitted::new(key).into())
-    } else {
-        None
-    }
+    code.map(|code| InputEvent::Key {
+        code,
+        pressed,
+        modifiers: Some(modifiers),
+        repeat: Some(repeat),
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -157,6 +168,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn only_ordinary_dom_insertions_commit_outside_composition() {
+        for kind in ["insertText", "insertFromPaste"] {
+            assert_eq!(text_input_action(false, kind), TextInputAction::Commit);
+            assert_eq!(text_input_action(true, kind), TextInputAction::Preview);
+        }
+        for kind in [
+            "insertCompositionText",
+            "insertFromComposition",
+            "deleteCompositionText",
+        ] {
+            assert_eq!(text_input_action(true, kind), TextInputAction::Preview);
+            assert_eq!(text_input_action(false, kind), TextInputAction::Ignore);
+        }
+        for kind in [
+            "historyUndo",
+            "deleteContentBackward",
+            "insertReplacementText",
+            "unknown",
+        ] {
+            assert_eq!(text_input_action(false, kind), TextInputAction::Ignore);
+        }
+    }
+
+    #[test]
     fn composing_keys_do_not_escape_into_editing_or_shortcuts() {
         for key in [
             "Enter",
@@ -181,7 +216,7 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_keys_keep_metadata_and_move_text_without_copying() {
+    fn editing_keys_keep_metadata_and_characters_belong_to_dom_input() {
         let modifiers = KeyModifiers {
             shift: true,
             ..Default::default()
@@ -193,20 +228,10 @@ mod tests {
                 if actual == pressed && actual_modifiers == modifiers)
             );
         }
-        let key = String::from("中");
-        let pointer = key.as_ptr();
-        let allocations = crate::test_support::tracked_allocations(|| {
-            let Some(InputEvent::TextCommitted(text)) =
-                keyboard_input(key, true, modifiers, false, false)
-            else {
-                panic!("text input")
-            };
-            assert_eq!(text.text(), "中");
-            assert_eq!(text.text().as_ptr(), pointer);
-        });
-        assert_eq!(allocations, 0);
-        for key in ["中", "Dead", "Process", "Unidentified"] {
-            assert!(keyboard_input(key.into(), false, modifiers, false, false).is_none());
+        for key in ["a", "中", "Dead", "Process", "Unidentified"] {
+            for pressed in [false, true] {
+                assert!(keyboard_input(key.into(), pressed, modifiers, false, false).is_none());
+            }
         }
     }
 

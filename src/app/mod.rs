@@ -1775,7 +1775,8 @@ impl<B: Surface, F: RendererFactory<B>> Runner<B, F> {
         use wasm_bindgen::JsCast;
         use wasm_bindgen::closure::Closure;
 
-        let holder: Rc<RefCell<Option<Closure<dyn FnMut()>>>> = Rc::new(RefCell::new(None));
+        type FrameCallback = Closure<dyn FnMut()>;
+        let holder: Rc<RefCell<Option<FrameCallback>>> = Rc::new(RefCell::new(None));
         let holder_inner = holder.clone();
         let mut input = Some(web_runner::InputBoundary::new(&app));
 

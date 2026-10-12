@@ -23,6 +23,9 @@ use crate::core::cache::InspectCaches;
 use crate::render::texture::ColorFormat;
 use crate::types::Fixed;
 
+mod text_input;
+use text_input::{DomFocus, NativeTextInput};
+
 type EventQueue = Rc<RefCell<VecDeque<InputEvent>>>;
 type LogicalSize = Rc<Cell<Option<(u16, u16)>>>;
 
@@ -31,6 +34,15 @@ struct Listener {
     target: EventTarget,
     event: String,
     closure: Closure<dyn FnMut(JsValue)>,
+}
+
+impl Drop for Listener {
+    fn drop(&mut self) {
+        let _ = self.target.remove_event_listener_with_callback(
+            &self.event,
+            self.closure.as_ref().unchecked_ref(),
+        );
+    }
 }
 
 /// The backing store tracks the logical viewport, device scale, and optional
@@ -42,6 +54,7 @@ pub struct WebCanvasSurface {
     event_queue: EventQueue,
     logical_size: LogicalSize,
     _listeners: Vec<Listener>,
+    text_input: NativeTextInput,
 }
 
 impl WebCanvasSurface {
@@ -58,7 +71,8 @@ impl WebCanvasSurface {
             .expect("getContext('2d') returned a non-2d context");
 
         let event_queue: EventQueue = Rc::new(RefCell::new(VecDeque::new()));
-        let listeners = attach_listeners(&canvas, &event_queue, &logical_size);
+        let text_input = NativeTextInput::new(&canvas, &event_queue, &logical_size);
+        let listeners = attach_listeners(&canvas, &event_queue, &logical_size, &text_input.focus);
 
         Self {
             canvas,
@@ -67,6 +81,7 @@ impl WebCanvasSurface {
             event_queue,
             logical_size,
             _listeners: listeners,
+            text_input,
         }
     }
 
@@ -81,18 +96,6 @@ impl WebCanvasSurface {
 
     pub fn set_logical_size(&self, size: Option<(u16, u16)>) {
         self.logical_size.set(size);
-    }
-}
-
-impl Drop for WebCanvasSurface {
-    fn drop(&mut self) {
-        // Otherwise the browser keeps invoking the dropped closure.
-        for listener in self._listeners.drain(..) {
-            let _ = listener.target.remove_event_listener_with_callback(
-                &listener.event,
-                listener.closure.as_ref().unchecked_ref(),
-            );
-        }
     }
 }
 
@@ -116,6 +119,10 @@ impl Surface for WebCanvasSurface {
 
     fn poll_event(&mut self) -> Option<InputEvent> {
         self.event_queue.borrow_mut().pop_front()
+    }
+
+    fn set_text_input(&mut self, state: Option<crate::ui::text_input::TextInputState>) {
+        self.text_input.set(state);
     }
 
     fn persistence(&self) -> BackbufferPersistence {
@@ -165,6 +172,7 @@ fn attach_listeners(
     canvas: &HtmlCanvasElement,
     queue: &EventQueue,
     logical_size: &LogicalSize,
+    focus: &Rc<DomFocus>,
 ) -> Vec<Listener> {
     use super::web_input::{PointerPhase, WebPointers};
     let pointers = Rc::new(RefCell::new(WebPointers::new()));
@@ -174,78 +182,109 @@ fn attach_listeners(
         queue,
         logical_size,
         &pointers,
+        focus,
         "pointerdown",
         PointerPhase::Down,
-        |kind, id, x, y| InputEvent::PointerDown { kind, id, x, y },
     ));
     listeners.push(pointer_listener(
         canvas,
         queue,
         logical_size,
         &pointers,
+        focus,
         "pointermove",
         PointerPhase::Move,
-        |kind, id, x, y| InputEvent::PointerMove { kind, id, x, y },
     ));
     listeners.push(pointer_listener(
         canvas,
         queue,
         logical_size,
         &pointers,
+        focus,
         "pointerup",
         PointerPhase::Up,
-        |kind, id, x, y| InputEvent::PointerUp { kind, id, x, y },
     ));
     listeners.push(pointer_listener(
         canvas,
         queue,
         logical_size,
         &pointers,
+        focus,
         "pointercancel",
         PointerPhase::Cancel,
-        |kind, id, x, y| InputEvent::PointerCancel { kind, id, x, y },
     ));
     listeners.push(pointer_listener(
         canvas,
         queue,
         logical_size,
         &pointers,
+        focus,
         "lostpointercapture",
         PointerPhase::Cancel,
-        |kind, id, x, y| InputEvent::PointerCancel { kind, id, x, y },
     ));
     listeners.push(pointer_listener(
         canvas,
         queue,
         logical_size,
         &pointers,
+        focus,
         "pointerenter",
         PointerPhase::Enter,
-        |kind, id, _, _| InputEvent::PointerEnter { kind, id },
     ));
     listeners.push(pointer_listener(
         canvas,
         queue,
         logical_size,
         &pointers,
+        focus,
         "pointerleave",
         PointerPhase::Leave,
-        |kind, id, _, _| InputEvent::PointerLeave { kind, id },
     ));
     listeners.push(wheel_listener(canvas, queue, logical_size));
-    listeners.push(keyboard_listener(canvas, queue, "keydown", true));
-    listeners.push(keyboard_listener(canvas, queue, "keyup", false));
+    listeners.push(keyboard_listener(
+        canvas.clone().into(),
+        queue,
+        "keydown",
+        true,
+        None,
+    ));
+    listeners.push(keyboard_listener(
+        canvas.clone().into(),
+        queue,
+        "keyup",
+        false,
+        None,
+    ));
     let window = web_sys::window().expect("no global window");
     let document = canvas.owner_document().expect("canvas document");
-    let targets: [EventTarget; 2] = [canvas.clone().into(), window.into()];
-    for target in targets {
-        for name in ["focus", "blur"] {
-            let canvas = canvas.clone();
+    let targets: [(EventTarget, [&str; 2]); 2] = [
+        (document.clone().into(), ["focusin", "focusout"]),
+        (window.into(), ["focus", "blur"]),
+    ];
+    for (target, names) in targets {
+        for name in names {
+            let focus = focus.clone();
             let document = document.clone();
             let queue = queue.clone();
             let pointers = pointers.clone();
-            let closure = Closure::<dyn FnMut(JsValue)>::new(move |_| {
-                enqueue_host_focus(&canvas, &document, &queue, &pointers);
+            let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
+                if focus.transferring.get() {
+                    return;
+                }
+                let related = raw
+                    .dyn_ref::<web_sys::FocusEvent>()
+                    .and_then(web_sys::FocusEvent::related_target)
+                    .and_then(|target| target.dyn_into::<web_sys::Element>().ok());
+                let focused = if name == "blur" {
+                    false
+                } else if name == "focusout" {
+                    related
+                        .as_ref()
+                        .is_some_and(|target| focus.contains(target))
+                } else {
+                    focus.focused(&document)
+                };
+                enqueue_host_focus(focused, &queue, &pointers);
             });
             listeners.push(register_listener(target.clone(), name, closure));
         }
@@ -267,7 +306,7 @@ fn attach_listeners(
                 });
         }),
     ));
-    enqueue_host_focus(canvas, &document, queue, &pointers);
+    enqueue_host_focus(focus.focused(&document), queue, &pointers);
     queue.borrow_mut().push_back(InputEvent::HostVisibility {
         visible: !document.hidden(),
     });
@@ -275,23 +314,16 @@ fn attach_listeners(
 }
 
 fn enqueue_host_focus(
-    canvas: &HtmlCanvasElement,
-    document: &web_sys::Document,
+    focused: bool,
     queue: &EventQueue,
     pointers: &Rc<RefCell<super::web_input::WebPointers>>,
 ) {
-    if let Ok(focused) = document.has_focus() {
-        let focused = focused
-            && document
-                .active_element()
-                .is_some_and(|element| &element == canvas.unchecked_ref::<web_sys::Element>());
-        if !focused {
-            pointers.borrow_mut().clear();
-        }
-        queue
-            .borrow_mut()
-            .push_back(InputEvent::HostFocus { focused });
+    if !focused {
+        pointers.borrow_mut().clear();
     }
+    queue
+        .borrow_mut()
+        .push_back(InputEvent::HostFocus { focused });
 }
 
 fn pointer_listener(
@@ -299,9 +331,9 @@ fn pointer_listener(
     queue: &EventQueue,
     logical_size: &LogicalSize,
     pointers: &Rc<RefCell<super::web_input::WebPointers>>,
+    focus: &Rc<DomFocus>,
     name: &str,
     phase: super::web_input::PointerPhase,
-    map: fn(PointerKind, u8, Fixed, Fixed) -> InputEvent,
 ) -> Listener {
     let q = queue.clone();
     let pointers = pointers.clone();
@@ -311,11 +343,17 @@ fn pointer_listener(
     let canvas_for_capture = canvas.clone();
     let canvas_for_rect = canvas.clone();
     let logical_size = logical_size.clone();
+    let focus = focus.clone();
     let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
         let evt: PointerEvent = raw.unchecked_into();
         evt.prevent_default();
         if capture_on_down {
-            let _ = canvas_for_capture.focus();
+            let document = canvas_for_capture
+                .owner_document()
+                .expect("canvas document");
+            if !focus.focused(&document) {
+                let _ = canvas_for_capture.focus();
+            }
             let _ = canvas_for_capture.set_pointer_capture(evt.pointer_id());
         }
         let kind = types.classify(&evt);
@@ -338,7 +376,15 @@ fn pointer_listener(
             logical_size.get(),
         );
         let mut queue = q.borrow_mut();
-        queue.push_back(map(kind, id, x, y));
+        use super::web_input::PointerPhase;
+        queue.push_back(match phase {
+            PointerPhase::Down => InputEvent::PointerDown { kind, id, x, y },
+            PointerPhase::Move => InputEvent::PointerMove { kind, id, x, y },
+            PointerPhase::Up => InputEvent::PointerUp { kind, id, x, y },
+            PointerPhase::Cancel => InputEvent::PointerCancel { kind, id, x, y },
+            PointerPhase::Enter => InputEvent::PointerEnter { kind, id },
+            PointerPhase::Leave => InputEvent::PointerLeave { kind, id },
+        });
         if matches!(phase, super::web_input::PointerPhase::Enter) {
             queue.push_back(InputEvent::PointerMove { kind, id, x, y });
         }
@@ -450,10 +496,11 @@ fn map_event_coordinates(
 }
 
 fn keyboard_listener(
-    canvas: &HtmlCanvasElement,
+    target: EventTarget,
     queue: &EventQueue,
     name: &str,
     pressed: bool,
+    composing: Option<Rc<Cell<bool>>>,
 ) -> Listener {
     let q = queue.clone();
     let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
@@ -468,7 +515,9 @@ fn keyboard_listener(
                 meta: evt.meta_key(),
             },
             evt.repeat(),
-            evt.is_composing(),
+            evt.is_composing()
+                || evt.key_code() == 229
+                || composing.as_ref().is_some_and(|state| state.get()),
         ) {
             if matches!(input, InputEvent::Key { .. }) {
                 evt.prevent_default();
@@ -476,5 +525,5 @@ fn keyboard_listener(
             q.borrow_mut().push_back(input);
         }
     });
-    register_listener(canvas.clone().into(), name, closure)
+    register_listener(target, name, closure)
 }
