@@ -23,10 +23,8 @@ pub(crate) const SAVE_LEN: usize = SAVE_PAYLOAD + 4;
 
 #[crate::model(
     change = ChangeSet,
-    watch(
-        visual = ChangeSet::VISUAL,
-        persistence = ChangeSet::PERSISTENCE
-    )
+    watch(visual = ChangeSet::VISUAL),
+    persistence(key = "folding_ark/save")
 )]
 #[derive(Clone, Copy)]
 pub(crate) struct FoldModel {
@@ -313,20 +311,5 @@ impl FoldModel {
                 FoldMessage::Complete
             },
         })
-    }
-
-    #[cfg(feature = "persistence")]
-    #[model(local)]
-    pub(crate) fn encode_vec(&self) -> alloc::vec::Vec<u8> {
-        let mut output = alloc::vec![0; SAVE_LEN];
-        self.encode_into(&mut output)
-            .expect("exact Fold save buffer");
-        output
-    }
-
-    #[cfg(feature = "persistence")]
-    pub(crate) fn restore(&mut self, restored: FoldModel) -> ChangeSet {
-        *self = restored;
-        ChangeSet::MODEL | ChangeSet::VISUAL
     }
 }

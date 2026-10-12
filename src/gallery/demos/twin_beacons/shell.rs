@@ -1256,13 +1256,13 @@ where
 {
     app.add_plugin(PlayFontPlugin);
     app.with_widget(surface_render::view());
+    #[cfg(feature = "persistence")]
+    install_persistence(app);
     let game = app.add_model(TwinModel::default()).finish();
     let expedition = app.add_model(ExpeditionUiModel::default()).finish();
     capture(&game, &expedition);
     let hints = TwinHintService::new();
     app.add_resource(hints.clone());
-    #[cfg(feature = "persistence")]
-    install_persistence(app, game.clone());
     app.on_event(
         TextCommitted::EVENT,
         keyboard::callback(game.clone(), expedition.clone()),

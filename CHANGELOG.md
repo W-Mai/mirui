@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Tidal Atlas and Echo Walker use Model persistence codecs for replay saves, retaining their archive format and restoring before UI observation is installed.
+- Folding Ark and Twin Beacons register game archives through Model codecs without separate persistence watches or captured save callbacks.
 
 - `App::add_model` returns a pending builder. Call `.finish()` to register the Model; `.with_key(...)` configures a persistent instance before any storage access.
 

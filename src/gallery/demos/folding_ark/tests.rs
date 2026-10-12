@@ -187,19 +187,19 @@ fn keyboard_refetches_hints_and_preserves_observed_revision_contracts() {
     let surface = app.world.find_by_id("fold_surface").unwrap();
     app.world.remove::<VisualDirty>(surface);
     let visual_revision = observer.visual_revision();
-    let persistence_revision = observer.persistence_revision();
+    let saved = with_game(&observer, game_snapshot).0;
     send_character(&mut app.world, root, 'H');
     let hint = observer.message();
     assert!(matches!(hint, FoldMessage::Hint(_, _)));
-    assert!(observer.persistence_revision() > persistence_revision);
+    assert_ne!(with_game(&observer, game_snapshot).0, saved);
     assert_eq!(observer.visual_revision(), visual_revision);
     flush(&mut app.world);
     assert!(!app.world.has::<VisualDirty>(surface));
 
-    let hinted_revision = observer.persistence_revision();
+    let hinted = with_game(&observer, game_snapshot).0;
     send_character(&mut app.world, root, 'h');
     assert_eq!(observer.message(), hint);
-    assert_eq!(observer.persistence_revision(), hinted_revision);
+    assert_eq!(with_game(&observer, game_snapshot).0, hinted);
     assert_eq!(observer.visual_revision(), visual_revision);
     flush(&mut app.world);
     assert!(!app.world.has::<VisualDirty>(surface));
@@ -218,10 +218,10 @@ fn keyboard_refetches_hints_and_preserves_observed_revision_contracts() {
     observer.restart();
     app.add_resource(FoldHintService::new());
     send_character(&mut app.world, root, 'h');
-    let restored_revision = observer.persistence_revision();
+    let restored = with_game(&observer, game_snapshot).0;
     assert!(matches!(observer.message(), FoldMessage::Hint(_, _)));
     send_character(&mut app.world, root, 'H');
-    assert_eq!(observer.persistence_revision(), restored_revision);
+    assert_eq!(with_game(&observer, game_snapshot).0, restored);
 }
 
 #[test]
@@ -300,7 +300,7 @@ fn messages_and_hints_update_observed_text_without_invalidating_surface() {
     let surface = world.find_by_id("fold_surface").unwrap();
     world.remove::<VisualDirty>(surface);
     let visual_revision = game.visual_revision();
-    let persistence_revision = game.persistence_revision();
+    let saved = with_game(&game, game_snapshot).0;
 
     let blocked = with_game(&game, |model| {
         Direction4::ALL
@@ -317,7 +317,7 @@ fn messages_and_hints_update_observed_text_without_invalidating_surface() {
     assert!(!changes.contains(ChangeSet::PERSISTENCE));
     flush(&mut world);
     assert_eq!(game.visual_revision(), visual_revision);
-    assert_eq!(game.persistence_revision(), persistence_revision);
+    assert_eq!(with_game(&game, game_snapshot).0, saved);
     let status = world
         .get::<Text>(world.find_by_id("fold_status").unwrap())
         .unwrap();
@@ -330,7 +330,7 @@ fn messages_and_hints_update_observed_text_without_invalidating_surface() {
     flush(&mut world);
 
     assert_eq!(game.visual_revision(), visual_revision);
-    assert!(game.persistence_revision() > persistence_revision);
+    assert_ne!(with_game(&game, game_snapshot).0, saved);
     assert!(!world.has::<VisualDirty>(surface));
     let status = world
         .get::<Text>(world.find_by_id("fold_status").unwrap())

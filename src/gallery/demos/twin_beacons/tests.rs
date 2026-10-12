@@ -270,7 +270,7 @@ fn messages_and_hints_update_observed_text_without_invalidating_surface() {
     let surface = world.find_by_id("twin_surface").unwrap();
     world.remove::<VisualDirty>(surface);
     let visual_revision = game.visual_revision();
-    let persistence_revision = game.persistence_revision();
+    let hints = game.hints();
 
     let blocked = with_game(&game, |model| {
         Direction4::ALL
@@ -287,7 +287,7 @@ fn messages_and_hints_update_observed_text_without_invalidating_surface() {
     assert!(!changes.contains(ChangeSet::PERSISTENCE));
     flush(&mut world);
     assert_eq!(game.visual_revision(), visual_revision);
-    assert_eq!(game.persistence_revision(), persistence_revision);
+    assert_eq!(game.hints(), hints);
     let status = world
         .get::<Text>(world.find_by_id("twin_status").unwrap())
         .unwrap();
@@ -300,7 +300,7 @@ fn messages_and_hints_update_observed_text_without_invalidating_surface() {
     flush(&mut world);
 
     assert_eq!(game.visual_revision(), visual_revision);
-    assert!(game.persistence_revision() > persistence_revision);
+    assert_eq!(game.hints(), hints + 1);
     assert!(!world.has::<VisualDirty>(surface));
     let status = world
         .get::<Text>(world.find_by_id("twin_status").unwrap())

@@ -23,10 +23,8 @@ pub(crate) const SAVE_LEN: usize = SAVE_PAYLOAD + 4;
 
 #[crate::model(
     change = ChangeSet,
-    watch(
-        visual = ChangeSet::VISUAL,
-        persistence = ChangeSet::PERSISTENCE
-    )
+    watch(visual = ChangeSet::VISUAL),
+    persistence(key = "twin_beacons/save")
 )]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct TwinModel {
@@ -314,23 +312,5 @@ impl TwinModel {
                 TwinMessage::Complete
             },
         })
-    }
-
-    #[cfg(feature = "persistence")]
-    pub(crate) fn restore(&mut self, restored: TwinModel) -> ChangeSet {
-        if *self == restored {
-            return ChangeSet::NONE;
-        }
-        *self = restored;
-        ChangeSet::MODEL | ChangeSet::VISUAL
-    }
-
-    #[cfg(feature = "persistence")]
-    #[model(local)]
-    pub(crate) fn encode_vec(&self) -> alloc::vec::Vec<u8> {
-        let mut output = alloc::vec![0; SAVE_LEN];
-        self.encode_into(&mut output)
-            .expect("exact Twin save buffer");
-        output
     }
 }
