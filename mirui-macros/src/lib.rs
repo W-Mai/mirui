@@ -1399,7 +1399,7 @@ impl MiruiRune {
                                     .and_then(|c| c.0.iter().position(|e| e == o))
                             }).unwrap_or(__mount_index);
                             for __o in __mounted.drain(..) {
-                                mirui::ui::despawn_subtree(__w, __o);
+                                mirui::__macro_support::despawn_subtree(__w, __o);
                             }
                             let __start = __w
                                 .get::<mirui::ui::Children>(__parent_e)
@@ -1511,7 +1511,7 @@ impl MiruiRune {
                     .map(|c| c.0.clone())
                     .unwrap_or_default();
                 for __e in __existing {
-                    ::mirui::ui::despawn_subtree(#world, __e);
+                    ::mirui::__macro_support::despawn_subtree(#world, __e);
                 }
             }
             #body_tokens
@@ -1812,7 +1812,7 @@ impl MiruiRune {
                                             children.0.remove(__p);
                                         }
                                     }
-                                    mirui::ui::despawn_subtree(__w, __e);
+                                    mirui::__macro_support::despawn_subtree(__w, __e);
                                 }
                             }
                         });
@@ -1861,7 +1861,7 @@ impl MiruiRune {
                                 }
                             }
                             for (_, __e) in __old.drain(..) {
-                                mirui::ui::despawn_subtree(__w, __e);
+                                mirui::__macro_support::despawn_subtree(__w, __e);
                             }
                             // retain-then-append reorders the rows to match the new
                             // key order while leaving any static siblings in place.

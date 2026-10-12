@@ -29,6 +29,7 @@ pub(crate) mod recipe;
 pub mod render_system;
 #[doc(hidden)]
 pub mod resource_access;
+pub(crate) mod retirement;
 pub mod scope;
 pub mod selection;
 pub mod state;
@@ -48,6 +49,7 @@ pub use niche::NicheMap;
 pub use offscreen::{OffscreenGeneration, OffscreenRender, WidgetTexture, WidgetTextureRead};
 pub use outputs::{Output, Outputs};
 pub use property::WidgetMut;
+pub(crate) use retirement::despawn_subtree;
 pub use scope::UiScope;
 pub use state::{InteractionState, UserState};
 pub use theme::{ColorToken, Theme, ThemeCatalog, ThemeError, ThemeSource, ThemedColor};
@@ -412,50 +414,4 @@ mod position_tests {
 
         assert!(!world.has::<Dirty>(entity));
     }
-}
-
-/// Despawn `entity` and its subtree, unlinking from the parent and dropping its
-/// effects / `NamedId` mapping. The vacated region is flagged BEFORE despawn —
-/// `World::despawn` clears the rect, so otherwise the deleted widget leaves
-/// ghost pixels the dirty union never repaints.
-pub fn despawn_subtree(world: &mut crate::ecs::World, entity: crate::ecs::Entity) {
-    use crate::ecs::Entity;
-    use dirty::{Dirty, PrevRect};
-
-    if !world.is_alive(entity) {
-        return;
-    }
-
-    if let Some(parent) = world.get::<Parent>(entity).map(|p| p.0) {
-        if let Some(rect) = world.get::<ComputedRect>(entity).map(|c| c.0) {
-            let merged = match world.get::<PrevRect>(parent) {
-                Some(p) => p.0.union(&rect),
-                None => rect,
-            };
-            world.insert(parent, PrevRect(merged));
-            world.insert(parent, Dirty);
-        }
-        if let Some(children) = world.get_mut::<Children>(parent) {
-            children.0.retain(|&c| c != entity);
-        }
-    }
-
-    fn drop_node(world: &mut crate::ecs::World, e: Entity) {
-        let kids = world
-            .get::<Children>(e)
-            .map(|c| c.0.clone())
-            .unwrap_or_default();
-        for child in kids {
-            drop_node(world, child);
-        }
-        if let Some(name) = world.get::<NamedId>(e).map(|n| n.0)
-            && let Some(map) = world.resource_mut::<IdMap>()
-        {
-            map.remove(name);
-        }
-        crate::core::reactive::cleanup_effects_for(world, e);
-        world.despawn(e);
-    }
-
-    drop_node(world, entity);
 }

@@ -36,6 +36,10 @@ impl EntityAllocator {
             let id = self.next_id;
             self.next_id += 1;
             self.generations.push(0);
+            if self.free_ids.capacity() < self.generations.len() {
+                self.free_ids
+                    .reserve_exact(self.generations.capacity() - self.free_ids.len());
+            }
             Entity { id, generation: 0 }
         }
     }

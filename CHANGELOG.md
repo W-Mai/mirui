@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Deferred entity deletion removes attached descendants, node bindings, and IDs, preserves the active App root, and repaints the vacated display.
+
 - Clipboard completion notifications retain their originating item identity and do not reach reused list cells.
 
 - Software input-method keys invoke the same component selection defaults as platform keys without recursively entering the input method.
@@ -34,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Gallery preview generation accepts the registered demo set without a hard-coded image count.
 
 ### Removed
+
+- Raw `ui::despawn_subtree` is internal; author callbacks use `commands.despawn`.
 
 - Removed the World-based `widgets::set_transform` helper. Typed `prop::Transform` updates preserve layout and invalidate changed visual output.
 

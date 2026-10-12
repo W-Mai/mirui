@@ -189,6 +189,8 @@ This storage facility does not install listeners, resolve widget sources, or val
 
 `CommandCapacity` is available from `mirui::ecs` and the ordinary prelude. Its typed operation counts describe deferred storage without exposing arena bytes or alignment. `insert`, `remove`, `despawn`, `insert_resource`, and `remove_resource` describe structural operations; `set`, `set_theme`, `emit`, and `text_input` include their actual deferred apply payloads. Capacity construction is allocation-free and supports const declarations.
 
+`commands.despawn(entity)` removes the entity and its attached `Parent`/`Children` subtree after callback borrows are released. It unlinks the parent, clears node-owned IDs and reactive bindings, and invalidates the vacated display. Entities without children are removed individually; arbitrary entity references and shared Models do not extend the deletion scope. Registered View systems remain installed. Deleting the active App root or an ancestor containing it logs a warning and skips that command without modifying the tree. Repeating a deletion for an expired entity cannot delete a replacement using the same slot.
+
 ```rust
 use mirui::prelude::*;
 

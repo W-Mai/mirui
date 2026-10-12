@@ -48,7 +48,7 @@ impl<E: 'static> EntityOperation for EventOperation<E> {
     }
 }
 
-type ApplyCommand =
+pub(crate) type ApplyCommand =
     unsafe fn(&mut World, Option<Entity>, *mut u8, Option<&dyn Any>) -> Result<(), CommandError>;
 
 /// Storage requirements for deferred operations in one callback.
@@ -533,9 +533,8 @@ impl DeferredCommands<'_> {
         self.queue.push_empty(Some(entity), apply_remove::<T>);
     }
 
-    #[doc(hidden)]
-    pub fn despawn(&mut self, entity: Entity) {
-        self.queue.push_empty(Some(entity), apply_despawn);
+    pub(crate) fn apply_empty(&mut self, entity: Entity, apply: ApplyCommand) {
+        self.queue.push_empty(Some(entity), apply);
     }
 
     #[doc(hidden)]
@@ -592,16 +591,6 @@ unsafe fn apply_remove<T: Component>(
     _event: Option<&dyn Any>,
 ) -> Result<(), CommandError> {
     let _ = world.remove::<T>(target.expect("component command target"));
-    Ok(())
-}
-
-unsafe fn apply_despawn(
-    world: &mut World,
-    target: Option<Entity>,
-    _payload: *mut u8,
-    _event: Option<&dyn Any>,
-) -> Result<(), CommandError> {
-    let _ = world.despawn(target.expect("despawn command target"));
     Ok(())
 }
 

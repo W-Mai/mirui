@@ -111,6 +111,10 @@ pub mod ui;
 /// Runtime types used only by generated authoring macros.
 #[doc(hidden)]
 pub mod __macro_support {
+    pub fn despawn_subtree(world: &mut crate::ecs::World, entity: crate::ecs::Entity) {
+        crate::ui::despawn_subtree(world, entity);
+    }
+
     pub fn with_world<R>(f: impl FnOnce(&mut crate::ecs::World) -> R) -> Option<R> {
         crate::core::reactive::with_world(f)
     }
