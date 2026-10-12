@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `PointerFocus` preserves editor focus during toolbar and on-screen keyboard activation, with nearest-ancestor overrides.
+
 - TextEditing positions the caret from taps using prepared visual geometry, including scrolled and transformed editors.
 
 - TextInput displays focused selections using prepared text geometry, including reversed selections and horizontally scrolled content.

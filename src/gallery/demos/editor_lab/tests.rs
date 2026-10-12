@@ -193,3 +193,52 @@ fn custom_attachments_share_input_behavior_and_preserve_document_identity() {
         .unwrap()
         .read(|text| assert_eq!(text, ">Hello from the document"));
 }
+
+#[test]
+fn document_toolbar_preserves_editor_focus_and_accepts_subsequent_text() {
+    let (mut app, root, model) = fixture();
+    let editor = app.world.find_by_id("editor_shared_a").unwrap();
+    let button = app.world.find_by_id("editor_replace").unwrap();
+    app.render().unwrap();
+    for (index, target) in [editor, button].into_iter().enumerate() {
+        let rect = app.world.get::<crate::ui::ComputedRect>(target).unwrap().0;
+        let x = rect.x + Fixed::from_int(4);
+        let y = rect.y + Fixed::from_int(4);
+        for (offset, event) in [
+            InputEvent::PointerDown {
+                kind: PointerKind::Mouse,
+                id: 0,
+                x,
+                y,
+            },
+            InputEvent::PointerUp {
+                kind: PointerKind::Mouse,
+                id: 0,
+                x,
+                y,
+            },
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            crate::input::event::deliver_input(
+                &mut app.world,
+                Some(root),
+                &event,
+                1 + index as u32 * 10 + offset as u32,
+                440,
+                640,
+            );
+        }
+    }
+    assert_eq!(
+        app.world.resource::<FocusState>().unwrap().focused,
+        Some(editor)
+    );
+    model
+        .shared()
+        .read(|text| assert_eq!(text, "Hello from the document"));
+    let event = TextCommitted::new("!").into();
+    crate::input::event::deliver_input(&mut app.world, Some(root), &event, 30, 440, 640);
+    model.shared().read(|text| assert!(text.contains('!')));
+}

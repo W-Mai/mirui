@@ -21,7 +21,7 @@ use super::contract::{
     AppEventSource, AppRoute, AppSource, EntityEventSource, EntityRoute, Event, EventKey,
     EventRoute, InputSource,
 };
-use super::focus::{FocusState, Focusable};
+use super::focus::{FocusState, Focusable, PointerFocus};
 use super::gesture::GestureEvent;
 use super::gesture::event::GesturePayload;
 use super::input::{InputEvent, InputPayload};
@@ -248,6 +248,7 @@ pub(crate) struct InputBranch {
     hidden: bool,
     disabled: bool,
     focusable: Option<Entity>,
+    pointer_focus: Option<PointerFocus>,
 }
 
 impl InputBranch {
@@ -257,6 +258,7 @@ impl InputBranch {
             hidden: false,
             disabled: false,
             focusable: None,
+            pointer_focus: None,
         };
         let mut remaining = world.live_entity_count();
         // Visibility and disabled state do not exempt a branch from cycle validation.
@@ -269,6 +271,9 @@ impl InputBranch {
             branch.disabled |= matches!(world.get::<UserState>(entity), Some(UserState::Disabled));
             if branch.focusable.is_none() && world.has::<Focusable>(entity) {
                 branch.focusable = Some(entity);
+            }
+            if branch.pointer_focus.is_none() {
+                branch.pointer_focus = world.get::<PointerFocus>(entity).copied();
             }
             let Some(parent) = world.get::<Parent>(entity) else {
                 break;
@@ -284,6 +289,10 @@ impl InputBranch {
 
     pub(crate) fn focus_target(&self) -> Option<Entity> {
         if self.allowed() { self.focusable } else { None }
+    }
+
+    pub(crate) fn preserves_pointer_focus(&self) -> bool {
+        self.pointer_focus == Some(PointerFocus::Preserve)
     }
 
     pub(super) fn allowed(&self) -> bool {

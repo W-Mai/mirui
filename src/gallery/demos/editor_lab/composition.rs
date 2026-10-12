@@ -83,7 +83,8 @@ pub fn build_widgets(model: model!(EditorLab)) {
                 bg_color: ColorToken::SurfaceVariant,
                 border_radius: 8
             )
-            Button (height: 34, width: 200, font_size: 12, border_radius: 8) [
+            Button (id: "editor_replace", height: 34, width: 200, font_size: 12, border_radius: 8) [
+                PointerFocus::Preserve,
                 Text::label("Replace document"),
             ] on Tap {
                 if let Err(error) = model.reset_shared() {

@@ -316,6 +316,97 @@ fn unexpected_tap() {
     panic!("focus callback invalidated the tap target");
 }
 
+#[derive(Default)]
+struct ActivationCount(usize);
+
+#[crate::event]
+fn activate(count: res!(mut ActivationCount)) {
+    count.0 += 1;
+}
+
+fn tap(world: &mut World, target: Entity) {
+    let event = Tap {
+        target,
+        x: Fixed::ZERO,
+        y: Fixed::ZERO,
+    }
+    .into();
+    crate::ui::delivery::dispatch_gesture(world, &event, 0).unwrap();
+}
+
+#[test]
+fn pointer_focus_uses_nearest_explicit_policy_without_blocking_activation() {
+    let (mut world, [editor, child, parent]) = setup();
+    world.insert(child, crate::ui::Parent(parent));
+    world.insert(parent, PointerFocus::Preserve);
+    world.insert_resource(ActivationCount::default());
+    runtime::install_entity(
+        &mut world,
+        child,
+        Tap::EVENT,
+        activate::callback::<Tap, NodeContext>(),
+    )
+    .unwrap();
+    select(&mut world, Some(editor));
+    crate::ui::delivery::flush(&mut world).unwrap();
+    take(&mut world);
+    tap(&mut world, child);
+    world.resource_mut::<ActivationCount>().unwrap().0 = 0;
+    assert_eq!(tracked_allocations(|| tap(&mut world, child)), 0);
+    assert_eq!(
+        world.resource::<FocusState>().unwrap().focused,
+        Some(editor)
+    );
+    assert!(take(&mut world).is_empty());
+    assert_eq!(world.resource::<ActivationCount>().unwrap().0, 1);
+
+    world.insert(child, PointerFocus::Automatic);
+    tap(&mut world, child);
+    assert_eq!(world.resource::<FocusState>().unwrap().focused, Some(child));
+    world.insert(child, PointerFocus::Preserve);
+    world.insert(parent, PointerFocus::Automatic);
+    select(&mut world, Some(editor));
+    tap(&mut world, child);
+    assert_eq!(
+        world.resource::<FocusState>().unwrap().focused,
+        Some(editor)
+    );
+
+    world.remove::<PointerFocus>(child);
+    world.remove::<PointerFocus>(parent);
+    world.remove::<Focusable>(child);
+    tap(&mut world, child);
+    assert_eq!(
+        world.resource::<FocusState>().unwrap().focused,
+        Some(parent)
+    );
+    world.remove::<Focusable>(parent);
+    tap(&mut world, child);
+    assert_eq!(world.resource::<FocusState>().unwrap().focused, None);
+    assert_eq!(world.resource::<ActivationCount>().unwrap().0, 5);
+}
+
+#[test]
+fn preserving_pointer_focus_never_restores_an_invalid_or_cleared_target() {
+    let (mut world, [editor, button, _]) = setup();
+    world.insert(button, PointerFocus::Preserve);
+    select(&mut world, Some(editor));
+    world.insert(editor, crate::ui::Hidden);
+    tap(&mut world, button);
+    assert_eq!(world.resource::<FocusState>().unwrap().focused, None);
+    world.remove::<crate::ui::Hidden>(editor);
+    tap(&mut world, button);
+    assert_eq!(world.resource::<FocusState>().unwrap().focused, None);
+    select(&mut world, Some(editor));
+    world.despawn(editor);
+    tap(&mut world, button);
+    assert_eq!(world.resource::<FocusState>().unwrap().focused, None);
+    select(&mut world, Some(button));
+    select(&mut world, None);
+    tap(&mut world, button);
+    assert_eq!(world.resource::<FocusState>().unwrap().focused, None);
+}
+
 #[crate::event]
 fn hide_parent(event: event!(FocusChanged), trace: res!(mut Trace), commands: commands!()) {
     if event.focused

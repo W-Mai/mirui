@@ -165,6 +165,14 @@ Switching scroll targets or cancelling input ends the old segment with `Cancelle
 
 ## Node focus
 
+Attach `PointerFocus::Preserve` to an editing toolbar or on-screen keyboard to keep keyboard focus while its buttons receive pointer input. The closest explicit policy on the hit node or its ancestors applies; `PointerFocus::Automatic` overrides a preserving ancestor. Without a policy, pointer activation focuses the closest focusable node or clears focus. Preservation does not restore hidden, removed, or otherwise cleared targets, and does not change keyboard or programmatic focus changes.
+
+```rust,ignore
+Row() [PointerFocus::Preserve] {
+    Button() [Text::label("Replace")] on Tap(replace_document::callback(document.clone()))
+}
+```
+
 `FocusChanged { focused, related }` is a direct node notification. `related` identifies the other node in the transition and may no longer exist when read. Subscribe with an inline body, closure, or `#[event]` callback:
 
 ```rust,ignore

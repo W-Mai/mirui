@@ -213,7 +213,7 @@ pub mod prelude {
     pub use crate::core::reactive::{Computed, Effect, Signal};
     pub use crate::ecs::{CommandCapacity, Component, Entity, IntoBundle, MonoClock};
     pub use crate::input::event::contract::{Event, EventKey};
-    pub use crate::input::event::focus::{FocusChanged, FocusSelectors, Focusable};
+    pub use crate::input::event::focus::{FocusChanged, FocusSelectors, Focusable, PointerFocus};
     pub use crate::input::event::gesture::{
         DragCancel, DragEnd, DragMove, DragStart, GestureSelectors, LongPress, Pinch, Rotate, Tap,
     };

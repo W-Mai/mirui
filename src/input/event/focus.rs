@@ -125,6 +125,17 @@ impl FocusObserver {
 pub struct Focusable;
 impl crate::ecs::Component for Focusable {}
 
+/// Controls whether pointer activation changes keyboard focus. The closest explicit policy on the hit node or an ancestor applies.
+#[crate::component]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum PointerFocus {
+    /// Focus the closest focusable ancestor, or clear focus when none exists.
+    #[default]
+    Automatic,
+    /// Keep the current keyboard focus while allowing pointer input normally.
+    Preserve,
+}
+
 /// World resource tracking which entity currently has keyboard focus.
 #[derive(Default)]
 pub struct FocusState {

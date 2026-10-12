@@ -32,6 +32,7 @@ pub fn dispatch_gesture(
     let _owner_scope = crate::core::reactive::OwnerGuard::enter(world);
     let origin = crate::core::reactive::retained::InputLease::capture(world, event.target());
     if matches!(event, GestureEvent::Tap { .. })
+        && !branch.preserves_pointer_focus()
         && let Some(focus) = world.resource_mut::<FocusState>()
     {
         focus.focused = branch.focus_target();
