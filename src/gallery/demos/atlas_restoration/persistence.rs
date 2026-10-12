@@ -7,19 +7,28 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    use crate::core::persistence::PersistencePlugin;
+    use crate::core::persistence::{PersistenceError, PersistencePlugin};
     use crate::gallery::play::storage::gallery_storage;
+
+    let storage = match gallery_storage("mirui_atlas_restoration.bin") {
+        Ok(storage) => storage,
+        Err(error) => {
+            crate::warn!("atlas_restoration persistence unavailable: {error}");
+            return;
+        }
+    };
 
     let save_model = model.clone();
     let restore_model = model;
-    let plugin = PersistencePlugin::new(gallery_storage("mirui_atlas_restoration.bin"))
+    let plugin = PersistencePlugin::new(storage)
         .bytes(
             "atlas_restoration/save",
             move || ModelHandle::read(&save_model, PictureModel::encode_snapshot),
             move |bytes| {
-                if let Ok(model) = PictureModel::decode(bytes) {
-                    restore_model.restore(model);
-                }
+                let model =
+                    PictureModel::decode(bytes).map_err(|_| PersistenceError::InvalidArchive)?;
+                restore_model.restore(model);
+                Ok(())
             },
         )
         .autosave(1000);

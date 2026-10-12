@@ -7,28 +7,28 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    use crate::core::persistence::PersistencePlugin;
+    use crate::core::persistence::{PersistenceError, PersistencePlugin};
     use crate::gallery::play::storage::gallery_storage;
+
+    let storage = match gallery_storage("mirui_folding_ark.bin") {
+        Ok(storage) => storage,
+        Err(error) => {
+            crate::warn!("folding_ark persistence unavailable: {error}");
+            return;
+        }
+    };
 
     let save_game = game.clone();
     let restore_game = game;
-    let mut saved_revision = save_game.persistence_revision();
-    let plugin = PersistencePlugin::new(gallery_storage("mirui_folding_ark.bin"))
+    let plugin = PersistencePlugin::new(storage)
         .bytes(
             "folding_ark/save",
-            move || {
-                let revision = save_game.persistence_revision();
-                if revision == saved_revision {
-                    return None;
-                }
-                let bytes = ModelHandle::read(&save_game, FoldModel::encode_vec);
-                saved_revision = revision;
-                Some(bytes)
-            },
+            move || Some(ModelHandle::read(&save_game, FoldModel::encode_vec)),
             move |bytes| {
-                if let Ok(restored) = FoldModel::decode(bytes) {
-                    restore_game.restore(restored);
-                }
+                let restored =
+                    FoldModel::decode(bytes).map_err(|_| PersistenceError::InvalidArchive)?;
+                restore_game.restore(restored);
+                Ok(())
             },
         )
         .autosave(1000);

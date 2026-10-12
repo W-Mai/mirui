@@ -5,8 +5,10 @@
 extern crate alloc;
 
 mod autosave;
+mod error;
 use autosave::Autosave;
 pub use autosave::IntoDuration;
+pub use error::PersistenceError;
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -24,7 +26,7 @@ use crate::surface::Surface;
 
 const VALUE_VERSION: u8 = 1;
 
-type SaveFn = Box<dyn FnMut(&World) -> Option<Vec<u8>>>;
+type SaveFn = Box<dyn FnMut(&World) -> Result<Option<Vec<u8>>, PersistenceError>>;
 
 struct TrackedItem {
     key: &'static str,
@@ -32,6 +34,19 @@ struct TrackedItem {
     // `bytes()` escape hatch round-trips verbatim; postcard path gets a
     // VALUE_VERSION byte for migrations.
     framed: bool,
+}
+
+impl TrackedItem {
+    fn save(&mut self, world: &World, storage: &mut dyn Storage) -> Result<(), PersistenceError> {
+        if let Some(bytes) = (self.save)(world)? {
+            if self.framed {
+                write_value(storage, self.key, &bytes)?;
+            } else {
+                storage.write(self.key, &bytes)?;
+            }
+        }
+        Ok(())
+    }
 }
 
 /// World resource the plugin installs. Live save/restore endpoints stay
@@ -57,123 +72,138 @@ impl PersistenceRegistry {
     /// Persist a `Signal<T>` under `key`. Pulls any existing stored
     /// value into the signal immediately, so late-registered widgets
     /// catch up to disk state in the same call.
-    pub fn signal<T>(&mut self, key: &'static str, signal: Signal<T>)
+    pub fn signal<T>(
+        &mut self,
+        key: &'static str,
+        signal: Signal<T>,
+    ) -> Result<(), PersistenceError>
     where
         T: Serialize + DeserializeOwned + Clone + 'static,
     {
-        if let Some(bytes) = read_value(&*self.storage, key) {
-            if let Ok(value) = postcard::from_bytes::<T>(&bytes) {
-                signal.set(value);
-            }
+        if let Some(bytes) = read_value(&*self.storage, key)? {
+            let value =
+                postcard::from_bytes::<T>(&bytes).map_err(|_| PersistenceError::InvalidArchive)?;
+            signal.set(value);
         }
         let save_sig = signal;
         self.items.push(TrackedItem {
             key,
             save: Box::new(move |_world: &World| {
-                postcard::to_allocvec(&save_sig.get_untracked()).ok()
+                postcard::to_allocvec(&save_sig.get_untracked())
+                    .map(Some)
+                    .map_err(|_| PersistenceError::Encoding)
             }),
             framed: true,
         });
+        Ok(())
     }
 
     /// Persist a World resource `T`. The resource must already exist
     /// when `save_all` runs; restore only writes if a resource of type
     /// `T` is present (matching the resource's existing identity rules).
-    pub fn resource<T>(&mut self, world: &mut World, key: &'static str)
+    pub fn resource<T>(
+        &mut self,
+        world: &mut World,
+        key: &'static str,
+    ) -> Result<(), PersistenceError>
     where
         T: Serialize + DeserializeOwned + 'static,
     {
-        if let Some(bytes) = read_value(&*self.storage, key) {
-            if let Ok(value) = postcard::from_bytes::<T>(&bytes) {
-                world.insert_resource(value);
-            }
+        if let Some(bytes) = read_value(&*self.storage, key)? {
+            let value =
+                postcard::from_bytes::<T>(&bytes).map_err(|_| PersistenceError::InvalidArchive)?;
+            world.insert_resource(value);
         }
         self.items.push(TrackedItem {
             key,
             save: Box::new(|world: &World| {
-                let r = world.resource::<T>()?;
-                postcard::to_allocvec(r).ok()
+                world
+                    .resource::<T>()
+                    .map(postcard::to_allocvec)
+                    .transpose()
+                    .map_err(|_| PersistenceError::Encoding)
             }),
             framed: true,
         });
+        Ok(())
     }
 
-    /// Save and restore custom bytes without framing. Restore runs immediately when a stored value exists; returning `None` from save leaves that value unchanged.
+    /// Save and restore custom bytes without framing. Restore runs immediately when a stored value exists; returning `None` from save leaves that value unchanged. Restore errors prevent registration and leave storage untouched. Restore callbacks must validate before mutating state; their mutations are not rolled back.
     pub fn bytes(
         &mut self,
         key: &'static str,
         mut save: impl FnMut() -> Option<Vec<u8>> + 'static,
-        mut restore: impl FnMut(&[u8]) + 'static,
-    ) {
-        if let Some(bytes) = self.storage.read(key) {
-            restore(&bytes);
+        mut restore: impl FnMut(&[u8]) -> Result<(), PersistenceError> + 'static,
+    ) -> Result<(), PersistenceError> {
+        if let Some(bytes) = self.storage.read(key)? {
+            restore(&bytes)?;
         }
         self.items.push(TrackedItem {
             key,
-            save: Box::new(move |_| save()),
+            save: Box::new(move |_| Ok(save())),
             framed: false,
         });
+        Ok(())
     }
 
-    /// Flush every tracked item to storage. Errors from individual
-    /// items are swallowed so a corrupt entry doesn't block the rest.
-    pub fn save_all(&mut self, world: &World) {
+    /// Flush every tracked item. All items are attempted; the first error is returned.
+    pub fn save_all(&mut self, world: &World) -> Result<(), PersistenceError> {
+        let mut result = Ok(());
         for item in &mut self.items {
-            if let Some(bytes) = (item.save)(world) {
-                if item.framed {
-                    write_value(&mut *self.storage, item.key, &bytes);
-                } else {
-                    self.storage.write(item.key, &bytes);
-                }
-            }
+            let saved = item.save(world, &mut *self.storage);
+            result = result.and(saved);
         }
+        result
     }
 
     /// Flush a single tracked item by key. Useful when only one piece
     /// of state changed and the caller wants to avoid touching others.
-    pub fn save(&mut self, world: &World, key: &str) {
+    pub fn save(&mut self, world: &World, key: &str) -> Result<(), PersistenceError> {
         for item in &mut self.items {
             if item.key == key {
-                if let Some(bytes) = (item.save)(world) {
-                    if item.framed {
-                        write_value(&mut *self.storage, item.key, &bytes);
-                    } else {
-                        self.storage.write(item.key, &bytes);
-                    }
-                }
-                return;
+                return item.save(world, &mut *self.storage);
             }
         }
+        Err(PersistenceError::Unregistered)
     }
 
     /// Drop persisted bytes for `key`. The tracked item stays
     /// registered — future saves will repopulate storage.
-    pub fn remove(&mut self, key: &str) {
-        self.storage.remove(key);
+    pub fn remove(&mut self, key: &str) -> Result<(), PersistenceError> {
+        self.storage.remove(key).map_err(Into::into)
     }
 }
 
-fn read_value(storage: &dyn Storage, key: &str) -> Option<Vec<u8>> {
-    let bytes = storage.read(key)?;
+fn read_value(storage: &dyn Storage, key: &str) -> Result<Option<Vec<u8>>, PersistenceError> {
+    let Some(mut bytes) = storage.read(key)? else {
+        return Ok(None);
+    };
     if bytes.first().copied() == Some(VALUE_VERSION) {
-        Some(bytes[1..].to_vec())
+        bytes.remove(0);
+        Ok(Some(bytes))
     } else {
-        None
+        Err(PersistenceError::InvalidArchive)
     }
 }
 
-fn write_value(storage: &mut dyn Storage, key: &str, payload: &[u8]) {
+fn write_value(
+    storage: &mut dyn Storage,
+    key: &str,
+    payload: &[u8],
+) -> Result<(), PersistenceError> {
     let mut framed = Vec::with_capacity(payload.len() + 1);
     framed.push(VALUE_VERSION);
     framed.extend_from_slice(payload);
-    storage.write(key, &framed);
+    storage.write(key, &framed)?;
+    Ok(())
 }
 
 /// Deferred-build registration captured before the plugin reaches
 /// `App::add_plugin`. The plugin replays them inside `build` so the
 /// registry it just inserted into the World sees a fully primed set
 /// of tracked items by the first `on_start` hook.
-type Pending = Box<dyn FnOnce(&mut PersistenceRegistry, &mut World)>;
+type Pending =
+    Box<dyn FnOnce(&mut PersistenceRegistry, &mut World) -> Result<(), PersistenceError>>;
 
 /// Typed save / restore on top of a [`Storage`] backend.
 ///
@@ -204,9 +234,8 @@ impl<S: Storage + 'static> PersistencePlugin<S> {
     where
         T: Serialize + DeserializeOwned + Clone + 'static,
     {
-        self.pending.push(Box::new(move |reg, _world| {
-            reg.signal(key, signal);
-        }));
+        self.pending
+            .push(Box::new(move |reg, _world| reg.signal(key, signal)));
         self
     }
 
@@ -214,9 +243,8 @@ impl<S: Storage + 'static> PersistencePlugin<S> {
     where
         T: Serialize + DeserializeOwned + 'static,
     {
-        self.pending.push(Box::new(move |reg, world| {
-            reg.resource::<T>(world, key);
-        }));
+        self.pending
+            .push(Box::new(move |reg, world| reg.resource::<T>(world, key)));
         let _ = PhantomData::<T>;
         self
     }
@@ -236,6 +264,7 @@ impl<S: Storage + 'static> PersistencePlugin<S> {
     ///         if let [value] = bytes {
     ///             restored.set(*value);
     ///         }
+    ///         Ok(())
     ///     },
     /// );
     /// ```
@@ -243,11 +272,10 @@ impl<S: Storage + 'static> PersistencePlugin<S> {
         mut self,
         key: &'static str,
         save: impl FnMut() -> Option<Vec<u8>> + 'static,
-        restore: impl FnMut(&[u8]) + 'static,
+        restore: impl FnMut(&[u8]) -> Result<(), PersistenceError> + 'static,
     ) -> Self {
-        self.pending.push(Box::new(move |reg, _world| {
-            reg.bytes(key, save, restore);
-        }));
+        self.pending
+            .push(Box::new(move |reg, _world| reg.bytes(key, save, restore)));
         self
     }
 
@@ -299,7 +327,9 @@ where
             );
         }
         for register in self.pending.drain(..) {
-            register(&mut registry, &mut app.world);
+            if let Err(error) = register(&mut registry, &mut app.world) {
+                crate::warn!(target: "mirui::persistence", "persistence registration failed: {error}");
+            }
         }
         app.world.insert_resource(registry);
     }
@@ -333,7 +363,9 @@ fn clock_ns(world: &World) -> Option<u64> {
 
 fn flush_and_stamp(world: &mut World, now_ns: Option<u64>) {
     world.with_resource_box::<PersistenceRegistry, _>(|registry, world| {
-        registry.save_all(world);
+        if let Err(error) = registry.save_all(world) {
+            crate::warn!(target: "mirui::persistence", "persistence save failed: {error}");
+        }
         registry.autosave.reset(now_ns);
     });
 }
@@ -372,7 +404,7 @@ mod tests {
                         recorded.set(recorded.get() + 1);
                         None
                     },
-                    |_| {},
+                    |_| Ok(()),
                 ),
         );
         app.spawn_root().id();
@@ -397,12 +429,12 @@ mod tests {
     fn signal_round_trip_through_storage() {
         let (world, mut reg) = fresh_world();
         let count = Signal::new(7i32);
-        reg.signal("count", count.clone());
+        reg.signal("count", count.clone()).unwrap();
         count.set(42);
-        reg.save_all(&world);
+        reg.save_all(&world).unwrap();
 
         let count_back = Signal::new(0i32);
-        reg.signal("count", count_back.clone());
+        reg.signal("count", count_back.clone()).unwrap();
         assert_eq!(count_back.get_untracked(), 42);
     }
 
@@ -413,9 +445,10 @@ mod tests {
             &mut *reg.storage,
             "score",
             &postcard::to_allocvec(&99u32).unwrap(),
-        );
+        )
+        .unwrap();
         let score = Signal::new(0u32);
-        reg.signal("score", score.clone());
+        reg.signal("score", score.clone()).unwrap();
         assert_eq!(score.get_untracked(), 99);
     }
 
@@ -424,36 +457,44 @@ mod tests {
         let (world, mut reg) = fresh_world();
         let a = Signal::new(1i32);
         let b = Signal::new(2i32);
-        reg.signal("a", a.clone());
-        reg.signal("b", b.clone());
+        reg.signal("a", a.clone()).unwrap();
+        reg.signal("b", b.clone()).unwrap();
         a.set(10);
         b.set(20);
-        reg.save(&world, "a");
+        reg.save(&world, "a").unwrap();
 
-        let storage_a = read_value(&*reg.storage, "a");
-        let storage_b = read_value(&*reg.storage, "b");
+        let storage_a = read_value(&*reg.storage, "a").unwrap();
+        let storage_b = read_value(&*reg.storage, "b").unwrap();
         let decoded_a: i32 = postcard::from_bytes(&storage_a.expect("a written")).unwrap();
         assert_eq!(decoded_a, 10);
         assert!(storage_b.is_none(), "save(\"a\") must not flush b");
     }
 
     #[test]
-    fn unknown_key_is_skipped_not_panicking() {
+    fn unknown_key_returns_unregistered() {
         let (world, mut reg) = fresh_world();
-        reg.save(&world, "missing-key");
+        assert_eq!(
+            reg.save(&world, "missing-key"),
+            Err(PersistenceError::Unregistered)
+        );
     }
 
     #[test]
-    fn corrupt_payload_falls_through_silently() {
-        let (_, mut reg) = fresh_world();
-        reg.storage.write("count", b"garbage");
+    fn corrupt_payload_prevents_registration_and_overwrite() {
+        let (world, mut reg) = fresh_world();
+        reg.storage.write("count", b"garbage").unwrap();
         let count = Signal::new(3i32);
-        reg.signal("count", count.clone());
+        assert_eq!(
+            reg.signal("count", count.clone()),
+            Err(PersistenceError::InvalidArchive)
+        );
         assert_eq!(
             count.get_untracked(),
             3,
             "garbage payload leaves signal default"
         );
+        reg.save_all(&world).unwrap();
+        assert_eq!(reg.storage.read("count"), Ok(Some(b"garbage".to_vec())));
     }
 
     #[test]
@@ -465,7 +506,7 @@ mod tests {
         let captured_save = captured.clone();
         let captured_restore = captured.clone();
         // Raw bytes — no VALUE_VERSION frame.
-        reg.storage.write("custom", b"\x05");
+        reg.storage.write("custom", b"\x05").unwrap();
         reg.bytes(
             "custom",
             move || Some(vec![captured_save.get() as u8]),
@@ -473,12 +514,14 @@ mod tests {
                 if let Some(b) = bytes.last() {
                     captured_restore.set(*b as u32);
                 }
+                Ok(())
             },
-        );
+        )
+        .unwrap();
         assert_eq!(captured.get(), 5, "restore ran on register");
         captured.set(9);
-        reg.save_all(&world);
-        let stored = reg.storage.read("custom").expect("written");
+        reg.save_all(&world).unwrap();
+        let stored = reg.storage.read("custom").unwrap().expect("written");
         assert_eq!(stored, vec![9], "bytes() writes raw user bytes, no frame");
     }
 
@@ -489,14 +532,17 @@ mod tests {
         let saved = state.clone();
         let mut calls = 0_u8;
         let mut storage = MemoryStorage::new();
-        storage.write("custom", &[5]);
+        storage.write("custom", &[5]).unwrap();
         let plugin = PersistencePlugin::new(storage).bytes(
             "custom",
             move || {
                 calls += 1;
                 (calls != 2).then(|| vec![saved.get_untracked() + calls])
             },
-            move |bytes| restored.set(bytes[0]),
+            move |bytes| {
+                restored.set(bytes[0]);
+                Ok(())
+            },
         );
         let mut app = App::headless(16, 16);
         assert_eq!(state.get_untracked(), 0);
@@ -506,24 +552,98 @@ mod tests {
             app.suspend();
             app.suspend();
             let registry = app.world.resource::<PersistenceRegistry>().unwrap();
-            assert_eq!(registry.storage.read("custom"), Some(vec![expected]));
+            assert_eq!(registry.storage.read("custom"), Ok(Some(vec![expected])));
             app.resume();
         }
     }
 
     #[test]
-    fn version_mismatch_treated_as_missing() {
+    fn unrecognized_framing_does_not_register_a_save_endpoint() {
         let (_, mut reg) = fresh_world();
-        reg.storage.write("k", &[99, 0x10, 0x00, 0x00, 0x00]);
+        reg.storage
+            .write("k", &[99, 0x10, 0x00, 0x00, 0x00])
+            .unwrap();
         let v = Signal::new(7i32);
-        reg.signal("k", v.clone());
+        assert_eq!(
+            reg.signal("k", v.clone()),
+            Err(PersistenceError::InvalidArchive)
+        );
         assert_eq!(v.get_untracked(), 7);
+        assert!(reg.items.is_empty());
+    }
+
+    #[test]
+    fn failed_item_does_not_block_others_and_is_retried() {
+        use crate::core::storage::{StorageError, WriteOutcome};
+        use alloc::rc::Rc;
+        use core::cell::Cell;
+
+        struct FailingStorage {
+            inner: MemoryStorage,
+            fail: Rc<Cell<bool>>,
+        }
+        impl Storage for FailingStorage {
+            fn read(&self, key: &str) -> Result<Option<Vec<u8>>, StorageError> {
+                if key == "unreadable" {
+                    Err(StorageError::Unavailable)
+                } else {
+                    self.inner.read(key)
+                }
+            }
+            fn write(&mut self, key: &str, bytes: &[u8]) -> Result<WriteOutcome, StorageError> {
+                if key == "retry" && self.fail.get() {
+                    Err(StorageError::Io)
+                } else {
+                    self.inner.write(key, bytes)
+                }
+            }
+            fn remove(&mut self, key: &str) -> Result<(), StorageError> {
+                self.inner.remove(key)
+            }
+        }
+
+        let (world, mut registry) = fresh_world();
+        let fail = Rc::new(Cell::new(true));
+        registry.storage = Box::new(FailingStorage {
+            inner: MemoryStorage::new(),
+            fail: fail.clone(),
+        });
+        assert_eq!(
+            registry.bytes("unreadable", || Some(vec![0]), |_| panic!("read failed")),
+            Err(PersistenceError::Storage(StorageError::Unavailable))
+        );
+        registry.storage.write("rejected", &[9]).unwrap();
+        assert_eq!(
+            registry.bytes(
+                "rejected",
+                || Some(vec![0]),
+                |_| Err(PersistenceError::InvalidArchive)
+            ),
+            Err(PersistenceError::InvalidArchive)
+        );
+        registry
+            .bytes("retry", || Some(vec![1]), |_| Ok(()))
+            .unwrap();
+        registry
+            .bytes("other", || Some(vec![2]), |_| Ok(()))
+            .unwrap();
+        assert_eq!(registry.items.len(), 2);
+        assert_eq!(
+            registry.save_all(&world),
+            Err(PersistenceError::Storage(StorageError::Io))
+        );
+        assert_eq!(registry.storage.read("retry"), Ok(None));
+        assert_eq!(registry.storage.read("other"), Ok(Some(vec![2])));
+        assert_eq!(registry.storage.read("rejected"), Ok(Some(vec![9])));
+        fail.set(false);
+        registry.save_all(&world).unwrap();
+        assert_eq!(registry.storage.read("retry"), Ok(Some(vec![1])));
     }
 
     #[test]
     fn flush_retains_the_registry_allocation() {
         let (mut world, mut registry) = fresh_world();
-        registry.bytes("unchanged", || None, |_| {});
+        registry.bytes("unchanged", || None, |_| Ok(())).unwrap();
         world.insert_resource(registry);
         let address = world.resource::<PersistenceRegistry>().unwrap() as *const _;
 
@@ -543,14 +663,16 @@ mod tests {
     fn flush_restores_the_registry_when_a_save_callback_unwinds() {
         let (mut world, mut registry) = fresh_world();
         let mut first = true;
-        registry.bytes(
-            "custom",
-            move || {
-                assert!(!core::mem::replace(&mut first, false), "save failed");
-                Some(vec![7])
-            },
-            |_| {},
-        );
+        registry
+            .bytes(
+                "custom",
+                move || {
+                    assert!(!core::mem::replace(&mut first, false), "save failed");
+                    Some(vec![7])
+                },
+                |_| Ok(()),
+            )
+            .unwrap();
         world.insert_resource(registry);
         let address = world.resource::<PersistenceRegistry>().unwrap() as *const _;
 
@@ -563,6 +685,6 @@ mod tests {
 
         flush_and_stamp(&mut world, Some(20));
         let registry = world.resource::<PersistenceRegistry>().unwrap();
-        assert_eq!(registry.storage.read("custom"), Some(vec![7]));
+        assert_eq!(registry.storage.read("custom"), Ok(Some(vec![7])));
     }
 }

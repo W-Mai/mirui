@@ -1,7 +1,4 @@
-//! `Storage` backend over the browser's `localStorage`. Values are
-//! hex-encoded because `localStorage` only accepts strings; hex doubles
-//! the size but never collides with key syntax and pulls in zero new
-//! deps. The 5 MB per-origin budget covers all realistic use.
+//! Browser localStorage with namespaced keys and hex-encoded bytes. Available quota and access permissions are controlled by the host.
 
 extern crate alloc;
 
@@ -9,7 +6,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use super::Storage;
+use super::{Storage, StorageError, WriteOutcome};
 
 pub struct LocalStorageStorage {
     storage: web_sys::Storage,
@@ -17,14 +14,14 @@ pub struct LocalStorageStorage {
 }
 
 impl LocalStorageStorage {
-    /// Open `window.localStorage`, prefixing every key with
-    /// `{prefix}:` so the app doesn't trample other scripts on the
-    /// same origin. Returns `None` when the host page rejects
-    /// localStorage (private mode, sandbox restriction, etc.).
-    pub fn with_prefix(prefix: impl Into<String>) -> Option<Self> {
-        let window = web_sys::window()?;
-        let storage = window.local_storage().ok().flatten()?;
-        Some(Self {
+    /// Open `window.localStorage`, prefixing keys with `{prefix}:`. Unavailable or denied access returns an error.
+    pub fn with_prefix(prefix: impl Into<String>) -> Result<Self, StorageError> {
+        let window = web_sys::window().ok_or(StorageError::Unavailable)?;
+        let storage = window
+            .local_storage()
+            .map_err(|_| StorageError::Unavailable)?
+            .ok_or(StorageError::Unavailable)?;
+        Ok(Self {
             storage,
             prefix: prefix.into(),
         })
@@ -36,17 +33,31 @@ impl LocalStorageStorage {
 }
 
 impl Storage for LocalStorageStorage {
-    fn read(&self, key: &str) -> Option<Vec<u8>> {
-        let s = self.storage.get_item(&self.full_key(key)).ok().flatten()?;
-        hex_decode(&s)
+    fn read(&self, key: &str) -> Result<Option<Vec<u8>>, StorageError> {
+        self.storage
+            .get_item(&self.full_key(key))
+            .map_err(|_| StorageError::Unavailable)?
+            .map(|s| hex_decode(&s).ok_or(StorageError::InvalidData))
+            .transpose()
     }
-    fn write(&mut self, key: &str, value: &[u8]) {
-        let _ = self
+    fn write(&mut self, key: &str, value: &[u8]) -> Result<WriteOutcome, StorageError> {
+        let full_key = self.full_key(key);
+        let stored = self
             .storage
-            .set_item(&self.full_key(key), &hex_encode(value));
+            .get_item(&full_key)
+            .map_err(|_| StorageError::Unavailable)?;
+        if stored.as_deref().and_then(hex_decode).as_deref() == Some(value) {
+            return Ok(WriteOutcome::Unchanged);
+        }
+        self.storage
+            .set_item(&full_key, &hex_encode(value))
+            .map_err(|_| StorageError::Unavailable)?;
+        Ok(WriteOutcome::Written)
     }
-    fn remove(&mut self, key: &str) {
-        let _ = self.storage.remove_item(&self.full_key(key));
+    fn remove(&mut self, key: &str) -> Result<(), StorageError> {
+        self.storage
+            .remove_item(&self.full_key(key))
+            .map_err(|_| StorageError::Unavailable)
     }
 }
 
@@ -117,10 +128,5 @@ mod tests {
             hex_decode("DEADBEEF").unwrap(),
             vec![0xDE, 0xAD, 0xBE, 0xEF]
         );
-    }
-
-    #[allow(dead_code)]
-    fn _signature_check(s: &str) {
-        let _ = LocalStorageStorage::with_prefix(s);
     }
 }

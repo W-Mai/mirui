@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Storage operations report errors and distinguish unchanged writes. File and browser storage constructors return errors instead of silently replacing unavailable or corrupt data with empty state. Persistence callbacks propagate restore failures and retain retryable saves.
+
 - Persistence auto-saving uses `autosave(interval)`, accepting integer milliseconds or `core::time::Duration` without truncating submillisecond or long intervals.
 
 ### Performance
@@ -16,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Widget effect cleanup no longer allocates a temporary list of effect IDs.
 
 ### Fixed
+
+- Failed file writes and removals preserve the confirmed cache; Gallery game saves no longer acknowledge revisions before storage succeeds.
 
 - Deferred entity deletion removes attached descendants, node bindings, and IDs, preserves the active App root, and repaints the vacated display.
 

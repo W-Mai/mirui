@@ -225,10 +225,11 @@ pub(crate) type EchoReplayLog = ReplayLog<ECHO_REPLAY_CAPACITY>;
     target_arch = "wasm32",
     feature = "web-canvas"
 ))]
-pub(crate) fn gallery_storage(name: &str) -> crate::core::storage::StorageHandle {
-    use crate::core::storage::{LocalStorageStorage, MemoryStorage};
-    LocalStorageStorage::with_prefix(name)
-        .map_or_else(|| MemoryStorage::new().into_handle(), Storage::into_handle)
+pub(crate) fn gallery_storage(
+    name: &str,
+) -> Result<crate::core::storage::StorageHandle, crate::core::storage::StorageError> {
+    use crate::core::storage::LocalStorageStorage;
+    LocalStorageStorage::with_prefix(name).map(Storage::into_handle)
 }
 
 #[cfg(all(
@@ -237,20 +238,26 @@ pub(crate) fn gallery_storage(name: &str) -> crate::core::storage::StorageHandle
     not(test),
     not(all(target_arch = "wasm32", feature = "web-canvas"))
 ))]
-pub(crate) fn gallery_storage(name: &str) -> crate::core::storage::StorageHandle {
+pub(crate) fn gallery_storage(
+    name: &str,
+) -> Result<crate::core::storage::StorageHandle, crate::core::storage::StorageError> {
     let mut path = std::env::temp_dir();
     path.push(name);
-    crate::core::storage::FileStorage::open(path).into_handle()
+    crate::core::storage::FileStorage::open(path).map(Storage::into_handle)
 }
 
 #[cfg(all(feature = "persistence", not(feature = "std")))]
-pub(crate) fn gallery_storage(_name: &str) -> crate::core::storage::StorageHandle {
-    crate::core::storage::MemoryStorage::new().into_handle()
+pub(crate) fn gallery_storage(
+    _name: &str,
+) -> Result<crate::core::storage::StorageHandle, crate::core::storage::StorageError> {
+    Ok(crate::core::storage::MemoryStorage::new().into_handle())
 }
 
 #[cfg(all(feature = "persistence", test, feature = "std"))]
-pub(crate) fn gallery_storage(_name: &str) -> crate::core::storage::StorageHandle {
-    crate::core::storage::MemoryStorage::new().into_handle()
+pub(crate) fn gallery_storage(
+    _name: &str,
+) -> Result<crate::core::storage::StorageHandle, crate::core::storage::StorageError> {
+    Ok(crate::core::storage::MemoryStorage::new().into_handle())
 }
 
 pub(crate) fn replay_tide<const N: usize>(log: &ReplayLog<N>) -> Result<TideModel, ReplayError> {
@@ -528,8 +535,8 @@ mod tests {
         let mut scratch = [0_u8; 32];
         let mut storage = MemoryStorage::new();
         let len = log.encode_into(&mut scratch).unwrap();
-        storage.write("afterhours", &scratch[..len]);
-        let stored = storage.read("afterhours").unwrap();
+        storage.write("afterhours", &scratch[..len]).unwrap();
+        let stored = storage.read("afterhours").unwrap().unwrap();
         assert_eq!(stored.as_slice(), &scratch[..len]);
         assert!(ReplayLog::<4>::decode(&stored, ReplayKind::Tidal).is_ok());
     }

@@ -19,10 +19,16 @@ where
     // PersistencePlugin must register before widgets spawn so the
     // Registry sits in the World when on_suspend / on_quit fire.
     let count = Signal::new(0i32);
-    let plugin = PersistencePlugin::new(pick_storage())
-        .signal("count", count.clone())
-        .autosave(2000);
-    app.add_plugin(plugin);
+    match pick_storage() {
+        Ok(storage) => {
+            app.add_plugin(
+                PersistencePlugin::new(storage)
+                    .signal("count", count.clone())
+                    .autosave(2000),
+            );
+        }
+        Err(error) => crate::warn!("counter persistence unavailable: {error}"),
+    }
 
     app.compose(parent, build_widgets(count));
 }

@@ -8,23 +8,29 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    use crate::core::persistence::PersistencePlugin;
+    use crate::core::persistence::{PersistenceError, PersistencePlugin};
     use crate::gallery::play::storage::gallery_storage;
+
+    let storage = match gallery_storage("mirui_echo_walker.bin") {
+        Ok(storage) => storage,
+        Err(error) => {
+            crate::warn!("echo_walker persistence unavailable: {error}");
+            return;
+        }
+    };
 
     let save_model = model.clone();
     let restore_model = model;
-    let plugin = PersistencePlugin::new(gallery_storage("mirui_echo_walker.bin"))
+    let plugin = PersistencePlugin::new(storage)
         .bytes(
             "echo_walker/replay",
             move || Some(ModelHandle::read(&save_model, EchoModel::encode_replay)),
             move |bytes| {
-                let Ok(log) = EchoReplayLog::decode(bytes, ReplayKind::Echo) else {
-                    return;
-                };
-                let Ok(model) = replay_echo(&log) else {
-                    return;
-                };
+                let log = EchoReplayLog::decode(bytes, ReplayKind::Echo)
+                    .map_err(|_| PersistenceError::InvalidArchive)?;
+                let model = replay_echo(&log).map_err(|_| PersistenceError::InvalidArchive)?;
                 restore_model.restore_replay(model);
+                Ok(())
             },
         )
         .autosave(1000);
