@@ -42,7 +42,7 @@ split_demo_sources! {
     EDITOR_LAB => {
         demo: "editor_lab",
         marker: "fn search_attach",
-        parts: ["model.rs", "editors.rs", "composition.rs", "tests.rs"]
+        parts: ["model.rs", "editors.rs", "keyboard.rs", "composition.rs", "tests.rs"]
     },
     ORBIT_CONSOLE => {
         demo: "orbit_console",
