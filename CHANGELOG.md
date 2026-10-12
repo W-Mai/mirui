@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Web clipboard writes support a single item with multiple MIME representations, including binary custom formats. Unsupported multi-item writes are rejected without discarding data.
 - Ctrl/Command+X and V use the focused component's cut and paste capabilities. Key handlers can intercept these defaults; target changes and repeated keys cannot redirect or duplicate them.
 - Clipboard paste commands replace the target selection or insert at its caret after checking the original editing context. Web reads retain MIME representations; SDL surfaces read text. Editor Lab includes a Paste button.
 - Clipboard cut commands delete the captured selection only after a successful platform write. Changed selections, sources, and composition contexts preserve current content; TextEditing retires stale input-method sessions after accepting the edit. Editor Lab includes a Cut button.

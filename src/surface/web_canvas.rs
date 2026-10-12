@@ -130,40 +130,7 @@ impl Surface for WebCanvasSurface {
         &mut self,
         request: crate::ui::clipboard::ClipboardWrite,
     ) -> crate::ui::clipboard::ClipboardDispatch {
-        use crate::ui::clipboard::{ClipboardDispatch, ClipboardError};
-        let text = match request.data().plain_text() {
-            Ok(text) => text,
-            Err(error) => return ClipboardDispatch::Complete(request.complete(Err(error))),
-        };
-        let Some(window) = web_sys::window() else {
-            return ClipboardDispatch::Complete(request.complete(Err(ClipboardError::Unsupported)));
-        };
-        let clipboard = window.navigator().clipboard();
-        let value: &JsValue = clipboard.as_ref();
-        if value.is_undefined() || value.is_null() {
-            return ClipboardDispatch::Complete(request.complete(Err(ClipboardError::Unsupported)));
-        }
-        let promise = clipboard.write_text(text);
-        let queue = self.event_queue.clone();
-        wasm_bindgen_futures::spawn_local(async move {
-            let result = wasm_bindgen_futures::JsFuture::from(promise)
-                .await
-                .map(|_| ())
-                .map_err(|error| {
-                    let name = js_sys::Reflect::get(&error, &JsValue::from_str("name"))
-                        .ok()
-                        .and_then(|value| value.as_string());
-                    if name.as_deref() == Some("NotAllowedError") {
-                        ClipboardError::PermissionDenied
-                    } else {
-                        ClipboardError::Platform
-                    }
-                });
-            queue
-                .borrow_mut()
-                .push_back(InputEvent::Clipboard(request.complete(result)));
-        });
-        ClipboardDispatch::Pending
+        clipboard::write(request, self.event_queue.clone())
     }
 
     fn read_clipboard(

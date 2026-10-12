@@ -41,6 +41,8 @@ mod text_input_range;
 #[cfg(all(feature = "web-canvas", target_arch = "wasm32"))]
 pub mod web_canvas;
 #[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
+mod web_clipboard_format;
+#[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
 mod web_input;
 #[cfg(feature = "wgpu")]
 pub mod wgpu_surface;

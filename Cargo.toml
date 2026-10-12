@@ -151,6 +151,7 @@ web-sys = { version = "0.3.99", optional = true, features = [
     "Clipboard",
     "ClipboardItem",
     "Blob",
+    "BlobPropertyBag",
     "Document",
     "Element",
     "HtmlElement",
