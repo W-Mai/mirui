@@ -10,6 +10,7 @@ mod codec_registry;
 mod error;
 mod model_codec;
 mod models;
+mod status;
 #[doc(hidden)]
 pub mod value;
 pub use access::Persistence;
@@ -19,6 +20,7 @@ pub use error::PersistenceError;
 #[doc(hidden)]
 pub use model_codec::FieldCodec;
 pub use model_codec::ModelCodec;
+pub use status::PersistenceStatus;
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;

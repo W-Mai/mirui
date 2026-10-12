@@ -79,11 +79,16 @@ app.persistence().save(&settings)?;
 app.persistence().restore(&settings)?;
 app.persistence().save_all()?;
 app.persistence().set_enabled(false)?;
+let status = app.persistence().status(&settings);
 ```
 
 Restoration prepares the entire record before applying it, then publishes observed fields, derived values, and watches together. Static owned children retain their identities and subscriptions. Fields not marked `#[persist]` keep their current values under the default codec. Restoration does not invoke effects extractors or deliver business effects; it does not replay actions.
 
 Missing records leave data unchanged. Failed decoding or storage reads leave data unchanged and protect the entry from automatic overwrite. Successful restoration establishes a clean saved baseline; an explicit successful save can also clear protection. Invalid ownership, retired registrations, busy Models, and disabled persistence are rejected. An absent plugin returns `PersistenceError::Unavailable`.
+
+`PersistenceStatus` distinguishes `Unavailable`, `Unregistered`, `Disabled`, `Clean`, `Pending`, and `Failed { error, protected }`. Queries perform no storage IO or allocation. Registration failures, including duplicate keys and missing codecs, remain visible on the returned Model handle. Child Models are not independent archive registrations. `Clean` describes an acknowledged save candidate, not a fresh check of storage contents or durability.
+
+`Failed` reports the latest operation error and whether automatic overwrite is blocked. Ordinary Model changes do not clear failures; successful saves or restorations do. Reading a missing record preserves existing restore protection. Disabling persistence hides a registered entry's saved error behind `Disabled` without discarding it; re-enabling retains the error and marks current data for saving.
 
 ## Automatic saves
 

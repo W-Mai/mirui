@@ -1,4 +1,4 @@
-use super::{PersistenceError, PersistenceRegistry};
+use super::{PersistenceError, PersistenceRegistry, PersistenceStatus};
 use crate::{
     core::model::{ModelHandle, try_registered_owner},
     ecs::World,
@@ -12,6 +12,41 @@ pub struct Persistence<'a> {
 impl<'a> Persistence<'a> {
     pub(crate) fn new(world: &'a mut World) -> Self {
         Self { world }
+    }
+
+    /// Read registration, pending-save, and failure state without accessing storage. Disabled registrations retain their errors until IO resumes; retired handles are unregistered.
+    pub fn status<H: ModelHandle>(&self, model: &H) -> PersistenceStatus {
+        let Some(registry) = self.world.resource::<PersistenceRegistry>() else {
+            return PersistenceStatus::Unavailable;
+        };
+        let Some(owner) = try_registered_owner(model) else {
+            return PersistenceStatus::Unregistered;
+        };
+        let error = if owner != self.world.id() {
+            Some(PersistenceError::WrongOwner)
+        } else {
+            model
+                .access()
+                .upgrade()
+                .and_then(|access| access.persistence_registration_error())
+        };
+        if let Some(error) = error {
+            return PersistenceStatus::Failed {
+                error,
+                protected: false,
+            };
+        }
+        let Some(entry) = registry
+            .models
+            .iter()
+            .find(|entry| entry.endpoint.matches(model.access()))
+        else {
+            return PersistenceStatus::Unregistered;
+        };
+        if !registry.enabled {
+            return PersistenceStatus::Disabled;
+        }
+        entry.status(self.world)
     }
 
     /// Save a registered root from its current data. A successful write clears failed-restore protection.

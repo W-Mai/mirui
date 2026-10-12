@@ -449,6 +449,11 @@ pub trait ModelAccess<M: Model> {
 
     fn binding_owner(&self) -> BindingOwner;
 
+    #[cfg(feature = "persistence")]
+    fn persistence_registration_error(&self) -> Option<crate::core::persistence::PersistenceError> {
+        None
+    }
+
     fn read(&self, read: &mut dyn FnMut(&M, &ModelMetadata<M>));
 
     fn update(&self, update: &mut ModelUpdate<'_, M>);
@@ -521,6 +526,11 @@ impl<M: Model> Drop for UpdateGuard<'_, M> {
 }
 
 impl<M: Model> ModelAccess<M> for ModelRoot<M> {
+    #[cfg(feature = "persistence")]
+    fn persistence_registration_error(&self) -> Option<crate::core::persistence::PersistenceError> {
+        self.persistence.registration_error()
+    }
+
     fn generation(&self) -> Option<u64> {
         self.metadata.lifetime.current()
     }

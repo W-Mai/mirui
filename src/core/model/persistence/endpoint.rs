@@ -115,6 +115,12 @@ where
             .is_some_and(|root| self.generation.is_some() && root.generation() == self.generation)
     }
 
+    pub(crate) fn pending(&self, world: &crate::ecs::World) -> Result<bool, PersistenceError> {
+        let root = self.root.upgrade().ok_or(PersistenceError::Unregistered)?;
+        self.validate(&root, world.id())?;
+        Ok(root.persistence.pending())
+    }
+
     pub(crate) fn mark_pending(&self) {
         if let Some(root) = self.root.upgrade()
             && self.generation.is_some()

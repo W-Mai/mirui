@@ -69,6 +69,7 @@ mod enabled {
     use mirui::core::model::PersistModel;
 
     mod manual;
+    mod status;
 
     struct RawSettings;
 

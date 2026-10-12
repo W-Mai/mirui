@@ -1,8 +1,8 @@
 use alloc::{borrow::Cow, boxed::Box, vec::Vec};
 
 use super::{
-    FieldCodec, ModelCodec, PersistenceError, PersistenceRegistry, archive::Schema,
-    value::PersistValue,
+    FieldCodec, ModelCodec, PersistenceError, PersistenceRegistry, PersistenceStatus,
+    archive::Schema, value::PersistValue,
 };
 use crate::{
     core::{
@@ -24,6 +24,7 @@ pub(super) trait ModelEndpoint {
         storage: &dyn Storage,
     ) -> Result<bool, PersistenceError>;
     fn is_alive(&self) -> bool;
+    fn pending(&self, world: &World) -> Result<bool, PersistenceError>;
     fn mark_pending(&self);
     fn save(
         &self,
@@ -53,6 +54,9 @@ where
     fn is_alive(&self) -> bool {
         self.is_alive()
     }
+    fn pending(&self, world: &World) -> Result<bool, PersistenceError> {
+        self.pending(world)
+    }
     fn mark_pending(&self) {
         self.mark_pending();
     }
@@ -72,15 +76,33 @@ pub(super) struct ModelEntry {
     pub key: Cow<'static, str>,
     pub endpoint: Box<dyn ModelEndpoint>,
     protected: Option<PersistenceError>,
+    last_error: Option<PersistenceError>,
 }
 
 impl ModelEntry {
+    pub fn status(&self, world: &World) -> PersistenceStatus {
+        let pending = self.endpoint.pending(world);
+        let error = pending.err().or(self.last_error).or(self.protected);
+        if let Some(error) = error {
+            PersistenceStatus::Failed {
+                error,
+                protected: self.protected.is_some(),
+            }
+        } else if pending == Ok(true) {
+            PersistenceStatus::Pending
+        } else {
+            PersistenceStatus::Clean
+        }
+    }
+
     pub fn restore(
         &mut self,
         world: &World,
         storage: &dyn Storage,
     ) -> Result<(), PersistenceError> {
-        match self.endpoint.restore(world, &self.key, storage) {
+        let result = self.endpoint.restore(world, &self.key, storage);
+        self.last_error = result.as_ref().err().copied();
+        match result {
             Ok(true) => {
                 self.protected = None;
                 Ok(())
@@ -109,12 +131,15 @@ impl ModelEntry {
         force: bool,
     ) -> Result<(), PersistenceError> {
         if !force && let Some(error) = self.protected {
+            self.last_error = Some(error);
             return Err(error);
         }
-        self.endpoint
-            .save(world, &self.key, storage, output, force)?;
-        self.protected = None;
-        Ok(())
+        let result = self.endpoint.save(world, &self.key, storage, output, force);
+        self.last_error = result.as_ref().err().copied();
+        if result.is_ok() {
+            self.protected = None;
+        }
+        result
     }
 }
 
@@ -192,6 +217,7 @@ impl PersistenceRegistry {
             key,
             endpoint: Box::new(endpoint),
             protected,
+            last_error: protected,
         });
         let entity = world.spawn_empty();
         world.insert(entity, registration);

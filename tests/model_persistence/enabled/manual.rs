@@ -9,7 +9,7 @@ use mirui::{
 use std::{cell::RefCell, rc::Rc};
 
 #[derive(Clone, Default)]
-struct SharedStore(Rc<RefCell<MemoryStorage>>);
+pub(super) struct SharedStore(Rc<RefCell<MemoryStorage>>);
 impl Storage for SharedStore {
     fn read(&self, key: &str) -> Result<Option<Vec<u8>>, StorageError> {
         self.0.borrow().read(key)
@@ -22,7 +22,7 @@ impl Storage for SharedStore {
     }
 }
 
-fn value(volume: u8) -> Settings {
+pub(super) fn value(volume: u8) -> Settings {
     Settings {
         volume,
         transient: true,

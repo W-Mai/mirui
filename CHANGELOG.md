@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Persistence::status` reports Model registration, pending saves, operation failures, and automatic-overwrite protection without storage access or allocation.
+
 - `App::persistence()` saves and restores registered Models by handle. Restoration publishes observations across static owned trees without replaying effects, preserves child identities, and protects invalid records from automatic overwrite.
 
 - `PersistencePlugin::codec` selects a complete archive codec by its associated Model type. Instances share the configured codec, duplicate configurations retain the first, and nested Models use their root's format.

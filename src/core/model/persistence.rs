@@ -55,6 +55,11 @@ where
 #[doc(hidden)]
 pub trait PersistenceState: sealed::Sealed + Default + 'static {
     fn changed(&self);
+
+    #[cfg(feature = "persistence")]
+    fn registration_error(&self) -> Option<crate::core::persistence::PersistenceError> {
+        None
+    }
 }
 
 #[cfg(feature = "persistence")]
@@ -102,13 +107,12 @@ mod candidate {
             self.revision.set(self.revision.get().saturating_add(1));
             self.pending.set(true);
         }
+        fn registration_error(&self) -> Option<crate::core::persistence::PersistenceError> {
+            self.registration_error.get()
+        }
     }
 
     impl Candidate {
-        pub fn registration_error(&self) -> Option<crate::core::persistence::PersistenceError> {
-            self.registration_error.get()
-        }
-
         pub(crate) fn reject_registration(
             &self,
             error: crate::core::persistence::PersistenceError,
