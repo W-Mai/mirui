@@ -141,6 +141,16 @@ pub trait Surface: crate::core::cache::InspectCaches {
     /// `None` stops native text input. Backends without text input may ignore this.
     fn set_text_input(&mut self, _state: Option<crate::ui::text_input::TextInputState>) {}
 
+    /// Start an owned clipboard write. Pending writes complete through `InputEvent::Clipboard`.
+    fn write_clipboard(
+        &mut self,
+        request: crate::ui::clipboard::ClipboardWrite,
+    ) -> crate::ui::clipboard::ClipboardDispatch {
+        crate::ui::clipboard::ClipboardDispatch::Complete(
+            request.complete(Err(crate::ui::clipboard::ClipboardError::Unsupported)),
+        )
+    }
+
     /// Full logical-pixel screen rect.
     fn screen_rect(&self) -> Rect {
         let info = self.display_info();

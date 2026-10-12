@@ -299,6 +299,13 @@ impl Surface for SdlSurface {
         self.text_input.set(state);
     }
 
+    fn write_clipboard(
+        &mut self,
+        request: crate::ui::clipboard::ClipboardWrite,
+    ) -> crate::ui::clipboard::ClipboardDispatch {
+        super::sdl_events::write_clipboard(self.canvas.window().subsystem(), request)
+    }
+
     fn poll_event(&mut self) -> Option<InputEvent> {
         if let Some(e) = self.pending.pop_front() {
             return Some(e);

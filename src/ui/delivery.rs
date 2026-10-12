@@ -22,6 +22,10 @@ pub(crate) fn dispatch_input(
 ) -> Result<bool, ListenerError> {
     use crate::input::event::input::{InputEvent, Key};
     match event {
+        InputEvent::Clipboard(response) => {
+            super::clipboard::complete(world, response);
+            return Ok(true);
+        }
         InputEvent::TextInput(event) => {
             super::text_input::deliver_native(world, event);
             return Ok(true);

@@ -6,6 +6,23 @@ use sdl2::event::Event;
 mod text_input;
 pub(crate) use text_input::NativeTextInput;
 
+pub(crate) fn write_clipboard(
+    video: &sdl2::VideoSubsystem,
+    request: crate::ui::clipboard::ClipboardWrite,
+) -> crate::ui::clipboard::ClipboardDispatch {
+    use crate::ui::clipboard::{ClipboardDispatch, ClipboardError};
+    let result = request.data().plain_text().and_then(|text| {
+        if text.as_bytes().contains(&0) {
+            return Err(ClipboardError::InvalidData);
+        }
+        video
+            .clipboard()
+            .set_clipboard_text(text)
+            .map_err(|_| ClipboardError::Platform)
+    });
+    ClipboardDispatch::Complete(request.complete(result))
+}
+
 pub(crate) fn keyboard_input(event: &Event) -> Option<InputEvent> {
     use crate::input::event::input::*;
     use sdl2::keyboard::{Keycode, Mod};

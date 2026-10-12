@@ -12,6 +12,8 @@ pub struct EditorLab {
     pub(super) output: &'static str,
     #[observe]
     pub(super) accent: bool,
+    #[observe]
+    pub(super) clipboard_status: &'static str,
 }
 
 impl Default for EditorLab {
@@ -25,12 +27,29 @@ impl Default for EditorLab {
             shared: shared.into(),
             output: "Try: help / blue / green / clear",
             accent: false,
+            clipboard_status: "Select text to copy",
         }
     }
 }
 
 #[crate::model]
 impl EditorLab {
+    pub(super) fn clipboard_finished(
+        &mut self,
+        result: Result<
+            crate::ui::clipboard::ClipboardOutcome,
+            crate::ui::clipboard::ClipboardError,
+        >,
+    ) {
+        use crate::ui::clipboard::{ClipboardError, ClipboardOutcome};
+        self.clipboard_status = match result {
+            Ok(ClipboardOutcome::Copied) => "Copied",
+            Ok(ClipboardOutcome::EmptySelection) => "No selection",
+            Err(ClipboardError::PermissionDenied) => "Clipboard permission denied",
+            Err(ClipboardError::Unsupported) => "Clipboard unavailable",
+            Err(_) => "Copy failed",
+        };
+    }
     #[observe]
     pub(super) fn matches(&self) -> u8 {
         let _ = self.search.revision();

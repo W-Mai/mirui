@@ -102,6 +102,7 @@ macro_rules! typed_inputs {
             HostVisibility { visible: bool },
             TextCommitted(TextCommitted),
             TextInput(crate::ui::text_input::TextInputEvent),
+            Clipboard(crate::ui::clipboard::ClipboardResponse),
             $($(#[$doc])* $kind { $($(#[$field_doc])* $field: $ty),+ },)+
             AppSuspend,
             AppResume,
@@ -199,6 +200,7 @@ impl InputEvent {
             | Self::TextCommitted(_)
             | Self::TextInput(_) => true,
             Self::AppSuspend
+            | Self::Clipboard(_)
             | Self::AppResume
             | Self::Quit
             | Self::HostFocus { .. }

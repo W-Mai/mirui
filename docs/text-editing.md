@@ -1,5 +1,7 @@
 # Composing text editors
 
+TextEditing supplies editor-local selection and copying through the [clipboard commands](clipboard.md). Shared documents retain independent selections in each editor.
+
 `TextDocument` stores the UTF-8 content and its byte capacity. `TextEditing` binds that document to one editor's selection, focus, and input handling. `TextInput` draws the editor. Custom components can combine these capabilities on the same entity without accessing World or implementing their own keyboard handling.
 
 Dragging from an editor fixes the selection anchor at the starting caret and extends the other endpoint. Release or cancellation retains the selected range. Dragging stops when the editor is no longer focused or its content or selection has changed externally. Editors install `TouchAction::PanY` unless an explicit policy is present, keeping horizontal drags available for selection and vertical drags available for ancestor scrolling.

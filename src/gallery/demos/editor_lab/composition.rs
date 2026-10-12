@@ -2,6 +2,7 @@ use super::editors::{CommandEditor, SearchEditor, SharedEditor};
 use super::keyboard::panel as keyboard_panel;
 use super::model::{EditorLab, TOOLS};
 use crate::prelude::*;
+use crate::ui::clipboard::ClipboardFinished;
 use crate::ui::widgets::{Button, ParagraphStyle, Placeholder, Text, TextEditing};
 
 #[compose]
@@ -74,7 +75,9 @@ pub fn build_widgets(model: model!(EditorLab)) {
                 font_size: 16,
                 bg_color: ColorToken::SurfaceVariant,
                 border_radius: 8
-            )
+            ) on ClipboardFinished(|event: event!(ClipboardFinished)| {
+                model.clipboard_finished(event.result);
+            })
             SharedEditor (
                 id: "editor_shared_b",
                 document: Some(model.shared()),
@@ -85,6 +88,7 @@ pub fn build_widgets(model: model!(EditorLab)) {
                 border_radius: 8
             )
             shared_actions (model.clone(), id("editor_shared_a"))
+            Text (text: ${ model.clipboard_status() }, height: 20, font_size: 12)
             keyboard_panel (model.keyboard())
         }
     };
@@ -98,7 +102,11 @@ fn shared_actions(model: model!(EditorLab), editor: Entity) -> Entity {
                 PointerFocus::Preserve,
                 Text::label("Select all"),
             ] on Tap { commands!().selection().select_all(editor); }
-            Button (id: "editor_replace", height: 34, width: 200, font_size: 12, border_radius: 8) [
+            Button (id: "editor_copy", width: 80, font_size: 12, border_radius: 8) [
+                PointerFocus::Preserve,
+                Text::label("Copy"),
+            ] on Tap { commands!().clipboard().copy(editor); }
+            Button (id: "editor_replace", height: 34, width: 144, font_size: 12, border_radius: 8) [
                 PointerFocus::Preserve,
                 Text::label("Replace document"),
             ] on Tap {

@@ -113,10 +113,10 @@ impl EventCapacity {
 }
 
 impl Default for EventCapacity {
-    /// 8 notification records per buffer, 5 commands per callback, and 16 deliveries per flush. Payload storage includes focus changes, theme and transform updates, editor insertions, and a text-input request.
+    /// 8 notification records per buffer, 5 commands per callback, and 16 deliveries per flush. Payload storage includes clipboard completion, focus changes, theme and transform updates, editor insertions, and a text-input request.
     fn default() -> Self {
         Self::new()
-            .notifications::<super::focus::FocusChanged>(8)
+            .notifications::<crate::ui::clipboard::ClipboardFinished>(8)
             .commands(
                 CommandCapacity::new()
                     .set_theme(1)
@@ -199,8 +199,16 @@ mod tests {
                     capacity.payload_alignment
                         >= core::mem::align_of::<crate::ui::widgets::slider::ValueChanged>()
                 );
+                assert!(
+                    capacity.payload_bytes
+                        >= 8 * core::mem::size_of::<super::super::focus::FocusChanged>()
+                );
+                assert!(
+                    capacity.payload_alignment
+                        >= core::mem::align_of::<super::super::focus::FocusChanged>()
+                );
                 let payload = PayloadRequirements::new()
-                    .include::<super::super::focus::FocusChanged>(8)
+                    .include::<crate::ui::clipboard::ClipboardFinished>(8)
                     .unwrap()
                     .limits()
                     .unwrap();

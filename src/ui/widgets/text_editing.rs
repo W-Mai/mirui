@@ -4,6 +4,7 @@ use crate::core::model::{BindType, ModelHandle};
 
 use super::text_document::{TextDocument, TextEditError};
 
+mod clipboard;
 pub(crate) mod edit_target;
 pub(crate) mod geometry;
 mod input;
@@ -192,7 +193,7 @@ impl TextEditing {
     name = "TextEditing",
     invalidation = Layout,
     attach = input::attach::callback(),
-    input = (input::key::callback(), input::committed::callback(), input::tap::callback(), input::preedit::callback(), input::composition_ended::callback(), input::drag_start::callback(), input::drag_move::callback(), input::drag_end::callback(), input::drag_cancel::callback(), input::select_all::callback()),
+    input = (input::key::callback(), input::committed::callback(), input::tap::callback(), input::preedit::callback(), input::composition_ended::callback(), input::drag_start::callback(), input::drag_move::callback(), input::drag_end::callback(), input::drag_cancel::callback(), (input::select_all::callback(), clipboard::inspect::callback(), clipboard::copy::callback())),
     systems = [input::normalize_selections::system(), input::cursor_blink::system()]
 )]
 fn text_editing_state(_document: model!(optional component.document, watch(revision, capacity))) {}

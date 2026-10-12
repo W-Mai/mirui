@@ -12,6 +12,7 @@
 #[doc(hidden)]
 pub mod branch;
 pub(crate) mod builder;
+pub mod clipboard;
 pub(crate) mod construction;
 pub(crate) mod delivery;
 pub mod dirty;

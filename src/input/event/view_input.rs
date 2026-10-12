@@ -94,6 +94,10 @@ macro_rules! direct_inputs {
 direct_inputs!(super::input::Key, super::input::TextCommitted);
 direct_inputs!(crate::ui::selection::SelectAll);
 direct_inputs!(
+    crate::ui::clipboard::InspectSelection,
+    crate::ui::clipboard::CopySelection
+);
+direct_inputs!(
     crate::ui::text_input::CompositionStarted,
     crate::ui::text_input::CompositionUpdated,
     crate::ui::text_input::CompositionEnded

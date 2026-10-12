@@ -1156,7 +1156,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 p.post_render(&mut self.world, render_ns);
             }
         }
-        self.sync_text_input();
+        self.sync_platform_input();
         Ok(())
     }
 
@@ -1211,14 +1211,28 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// Poll one event
     pub fn poll_event(&mut self) -> Option<InputEvent> {
-        self.sync_text_input();
+        self.sync_platform_input();
         self.backend.poll_event()
     }
 
-    fn sync_text_input(&mut self) {
+    fn sync_platform_input(&mut self) {
         let unavailable = self.text_input_unavailable();
         let state = crate::ui::text_input::native_state(&mut self.world, unavailable);
         self.backend.set_text_input(state);
+        let limit = crate::input::event::runtime::delivery_limits(&self.world)
+            .commands
+            .map_or(0, |capacity| capacity.record_count());
+        for _ in 0..limit {
+            let Some(request) = crate::ui::clipboard::take_write(&mut self.world) else {
+                break;
+            };
+            match self.backend.write_clipboard(request) {
+                crate::ui::clipboard::ClipboardDispatch::Complete(response) => {
+                    crate::ui::clipboard::complete(&mut self.world, &response);
+                }
+                crate::ui::clipboard::ClipboardDispatch::Pending => break,
+            }
+        }
     }
 
     /// Systems + render + poll until quit. Persistent backends take the
@@ -1257,6 +1271,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                         self.finish_quit();
                         return true;
                     }
+                    Some(InputEvent::Clipboard(response)) => {
+                        crate::ui::clipboard::complete(&mut self.world, &response);
+                        self.flush_event_notifications();
+                        self.apply_suspend_request();
+                    }
                     Some(event) => {
                         self.notify_raw_input(&event);
                         self.apply_suspend_request();
@@ -1285,6 +1304,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                     Some(InputEvent::Quit) => {
                         quit = true;
                         break;
+                    }
+                    Some(InputEvent::Clipboard(response)) => {
+                        crate::ui::clipboard::complete(&mut self.world, &response);
+                        self.flush_event_notifications();
+                        self.apply_suspend_request();
                     }
                     Some(event) => {
                         // Simulation owns interactive input, not host lifecycle requests.
@@ -1330,7 +1354,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             }
             self.flush_event_notifications();
         }
-        self.sync_text_input();
+        self.sync_platform_input();
         false
     }
 
@@ -1631,7 +1655,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 }
             }
             self.dirty_plan = plan;
-            self.sync_text_input();
+            self.sync_platform_input();
             return Ok(());
         }
 
@@ -1664,7 +1688,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             }
         }
         self.dirty_plan = plan;
-        self.sync_text_input();
+        self.sync_platform_input();
         Ok(())
     }
 
@@ -2983,6 +3007,7 @@ mod queued_surface {
         framebuffer: FramebufSurface<FlushFn>,
         pub(super) events: VecDeque<InputEvent>,
         pub(super) text_input: Option<crate::ui::text_input::TextInputState>,
+        clipboard: Option<crate::ui::clipboard::ClipboardWrite>,
     }
 
     impl QueuedSurface {
@@ -2992,6 +3017,7 @@ mod queued_surface {
                 framebuffer: FramebufSurface::with_scale(physical_w, physical_h, scale, flush),
                 events: VecDeque::new(),
                 text_input: None,
+                clipboard: None,
             }
         }
     }
@@ -3018,11 +3044,80 @@ mod queued_surface {
         fn set_text_input(&mut self, state: Option<crate::ui::text_input::TextInputState>) {
             self.text_input = state;
         }
+
+        fn write_clipboard(
+            &mut self,
+            request: crate::ui::clipboard::ClipboardWrite,
+        ) -> crate::ui::clipboard::ClipboardDispatch {
+            assert!(self.clipboard.replace(request).is_none());
+            crate::ui::clipboard::ClipboardDispatch::Pending
+        }
     }
 
     impl FramebufferAccess for QueuedSurface {
         fn framebuffer(&mut self) -> Texture<'_> {
             self.framebuffer.framebuffer()
+        }
+    }
+
+    #[test]
+    fn clipboard_acknowledgments_complete_once_in_active_and_suspended_apps() {
+        use crate::prelude::*;
+        use crate::ui::clipboard::{ClipboardFinished, ClipboardOutcome};
+        use crate::ui::widgets::{TextEditing, TextInput, TextSelection};
+        for suspended in [false, true] {
+            let mut app = App::new(QueuedSurface::new(64, 32, Fixed::ONE));
+            app.with_default_widgets();
+            let root = app.spawn_root().id();
+            let mut editor = TextEditing::default().with_text("copy me").unwrap();
+            editor
+                .set_selection(TextSelection {
+                    anchor: 0,
+                    cursor: 4,
+                })
+                .unwrap();
+            let results = alloc::rc::Rc::new(core::cell::Cell::new(0));
+            let capture = results.clone();
+            let node = app.compose(root, |cx| {
+                crate::ui! {
+                    TextInput () [editor] on ClipboardFinished(move |event: &ClipboardFinished| {
+                        assert_eq!(event.result, Ok(ClipboardOutcome::Copied));
+                        capture.set(capture.get() + 1);
+                    })
+                }
+            });
+            let button = app.compose(root, |cx| {
+                crate::ui! {
+                    View () on Tap { commands!().clipboard().copy(node); }
+                }
+            });
+            crate::ui::delivery::dispatch_gesture(
+                &mut app.world,
+                &crate::input::event::gesture::GestureEvent::Tap {
+                    target: button,
+                    x: Fixed::ZERO,
+                    y: Fixed::ZERO,
+                },
+                0,
+            )
+            .unwrap();
+            app.poll_event();
+            let write = app.backend.clipboard.take().unwrap();
+            assert_eq!(write.data().plain_text(), Ok("copy"));
+            assert_eq!(results.get(), 0);
+            if suspended {
+                app.suspend();
+            }
+            let response = write.complete(Ok(()));
+            app.backend
+                .events
+                .push_back(InputEvent::Clipboard(response));
+            app.backend
+                .events
+                .push_back(InputEvent::Clipboard(response));
+            assert!(!app.dispatch_pending_input());
+            assert_eq!(results.get(), 1);
+            assert_eq!(app.is_suspended(), suspended);
         }
     }
 

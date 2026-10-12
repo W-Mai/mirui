@@ -927,6 +927,7 @@ impl MiruiRune {
                     use ::mirui::input::event::layout::LayoutSelectors as _;
                     #[allow(unused_imports)]
                     use ::mirui::ui::selection::SelectionSelectors as _;
+                    use ::mirui::ui::clipboard::ClipboardSelectors as _;
                     #binding
                 }
             });
