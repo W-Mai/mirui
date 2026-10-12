@@ -53,6 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Model persistence declarations generate typed field codecs, root key metadata, and prepared restores for static owned fields. Feature selection follows the mirui dependency without requiring a matching application feature.
+
 - Persistence errors distinguish unavailable encoding or restoration capacity from storage backend failures.
 
 - Web native clipboard menu actions use component capabilities; paste preserves string MIME representations and avoids duplicate hidden-input insertion. Unsupported file pastes leave the component unchanged.

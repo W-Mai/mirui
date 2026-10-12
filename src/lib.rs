@@ -109,6 +109,21 @@ pub mod types;
 pub mod ui;
 
 /// Runtime types used only by generated authoring macros.
+#[cfg(feature = "persistence")]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __mirui_persistence {
+    ($($item:item)*) => { $($item)* };
+}
+
+#[cfg(not(feature = "persistence"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __mirui_persistence {
+    ($($item:item)*) => {};
+}
+
+/// Runtime types used only by generated authoring macros.
 #[doc(hidden)]
 pub mod __macro_support {
     pub fn despawn_subtree(world: &mut crate::ecs::World, entity: crate::ecs::Entity) {

@@ -43,6 +43,8 @@ mod mold;
 /// Apply to a struct and its inherent implementation. A `model!(owned Child)` field stores child data constructed with `.into()`; registering the parent also registers its children. The field getter returns the child instance for existing Model roles. Parent and child mutations commit the same tree before delivering effects.
 ///
 /// Mark an extractor with `#[effects]` to return `Option<E>` or `[Option<E>; N]`. Register a consumer with `model.on_effect(|event: &E| { ... })`; each present event is borrowed separately after state publication. Extractors are called by the framework and are not exposed on the registered instance.
+///
+/// `#[model(persistence)]` and field-level `#[persist]` generate a typed field codec; `persistence(key = "settings")` adds root key metadata. Fields match by name and archive type, independently of `#[observe]`. Codec support is compiled according to mirui's `persistence` feature, not the application's feature names.
 #[proc_macro_attribute]
 pub fn model(attr: TokenStream, item: TokenStream) -> TokenStream {
     let attr = proc_macro2::TokenStream::from(attr);

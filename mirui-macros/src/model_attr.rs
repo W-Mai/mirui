@@ -7,6 +7,7 @@ use syn::{Attribute, FnArg, ImplItem, Item, Type, parse_quote, spanned::Spanned}
 
 mod methods;
 mod owned;
+mod persistence;
 
 struct ObservedValue {
     name: syn::Ident,
@@ -123,16 +124,27 @@ fn returns_canonical_result(output: &syn::ReturnType) -> bool {
 struct ModelOptions {
     change: Option<syn::Type>,
     watches: Vec<(syn::Ident, syn::Expr)>,
+    persistence: Option<persistence::Options>,
 }
 
 fn parse_options(attr: TokenStream) -> syn::Result<ModelOptions> {
     let mut options = ModelOptions {
         change: None,
         watches: Vec::new(),
+        persistence: None,
     };
     let metas = Punctuated::<syn::Meta, syn::Token![,]>::parse_terminated.parse2(attr)?;
     for meta in metas {
         match meta {
+            meta if meta.path().is_ident("persistence") => {
+                if options.persistence.is_some() {
+                    return Err(syn::Error::new_spanned(
+                        meta,
+                        "duplicate persistence declaration",
+                    ));
+                }
+                options.persistence = Some(persistence::Options::parse(meta)?);
+            }
             syn::Meta::NameValue(value) if value.path.is_ident("change") => {
                 if options.change.is_some() {
                     return Err(syn::Error::new_spanned(value, "duplicate change type"));
@@ -167,7 +179,12 @@ fn parse_options(attr: TokenStream) -> syn::Result<ModelOptions> {
                     options.watches.push((name.clone(), value.value));
                 }
             }
-            other => return Err(syn::Error::new_spanned(other, "expected change or watch")),
+            other => {
+                return Err(syn::Error::new_spanned(
+                    other,
+                    "expected change, watch, or persistence",
+                ));
+            }
         }
     }
     if options.change.is_none() && !options.watches.is_empty() {
@@ -234,6 +251,7 @@ pub(crate) fn expand(attr: TokenStream, item: TokenStream) -> syn::Result<TokenS
 
 fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Result<TokenStream> {
     let owned_fields = owned::lower_fields(&mut item)?;
+    let persisted = persistence::take_fields(&mut item, options.persistence.is_some())?;
     let name = &item.ident;
     let handle = format_ident!("{}Handle", name);
     let owned_name = format_ident!("{}Owned", name);
@@ -483,6 +501,10 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
 
     let owned_definition = owned::expand(&item, &owned_fields, &model_generics);
     let children_type = owned::children_type(&item, &owned_fields);
+    let persistence = options
+        .persistence
+        .as_ref()
+        .map(|options| persistence::expand(&item, &model_generics, &persisted, options));
 
     Ok(quote! {
         #item
@@ -490,6 +512,8 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
         #snapshot_definition
 
         #owned_definition
+
+        #persistence
 
         #visibility struct #handle #generics #where_clause {
             access: ::mirui::core::model::ModelRef<#name #type_generics>,

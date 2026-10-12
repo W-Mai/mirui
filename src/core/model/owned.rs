@@ -21,6 +21,14 @@ impl<M: Model> OwnedStorage<M> {
         self.value
     }
 
+    #[cfg(feature = "persistence")]
+    pub fn apply_persisted(&mut self, prepared: M::Prepared)
+    where
+        M: crate::core::persistence::value::PersistValue,
+    {
+        self.value.apply(prepared);
+    }
+
     pub fn read<R>(&self, read: impl FnOnce(&M) -> R) -> R {
         read(&self.value)
     }

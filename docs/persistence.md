@@ -2,6 +2,27 @@
 
 Enable the `persistence` feature to use `PersistencePlugin` with a storage backend.
 
+## Model field descriptions
+
+`#[model(persistence)]` declares a field codec. Add `#[persist]` to fields included in the archive; `persistence(key = "settings")` also declares root key metadata. `#[observe]` remains independent of persistence. Static owned Model fields use their child's codec.
+
+```rust
+use mirui::model;
+
+#[model(persistence(key = "settings"))]
+struct Settings {
+    #[persist]
+    volume: u8,
+    #[observe]
+    panel_open: bool,
+}
+
+#[model]
+impl Settings {}
+```
+
+Field codecs match names and archive types, not declaration order. Missing or incompatible fields retain their current values; incompatible types emit a warning. Invalid records are rejected before applying prepared values. Fields without `#[persist]` are not encoded or reset. These declarations do not change the raw Model's memory layout. Disabling mirui's `persistence` feature removes codec implementations and their field trait requirements; the application does not need a same-named feature.
+
 ## Automatic saves
 
 Configure the interval with `autosave(interval)`. Integer arguments are milliseconds; `core::time::Duration` and `std::time::Duration` specify a duration directly.
