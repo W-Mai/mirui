@@ -7,17 +7,15 @@ use crate::ecs::{Entity, World};
 
 use super::{TextDocument, TextEditing};
 
-pub(super) struct EditTarget {
+pub(super) struct EditorIdentity {
     owner: WorldId,
     entity: Entity,
     attachment: Option<u64>,
     retained: Option<InputLease>,
     pub(super) document: Option<<TextDocument as BindType>::Shared>,
-    document_revision: u64,
-    selection_revision: u64,
 }
 
-impl EditTarget {
+impl EditorIdentity {
     pub(super) fn capture(world: &World, entity: Entity) -> Option<Self> {
         let editor = world.get::<TextEditing>(entity)?;
         if !editor.usable(world) {
@@ -33,16 +31,10 @@ impl EditTarget {
             attachment: world.component_generation(entity, TypeId::of::<TextEditing>()),
             retained,
             document: editor.document.clone(),
-            document_revision: editor.read_document(TextDocument::revision),
-            selection_revision: editor.selection_revision,
         })
     }
 
-    pub(super) fn after_edit<'world>(
-        &self,
-        world: &'world World,
-        content_changed: bool,
-    ) -> Option<&'world TextEditing> {
+    pub(super) fn resolve<'world>(&self, world: &'world World) -> Option<&'world TextEditing> {
         if self.owner != world.id()
             || !world.is_alive(self.entity)
             || self.retained.is_some_and(|lease| !lease.valid(world))
@@ -52,13 +44,7 @@ impl EditTarget {
             return None;
         }
         let editor = world.get::<TextEditing>(self.entity)?;
-        if !editor.usable(world)
-            || editor.selection_revision != self.selection_revision
-            || editor.read_document(TextDocument::revision)
-                != self
-                    .document_revision
-                    .checked_add(u64::from(content_changed))?
-        {
+        if !editor.usable(world) {
             return None;
         }
         let same_document = match (&self.document, &editor.document) {
@@ -67,6 +53,51 @@ impl EditTarget {
             _ => false,
         };
         same_document.then_some(editor)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct EditVersion {
+    document: u64,
+    selection: u64,
+}
+
+impl EditVersion {
+    fn capture(editor: &TextEditing) -> Self {
+        Self {
+            document: editor.read_document(TextDocument::revision),
+            selection: editor.selection_revision,
+        }
+    }
+
+    fn after_edit(self, content_changed: bool) -> Option<Self> {
+        Some(Self {
+            document: self.document.checked_add(u64::from(content_changed))?,
+            ..self
+        })
+    }
+}
+
+pub(super) struct EditTarget {
+    pub(super) identity: EditorIdentity,
+    version: EditVersion,
+}
+
+impl EditTarget {
+    pub(super) fn capture(world: &World, entity: Entity) -> Option<Self> {
+        let identity = EditorIdentity::capture(world, entity)?;
+        let version = EditVersion::capture(world.get::<TextEditing>(entity)?);
+        Some(Self { identity, version })
+    }
+
+    pub(super) fn after_edit<'world>(
+        &self,
+        world: &'world World,
+        content_changed: bool,
+    ) -> Option<&'world TextEditing> {
+        let editor = self.identity.resolve(world)?;
+        (EditVersion::capture(editor) == self.version.after_edit(content_changed)?)
+            .then_some(editor)
     }
 }
 

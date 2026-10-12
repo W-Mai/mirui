@@ -20,6 +20,7 @@ fn edit_target_separates_instance_identity_from_content_and_selection_versions()
             assert!(document.replace(2..3, "x").is_err());
             assert!(target.after_edit(&app.world, false).is_some());
             document.set_text("new").unwrap();
+            assert!(target.identity.resolve(&app.world).is_some());
             assert!(target.after_edit(&app.world, false).is_none());
             assert!(target.after_edit(&app.world, true).is_some());
             app.world
@@ -30,6 +31,7 @@ fn edit_target_separates_instance_identity_from_content_and_selection_versions()
                     cursor: 1,
                 })
                 .unwrap();
+            assert!(target.identity.resolve(&app.world).is_some());
             assert!(target.after_edit(&app.world, true).is_none());
         }),
         0
@@ -37,6 +39,7 @@ fn edit_target_separates_instance_identity_from_content_and_selection_versions()
 
     let target = EditTarget::capture(&app.world, node).unwrap();
     app.world.insert(node, TextEditing::new(document));
+    assert!(target.identity.resolve(&app.world).is_none());
     assert!(target.after_edit(&app.world, false).is_none());
 }
 
@@ -51,9 +54,11 @@ fn edit_target_rejects_other_worlds_and_replaced_entity_generations() {
     assert_eq!(node, other_node);
     other.insert(other_node, TextEditing::default());
     assert!(target.after_edit(&other, false).is_none());
+    assert!(target.identity.resolve(&other).is_none());
     world.despawn(node);
     let replacement = world.spawn_empty();
     world.insert(replacement, TextEditing::default());
+    assert!(target.identity.resolve(&world).is_none());
     assert!(target.after_edit(&world, false).is_none());
 }
 
@@ -67,8 +72,24 @@ fn retained_rebinding_invalidates_old_edits_without_replacing_the_component() {
     world.insert(node, gate);
     let target = EditTarget::capture(&world, node).unwrap();
     retire(&mut world, node);
+    assert!(target.identity.resolve(&world).is_none());
     assert!(target.after_edit(&world, false).is_none());
     assert!(EditTarget::capture(&world, node).is_some());
     world.get_mut::<RetainedEffects>(node).unwrap().active = false;
     assert!(EditTarget::capture(&world, node).is_none());
+}
+
+#[test]
+fn document_rebinding_invalidates_identity_even_when_edit_versions_match() {
+    let mut app = App::headless(32, 32);
+    let first = app.add_model(TextDocument::new());
+    let second = app.add_model(TextDocument::new());
+    first.set_text("first").unwrap();
+    second.set_text("other").unwrap();
+    let node = app.spawn_root().id();
+    app.world.insert(node, TextEditing::new(first));
+    let target = EditTarget::capture(&app.world, node).unwrap();
+    app.world.get_mut::<TextEditing>(node).unwrap().document = Some(second);
+    assert!(target.identity.resolve(&app.world).is_none());
+    assert!(target.after_edit(&app.world, false).is_none());
 }

@@ -256,7 +256,7 @@ fn apply(world: &mut World, node: Entity, edit: Edit<'_>) -> Result<(), CommandE
             .replacement
             .as_ref()
             .expect("content edit has a replacement");
-        let result = match &target.document {
+        let result = match &target.identity.document {
             Some(document) => document.replace(range.clone(), text),
             None => world
                 .get_mut::<TextEditing>(node)
