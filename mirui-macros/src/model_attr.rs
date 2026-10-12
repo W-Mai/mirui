@@ -501,6 +501,13 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
 
     let owned_definition = owned::expand(&item, &owned_fields, &model_generics);
     let children_type = owned::children_type(&item, &owned_fields);
+    let persistence_state = if options.persistence.is_some() {
+        quote!(::mirui::__mirui_persistence!(state;);)
+    } else {
+        quote!(
+            type Persistence = ();
+        )
+    };
     let persistence = options
         .persistence
         .as_ref()
@@ -526,6 +533,7 @@ fn expand_struct(mut item: syn::ItemStruct, options: ModelOptions) -> syn::Resul
         }
 
         impl #impl_generics ::mirui::core::model::Model for #name #type_generics #model_where {
+            #persistence_state
             type Handle = #handle #type_generics;
             type Owned = #owned_name #type_generics;
             type Children = #children_type;

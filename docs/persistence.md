@@ -23,6 +23,8 @@ impl Settings {}
 
 Field codecs match names and archive types, not declaration order. Missing or incompatible fields retain their current values; incompatible types emit a warning. Invalid records are rejected before applying prepared values. Fields without `#[persist]` are not encoded or reset. These declarations do not change the raw Model's memory layout. Disabling mirui's `persistence` feature removes codec implementations and their field trait requirements; the application does not need a same-named feature.
 
+Registered roots with persistence declarations retain one save-candidate state for the complete owned tree. Mutations mark it without allocating or copying saved fields, including mutations that return an error; reads do not mark it. Models without a persistence declaration use zero-sized persistence state. Candidate tracking is separate from the storage registration and write acknowledgment.
+
 ## Automatic saves
 
 Configure the interval with `autosave(interval)`. Integer arguments are milliseconds; `core::time::Duration` and `std::time::Duration` specify a duration directly.

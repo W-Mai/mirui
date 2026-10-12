@@ -11,6 +11,7 @@ mod identity;
 mod list;
 mod map;
 mod owned;
+mod persistence;
 mod projection;
 mod set;
 mod tree;
@@ -30,6 +31,11 @@ pub use set::{ModelSetHandle, ModelSetOwned};
 pub use identity::ModelRef;
 #[doc(hidden)]
 pub use owned::{OwnedModel, OwnedStorage};
+#[cfg(feature = "persistence")]
+#[doc(hidden)]
+pub use persistence::Candidate;
+#[doc(hidden)]
+pub use persistence::PersistenceState;
 #[doc(hidden)]
 pub use projection::{ModelChildField, ModelPath, ModelPathThen};
 #[doc(hidden)]
@@ -174,6 +180,8 @@ pub trait Model: ModelMethods + Sized + 'static {
     type Watches: AsRef<[ModelWatch]>;
     type PendingWatches: Copy + AsRef<[bool]> + AsMut<[bool]>;
     type Children: ModelChildren<Self>;
+    #[doc(hidden)]
+    type Persistence: PersistenceState;
 
     #[doc(hidden)]
     fn handle(access: ModelRef<Self>) -> Self::Handle;
@@ -453,6 +461,7 @@ pub struct ModelRoot<M: Model> {
     metadata: ModelMetadata<M>,
     poisoned: Cell<bool>,
     updating: Cell<bool>,
+    persistence: M::Persistence,
 }
 
 impl<M: Model> ModelRoot<M> {
@@ -469,6 +478,7 @@ impl<M: Model> ModelRoot<M> {
                 metadata,
                 poisoned: Cell::new(false),
                 updating: Cell::new(false),
+                persistence: M::Persistence::default(),
             }
         })
     }
@@ -585,6 +595,7 @@ impl<M: Model> ModelRoot<M> {
         self.metadata.begin(&value);
         let mut watches = M::pending_watches();
         let accepted = path.update(&mut value, &mut watches, update);
+        self.persistence.changed();
         self.metadata.extract(&mut value);
         self.metadata.finish(&mut value, watches, false);
         if !accepted {
@@ -1002,6 +1013,7 @@ mod tests {
     }
 
     impl Model for Counter {
+        type Persistence = ();
         type Handle = CounterHandle;
         type Owned = CounterOwned;
         type Snapshot = u32;

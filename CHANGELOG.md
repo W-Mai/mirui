@@ -53,6 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Persistent Model roots track save candidates across child and collection mutations without allocating. Ordinary Models retain zero-sized persistence state.
+
 - Model persistence declarations generate typed field codecs, root key metadata, and prepared restores for static owned fields. Feature selection follows the mirui dependency without requiring a matching application feature.
 
 - Persistence errors distinguish unavailable encoding or restoration capacity from storage backend failures.

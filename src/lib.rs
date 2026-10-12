@@ -113,6 +113,7 @@ pub mod ui;
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __mirui_persistence {
+    (state;) => { type Persistence = $crate::core::model::Candidate; };
     ($($item:item)*) => { $($item)* };
 }
 
@@ -120,6 +121,9 @@ macro_rules! __mirui_persistence {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! __mirui_persistence {
+    (state;) => {
+        type Persistence = ();
+    };
     ($($item:item)*) => {};
 }
 

@@ -85,6 +85,7 @@ impl<M: Model + ItemEffectSource<E>, E> Produces<ModelItemEffect<E>> for ModelLi
 }
 
 impl<M: Model> Model for ModelList<M> {
+    type Persistence = ();
     type Handle = ModelListHandle<M>;
     type Owned = ModelListOwned<M>;
     type Snapshot = (u64, u64);
