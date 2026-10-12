@@ -1,5 +1,7 @@
 # Widget initialization, input, and notifications
 
+For callback syntax, custom event payloads, routing, and capacity configuration, see [Events and callbacks](events.md).
+
 ## Text documents
 
 `mirui::ui::widgets::TextDocument` stores UTF-8 content independently of an editor's selection, composition, and appearance. It can be registered with `App::add_model` or nested using `model!(owned TextDocument)`. Its default byte capacity is 32; `set_capacity` prepares larger buffers explicitly. Capacity changes are observable independently of the content revision.
@@ -275,7 +277,7 @@ Queued notifications retain the source cell's data-binding identity. Rebinding o
 
 An explicit `EventCapacity` replaces the App's default preset. Its command budget also applies to registered widget initialization and input callbacks, including component insertion, property changes, animation commands, and emitted notifications; it is not limited to authored `on` handlers.
 
-Software text-input sessions deliver `CompositionStarted`, `CompositionUpdated`, and `CompositionEnded` directly to the original editor. These callbacks return `()`, do not bubble, and cannot be emitted as business notifications. The editor's View input hook runs before authored listeners. `CompositionUpdated::text()` borrows the preview; `selection()` returns its optional UTF-8 byte range. `CompositionEnded::reason` distinguishes `Committed`, `Cancelled`, and `Interrupted`.
+Native and software text-input sessions deliver `CompositionStarted`, `CompositionUpdated`, and `CompositionEnded` directly to the original editor. These callbacks return `()`, do not bubble, and cannot be emitted as business notifications. The editor's View input hook runs before authored listeners. `CompositionUpdated::text()` borrows the preview; `selection()` returns its optional UTF-8 byte range. `CompositionEnded::reason` distinguishes `Committed`, `Cancelled`, and `Interrupted`.
 
 `TextCommitted` remains consumable: rejecting it prevents the default insertion but still ends the composition. Committing clears the preview before interception, publishes resulting document/selection notifications, then reports `CompositionEnded`. `Committed` describes delivery of the fragment, not successful insertion. Changing focus, replacing the editor or document, rebinding a retained cell, or externally editing the composing document invalidates older session requests.
 

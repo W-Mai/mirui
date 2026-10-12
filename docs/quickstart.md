@@ -356,6 +356,7 @@ You have a running mirui app. The next steps depend on what you want to build:
 - **Compose a text editor** — [`text-editing.md`](text-editing.md) combines a custom Component, TextEditing, TextInput, and a shared document owned by an application Model.
 - **Drive an LCD or touch IC** — implement the `Surface` boundary and use the ESP32-C3 board integration in [`mirui-examples`](https://github.com/W-Mai/mirui-examples) as a complete framebuffer and input reference.
 - **React to state changes declaratively** — [`state-management.md`](state-management.md) covers registered models, model-backed components, typed Views, `Signal<T>`, `Computed<T>`, `Effect`, and DSL bindings.
+- **Handle input and notifications** — [`events.md`](events.md) covers typed callbacks, delivery order, and event capacity; [`widget-events.md`](widget-events.md) lists widget input and notifications.
 - **Persist user state across runs** — the `persistence_counter` Gallery demo connects `PersistencePlugin` to lifecycle pause and resume hooks.
 
 The working examples in [`gallery/examples/`](../gallery/examples/) and [`mirui-examples`](https://github.com/W-Mai/mirui-examples) exercise the same public APIs across desktop, browser, and embedded targets.
