@@ -147,6 +147,76 @@ fn load_rejects_leases_before_consuming_input_and_prepares_new_nested_shapes() {
 }
 
 #[test]
+fn staged_load_is_isolated_and_installs_prepared_nested_nodes_without_allocation() {
+    use crate::core::model::{read_model, update_model};
+
+    let mut app = App::headless(32, 32);
+    let list = app
+        .add_model(ModelList::from([NestedItem::new(1, 1)]))
+        .finish();
+    let (old_id, old) = list.entries().next().unwrap();
+    let child = old.children().get(0).unwrap();
+    let staged = read_model(&list, |value, _| {
+        value
+            .prepare_load(1)
+            .unwrap()
+            .stage([NestedItem::new(7, 3)].into_iter())
+    });
+    assert_eq!(child.value(), 1);
+    assert!(list.get_by_id(old_id).is_some());
+    drop(staged);
+    assert!(ModelHandle::callback_ready(&old));
+    assert!(ModelHandle::callback_ready(&child));
+    assert_eq!(list.get(0).unwrap().children().capacity(), 1);
+
+    let staged = read_model(&list, |value, _| {
+        value
+            .prepare_load(1)
+            .unwrap()
+            .stage([NestedItem::new(9, 3)].into_iter())
+    });
+    update_model(
+        &list,
+        |value| {
+            assert_eq!(tracked_allocations(|| staged.install(value)), 0);
+        },
+        |_| Some(()),
+    );
+    assert!(!ModelHandle::callback_ready(&old));
+    assert!(!ModelHandle::callback_ready(&child));
+    assert!(list.get_by_id(old_id).is_none());
+    let current = list.get(0).unwrap().children();
+    assert_eq!(current.capacity(), 3);
+    assert_eq!(
+        tracked_allocations(|| current.get(0).unwrap().increment()),
+        0
+    );
+    assert_eq!(current.get(0).unwrap().value(), 10);
+}
+
+#[test]
+fn loading_an_empty_dataset_preserves_prepared_vacant_shapes() {
+    let mut app = App::headless(32, 32);
+    let list = app
+        .add_model(ModelList::from([NestedItem::new(1, 3)]))
+        .finish();
+    let old = list.get(0).unwrap();
+    let child = old.children().get(0).unwrap();
+    list.load([]).unwrap();
+    assert!(!ModelHandle::callback_ready(&old));
+    assert!(!ModelHandle::callback_ready(&child));
+    let input = NestedItem::new(4, 3);
+    assert_eq!(
+        tracked_allocations(|| {
+            assert!(list.try_push(input).is_ok());
+            list.get(0).unwrap().children().get(0).unwrap().increment();
+        }),
+        0
+    );
+    assert_eq!(list.get(0).unwrap().children().get(0).unwrap().value(), 5);
+}
+
+#[test]
 fn reconcile_keeps_member_subscriptions_and_effect_routes_in_the_parent_commit() {
     let mut app = App::headless(32, 32);
     let parent = app.add_model(Group::new()).finish();

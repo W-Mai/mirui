@@ -12,6 +12,9 @@ use core::cell::{Cell, RefCell};
 
 type NodeFactory<M> = Box<dyn Fn(usize, Option<&mut OwnedStorage<M>>) -> ChildNode<M>>;
 
+mod load;
+pub(super) use load::PreparedBinding;
+
 struct NodeSlot<M: Model> {
     node: Rc<ChildNode<M>>,
     generation: Cell<u64>,

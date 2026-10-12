@@ -30,13 +30,11 @@ impl<K: Ord + 'static, M: Model> ModelMap<K, M> {
             ));
         }
         input.sort_unstable_by(|a, b| a.0.cmp(&b.0));
-        plan.install(
-            &mut self.members,
-            input.into_iter().map(|(key, value)| {
-                keys.push(KeyEntry { key, slot: 0 });
-                value
-            }),
-        );
+        plan.stage(input.into_iter().map(|(key, value)| {
+            keys.push(KeyEntry { key, slot: 0 });
+            value
+        }))
+        .install(&mut self.members);
         for (entry, (id, _)) in keys.iter_mut().zip(self.members.entries()) {
             entry.slot = id.slot;
         }

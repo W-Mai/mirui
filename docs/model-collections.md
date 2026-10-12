@@ -189,7 +189,7 @@ Map lookup uses binary search. Insertion and removal can move ordered entries; s
 
 Map `load` accepts `(key, data)` pairs, rejects duplicate keys, and installs members in sorted key order. It retires previous members even when their business keys also appear in the input. Rejected input is returned in original input order, not sorted order; neither keys nor Models need `Clone`.
 
-Preflight failure leaves the previous dataset intact. `CollectionLoadError::error()` reports the reason; `into_input()` yields the staged prefix, the item that stopped loading, and the remaining iterator in original order, without cloning values. A hard-limit failure stops consuming at the first excess item. An active registered iterator rejects loading before any input item is consumed.
+Preflight failure leaves the previous dataset intact. Data and member observation storage are prepared before old members are retired; installation does not allocate framework storage. Loading an empty dataset retains the prepared nested shapes of vacant slots. `CollectionLoadError::error()` reports the reason; `into_input()` yields the staged prefix, the item that stopped loading, and the remaining iterator in original order, without cloning values. A hard-limit failure stops consuming at the first excess item. An active registered iterator rejects loading before any input item is consumed.
 
 ```rust,ignore
 if let Err(failure) = todo.items().load(records) {

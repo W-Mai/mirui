@@ -1,9 +1,15 @@
-use super::{Entry, ModelList, Slot};
+use super::{Entry, ModelList, Slot, state::PreparedBinding};
 use crate::core::model::{CollectionError, CollectionLoadError, Model, collection::collect_input};
 
 pub(in crate::core::model) struct PreparedLoad<M: Model> {
     replacement: ModelList<M>,
     len: usize,
+    binding: Option<PreparedBinding<M>>,
+}
+
+pub(in crate::core::model) struct StagedLoad<M: Model> {
+    replacement: ModelList<M>,
+    binding: Option<PreparedBinding<M>>,
 }
 
 impl<M: Model> ModelList<M> {
@@ -19,7 +25,7 @@ impl<M: Model> ModelList<M> {
             Ok(plan) => plan,
             Err(error) => return Err(CollectionLoadError::staged(error, input, remaining)),
         };
-        plan.install(self, input.into_iter());
+        plan.stage(input.into_iter()).install(self);
         Ok(())
     }
 
@@ -53,16 +59,22 @@ impl<M: Model> ModelList<M> {
             .revision
             .checked_add(1)
             .expect("model list revision exhausted");
-        Ok(PreparedLoad { replacement, len })
+        let binding = binding
+            .map(|binding| PreparedBinding::new(binding, capacity))
+            .transpose()?;
+        Ok(PreparedLoad {
+            replacement,
+            len,
+            binding,
+        })
     }
 }
 
 impl<M: Model> PreparedLoad<M> {
-    pub(in crate::core::model) fn install(
-        self,
-        target: &mut ModelList<M>,
+    pub(in crate::core::model) fn stage(
+        mut self,
         input: impl ExactSizeIterator<Item = M>,
-    ) {
+    ) -> StagedLoad<M> {
         assert_eq!(input.len(), self.len, "prepared model load length");
         let mut replacement = self.replacement;
         let mut available = replacement
@@ -81,9 +93,21 @@ impl<M: Model> PreparedLoad<M> {
                 value: value.into(),
             });
         }
-        if let Some(binding) = target.live_binding() {
-            binding.ensure_binding(&mut replacement);
+        if let Some(binding) = &mut self.binding {
+            binding.prepare(&mut replacement);
         }
-        *target = replacement;
+        StagedLoad {
+            replacement,
+            binding: self.binding,
+        }
+    }
+}
+
+impl<M: Model> StagedLoad<M> {
+    pub(in crate::core::model) fn install(mut self, target: &mut ModelList<M>) {
+        if let Some(binding) = self.binding {
+            binding.install(&mut self.replacement);
+        }
+        *target = self.replacement;
     }
 }
