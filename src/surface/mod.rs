@@ -151,6 +151,16 @@ pub trait Surface: crate::core::cache::InspectCaches {
         )
     }
 
+    /// Start a clipboard read. Pending reads complete through `InputEvent::Clipboard`.
+    fn read_clipboard(
+        &mut self,
+        request: crate::ui::clipboard::ClipboardRead,
+    ) -> crate::ui::clipboard::ClipboardDispatch {
+        crate::ui::clipboard::ClipboardDispatch::Complete(
+            request.complete(Err(crate::ui::clipboard::ClipboardError::Unsupported)),
+        )
+    }
+
     /// Full logical-pixel screen rect.
     fn screen_rect(&self) -> Rect {
         let info = self.display_info();

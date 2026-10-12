@@ -1,6 +1,7 @@
 use crate::core::model::{BindType, ModelHandle};
 use crate::ui::clipboard::{
-    ClipboardData, ClipboardError, CopySelection, CutSelection, InspectSelection, SelectionState,
+    ClipboardData, ClipboardError, CopySelection, CutSelection, InspectSelection, PasteSelection,
+    SelectionState,
 };
 
 use super::{TextDocument, TextEditing};
@@ -78,4 +79,45 @@ pub(super) fn cut(
         super::input::replace_from_clipboard(world, node, "")
     });
     Ok(())
+}
+
+#[crate::event]
+pub(super) fn paste(
+    node: entity!(),
+    event: event!(PasteSelection),
+    editors: query!(TextEditing),
+    commands: commands!(),
+) -> Result<(), ClipboardError> {
+    let editor = editors.get(node).ok_or(ClipboardError::Unavailable)?;
+    if !editor.usable_by(crate::core::reactive::current_world_id()) {
+        return Err(ClipboardError::Unavailable);
+    }
+    let text = paste_text(event)?;
+    super::input::validate_replacement(editor, text).map_err(|error| match error {
+        super::TextEditError::Capacity { .. } | super::TextEditError::ReserveFailed { .. } => {
+            ClipboardError::Capacity
+        }
+        super::TextEditError::RevisionExhausted => ClipboardError::Unavailable,
+        _ => ClipboardError::InvalidData,
+    })?;
+    commands.apply_event::<PasteSelection>(node, |world, node, event| {
+        super::input::replace_from_clipboard(
+            world,
+            node,
+            paste_text(event).expect("validated text clipboard"),
+        )
+    });
+    Ok(())
+}
+
+fn paste_text(event: &PasteSelection) -> Result<&str, ClipboardError> {
+    let [item] = event.data().items() else {
+        return Err(ClipboardError::Unsupported);
+    };
+    let format = item
+        .formats()
+        .iter()
+        .find(|format| format.mime().eq_ignore_ascii_case("text/plain"))
+        .ok_or(ClipboardError::Unsupported)?;
+    core::str::from_utf8(format.bytes()).map_err(|_| ClipboardError::InvalidData)
 }

@@ -1,4 +1,4 @@
-//! Component selection snapshots and platform clipboard writes.
+//! Component selection snapshots and acknowledged platform clipboard operations.
 
 use alloc::{boxed::Box, collections::VecDeque};
 use core::any::Any;
@@ -74,6 +74,16 @@ pub struct InspectSelection;
 pub struct CopySelection;
 /// Delete the selected content after an acknowledged clipboard write.
 pub struct CutSelection;
+/// Import clipboard data into the receiving component's current selection.
+#[derive(Clone, Debug)]
+pub struct PasteSelection {
+    data: ClipboardData,
+}
+impl PasteSelection {
+    pub fn data(&self) -> &ClipboardData {
+        &self.data
+    }
+}
 macro_rules! request_event {
     ($event:ty, $result:ty) => {
         impl Event for $event {
@@ -86,6 +96,7 @@ macro_rules! request_event {
 request_event!(InspectSelection, SelectionState);
 request_event!(CopySelection, ClipboardData);
 request_event!(CutSelection, ());
+request_event!(PasteSelection, ());
 
 /// Identity of one clipboard operation issued by an App.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,6 +116,7 @@ pub struct ClipboardFinished {
 pub enum ClipboardOutcome {
     Copied,
     Cut,
+    Pasted,
     CopiedWithoutCut,
     EmptySelection,
 }
@@ -126,16 +138,47 @@ impl ClipboardWrite {
     pub fn complete(self, result: Result<(), ClipboardError>) -> ClipboardResponse {
         ClipboardResponse {
             operation: self.operation,
-            result,
+            result: result.map(|()| Response::Written),
         }
     }
 }
 
 /// A platform acknowledgment, matched to its issuing App and operation.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct ClipboardResponse {
     operation: ClipboardOperationId,
-    result: Result<(), ClipboardError>,
+    result: Result<Response, ClipboardError>,
+}
+#[derive(Clone, Debug)]
+enum Response {
+    Written,
+    Read(PasteSelection),
+}
+
+/// An owned request for a platform clipboard snapshot.
+pub struct ClipboardRead {
+    operation: ClipboardOperationId,
+}
+impl ClipboardRead {
+    pub fn complete(self, result: Result<ClipboardData, ClipboardError>) -> ClipboardResponse {
+        ClipboardResponse {
+            operation: self.operation,
+            result: result.map(|data| Response::Read(PasteSelection { data })),
+        }
+    }
+}
+
+pub(crate) enum ClipboardRequest {
+    Write(ClipboardWrite),
+    Read(ClipboardRead),
+}
+impl ClipboardRequest {
+    fn operation(&self) -> ClipboardOperationId {
+        match self {
+            Self::Write(request) => request.operation,
+            Self::Read(request) => request.operation,
+        }
+    }
 }
 
 pub enum ClipboardDispatch {
@@ -153,6 +196,9 @@ pub trait ClipboardSelectors {
         CopySelection::EVENT;
     #[allow(non_upper_case_globals)]
     const CutSelection: crate::input::event::contract::EventKey<CutSelection> = CutSelection::EVENT;
+    #[allow(non_upper_case_globals)]
+    const PasteSelection: crate::input::event::contract::EventKey<PasteSelection> =
+        PasteSelection::EVENT;
     #[allow(non_upper_case_globals)]
     const ClipboardFinished: crate::input::event::contract::EventKey<ClipboardFinished> =
         ClipboardFinished::EVENT;
@@ -183,33 +229,46 @@ impl ClipboardCommands<'_, '_> {
             Ok(())
         });
     }
+    pub fn paste(&mut self, target: Entity) {
+        self.0.apply(target, (), |world, target, ()| {
+            paste(world, target);
+            Ok(())
+        });
+    }
 }
 
-struct CutGuard {
+struct SelectionGuard<E: Event> {
     state: SelectionState,
     inspect: request::ResolvedRequest<InspectSelection>,
-    cut: request::ResolvedRequest<CutSelection>,
+    request: request::ResolvedRequest<E>,
 }
-impl CutGuard {
-    fn apply(self, world: &mut World) -> Result<(), ClipboardError> {
-        self.cut.validate(world)?;
+impl<E: Event<Route = EntityRequest<Result<(), ClipboardError>>, Source = EntitySource>>
+    SelectionGuard<E>
+{
+    fn apply(self, world: &mut World, event: &E) -> Result<(), ClipboardError> {
+        self.request.validate(world)?;
         if self.inspect.invoke(world, &InspectSelection)?? != self.state {
             return Err(ClipboardError::Unavailable);
         }
-        self.cut.invoke(world, &CutSelection)??;
+        self.request.invoke(world, event)??;
         Ok(())
     }
 }
 
+enum Completion {
+    Copy,
+    Cut(SelectionGuard<CutSelection>),
+    Paste(SelectionGuard<PasteSelection>),
+}
 struct Pending {
     target: Entity,
-    write: ClipboardWrite,
-    cut: Option<CutGuard>,
+    request: ClipboardRequest,
+    completion: Completion,
 }
 struct Running {
     operation: ClipboardOperationId,
     target: Entity,
-    cut: Option<CutGuard>,
+    completion: Completion,
 }
 struct Service {
     pending: VecDeque<Pending>,
@@ -269,7 +328,7 @@ fn capture(
     world: &mut World,
     target: Entity,
     cut: bool,
-) -> Result<Option<(ClipboardData, Option<CutGuard>)>, ClipboardError> {
+) -> Result<Option<(ClipboardData, Completion)>, ClipboardError> {
     let inspect = request::resolve::<InspectSelection, _>(world, target)?;
     let before = inspect.invoke(world, &InspectSelection)??;
     if !before.has_selection() {
@@ -284,17 +343,17 @@ fn capture(
         return Err(ClipboardError::Unavailable);
     }
     data.validate()?;
-    let cut = if let Some(cut) = cut {
+    let completion = if let Some(cut) = cut {
         cut.validate(world)?;
-        Some(CutGuard {
+        Completion::Cut(SelectionGuard {
             state: before,
             inspect,
-            cut,
+            request: cut,
         })
     } else {
-        None
+        Completion::Copy
     };
-    Ok(Some((data, cut)))
+    Ok(Some((data, completion)))
 }
 
 pub(crate) fn copy(world: &mut World, target: Entity) {
@@ -311,17 +370,15 @@ fn write_selection(world: &mut World, target: Entity, cut: bool) {
     };
     let result = capture(world, target, cut);
     match result {
-        Ok(Some((data, cut))) => {
-            let service = world.resource_mut::<Service>().unwrap();
-            if service.pending.len() + usize::from(service.running.is_some()) >= service.limit {
-                finish(world, target, operation, Err(ClipboardError::Capacity));
-            } else {
-                service.pending.push_back(Pending {
+        Ok(Some((data, completion))) => {
+            enqueue(
+                world,
+                Pending {
                     target,
-                    write: ClipboardWrite { operation, data },
-                    cut,
-                });
-            }
+                    request: ClipboardRequest::Write(ClipboardWrite { operation, data }),
+                    completion,
+                },
+            );
         }
         Ok(None) => finish(
             world,
@@ -333,18 +390,64 @@ fn write_selection(world: &mut World, target: Entity, cut: bool) {
     }
 }
 
-pub(crate) fn take_write(world: &mut World) -> Option<ClipboardWrite> {
+fn enqueue(world: &mut World, pending: Pending) {
+    let service = world.resource_mut::<Service>().unwrap();
+    if service.pending.len() + usize::from(service.running.is_some()) >= service.limit {
+        finish(
+            world,
+            pending.target,
+            pending.request.operation(),
+            Err(ClipboardError::Capacity),
+        );
+    } else {
+        service.pending.push_back(pending);
+    }
+}
+
+pub(crate) fn paste(world: &mut World, target: Entity) {
+    let operation = match operation(world) {
+        Ok(operation) => operation,
+        Err(error) => {
+            crate::warn!(target: "mirui::clipboard", "clipboard operation skipped: {:?}", error);
+            return;
+        }
+    };
+    let mut capture = || -> Result<SelectionGuard<PasteSelection>, ClipboardError> {
+        let request = request::resolve(world, target)?;
+        let inspect = request::resolve(world, target)?;
+        let state = inspect.invoke(world, &InspectSelection)??;
+        request.validate(world)?;
+        Ok(SelectionGuard {
+            state,
+            inspect,
+            request,
+        })
+    };
+    match capture() {
+        Ok(guard) => enqueue(
+            world,
+            Pending {
+                target,
+                request: ClipboardRequest::Read(ClipboardRead { operation }),
+                completion: Completion::Paste(guard),
+            },
+        ),
+        Err(error) => finish(world, target, operation, Err(error)),
+    }
+}
+
+pub(crate) fn take_request(world: &mut World) -> Option<ClipboardRequest> {
     let service = world.resource_mut::<Service>()?;
     if service.running.is_some() {
         return None;
     }
     let pending = service.pending.pop_front()?;
     service.running = Some(Running {
-        operation: pending.write.operation,
+        operation: pending.request.operation(),
         target: pending.target,
-        cut: pending.cut,
+        completion: pending.completion,
     });
-    Some(pending.write)
+    Some(pending.request)
 }
 
 pub(crate) fn complete(world: &mut World, response: &ClipboardResponse) {
@@ -363,20 +466,32 @@ pub(crate) fn complete(world: &mut World, response: &ClipboardResponse) {
     let Running {
         operation,
         target,
-        cut,
+        completion,
     } = service.running.take().unwrap();
-    let result = response.result.map(|()| {
-        let Some(cut) = cut else { return ClipboardOutcome::Copied; };
-        match cut.apply(world) {
-            Ok(()) => ClipboardOutcome::Cut,
-            Err(error) => {
-                crate::warn!(target: "mirui::clipboard", "clipboard written, cut skipped: {:?}", error);
-                ClipboardOutcome::CopiedWithoutCut
-            }
-        }
-    });
+    let result = match &response.result {
+        Err(error) => Err(*error),
+        Ok(Response::Written) => match completion {
+            Completion::Copy => Ok(ClipboardOutcome::Copied),
+            Completion::Cut(cut) => Ok(match cut.apply(world, &CutSelection) {
+                Ok(()) => ClipboardOutcome::Cut,
+                Err(error) => {
+                    crate::warn!(target: "mirui::clipboard", "clipboard written, cut skipped: {:?}", error);
+                    ClipboardOutcome::CopiedWithoutCut
+                }
+            }),
+            Completion::Paste(_) => Err(ClipboardError::InvalidData),
+        },
+        Ok(Response::Read(event)) => match completion {
+            Completion::Paste(paste) => event
+                .data
+                .validate()
+                .and_then(|()| paste.apply(world, event))
+                .map(|()| ClipboardOutcome::Pasted),
+            _ => Err(ClipboardError::InvalidData),
+        },
+    };
     finish(world, target, operation, result);
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

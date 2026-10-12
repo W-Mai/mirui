@@ -88,7 +88,7 @@ fn shortcuts_use_custom_component_requests_and_ignore_repeat_release_and_altgr()
         key(&mut app, KEY_A, true, false, modifiers);
         assert!(app.world.get::<Paper>(node).unwrap().selected);
         key(&mut app, KEY_C, true, false, modifiers);
-        let write = clipboard::take_write(&mut app.world).unwrap();
+        let write = clipboard::tests::take_write(&mut app.world).unwrap();
         assert_eq!(write.data().plain_text(), Ok("paper"));
         clipboard::complete(&mut app.world, &write.complete(Ok(())));
         for (pressed, repeat, mods) in [
@@ -112,7 +112,7 @@ fn shortcuts_use_custom_component_requests_and_ignore_repeat_release_and_altgr()
             ),
         ] {
             key(&mut app, KEY_C, pressed, repeat, mods);
-            assert!(clipboard::take_write(&mut app.world).is_none());
+            assert!(clipboard::tests::take_write(&mut app.world).is_none());
         }
     }
 }

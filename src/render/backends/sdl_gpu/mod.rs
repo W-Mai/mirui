@@ -303,6 +303,13 @@ impl Surface for SdlGpuSurface {
         crate::surface::sdl_events::write_clipboard(self.canvas.window().subsystem(), request)
     }
 
+    fn read_clipboard(
+        &mut self,
+        request: crate::ui::clipboard::ClipboardRead,
+    ) -> crate::ui::clipboard::ClipboardDispatch {
+        crate::surface::sdl_events::read_clipboard(self.canvas.window().subsystem(), request)
+    }
+
     fn poll_event(&mut self) -> Option<InputEvent> {
         if let Some(e) = self.pending.pop_front() {
             return Some(e);

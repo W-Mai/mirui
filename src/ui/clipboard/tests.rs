@@ -5,6 +5,14 @@ use crate::ui::widgets::{TextEditing, TextInput, TextSelection};
 use alloc::{string::String, vec::Vec};
 
 mod cut;
+mod paste;
+
+pub(crate) fn take_write(world: &mut World) -> Option<ClipboardWrite> {
+    take_request(world).map(|request| match request {
+        ClipboardRequest::Write(write) => write,
+        ClipboardRequest::Read(_) => panic!("expected a clipboard write"),
+    })
+}
 
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 

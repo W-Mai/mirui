@@ -193,7 +193,7 @@ impl TextEditing {
     name = "TextEditing",
     invalidation = Layout,
     attach = input::attach::callback(),
-    input = (input::key::callback(), input::committed::callback(), input::tap::callback(), input::preedit::callback(), input::composition_ended::callback(), input::drag_start::callback(), input::drag_move::callback(), input::drag_end::callback(), input::drag_cancel::callback(), (input::select_all::callback(), clipboard::inspect::callback(), clipboard::copy::callback(), clipboard::cut::callback())),
+    input = (input::key::callback(), input::committed::callback(), input::tap::callback(), input::preedit::callback(), input::composition_ended::callback(), input::drag_start::callback(), input::drag_move::callback(), input::drag_end::callback(), input::drag_cancel::callback(), (input::select_all::callback(), clipboard::inspect::callback(), clipboard::copy::callback(), clipboard::cut::callback(), clipboard::paste::callback())),
     systems = [input::normalize_selections::system(), input::cursor_blink::system()]
 )]
 fn text_editing_state(_document: model!(optional component.document, watch(revision, capacity))) {}

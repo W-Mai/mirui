@@ -175,9 +175,19 @@ impl ClipboardData {
             .try_reserve_exact(text.len())
             .map_err(|_| ClipboardError::Capacity)?;
         bytes.extend_from_slice(text.as_bytes());
+        Self::text_bytes(bytes)
+    }
+
+    #[cfg(any(feature = "sdl", feature = "sdl-gpu"))]
+    pub(crate) fn owned_text(text: alloc::string::String) -> Result<Self, ClipboardError> {
+        Self::text_bytes(text.into_bytes())
+    }
+
+    fn text_bytes(bytes: Vec<u8>) -> Result<Self, ClipboardError> {
+        let len = bytes.len();
         let mut item = ClipboardItem::with_capacity(1)?;
         item.push(ClipboardFormat::new("text/plain", bytes))?;
-        let mut data = Self::with_capacity(1, text.len())?;
+        let mut data = Self::with_capacity(1, len)?;
         data.push(item)?;
         Ok(data)
     }

@@ -1,6 +1,6 @@
 # Composing text editors
 
-TextEditing supplies editor-local selection, copying, and acknowledged cutting through the [clipboard commands](clipboard.md). Shared documents retain independent selections in each editor.
+TextEditing supplies editor-local selection, copying, acknowledged cutting, and selection-aware pasting through the [clipboard commands](clipboard.md). Shared documents retain independent selections in each editor.
 
 `TextDocument` stores the UTF-8 content and its byte capacity. `TextEditing` binds that document to one editor's selection, focus, and input handling. `TextInput` draws the editor. Custom components can combine these capabilities on the same entity without accessing World or implementing their own keyboard handling.
 

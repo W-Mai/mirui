@@ -137,7 +137,7 @@ fn software_keys_use_selection_defaults_without_reentering_the_input_method() {
             cursor: 8
         }
     );
-    let write = clipboard::take_write(&mut app.world).unwrap();
+    let write = clipboard::tests::take_write(&mut app.world).unwrap();
     assert_eq!(write.data().plain_text(), Ok("software"));
     assert!(
         service(&app.world)
@@ -178,7 +178,7 @@ fn copy_shortcut_uses_formal_selection_without_ending_composition() {
     );
     native(&mut app, session.preedit("ni", Some(2..2)));
     native(&mut app, shortcut(KEY_C));
-    let write = clipboard::take_write(&mut app.world).unwrap();
+    let write = clipboard::tests::take_write(&mut app.world).unwrap();
     assert_eq!(write.data().plain_text(), Ok("A中🙂"));
     let input = app.world.get::<TextEditing>(editor).unwrap();
     assert_eq!(input.selection(), selection);
@@ -251,7 +251,7 @@ fn clipboard_cut_ends_composition_after_editing_and_rejects_late_session_input()
     let mut batch = queue.begin();
     batch.commands().clipboard().cut(editor);
     batch.finish(&mut app.world).unwrap();
-    let write = clipboard::take_write(&mut app.world).unwrap();
+    let write = clipboard::tests::take_write(&mut app.world).unwrap();
     assert_eq!(write.data().plain_text(), Ok("中🙂"));
     assert!(app.world.resource::<CutObserved>().unwrap().0.is_empty());
     clipboard::complete(&mut app.world, &write.complete(Ok(())));

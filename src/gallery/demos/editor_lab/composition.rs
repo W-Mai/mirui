@@ -98,19 +98,23 @@ pub fn build_widgets(model: model!(EditorLab)) {
 fn shared_actions(model: model!(EditorLab), editor: Entity) -> Entity {
     ui! {
         Row (height: 34, column_gap: 8) {
-            Button (id: "editor_select_all", width: 112, font_size: 12, border_radius: 8) [
+            Button (id: "editor_select_all", width: 88, font_size: 12, border_radius: 8) [
                 PointerFocus::Preserve,
                 Text::label("Select all"),
             ] on Tap { commands!().selection().select_all(editor); }
-            Button (id: "editor_copy", width: 60, font_size: 12, border_radius: 8) [
+            Button (id: "editor_copy", width: 56, font_size: 12, border_radius: 8) [
                 PointerFocus::Preserve,
                 Text::label("Copy"),
             ] on Tap { commands!().clipboard().copy(editor); }
-            Button (id: "editor_cut", width: 60, font_size: 12, border_radius: 8) [
+            Button (id: "editor_cut", width: 48, font_size: 12, border_radius: 8) [
                 PointerFocus::Preserve,
                 Text::label("Cut"),
             ] on Tap { commands!().clipboard().cut(editor); }
-            Button (id: "editor_replace", height: 34, width: 120, font_size: 12, border_radius: 8) [
+            Button (id: "editor_paste", width: 56, font_size: 12, border_radius: 8) [
+                PointerFocus::Preserve,
+                Text::label("Paste"),
+            ] on Tap { commands!().clipboard().paste(editor); }
+            Button (id: "editor_replace", height: 34, width: 112, font_size: 12, border_radius: 8) [
                 PointerFocus::Preserve,
                 Text::label("Replace text"),
             ] on Tap {

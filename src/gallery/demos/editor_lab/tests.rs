@@ -54,7 +54,7 @@ fn selection_shortcuts_copy_only_the_focused_shared_editors_selection() {
             760,
         );
     }
-    let write = clipboard::take_write(&mut app.world).unwrap();
+    let write = clipboard::tests::take_write(&mut app.world).unwrap();
     model
         .shared()
         .read(|text| assert_eq!(write.data().plain_text(), Ok(text)));

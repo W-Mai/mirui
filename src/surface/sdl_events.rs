@@ -23,6 +23,23 @@ pub(crate) fn write_clipboard(
     ClipboardDispatch::Complete(request.complete(result))
 }
 
+pub(crate) fn read_clipboard(
+    video: &sdl2::VideoSubsystem,
+    request: crate::ui::clipboard::ClipboardRead,
+) -> crate::ui::clipboard::ClipboardDispatch {
+    use crate::ui::clipboard::{ClipboardData, ClipboardDispatch, ClipboardError};
+    let result = if video.clipboard().has_clipboard_text() {
+        video
+            .clipboard()
+            .clipboard_text()
+            .map_err(|_| ClipboardError::Platform)
+            .and_then(ClipboardData::owned_text)
+    } else {
+        Err(ClipboardError::Unsupported)
+    };
+    ClipboardDispatch::Complete(request.complete(result))
+}
+
 pub(crate) fn keyboard_input(event: &Event) -> Option<InputEvent> {
     use crate::input::event::input::*;
     use sdl2::keyboard::{Keycode, Mod};

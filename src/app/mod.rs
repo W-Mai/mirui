@@ -1223,10 +1223,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             .commands
             .map_or(0, |capacity| capacity.record_count());
         for _ in 0..limit {
-            let Some(request) = crate::ui::clipboard::take_write(&mut self.world) else {
+            use crate::ui::clipboard::ClipboardRequest;
+            let Some(request) = crate::ui::clipboard::take_request(&mut self.world) else {
                 break;
             };
-            match self.backend.write_clipboard(request) {
+            let dispatch = match request {
+                ClipboardRequest::Write(request) => self.backend.write_clipboard(request),
+                ClipboardRequest::Read(request) => self.backend.read_clipboard(request),
+            };
+            match dispatch {
                 crate::ui::clipboard::ClipboardDispatch::Complete(response) => {
                     crate::ui::clipboard::complete(&mut self.world, &response);
                 }
@@ -3008,6 +3013,7 @@ mod queued_surface {
         pub(super) events: VecDeque<InputEvent>,
         pub(super) text_input: Option<crate::ui::text_input::TextInputState>,
         clipboard: Option<crate::ui::clipboard::ClipboardWrite>,
+        clipboard_read: Option<crate::ui::clipboard::ClipboardRead>,
     }
 
     impl QueuedSurface {
@@ -3018,6 +3024,7 @@ mod queued_surface {
                 events: VecDeque::new(),
                 text_input: None,
                 clipboard: None,
+                clipboard_read: None,
             }
         }
     }
@@ -3050,6 +3057,14 @@ mod queued_surface {
             request: crate::ui::clipboard::ClipboardWrite,
         ) -> crate::ui::clipboard::ClipboardDispatch {
             assert!(self.clipboard.replace(request).is_none());
+            crate::ui::clipboard::ClipboardDispatch::Pending
+        }
+
+        fn read_clipboard(
+            &mut self,
+            request: crate::ui::clipboard::ClipboardRead,
+        ) -> crate::ui::clipboard::ClipboardDispatch {
+            assert!(self.clipboard_read.replace(request).is_none());
             crate::ui::clipboard::ClipboardDispatch::Pending
         }
     }
@@ -3111,11 +3126,75 @@ mod queued_surface {
             let response = write.complete(Ok(()));
             app.backend
                 .events
-                .push_back(InputEvent::Clipboard(response));
+                .push_back(InputEvent::Clipboard(response.clone()));
             app.backend
                 .events
                 .push_back(InputEvent::Clipboard(response));
             assert!(!app.dispatch_pending_input());
+            assert_eq!(results.get(), 1);
+            assert_eq!(app.is_suspended(), suspended);
+        }
+    }
+
+    #[test]
+    fn clipboard_reads_apply_once_in_active_and_suspended_apps() {
+        use crate::prelude::*;
+        use crate::ui::clipboard::{ClipboardData, ClipboardFinished, ClipboardOutcome};
+        use crate::ui::widgets::{TextEditing, TextInput, TextSelection};
+        for suspended in [false, true] {
+            let mut app = App::new(QueuedSurface::new(64, 32, Fixed::ONE));
+            app.with_default_widgets();
+            let root = app.spawn_root().id();
+            let mut editor = TextEditing::default().with_text("hello world").unwrap();
+            editor
+                .set_selection(TextSelection {
+                    anchor: 6,
+                    cursor: 11,
+                })
+                .unwrap();
+            let results = alloc::rc::Rc::new(core::cell::Cell::new(0));
+            let capture = results.clone();
+            let node = app.compose(root, |cx| {
+                crate::ui! {
+                    TextInput () [editor] on ClipboardFinished(move |event: &ClipboardFinished| {
+                        assert_eq!(event.result, Ok(ClipboardOutcome::Pasted));
+                        capture.set(capture.get() + 1);
+                    })
+                }
+            });
+            let button = app.compose(root, |cx| {
+                crate::ui! {
+                    View () on Tap { commands!().clipboard().paste(node); }
+                }
+            });
+            crate::ui::delivery::dispatch_gesture(
+                &mut app.world,
+                &crate::input::event::gesture::GestureEvent::Tap {
+                    target: button,
+                    x: Fixed::ZERO,
+                    y: Fixed::ZERO,
+                },
+                0,
+            )
+            .unwrap();
+            app.poll_event();
+            let read = app.backend.clipboard_read.take().unwrap();
+            assert_eq!(results.get(), 0);
+            if suspended {
+                app.suspend();
+            }
+            let response = read.complete(ClipboardData::text("mirui"));
+            app.backend
+                .events
+                .push_back(InputEvent::Clipboard(response.clone()));
+            app.backend
+                .events
+                .push_back(InputEvent::Clipboard(response));
+            assert!(!app.dispatch_pending_input());
+            app.world
+                .get::<TextEditing>(node)
+                .unwrap()
+                .read(|text| assert_eq!(text, "hello mirui"));
             assert_eq!(results.get(), 1);
             assert_eq!(app.is_suspended(), suspended);
         }

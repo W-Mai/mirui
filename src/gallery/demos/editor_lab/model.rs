@@ -45,6 +45,7 @@ impl EditorLab {
         self.clipboard_status = match result {
             Ok(ClipboardOutcome::Copied) => "Copied",
             Ok(ClipboardOutcome::Cut) => "Cut",
+            Ok(ClipboardOutcome::Pasted) => "Pasted",
             Ok(ClipboardOutcome::CopiedWithoutCut) => "Copied; selection changed, not cut",
             Ok(ClipboardOutcome::EmptySelection) => "No selection",
             Err(ClipboardError::PermissionDenied) => "Clipboard permission denied",

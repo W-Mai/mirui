@@ -23,6 +23,7 @@ use crate::core::cache::InspectCaches;
 use crate::render::texture::ColorFormat;
 use crate::types::Fixed;
 
+mod clipboard;
 mod text_input;
 use text_input::{DomFocus, NativeTextInput};
 
@@ -163,6 +164,13 @@ impl Surface for WebCanvasSurface {
                 .push_back(InputEvent::Clipboard(request.complete(result)));
         });
         ClipboardDispatch::Pending
+    }
+
+    fn read_clipboard(
+        &mut self,
+        request: crate::ui::clipboard::ClipboardRead,
+    ) -> crate::ui::clipboard::ClipboardDispatch {
+        clipboard::read(request, self.event_queue.clone())
     }
 
     fn persistence(&self) -> BackbufferPersistence {
