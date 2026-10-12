@@ -51,6 +51,21 @@ Registered roots with persistence declarations retain one save-candidate state f
 
 ## Model codecs
 
+Configure a codec on the plugin, not on the Model declaration:
+
+```rust
+app.add_plugin(
+    PersistencePlugin::new(storage)
+        .codec(GameArchive)
+        .autosave(1000),
+);
+let game = app.add_model(GameModel::default()).finish();
+```
+
+`GameArchive::Model` selects the target type. The plugin selects the codec before reading an instance's record and retains it for that registration. All independent instances of the type share the configured codec; different Apps can use different configurations. Duplicate configurations for one Model type emit a warning and retain the first. Nested Models remain part of their root's archive, without separate codec selection or storage keys.
+
+Without a custom codec, declared fields use the built-in field archive. A persistent root with no declared fields and no custom codec remains unregistered with storage and emits a warning. A custom codec can handle opaque business fields that do not implement field serialization; omit `#[persist]` on those fields.
+
 `ModelCodec` defines a complete archive format for an associated `Model` type. `encode` writes into a reusable byte buffer; `prepare` validates the entire stored record and prepares a restoration without changing the current Model; `apply` consumes that prepared value. Application must not allocate, deliver business effects, or perform additional fallible validation. A custom codec receives and produces complete storage bytes without an added framework prefix. It can access the raw Model's business data, not only fields marked `#[persist]`.
 
 The internal Model save endpoint keeps a weak registration reference, rejects retired, foreign, busy, or poisoned roots, and confirms only the candidate encoded by a successful storage write. An explicit save makes a clean root retryable if encoding or writing fails. A mutation during a write remains pending after that write succeeds. Encoding buffers are reused independently of storage-backend allocations.

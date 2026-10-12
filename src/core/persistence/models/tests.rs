@@ -6,6 +6,8 @@ use crate::{
 use alloc::rc::Rc;
 use core::cell::RefCell;
 
+mod codecs;
+
 #[crate::model(persistence(key = "settings"))]
 struct Settings {
     #[observe]

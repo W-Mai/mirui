@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `PersistencePlugin::codec` selects a complete archive codec by its associated Model type. Instances share the configured codec, duplicate configurations retain the first, and nested Models use their root's format.
+
 - Persistent Models restore declared fields before observation is initialized and register weak save endpoints automatically. Instance keys, disabled IO, duplicate-key rejection, and failed-restore protection are supported.
 
 - Model archive codecs separate encoding, restoration preparation, and application. Weak save endpoints validate root lifetimes and confirm candidates only after successful storage writes.

@@ -5,6 +5,7 @@ extern crate alloc;
 #[doc(hidden)]
 pub mod archive;
 mod autosave;
+mod codec_registry;
 mod error;
 mod model_codec;
 mod models;
@@ -64,6 +65,7 @@ pub struct PersistenceRegistry {
     items: Vec<TrackedItem>,
     autosave: Autosave,
     models: Vec<models::ModelEntry>,
+    codecs: codec_registry::CodecRegistry,
     output: Vec<u8>,
     enabled: bool,
 }
@@ -268,6 +270,7 @@ pub struct PersistencePlugin<S: Storage + 'static> {
     pending: Vec<Pending>,
     autosave: Autosave,
     enabled: bool,
+    codecs: codec_registry::CodecRegistry,
 }
 
 impl<S: Storage + 'static> PersistencePlugin<S> {
@@ -277,12 +280,23 @@ impl<S: Storage + 'static> PersistencePlugin<S> {
             pending: Vec::new(),
             autosave: Autosave::default(),
             enabled: true,
+            codecs: codec_registry::CodecRegistry::default(),
         }
     }
 
     /// Configure whether the plugin performs IO. Disabled Model registrations keep their supplied values.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
+        self
+    }
+
+    /// Select an archive codec for its associated Model type. All independent instances use this codec; nested Models remain part of their root's archive. Duplicate configurations emit a warning and retain the first codec.
+    pub fn codec<C: ModelCodec>(mut self, codec: C) -> Self
+    where
+        C::Model: crate::core::model::PersistModel
+            + crate::core::model::Model<Persistence = crate::core::model::Candidate>,
+    {
+        self.codecs.insert(codec);
         self
     }
 
@@ -372,6 +386,7 @@ where
             items: Vec::new(),
             autosave: core::mem::take(&mut self.autosave),
             models: Vec::new(),
+            codecs: core::mem::take(&mut self.codecs),
             output: Vec::new(),
             enabled: self.enabled,
         };
@@ -444,6 +459,7 @@ mod tests {
             items: Vec::new(),
             autosave: Autosave::default(),
             models: Vec::new(),
+            codecs: codec_registry::CodecRegistry::default(),
             output: Vec::new(),
             enabled: true,
         };

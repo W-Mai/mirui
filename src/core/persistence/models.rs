@@ -93,25 +93,35 @@ impl PersistenceRegistry {
     pub(crate) fn register_model<M>(
         &mut self,
         world: &mut World,
-        mut value: M,
+        value: M,
         key: Cow<'static, str>,
     ) -> M::Handle
     where
         M: PersistModel + PersistValue + Model<Persistence = Candidate>,
     {
-        let valid = self.check_key(&key).and(match M::SCHEMA {
-            Schema::Record(fields) if !fields.is_empty() => Ok(()),
-            _ => Err(PersistenceError::MissingCodec),
-        });
-        if let Err(error) = valid {
-            crate::warn!(target: "mirui::persistence", "model persistence registration failed: {error}");
-            let (registration, handle) = model::register(world, value);
-            registration.reject_persistence(error);
-            let entity = world.spawn_empty();
-            world.insert(entity, registration);
-            return handle;
+        if let Err(error) = self.check_key(&key) {
+            return reject_registration(world, value, error);
         }
-        let codec = FieldCodec::<M>::default();
+        if let Some(codec) = self.codecs.find::<M>() {
+            return codec.register(self, world, value, key);
+        }
+        if !matches!(M::SCHEMA, Schema::Record(fields) if !fields.is_empty()) {
+            return reject_registration(world, value, PersistenceError::MissingCodec);
+        }
+        self.register_with_codec(world, value, key, FieldCodec::<M>::default())
+    }
+
+    pub(super) fn register_with_codec<M, C>(
+        &mut self,
+        world: &mut World,
+        mut value: M,
+        key: Cow<'static, str>,
+        codec: C,
+    ) -> M::Handle
+    where
+        M: Model<Persistence = Candidate>,
+        C: ModelCodec<Model = M>,
+    {
         let restored = if self.enabled {
             self.storage
                 .read(&key)
@@ -143,4 +153,17 @@ impl PersistenceRegistry {
         world.insert(entity, registration);
         handle
     }
+}
+
+fn reject_registration<M: Model<Persistence = Candidate>>(
+    world: &mut World,
+    value: M,
+    error: PersistenceError,
+) -> M::Handle {
+    crate::warn!(target: "mirui::persistence", "model persistence registration failed: {error}");
+    let (registration, handle) = model::register(world, value);
+    registration.reject_persistence(error);
+    let entity = world.spawn_empty();
+    world.insert(entity, registration);
+    handle
 }

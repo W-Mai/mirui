@@ -18,7 +18,11 @@ struct Settings {
 }
 
 #[model]
-impl Settings {}
+impl Settings {
+    fn volume(&self) -> u8 {
+        self.volume
+    }
+}
 
 #[model(persistence)]
 struct Generic<T: 'static> {
@@ -59,6 +63,47 @@ fn disabled_persistence_does_not_require_field_codecs() {
 mod enabled {
     use super::*;
     use mirui::core::model::PersistModel;
+
+    struct RawSettings;
+
+    impl mirui::core::persistence::ModelCodec for RawSettings {
+        type Model = Settings;
+        type Prepared = u8;
+        fn encode(&self, model: &Settings, output: &mut Vec<u8>) -> Result<(), PersistenceError> {
+            output.push(model.volume);
+            Ok(())
+        }
+        fn prepare(&self, _: &Settings, bytes: &[u8]) -> Result<u8, PersistenceError> {
+            match bytes {
+                [value] if *value <= 100 => Ok(*value),
+                _ => Err(PersistenceError::InvalidArchive),
+            }
+        }
+        fn apply(&self, model: &mut Settings, value: u8) {
+            model.volume = value;
+        }
+    }
+
+    #[test]
+    fn plugin_selects_an_external_codec_before_publishing_the_handle() {
+        use mirui::core::{
+            persistence::PersistencePlugin,
+            storage::{MemoryStorage, Storage},
+        };
+        let mut storage = MemoryStorage::new();
+        storage.write("settings", &[82]).unwrap();
+        let mut app = mirui::app::App::headless(16, 16);
+        app.add_plugin(PersistencePlugin::new(storage).codec(RawSettings));
+        let settings = app
+            .add_model(Settings {
+                volume: 2,
+                transient: true,
+                dark_mode: false,
+            })
+            .finish();
+        assert!(settings.transient());
+        assert_eq!(settings.volume(), 82);
+    }
 
     #[test]
     fn generic_persistent_models_register_without_changing_their_handle_type() {
