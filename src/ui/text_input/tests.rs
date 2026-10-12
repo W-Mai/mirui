@@ -77,6 +77,78 @@ fn native(app: &mut TestApp, event: crate::surface::InputEvent) {
     crate::input::event::deliver_input(&mut app.world, None, &event, 0, 200, 100);
 }
 
+#[crate::event]
+fn software_select_and_copy(
+    event: event!(Key),
+    provider: model!(Provider),
+    commands: commands!(),
+) -> bool {
+    use crate::input::event::input::{KEY_A, KEY_C, KeyModifiers};
+    if event.code != crate::input::event::input::KEY_RETURN || !event.pressed {
+        return false;
+    }
+    if let Some(session) = provider.session() {
+        for code in [KEY_A, KEY_C] {
+            commands.text_input().key(
+                session,
+                Key {
+                    code,
+                    pressed: true,
+                    modifiers: Some(KeyModifiers {
+                        control: true,
+                        ..Default::default()
+                    }),
+                    repeat: Some(false),
+                },
+            );
+        }
+    }
+    true
+}
+
+#[test]
+fn software_keys_use_selection_defaults_without_reentering_the_input_method() {
+    use crate::input::event::input::{InputEvent, KEY_RETURN};
+    use crate::ui::clipboard;
+    let (mut app, editor, _, provider) = fixture();
+    app.with_input_method(InputMethod::software((
+        changed::callback(provider.clone()),
+        software_select_and_copy::callback(provider.clone()),
+    )));
+    super::super::delivery::flush(&mut app.world).unwrap();
+    let session = provider.session().unwrap();
+    run(
+        &mut app,
+        Request::Commit(session, TextCommitted::new("software")),
+    );
+    native(
+        &mut app,
+        InputEvent::Key {
+            code: KEY_RETURN,
+            pressed: true,
+            modifiers: None,
+            repeat: Some(false),
+        },
+    );
+    assert_eq!(
+        app.world.get::<TextEditing>(editor).unwrap().selection(),
+        TextSelection {
+            anchor: 0,
+            cursor: 8
+        }
+    );
+    let write = clipboard::take_write(&mut app.world).unwrap();
+    assert_eq!(write.data().plain_text(), Ok("software"));
+    assert!(
+        service(&app.world)
+            .unwrap()
+            .state
+            .borrow()
+            .pending
+            .is_empty()
+    );
+}
+
 #[test]
 fn copy_shortcut_uses_formal_selection_without_ending_composition() {
     use crate::input::event::input::{InputEvent, KEY_A, KEY_C, KeyModifiers};

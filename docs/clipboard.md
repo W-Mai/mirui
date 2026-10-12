@@ -13,6 +13,8 @@ Commands execute in order. `select_all(editor)` followed by `copy(editor)` copie
 
 Ctrl/Command+A selects all and Ctrl/Command+C copies the focused component's selection. These defaults run after Key handlers allow propagation; a consumed Key prevents the default operation. The target and capability provider are fixed before callbacks, so changing focus cannot redirect the operation. Removed, hidden, replaced, or rebound targets are rejected. Key releases, auto-repeat, and Alt/Shift combinations do not run these defaults. Copy during composition reads the formal document selection without committing or cancelling preedit.
 
+Software input methods can send the same keys through `commands.text_input().key(session, key)`. They use the session's editor and the same selection defaults without reentering the input method's own Key interceptor.
+
 ## Completion
 
 Listen for `mirui::ui::clipboard::ClipboardFinished` on the target editor, not the toolbar button. Its operation ID identifies one request. `result` distinguishes `ClipboardOutcome::Copied`, `ClipboardOutcome::EmptySelection`, and `ClipboardError`. Copied means the platform write acknowledged success; permission rejection, unsupported data, and platform failure are not success. Completion never retries a write. Duplicate or foreign-App acknowledgments are ignored.

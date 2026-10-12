@@ -6,6 +6,36 @@ use crate::input::event::lifecycle::AppNotice;
 use crate::input::event::listeners::{InputBranch, ListenerError};
 use crate::input::event::{BubbleControl, multi_tap, runtime};
 
+pub(super) struct KeyboardDelivery {
+    origin: Option<crate::ecs::Entity>,
+    key: crate::input::event::input::Key,
+    shortcut: Option<super::selection::Shortcut>,
+}
+
+impl KeyboardDelivery {
+    pub(super) fn capture(
+        world: &World,
+        origin: Option<crate::ecs::Entity>,
+        key: crate::input::event::input::Key,
+    ) -> Self {
+        Self {
+            origin,
+            shortcut: origin
+                .and_then(|target| super::selection::Shortcut::capture(world, target, &key)),
+            key,
+        }
+    }
+
+    pub(super) fn deliver(self, world: &mut World) -> Result<(), ListenerError> {
+        if runtime::keyboard(world, self.origin, &self.key)? == BubbleControl::Allow
+            && let Some(shortcut) = self.shortcut
+        {
+            shortcut.apply(world);
+        }
+        Ok(())
+    }
+}
+
 pub fn flush(world: &mut World) -> Result<usize, runtime::RuntimeRunError> {
     prepare(world);
     let result = runtime::flush(world, prepare);
@@ -45,16 +75,11 @@ pub(crate) fn dispatch_input(
             let origin = world
                 .resource::<FocusState>()
                 .and_then(|focus| focus.focused);
-            let shortcut =
-                origin.and_then(|target| super::selection::Shortcut::capture(world, target, &key));
-            if super::text_input::intercept_key(world, &key) {
+            let delivery = KeyboardDelivery::capture(world, origin, key);
+            if super::text_input::intercept_key(world, &delivery.key) {
                 return Ok(true);
             }
-            if runtime::keyboard(world, origin, &key)? == BubbleControl::Allow
-                && let Some(shortcut) = shortcut
-            {
-                shortcut.apply(world);
-            }
+            delivery.deliver(world)?;
             return Ok(true);
         }
         InputEvent::TextCommitted(_) if super::text_input::software_selected(world) => {

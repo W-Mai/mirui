@@ -480,7 +480,9 @@ fn deliver(world: &mut World, service: &Service, request: &Request) {
         }
         Request::Cancel(_) => end(world, &mut active, CompositionEndReason::Cancelled),
         Request::Key(_, key) => {
-            if let Err(error) = runtime::keyboard_from(world, active.entity, key) {
+            let delivery =
+                super::delivery::KeyboardDelivery::capture(world, Some(active.entity), *key);
+            if let Err(error) = delivery.deliver(world) {
                 crate::warn!(target: "mirui::input", "editing key skipped: {:?}", error);
             }
         }

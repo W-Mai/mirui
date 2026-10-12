@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Software input-method keys invoke the same component selection defaults as platform keys without recursively entering the input method.
+
 - Selection requests reject replaced providers, changed component attachments, and rebound retained rows before accepting callback results.
 
 - Editor Lab source includes the on-screen keyboard implementation.
