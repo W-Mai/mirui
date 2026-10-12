@@ -3,6 +3,8 @@ use crate::core::storage::StorageError;
 /// Failure to register, restore, or save persisted state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PersistenceError {
+    /// No persistence plugin is installed in this application.
+    Unavailable,
     /// The storage backend rejected an operation.
     Storage(StorageError),
     /// Stored bytes failed format or domain validation.
@@ -38,6 +40,7 @@ impl From<StorageError> for PersistenceError {
 impl core::fmt::Display for PersistenceError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::Unavailable => f.write_str("persistence plugin is not installed"),
             Self::Storage(error) => error.fmt(f),
             Self::InvalidArchive => f.write_str("invalid persistence archive"),
             Self::Encoding => f.write_str("persistence encoding failed"),

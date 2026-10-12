@@ -70,6 +70,21 @@ Without a custom codec, declared fields use the built-in field archive. A persis
 
 The internal Model save endpoint keeps a weak registration reference, rejects retired, foreign, busy, or poisoned roots, and confirms only the candidate encoded by a successful storage write. An explicit save makes a clean root retryable if encoding or writing fails. A mutation during a write remains pending after that write succeeds. Encoding buffers are reused independently of storage-backend allocations.
 
+## Manual operations
+
+Use `app.persistence()` to save or restore a registered root by its handle. The stored key and selected codec belong to the registration; callers do not repeat them.
+
+```rust
+app.persistence().save(&settings)?;
+app.persistence().restore(&settings)?;
+app.persistence().save_all()?;
+app.persistence().set_enabled(false)?;
+```
+
+Restoration prepares the entire record before applying it, then publishes observed fields, derived values, and watches together. Static owned children retain their identities and subscriptions. Fields not marked `#[persist]` keep their current values under the default codec. Restoration does not invoke effects extractors or deliver business effects; it does not replay actions.
+
+Missing records leave data unchanged. Failed decoding or storage reads leave data unchanged and protect the entry from automatic overwrite. Successful restoration establishes a clean saved baseline; an explicit successful save can also clear protection. Invalid ownership, retired registrations, busy Models, and disabled persistence are rejected. An absent plugin returns `PersistenceError::Unavailable`.
+
 ## Automatic saves
 
 Configure the interval with `autosave(interval)`. Integer arguments are milliseconds; `core::time::Duration` and `std::time::Duration` specify a duration directly.

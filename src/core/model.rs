@@ -33,7 +33,9 @@ pub use identity::ModelRef;
 pub use owned::{OwnedModel, OwnedStorage};
 #[cfg(feature = "persistence")]
 #[doc(hidden)]
-pub use persistence::{Candidate, SaveEndpoint};
+pub use persistence::Candidate;
+#[cfg(feature = "persistence")]
+pub(crate) use persistence::PersistenceEndpoint;
 #[doc(hidden)]
 pub use persistence::{ModelRegistration, PersistModel, PersistenceState};
 #[doc(hidden)]
@@ -561,6 +563,18 @@ impl<M: Model> ModelAccess<M> for ModelRoot<M> {
 }
 
 impl<M: Model> ModelRoot<M> {
+    fn begin_transaction(&self, value: &M) -> UpdateGuard<'_, M> {
+        assert!(!self.updating.replace(true), "model is already updating");
+        let guard = UpdateGuard {
+            poisoned: &self.poisoned,
+            updating: &self.updating,
+            metadata: &self.metadata,
+            committed: false,
+        };
+        self.metadata.begin(value);
+        guard
+    }
+
     fn update_path<P: ModelPath<M>>(&self, path: &P, update: &mut ModelUpdate<'_, P::Target>) {
         assert!(
             crate::core::reactive::model_writes_allowed(),
@@ -585,14 +599,7 @@ impl<M: Model> ModelRoot<M> {
             .value
             .try_borrow_mut()
             .expect("model is already borrowed");
-        assert!(!self.updating.replace(true), "model is already updating");
-        let mut guard = UpdateGuard {
-            poisoned: &self.poisoned,
-            updating: &self.updating,
-            metadata: &self.metadata,
-            committed: false,
-        };
-        self.metadata.begin(&value);
+        let mut guard = self.begin_transaction(&value);
         let mut watches = M::pending_watches();
         let accepted = path.update(&mut value, &mut watches, update);
         self.persistence.changed();

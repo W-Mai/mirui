@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     core::{
-        model::{self, Candidate, Model, PersistModel, SaveEndpoint},
+        model::{self, Candidate, Model, PersistModel, PersistenceEndpoint},
         storage::Storage,
     },
     ecs::World,
@@ -16,6 +16,13 @@ use crate::{
 mod tests;
 
 pub(super) trait ModelEndpoint {
+    fn matches(&self, reference: &dyn core::any::Any) -> bool;
+    fn restore(
+        &self,
+        world: &World,
+        key: &str,
+        storage: &dyn Storage,
+    ) -> Result<bool, PersistenceError>;
     fn is_alive(&self) -> bool;
     fn mark_pending(&self);
     fn save(
@@ -28,10 +35,21 @@ pub(super) trait ModelEndpoint {
     ) -> Result<(), PersistenceError>;
 }
 
-impl<C: ModelCodec> ModelEndpoint for SaveEndpoint<C>
+impl<C: ModelCodec> ModelEndpoint for PersistenceEndpoint<C>
 where
     C::Model: Model<Persistence = Candidate>,
 {
+    fn matches(&self, reference: &dyn core::any::Any) -> bool {
+        self.matches(reference)
+    }
+    fn restore(
+        &self,
+        world: &World,
+        key: &str,
+        storage: &dyn Storage,
+    ) -> Result<bool, PersistenceError> {
+        self.restore(world, key, storage)
+    }
     fn is_alive(&self) -> bool {
         self.is_alive()
     }
@@ -57,6 +75,32 @@ pub(super) struct ModelEntry {
 }
 
 impl ModelEntry {
+    pub fn restore(
+        &mut self,
+        world: &World,
+        storage: &dyn Storage,
+    ) -> Result<(), PersistenceError> {
+        match self.endpoint.restore(world, &self.key, storage) {
+            Ok(true) => {
+                self.protected = None;
+                Ok(())
+            }
+            Ok(false) => Ok(()),
+            Err(error) => {
+                if matches!(
+                    error,
+                    PersistenceError::Storage(_)
+                        | PersistenceError::InvalidArchive
+                        | PersistenceError::Encoding
+                        | PersistenceError::Capacity
+                ) {
+                    self.protected = Some(error);
+                }
+                Err(error)
+            }
+        }
+    }
+
     pub fn save(
         &mut self,
         world: &World,

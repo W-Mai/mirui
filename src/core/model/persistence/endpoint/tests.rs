@@ -7,6 +7,8 @@ use crate::{
 use alloc::boxed::Box;
 use core::cell::Cell;
 
+mod restore;
+
 #[crate::model(persistence)]
 struct State {
     #[persist]
@@ -73,7 +75,7 @@ impl Storage for Store {
 fn write_receipts_control_candidates_and_reuse_encoding_capacity() {
     let mut world = World::new();
     let (registration, handle) = model::register(&mut world, state());
-    let endpoint = SaveEndpoint::new(&registration.root, Rc::new(FieldCodec::default()));
+    let endpoint = PersistenceEndpoint::new(&registration.root, Rc::new(FieldCodec::default()));
     let candidate = &registration.root.persistence;
     let mut store = Store::default();
     let mut output = Vec::new();
@@ -122,7 +124,7 @@ fn write_receipts_control_candidates_and_reuse_encoding_capacity() {
 fn mutation_during_storage_write_cannot_acknowledge_newer_data() {
     let mut world = World::new();
     let (registration, handle) = model::register(&mut world, state());
-    let endpoint = SaveEndpoint::new(&registration.root, Rc::new(FieldCodec::default()));
+    let endpoint = PersistenceEndpoint::new(&registration.root, Rc::new(FieldCodec::default()));
     let mut store = Store {
         on_write: Some(Box::new(move || handle.increment())),
         ..Store::default()
@@ -149,7 +151,7 @@ fn mutation_during_storage_write_cannot_acknowledge_newer_data() {
 fn failed_explicit_save_becomes_retryable_even_for_a_clean_root() {
     let mut world = World::new();
     let (registration, _) = model::register(&mut world, state());
-    let endpoint = SaveEndpoint::new(&registration.root, Rc::new(FieldCodec::default()));
+    let endpoint = PersistenceEndpoint::new(&registration.root, Rc::new(FieldCodec::default()));
     let mut store = Store::default();
     let mut output = Vec::new();
     endpoint
@@ -176,7 +178,7 @@ fn invalid_roots_never_reach_storage() {
     let (registration, handle) = model::register(&mut world, state());
     let root = registration.root.clone();
     let weak = Rc::downgrade(&root);
-    let endpoint = SaveEndpoint::new(&root, Rc::new(FieldCodec::default()));
+    let endpoint = PersistenceEndpoint::new(&root, Rc::new(FieldCodec::default()));
     let mut store = Store::default();
     let mut output = Vec::new();
     let foreign = World::new();
@@ -253,7 +255,7 @@ fn custom_codec_owns_complete_bytes_and_failed_encoding_never_writes() {
         fail: Cell::new(true),
         on_encode: None,
     });
-    let endpoint = SaveEndpoint::new(&registration.root, codec.clone());
+    let endpoint = PersistenceEndpoint::new(&registration.root, codec.clone());
     let mut store = Store::default();
     let mut output = alloc::vec![1, 2, 3];
     assert_eq!(
@@ -296,7 +298,7 @@ fn retirement_during_encoding_prevents_storage_access() {
             registration.borrow_mut().take();
         })),
     });
-    let endpoint = SaveEndpoint::new(&root, codec);
+    let endpoint = PersistenceEndpoint::new(&root, codec);
     let mut store = Store::default();
     let mut output = Vec::new();
     assert_eq!(

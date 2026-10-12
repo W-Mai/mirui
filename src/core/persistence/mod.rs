@@ -2,6 +2,7 @@
 
 extern crate alloc;
 
+mod access;
 #[doc(hidden)]
 pub mod archive;
 mod autosave;
@@ -11,6 +12,7 @@ mod model_codec;
 mod models;
 #[doc(hidden)]
 pub mod value;
+pub use access::Persistence;
 use autosave::Autosave;
 pub use autosave::IntoDuration;
 pub use error::PersistenceError;

@@ -5,7 +5,7 @@ use alloc::{
 
 use crate::{
     core::{
-        model::{Model, ModelAccess, ModelRoot},
+        model::{Model, ModelAccess, ModelChildren, ModelRef, ModelRoot},
         persistence::{ModelCodec, PersistenceError},
         storage::{Storage, WriteOutcome},
     },
@@ -15,18 +15,93 @@ use crate::{
 use super::{Candidate, PersistenceState};
 
 /// A weak root endpoint using one codec chosen at registration.
-#[doc(hidden)]
-pub struct SaveEndpoint<C: ModelCodec> {
+pub(crate) struct PersistenceEndpoint<C: ModelCodec> {
     root: Weak<ModelRoot<C::Model>>,
     generation: Option<u64>,
     codec: C,
 }
 
-impl<C: ModelCodec> SaveEndpoint<C>
+impl<C: ModelCodec> PersistenceEndpoint<C>
 where
     C::Model: Model<Persistence = Candidate>,
 {
-    pub fn new(root: &Rc<ModelRoot<C::Model>>, codec: C) -> Self {
+    pub(crate) fn matches(&self, reference: &dyn core::any::Any) -> bool {
+        let Some(reference) = reference.downcast_ref::<ModelRef<C::Model>>() else {
+            return false;
+        };
+        let Some(root) = self.root.upgrade() else {
+            return false;
+        };
+        let Some(generation) = self.generation else {
+            return false;
+        };
+        let access: Rc<dyn ModelAccess<C::Model>> = root;
+        reference.same_identity(&ModelRef::new(&access, generation))
+    }
+
+    pub(crate) fn restore(
+        &self,
+        world: &crate::ecs::World,
+        key: &str,
+        storage: &dyn Storage,
+    ) -> Result<bool, PersistenceError> {
+        let root = self.root.upgrade().ok_or(PersistenceError::Unregistered)?;
+        self.validate(&root, world.id())?;
+        if !crate::core::reactive::model_writes_allowed()
+            || !root.metadata.children.is_writable()
+            || root.value.try_borrow_mut().is_err()
+        {
+            return Err(PersistenceError::ModelBusy);
+        }
+        let bytes = storage.read(key)?;
+        self.validate(&root, world.id())?;
+        let Some(bytes) = bytes else {
+            return Ok(false);
+        };
+        if !root.metadata.children.is_writable() {
+            return Err(PersistenceError::ModelBusy);
+        }
+        let mut value = root
+            .value
+            .try_borrow_mut()
+            .map_err(|_| PersistenceError::ModelBusy)?;
+        let prepared = {
+            let _read_only = crate::core::reactive::ModelReadOnlyGuard::enter();
+            self.codec.prepare(&value, &bytes)?
+        };
+        self.validate(&root, world.id())?;
+        if !root.metadata.children.is_writable() {
+            return Err(PersistenceError::ModelBusy);
+        }
+        let mut guard = root.begin_transaction(&value);
+        self.codec.apply(&mut value, prepared);
+        self.validate_identity(&root, world.id())?;
+        root.persistence.changed();
+        root.metadata
+            .finish(&mut value, <C::Model as Model>::pending_watches(), true);
+        root.metadata.capture_after(&value);
+        drop(value);
+        root.persistence.confirm(root.persistence.stamp());
+        root.metadata.publish();
+        guard.committed = true;
+        Ok(true)
+    }
+
+    fn validate_identity(
+        &self,
+        root: &ModelRoot<C::Model>,
+        owner: WorldId,
+    ) -> Result<(), PersistenceError> {
+        if self.generation.is_none() || root.generation() != self.generation {
+            return Err(PersistenceError::Unregistered);
+        }
+        if root.metadata.owner != owner {
+            return Err(PersistenceError::WrongOwner);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn new(root: &Rc<ModelRoot<C::Model>>, codec: C) -> Self {
         Self {
             root: Rc::downgrade(root),
             generation: root.generation(),
@@ -50,12 +125,7 @@ where
     }
 
     fn validate(&self, root: &ModelRoot<C::Model>, owner: WorldId) -> Result<(), PersistenceError> {
-        if self.generation.is_none() || root.generation() != self.generation {
-            return Err(PersistenceError::Unregistered);
-        }
-        if root.metadata.owner != owner {
-            return Err(PersistenceError::WrongOwner);
-        }
+        self.validate_identity(root, owner)?;
         if root.poisoned.get() {
             return Err(PersistenceError::Poisoned);
         }
@@ -66,7 +136,7 @@ where
     }
 
     /// Save a pending root, or encode unconditionally for an explicit save. Only a successful write confirms the captured candidate.
-    pub fn save(
+    pub(crate) fn save(
         &self,
         world: &crate::ecs::World,
         key: &str,
@@ -112,11 +182,11 @@ impl<M: Model<Persistence = Candidate>> crate::core::model::RegisteredModel<M> {
         &self,
         codec: C,
         restored: bool,
-    ) -> SaveEndpoint<C> {
+    ) -> PersistenceEndpoint<C> {
         if restored {
             self.root.persistence.confirm(self.root.persistence.stamp());
         }
-        SaveEndpoint::new(&self.root, codec)
+        PersistenceEndpoint::new(&self.root, codec)
     }
 
     pub(crate) fn reject_persistence(&self, error: PersistenceError) {

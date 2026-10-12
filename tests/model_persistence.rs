@@ -22,6 +22,9 @@ impl Settings {
     fn volume(&self) -> u8 {
         self.volume
     }
+    fn set_volume(&mut self, value: u8) {
+        self.volume = value;
+    }
 }
 
 #[model(persistence)]
@@ -60,9 +63,12 @@ fn disabled_persistence_does_not_require_field_codecs() {
 }
 
 #[cfg(feature = "persistence")]
+#[path = "model_persistence/enabled"]
 mod enabled {
     use super::*;
     use mirui::core::model::PersistModel;
+
+    mod manual;
 
     struct RawSettings;
 

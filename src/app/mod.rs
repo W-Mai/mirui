@@ -199,6 +199,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         ModelBuilder::new(&mut self.world, value)
     }
 
+    /// Access synchronous persistence operations. Install `PersistencePlugin` before registering persistent Models.
+    #[cfg(feature = "persistence")]
+    pub fn persistence(&mut self) -> crate::core::persistence::Persistence<'_> {
+        crate::core::persistence::Persistence::new(&mut self.world)
+    }
+
     pub(crate) fn text_input_unavailable(&self) -> u8 {
         u8::from(self.host_focus == Some(false))
             | (u8::from(self.host_visibility == Some(false)) << 1)

@@ -1,0 +1,78 @@
+use super::{PersistenceError, PersistenceRegistry};
+use crate::{
+    core::model::{ModelHandle, try_registered_owner},
+    ecs::World,
+};
+
+/// Synchronous persistence operations for one application.
+pub struct Persistence<'a> {
+    world: &'a mut World,
+}
+
+impl<'a> Persistence<'a> {
+    pub(crate) fn new(world: &'a mut World) -> Self {
+        Self { world }
+    }
+
+    /// Save a registered root from its current data. A successful write clears failed-restore protection.
+    pub fn save<H: ModelHandle>(&mut self, model: &H) -> Result<(), PersistenceError> {
+        self.with_model(model, |registry, world, index| {
+            registry.models[index].save(world, &mut *registry.storage, &mut registry.output, true)
+        })
+    }
+
+    /// Restore a registered root and publish observations without delivering business effects. Missing data leaves the current value unchanged; invalid data is rejected before application.
+    pub fn restore<H: ModelHandle>(&mut self, model: &H) -> Result<(), PersistenceError> {
+        self.with_model(model, |registry, world, index| {
+            registry.models[index].restore(world, &*registry.storage)
+        })
+    }
+
+    /// Save pending registered values without overriding failed-restore protection. All entries are attempted; the first failure is returned.
+    pub fn save_all(&mut self) -> Result<(), PersistenceError> {
+        self.with_registry(|registry, world| registry.save_all(world))
+    }
+
+    /// Enable or suspend persistence IO. Enabling keeps current data rather than restoring storage.
+    pub fn set_enabled(&mut self, enabled: bool) -> Result<(), PersistenceError> {
+        self.with_registry(|registry, _| {
+            registry.set_enabled(enabled);
+            Ok(())
+        })
+    }
+
+    fn with_registry(
+        &mut self,
+        operation: impl FnOnce(&mut PersistenceRegistry, &mut World) -> Result<(), PersistenceError>,
+    ) -> Result<(), PersistenceError> {
+        self.world
+            .with_resource_box::<PersistenceRegistry, _>(operation)
+            .ok_or(PersistenceError::Unavailable)?
+    }
+
+    fn with_model<H: ModelHandle>(
+        &mut self,
+        model: &H,
+        operation: impl FnOnce(
+            &mut PersistenceRegistry,
+            &mut World,
+            usize,
+        ) -> Result<(), PersistenceError>,
+    ) -> Result<(), PersistenceError> {
+        self.with_registry(|registry, world| {
+            let owner = try_registered_owner(model).ok_or(PersistenceError::Unregistered)?;
+            if owner != world.id() {
+                return Err(PersistenceError::WrongOwner);
+            }
+            if !registry.enabled {
+                return Err(PersistenceError::Disabled);
+            }
+            let index = registry
+                .models
+                .iter()
+                .position(|entry| entry.endpoint.matches(model.access()))
+                .ok_or(PersistenceError::Unregistered)?;
+            operation(registry, world, index)
+        })
+    }
+}
