@@ -4,6 +4,8 @@
 
 extern crate alloc;
 
+#[doc(hidden)]
+pub mod archive;
 mod autosave;
 mod error;
 use autosave::Autosave;
