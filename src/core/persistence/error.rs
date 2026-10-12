@@ -9,6 +9,8 @@ pub enum PersistenceError {
     InvalidArchive,
     /// The current value could not be encoded.
     Encoding,
+    /// Encoding or restoration could not prepare the required capacity.
+    Capacity,
     /// No endpoint is registered for the requested key.
     Unregistered,
 }
@@ -25,6 +27,7 @@ impl core::fmt::Display for PersistenceError {
             Self::Storage(error) => error.fmt(f),
             Self::InvalidArchive => f.write_str("invalid persistence archive"),
             Self::Encoding => f.write_str("persistence encoding failed"),
+            Self::Capacity => f.write_str("persistence capacity unavailable"),
             Self::Unregistered => f.write_str("persistence key is not registered"),
         }
     }

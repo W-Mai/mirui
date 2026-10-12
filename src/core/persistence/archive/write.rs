@@ -12,7 +12,7 @@ impl Writer<'_> {
     pub fn bytes(&mut self, bytes: &[u8]) -> Result<()> {
         self.output
             .try_reserve(bytes.len())
-            .map_err(|_| PersistenceError::Encoding)?;
+            .map_err(|_| PersistenceError::Capacity)?;
         self.output.extend_from_slice(bytes);
         Ok(())
     }

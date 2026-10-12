@@ -1,0 +1,267 @@
+//! Static field codecs with separate preparation and application.
+
+use alloc::{string::String, vec::Vec};
+
+use super::{
+    PersistenceError,
+    archive::{Scalar, Schema, Value, Writer},
+};
+
+type Result<T> = core::result::Result<T, PersistenceError>;
+
+/// Generated field persistence. Apply only to the value used for preparation, without intervening edits.
+///
+/// Preparation must leave current data unchanged and complete all fallible work. Application consumes the prepared value without parsing, reserving capacity, or delivering business effects.
+pub trait PersistValue: Sized {
+    const SCHEMA: Schema;
+    type Prepared;
+
+    fn encode(&self, writer: &mut Writer<'_>) -> Result<()>;
+    fn prepare(&self, value: Value<'_>) -> Result<Self::Prepared>;
+    fn apply(&mut self, prepared: Self::Prepared);
+}
+
+/// Missing or incompatible fields retain the current value.
+pub fn prepare_field<T: PersistValue>(
+    current: &T,
+    record: Value<'_>,
+    name: &str,
+) -> Result<Option<T::Prepared>> {
+    let Some(value) = record.field(name)? else {
+        return Ok(None);
+    };
+    if !value.matches(&T::SCHEMA) {
+        crate::warn!(target: "mirui::persistence", "incompatible persistence field: {name}");
+        return Ok(None);
+    }
+    current.prepare(value).map(Some)
+}
+
+fn check<T: PersistValue>(value: Value<'_>) -> Result<()> {
+    value
+        .matches(&T::SCHEMA)
+        .then_some(())
+        .ok_or(PersistenceError::InvalidArchive)
+}
+
+macro_rules! numbers {
+    ($($ty:ty => $tag:ident),* $(,)?) => {$(
+        impl PersistValue for $ty {
+            const SCHEMA: Schema = Schema::Scalar(Scalar::$tag);
+            type Prepared = Self;
+
+            fn encode(&self, writer: &mut Writer<'_>) -> Result<()> {
+                writer.bytes(&self.to_le_bytes())
+            }
+            fn prepare(&self, value: Value<'_>) -> Result<Self> {
+                check::<Self>(value)?;
+                let bytes = value.bytes().try_into().map_err(|_| PersistenceError::InvalidArchive)?;
+                Ok(Self::from_le_bytes(bytes))
+            }
+            fn apply(&mut self, prepared: Self) { *self = prepared; }
+        }
+    )*};
+}
+
+numbers!(u8 => U8, u16 => U16, u32 => U32, u64 => U64, u128 => U128,
+    i8 => I8, i16 => I16, i32 => I32, i64 => I64, i128 => I128, f32 => F32, f64 => F64);
+
+macro_rules! pointer_integers {
+    ($($ty:ty => $wire:ty, $tag:ident);* $(;)?) => {$(
+        impl PersistValue for $ty {
+            const SCHEMA: Schema = Schema::Scalar(Scalar::$tag);
+            type Prepared = Self;
+
+            fn encode(&self, writer: &mut Writer<'_>) -> Result<()> {
+                let value = <$wire>::try_from(*self).map_err(|_| PersistenceError::Encoding)?;
+                writer.bytes(&value.to_le_bytes())
+            }
+            fn prepare(&self, value: Value<'_>) -> Result<Self> {
+                check::<Self>(value)?;
+                let bytes = value.bytes().try_into().map_err(|_| PersistenceError::InvalidArchive)?;
+                Self::try_from(<$wire>::from_le_bytes(bytes)).map_err(|_| PersistenceError::InvalidArchive)
+            }
+            fn apply(&mut self, prepared: Self) { *self = prepared; }
+        }
+    )*};
+}
+
+pointer_integers!(usize => u64, Usize; isize => i64, Isize);
+
+impl PersistValue for bool {
+    const SCHEMA: Schema = Schema::Scalar(Scalar::Bool);
+    type Prepared = Self;
+
+    fn encode(&self, writer: &mut Writer<'_>) -> Result<()> {
+        writer.bytes(&[u8::from(*self)])
+    }
+    fn prepare(&self, value: Value<'_>) -> Result<Self> {
+        check::<Self>(value)?;
+        Ok(value.bytes() == [1])
+    }
+    fn apply(&mut self, prepared: Self) {
+        *self = prepared;
+    }
+}
+
+impl PersistValue for char {
+    const SCHEMA: Schema = Schema::Scalar(Scalar::Char);
+    type Prepared = Self;
+
+    fn encode(&self, writer: &mut Writer<'_>) -> Result<()> {
+        writer.bytes(&u32::from(*self).to_le_bytes())
+    }
+    fn prepare(&self, value: Value<'_>) -> Result<Self> {
+        check::<Self>(value)?;
+        let bytes = value
+            .bytes()
+            .try_into()
+            .map_err(|_| PersistenceError::InvalidArchive)?;
+        char::from_u32(u32::from_le_bytes(bytes)).ok_or(PersistenceError::InvalidArchive)
+    }
+    fn apply(&mut self, prepared: Self) {
+        *self = prepared;
+    }
+}
+
+impl PersistValue for () {
+    const SCHEMA: Schema = Schema::Scalar(Scalar::Unit);
+    type Prepared = Self;
+
+    fn encode(&self, _writer: &mut Writer<'_>) -> Result<()> {
+        Ok(())
+    }
+    fn prepare(&self, value: Value<'_>) -> Result<Self> {
+        check::<Self>(value)
+    }
+    fn apply(&mut self, (): Self) {}
+}
+
+impl PersistValue for String {
+    const SCHEMA: Schema = Schema::Scalar(Scalar::String);
+    type Prepared = Self;
+
+    fn encode(&self, writer: &mut Writer<'_>) -> Result<()> {
+        writer.bytes(self.as_bytes())
+    }
+    fn prepare(&self, value: Value<'_>) -> Result<Self> {
+        check::<Self>(value)?;
+        let text =
+            core::str::from_utf8(value.bytes()).map_err(|_| PersistenceError::InvalidArchive)?;
+        let mut prepared = String::new();
+        prepared
+            .try_reserve(text.len())
+            .map_err(|_| PersistenceError::Capacity)?;
+        prepared.push_str(text);
+        Ok(prepared)
+    }
+    fn apply(&mut self, prepared: Self) {
+        *self = prepared;
+    }
+}
+
+pub enum Optional<T: PersistValue> {
+    None,
+    Insert(T),
+    Update(T::Prepared),
+}
+
+impl<T: PersistValue + Default> PersistValue for Option<T> {
+    const SCHEMA: Schema = Schema::Option(&T::SCHEMA);
+    type Prepared = Optional<T>;
+
+    fn encode(&self, writer: &mut Writer<'_>) -> Result<()> {
+        match self {
+            Some(value) => {
+                writer.bytes(&[1])?;
+                value.encode(writer)
+            }
+            None => writer.bytes(&[0]),
+        }
+    }
+    fn prepare(&self, value: Value<'_>) -> Result<Self::Prepared> {
+        check::<Self>(value)?;
+        let Some(value) = value.option()? else {
+            return Ok(Optional::None);
+        };
+        match self {
+            Some(current) => current.prepare(value).map(Optional::Update),
+            None => {
+                let mut prepared = T::default();
+                prepared.apply(prepared.prepare(value)?);
+                Ok(Optional::Insert(prepared))
+            }
+        }
+    }
+    fn apply(&mut self, prepared: Self::Prepared) {
+        match prepared {
+            Optional::None => *self = None,
+            Optional::Insert(value) => *self = Some(value),
+            Optional::Update(value) => self.as_mut().expect("prepared Some value").apply(value),
+        }
+    }
+}
+
+impl<T: PersistValue, const N: usize> PersistValue for [T; N] {
+    const SCHEMA: Schema = {
+        assert!(N <= u32::MAX as usize, "archive array length exceeds u32");
+        Schema::Array {
+            len: N as u32,
+            item: &T::SCHEMA,
+        }
+    };
+    type Prepared = [T::Prepared; N];
+
+    fn encode(&self, writer: &mut Writer<'_>) -> Result<()> {
+        for value in self {
+            writer.sized(|writer| value.encode(writer))?;
+        }
+        Ok(())
+    }
+    fn prepare(&self, value: Value<'_>) -> Result<Self::Prepared> {
+        check::<Self>(value)?;
+        let mut prepared = core::array::from_fn::<_, N, _>(|_| None);
+        for ((slot, current), value) in prepared.iter_mut().zip(self).zip(value.items()?) {
+            *slot = Some(current.prepare(value)?);
+        }
+        Ok(prepared.map(|value| value.expect("validated array length")))
+    }
+    fn apply(&mut self, prepared: Self::Prepared) {
+        for (current, prepared) in self.iter_mut().zip(prepared) {
+            current.apply(prepared);
+        }
+    }
+}
+
+impl<T: PersistValue + Default> PersistValue for Vec<T> {
+    const SCHEMA: Schema = Schema::Sequence(&T::SCHEMA);
+    type Prepared = Self;
+
+    fn encode(&self, writer: &mut Writer<'_>) -> Result<()> {
+        writer.count(self.len())?;
+        for value in self {
+            writer.sized(|writer| value.encode(writer))?;
+        }
+        Ok(())
+    }
+    fn prepare(&self, value: Value<'_>) -> Result<Self> {
+        check::<Self>(value)?;
+        let values = value.items()?;
+        let mut prepared = Self::new();
+        prepared
+            .try_reserve(values.len())
+            .map_err(|_| PersistenceError::Capacity)?;
+        for value in values {
+            let mut item = T::default();
+            item.apply(item.prepare(value)?);
+            prepared.push(item);
+        }
+        Ok(prepared)
+    }
+    fn apply(&mut self, prepared: Self) {
+        *self = prepared;
+    }
+}
+
+#[cfg(test)]
+mod tests;

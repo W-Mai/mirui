@@ -8,6 +8,8 @@ extern crate alloc;
 pub mod archive;
 mod autosave;
 mod error;
+#[doc(hidden)]
+pub mod value;
 use autosave::Autosave;
 pub use autosave::IntoDuration;
 pub use error::PersistenceError;

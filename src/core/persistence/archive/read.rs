@@ -65,7 +65,65 @@ impl<'a> Value<'a> {
         }
         Ok(None)
     }
+
+    pub fn option(self) -> Result<Option<Self>> {
+        let Shape::Option(schema) = shape(self.schema)? else {
+            return Err(PersistenceError::InvalidArchive);
+        };
+        let mut bytes = Cursor(self.bytes);
+        match bytes.byte()? {
+            0 => Ok(None),
+            1 => Ok(Some(Self {
+                schema,
+                bytes: bytes.0,
+            })),
+            _ => Err(PersistenceError::InvalidArchive),
+        }
+    }
+
+    pub fn items(self) -> Result<Values<'a>> {
+        let mut bytes = Cursor(self.bytes);
+        let (schema, count) = match shape(self.schema)? {
+            Shape::Sequence(schema) | Shape::Set(schema) => (schema, bytes.count()?),
+            Shape::Array { len, item } => (item, len),
+            _ => return Err(PersistenceError::InvalidArchive),
+        };
+        Ok(Values {
+            schema,
+            bytes,
+            remaining: count as usize,
+        })
+    }
 }
+
+/// Iterates validated collection values without building a temporary index.
+pub struct Values<'a> {
+    schema: &'a [u8],
+    bytes: Cursor<'a>,
+    remaining: usize,
+}
+
+impl<'a> Iterator for Values<'a> {
+    type Item = Value<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.remaining == 0 {
+            return None;
+        }
+        self.remaining -= 1;
+        Some(Value {
+            schema: self.schema,
+            bytes: self.bytes.sized().expect("validated archive item"),
+        })
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+impl ExactSizeIterator for Values<'_> {}
+impl core::iter::FusedIterator for Values<'_> {}
 
 struct Cursor<'a>(&'a [u8]);
 

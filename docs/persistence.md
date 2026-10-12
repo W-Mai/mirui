@@ -26,4 +26,6 @@ Install a clock plugin before the persistence plugin to enable periodic saves. D
 
 Registry operations return `PersistenceError`. `save_all` attempts all registered items and returns the first failure. Plugin lifecycle hooks log failures and retry saves on subsequent save boundaries. Failed restores do not install a saving callback and do not overwrite the stored record.
 
+`PersistenceError::Capacity` reports failure to prepare encoding or restoration memory; it is distinct from a storage backend failure.
+
 Custom byte restore callbacks return `Result<(), PersistenceError>`. Validate the full record before modifying application state; returning an error does not roll back changes made by callback code. Save callbacks must not advance an “already saved” marker while encoding: storage may still reject the write. Identical bytes are deduplicated by the storage backend.
