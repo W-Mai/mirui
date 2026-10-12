@@ -53,7 +53,7 @@ fn assert_component<T: Component>() {}
 fn main() {
     assert_component::<AnimateTarget>();
     let mut app = App::headless(32, 32);
-    let game = app.add_model(Game { value: Fixed::ZERO });
+    let game = app.add_model(Game { value: Fixed::ZERO }).finish();
     let _ = AnimateTarget::system(game);
     let _ = AnimateTarget(Motion::from(Tween::ease_to(Fixed::ZERO, Fixed::ONE, 100)));
     let _: Option<Entity> = None;

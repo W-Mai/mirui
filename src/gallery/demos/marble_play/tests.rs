@@ -76,7 +76,7 @@ fn fixture() -> TestApp {
         .with_widget(board_render::view())
         .with_widget(scene_board_render::view())
         .with_widget(settings_panel_render::view());
-    let model = app.add_model(MarbleModel::new());
+    let model = app.add_model(MarbleModel::new()).finish();
     #[cfg(feature = "audio")]
     {
         let core = crate::audio::SharedAudioCore::new(crate::audio::AudioBus::<32>::new());
@@ -368,8 +368,8 @@ fn marble_boards_share_only_their_bound_model_instance() {
 
     app.with_default_widgets();
     app.with_widget(board_render::view());
-    let shared = app.add_model(MarbleModel::new());
-    let separate = app.add_model(MarbleModel::new());
+    let shared = app.add_model(MarbleModel::new()).finish();
+    let separate = app.add_model(MarbleModel::new()).finish();
     let board_layout = LayoutStyle {
         width: Dimension::px(150),
         height: Dimension::px(199),
@@ -443,8 +443,8 @@ fn marble_board_pixels_follow_only_their_bound_model() {
     let mut app = App::new(backend);
     app.with_default_widgets();
     app.with_widget(board_render::view());
-    let shared = app.add_model(MarbleModel::new());
-    let separate = app.add_model(MarbleModel::new());
+    let shared = app.add_model(MarbleModel::new()).finish();
+    let separate = app.add_model(MarbleModel::new()).finish();
     let board_layout = LayoutStyle {
         width: Dimension::px(480),
         height: Dimension::px(199),
@@ -562,9 +562,9 @@ fn independent_marble_boards_repaint_for_a_shared_selection_source() {
     let mut app = App::new(backend);
     app.with_default_widgets();
     app.with_widget(multi_source_board_render::view());
-    let first = app.add_model(MarbleModel::new());
-    let second = app.add_model(MarbleModel::new());
-    let selection = app.add_model(BoardSelection { marker: 0 });
+    let first = app.add_model(MarbleModel::new()).finish();
+    let second = app.add_model(MarbleModel::new()).finish();
+    let selection = app.add_model(BoardSelection { marker: 0 }).finish();
     let board_layout = LayoutStyle {
         width: Dimension::px(480),
         height: Dimension::px(199),

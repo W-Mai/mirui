@@ -420,8 +420,8 @@ fn every_stage_requires_its_own_motion_state() {
 #[test]
 fn animation_advances_each_registered_stage_instance() {
     let mut app = App::headless(320, 240);
-    let forward = app.add_model(CurveModel::default());
-    let reverse = app.add_model(CurveModel::default());
+    let forward = app.add_model(CurveModel::default()).finish();
+    let reverse = app.add_model(CurveModel::default()).finish();
     reverse.toggle_direction();
     app.world.spawn((
         CurveStage {

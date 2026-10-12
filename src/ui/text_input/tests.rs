@@ -49,7 +49,7 @@ type ProviderModel = <Provider as BindType>::Shared;
 fn fixture() -> (TestApp, Entity, Entity, ProviderModel) {
     let mut app = App::headless(200, 100);
     app.with_default_widgets().with_default_systems();
-    let provider = app.add_model(Provider::default());
+    let provider = app.add_model(Provider::default()).finish();
     app.with_input_method(InputMethod::software(
         (changed::callback(provider.clone()),),
     ));
@@ -367,7 +367,7 @@ fn native_service_is_lazy_and_native_mode_does_not_notify_the_software_provider(
 #[test]
 fn composition_is_display_only_and_confirmed_text_replaces_the_original_selection() {
     let (mut app, editor, _, provider) = fixture();
-    let document = app.add_model(TextDocument::new());
+    let document = app.add_model(TextDocument::new()).finish();
     document.set_text("A🙂Z").unwrap();
     let mut editing = TextEditing::new(document.clone());
     editing
@@ -421,7 +421,7 @@ fn event_commands_keep_focus_and_deliver_after_the_outer_snapshot_is_released() 
 #[test]
 fn external_edits_focus_and_component_replacement_retire_old_sessions() {
     let (mut app, editor, _, provider) = fixture();
-    let document = app.add_model(TextDocument::new());
+    let document = app.add_model(TextDocument::new()).finish();
     app.world.insert(editor, TextEditing::new(document.clone()));
     super::super::delivery::flush(&mut app.world).unwrap();
     let old = provider.session().unwrap();

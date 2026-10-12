@@ -94,7 +94,7 @@ impl Pair {
 #[test]
 fn child_sources_publish_before_any_effect_and_extractor_writes_are_observed() {
     let mut app = crate::app::App::headless(32, 32);
-    let model = app.add_model(Pair::new());
+    let model = app.add_model(Pair::new()).finish();
     let total_read = model.clone();
     let total = with_world_scope(&mut app.world, || Computed::new(move || total_read.total()));
     let left_read = model.left();
@@ -250,7 +250,7 @@ fn path_values_select_data_observations_and_effect_routes_without_hot_allocation
 #[test]
 fn rejected_updates_clear_child_events_and_pending_without_publication() {
     let mut app = crate::app::App::headless(32, 32);
-    let model = app.add_model(Pair::new());
+    let model = app.add_model(Pair::new()).finish();
     let observed = model.clone();
     let total = with_world_scope(&mut app.world, || Computed::new(move || observed.total()));
     let delivered = Rc::new(Cell::new(0));
@@ -292,7 +292,7 @@ fn rejected_updates_clear_child_events_and_pending_without_publication() {
 #[test]
 fn interrupted_effect_delivery_discards_all_retained_transaction_state() {
     let mut app = crate::app::App::headless(32, 32);
-    let model = app.add_model(Pair::new());
+    let model = app.add_model(Pair::new()).finish();
     let panic_once = Cell::new(true);
     model
         .left()
@@ -335,7 +335,7 @@ fn interrupted_effect_delivery_discards_all_retained_transaction_state() {
 #[test]
 fn registration_retirement_recursively_invalidates_child_sources() {
     let mut app = crate::app::App::headless(32, 32);
-    let model = app.add_model(Pair::new());
+    let model = app.add_model(Pair::new()).finish();
     let observed = model.left();
     let child = with_world_scope(&mut app.world, || Computed::new(move || observed.value()));
     assert_eq!(child.get(), 1);
@@ -366,7 +366,7 @@ fn initial_binding_discards_pending_without_extracting_or_publishing() {
     let mut value = Pair::new();
     value.change();
     let mut app = crate::app::App::headless(32, 32);
-    let model = app.add_model(value);
+    let model = app.add_model(value).finish();
     let left = model.left();
     assert_eq!((left.value(), left.value_revision()), (2, 0));
     assert!(model.read(|value| value.left.storage().identity.is_some()));
@@ -404,7 +404,7 @@ fn metadata_preparation_does_not_require_default_or_live_business_data() {
 #[test]
 fn child_adapters_do_not_retain_their_root() {
     let mut app = crate::app::App::headless(32, 32);
-    let model = app.add_model(Pair::new());
+    let model = app.add_model(Pair::new()).finish();
     let child = model.left();
     let retained_child = child.access().upgrade().unwrap();
     assert_eq!(model.access().strong_count(), 1);

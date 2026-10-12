@@ -19,18 +19,33 @@ use super::{Candidate, PersistenceState};
 pub struct SaveEndpoint<C: ModelCodec> {
     root: Weak<ModelRoot<C::Model>>,
     generation: Option<u64>,
-    codec: Rc<C>,
+    codec: C,
 }
 
 impl<C: ModelCodec> SaveEndpoint<C>
 where
     C::Model: Model<Persistence = Candidate>,
 {
-    pub fn new(root: &Rc<ModelRoot<C::Model>>, codec: Rc<C>) -> Self {
+    pub fn new(root: &Rc<ModelRoot<C::Model>>, codec: C) -> Self {
         Self {
             root: Rc::downgrade(root),
             generation: root.generation(),
             codec,
+        }
+    }
+
+    pub(crate) fn is_alive(&self) -> bool {
+        self.root
+            .upgrade()
+            .is_some_and(|root| self.generation.is_some() && root.generation() == self.generation)
+    }
+
+    pub(crate) fn mark_pending(&self) {
+        if let Some(root) = self.root.upgrade()
+            && self.generation.is_some()
+            && root.generation() == self.generation
+        {
+            root.persistence.changed();
         }
     }
 
@@ -89,6 +104,23 @@ where
             root.persistence.confirm(stamp);
         }
         Ok(Some(outcome))
+    }
+}
+
+impl<M: Model<Persistence = Candidate>> crate::core::model::RegisteredModel<M> {
+    pub(crate) fn save_endpoint<C: ModelCodec<Model = M>>(
+        &self,
+        codec: C,
+        restored: bool,
+    ) -> SaveEndpoint<C> {
+        if restored {
+            self.root.persistence.confirm(self.root.persistence.stamp());
+        }
+        SaveEndpoint::new(&self.root, codec)
+    }
+
+    pub(crate) fn reject_persistence(&self, error: PersistenceError) {
+        self.root.persistence.reject_registration(error);
     }
 }
 

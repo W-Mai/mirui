@@ -226,8 +226,8 @@ impl VisualCounter {
 #[test]
 fn generated_methods_target_the_registered_instance() {
     let mut app = App::headless(32, 32);
-    let left = app.add_model(Counter { value: 1 });
-    let right = app.add_model(Counter { value: 10 });
+    let left = app.add_model(Counter { value: 1 }).finish();
+    let right = app.add_model(Counter { value: 10 }).finish();
     let same_left = left.clone();
 
     left.add(2);
@@ -242,18 +242,18 @@ fn generated_methods_target_the_registered_instance() {
 #[test]
 fn generic_model_methods_keep_their_type_arguments() {
     let mut app = App::headless(32, 32);
-    let value = app.add_model(GenericValue { value: 3_u16 });
+    let value = app.add_model(GenericValue { value: 3_u16 }).finish();
     value.replace(9);
     assert_eq!(value.value(), 9);
 
-    let where_value = app.add_model(WhereValue { value: 1_u8 });
+    let where_value = app.add_model(WhereValue { value: 1_u8 }).finish();
     where_value.replace(2);
 }
 
 #[test]
 fn registered_method_calls_do_not_allocate_after_registration() {
     let mut app = App::headless(32, 32);
-    let counter = app.add_model(Counter { value: 0 });
+    let counter = app.add_model(Counter { value: 0 }).finish();
     let allocations = tracked_allocations(|| {
         for _ in 0..20_000 {
             counter.add(1);
@@ -267,11 +267,13 @@ fn registered_method_calls_do_not_allocate_after_registration() {
 #[test]
 fn unchanged_model_command_without_subscribers_does_not_allocate() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(ObservedCounter {
-        count: 0,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
+    let model = app
+        .add_model(ObservedCounter {
+            count: 0,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
 
     assert_eq!(
         tracked_allocations(|| {
@@ -286,7 +288,7 @@ fn unchanged_model_command_without_subscribers_does_not_allocate() {
 #[test]
 fn binding_types_share_handles_without_cloning_models() {
     let mut app = App::headless(32, 32);
-    let counter = app.add_model(Counter { value: 4 });
+    let counter = app.add_model(Counter { value: 4 }).finish();
     let allocations = tracked_allocations(|| {
         let bound: <Counter as BindType>::Shared = counter.share();
         let optional: <Option<Counter> as BindType>::Shared = Some(bound.share());
@@ -300,11 +302,13 @@ fn binding_types_share_handles_without_cloning_models() {
 #[test]
 fn observed_fields_notify_only_on_their_own_changes() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(ObservedCounter {
-        count: 1,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
+    let model = app
+        .add_model(ObservedCounter {
+            count: 1,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
     let seen = Rc::new(Cell::new(0));
     let runs = Rc::new(Cell::new(0));
     let observed = model.clone();
@@ -333,11 +337,13 @@ fn observed_fields_notify_only_on_their_own_changes() {
 #[test]
 fn one_model_command_coalesces_shared_observer_notifications() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(ObservedCounter {
-        count: 0,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
+    let model = app
+        .add_model(ObservedCounter {
+            count: 0,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
     let runs = Rc::new(Cell::new(0));
     let observed = model.clone();
     let runs_in_effect = runs.clone();
@@ -361,11 +367,13 @@ fn one_model_command_coalesces_shared_observer_notifications() {
 fn ownerless_effect_first_model_branch_binds_its_source_even_if_another_app_flushes_first() {
     let mut owner = App::headless(32, 32);
     let mut other = App::headless(32, 32);
-    let model = owner.add_model(ObservedCounter {
-        count: 7,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
+    let model = owner
+        .add_model(ObservedCounter {
+            count: 7,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
     // Initialize the other owner without binding the ownerless effect below.
     mirui::__macro_support::with_world_scope(&mut other.world, || ());
     let use_model = Signal::new(false);
@@ -410,7 +418,7 @@ fn ownerless_effect_first_model_branch_binds_its_source_even_if_another_app_flus
 #[test]
 fn generic_observed_fields_keep_their_value_type() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(GenericObserved { value: 3_u16 });
+    let model = app.add_model(GenericObserved { value: 3_u16 }).finish();
     assert_eq!(model.value(), 3);
     assert_eq!(model.derived(), 3);
     model.replace(7);
@@ -421,11 +429,13 @@ fn generic_observed_fields_keep_their_value_type() {
 #[test]
 fn observed_update_and_notification_do_not_allocate_after_registration() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(ObservedCounter {
-        count: 0,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
+    let model = app
+        .add_model(ObservedCounter {
+            count: 0,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
     let observer = model.clone();
     let _effect = Effect::new(move || {
         let _ = observer.count();
@@ -452,11 +462,13 @@ fn observed_update_and_notification_do_not_allocate_after_registration() {
 #[test]
 fn repeated_visual_subscription_binding_reuses_its_storage() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(ObservedCounter {
-        count: 0,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
+    let model = app
+        .add_model(ObservedCounter {
+            count: 0,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
     let entity = app.world.spawn_empty();
     let first = model.__mirui_subscribe_count(
         &app.world,
@@ -483,16 +495,20 @@ fn repeated_visual_subscription_binding_reuses_its_storage() {
 #[test]
 fn alternating_view_sources_rebind_and_notify_without_allocating() {
     let mut app = App::headless(32, 32);
-    let first = app.add_model(ObservedCounter {
-        count: 0,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
-    let second = app.add_model(ObservedCounter {
-        count: 0,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
+    let first = app
+        .add_model(ObservedCounter {
+            count: 0,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
+    let second = app
+        .add_model(ObservedCounter {
+            count: 0,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
     let entity = app.world.spawn_empty();
     for model in [&first, &second] {
         let subscription = model.__mirui_subscribe_count(
@@ -526,11 +542,13 @@ fn alternating_view_sources_rebind_and_notify_without_allocating() {
 #[test]
 fn explicit_visual_model_subscription_notifies_without_allocating() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(ObservedCounter {
-        count: 0,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
+    let model = app
+        .add_model(ObservedCounter {
+            count: 0,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
     let entity = app.world.spawn_empty();
     let subscription = model.__mirui_subscribe_count(
         &app.world,
@@ -545,16 +563,20 @@ fn explicit_visual_model_subscription_notifies_without_allocating() {
 #[test]
 fn same_type_model_instances_keep_observers_separate() {
     let mut app = App::headless(32, 32);
-    let first = app.add_model(ObservedCounter {
-        count: 1,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
-    let second = app.add_model(ObservedCounter {
-        count: 7,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
+    let first = app
+        .add_model(ObservedCounter {
+            count: 1,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
+    let second = app
+        .add_model(ObservedCounter {
+            count: 7,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
     let first_runs = Rc::new(Cell::new(0));
     let second_runs = Rc::new(Cell::new(0));
     let first_observer = first.clone();
@@ -582,11 +604,13 @@ fn same_type_model_instances_keep_observers_separate() {
 #[test]
 fn ownerless_computed_cannot_capture_a_registered_model() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(ObservedCounter {
-        count: 3,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
+    let model = app
+        .add_model(ObservedCounter {
+            count: 3,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
     let computed = Computed::new(move || model.count());
     let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| computed.get()));
     assert!(failure.is_err());
@@ -596,11 +620,13 @@ fn ownerless_computed_cannot_capture_a_registered_model() {
 fn app_owned_computed_rejects_another_app_but_reads_its_model() {
     let mut owner = App::headless(32, 32);
     let root = owner.spawn_root().id();
-    let model = owner.add_model(ObservedCounter {
-        count: 3,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
+    let model = owner
+        .add_model(ObservedCounter {
+            count: 3,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
     let computed = owner.compose(root, |_| Computed::new(move || model.count()));
     assert_eq!(computed.get(), 3);
 
@@ -617,11 +643,13 @@ fn app_owned_computed_rejects_another_app_but_reads_its_model() {
 fn app_owned_computed_rejects_reads_after_owner_drop() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
-    let model = app.add_model(ObservedCounter {
-        count: 3,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
+    let model = app
+        .add_model(ObservedCounter {
+            count: 3,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
     let computed = app.compose(root, |_| Computed::new(move || model.count()));
     assert_eq!(computed.get(), 3);
 
@@ -634,11 +662,13 @@ fn app_owned_computed_rejects_reads_after_owner_drop() {
 fn computed_cannot_write_its_owner_model() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
-    let model = app.add_model(ObservedCounter {
-        count: 3,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
+    let model = app
+        .add_model(ObservedCounter {
+            count: 3,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
     let captured = model.clone();
     let computed = app.compose(root, |_| {
         Computed::new(move || {
@@ -657,11 +687,13 @@ fn computed_cannot_write_its_owner_model() {
 fn model_computed_effect_propagation_reuses_registered_storage() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
-    let model = app.add_model(ObservedCounter {
-        count: 1,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
+    let model = app
+        .add_model(ObservedCounter {
+            count: 1,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
     let source = model.clone();
     let computed = app.compose(root, |_| Computed::new(move || source.count() * 2));
     let seen = Rc::new(Cell::new(0));
@@ -707,16 +739,20 @@ fn shared_signal_computed_effect_notification_reuses_registered_storage() {
 fn computed_switches_model_dependencies_without_retaining_the_old_source() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
-    let first = app.add_model(ObservedCounter {
-        count: 2,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
-    let second = app.add_model(ObservedCounter {
-        count: 5,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
+    let first = app
+        .add_model(ObservedCounter {
+            count: 2,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
+    let second = app
+        .add_model(ObservedCounter {
+            count: 5,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
     let choose_first = Signal::new(true);
     let branch = choose_first.clone();
     let first_read = first.clone();
@@ -758,11 +794,13 @@ fn computed_switches_model_dependencies_without_retaining_the_old_source() {
 #[test]
 fn derived_observer_only_notifies_when_its_result_changes() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(ObservedCounter {
-        count: 1,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
+    let model = app
+        .add_model(ObservedCounter {
+            count: 1,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
     let seen = Rc::new(Cell::new(false));
     let runs = Rc::new(Cell::new(0));
     let observed = model.clone();
@@ -786,10 +824,12 @@ fn derived_observer_only_notifies_when_its_result_changes() {
 #[test]
 fn named_revision_follows_change_mask_without_suppressing_fields() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(VisualCounter {
-        active: false,
-        pixels: 0,
-    });
+    let model = app
+        .add_model(VisualCounter {
+            active: false,
+            pixels: 0,
+        })
+        .finish();
     let visual_runs = Rc::new(Cell::new(0));
     let field_runs = Rc::new(Cell::new(0));
     let visual = model.clone();
@@ -832,10 +872,12 @@ fn named_revision_follows_change_mask_without_suppressing_fields() {
 #[test]
 fn named_revision_notification_reuses_its_registered_storage() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(VisualCounter {
-        active: false,
-        pixels: 0,
-    });
+    let model = app
+        .add_model(VisualCounter {
+            active: false,
+            pixels: 0,
+        })
+        .finish();
     let observed = model.clone();
     let _effect = Effect::new(move || {
         let _ = observed.visual_revision();
@@ -857,11 +899,13 @@ fn named_revision_notification_reuses_its_registered_storage() {
 #[test]
 fn typed_effects_are_drained_once_after_model_borrow_is_released() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(EffectCounter {
-        count: 0,
-        notes: [None; 2],
-        audits: [None; 1],
-    });
+    let model = app
+        .add_model(EffectCounter {
+            count: 0,
+            notes: [None; 2],
+            audits: [None; 1],
+        })
+        .finish();
     model.emit(1);
 
     let note_total = Rc::new(Cell::new(0));
@@ -898,11 +942,13 @@ fn typed_effects_are_drained_once_after_model_borrow_is_released() {
 #[test]
 fn registered_effect_delivery_does_not_allocate_per_command() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(EffectCounter {
-        count: 0,
-        notes: [None; 2],
-        audits: [None; 1],
-    });
+    let model = app
+        .add_model(EffectCounter {
+            count: 0,
+            notes: [None; 2],
+            audits: [None; 1],
+        })
+        .finish();
     let total = Rc::new(Cell::new(0));
     let in_handler = total.clone();
     model
@@ -918,11 +964,13 @@ fn registered_effect_delivery_does_not_allocate_per_command() {
 #[test]
 fn first_registered_effect_delivery_does_not_allocate() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(EffectCounter {
-        count: 0,
-        notes: [None; 2],
-        audits: [None; 1],
-    });
+    let model = app
+        .add_model(EffectCounter {
+            count: 0,
+            notes: [None; 2],
+            audits: [None; 1],
+        })
+        .finish();
     let note_total = Rc::new(Cell::new(0));
     let audit_total = Rc::new(Cell::new(0));
     let notes = note_total.clone();
@@ -954,11 +1002,13 @@ fn first_registered_effect_delivery_does_not_allocate() {
 #[test]
 fn effect_callback_failure_does_not_poison_committed_model() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(EffectCounter {
-        count: 0,
-        notes: [None; 2],
-        audits: [None; 1],
-    });
+    let model = app
+        .add_model(EffectCounter {
+            count: 0,
+            notes: [None; 2],
+            audits: [None; 1],
+        })
+        .finish();
     let panic_once = Rc::new(Cell::new(true));
     let panic_in_handler = panic_once.clone();
     model
@@ -979,16 +1029,20 @@ fn effect_callback_failure_does_not_poison_committed_model() {
 #[test]
 fn effect_consumers_are_bound_to_model_instances() {
     let mut app = App::headless(32, 32);
-    let first = app.add_model(EffectCounter {
-        count: 0,
-        notes: [None; 2],
-        audits: [None; 1],
-    });
-    let second = app.add_model(EffectCounter {
-        count: 0,
-        notes: [None; 2],
-        audits: [None; 1],
-    });
+    let first = app
+        .add_model(EffectCounter {
+            count: 0,
+            notes: [None; 2],
+            audits: [None; 1],
+        })
+        .finish();
+    let second = app
+        .add_model(EffectCounter {
+            count: 0,
+            notes: [None; 2],
+            audits: [None; 1],
+        })
+        .finish();
     let first_total = Rc::new(Cell::new(0));
     let second_total = Rc::new(Cell::new(0));
     let first_in_handler = first_total.clone();
@@ -1012,11 +1066,13 @@ fn effect_consumers_are_bound_to_model_instances() {
 #[test]
 fn effect_consumer_cannot_start_a_model_write_transaction() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(EffectCounter {
-        count: 0,
-        notes: [None; 2],
-        audits: [None; 1],
-    });
+    let model = app
+        .add_model(EffectCounter {
+            count: 0,
+            notes: [None; 2],
+            audits: [None; 1],
+        })
+        .finish();
     let feedback = model.clone();
     model
         .on_effect(move |_note: &Note| feedback.emit(99))
@@ -1024,7 +1080,7 @@ fn effect_consumer_cannot_start_a_model_write_transaction() {
     let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| model.emit(1)));
     assert!(failure.is_err());
     assert_eq!(model.count(), 1);
-    let independent = app.add_model(Counter { value: 0 });
+    let independent = app.add_model(Counter { value: 0 }).finish();
     independent.add(1);
     assert_eq!(independent.value(), 1);
 }
@@ -1033,11 +1089,13 @@ fn effect_consumer_cannot_start_a_model_write_transaction() {
 fn effect_consumer_capture_does_not_keep_registration_alive() {
     let handle = {
         let mut app = App::headless(32, 32);
-        let model = app.add_model(EffectCounter {
-            count: 0,
-            notes: [None; 2],
-            audits: [None; 1],
-        });
+        let model = app
+            .add_model(EffectCounter {
+                count: 0,
+                notes: [None; 2],
+                audits: [None; 1],
+            })
+            .finish();
         let captured = model.clone();
         model
             .on_effect(move |_note: &Note| {
@@ -1053,11 +1111,13 @@ fn effect_consumer_capture_does_not_keep_registration_alive() {
 #[test]
 fn effect_consumer_registration_rejects_another_app() {
     let mut owner = App::headless(32, 32);
-    let model = owner.add_model(EffectCounter {
-        count: 0,
-        notes: [None; 2],
-        audits: [None; 1],
-    });
+    let model = owner
+        .add_model(EffectCounter {
+            count: 0,
+            notes: [None; 2],
+            audits: [None; 1],
+        })
+        .finish();
     let mut other = App::headless(32, 32);
     let root = other.spawn_root().id();
     let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -1074,8 +1134,8 @@ fn bound_systems_keep_instance_identity_and_do_not_allocate_per_tick() {
         TIME.fetch_add(1_000, std::sync::atomic::Ordering::Relaxed)
     }
     let mut app = App::headless(32, 32);
-    let first = app.add_model(Counter { value: 0 });
-    let second = app.add_model(Counter { value: 10 });
+    let first = app.add_model(Counter { value: 0 }).finish();
+    let second = app.add_model(Counter { value: 10 }).finish();
     app.world.insert_resource(mirui::ecs::DeltaTimeMs(2));
     app.world.insert_resource(mirui::ecs::MonoClock::new(clock));
     app.add_system(count_tick::system(first.clone()));
@@ -1105,7 +1165,7 @@ fn bound_systems_keep_instance_identity_and_do_not_allocate_per_tick() {
 #[test]
 fn bound_system_expect_skips_until_component_exists() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(Counter { value: 0 });
+    let model = app.add_model(Counter { value: 0 }).finish();
     app.world.insert_resource(mirui::ecs::DeltaTimeMs(3));
     app.add_system(gated_count_tick::system(model.clone()));
     app.systems.run_all(&mut app.world).unwrap();
@@ -1119,7 +1179,7 @@ fn bound_system_expect_skips_until_component_exists() {
 #[test]
 fn bound_system_rejects_foreign_or_missing_resources() {
     let mut owner = App::headless(32, 32);
-    let model = owner.add_model(Counter { value: 0 });
+    let model = owner.add_model(Counter { value: 0 }).finish();
     let mut other = App::headless(32, 32);
     let foreign = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         other.add_system(count_tick::system(model.clone()));
@@ -1137,9 +1197,9 @@ fn bound_system_rejects_foreign_or_missing_resources() {
 #[test]
 fn bound_system_rejects_models_from_two_apps() {
     let mut first_app = App::headless(32, 32);
-    let first = first_app.add_model(Counter { value: 0 });
+    let first = first_app.add_model(Counter { value: 0 }).finish();
     let mut second_app = App::headless(32, 32);
-    let second = second_app.add_model(Counter { value: 0 });
+    let second = second_app.add_model(Counter { value: 0 }).finish();
     let mismatch = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         transfer_tick::system(first, second);
     }));
@@ -1149,8 +1209,8 @@ fn bound_system_rejects_models_from_two_apps() {
 #[test]
 fn bound_constructor_arguments_follow_parameter_order() {
     let mut app = App::headless(32, 32);
-    let first = app.add_model(Counter { value: 0 });
-    let second = app.add_model(Counter { value: 0 });
+    let first = app.add_model(Counter { value: 0 }).finish();
+    let second = app.add_model(Counter { value: 0 }).finish();
     app.add_system(reversed_bind_tick::system(first.clone(), second.clone()));
     app.systems.run_all(&mut app.world).unwrap();
     assert_eq!((first.value(), second.value()), (1, 10));
@@ -1159,16 +1219,20 @@ fn bound_constructor_arguments_follow_parameter_order() {
 #[test]
 fn explicit_model_subscription_notification_reuses_storage() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(ObservedCounter {
-        count: 0,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
-    let other = app.add_model(ObservedCounter {
-        count: 0,
-        mode: Mode::Idle,
-        untouched: 0,
-    });
+    let model = app
+        .add_model(ObservedCounter {
+            count: 0,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
+    let other = app
+        .add_model(ObservedCounter {
+            count: 0,
+            mode: Mode::Idle,
+            untouched: 0,
+        })
+        .finish();
     let entity = app.world.spawn_empty();
     let other_entity = app.world.spawn_empty();
     let subscription = model.subscribe_observed(

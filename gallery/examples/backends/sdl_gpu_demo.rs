@@ -69,11 +69,13 @@ fn main() {
             ..Default::default()
         })
         .id();
-    let position = app.add_model(DragPosition {
-        left: Fixed::from_int(240),
-        top: Fixed::from_int(30),
-        offset: (Fixed::ZERO, Fixed::ZERO),
-    });
+    let position = app
+        .add_model(DragPosition {
+            left: Fixed::from_int(240),
+            top: Fixed::from_int(30),
+            offset: (Fixed::ZERO, Fixed::ZERO),
+        })
+        .finish();
 
     app.compose(root, |tree| {
         tree.spawn(Style {

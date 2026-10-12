@@ -80,8 +80,8 @@ where
     crate::gallery::showcase_theme::install(app);
     app.with_widget(orbit_render::view())
         .with_widget(wave_render::view());
-    let model = app.add_model(ConsoleModel::default());
-    let motion = app.add_model(ConsoleMotion::default());
+    let model = app.add_model(ConsoleModel::default()).finish();
+    let motion = app.add_model(ConsoleMotion::default()).finish();
     app.add_system(kinetic_animation_system::system(
         model.clone(),
         motion.clone(),

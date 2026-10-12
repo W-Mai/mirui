@@ -141,16 +141,18 @@ fn retired_bindings_skip_timer_bodies_without_replaying_or_retargeting() {
     let _guard = mock::install();
     for retired_index in 0..2 {
         let mut app = fresh();
-        let list = app.add_model(ModelList::from([
-            Counter {
-                fires: 0,
-                last_timer: None,
-            },
-            Counter {
-                fires: 0,
-                last_timer: None,
-            },
-        ]));
+        let list = app
+            .add_model(ModelList::from([
+                Counter {
+                    fires: 0,
+                    last_timer: None,
+                },
+                Counter {
+                    fires: 0,
+                    last_timer: None,
+                },
+            ]))
+            .finish();
         let (id, retired) = list.entries().nth(retired_index).unwrap();
         let once = app.add_timer(capture_pair::timer(
             list.get(0).unwrap(),
@@ -188,10 +190,12 @@ fn timer_advances_after_a_lease_skip_and_resumes_on_the_next_due_time() {
     use mirui::core::model::ModelList;
     let _guard = mock::install();
     let mut app = fresh();
-    let list = app.add_model(ModelList::from([Counter {
-        fires: 0,
-        last_timer: None,
-    }]));
+    let list = app
+        .add_model(ModelList::from([Counter {
+            fires: 0,
+            last_timer: None,
+        }]))
+        .finish();
     app.add_timer(clear_list::timer(list.clone()));
     tick(&mut app, 0);
     let lease = list.iter();
@@ -208,14 +212,18 @@ fn timer_advances_after_a_lease_skip_and_resumes_on_the_next_due_time() {
 fn every_schedule_captures_the_selected_model_instance_and_timer_entity() {
     let _guard = mock::install();
     let mut app = fresh();
-    let selected = app.add_model(Counter {
-        fires: 0,
-        last_timer: None,
-    });
-    let untouched = app.add_model(Counter {
-        fires: 0,
-        last_timer: None,
-    });
+    let selected = app
+        .add_model(Counter {
+            fires: 0,
+            last_timer: None,
+        })
+        .finish();
+    let untouched = app
+        .add_model(Counter {
+            fires: 0,
+            last_timer: None,
+        })
+        .finish();
     let entity = app.add_timer(every_tick::timer(selected.clone()));
     assert_eq!(
         app.world.get::<Timer>(entity).unwrap().mode(),
@@ -236,10 +244,12 @@ fn every_schedule_captures_the_selected_model_instance_and_timer_entity() {
 fn warmed_bound_timer_and_commands_do_not_allocate() {
     let _guard = mock::install();
     let mut app = fresh();
-    let counter = app.add_model(Counter {
-        fires: 0,
-        last_timer: None,
-    });
+    let counter = app
+        .add_model(Counter {
+            fires: 0,
+            last_timer: None,
+        })
+        .finish();
     let entity = app.add_timer(every_tick::timer(counter.clone()));
 
     tick(&mut app, 0);
@@ -255,10 +265,12 @@ fn warmed_bound_timer_and_commands_do_not_allocate() {
 fn repeat_schedule_fires_the_declared_count() {
     let _guard = mock::install();
     let mut app = fresh();
-    let counter = app.add_model(Counter {
-        fires: 0,
-        last_timer: None,
-    });
+    let counter = app
+        .add_model(Counter {
+            fires: 0,
+            last_timer: None,
+        })
+        .finish();
     let entity = app.add_timer(repeat_tick::timer(counter.clone()));
     assert_eq!(
         app.world.get::<Timer>(entity).unwrap().mode(),
@@ -280,10 +292,12 @@ fn bound_timer_submission_failure_reaches_scheduler_and_consumes_the_invocation(
 
     let _guard = mock::install();
     let mut app = fresh();
-    let counter = app.add_model(Counter {
-        fires: 0,
-        last_timer: None,
-    });
+    let counter = app
+        .add_model(Counter {
+            fires: 0,
+            last_timer: None,
+        })
+        .finish();
     let entity = app.add_timer(submit_pulse::timer(counter.clone()));
     tick(&mut app, 0);
     mock::set_ms(10);
@@ -322,10 +336,12 @@ fn bound_timer_submission_failure_reaches_scheduler_and_consumes_the_invocation(
 fn until_schedule_stops_before_the_next_deadline_crossing() {
     let _guard = mock::install();
     let mut app = fresh();
-    let counter = app.add_model(Counter {
-        fires: 0,
-        last_timer: None,
-    });
+    let counter = app
+        .add_model(Counter {
+            fires: 0,
+            last_timer: None,
+        })
+        .finish();
     let entity = app.add_timer(until_tick::timer(counter.clone()));
     assert_eq!(
         app.world.get::<Timer>(entity).unwrap().mode(),
@@ -346,10 +362,12 @@ fn every_captured_model_must_belong_to_the_installing_app() {
     let _guard = mock::install();
     let mut owning_app = fresh();
     let mut other_app = fresh();
-    let counter = owning_app.add_model(Counter {
-        fires: 0,
-        last_timer: None,
-    });
+    let counter = owning_app
+        .add_model(Counter {
+            fires: 0,
+            last_timer: None,
+        })
+        .finish();
 
     let timer = every_tick::timer(counter);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -364,14 +382,18 @@ fn all_captured_models_must_share_one_app() {
     let _guard = mock::install();
     let mut first_app = fresh();
     let mut second_app = fresh();
-    let first = first_app.add_model(Counter {
-        fires: 0,
-        last_timer: None,
-    });
-    let second = second_app.add_model(Counter {
-        fires: 0,
-        last_timer: None,
-    });
+    let first = first_app
+        .add_model(Counter {
+            fires: 0,
+            last_timer: None,
+        })
+        .finish();
+    let second = second_app
+        .add_model(Counter {
+            fires: 0,
+            last_timer: None,
+        })
+        .finish();
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         capture_pair::timer(first, second)

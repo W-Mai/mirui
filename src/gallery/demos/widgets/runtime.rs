@@ -23,7 +23,7 @@ where
     app.add_system(crate::input::event::sim::sim_timeline_system::system());
     app.add_system(slider_to_progress_system::system());
     app.add_resource(dark_with_accent());
-    let theme_cycle = app.add_model(ThemeCycle::default());
+    let theme_cycle = app.add_model(ThemeCycle::default()).finish();
     app.add_timer(cycle::timer(theme_cycle));
     app.compose(parent, build_widgets());
 

@@ -8,7 +8,7 @@ fn edit_target_separates_instance_identity_from_content_and_selection_versions()
     let mut app = App::headless(32, 32);
     app.with_widget(super::super::view());
     let node = app.spawn_root().id();
-    let document = app.add_model(TextDocument::new());
+    let document = app.add_model(TextDocument::new()).finish();
     document.set_text("A中").unwrap();
     app.world.insert(node, TextEditing::new(document.clone()));
     crate::ui::lifecycle::prepare(&mut app.world);
@@ -82,8 +82,8 @@ fn retained_rebinding_invalidates_old_edits_without_replacing_the_component() {
 #[test]
 fn document_rebinding_invalidates_identity_even_when_edit_versions_match() {
     let mut app = App::headless(32, 32);
-    let first = app.add_model(TextDocument::new());
-    let second = app.add_model(TextDocument::new());
+    let first = app.add_model(TextDocument::new()).finish();
+    let second = app.add_model(TextDocument::new()).finish();
     first.set_text("first").unwrap();
     second.set_text("other").unwrap();
     let node = app.spawn_root().id();

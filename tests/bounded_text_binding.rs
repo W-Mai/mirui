@@ -45,7 +45,7 @@ fn bounded_text_and_button_bindings_keep_storage_and_recover_after_overflow() {
     let mut app = App::headless(80, 40);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    let reading = app.add_model(Reading { value: 7 });
+    let reading = app.add_model(Reading { value: 7 }).finish();
     let bound = reading.share();
     let bound_button = reading.share();
 
@@ -164,7 +164,7 @@ fn bounded_text_formats_locals_inside_static_and_reactive_blocks() {
     let mut app = App::headless(64, 24);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    let reading = app.add_model(Reading { value: 7 });
+    let reading = app.add_model(Reading { value: 7 }).finish();
     let bound = reading.share();
 
     app.compose(root, |cx| {
@@ -250,7 +250,7 @@ fn composed_bounded_binding_tracks_its_model() {
     let mut app = App::headless(64, 24);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    let reading = app.add_model(Reading { value: 5 });
+    let reading = app.add_model(Reading { value: 5 }).finish();
     app.compose(root, bounded_panel(reading.clone()));
 
     let entity = app.world.find_by_id("composed").unwrap();
@@ -380,7 +380,7 @@ fn reactive_initial_overflow_recovers_without_rebuilding_widgets() {
     let mut app = App::headless(64, 24);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    let reading = app.add_model(Reading { value: 10000 });
+    let reading = app.add_model(Reading { value: 10000 }).finish();
     let bound = reading.share();
 
     app.compose(root, |cx| {

@@ -84,11 +84,13 @@ fn data_shrink_suspends_expired_cells_before_property_evaluation_and_reuses_them
     app.with_default_widgets();
     let mut scheduler = SystemScheduler::new();
     scheduler.add(lazy_list_system::system());
-    let data = app.add_model(Catalog {
-        revision: 0,
-        count: 100,
-        creations: 0,
-    });
+    let data = app
+        .add_model(Catalog {
+            revision: 0,
+            count: 100,
+            creations: 0,
+        })
+        .finish();
     let root = app.spawn_root().id();
     let list = app.compose(root, list(data.clone()));
     geometry(&mut app.world, &mut scheduler, list, 800);
@@ -136,11 +138,13 @@ fn replacing_a_creation_callback_rebuilds_cells_and_rejects_an_existing_root() {
     app.with_default_widgets();
     let mut scheduler = SystemScheduler::new();
     scheduler.add(lazy_list_system::system());
-    let data = app.add_model(Catalog {
-        revision: 0,
-        count: 100,
-        creations: 0,
-    });
+    let data = app
+        .add_model(Catalog {
+            revision: 0,
+            count: 100,
+            creations: 0,
+        })
+        .finish();
     let root = app.spawn_root().id();
     let good = app.compose(root, list(data.clone()));
     geometry(&mut app.world, &mut scheduler, good, 0);

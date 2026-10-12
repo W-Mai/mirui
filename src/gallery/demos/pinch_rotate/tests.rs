@@ -50,7 +50,7 @@ fn composition_installs_a_timeline_for_its_gesture_target() {
     let mut app = App::headless(480, 360);
     app.with_default_widgets().with_default_systems();
     let root = app.spawn_root().id();
-    let model = app.add_model(super::state::PinchModel::default());
+    let model = app.add_model(super::state::PinchModel::default()).finish();
     app.compose(root, super::composition::build_widgets(model.clone()));
     assert_eq!(
         app.world.resource::<SimTimeline>().unwrap().total_ms,

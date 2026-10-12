@@ -24,7 +24,7 @@ where
         parent,
         crate::gallery::demos::typography_lab::register_fonts(),
     );
-    let model = app.add_model(state::CurveModel::default());
+    let model = app.add_model(state::CurveModel::default()).finish();
     let paths = geometry::register_paths(app.paths());
     app.add_resource(paths);
     app.add_system(runtime::curve_text_animation_system::system());

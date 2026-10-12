@@ -116,7 +116,7 @@ fn panel(state: model!(State)) -> Entity {
 #[test]
 fn subtree_deletion_preserves_shared_models_and_registered_view_systems() {
     let mut app = App::headless(32, 32);
-    let state = app.add_model(State::default());
+    let state = app.add_model(State::default()).finish();
     app.add_system(delete_pending::system(state.clone()));
     app.with_widget(part_view::view().with_systems([observe_parts::system(state.clone())]));
     let root = app.spawn_root().id();
@@ -144,7 +144,7 @@ fn deleting_a_parent_in_an_event_retires_descendants_before_the_next_input() {
         events: VecDeque::new(),
     });
     app.with_default_widgets().with_default_systems();
-    let state = app.add_model(State::default());
+    let state = app.add_model(State::default()).finish();
     app.with_widget(part_view::view().with_systems([observe_parts::system(state.clone())]));
     let root = app.spawn_root().id();
     app.compose(root, panel(state.clone()));

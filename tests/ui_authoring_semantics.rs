@@ -42,7 +42,7 @@ fn attachment_model_move_preserves_binding_capture_and_updates() {
     let mut app = mirui::app::App::headless(32, 32);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    let game = app.add_model(AttachmentModel { value: 7 });
+    let game = app.add_model(AttachmentModel { value: 7 }).finish();
     app.compose(root, moved_model_attachment(game.clone()));
     let entity = app
         .world

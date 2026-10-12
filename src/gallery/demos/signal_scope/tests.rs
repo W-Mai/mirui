@@ -152,8 +152,8 @@ fn uart_acquisition_advances_one_character_at_a_time() {
 #[test]
 fn registered_scope_models_publish_only_real_instance_changes() {
     let mut app = App::headless(1, 1);
-    let first = app.add_model(ScopeModel::default());
-    let second = app.add_model(ScopeModel::default());
+    let first = app.add_model(ScopeModel::default()).finish();
+    let second = app.add_model(ScopeModel::default()).finish();
 
     let first_revision = first.visual_revision();
     let second_revision = second.visual_revision();
@@ -178,8 +178,8 @@ fn scope_canvas_observation_rebinds_to_the_current_model_without_allocating() {
     use crate::test_support::tracked_allocations;
 
     let mut app = App::headless(1, 1);
-    let first = app.add_model(ScopeModel::default());
-    let second = app.add_model(ScopeModel::default());
+    let first = app.add_model(ScopeModel::default()).finish();
+    let second = app.add_model(ScopeModel::default()).finish();
     let canvas = app.world.spawn_empty();
     app.world.insert(
         canvas,

@@ -957,7 +957,7 @@ where
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
     app.add_plugin(PlayFontPlugin);
-    let model = app.add_model(OrbitModel::default());
+    let model = app.add_model(OrbitModel::default()).finish();
     app.with_widget(surface_render::view())
         .with_widget(modal_render::view());
     app.add_system(orbit_tick_system::system(model.clone()));

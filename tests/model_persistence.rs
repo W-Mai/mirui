@@ -51,15 +51,30 @@ fn disabled_persistence_does_not_require_field_codecs() {
     struct Opaque;
     let value = Generic { value: Opaque };
     assert_eq!(core::mem::size_of_val(&value.value), 0);
+    let mut app = mirui::app::App::headless(16, 16);
+    let _handle = app.add_model(value).with_key("opaque").finish();
 }
 
 #[cfg(feature = "persistence")]
 mod enabled {
     use super::*;
+    use mirui::core::model::PersistModel;
+
+    #[test]
+    fn generic_persistent_models_register_without_changing_their_handle_type() {
+        let mut app = mirui::app::App::headless(16, 16);
+        app.add_plugin(mirui::core::persistence::PersistencePlugin::new(
+            mirui::core::storage::MemoryStorage::new(),
+        ));
+        let _: GenericHandle<u32> = app
+            .add_model(Generic { value: 7_u32 })
+            .with_key("generic")
+            .finish();
+    }
     use mirui::core::persistence::{
         PersistenceError,
         archive::{self, Archive},
-        value::{PersistModel, PersistValue},
+        value::PersistValue,
     };
 
     fn save<T: PersistValue>(value: &T) -> Vec<u8> {

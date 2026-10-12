@@ -16,7 +16,7 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(app: &mut App<B, F>, parent:
     app.with_widget(editors::search_view::view())
         .with_widget(editors::command_view::view())
         .with_widget(editors::shared_view::view());
-    let model = app.add_model(model::EditorLab::default());
+    let model = app.add_model(model::EditorLab::default()).finish();
     app.with_input_method(InputMethod::software((
         keyboard::session_changed::callback(model.keyboard()),
         keyboard::editing_key::callback(model.keyboard()),

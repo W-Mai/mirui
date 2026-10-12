@@ -658,6 +658,6 @@ where
     app.with_widget(raster_contour_view());
     app.compose(parent, register_fonts());
     let wave_path = register_path(app.paths());
-    let model = app.add_model(TypographyModel::default());
+    let model = app.add_model(TypographyModel::default()).finish();
     app.compose(parent, build_widgets(model, wave_path));
 }

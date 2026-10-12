@@ -8,7 +8,7 @@ fn selection_requests_reject_foreign_and_expired_document_bindings() {
     use crate::input::event::{callback::NodeContext, request};
     use crate::ui::selection::{RequestError, SelectAll};
     let mut owner = App::headless(32, 32);
-    let document = owner.add_model(TextDocument::new());
+    let document = owner.add_model(TextDocument::new()).finish();
     document.set_text("old").unwrap();
     let mut world = crate::ecs::World::new();
     let node = world.spawn(TextEditing::new(document));
@@ -55,7 +55,7 @@ fn default_inline_document_and_selection_require_no_allocation() {
 #[test]
 fn shared_content_keeps_selections_local_and_resolves_utf8_boundaries() {
     let mut app = App::headless(32, 32);
-    let document = app.add_model(TextDocument::new());
+    let document = app.add_model(TextDocument::new()).finish();
     document.set_text("abcd🙂").unwrap();
     let mut first = TextEditing::new(document.clone());
     let mut second = TextEditing::new(document.clone());
@@ -143,9 +143,11 @@ impl Form {
 #[test]
 fn owned_document_projection_uses_the_registered_source_without_copying_content() {
     let mut app = App::headless(32, 32);
-    let form = app.add_model(Form {
-        document: TextDocument::new().into(),
-    });
+    let form = app
+        .add_model(Form {
+            document: TextDocument::new().into(),
+        })
+        .finish();
     let editor = TextEditing::new(form.document())
         .with_capacity(128)
         .unwrap()
@@ -162,8 +164,8 @@ fn owned_document_projection_uses_the_registered_source_without_copying_content(
 #[test]
 fn shared_document_observation_invalidates_layout_without_painting_and_rebinds_cleanly() {
     let mut app = App::headless(32, 32);
-    let first = app.add_model(TextDocument::new());
-    let second = app.add_model(TextDocument::new());
+    let first = app.add_model(TextDocument::new()).finish();
+    let second = app.add_model(TextDocument::new()).finish();
     let descriptor = view();
     assert!(descriptor.priority().is_none());
     app.with_widget(descriptor);
@@ -193,7 +195,7 @@ fn shared_document_observation_invalidates_layout_without_painting_and_rebinds_c
 #[test]
 fn prepared_shared_reads_selection_and_document_changes_allocate_nothing() {
     let mut app = App::headless(32, 32);
-    let document = app.add_model(TextDocument::new());
+    let document = app.add_model(TextDocument::new()).finish();
     document.set_text("A中").unwrap();
     let root = app.spawn_root().id();
     app.with_widget(view());
@@ -225,7 +227,7 @@ fn prepared_shared_reads_selection_and_document_changes_allocate_nothing() {
 #[test]
 fn shared_document_binding_keeps_model_owner_and_lifetime_guards() {
     let mut owner = App::headless(32, 32);
-    let document = owner.add_model(TextDocument::new());
+    let document = owner.add_model(TextDocument::new()).finish();
     let mut other = App::headless(32, 32);
     other.with_widget(view());
     let root = other.spawn_root().id();

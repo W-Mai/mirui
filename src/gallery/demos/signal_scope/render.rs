@@ -467,7 +467,7 @@ mod paint_contract_tests {
     #[test]
     fn scope_canvas_paint_refetches_scratch_and_reuses_wave_storage_without_allocating() {
         let mut app = App::headless(1, 1);
-        let model = app.add_model(ScopeModel::default());
+        let model = app.add_model(ScopeModel::default()).finish();
         let node = app.world.spawn_empty();
         app.world.insert(node, ScopeCanvas { model });
         let view = scope_view();

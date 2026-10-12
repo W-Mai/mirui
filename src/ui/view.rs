@@ -2492,7 +2492,7 @@ mod tests {
     #[test]
     fn bound_source_replacement_and_installation_transfer_callback_ownership() {
         let mut app = crate::app::App::headless(8, 8);
-        let model = app.add_model(BoundState { value: 0 });
+        let model = app.add_model(BoundState { value: 0 }).finish();
         let retained = Rc::new(Cell::new(0));
         let make_system = || {
             let capture = retained.clone();
@@ -2669,7 +2669,7 @@ mod tests {
     #[should_panic(expected = "exceeded its declared subscription count")]
     fn observed_view_rejects_too_many_subscriptions() {
         let mut app = crate::app::App::headless(32, 32);
-        let model = app.add_model(BoundState { value: 0 });
+        let model = app.add_model(BoundState { value: 0 }).finish();
         app.with_widget(
             make_view("over-subscribed", 60)
                 .with_filter::<BoundTile>()
@@ -2683,7 +2683,7 @@ mod tests {
     #[test]
     fn later_view_registration_replays_existing_components() {
         let mut app = crate::app::App::headless(32, 32);
-        let model = app.add_model(BoundState { value: 0 });
+        let model = app.add_model(BoundState { value: 0 }).finish();
         let entity = app.world.spawn_empty();
         app.world.insert(
             entity,
@@ -2745,7 +2745,7 @@ mod tests {
     #[test]
     fn layout_view_model_subscription_invalidates_layout() {
         let mut app = crate::app::App::headless(32, 32);
-        let model = app.add_model(BoundState { value: 0 });
+        let model = app.add_model(BoundState { value: 0 }).finish();
         app.with_widget(
             make_view("layout-bound", 60)
                 .with_filter::<BoundTile>()
@@ -2773,8 +2773,8 @@ mod tests {
     #[test]
     fn replacing_a_component_rebinds_only_its_current_model() {
         let mut app = crate::app::App::headless(32, 32);
-        let first = app.add_model(BoundState { value: 0 });
-        let second = app.add_model(BoundState { value: 0 });
+        let first = app.add_model(BoundState { value: 0 }).finish();
+        let second = app.add_model(BoundState { value: 0 }).finish();
         app.with_widget(
             make_view("bound", 60)
                 .with_filter::<BoundTile>()
@@ -2825,8 +2825,8 @@ mod tests {
             SystemQuery<'world, ComponentDriver<BoundTile>, Write<BoundTile>, ()>;
 
         let mut app = crate::app::App::headless(32, 32);
-        let first = app.add_model(BoundState { value: 0 });
-        let second = app.add_model(BoundState { value: 0 });
+        let first = app.add_model(BoundState { value: 0 }).finish();
+        let second = app.add_model(BoundState { value: 0 }).finish();
         app.with_widget(
             make_view("bound-query", 60)
                 .with_filter::<BoundTile>()
@@ -2870,9 +2870,9 @@ mod tests {
     #[test]
     fn raw_mutable_access_rebinds_view_to_final_model_without_allocating() {
         let mut app = crate::app::App::headless(32, 32);
-        let first = app.add_model(BoundState { value: 0 });
-        let intermediate = app.add_model(BoundState { value: 0 });
-        let final_model = app.add_model(BoundState { value: 0 });
+        let first = app.add_model(BoundState { value: 0 }).finish();
+        let intermediate = app.add_model(BoundState { value: 0 }).finish();
+        let final_model = app.add_model(BoundState { value: 0 }).finish();
         app.with_widget(
             make_view("bound-mutable-access", 60)
                 .with_filter::<BoundTile>()
@@ -2917,8 +2917,8 @@ mod tests {
             SystemQuery<'world, ComponentDriver<BoundTile>, Write<BoundTile>, ()>;
 
         let mut app = crate::app::App::headless(32, 32);
-        let first = app.add_model(BoundState { value: 0 });
-        let second = app.add_model(BoundState { value: 0 });
+        let first = app.add_model(BoundState { value: 0 }).finish();
+        let second = app.add_model(BoundState { value: 0 }).finish();
         app.with_widget(
             make_view("bound-batch", 60)
                 .with_filter::<BoundTile>()
@@ -2958,7 +2958,7 @@ mod tests {
     #[test]
     fn removing_one_view_binding_preserves_another_on_the_same_entity() {
         let mut app = crate::app::App::headless(32, 32);
-        let model = app.add_model(BoundState { value: 0 });
+        let model = app.add_model(BoundState { value: 0 }).finish();
         app.with_widget(
             make_view("first", 60)
                 .with_filter::<BoundTile>()
@@ -3003,7 +3003,7 @@ mod tests {
     #[test]
     fn existing_components_attach_when_observed_view_is_registered() {
         let mut app = crate::app::App::headless(32, 32);
-        let model = app.add_model(BoundState { value: 0 });
+        let model = app.add_model(BoundState { value: 0 }).finish();
         let entity = app.world.spawn_empty();
         app.world.insert(
             entity,
@@ -3030,7 +3030,7 @@ mod tests {
         }
 
         let mut app = crate::app::App::headless(32, 32);
-        let model = app.add_model(BoundState { value: 0 });
+        let model = app.add_model(BoundState { value: 0 }).finish();
         let entity = app.world.spawn_empty();
         app.world.insert(
             entity,
@@ -3071,8 +3071,8 @@ mod tests {
         }
 
         let mut app = crate::app::App::headless(32, 32);
-        let first = app.add_model(BoundState { value: 1 });
-        let second = app.add_model(BoundState { value: 2 });
+        let first = app.add_model(BoundState { value: 1 }).finish();
+        let second = app.add_model(BoundState { value: 2 }).finish();
         let entity = app.world.spawn_empty();
         app.world.insert(
             entity,
@@ -3119,7 +3119,7 @@ mod tests {
         }
 
         let mut app = crate::app::App::headless(32, 32);
-        let model = app.add_model(BoundState { value: 7 });
+        let model = app.add_model(BoundState { value: 7 }).finish();
         let entity = app.world.spawn_empty();
         app.world.insert(
             entity,
@@ -3167,7 +3167,7 @@ mod tests {
     #[test]
     fn optional_model_observation_rebinds_without_allocating() {
         let mut app = crate::app::App::headless(32, 32);
-        let model = app.add_model(BoundState { value: 0 });
+        let model = app.add_model(BoundState { value: 0 }).finish();
         app.with_widget(paint_optional_bound_tile::view());
         let entity = app.world.spawn_empty();
 
@@ -3223,7 +3223,7 @@ mod tests {
     #[test]
     fn generated_view_subscribes_to_named_revision() {
         let mut app = crate::app::App::headless(32, 32);
-        let model = app.add_model(VisualState { value: 0 });
+        let model = app.add_model(VisualState { value: 0 }).finish();
         app.with_widget(paint_visual_tile::view());
         let entity = app.world.spawn_empty();
         app.world.insert(
@@ -3268,7 +3268,7 @@ mod tests {
         }
 
         let mut app = crate::app::App::headless(32, 32);
-        let model = app.add_model(BoundState { value: 0 });
+        let model = app.add_model(BoundState { value: 0 }).finish();
         let entity = app.world.spawn_empty();
         app.world.insert(
             entity,
@@ -3300,7 +3300,7 @@ mod tests {
     #[test]
     fn despawned_observed_component_releases_its_subscription() {
         let mut app = crate::app::App::headless(32, 32);
-        let model = app.add_model(BoundState { value: 0 });
+        let model = app.add_model(BoundState { value: 0 }).finish();
         app.with_widget(
             make_view("bound", 60)
                 .with_filter::<BoundTile>()

@@ -42,7 +42,13 @@ fn view_requests_share_prepared_callbacks_without_input_feedback_or_hot_allocati
     let mut app = App::headless(32, 32);
     app.with_widget(selectable::view());
     let root = app.spawn_root().id();
-    let node = app.compose(root, |cx| ui! { View () [Selectable::default()] });
+    let node = app.compose(root, |cx| {
+        ui! {
+            View () [
+                Selectable::default(),
+            ]
+        }
+    });
     assert!(!app.world.has::<crate::ui::HitTarget>(node));
     assert!(!app.world.has::<crate::ui::InteractionFeedback>(node));
     assert_eq!(invoke(&mut app.world, node, &SelectAll), Ok(Ok(())));
@@ -68,7 +74,13 @@ fn conflicting_defaults_do_not_run_and_explicit_handlers_override_them() {
     app.with_widget(selectable::view())
         .with_widget(duplicate::view());
     let root = app.spawn_root().id();
-    let node = app.compose(root, |cx| ui! { View () [Selectable::default()] });
+    let node = app.compose(root, |cx| {
+        ui! {
+            View () [
+                Selectable::default(),
+            ]
+        }
+    });
     assert_eq!(
         invoke(&mut app.world, node, &SelectAll),
         Err(RequestError::Ambiguous)
@@ -104,7 +116,10 @@ fn request_callbacks_use_all_author_forms_and_keep_results() {
     let root = app.spawn_root().id();
     let node = app.compose(root, |cx| {
         ui! {
-            View () on SelectAll { let result = Err(RequestError::Rejected); result }
+            View () on SelectAll {
+                let result = Err(RequestError::Rejected);
+                result
+            }
         }
     });
     assert_eq!(
@@ -119,7 +134,9 @@ fn request_callbacks_use_all_author_forms_and_keep_results() {
     assert_eq!(invoke(&mut app.world, node, &SelectAll), Ok(Ok(())));
     let node = app.compose(root, |cx| {
         ui! {
-            View () [Selectable::default()] on SelectAll(choose::callback())
+            View () [
+                Selectable::default(),
+            ] on SelectAll(choose::callback())
         }
     });
     assert_eq!(invoke(&mut app.world, node, &SelectAll), Ok(Ok(())));
@@ -137,7 +154,11 @@ fn request_callbacks_use_all_author_forms_and_keep_results() {
 fn commands_inside_a_request_reject_recursive_delivery_without_retrying() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
-    let node = app.compose(root, |cx| ui! { View () on SelectAll(recurse::callback()) });
+    let node = app.compose(root, |cx| {
+        ui! {
+            View () on SelectAll(recurse::callback())
+        }
+    });
     assert_eq!(invoke(&mut app.world, node, &SelectAll), Ok(Ok(())));
     assert_eq!(invoke(&mut app.world, node, &SelectAll), Ok(Ok(())));
 }
@@ -154,7 +175,9 @@ fn selection_command_can_invoke_requests_from_an_active_gesture_snapshot() {
     let root = app.spawn_root().id();
     let node = app.compose(root, |cx| {
         ui! {
-            View () [Selectable::default()] on Tap(select_target::callback())
+            View () [
+                Selectable::default(),
+            ] on Tap(select_target::callback())
         }
     });
     let event = GestureEvent::Tap {
@@ -170,13 +193,27 @@ fn selection_command_can_invoke_requests_from_an_active_gesture_snapshot() {
 fn text_selection_targets_one_instance_and_keeps_shared_content_unchanged() {
     let mut app = App::headless(32, 32);
     app.with_default_widgets();
-    let document = app.add_model(crate::ui::widgets::TextDocument::new());
+    let document = app
+        .add_model(crate::ui::widgets::TextDocument::new())
+        .finish();
     document.set_text("A中🙂").unwrap();
     let first_editor = TextEditing::new(document.clone());
     let second_editor = TextEditing::new(document.clone());
     let root = app.spawn_root().id();
-    let first = app.compose(root, |cx| ui! { TextInput () [first_editor] });
-    let second = app.compose(root, |cx| ui! { TextInput () [second_editor] });
+    let first = app.compose(root, |cx| {
+        ui! {
+            TextInput () [
+                first_editor,
+            ]
+        }
+    });
+    let second = app.compose(root, |cx| {
+        ui! {
+            TextInput () [
+                second_editor,
+            ]
+        }
+    });
     assert_eq!(invoke(&mut app.world, first, &SelectAll), Ok(Ok(())));
     assert_eq!(
         app.world.get::<TextEditing>(first).unwrap().selection(),
@@ -208,7 +245,13 @@ fn unavailable_targets_are_rejected_without_bubbling_or_calling_other_providers(
     let mut app = App::headless(32, 32);
     app.with_widget(selectable::view());
     let root = app.spawn_root().id();
-    let node = app.compose(root, |cx| ui! { View () [Selectable::default()] });
+    let node = app.compose(root, |cx| {
+        ui! {
+            View () [
+                Selectable::default(),
+            ]
+        }
+    });
     app.world.insert(root, crate::ui::Hidden);
     assert_eq!(
         invoke(&mut app.world, node, &SelectAll),
@@ -221,7 +264,11 @@ fn unavailable_targets_are_rejected_without_bubbling_or_calling_other_providers(
         Err(RequestError::Unavailable)
     );
     app.world.remove::<crate::ui::UserState>(root);
-    let child = app.compose(node, |cx| ui! { View () });
+    let child = app.compose(node, |cx| {
+        ui! {
+            View ()
+        }
+    });
     assert_eq!(
         invoke(&mut app.world, child, &SelectAll),
         Err(RequestError::Unsupported)
@@ -253,7 +300,13 @@ fn resolved_requests_do_not_follow_replaced_widgets_or_explicit_overrides() {
     let mut app = App::headless(32, 32);
     app.with_widget(selectable::view());
     let root = app.spawn_root().id();
-    let node = app.compose(root, |cx| ui! { View () [Selectable::default()] });
+    let node = app.compose(root, |cx| {
+        ui! {
+            View () [
+                Selectable::default(),
+            ]
+        }
+    });
     let original = resolve::<SelectAll, _>(&app.world, node).unwrap();
     app.world.insert(node, Selectable::default());
     crate::ui::lifecycle::prepare(&mut app.world);
@@ -284,7 +337,13 @@ fn resolved_requests_reject_foreign_worlds_and_retained_rebinding_without_alloca
     let mut app = App::headless(32, 32);
     app.with_widget(selectable::view());
     let root = app.spawn_root().id();
-    let node = app.compose(root, |cx| ui! { View () [Selectable::default()] });
+    let node = app.compose(root, |cx| {
+        ui! {
+            View () [
+                Selectable::default(),
+            ]
+        }
+    });
     let gate = RetainedEffects::new(&mut app.world, |_, _| true);
     app.world.insert(root, gate);
     let request = resolve::<SelectAll, _>(&app.world, node).unwrap();
@@ -329,7 +388,13 @@ fn widget_request(
 fn explicit_widget_requests_retain_source_attachment_identity() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
-    let node = app.compose(root, |cx| ui! { View () [Selectable::default()] });
+    let node = app.compose(root, |cx| {
+        ui! {
+            View () [
+                Selectable::default(),
+            ]
+        }
+    });
     install(
         &mut app.world,
         node,
@@ -362,7 +427,13 @@ fn replacing_source(
 fn request_results_are_rejected_when_callback_commands_replace_their_source() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
-    let node = app.compose(root, |cx| ui! { View () [Selectable::default()] });
+    let node = app.compose(root, |cx| {
+        ui! {
+            View () [
+                Selectable::default(),
+            ]
+        }
+    });
     install(
         &mut app.world,
         node,

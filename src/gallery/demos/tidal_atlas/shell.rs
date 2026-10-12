@@ -953,7 +953,7 @@ where
     app.add_plugin(PlayFontPlugin);
     app.with_widget(surface_render::view())
         .with_widget(modal_render::view());
-    let model = app.add_model(TideModel::default());
+    let model = app.add_model(TideModel::default()).finish();
     #[cfg(feature = "persistence")]
     install_persistence(app, model.clone());
     app.compose(parent, build_widgets(model));

@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn child_commands_publish_parent_derived_and_only_changed_siblings() {
     let mut app = App::headless(16, 16);
-    let workspace = app.add_model(Workspace::new());
+    let workspace = app.add_model(Workspace::new()).finish();
     let pair = workspace.pair();
     let left = pair.left();
     let right = pair.right();
@@ -163,7 +163,7 @@ fn parent_and_child_typed_view_watches_follow_real_dirty_pixels() {
     let counts = Rc::new(Cell::new([0; 2]));
     app.add_resource(PaintCounts(Rc::clone(&counts)));
     app.with_widgets([root_view::view(), child_view::view()]);
-    let workspace = app.add_model(Workspace::new());
+    let workspace = app.add_model(Workspace::new()).finish();
     let child = workspace.pair().left();
     let root = app.spawn_root().id();
     app.compose(root, tiles(workspace.clone(), child.clone()));

@@ -55,10 +55,10 @@ fn disabled(counter: model!(UnknownType)) {
 
 fn main() {
     let mut app = App::headless(32, 32);
-    let counter = app.add_model(Counter { value: 0 });
+    let counter = app.add_model(Counter { value: 0 }).finish();
     app.add_timer(once::timer());
     app.add_timer(periodic::timer(counter));
-    let counter = app.add_model(Counter { value: 0 });
+    let counter = app.add_model(Counter { value: 0 }).finish();
     app.add_timer(nested::relative::timer(counter));
     app.add_timer(bounded_count::timer());
     app.add_timer(bounded_deadline::timer());

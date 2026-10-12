@@ -63,6 +63,6 @@ mod nested {
 
 fn main() {
     let mut app = mirui::app::App::headless(32, 32);
-    let counter = app.add_model(Counter { value: 0 });
+    let counter = app.add_model(Counter { value: 0 }).finish();
     let _ = nested::relative_paths::system(counter);
 }

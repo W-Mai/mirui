@@ -144,7 +144,7 @@ fn observed_model_switches_cached_match_paint_and_hit_target_in_both_directions(
     let mut app = App::headless(64, 64);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    let mode = app.add_model(Mode { selected: 0 });
+    let mode = app.add_model(Mode { selected: 0 }).finish();
     let selection = mode.share();
 
     app.compose(root, |cx| {
@@ -257,7 +257,7 @@ fn first_nested_bounded_text_branch_switch_reuses_full_frame_storage() {
     })
     .unwrap();
     let root = app.spawn_root().id();
-    let mode = app.add_model(Mode { selected: 0 });
+    let mode = app.add_model(Mode { selected: 0 }).finish();
     let selection = mode.share();
     let deep_label = mode.share();
 
@@ -397,12 +397,14 @@ fn cached_branch_routes_taps_and_reveals_hidden_state_without_rebuilding() {
     })
     .unwrap();
     let root = app.spawn_root().id();
-    let state = app.add_model(BranchState {
-        selected: false,
-        label: 1,
-        first_taps: 0,
-        second_taps: 0,
-    });
+    let state = app
+        .add_model(BranchState {
+            selected: false,
+            label: 1,
+            first_taps: 0,
+            second_taps: 0,
+        })
+        .finish();
     let selection = state.share();
     let label = state.share();
     let first_action = state.share();

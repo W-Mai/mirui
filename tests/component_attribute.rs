@@ -116,7 +116,7 @@ fn attribute_marks_structs_and_enums_as_components() {
 #[test]
 fn bound_fields_hold_shared_instances_without_requiring_model_clone() {
     let mut app = App::headless(32, 32);
-    let model = app.add_model(LocalModel { value: 0 });
+    let model = app.add_model(LocalModel { value: 0 }).finish();
     let board = BoundDisplay {
         model: model.clone(),
         optional: Some(model.clone()),

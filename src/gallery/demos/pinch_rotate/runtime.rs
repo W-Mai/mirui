@@ -9,7 +9,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    let model = app.add_model(PinchModel::default());
+    let model = app.add_model(PinchModel::default()).finish();
     app.compose(parent, build_widgets(model));
 
     app.add_system(sim_timeline_system::system());

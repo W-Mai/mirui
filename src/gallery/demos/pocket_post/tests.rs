@@ -86,7 +86,7 @@ fn trigger(world: &mut World, event: &GestureEvent) -> bool {
 #[test]
 fn tick_system_uses_the_supplied_delta_and_preserves_zero() {
     let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
-    let model = app.add_model(PostModel::default());
+    let model = app.add_model(PostModel::default()).finish();
     model.toggle_running();
     let distance = || {
         crate::core::model::ModelHandle::read(&model, |model| {
@@ -117,7 +117,7 @@ fn tick_system_uses_the_supplied_delta_and_preserves_zero() {
 #[should_panic(expected = "requires resource")]
 fn tick_system_rejects_a_missing_delta_resource() {
     let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
-    let model = app.add_model(PostModel::default());
+    let model = app.add_model(PostModel::default()).finish();
     let mut scheduler = SystemScheduler::new();
     scheduler.add(super::input::post_tick_system::system(model));
 

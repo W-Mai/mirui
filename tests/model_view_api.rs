@@ -107,8 +107,8 @@ fn empty_view_retains_model_observation_without_a_paint_callback() {
     use mirui::ui::dirty::Dirty;
 
     let mut app = App::headless(32, 32);
-    let first = app.add_model(PaintModel { value: 1 });
-    let second = app.add_model(PaintModel { value: 7 });
+    let first = app.add_model(PaintModel { value: 1 }).finish();
+    let second = app.add_model(PaintModel { value: 7 }).finish();
     for _ in 0..2 {
         assert_eq!(
             tracked_allocations(|| {
@@ -191,7 +191,7 @@ fn raw_view_cannot_write_a_model_during_render() {
     let mut app = App::headless(32, 32);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    let model = app.add_model(PaintModel { value: 1 });
+    let model = app.add_model(PaintModel { value: 1 }).finish();
     app.with_widget(assemble_view::<PaintTile>(ViewDescriptor {
         name: "attempt_raw_view_write",
         paint: Some((64, attempt_raw_view_write)),
@@ -219,8 +219,8 @@ fn raw_view_cannot_write_a_model_during_render() {
 #[test]
 fn external_crate_registers_a_multi_model_view() {
     let mut app = App::headless(32, 32);
-    let left = app.add_model(Level { value: 1 });
-    let right = app.add_model(Level { value: 2 });
+    let left = app.add_model(Level { value: 1 }).finish();
+    let right = app.add_model(Level { value: 2 }).finish();
     app.with_widget(paint_pair::view());
     let entity = app.world.spawn_empty();
     app.world.insert(
@@ -240,8 +240,8 @@ fn typed_view_tracks_real_render_and_component_rebinding() {
     let mut app = App::headless(32, 32);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    let first = app.add_model(PaintModel { value: 1 });
-    let second = app.add_model(PaintModel { value: 7 });
+    let first = app.add_model(PaintModel { value: 1 }).finish();
+    let second = app.add_model(PaintModel { value: 7 }).finish();
     app.with_widget(paint_tile::view());
     app.world.insert(
         root,
@@ -303,7 +303,7 @@ fn first_model_view_update_paints_without_allocating() {
     app.with_default_widgets();
     app.with_widget(paint_pixel_tile::view());
     let root = app.spawn_root().id();
-    let model = app.add_model(PaintModel { value: 1 });
+    let model = app.add_model(PaintModel { value: 1 }).finish();
     app.world.insert(
         root,
         PixelTile {
@@ -333,8 +333,8 @@ fn shared_views_update_together_while_other_instances_stay_independent() {
     let mut app = App::headless(32, 32);
     app.with_default_widgets();
     app.with_widget(paint_shared_tile::view());
-    let shared = app.add_model(PaintModel { value: 1 });
-    let independent = app.add_model(PaintModel { value: 7 });
+    let shared = app.add_model(PaintModel { value: 1 }).finish();
+    let independent = app.add_model(PaintModel { value: 7 }).finish();
     let tile_layout = LayoutStyle {
         width: Dimension::px(32),
         height: Dimension::px(10),
@@ -418,7 +418,7 @@ fn dropping_app_releases_typed_view_subscriptions() {
     let mut app = App::headless(32, 32);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    let model = app.add_model(PaintModel { value: 1 });
+    let model = app.add_model(PaintModel { value: 1 }).finish();
     app.with_widget(paint_drop::view());
     app.world.insert(
         root,

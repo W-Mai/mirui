@@ -1,8 +1,9 @@
+use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
 
-use super::{PersistenceError, archive, value::PersistModel};
-use crate::core::model::Model;
+use super::{PersistenceError, archive, value::PersistValue};
+use crate::core::model::{Model, PersistModel};
 
 /// A complete archive format for one Model type.
 ///
@@ -25,6 +26,24 @@ pub trait ModelCodec: 'static {
     fn apply(&self, model: &mut Self::Model, prepared: Self::Prepared);
 }
 
+impl<C: ModelCodec + ?Sized> ModelCodec for Rc<C> {
+    type Model = C::Model;
+    type Prepared = C::Prepared;
+    fn encode(&self, model: &Self::Model, output: &mut Vec<u8>) -> Result<(), PersistenceError> {
+        (**self).encode(model, output)
+    }
+    fn prepare(
+        &self,
+        model: &Self::Model,
+        bytes: &[u8],
+    ) -> Result<Self::Prepared, PersistenceError> {
+        (**self).prepare(model, bytes)
+    }
+    fn apply(&self, model: &mut Self::Model, prepared: Self::Prepared) {
+        (**self).apply(model, prepared);
+    }
+}
+
 /// The generated field archive format for a persistent Model.
 #[doc(hidden)]
 pub struct FieldCodec<M>(PhantomData<fn() -> M>);
@@ -35,7 +54,7 @@ impl<M> Default for FieldCodec<M> {
     }
 }
 
-impl<M: PersistModel> ModelCodec for FieldCodec<M> {
+impl<M: PersistModel + PersistValue> ModelCodec for FieldCodec<M> {
     type Model = M;
     type Prepared = M::Prepared;
 

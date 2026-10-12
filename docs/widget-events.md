@@ -4,7 +4,7 @@ For callback syntax, custom event payloads, routing, and capacity configuration,
 
 ## Text documents
 
-`mirui::ui::widgets::TextDocument` stores UTF-8 content independently of an editor's selection, composition, and appearance. It can be registered with `App::add_model` or nested using `model!(owned TextDocument)`. Its default byte capacity is 32; `set_capacity` prepares larger buffers explicitly. Capacity changes are observable independently of the content revision.
+`mirui::ui::widgets::TextDocument` stores UTF-8 content independently of an editor's selection, composition, and appearance. It can be registered with `app.add_model(document).finish()` or nested using `model!(owned TextDocument)`. Its default byte capacity is 32; `set_capacity` prepares larger buffers explicitly. Capacity changes are observable independently of the content revision.
 
 `TextEditing::default()` owns a local inline document; `TextEditing::new(document.clone())` binds a registered document without copying its content. Each component retains its own `TextSelection`. `read` borrows content for a callback, and `set_selection` validates both UTF-8 byte endpoints atomically. Selection reads resolve external edits by clamping to the document's end and preceding UTF-8 boundaries; they do not transform positions using edit history. Register `text_editing::view()` to observe shared content and capacity changes through normal layout invalidation. This descriptor does not paint.
 
@@ -13,7 +13,7 @@ Use `with_capacity` and `with_text` to prepare a component before insertion. For
 The `TextEditing` View installs focus and hit-testing components and handles committed fragments, deletion, navigation, Shift selection, and Return independently of appearance. Its `Changed`, `SelectionChanged`, and `Submitted` notifications use the existing event callbacks. External selection corrections are retained at input and pre-render boundaries. Input rejects unavailable document bindings; shared edits release component borrows before Model effects and validate the source and revision before updating selection.
 
 ```rust,ignore
-let document = app.add_model(TextDocument::new());
+let document = app.add_model(TextDocument::new()).finish();
 document.set_capacity(256)?;
 document.set_text("Search")?;
 document.replace(0..6, "Find")?;
@@ -57,7 +57,7 @@ fn search(document: model!(TextDocument)) {
     };
 }
 
-let document = app.add_model(TextDocument::new());
+let document = app.add_model(TextDocument::new()).finish();
 document.set_capacity(256)?;
 document.set_text("Hello Mirui")?;
 app.compose(root, search(document.clone()));

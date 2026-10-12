@@ -26,7 +26,7 @@ where
     crate::gallery::showcase_theme::install(app);
     app.compose(parent, register_fonts());
     app.add_resource(ScopeWaveScratch::default());
-    let model = app.add_model(ScopeModel::default());
+    let model = app.add_model(ScopeModel::default()).finish();
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(
             crate::app::plugins::ImageResourcesPlugin::empty().with_mirx_bytes_options(

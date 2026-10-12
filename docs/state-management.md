@@ -127,9 +127,7 @@ ui! {
 
 Declarative nodes connect to their parent and register their final `NamedId` after static components are installed and before matching View attachment hooks run. Reactive property initialization and event installation follow attachment. Each node has one named identity; declaring another name for the same node replaces that marker, not an alias. Layout containers gain input feedback only when a matching widget View provides it.
 
-Place `#[model]` on a struct and one inherent impl to generate its instance
-handle and forwarded methods. Each `App::add_model` call registers an independent
-instance; cloning a handle refers to the same instance without cloning its data.
+Place `#[model]` on a struct and one inherent impl to generate its instance handle and forwarded methods. Each `app.add_model(value).finish()` call registers an independent instance; cloning a handle refers to the same instance without cloning its data.
 
 ```rust
 use mirui::prelude::*;
@@ -150,7 +148,7 @@ impl Counter {
 }
 
 let mut app = App::headless(32, 32);
-let counter = app.add_model(Counter { count: 0 });
+let counter = app.add_model(Counter { count: 0 }).finish();
 counter.increment();
 ```
 
@@ -242,7 +240,7 @@ impl Scoreboard {
     }
 }
 
-let scoreboard = app.add_model(Scoreboard::new());
+let scoreboard = app.add_model(Scoreboard::new()).finish();
 let left = scoreboard.left();
 left.increment();
 assert_eq!(scoreboard.total(), 1);
@@ -324,12 +322,11 @@ short lexical borrow, and does not subscribe to changes. A typed `#[view]`
 model role with `watch(...)` is the rendering path when model changes must
 invalidate a View.
 
-Register the instance before building controls. A `model!(Counter)` compose
-parameter accepts the value returned by `App::add_model`:
+Register the instance before building controls. A `model!(Counter)` compose parameter accepts the handle returned by `app.add_model(value).finish()`:
 
 ```rust
 let root = app.spawn_root().id();
-let counter = app.add_model(Counter { count: 0 });
+let counter = app.add_model(Counter { count: 0 }).finish();
 app.compose(root, counter_controls(counter.clone()));
 ```
 

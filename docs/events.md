@@ -140,7 +140,7 @@ fn handle_key(input: event!(Key), shortcuts: model!(Shortcuts)) -> bool {
 }
 
 let mut app = App::headless(320, 240);
-let shortcuts = app.add_model(Shortcuts { enabled: false });
+let shortcuts = app.add_model(Shortcuts { enabled: false }).finish();
 app.on_event(Key::EVENT, handle_key::callback(shortcuts));
 ```
 

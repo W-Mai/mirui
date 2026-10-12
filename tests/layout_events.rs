@@ -59,11 +59,13 @@ fn callbacks(sizes: model!(Sizes)) -> Entity {
 fn all_callback_forms_settle_model_properties_without_business_capacity_or_hit_targets() {
     let mut app = App::headless(240, 300);
     app.with_event_capacity(EventCapacity::new());
-    let sizes = app.add_model(Sizes {
-        width: Fixed::ZERO,
-        calls: [0; 5],
-        initial: [0; 5],
-    });
+    let sizes = app
+        .add_model(Sizes {
+            width: Fixed::ZERO,
+            calls: [0; 5],
+            initial: [0; 5],
+        })
+        .finish();
     let root = app.spawn_root().id();
     let panel = app.compose(root, callbacks(sizes.clone()));
     app.compose(root, |tree| {

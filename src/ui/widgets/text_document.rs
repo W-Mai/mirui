@@ -20,7 +20,7 @@ pub enum TextEditError {
 
 /// UTF-8 document with prepared byte capacity and observable content revisions.
 ///
-/// Register with `App::add_model`, or declare an owned field with `model!(owned TextDocument)`. Selection and composition state belong to individual editors, not the document.
+/// Register with `app.add_model(document).finish()`, or declare an owned field with `model!(owned TextDocument)`. Selection and composition state belong to individual editors, not the document.
 #[crate::model]
 #[derive(Clone)]
 pub struct TextDocument {

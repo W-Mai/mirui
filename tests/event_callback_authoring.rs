@@ -78,7 +78,7 @@ fn read_setup_resource(counter: model!(Counter), resource: res!(SetupResource)) 
 fn app_resource_setup_is_immediate_and_replacement_uses_the_existing_storage() {
     let drops = std::rc::Rc::new(std::cell::Cell::new(0));
     let mut app = App::headless(8, 8);
-    let counter = app.add_model(Counter { value: 0 });
+    let counter = app.add_model(Counter { value: 0 }).finish();
     app.add_resource(SetupResource {
         value: 2,
         drops: drops.clone(),
@@ -109,7 +109,7 @@ fn app_resource_setup_is_immediate_and_replacement_uses_the_existing_storage() {
     );
 
     let mut other = App::headless(8, 8);
-    let independent = other.add_model(Counter { value: 0 });
+    let independent = other.add_model(Counter { value: 0 }).finish();
     other.add_resource(SetupResource {
         value: 11,
         drops: drops.clone(),
@@ -155,8 +155,8 @@ fn update_pad(
 #[test]
 fn generated_callback_preserves_instance_identity_and_short_typed_access() {
     let mut app = App::headless(32, 32);
-    let first = app.add_model(Counter { value: 0 });
-    let second = app.add_model(Counter { value: 10 });
+    let first = app.add_model(Counter { value: 0 }).finish();
+    let second = app.add_model(Counter { value: 10 }).finish();
     app.world.insert_resource(Clock(2));
     app.world.insert_resource(Settings(0));
     let node = app.world.spawn_empty();
@@ -187,7 +187,7 @@ fn increment(counter: model!(Counter), amount: i32) {
 #[test]
 fn payload_independent_callback_binds_multiple_event_types_and_app_context() {
     let mut app = App::headless(32, 32);
-    let counter = app.add_model(Counter { value: 0 });
+    let counter = app.add_model(Counter { value: 0 }).finish();
     let started = increment::callback::<Started, AppContext>(counter.clone(), 2)
         .prepare(&mut app.world, CommandCapacity::default())
         .unwrap();
@@ -239,8 +239,8 @@ fn shared_values(
 #[test]
 fn app_callbacks_consume_optional_nested_and_shared_bindings_once() {
     let mut app = App::headless(8, 8);
-    let counter = app.add_model(Counter { value: 0 });
-    let independent = app.add_model(Counter { value: 40 });
+    let counter = app.add_model(Counter { value: 0 }).finish();
+    let independent = app.add_model(Counter { value: 40 }).finish();
     let signal = Signal::new(5_i32);
     // Keep the Computed app-owned while preserving the rootless Started lifecycle.
     let computed =
@@ -284,12 +284,12 @@ fn invalid_optional_owners(
 #[test]
 fn app_skips_mixed_foreign_and_ended_optional_bindings_and_keeps_valid_callbacks() {
     let mut app = App::headless(8, 8);
-    let counter = app.add_model(Counter { value: 0 });
+    let counter = app.add_model(Counter { value: 0 }).finish();
     let mut other = App::headless(8, 8);
-    let foreign = other.add_model(Counter { value: 30 });
+    let foreign = other.add_model(Counter { value: 30 }).finish();
     let ended = {
         let mut retired = App::headless(8, 8);
-        retired.add_model(Counter { value: 50 })
+        retired.add_model(Counter { value: 50 }).finish()
     };
     app.world.insert_resource(CaptureCalls::default());
 
@@ -333,7 +333,7 @@ fn app_callback_consumes_shared_audio_with_a_registered_model() {
         mirui::audio::SilentAudioSink::default(),
         &BANK,
     ));
-    let counter = app.add_model(Counter { value: 0 });
+    let counter = app.add_model(Counter { value: 0 }).finish();
     let audio = app.audio().unwrap();
     app.on_event(
         Started::EVENT,
@@ -371,8 +371,8 @@ fn generated_plan_and_all_model_owners_are_checked_at_preparation() {
     );
 
     let mut other = App::headless(32, 32);
-    let first = app.add_model(Counter { value: 0 });
-    let second = other.add_model(Counter { value: 0 });
+    let first = app.add_model(Counter { value: 0 }).finish();
+    let second = other.add_model(Counter { value: 0 }).finish();
     let owners = update_pad::callback::<EntityContext<Pad>>(first, 1, second)
         .prepare(&mut app.world, CommandCapacity::default())
         .err()
@@ -483,7 +483,7 @@ mod relative {
 #[test]
 fn generated_factory_preserves_authored_relative_type_and_const_paths() {
     let mut app = App::headless(32, 32);
-    let counter = app.add_model(Counter { value: 0 });
+    let counter = app.add_model(Counter { value: 0 }).finish();
     app.world.insert_resource(relative::Clock(3));
     app.world.insert_resource(Settings(0));
     let node = app.world.spawn(Pad);

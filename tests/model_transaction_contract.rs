@@ -125,7 +125,7 @@ impl ExtractionFailure {
 #[test]
 fn raw_helpers_inside_one_command_publish_once() {
     let mut app = App::headless(64, 64);
-    let model = app.add_model(TransactionCounter { value: 0 });
+    let model = app.add_model(TransactionCounter { value: 0 }).finish();
     let runs = Rc::new(Cell::new(0));
     let observed = model.clone();
     let counted = runs.clone();
@@ -144,8 +144,8 @@ fn raw_helpers_inside_one_command_publish_once() {
 #[test]
 fn sequential_commands_on_distinct_models_keep_instance_boundaries() {
     let mut app = App::headless(64, 64);
-    let first = app.add_model(TransactionCounter { value: 1 });
-    let second = app.add_model(TransactionCounter { value: 10 });
+    let first = app.add_model(TransactionCounter { value: 1 }).finish();
+    let second = app.add_model(TransactionCounter { value: 10 }).finish();
     let first_runs = Rc::new(Cell::new(0));
     let second_runs = Rc::new(Cell::new(0));
     let first_observer = first.clone();
@@ -175,7 +175,7 @@ fn sequential_commands_on_distinct_models_keep_instance_boundaries() {
 #[test]
 fn observer_snapshot_failure_poisoned_before_commit() {
     let mut app = App::headless(64, 64);
-    let model = app.add_model(SnapshotFailure { value: 0 });
+    let model = app.add_model(SnapshotFailure { value: 0 }).finish();
 
     let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| model.set(13)));
     assert!(failure.is_err());
@@ -186,10 +186,12 @@ fn observer_snapshot_failure_poisoned_before_commit() {
 #[test]
 fn effect_extraction_failure_poisoned_before_commit() {
     let mut app = App::headless(64, 64);
-    let model = app.add_model(ExtractionFailure {
-        value: 0,
-        event: None,
-    });
+    let model = app
+        .add_model(ExtractionFailure {
+            value: 0,
+            event: None,
+        })
+        .finish();
 
     let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| model.set(13)));
     assert!(failure.is_err());
@@ -200,10 +202,12 @@ fn effect_extraction_failure_poisoned_before_commit() {
 #[test]
 fn rejected_update_does_not_publish_or_leak_effects() {
     let mut app = App::headless(64, 64);
-    let model = app.add_model(FallibleCounter {
-        value: 1,
-        accepted: None,
-    });
+    let model = app
+        .add_model(FallibleCounter {
+            value: 1,
+            accepted: None,
+        })
+        .finish();
     let observer_runs = Rc::new(Cell::new(0));
     let observed = model.clone();
     let counted = Rc::clone(&observer_runs);
@@ -245,10 +249,12 @@ fn rejected_update_does_not_publish_or_leak_effects() {
 #[test]
 fn panicking_fallible_update_poisoned_the_model() {
     let mut app = App::headless(64, 64);
-    let model = app.add_model(FallibleCounter {
-        value: 1,
-        accepted: None,
-    });
+    let model = app
+        .add_model(FallibleCounter {
+            value: 1,
+            accepted: None,
+        })
+        .finish();
 
     let failure =
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| model.panic_during_update()));

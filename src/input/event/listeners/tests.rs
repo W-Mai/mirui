@@ -1564,7 +1564,7 @@ fn record_change(
 #[test]
 fn named_factory_receives_owned_notification_through_the_installed_pool() {
     let mut app = crate::app::App::headless(8, 8);
-    let counter = app.add_model(Counter { value: 0 });
+    let counter = app.add_model(Counter { value: 0 }).finish();
     let node = app.world.spawn_empty();
     app.world.insert(node, Widget);
     app.world.insert(node, Position(2));
@@ -1602,7 +1602,7 @@ fn named_factory_receives_owned_notification_through_the_installed_pool() {
 #[test]
 fn disabled_or_hidden_widgets_still_receive_queued_business_notifications() {
     let mut app = crate::app::App::headless(8, 8);
-    let counter = app.add_model(Counter { value: 0 });
+    let counter = app.add_model(Counter { value: 0 }).finish();
     let node = app.world.spawn_empty();
     app.world.insert(node, Widget);
     app.world.insert(node, Position(0));
@@ -2288,7 +2288,7 @@ fn widget_installation_checks_source_and_execution_checks_generation() {
 #[test]
 fn attached_sources_share_typed_execution_and_instance_identity() {
     let mut app = crate::app::App::headless(8, 8);
-    let counter = app.add_model(Counter { value: 0 });
+    let counter = app.add_model(Counter { value: 0 }).finish();
     let first = app.world.spawn_empty();
     let second = app.world.spawn_empty();
     for node in [first, second] {

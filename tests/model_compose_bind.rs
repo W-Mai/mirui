@@ -250,9 +250,9 @@ fn checked_optional_panel(
 fn declared_models_are_all_validated_before_composition_side_effects() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
-    let first = app.add_model(Counter { count: 0 });
+    let first = app.add_model(Counter { count: 0 }).finish();
     let mut other = App::headless(32, 32);
-    let foreign = other.add_model(Counter { count: 0 });
+    let foreign = other.add_model(Counter { count: 0 }).finish();
     let entered = Cell::new(false);
     let composition = checked_optional_panel(first.clone(), Some(Some(foreign.clone())), &entered);
     assert!(!entered.get());
@@ -271,7 +271,7 @@ fn ended_registration_is_rejected_even_when_the_model_is_unused() {
     let root = app.spawn_root().id();
     let ended = {
         let mut other = App::headless(32, 32);
-        other.add_model(Counter { count: 0 })
+        other.add_model(Counter { count: 0 }).finish()
     };
     let entered = Cell::new(false);
     let result = catch_unwind(AssertUnwindSafe(|| {
@@ -285,8 +285,8 @@ fn ended_registration_is_rejected_even_when_the_model_is_unused() {
 fn optional_model_validation_preserves_absent_values_and_instance_identity() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
-    let first = app.add_model(Counter { count: 0 });
-    let second = app.add_model(Counter { count: 10 });
+    let first = app.add_model(Counter { count: 0 }).finish();
+    let second = app.add_model(Counter { count: 10 }).finish();
     let entered = Cell::new(false);
     app.compose(root, |cx| {
         checked_optional_panel(first.clone(), None, &entered)(cx);
@@ -302,10 +302,10 @@ fn optional_model_validation_preserves_absent_values_and_instance_identity() {
 fn model_validation_uses_the_supplied_scope_and_restores_nested_owner() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
-    let first = app.add_model(Counter { count: 0 });
+    let first = app.add_model(Counter { count: 0 }).finish();
     let mut other = App::headless(32, 32);
     let other_root = other.spawn_root().id();
-    let second = other.add_model(Counter { count: 10 });
+    let second = other.add_model(Counter { count: 10 }).finish();
     let entered = Cell::new(false);
     app.compose(root, |scope| {
         other.compose(other_root, |_| {
@@ -342,7 +342,7 @@ fn shared_reactive_values_keep_their_own_access_rules() {
 fn declared_model_validation_does_not_allocate() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
-    let counter = app.add_model(Counter { count: 0 });
+    let counter = app.add_model(Counter { count: 0 }).finish();
     let entered = Cell::new(false);
     let count = app.compose(root, |scope| {
         tracked_allocations(|| {
@@ -359,7 +359,7 @@ fn declared_model_validation_does_not_allocate() {
 fn unrelated_callbacks_do_not_capture_a_bound_model() {
     let mut app = App::headless(160, 48);
     let root = app.spawn_root().id();
-    let counter = app.add_model(Counter { count: 0 });
+    let counter = app.add_model(Counter { count: 0 }).finish();
     app.compose(root, mixed_capture_panel(counter.clone()));
     let buttons: Vec<_> = app.world.query::<Button>().collect();
     assert_eq!(buttons.len(), 2);
@@ -383,7 +383,7 @@ fn unrelated_callbacks_do_not_capture_a_bound_model() {
 fn generated_callbacks_share_only_free_model_references() {
     let mut app = App::headless(160, 48);
     let root = app.spawn_root().id();
-    let counter = app.add_model(Counter { count: 13 });
+    let counter = app.add_model(Counter { count: 13 }).finish();
     app.compose(root, scoped_capture_panel(counter.clone()));
     let buttons: Vec<_> = app.world.query::<Button>().collect();
     assert_eq!(buttons.len(), 9);
@@ -407,7 +407,7 @@ fn generated_callbacks_share_only_free_model_references() {
 fn generated_callbacks_share_implicit_format_captures() {
     let mut app = App::headless(160, 48);
     let root = app.spawn_root().id();
-    let counter = app.add_model(Counter { count: 13 });
+    let counter = app.add_model(Counter { count: 13 }).finish();
     app.compose(root, implicit_format_capture_panel(counter.clone()));
     let buttons: Vec<_> = app.world.query::<Button>().collect();
     assert_eq!(buttons.len(), 9);
@@ -441,7 +441,7 @@ fn generated_callbacks_share_implicit_format_captures() {
 fn compose_maps_bound_model_parameters_to_handles() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
-    let counter = app.add_model(Counter { count: 0 });
+    let counter = app.add_model(Counter { count: 0 }).finish();
     app.compose(root, increment_panel(counter.clone(), 3));
     app.compose(root, optional_panel(Some(counter.clone())));
     app.compose(
@@ -459,7 +459,7 @@ fn compose_maps_bound_model_parameters_to_handles() {
 fn bound_model_is_shared_across_generated_callbacks() {
     let mut app = App::headless(320, 120);
     let root = app.spawn_root().id();
-    let counter = app.add_model(Counter { count: 0 });
+    let counter = app.add_model(Counter { count: 0 }).finish();
     app.compose(root, two_button_panel(counter.clone()));
     let labels: Vec<_> = app.world.query::<Text>().collect();
     let label = *labels
@@ -509,7 +509,7 @@ fn bound_model_is_shared_across_generated_callbacks() {
 fn bound_model_is_shared_across_child_compose_calls() {
     let mut app = App::headless(320, 120);
     let root = app.spawn_root().id();
-    let counter = app.add_model(Counter { count: 0 });
+    let counter = app.add_model(Counter { count: 0 }).finish();
     app.compose(
         root,
         parent_with_bound_children(counter.clone(), MoveOnly(7)),
@@ -537,7 +537,7 @@ fn bound_model_is_shared_across_child_compose_calls() {
 fn bound_model_is_shared_across_tree_child_compose_calls() {
     let mut app = App::headless(320, 120);
     let root = app.spawn_root().id();
-    let counter = app.add_model(Counter { count: 0 });
+    let counter = app.add_model(Counter { count: 0 }).finish();
     app.compose(root, tree_with_bound_children(counter.clone()));
 
     let buttons: Vec<_> = app.world.query::<Button>().collect();
@@ -562,7 +562,7 @@ fn bound_model_is_shared_across_tree_child_compose_calls() {
 fn bound_optional_model_is_shared_across_tree_children() {
     let mut app = App::headless(320, 120);
     let root = app.spawn_root().id();
-    let counter = app.add_model(Counter { count: 0 });
+    let counter = app.add_model(Counter { count: 0 }).finish();
     app.compose(root, tree_with_optional_children(Some(counter.clone())));
 
     let buttons: Vec<_> = app.world.query::<Button>().collect();
@@ -587,7 +587,7 @@ fn bound_optional_model_is_shared_across_tree_children() {
 fn qualified_ui_paths_share_bound_models_in_trees_and_children() {
     let mut app = App::headless(320, 120);
     let root = app.spawn_root().id();
-    let counter = app.add_model(Counter { count: 0 });
+    let counter = app.add_model(Counter { count: 0 }).finish();
     app.compose(root, qualified_ui_panel(counter.clone()));
 
     let buttons: Vec<_> = app.world.query::<Button>().collect();

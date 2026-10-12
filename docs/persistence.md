@@ -23,6 +23,30 @@ impl Settings {}
 
 Field codecs match names and archive types, not declaration order. Missing or incompatible fields retain their current values; incompatible types emit a warning. Invalid records are rejected before applying prepared values. Fields without `#[persist]` are not encoded or reset. These declarations do not change the raw Model's memory layout. Disabling mirui's `persistence` feature removes codec implementations and their field trait requirements; the application does not need a same-named feature.
 
+## Registering a Model
+
+Install the plugin before registering persistent Models. `add_model(value)` creates a pending builder; `finish()` performs registration and returns the shared handle. Restoration completes before observation sources are initialized. Discarding a builder performs no registration or storage access; the type's `must_use` warning reminds callers to finish it.
+
+```rust
+app.add_plugin(PersistencePlugin::new(storage).autosave(1000));
+
+let settings = app.add_model(Settings {
+    volume: 60,
+    panel_open: false,
+}).finish();
+
+let document = app.add_model(Settings {
+    volume: 40,
+    panel_open: true,
+}).with_key("documents/42").finish();
+```
+
+`with_key` is available for Models declared with `persistence`. It overrides the type's key before any storage read. Keys must be nonempty and unique among live registrations, including signal, resource, and byte registrations. A rejected Model registration still returns a usable handle and logs the persistence error without reading or replacing the conflicting record. Models without a key remain unregistered with storage.
+
+Without the plugin, Models behave normally. Installing it later does not scan or restore existing instances. Missing records retain the supplied values and become initial save candidates. Failed reads or invalid archives retain those values but protect the stored record from automatic overwrite; an explicit successful save clears that protection. A live registration holds only a weak Model endpoint, so retiring the Model releases its key.
+
+`PersistencePlugin::enabled(false)` registers Models without performing IO. Re-enabling the registry keeps current values and marks them for saving; it does not restore old data or clear failed-restore protection. Manual IO returns `PersistenceError::Disabled` while disabled.
+
 Registered roots with persistence declarations retain one save-candidate state for the complete owned tree. Mutations mark it without allocating or copying saved fields, including mutations that return an error; reads do not mark it. Models without a persistence declaration use zero-sized persistence state. Candidate tracking is separate from the storage registration and write acknowledgment.
 
 ## Model codecs
@@ -53,7 +77,7 @@ Install a clock plugin before the persistence plugin to enable periodic saves. D
 
 `FileStorage::open` and `LocalStorageStorage::with_prefix` return `Result`. A corrupt file is not replaced with an empty store. File writes and removals restore the confirmed in-memory cache if the filesystem operation fails, so retrying cannot mistake uncommitted bytes for a successful save. Use one owner per storage namespace; these backends do not coordinate concurrent writers.
 
-Registry operations return `PersistenceError`. `save_all` attempts all registered items and returns the first failure. Plugin lifecycle hooks log failures and retry saves on subsequent save boundaries. Failed restores do not install a saving callback and do not overwrite the stored record.
+Registry operations return `PersistenceError`. `save_all` attempts all registered items and returns the first failure. Plugin lifecycle hooks log failures and retry saves on subsequent save boundaries. Failed signal, resource, or byte restores do not install saving callbacks; Model restores retain a protected endpoint. Neither path automatically overwrites a failed record.
 
 `PersistenceError::Capacity` reports failure to prepare encoding or restoration memory; it is distinct from a storage backend failure.
 

@@ -232,7 +232,7 @@ fn model_observation_switches_a_cached_match_without_allocating() {
     let mut app = App::headless(64, 64);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    let model = app.add_model(ModeModel { mode: 0 });
+    let model = app.add_model(ModeModel { mode: 0 }).finish();
     let selection = model.share();
 
     app.compose(root, |cx| {

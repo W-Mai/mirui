@@ -1,6 +1,4 @@
-//! Typed save / restore on top of [`Storage`]. Default-encodes through
-//! postcard (compact, no_std + alloc); `bytes(...)` gives a byte-level
-//! escape hatch for custom wire formats.
+//! Typed save and restore on top of [`Storage`]. Models use named field archives; signal and resource values use postcard. Byte registrations preserve their complete custom format.
 
 extern crate alloc;
 
@@ -9,6 +7,7 @@ pub mod archive;
 mod autosave;
 mod error;
 mod model_codec;
+mod models;
 #[doc(hidden)]
 pub mod value;
 use autosave::Autosave;
@@ -64,9 +63,21 @@ pub struct PersistenceRegistry {
     storage: Box<dyn Storage>,
     items: Vec<TrackedItem>,
     autosave: Autosave,
+    models: Vec<models::ModelEntry>,
+    output: Vec<u8>,
+    enabled: bool,
 }
 
 impl PersistenceRegistry {
+    /// Enable or suspend IO. Re-enabling keeps current Model values and marks them for saving; it does not restore storage.
+    pub fn set_enabled(&mut self, enabled: bool) {
+        if enabled && !self.enabled {
+            for item in &self.models {
+                item.endpoint.mark_pending();
+            }
+        }
+        self.enabled = enabled;
+    }
     /// Configure the periodic autosave interval, starting at the next clock sample.
     ///
     /// # Arguments
@@ -88,7 +99,10 @@ impl PersistenceRegistry {
     where
         T: Serialize + DeserializeOwned + Clone + 'static,
     {
-        if let Some(bytes) = read_value(&*self.storage, key)? {
+        self.check_key(key)?;
+        if self.enabled
+            && let Some(bytes) = read_value(&*self.storage, key)?
+        {
             let value =
                 postcard::from_bytes::<T>(&bytes).map_err(|_| PersistenceError::InvalidArchive)?;
             signal.set(value);
@@ -117,7 +131,10 @@ impl PersistenceRegistry {
     where
         T: Serialize + DeserializeOwned + 'static,
     {
-        if let Some(bytes) = read_value(&*self.storage, key)? {
+        self.check_key(key)?;
+        if self.enabled
+            && let Some(bytes) = read_value(&*self.storage, key)?
+        {
             let value =
                 postcard::from_bytes::<T>(&bytes).map_err(|_| PersistenceError::InvalidArchive)?;
             world.insert_resource(value);
@@ -143,7 +160,10 @@ impl PersistenceRegistry {
         mut save: impl FnMut() -> Option<Vec<u8>> + 'static,
         mut restore: impl FnMut(&[u8]) -> Result<(), PersistenceError> + 'static,
     ) -> Result<(), PersistenceError> {
-        if let Some(bytes) = self.storage.read(key)? {
+        self.check_key(key)?;
+        if self.enabled
+            && let Some(bytes) = self.storage.read(key)?
+        {
             restore(&bytes)?;
         }
         self.items.push(TrackedItem {
@@ -156,10 +176,17 @@ impl PersistenceRegistry {
 
     /// Flush every tracked item. All items are attempted; the first error is returned.
     pub fn save_all(&mut self, world: &World) -> Result<(), PersistenceError> {
+        if !self.enabled {
+            return Err(PersistenceError::Disabled);
+        }
         let mut result = Ok(());
         for item in &mut self.items {
             let saved = item.save(world, &mut *self.storage);
             result = result.and(saved);
+        }
+        self.models.retain(|item| item.endpoint.is_alive());
+        for item in &mut self.models {
+            result = result.and(item.save(world, &mut *self.storage, &mut self.output, false));
         }
         result
     }
@@ -167,6 +194,16 @@ impl PersistenceRegistry {
     /// Flush a single tracked item by key. Useful when only one piece
     /// of state changed and the caller wants to avoid touching others.
     pub fn save(&mut self, world: &World, key: &str) -> Result<(), PersistenceError> {
+        if !self.enabled {
+            return Err(PersistenceError::Disabled);
+        }
+        if let Some(item) = self
+            .models
+            .iter_mut()
+            .find(|item| item.key == key && item.endpoint.is_alive())
+        {
+            return item.save(world, &mut *self.storage, &mut self.output, true);
+        }
         for item in &mut self.items {
             if item.key == key {
                 return item.save(world, &mut *self.storage);
@@ -178,6 +215,9 @@ impl PersistenceRegistry {
     /// Drop persisted bytes for `key`. The tracked item stays
     /// registered — future saves will repopulate storage.
     pub fn remove(&mut self, key: &str) -> Result<(), PersistenceError> {
+        if !self.enabled {
+            return Err(PersistenceError::Disabled);
+        }
         self.storage.remove(key).map_err(Into::into)
     }
 }
@@ -227,6 +267,7 @@ pub struct PersistencePlugin<S: Storage + 'static> {
     storage: Option<S>,
     pending: Vec<Pending>,
     autosave: Autosave,
+    enabled: bool,
 }
 
 impl<S: Storage + 'static> PersistencePlugin<S> {
@@ -235,7 +276,14 @@ impl<S: Storage + 'static> PersistencePlugin<S> {
             storage: Some(storage),
             pending: Vec::new(),
             autosave: Autosave::default(),
+            enabled: true,
         }
+    }
+
+    /// Configure whether the plugin performs IO. Disabled Model registrations keep their supplied values.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
     }
 
     pub fn signal<T>(mut self, key: &'static str, signal: Signal<T>) -> Self
@@ -323,6 +371,9 @@ where
             storage: Box::new(storage),
             items: Vec::new(),
             autosave: core::mem::take(&mut self.autosave),
+            models: Vec::new(),
+            output: Vec::new(),
+            enabled: self.enabled,
         };
         registry.autosave.reset(clock_ns(&app.world));
         // No MonoClock → autosave never ticks; on_suspend/on_quit still flush.
@@ -346,7 +397,7 @@ where
         let now_ns = clock_ns(world);
         let due = world
             .resource_mut::<PersistenceRegistry>()
-            .is_some_and(|reg| reg.autosave.due(now_ns));
+            .is_some_and(|reg| reg.enabled && reg.autosave.due(now_ns));
         if due {
             flush_and_stamp(world, now_ns);
         }
@@ -371,6 +422,9 @@ fn clock_ns(world: &World) -> Option<u64> {
 
 fn flush_and_stamp(world: &mut World, now_ns: Option<u64>) {
     world.with_resource_box::<PersistenceRegistry, _>(|registry, world| {
+        if !registry.enabled {
+            return;
+        }
         if let Err(error) = registry.save_all(world) {
             crate::warn!(target: "mirui::persistence", "persistence save failed: {error}");
         }
@@ -389,6 +443,9 @@ mod tests {
             storage: Box::new(MemoryStorage::new()),
             items: Vec::new(),
             autosave: Autosave::default(),
+            models: Vec::new(),
+            output: Vec::new(),
+            enabled: true,
         };
         (world, registry)
     }
@@ -442,7 +499,9 @@ mod tests {
         reg.save_all(&world).unwrap();
 
         let count_back = Signal::new(0i32);
-        reg.signal("count", count_back.clone()).unwrap();
+        let (_, mut restored) = fresh_world();
+        restored.storage = reg.storage;
+        restored.signal("count", count_back.clone()).unwrap();
         assert_eq!(count_back.get_untracked(), 42);
     }
 

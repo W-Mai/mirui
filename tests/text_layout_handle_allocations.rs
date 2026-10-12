@@ -46,7 +46,7 @@ fn retained_text_branch_switch_reuses_prepared_handle_storage() {
     })
     .unwrap();
     let root = app.spawn_root().id();
-    let mode = app.add_model(Mode { deep: false });
+    let mode = app.add_model(Mode { deep: false }).finish();
     let branch = mode.share();
 
     app.compose(root, |cx| {

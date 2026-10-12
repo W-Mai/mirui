@@ -79,7 +79,7 @@ mod tests {
     fn committed_words_do_not_trigger_individual_game_shortcuts() {
         let mut app = crate::app::App::headless(32, 32);
         app.add_resource(Unhandled::default());
-        let model = app.add_model(EchoModel::default());
+        let model = app.add_model(EchoModel::default()).finish();
         app.on_event(TextCommitted::EVENT, keyboard::callback(model))
             .on_event(TextCommitted::EVENT, unhandled::callback());
         crate::input::event::dispatch_input(
@@ -96,7 +96,7 @@ mod tests {
     #[test]
     fn keyboard_keeps_the_registered_model_instance() {
         let mut app = App::headless(1, 1);
-        let model = app.add_model(EchoModel::default());
+        let model = app.add_model(EchoModel::default()).finish();
         let observer = model.clone();
         app.world.insert_resource(Unhandled::default());
         app.on_event(TextCommitted::EVENT, keyboard::callback(model.clone()))

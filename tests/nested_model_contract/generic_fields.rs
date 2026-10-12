@@ -18,7 +18,7 @@ impl CfgLeaf {
 #[test]
 fn disabled_owned_fields_do_not_reference_unavailable_models() {
     let mut app = App::headless(16, 16);
-    let leaf = app.add_model(CfgLeaf { value: 1 });
+    let leaf = app.add_model(CfgLeaf { value: 1 }).finish();
     leaf.increment();
     assert_eq!(leaf.value(), 2);
 }
@@ -93,7 +93,9 @@ impl<T: Copy + Eq + 'static> CopyParent<T> {
 #[test]
 fn generic_owned_fields_preserve_bounds_cfg_and_original_self_types() {
     let mut app = App::headless(16, 16);
-    let parent = app.add_model(GenericParent::new(Value::new(4_u16)));
+    let parent = app
+        .add_model(GenericParent::new(Value::new(4_u16)))
+        .finish();
     let child = parent.child();
     child.replace(Value::new(9));
     assert_eq!(child.value(), 9);
@@ -109,9 +111,11 @@ fn generic_owned_fields_preserve_bounds_cfg_and_original_self_types() {
         assert_eq!(parent.present().value(), 1);
     }
 
-    let parent = app.add_model(CopyParent {
-        child: Value::new(7_u8).into(),
-    });
+    let parent = app
+        .add_model(CopyParent {
+            child: Value::new(7_u8).into(),
+        })
+        .finish();
     parent.copy_child();
     assert_eq!(parent.child().value(), 7);
 }
@@ -127,9 +131,11 @@ impl PublicParent {}
 #[test]
 fn public_parents_can_keep_child_types_private() {
     let mut app = App::headless(16, 16);
-    let parent = app.add_model(PublicParent {
-        child: Counter::new(1).into(),
-    });
+    let parent = app
+        .add_model(PublicParent {
+            child: Counter::new(1).into(),
+        })
+        .finish();
     parent.child().add(1);
     assert_eq!(parent.child().value(), 2);
 }

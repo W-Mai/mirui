@@ -87,11 +87,13 @@ fn indexed_rows_stream_unknown_lengths_and_reuse_retained_storage() {
 fn keyed_model_rows_reorder_without_allocating_and_keep_member_bindings() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
-    let items = app.add_model(ModelList::from([
-        Row { value: 1 },
-        Row { value: 2 },
-        Row { value: 3 },
-    ]));
+    let items = app
+        .add_model(ModelList::from([
+            Row { value: 1 },
+            Row { value: 2 },
+            Row { value: 3 },
+        ]))
+        .finish();
     let list = app.compose(root, rows(items.clone()));
     flush_signal_dirty(&mut app.world);
     let original = app.world.get::<Children>(list).unwrap().0.clone();
@@ -127,7 +129,9 @@ fn keyed_model_rows_reorder_without_allocating_and_keep_member_bindings() {
 fn keyed_member_removal_and_reuse_replace_only_the_retired_row() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
-    let items = app.add_model(ModelList::from([Row { value: 1 }, Row { value: 2 }]));
+    let items = app
+        .add_model(ModelList::from([Row { value: 1 }, Row { value: 2 }]))
+        .finish();
     let list = app.compose(root, rows(items.clone()));
     let original = app.world.get::<Children>(list).unwrap().0.clone();
     let removed = items.entries().next().unwrap().0;

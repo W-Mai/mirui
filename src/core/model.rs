@@ -31,11 +31,11 @@ pub use set::{ModelSetHandle, ModelSetOwned};
 pub use identity::ModelRef;
 #[doc(hidden)]
 pub use owned::{OwnedModel, OwnedStorage};
-#[doc(hidden)]
-pub use persistence::PersistenceState;
 #[cfg(feature = "persistence")]
 #[doc(hidden)]
 pub use persistence::{Candidate, SaveEndpoint};
+#[doc(hidden)]
+pub use persistence::{ModelRegistration, PersistModel, PersistenceState};
 #[doc(hidden)]
 pub use projection::{ModelChildField, ModelPath, ModelPathThen};
 #[doc(hidden)]
@@ -1079,8 +1079,8 @@ mod tests {
     #[test]
     fn registered_instances_are_independent_and_clones_share_one_instance() {
         let mut app = crate::app::App::headless(32, 32);
-        let first = app.add_model(Counter(1));
-        let second = app.add_model(Counter(8));
+        let first = app.add_model(Counter(1)).finish();
+        let second = app.add_model(Counter(8)).finish();
         let first_copy = first.clone();
 
         first.increment();
@@ -1103,7 +1103,7 @@ mod tests {
         }
 
         let mut app = crate::app::App::headless(32, 32);
-        let model = app.add_model(Counter(2));
+        let model = app.add_model(Counter(2)).finish();
         let reads = Cell::new(0);
         let updates = Cell::new(0);
         let read_payload = Payload(&reads);
@@ -1133,13 +1133,13 @@ mod tests {
     fn shared_binding_owners_merge_without_allocating_and_preserve_the_first_error() {
         const UNBOUND: BindingOwner = BindingOwner::unbound();
         let mut app = crate::app::App::headless(32, 32);
-        let first = app.add_model(Counter(1));
-        let second = app.add_model(Counter(2));
+        let first = app.add_model(Counter(1)).finish();
+        let second = app.add_model(Counter(2)).finish();
         let mut other = crate::app::App::headless(32, 32);
-        let foreign = other.add_model(Counter(3));
+        let foreign = other.add_model(Counter(3)).finish();
         let ended = {
             let mut retired = crate::app::App::headless(32, 32);
-            retired.add_model(Counter(4))
+            retired.add_model(Counter(4)).finish()
         };
         let absent: Option<Option<CounterHandle>> = None;
         let nested_absent = Some(None::<CounterHandle>);
@@ -1183,14 +1183,14 @@ mod tests {
     fn shared_binding_owner_assertion_uses_the_composition_scope_and_restores_the_outer_owner() {
         let mut app = crate::app::App::headless(32, 32);
         let root = app.spawn_root().id();
-        let handle = app.add_model(Counter(1));
+        let handle = app.add_model(Counter(1)).finish();
         let outside = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             handle.assert_registered_owner();
         }));
         assert!(outside.is_err());
 
         let mut other = crate::app::App::headless(32, 32);
-        let foreign_handle = other.add_model(Counter(2));
+        let foreign_handle = other.add_model(Counter(2)).finish();
         let other_owner = other.world.id();
         let _outer = crate::core::reactive::OwnerGuard::enter(&mut other.world);
         {
@@ -1210,7 +1210,7 @@ mod tests {
     fn handle_rejects_access_after_app_drops() {
         let (handle, owner, captured) = {
             let mut app = crate::app::App::headless(32, 32);
-            let handle = app.add_model(Counter(4));
+            let handle = app.add_model(Counter(4)).finish();
             let captured = handle.binding_owner();
             (handle, app.world.id(), captured)
         };
@@ -1239,7 +1239,7 @@ mod tests {
     fn retained_cell_does_not_keep_a_registration_alive() {
         let (handle, retained_cell, owner) = {
             let mut app = crate::app::App::headless(32, 32);
-            let handle = app.add_model(Counter(4));
+            let handle = app.add_model(Counter(4)).finish();
             let retained_cell = handle.access().upgrade().unwrap();
             (handle, retained_cell, app.world.id())
         };
@@ -1255,7 +1255,7 @@ mod tests {
     #[test]
     fn despawning_registration_invalidates_retained_handles() {
         let mut app = crate::app::App::headless(32, 32);
-        let handle = app.add_model(Counter(4));
+        let handle = app.add_model(Counter(4)).finish();
         let retained_cell = handle.access().upgrade().unwrap();
         let registration = app
             .world
@@ -1276,7 +1276,7 @@ mod tests {
     #[test]
     fn despawned_model_invalidates_cached_computeds_without_rerunning_effects() {
         let mut app = crate::app::App::headless(32, 32);
-        let handle = app.add_model(Counter(4));
+        let handle = app.add_model(Counter(4)).finish();
         let retained_cell = handle.access().upgrade().unwrap();
         let source = handle.clone();
         let computed = with_world_scope(&mut app.world, || Computed::new(move || source.value()));
@@ -1321,7 +1321,7 @@ mod tests {
     #[test]
     fn explicit_visual_subscriptions_release_one_registration_at_a_time() {
         let mut app = crate::app::App::headless(32, 32);
-        let handle = app.add_model(Counter(0));
+        let handle = app.add_model(Counter(0)).finish();
         let entity = app.world.spawn_empty();
         let first = handle.subscribe_observed(0, &app.world, entity, ModelInvalidation::Visual);
         let second = handle.subscribe_observed(0, &app.world, entity, ModelInvalidation::Visual);
@@ -1344,7 +1344,7 @@ mod tests {
     #[test]
     fn automatic_visual_scope_does_not_reuse_an_explicit_view_binding() {
         let mut app = crate::app::App::headless(32, 32);
-        let handle = app.add_model(Counter(0));
+        let handle = app.add_model(Counter(0)).finish();
         let entity = app.world.spawn_empty();
         let explicit = handle.subscribe_observed(0, &app.world, entity, ModelInvalidation::Visual);
 
@@ -1366,7 +1366,7 @@ mod tests {
     #[test]
     fn nested_write_is_rejected_and_failed_update_poisoned() {
         let mut app = crate::app::App::headless(32, 32);
-        let handle = app.add_model(Counter(1));
+        let handle = app.add_model(Counter(1)).finish();
         let nested = handle.clone();
         let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             handle.update(|counter| {
@@ -1384,7 +1384,7 @@ mod tests {
     #[test]
     fn active_other_app_cannot_access_a_model() {
         let mut first_app = crate::app::App::headless(32, 32);
-        let first = first_app.add_model(Counter(1));
+        let first = first_app.add_model(Counter(1)).finish();
         let mut second_app = crate::app::App::headless(32, 32);
         let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _guard = crate::core::reactive::OwnerGuard::enter(&mut second_app.world);

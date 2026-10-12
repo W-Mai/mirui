@@ -49,7 +49,7 @@ fn keyed_child_models_support_author_macros_and_parent_transactions() {
         .ok()
         .unwrap();
     let mut app = App::headless(32, 32);
-    let tasks = app.add_model(Tasks { items: data.into() });
+    let tasks = app.add_model(Tasks { items: data.into() }).finish();
     app.on_event(
         Started::EVENT,
         toggle::callback(tasks.items().get(&7).unwrap()),
@@ -70,7 +70,7 @@ fn removed_map_member_is_not_invoked_after_reinsertion_of_the_same_key() {
         .ok()
         .unwrap();
     let mut app = App::headless(32, 32);
-    let tasks = app.add_model(Tasks { items: data.into() });
+    let tasks = app.add_model(Tasks { items: data.into() }).finish();
     app.on_event(
         Started::EVENT,
         toggle::callback(tasks.items().get(&7).unwrap()),
@@ -85,7 +85,9 @@ fn removed_map_member_is_not_invoked_after_reinsertion_of_the_same_key() {
 #[test]
 fn loading_a_list_retires_declared_callbacks_and_accepts_owned_input() {
     let mut app = App::headless(32, 32);
-    let items = app.add_model(ModelList::from([Task { done: false }]));
+    let items = app
+        .add_model(ModelList::from([Task { done: false }]))
+        .finish();
     app.on_event(Started::EVENT, toggle::callback(items.get(0).unwrap()));
     items
         .load([Task { done: false }, Task { done: true }])
@@ -98,11 +100,13 @@ fn loading_a_list_retires_declared_callbacks_and_accepts_owned_input() {
 #[test]
 fn loading_keyed_data_retires_callbacks_even_when_business_keys_match() {
     let mut app = App::headless(32, 32);
-    let map = app.add_model(
-        ModelMap::from_entries([(7, Task { done: false })])
-            .ok()
-            .unwrap(),
-    );
+    let map = app
+        .add_model(
+            ModelMap::from_entries([(7, Task { done: false })])
+                .ok()
+                .unwrap(),
+        )
+        .finish();
     app.on_event(Started::EVENT, toggle::callback(map.get(&7).unwrap()));
     map.load([(8, Task { done: true }), (7, Task { done: false })])
         .unwrap();
@@ -114,11 +118,13 @@ fn loading_keyed_data_retires_callbacks_even_when_business_keys_match() {
 #[test]
 fn reconciling_keyed_data_preserves_declared_callbacks_and_local_fields() {
     let mut app = App::headless(32, 32);
-    let map = app.add_model(
-        ModelMap::from_entries([(7, Task { done: true })])
-            .ok()
-            .unwrap(),
-    );
+    let map = app
+        .add_model(
+            ModelMap::from_entries([(7, Task { done: true })])
+                .ok()
+                .unwrap(),
+        )
+        .finish();
     app.on_event(Started::EVENT, toggle::callback(map.get(&7).unwrap()));
     let old = map.entries().next().unwrap().0;
     map.reconcile(
@@ -136,7 +142,9 @@ fn reconciling_keyed_data_preserves_declared_callbacks_and_local_fields() {
 #[test]
 fn reconciled_members_keep_declared_callbacks_after_reordering() {
     let mut app = App::headless(32, 32);
-    let items = app.add_model(ModelList::from([Task { done: false }, Task { done: true }]));
+    let items = app
+        .add_model(ModelList::from([Task { done: false }, Task { done: true }]))
+        .finish();
     let (id, captured) = items.entries().next().unwrap();
     app.on_event(Started::EVENT, toggle::callback(captured));
     items
@@ -173,9 +181,11 @@ impl Selection {
 #[test]
 fn set_imports_are_available_inside_owned_parent_methods_and_registered_roles() {
     let mut app = App::headless(32, 32);
-    let selection = app.add_model(Selection {
-        keys: ModelSet::bounded(4).into(),
-    });
+    let selection = app
+        .add_model(Selection {
+            keys: ModelSet::bounded(4).into(),
+        })
+        .finish();
     selection.keys().load([9, 9]).unwrap();
     selection.refresh();
     assert_eq!(selection.selected(), 3);
@@ -191,9 +201,11 @@ fn select_key(selected: model!(ModelSet<u64>)) {
 #[test]
 fn set_fields_and_direct_event_roles_publish_parent_derived_values() {
     let mut app = App::headless(32, 32);
-    let selection = app.add_model(Selection {
-        keys: ModelSet::bounded(4).into(),
-    });
+    let selection = app
+        .add_model(Selection {
+            keys: ModelSet::bounded(4).into(),
+        })
+        .finish();
     app.on_event(Started::EVENT, select_key::callback(selection.keys()));
     assert_eq!(selection.selected(), 0);
     app.tick();

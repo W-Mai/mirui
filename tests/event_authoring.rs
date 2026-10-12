@@ -36,19 +36,15 @@ fn text_notifications(
     use mirui::ui::widgets::text_editing::{SelectionChanged, Submitted};
     use mirui::ui::widgets::{TextEditing, TextInput};
     ui! {
-        Column() {
-            TextInput(id: "text_block")
-                on TextEditing::Submitted { block.increment(); }
-                on TextEditing::SelectionChanged { block.increment(); }
-            TextInput(id: "text_closure")
-                on TextEditing::Submitted(move |_: &Submitted| { closure.increment(); })
-                on TextEditing::SelectionChanged(move |_: &SelectionChanged| { closure.increment(); })
-            TextInput(id: "text_function")
-                on TextEditing::Submitted(count_submission::callback(function.clone()))
-                on TextEditing::SelectionChanged(count_submission::callback(function.clone()))
-            TextInput(id: "text_intercepted")
-                on Key(move |_: &Key| true)
-                on TextEditing::Submitted(count_submission::callback(function))
+        Column () {
+            TextInput (id: "text_block") on TextEditing::Submitted { block.increment(); } on TextEditing::SelectionChanged { block.increment(); }
+            TextInput (id: "text_closure") on TextEditing::Submitted(move |_: &Submitted| {
+                closure.increment();
+            }) on TextEditing::SelectionChanged(move |_: &SelectionChanged| {
+                closure.increment();
+            })
+            TextInput (id: "text_function") on TextEditing::Submitted(count_submission::callback(function.clone())) on TextEditing::SelectionChanged(count_submission::callback(function.clone()))
+            TextInput (id: "text_intercepted") on Key(move |_: &Key| true) on TextEditing::Submitted(count_submission::callback(function))
         }
     };
 }
@@ -60,7 +56,8 @@ fn text_notifications_share_authoring_forms_and_respect_key_consumption() {
     let mut app = App::headless(32, 32);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    let counters = core::array::from_fn::<_, 3, _>(|_| app.add_model(EventCounter { value: 0 }));
+    let counters =
+        core::array::from_fn::<_, 3, _>(|_| app.add_model(EventCounter { value: 0 }).finish());
     app.compose(
         root,
         text_notifications(
@@ -151,13 +148,23 @@ fn focus_panel(
 ) {
     ui! {
         Column () {
-            View (id: "focus_block") [Focusable] on FocusChanged {
-                if event.focused { block.increment(); }
+            View (id: "focus_block") [
+                Focusable,
+            ] on FocusChanged {
+                if event.focused {
+                    block.increment();
+                }
             }
-            View (id: "focus_closure") [Focusable] on FocusChanged(move |event: &FocusChanged| {
-                if event.focused { closure.increment(); }
+            View (id: "focus_closure") [
+                Focusable,
+            ] on FocusChanged(move |event: &FocusChanged| {
+                if event.focused {
+                    closure.increment();
+                }
             })
-            View (id: "focus_function") [Focusable] on FocusChanged(count_focus::callback(function))
+            View (id: "focus_function") [
+                Focusable,
+            ] on FocusChanged(count_focus::callback(function))
         }
     };
 }
@@ -166,7 +173,8 @@ fn focus_panel(
 fn focus_notifications_use_all_three_authoring_forms_without_pointer_feedback() {
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
-    let counters = core::array::from_fn::<_, 3, _>(|_| app.add_model(EventCounter { value: 0 }));
+    let counters =
+        core::array::from_fn::<_, 3, _>(|_| app.add_model(EventCounter { value: 0 }).finish());
     app.compose(
         root,
         focus_panel(
@@ -203,14 +211,16 @@ fn hover_panel(
     ui! {
         Column (width: 32, height: 32, id: "hover_block") {
             Column (width: 32, height: 32, id: "hover_closure") {
-                View (width: 32, height: 32, id: "hover_function")
-                    on HoverChanged(count_hover::callback(function))
-                    on Tap {}
+                View (width: 32, height: 32, id: "hover_function") on HoverChanged(count_hover::callback(function)) on Tap { }
             } on HoverChanged(move |event: &HoverChanged| {
-                if event.hovered { closure.increment(); }
+                if event.hovered {
+                    closure.increment();
+                }
             })
         } on HoverChanged {
-            if event.hovered { block.increment(); }
+            if event.hovered {
+                block.increment();
+            }
         }
     };
 }
@@ -220,7 +230,8 @@ fn hover_notifications_use_all_authoring_forms_and_preserve_container_hit_semant
     use mirui::input::event::input::{InputEvent, PointerKind};
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
-    let counters = core::array::from_fn::<_, 3, _>(|_| app.add_model(EventCounter { value: 0 }));
+    let counters =
+        core::array::from_fn::<_, 3, _>(|_| app.add_model(EventCounter { value: 0 }).finish());
     app.compose(
         root,
         hover_panel(
@@ -265,11 +276,9 @@ fn count_cancel(event: event!(PressCancelled), counter: model!(EventCounter)) {
 #[compose]
 fn press_panel(down: model!(EventCounter), up: model!(EventCounter), cancel: model!(EventCounter)) {
     ui! {
-        View (width: 32, height: 32, id: "press_panel")
-            on Tap {}
-            on Pressed { down.increment(); }
-            on Released(move |_event: &Released| { up.increment(); })
-            on PressCancelled(count_cancel::callback(cancel))
+        View (width: 32, height: 32, id: "press_panel") on Tap { } on Pressed { down.increment(); } on Released(move |_event: &Released| {
+            up.increment();
+        }) on PressCancelled(count_cancel::callback(cancel))
     };
 }
 
@@ -278,7 +287,8 @@ fn press_notifications_support_inline_closure_and_typed_callbacks() {
     use mirui::input::event::input::{InputEvent, PointerKind};
     let mut app = App::headless(32, 32);
     let root = app.spawn_root().id();
-    let counters = core::array::from_fn::<_, 3, _>(|_| app.add_model(EventCounter { value: 0 }));
+    let counters =
+        core::array::from_fn::<_, 3, _>(|_| app.add_model(EventCounter { value: 0 }).finish());
     app.compose(
         root,
         press_panel(
@@ -411,11 +421,11 @@ fn aliased_resources(writes: res!(mut CaptureWrites), snapshot: res!(CaptureWrit
 #[test]
 fn callback_values_accept_functions_and_preserve_descriptor_requirements() {
     let mut first = App::headless(32, 32);
-    let foreign = first.add_model(EventCounter { value: 0 });
+    let foreign = first.add_model(EventCounter { value: 0 }).finish();
     let mut app = App::headless(32, 32);
     app.with_event_capacity(event_capacity());
     app.add_resource(CaptureWrites::default());
-    let local = app.add_model(EventCounter { value: 0 });
+    let local = app.add_model(EventCounter { value: 0 }).finish();
     let root = app.spawn_root().id();
     app.compose(root, |cx| {
         ui! {
@@ -453,7 +463,7 @@ fn callback_values_accept_functions_and_preserve_descriptor_requirements() {
     assert_eq!(allocations, 0);
 
     let mut default_budget = App::headless(32, 32);
-    let default_model = default_budget.add_model(EventCounter { value: 0 });
+    let default_model = default_budget.add_model(EventCounter { value: 0 }).finish();
     let root = default_budget.spawn_root().id();
     default_budget.compose(root, |cx| {
         ui! {
@@ -470,7 +480,7 @@ fn callback_values_accept_functions_and_preserve_descriptor_requirements() {
 
     let mut no_budget = App::headless(32, 32);
     no_budget.with_event_capacity(mirui::app::EventCapacity::new());
-    let model = no_budget.add_model(EventCounter { value: 0 });
+    let model = no_budget.add_model(EventCounter { value: 0 }).finish();
     let root = no_budget.spawn_root().id();
     no_budget.compose(root, |cx| {
         ui! {
@@ -584,10 +594,10 @@ fn warmed_event_commands_do_not_allocate() {
 #[test]
 fn foreign_registered_model_binding_is_skipped_without_blocking_local_bindings() {
     let mut first = App::headless(32, 32);
-    let foreign = first.add_model(EventCounter { value: 0 });
+    let foreign = first.add_model(EventCounter { value: 0 }).finish();
     let mut second = App::headless(32, 32);
     second.with_event_capacity(event_capacity());
-    let local = second.add_model(EventCounter { value: 0 });
+    let local = second.add_model(EventCounter { value: 0 }).finish();
     let target = second.spawn_root().id();
     second.world.insert(target, Marker(0));
 
@@ -630,7 +640,7 @@ struct CaptureConfig<G> {
 #[test]
 fn ordinary_captures_preserve_value_semantics_and_model_access_guards() {
     let mut first = App::headless(32, 32);
-    let foreign = first.add_model(EventCounter { value: 0 });
+    let foreign = first.add_model(EventCounter { value: 0 }).finish();
     let config = CaptureConfig {
         game: foreign.clone(),
     };
@@ -661,7 +671,7 @@ fn warmed_model_event_and_commands_do_not_allocate() {
     app.with_default_widgets()
         .with_event_capacity(event_capacity());
     let root = app.spawn_root().id();
-    let counter = app.add_model(EventCounter { value: 0 });
+    let counter = app.add_model(EventCounter { value: 0 }).finish();
     app.compose(root, model_event(counter.clone()));
     let target = app.world.find_by_id("counter_event").unwrap();
     let event = tap(target);
@@ -844,11 +854,13 @@ mod third_party_notifications {
         );
         app.with_default_widgets().with_widget(paint_pad::view());
         app.add_resource(PaintProbe(paints.clone()));
-        let receipts = app.add_model(Receipts {
-            entries: [(0, 0, 0); 9],
-            len: 0,
-        });
-        let drive = app.add_model(Drive { pending: None });
+        let receipts = app
+            .add_model(Receipts {
+                entries: [(0, 0, 0); 9],
+                len: 0,
+            })
+            .finish();
+        let drive = app.add_model(Drive { pending: None }).finish();
         let block_receipts = receipts.clone();
         let closure_receipts = receipts.clone();
         let root = app.spawn_root().id();

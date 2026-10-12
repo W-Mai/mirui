@@ -5255,7 +5255,9 @@ mod text_layout_check {
         app.render_dirty().unwrap();
         assert_ne!(prepared(&app.world, input).0, placeholder);
         assert_eq!(prepared(&app.world, input).1, 4);
-        let document = app.add_model(crate::ui::widgets::TextDocument::new());
+        let document = app
+            .add_model(crate::ui::widgets::TextDocument::new())
+            .finish();
         app.world.insert(
             input,
             crate::ui::widgets::TextEditing::new(document.clone()),
@@ -5320,7 +5322,9 @@ mod text_layout_check {
         .unwrap();
         let root = app.spawn_root().id();
         let input = app.compose(root, |cx| cx.spawn(TextInput::build()));
-        let document = app.add_model(crate::ui::widgets::TextDocument::new());
+        let document = app
+            .add_model(crate::ui::widgets::TextDocument::new())
+            .finish();
         app.world.insert(
             input,
             crate::ui::widgets::TextEditing::new(document.clone()),

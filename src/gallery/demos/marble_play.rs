@@ -59,7 +59,7 @@ where
     app.with_widget(board::board_render::view());
     app.with_widget(scenes::scene_board_render::view());
     app.with_widget(settings::settings_panel_render::view());
-    let model = app.add_model(MarbleModel::new());
+    let model = app.add_model(MarbleModel::new()).finish();
     #[cfg(feature = "audio")]
     {
         let audio = app.audio();

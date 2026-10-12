@@ -38,7 +38,7 @@ fn sorted_membership_moves_non_clone_values_and_preserves_input_on_failure() {
 #[test]
 fn duplicate_and_absent_edits_do_not_publish_membership() {
     let mut app = App::headless(32, 32);
-    let set = app.add_model(ModelSet::with_capacity(4));
+    let set = app.add_model(ModelSet::with_capacity(4)).finish();
     let watched = set.clone();
     let runs = Rc::new(Cell::new(0));
     let count = runs.clone();
@@ -94,9 +94,11 @@ impl Selection {
 #[test]
 fn owned_set_replacement_keeps_field_observers_and_joins_parent_transactions() {
     let mut app = App::headless(32, 32);
-    let parent = app.add_model(Selection {
-        keys: ModelSet::from_iter([1, 1, 2]).into(),
-    });
+    let parent = app
+        .add_model(Selection {
+            keys: ModelSet::from_iter([1, 1, 2]).into(),
+        })
+        .finish();
     let set = parent.keys();
     let watched = set.clone();
     let contains = with_world_scope(&mut app.world, || {
@@ -119,7 +121,7 @@ fn owned_set_replacement_keeps_field_observers_and_joins_parent_transactions() {
 #[test]
 fn explicit_reserve_prepares_first_edit_and_borrowed_visits_block_reentry() {
     let mut app = App::headless(32, 32);
-    let set = app.add_model(ModelSet::<String>::new());
+    let set = app.add_model(ModelSet::<String>::new()).finish();
     set.reserve(2).unwrap();
     let key = String::from("key");
     assert_eq!(
@@ -164,9 +166,11 @@ fn set_import_limits_distinct_members_and_recovers_duplicate_input() {
 #[test]
 fn membership_reconciliation_publishes_only_the_difference_and_keeps_parent_observers() {
     let mut app = App::headless(32, 32);
-    let selection = app.add_model(Selection {
-        keys: ModelSet::from_iter([1, 2]).into(),
-    });
+    let selection = app
+        .add_model(Selection {
+            keys: ModelSet::from_iter([1, 2]).into(),
+        })
+        .finish();
     let watched = selection.clone();
     let runs = Rc::new(Cell::new(0));
     let count = runs.clone();

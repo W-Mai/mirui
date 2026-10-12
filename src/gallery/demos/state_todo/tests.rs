@@ -17,7 +17,7 @@ fn label_text(world: &World, label: Entity) -> alloc::string::String {
 
 fn todo_app() -> (TestApp, Entity, [Entity; 3]) {
     let mut app = App::headless(320, 280);
-    let todo = app.add_model(TodoModel::default());
+    let todo = app.add_model(TodoModel::default()).finish();
     let parent = app.spawn_root().id();
     app.compose(parent, build_widgets(todo));
     let world = &app.world;

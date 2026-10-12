@@ -18,7 +18,7 @@ fn label_text(world: &World, label: Entity) -> alloc::string::String {
 #[test]
 fn tap_increments_and_reactive_text_updates() {
     let mut app = App::headless(360, 240);
-    let counter = app.add_model(CounterModel::default());
+    let counter = app.add_model(CounterModel::default()).finish();
     let parent = app.spawn_root().id();
     app.compose(parent, build_widgets(counter.clone()));
     let world = &mut app.world;
@@ -72,7 +72,7 @@ fn tap_increments_and_reactive_text_updates() {
 #[test]
 fn assigning_the_same_count_does_not_notify_observers() {
     let mut app = App::headless(360, 240);
-    let counter = app.add_model(CounterModel::default());
+    let counter = app.add_model(CounterModel::default()).finish();
     let world = &mut app.world;
     let reads = Rc::new(Cell::new(0));
     let observed = counter.clone();

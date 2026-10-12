@@ -547,9 +547,29 @@ mod tests {
 
         #[crate::compose]
         fn panel(document: model!(TextDocument)) -> (Entity, Entity) {
-            ui! { Text("CARET", height: 24, font_size: 9) };
-            let first = ui! { TextInput(width: 120, height: 30, font_size: 10, bg_color: ColorToken::SurfaceVariant) [TextEditing::new(document.clone())] };
-            let second = ui! { TextInput(width: 120, height: 30, font_size: 10, bg_color: ColorToken::SurfaceVariant) [TextEditing::new(document)] };
+            ui! {
+                Text ("CARET", height: 24, font_size: 9)
+            };
+            let first = ui! {
+                TextInput (
+                    width: 120,
+                    height: 30,
+                    font_size: 10,
+                    bg_color: ColorToken::SurfaceVariant
+                ) [
+                    TextEditing::new(document.clone()),
+                ]
+            };
+            let second = ui! {
+                TextInput (
+                    width: 120,
+                    height: 30,
+                    font_size: 10,
+                    bg_color: ColorToken::SurfaceVariant
+                ) [
+                    TextEditing::new(document),
+                ]
+            };
             (first, second)
         }
         let mut app = crate::app::App::new(crate::surface::framebuf::FramebufSurface::with_format(
@@ -562,7 +582,7 @@ mod tests {
         app.add_resource(crate::ecs::MonoClock::new(|| 600_000_000));
         app.add_system(sim_input_system::system());
         let root = app.spawn_root().id();
-        let document = app.add_model(TextDocument::new());
+        let document = app.add_model(TextDocument::new()).finish();
         let (first, _) = app.compose(root, panel(document.clone()));
         app.add_resource(crate::input::event::focus::FocusState {
             focused: Some(first),
@@ -966,7 +986,7 @@ mod tests {
         let mut app = crate::app::App::headless(64, 32);
         app.with_default_widgets();
         let root = app.spawn_root().id();
-        let document = app.add_model(super::super::TextDocument::new());
+        let document = app.add_model(super::super::TextDocument::new()).finish();
         document.set_text("shared").unwrap();
         let entity = crate::ui::UiScope::new(&mut app.world, root).spawn((
             TextInput::build()

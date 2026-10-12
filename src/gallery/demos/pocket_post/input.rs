@@ -63,7 +63,7 @@ mod tests {
     #[test]
     fn keyboard_commands_keep_using_the_registered_model_after_the_original_handle_is_dropped() {
         let mut app = App::headless(1, 1);
-        let model = app.add_model(PostModel::default());
+        let model = app.add_model(PostModel::default()).finish();
         let observer = model.clone();
         app.world.insert_resource(Unhandled::default());
         app.on_event(TextCommitted::EVENT, keyboard::callback(model.clone()))

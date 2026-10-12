@@ -29,11 +29,13 @@ impl Finalizer {
 #[test]
 fn extraction_finishes_before_after_snapshots_and_replacement_detection() {
     let mut app = App::headless(16, 16);
-    let root = app.add_model(Finalizer {
-        child: Counter::new(1).into(),
-        version: 0,
-        finish: false,
-    });
+    let root = app
+        .add_model(Finalizer {
+            child: Counter::new(1).into(),
+            version: 0,
+            finish: false,
+        })
+        .finish();
     let child = root.child();
     let observed = root.clone();
     let (_effect, runs) = count_reads(move || {

@@ -819,7 +819,7 @@ where
     app.add_plugin(PlayFontPlugin);
     app.with_widget(surface_render::view())
         .with_widget(modal_render::view());
-    let model = app.add_model(PostModel::default());
+    let model = app.add_model(PostModel::default()).finish();
     app.on_event(TextCommitted::EVENT, keyboard::callback(model.clone()));
     app.add_system(post_tick_system::system(model.clone()));
     app.compose(parent, build_widgets(model));

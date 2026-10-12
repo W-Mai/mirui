@@ -17,7 +17,7 @@ where
     F: RendererFactory<B>,
 {
     crate::gallery::showcase_theme::install(app);
-    let model = app.add_model(InteractionModel::default());
+    let model = app.add_model(InteractionModel::default()).finish();
     app.add_plugin(InputFeedbackPlugin::new());
     app.compose(parent, build_widgets(model.clone()));
     model

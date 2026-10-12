@@ -107,9 +107,9 @@ fn owned_systems_keep_each_binding_and_repaint_once_without_warm_allocations() {
     let mut app = App::new(backend);
     app.with_default_widgets();
     app.add_resource(PaintProbe(painted.clone()));
-    let first = app.add_model(Counter { value: 0 });
-    let second = app.add_model(Counter { value: 10 });
-    let step = app.add_model(Step { amount: 1 });
+    let first = app.add_model(Counter { value: 0 }).finish();
+    let second = app.add_model(Counter { value: 10 }).finish();
+    let step = app.add_model(Step { amount: 1 }).finish();
     app.with_widget(meter_view::view().with_systems([
         advance::system(first.clone(), step.clone()),
         advance::system(second.clone(), step.clone()),
@@ -157,9 +157,9 @@ fn same_source_batches_replace_the_whole_list_without_requiring_widget_entities(
     let calls = Rc::new(Cell::new(0));
     let mut app = App::headless(8, 8);
     app.add_resource(StaticCalls(calls.clone()));
-    let first = app.add_model(Counter { value: 0 });
-    let second = app.add_model(Counter { value: 7 });
-    let step = app.add_model(Step { amount: 3 });
+    let first = app.add_model(Counter { value: 0 }).finish();
+    let second = app.add_model(Counter { value: 7 }).finish();
+    let step = app.add_model(Step { amount: 3 }).finish();
     app.with_widgets([
         driver_view::view()
             .with_systems([
@@ -198,10 +198,10 @@ fn static_templates_remain_reusable_between_apps() {
 #[test]
 fn bound_sources_reject_mismatched_models_and_target_apps_before_execution() {
     let mut first = App::headless(8, 8);
-    let counter = first.add_model(Counter { value: 0 });
-    let step = first.add_model(Step { amount: 3 });
+    let counter = first.add_model(Counter { value: 0 }).finish();
+    let step = first.add_model(Step { amount: 3 }).finish();
     let mut second = App::headless(8, 8);
-    let foreign_step = second.add_model(Step { amount: 7 });
+    let foreign_step = second.add_model(Step { amount: 7 }).finish();
 
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
@@ -230,8 +230,8 @@ fn bound_sources_reject_mismatched_models_and_target_apps_before_execution() {
 #[test]
 fn sources_run_only_after_installation_and_do_not_extend_model_lifetime() {
     let mut app = App::headless(8, 8);
-    let counter = app.add_model(Counter { value: 0 });
-    let step = app.add_model(Step { amount: 1 });
+    let counter = app.add_model(Counter { value: 0 }).finish();
+    let step = app.add_model(Step { amount: 1 }).finish();
     let uninstalled =
         other_driver_view::view().with_systems([advance::system(counter.clone(), step.clone())]);
     assert!(!app.tick());

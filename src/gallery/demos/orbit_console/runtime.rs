@@ -55,7 +55,7 @@ where
         DemoRunMode::Live => ConsoleState::live(),
         DemoRunMode::Capture => ConsoleState::capture(),
     };
-    let model = app.add_model(initial_state);
+    let model = app.add_model(initial_state).finish();
     app.compose(parent, register_fonts());
     app.with_widget(backdrop_render::view())
         .with_widget(orbit_render::view())

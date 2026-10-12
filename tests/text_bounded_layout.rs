@@ -55,7 +55,7 @@ fn bounded_text_match_switches_without_layout_allocations_and_reports_overflow()
     app.with_text_layout_limits(TextLayoutLimits::HOST.with_cache_bytes(64 * 1024));
     app.with_text_layout_capacity(capacity()).unwrap();
     let root = app.spawn_root().id();
-    let mode = app.add_model(Mode { selected: 0 });
+    let mode = app.add_model(Mode { selected: 0 }).finish();
     let selection = mode.share();
 
     app.compose(root, |cx| {

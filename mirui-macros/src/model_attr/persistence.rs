@@ -130,6 +130,7 @@ pub(super) fn expand(
     let visibility = &item.vis;
     let owned = format_ident!("{}Owned", name);
     let prepared = format_ident!("{}PersistencePrepared", name);
+    let (declaration_params, declaration_args, declaration_bounds) = generics.split_for_impl();
     let mut marker = format_ident!("__mirui_marker");
     while fields.iter().any(|field| marker == field.stored_name) {
         marker = format_ident!("{}_", marker);
@@ -182,6 +183,9 @@ pub(super) fn expand(
         |key| quote!(::core::option::Option::Some(#key)),
     );
     quote! {
+        impl #declaration_params ::mirui::core::model::PersistModel for #name #declaration_args #declaration_bounds {
+            const KEY: ::core::option::Option<&'static str> = #key;
+        }
         ::mirui::__mirui_persistence! {
             #[doc(hidden)]
             #visibility struct #prepared #generics #bounds {
@@ -201,10 +205,6 @@ pub(super) fn expand(
                     Ok(#prepared { #(#prepare)* #marker: ::core::marker::PhantomData })
                 }
                 fn apply(&mut self, __prepared: Self::Prepared) { #(#apply)* }
-            }
-
-            impl #params ::mirui::core::persistence::value::PersistModel for #name #args #bounds {
-                const KEY: ::core::option::Option<&'static str> = #key;
             }
 
             impl #params ::mirui::core::persistence::value::PersistValue for #owned #args #bounds {

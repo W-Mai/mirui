@@ -167,7 +167,7 @@ fn later_input_hits_layout_changed_by_an_earlier_callback_in_the_same_burst() {
         let mut app = app([]);
         app.with_default_widgets();
         let root = app.spawn_root().id();
-        let layout = app.add_model(HitLayout { expanded: false });
+        let layout = app.add_model(HitLayout { expanded: false }).finish();
         app.compose(root, moving_targets(layout));
         app.render().unwrap();
         let events = [
@@ -242,7 +242,7 @@ fn reactive_hiding_from_one_tap_is_visible_to_the_next_tap_in_the_burst() {
         let mut app = app([]);
         app.with_default_widgets();
         let root = app.spawn_root().id();
-        let gate = app.add_model(InputGate { visible: true });
+        let gate = app.add_model(InputGate { visible: true }).finish();
         let shared = gate.share();
         app.compose(root, |cx| {
             mirui::ui! {
@@ -618,11 +618,7 @@ fn press_cancelled(event: event!(PressCancelled), trace: res!(mut Trace)) {
 #[mirui::compose]
 fn press_target() -> mirui::ecs::Entity {
     mirui::ui! {
-        View (width: 8, height: 8)
-            on Tap(notice::callback(Step::Tap))
-            on Pressed(notice::callback(Step::Pressed))
-            on Released(notice::callback(Step::Released))
-            on PressCancelled(press_cancelled::callback())
+        View (width: 8, height: 8) on Tap(notice::callback(Step::Tap)) on Pressed(notice::callback(Step::Pressed)) on Released(notice::callback(Step::Released)) on PressCancelled(press_cancelled::callback())
     }
 }
 
@@ -1058,12 +1054,12 @@ fn rejected_model_and_access_bindings_warn_once_and_leave_valid_callbacks_runnin
         repeat: Some(false),
     };
     let mut app = app([input.into()]);
-    let local = app.add_model(InstallModel { value: 0 });
+    let local = app.add_model(InstallModel { value: 0 }).finish();
     let mut foreign_app = App::headless(8, 8);
-    let foreign = foreign_app.add_model(InstallModel { value: 0 });
+    let foreign = foreign_app.add_model(InstallModel { value: 0 }).finish();
     let ended = {
         let mut owner = App::headless(8, 8);
-        owner.add_model(InstallModel { value: 0 })
+        owner.add_model(InstallModel { value: 0 }).finish()
     };
     let warnings = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     mirui::core::log::install_sink(Box::new(InstallWarnings {

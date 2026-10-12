@@ -1641,8 +1641,8 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(PlayFontPlugin);
-    let model = app.add_model(PictureModel::default());
-    let expedition = app.add_model(ExpeditionUiModel::default());
+    let model = app.add_model(PictureModel::default()).finish();
+    let expedition = app.add_model(ExpeditionUiModel::default()).finish();
     app.on_event(
         TextCommitted::EVENT,
         keyboard::callback(model.clone(), expedition.clone()),

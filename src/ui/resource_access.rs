@@ -264,7 +264,7 @@ mod tests {
     #[test]
     fn resource_access_preserves_model_signal_and_effect_behavior() {
         let mut app = crate::app::App::headless(1, 1);
-        let model = app.add_model(Counter { value: 0 });
+        let model = app.add_model(Counter { value: 0 }).finish();
         app.add_resource(3_u32);
         let root = app.spawn_root().id();
         let owner = app.world.id();
@@ -294,7 +294,7 @@ mod tests {
     #[test]
     fn resource_access_uses_its_scope_owner_and_restores_the_outer_owner() {
         let mut first = crate::app::App::headless(1, 1);
-        let model = first.add_model(Counter { value: 0 });
+        let model = first.add_model(Counter { value: 0 }).finish();
         first.add_resource(3_u32);
         let first_root = first.spawn_root().id();
         let first_owner = first.world.id();

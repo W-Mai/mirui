@@ -1256,8 +1256,8 @@ where
 {
     app.add_plugin(PlayFontPlugin);
     app.with_widget(surface_render::view());
-    let game = app.add_model(TwinModel::default());
-    let expedition = app.add_model(ExpeditionUiModel::default());
+    let game = app.add_model(TwinModel::default()).finish();
+    let expedition = app.add_model(ExpeditionUiModel::default()).finish();
     capture(&game, &expedition);
     let hints = TwinHintService::new();
     app.add_resource(hints.clone());

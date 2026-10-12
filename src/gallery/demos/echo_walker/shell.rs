@@ -673,7 +673,7 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(PlayFontPlugin);
-    let model = app.add_model(EchoModel::default());
+    let model = app.add_model(EchoModel::default()).finish();
     #[cfg(feature = "persistence")]
     install_persistence(app, model.clone());
     app.with_widget(surface_render::view())

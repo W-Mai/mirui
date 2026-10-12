@@ -224,7 +224,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    let counter = app.add_model(Counter { value: 0 });
+    let counter = app.add_model(Counter { value: 0 }).finish();
     app.compose(root, counter_panel(counter));
 }
 ```

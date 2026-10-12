@@ -78,7 +78,7 @@ impl Group {
 #[test]
 fn load_joins_parent_transactions_and_retires_members_without_reviving_routes() {
     let mut app = App::headless(32, 32);
-    let parent = app.add_model(Group::new());
+    let parent = app.add_model(Group::new()).finish();
     let list = parent.items();
     let watched = parent.clone();
     let total = with_world_scope(&mut app.world, || Computed::new(move || watched.total()));
@@ -109,7 +109,9 @@ fn load_joins_parent_transactions_and_retires_members_without_reviving_routes() 
 #[test]
 fn load_rejects_leases_before_consuming_input_and_prepares_new_nested_shapes() {
     let mut app = App::headless(32, 32);
-    let list = app.add_model(ModelList::from([NestedItem::new(1, 1)]));
+    let list = app
+        .add_model(ModelList::from([NestedItem::new(1, 1)]))
+        .finish();
     let held = list.iter();
     let reads = Cell::new(0);
     let input = [NestedItem::new(8, 3)]
@@ -147,7 +149,7 @@ fn load_rejects_leases_before_consuming_input_and_prepares_new_nested_shapes() {
 #[test]
 fn reconcile_keeps_member_subscriptions_and_effect_routes_in_the_parent_commit() {
     let mut app = App::headless(32, 32);
-    let parent = app.add_model(Group::new());
+    let parent = app.add_model(Group::new()).finish();
     let list = parent.items();
     let (id, first) = list.entries().next().unwrap();
     let second = list.get(1).unwrap();
@@ -204,7 +206,9 @@ fn reconcile_keeps_member_subscriptions_and_effect_routes_in_the_parent_commit()
 #[test]
 fn reconcile_rejects_leases_and_prepares_nested_changes_without_replacing_matched_models() {
     let mut app = App::headless(32, 32);
-    let list = app.add_model(ModelList::from([NestedItem::new(1, 1)]));
+    let list = app
+        .add_model(ModelList::from([NestedItem::new(1, 1)]))
+        .finish();
     let (id, matched) = list.entries().next().unwrap();
     let child = matched.children().get(0).unwrap();
     let held = list.iter();
@@ -265,7 +269,9 @@ impl WatchedItem {
 #[test]
 fn raw_data_merge_invalidates_explicit_watches_without_a_business_change_token() {
     let mut app = App::headless(32, 32);
-    let list = app.add_model(ModelList::from([WatchedItem { value: 1 }]));
+    let list = app
+        .add_model(ModelList::from([WatchedItem { value: 1 }]))
+        .finish();
     let item = list.get(0).unwrap();
     let before = item.content_revision();
     list.reconcile(
@@ -281,7 +287,7 @@ fn raw_data_merge_invalidates_explicit_watches_without_a_business_change_token()
 #[test]
 fn list_items_share_the_parent_transaction_and_distinct_observation_sources() {
     let mut app = App::headless(32, 32);
-    let parent = app.add_model(Group::new());
+    let parent = app.add_model(Group::new()).finish();
     let list = parent.items();
     let counts = Rc::new(Cell::new(0));
     let count = counts.clone();
@@ -329,7 +335,7 @@ fn list_items_share_the_parent_transaction_and_distinct_observation_sources() {
 #[test]
 fn retirement_invalidates_old_handles_and_reuses_only_prepared_capacity() {
     let mut app = App::headless(32, 32);
-    let parent = app.add_model(Group::new());
+    let parent = app.add_model(Group::new()).finish();
     let list = parent.items();
     let (id, old) = list.entries().next().unwrap();
     let delivered = Rc::new(Cell::new(0));
@@ -359,7 +365,7 @@ fn retirement_invalidates_old_handles_and_reuses_only_prepared_capacity() {
 #[test]
 fn structural_lease_allows_item_updates_but_rejects_ancestor_replacement_before_execution() {
     let mut app = App::headless(32, 32);
-    let parent = app.add_model(Group::new());
+    let parent = app.add_model(Group::new()).finish();
     let list = parent.items();
     assert_eq!(
         tracked_allocations(|| {
@@ -390,7 +396,7 @@ fn structural_lease_allows_item_updates_but_rejects_ancestor_replacement_before_
 #[test]
 fn rejected_outer_update_still_retires_removed_identity_without_publishing() {
     let mut app = App::headless(32, 32);
-    let parent = app.add_model(Group::new());
+    let parent = app.add_model(Group::new()).finish();
     let watched = parent.clone();
     let total = with_world_scope(&mut app.world, || Computed::new(move || watched.total()));
     assert_eq!(total.get(), 3);
@@ -407,7 +413,7 @@ fn rejected_outer_update_still_retires_removed_identity_without_publishing() {
 #[test]
 fn whole_list_replacement_retires_members_but_preserves_field_facade() {
     let mut app = App::headless(32, 32);
-    let parent = app.add_model(Group::new());
+    let parent = app.add_model(Group::new()).finish();
     let list = parent.items();
     let (id, old) = list.entries().next().unwrap();
     parent.replace_all();
@@ -429,7 +435,7 @@ fn whole_list_replacement_retires_members_but_preserves_field_facade() {
 #[test]
 fn shrinking_then_reserving_cannot_reissue_retired_member_ids() {
     let mut app = App::headless(32, 32);
-    let parent = app.add_model(Group::new());
+    let parent = app.add_model(Group::new()).finish();
     let list = parent.items();
     let id = list
         .try_push(Item::new(3))
@@ -466,10 +472,12 @@ impl NestedItem {
 #[test]
 fn nested_shapes_reuse_prepared_nodes_and_reject_unprepared_growth() {
     let mut app = App::headless(32, 32);
-    let list = app.add_model(ModelList::from([
-        NestedItem::new(1, 1),
-        NestedItem::new(2, 2),
-    ]));
+    let list = app
+        .add_model(ModelList::from([
+            NestedItem::new(1, 1),
+            NestedItem::new(2, 2),
+        ]))
+        .finish();
     let (id, old) = list.entries().next_back().unwrap();
     let old_child = old.children().get(0).unwrap();
     list.clear().unwrap();
@@ -531,10 +539,12 @@ impl Pair {
 #[test]
 fn swapping_fields_keeps_collection_ownership_and_retires_old_member_routes() {
     let mut app = App::headless(32, 32);
-    let parent = app.add_model(Pair {
-        left: [Item::new(1)].into(),
-        right: [Item::new(2), Item::new(3)].into(),
-    });
+    let parent = app
+        .add_model(Pair {
+            left: [Item::new(1)].into(),
+            right: [Item::new(2), Item::new(3)].into(),
+        })
+        .finish();
     let left = parent.left();
     let right = parent.right();
     let (old_id, old) = left.entries().next().unwrap();

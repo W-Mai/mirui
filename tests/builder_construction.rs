@@ -118,10 +118,12 @@ fn typed_builders_and_completed_nodes_share_reactive_events() {
     let mut app = App::headless(100, 100);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    let controls = app.add_model(Controls {
-        level: Fixed::from_int(12),
-        hits: 0,
-    });
+    let controls = app
+        .add_model(Controls {
+            level: Fixed::from_int(12),
+            hits: 0,
+        })
+        .finish();
     let read = controls.clone();
     let (slider, button, node) = app.compose(root, |tree| {
         let slider = tree.spawn(
@@ -177,10 +179,12 @@ fn typed_builders_and_completed_nodes_share_reactive_events() {
 #[test]
 fn pending_properties_and_events_add_no_heap_container() {
     let mut app = App::headless(16, 16);
-    let controls = app.add_model(Controls {
-        level: Fixed::ONE,
-        hits: 0,
-    });
+    let controls = app
+        .add_model(Controls {
+            level: Fixed::ONE,
+            hits: 0,
+        })
+        .finish();
     let callback = reset::callback(controls.clone());
     let allocations = tracked_allocations(|| {
         let pending = Slider::build(0, 100)

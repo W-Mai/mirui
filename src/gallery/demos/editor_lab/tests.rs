@@ -14,7 +14,7 @@ fn fixture() -> (TestApp, Entity, <model::EditorLab as BindType>::Shared) {
         .with_widget(editors::command_view::view())
         .with_widget(editors::shared_view::view());
     let root = app.spawn_root().id();
-    let model = app.add_model(model::EditorLab::default());
+    let model = app.add_model(model::EditorLab::default()).finish();
     app.compose(root, build_widgets(model.clone()));
     (app, root, model)
 }

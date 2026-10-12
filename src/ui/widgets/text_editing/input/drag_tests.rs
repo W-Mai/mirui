@@ -22,7 +22,7 @@ fn fixture() -> (TestApp, Entity) {
     let mut app = crate::app::App::headless(128, 64);
     app.with_default_widgets().with_default_systems();
     app.add_system(sim_input_system::system());
-    let document = app.add_model(TextDocument::new());
+    let document = app.add_model(TextDocument::new()).finish();
     document.set_text("ABCDEF").unwrap();
     let root = app.spawn_root().id();
     let node = app.compose(root, panel(document));

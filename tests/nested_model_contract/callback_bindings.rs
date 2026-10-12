@@ -23,7 +23,7 @@ fn buttons(left: model!(Counter), right: model!(Counter)) {
 fn composed_child_bindings_keep_identity_in_all_three_event_forms_after_reset() {
     let mut app = App::headless(32, 16);
     app.with_default_widgets();
-    let workspace = app.add_model(Workspace::new());
+    let workspace = app.add_model(Workspace::new()).finish();
     let root = app.spawn_root().id();
     app.compose(
         root,
@@ -56,7 +56,9 @@ fn retired_collection_member_is_skipped_by_all_three_event_forms() {
 
     let mut app = App::headless(32, 16);
     app.with_default_widgets();
-    let list = app.add_model(ModelList::from([Counter::new(1), Counter::new(10)]));
+    let list = app
+        .add_model(ModelList::from([Counter::new(1), Counter::new(10)]))
+        .finish();
     let (id, retired) = list.entries().next().unwrap();
     let survivor_id = list.entries().nth(1).unwrap().0;
     let survivor = list.get(1).unwrap();

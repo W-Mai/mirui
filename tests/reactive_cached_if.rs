@@ -293,7 +293,7 @@ fn model_observation_switches_a_cached_branch_without_allocating() {
     let mut app = mirui::app::App::headless(64, 64);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    let model = app.add_model(VisibilityModel { enabled: false });
+    let model = app.add_model(VisibilityModel { enabled: false }).finish();
     let condition = model.share();
 
     app.compose(root, |cx| {

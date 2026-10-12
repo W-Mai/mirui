@@ -20,7 +20,7 @@ fn local_and_shared_inputs_apply_the_same_unicode_editing_rules() {
     for shared in [false, true] {
         let (mut app, node) = fixture();
         if shared {
-            let document = app.add_model(TextDocument::new());
+            let document = app.add_model(TextDocument::new()).finish();
             app.world.insert(node, TextEditing::new(document));
         }
         apply(&mut app.world, node, Edit::Replace("A中🙂Z")).unwrap();
@@ -135,7 +135,9 @@ fn checked_edit_separates_committed_content_from_failed_notification_delivery() 
     let root = app.spawn_root().id();
     let node = app.compose(root, |cx| {
         crate::ui! {
-            View () [TextEditing::default()] on TextEditing::Changed(changed::callback())
+            View () [
+                TextEditing::default(),
+            ] on TextEditing::Changed(changed::callback())
         }
     });
     assert!(matches!(
@@ -166,8 +168,9 @@ fn clipboard_edit_does_not_retry_when_only_notifications_exhaust_their_budget() 
     let root = app.spawn_root().id();
     let node = app.compose(root, |cx| {
         crate::ui! {
-            View () [TextEditing::default().with_text("ABC").unwrap()]
-            on TextEditing::Changed(changed::callback())
+            View () [
+                TextEditing::default().with_text("ABC").unwrap(),
+            ] on TextEditing::Changed(changed::callback())
         }
     });
     app.world
@@ -188,7 +191,7 @@ fn clipboard_edit_does_not_retry_when_only_notifications_exhaust_their_budget() 
 #[test]
 fn external_shrink_normalization_persists_before_later_growth() {
     let (mut app, node) = fixture();
-    let document = app.add_model(TextDocument::new());
+    let document = app.add_model(TextDocument::new()).finish();
     app.world.insert(
         node,
         TextEditing::new(document.clone())
@@ -207,7 +210,7 @@ fn external_shrink_normalization_persists_before_later_growth() {
 fn expired_and_foreign_documents_are_not_edited() {
     let (mut app, node) = fixture();
     let mut other = App::headless(32, 32);
-    let document = other.add_model(TextDocument::new());
+    let document = other.add_model(TextDocument::new()).finish();
     app.world.insert(node, TextEditing::new(document.clone()));
     apply(&mut app.world, node, Edit::Replace("foreign")).unwrap();
     assert!(document.is_empty());
@@ -220,7 +223,7 @@ fn prepared_input_edits_reuse_component_and_document_storage() {
     for shared in [false, true] {
         let (mut app, node) = fixture();
         if shared {
-            let document = app.add_model(TextDocument::new());
+            let document = app.add_model(TextDocument::new()).finish();
             app.world.insert(node, TextEditing::new(document));
         }
         apply(&mut app.world, node, Edit::Replace("中")).unwrap();
@@ -396,11 +399,13 @@ fn nested_effects_read_committed_content_and_do_not_receive_stale_selection() {
     use core::cell::Cell;
     for rewrite in [false, true] {
         let (mut app, node) = fixture();
-        let draft = app.add_model(Draft {
-            document: TextDocument::new().into(),
-            seen: 0,
-            rewrite,
-        });
+        let draft = app
+            .add_model(Draft {
+                document: TextDocument::new().into(),
+                seen: 0,
+                rewrite,
+            })
+            .finish();
         let document = draft.document();
         let seen = Rc::new(Cell::new(0));
         let output = seen.clone();
@@ -432,11 +437,13 @@ fn document_effect_retiring_the_bound_item_does_not_publish_stale_editor_state()
     struct BindingValid(Rc<Cell<bool>>);
 
     let (mut app, node) = fixture();
-    let draft = app.add_model(Draft {
-        document: TextDocument::new().into(),
-        seen: 0,
-        rewrite: false,
-    });
+    let draft = app
+        .add_model(Draft {
+            document: TextDocument::new().into(),
+            seen: 0,
+            rewrite: false,
+        })
+        .finish();
     let document = draft.document();
     let valid = Rc::new(Cell::new(true));
     app.world.insert_resource(BindingValid(valid.clone()));

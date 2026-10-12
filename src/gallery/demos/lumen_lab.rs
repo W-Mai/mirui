@@ -26,7 +26,7 @@ where
     app.add_plugin(StdInstantClockPlugin);
     app.add_plugin(PlayFontPlugin);
     app.with_widget(board_render::view());
-    let model = app.add_model(LumenModel::new());
+    let model = app.add_model(LumenModel::new()).finish();
     app.add_system(lumen_tick_system::system(model.clone()));
     app.compose(parent, build_widgets(model));
 }

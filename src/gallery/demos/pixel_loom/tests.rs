@@ -36,7 +36,7 @@ fn trigger(world: &mut World, event: &GestureEvent) -> bool {
 #[test]
 fn tick_system_uses_the_supplied_delta_and_preserves_zero() {
     let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
-    let model = app.add_model(PixelModel::default());
+    let model = app.add_model(PixelModel::default()).finish();
     model.toggle_playback();
     let mut scheduler = SystemScheduler::new();
     scheduler.add(pixel_tick_system::system(model.clone()));
@@ -58,7 +58,7 @@ fn tick_system_uses_the_supplied_delta_and_preserves_zero() {
 #[should_panic(expected = "requires resource")]
 fn tick_system_rejects_a_missing_delta_resource() {
     let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
-    let model = app.add_model(PixelModel::default());
+    let model = app.add_model(PixelModel::default()).finish();
     let mut scheduler = SystemScheduler::new();
     scheduler.add(pixel_tick_system::system(model));
 

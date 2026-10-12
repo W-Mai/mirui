@@ -88,8 +88,8 @@ fn registered_keyboard_preserves_commands_and_bound_model_instances() {
     let (game, expedition) = shell::setup_test_app(&mut app, root);
     let observer = game.clone();
     let panel = expedition.clone();
-    let independent = app.add_model(FoldModel::default());
-    let independent_panel = app.add_model(ExpeditionUiModel::default());
+    let independent = app.add_model(FoldModel::default()).finish();
+    let independent_panel = app.add_model(ExpeditionUiModel::default()).finish();
     independent_panel.open_summary();
     app.add_resource(UnhandledCharacter::default());
     app.on_event(TextCommitted::EVENT, unhandled_character::callback());

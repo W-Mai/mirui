@@ -856,7 +856,7 @@ where
         .with_widget(modal_render::view());
     #[cfg(feature = "std")]
     app.add_plugin(StdInstantClockPlugin);
-    let model = app.add_model(PixelModel::default());
+    let model = app.add_model(PixelModel::default()).finish();
     app.add_system(pixel_tick_system::system(model.clone()));
     app.compose(parent, build_widgets(model));
 }

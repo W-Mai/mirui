@@ -1,6 +1,8 @@
 pub mod lifecycle;
+mod model;
 pub mod plugin;
 pub mod plugins;
+pub use model::ModelBuilder;
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -192,12 +194,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
-    /// Register an independent model instance and return its shared handle.
-    pub fn add_model<M: crate::core::model::Model>(&mut self, value: M) -> M::Handle {
-        let (registration, handle) = crate::core::model::register(&mut self.world, value);
-        let entity = self.world.spawn_empty();
-        self.world.insert(entity, registration);
-        handle
+    /// Prepare an independent Model. Call `finish()` to register it and obtain its shared handle; dropping the builder performs no registration or IO.
+    pub fn add_model<M: crate::core::model::Model>(&mut self, value: M) -> ModelBuilder<'_, M> {
+        ModelBuilder::new(&mut self.world, value)
     }
 
     pub(crate) fn text_input_unavailable(&self) -> u8 {
@@ -3095,7 +3094,9 @@ mod queued_surface {
             let capture = results.clone();
             let node = app.compose(root, |cx| {
                 crate::ui! {
-                    TextInput () [editor] on ClipboardFinished(move |event: &ClipboardFinished| {
+                    TextInput () [
+                        editor,
+                    ] on ClipboardFinished(move |event: &ClipboardFinished| {
                         assert_eq!(event.result, Ok(ClipboardOutcome::Copied));
                         capture.set(capture.get() + 1);
                     })
@@ -3156,7 +3157,9 @@ mod queued_surface {
             let capture = results.clone();
             let node = app.compose(root, |cx| {
                 crate::ui! {
-                    TextInput () [editor] on ClipboardFinished(move |event: &ClipboardFinished| {
+                    TextInput () [
+                        editor,
+                    ] on ClipboardFinished(move |event: &ClipboardFinished| {
                         assert_eq!(event.result, Ok(ClipboardOutcome::Pasted));
                         capture.set(capture.get() + 1);
                     })

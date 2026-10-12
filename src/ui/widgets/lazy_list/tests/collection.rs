@@ -54,7 +54,7 @@ fn setup_collection() -> (TestApp, Entity, Rows, Entity) {
     let mut app = App::headless(200, 200);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    let rows = app.add_model(data());
+    let rows = app.add_model(data()).finish();
     let list = app.compose(root, collection(rows.clone()));
     viewport(&mut app.world, list, 200, 80, 0);
     let cell = app.world.get::<Children>(list).unwrap().0[0];
@@ -82,7 +82,7 @@ fn source_binding_uses_the_installed_provider_and_latest_data_before_creating_ce
     let mut app = App::headless(200, 200);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    let rows = app.add_model(data());
+    let rows = app.add_model(data()).finish();
     let list = app.compose(root, collection(rows.clone()));
     assert!(app.world.get::<CellPool>(list).unwrap().binding.is_none());
     assert!(app.world.get::<Children>(list).unwrap().0.is_empty());
@@ -221,7 +221,7 @@ fn field_changes_and_unrelated_appends_keep_the_current_press() {
 fn source_and_provider_replacement_retire_old_cells_and_their_models() {
     let (mut app, list, _, first) = setup_collection();
     let old = app.world.get::<CellItem>(first).unwrap().handle.clone();
-    let rows = app.add_model(data());
+    let rows = app.add_model(data()).finish();
     app.world.get_mut::<LazyList>(list).unwrap().items = rows.clone().into();
     app.compose(list, |tree| {
         tree.on_event(list, LazyList::CreateCell, create::callback(rows.clone()))
@@ -246,7 +246,7 @@ fn map_rows_follow_sorted_member_ids_and_reject_foreign_or_retired_sources() {
     let mut data = ModelMap::with_capacity(4);
     let (b, _) = data.try_insert("b", RowData { title: "B" }).unwrap();
     let (a, _) = data.try_insert("a", RowData { title: "A" }).unwrap();
-    let rows = app.add_model(data);
+    let rows = app.add_model(data).finish();
     let list = app.compose(root, |tree| {
         let list = tree.spawn(LazyList::new(rows.clone(), 40));
         tree.on_event(list, LazyList::CreateCell, row::callback());
@@ -269,6 +269,7 @@ fn map_rows_follow_sorted_member_ids_and_reject_foreign_or_retired_sources() {
         let mut other = App::headless(8, 8);
         other
             .add_model(ModelList::from([RowData { title: "retired" }]))
+            .finish()
             .into()
     };
     assert_eq!(retired.len(), 0);
@@ -316,7 +317,9 @@ fn structural_subscription_marks_an_empty_list_dirty_without_row_effects() {
     let mut app = App::headless(200, 200);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    let rows = app.add_model(ModelList::<RowData>::with_capacity(4));
+    let rows = app
+        .add_model(ModelList::<RowData>::with_capacity(4))
+        .finish();
     let list = app.compose(root, collection(rows.clone()));
     viewport(&mut app.world, list, 200, 80, 0);
     app.world.remove::<Dirty>(list);
@@ -390,7 +393,7 @@ fn creation_rechecks_source_after_user_mutation_without_leaking_a_partial_cell()
     let mut app = App::headless(200, 200);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    let rows = app.add_model(data());
+    let rows = app.add_model(data()).finish();
     let list = app.compose(root, |tree| {
         let list = tree.spawn(LazyList::new(rows.clone(), 40));
         tree.on_event(
@@ -440,7 +443,7 @@ fn collection_callbacks_resolve_current_identity_after_reordering_and_slot_reuse
     let mut app = App::headless(200, 200);
     app.with_default_widgets();
     let root = app.spawn_root().id();
-    let rows = app.add_model(data());
+    let rows = app.add_model(data()).finish();
     let list = app.compose(root, interactive_collection(rows.clone()));
     viewport(&mut app.world, list, 200, 80, 0);
     let first = app.world.get::<Children>(list).unwrap().0[0];

@@ -44,7 +44,7 @@ mod tests {
         use mirui::core::model::{ModelItemEffect, ModelList};
 
         let mut app = App::headless(1, 1);
-        let meters = app.add_model(ModelList::from([SmallMeter::new(0)]));
+        let meters = app.add_model(ModelList::from([SmallMeter::new(0)])).finish();
         let (id, meter) = meters.entries().next().unwrap();
         let calls = Rc::new(Cell::new(0));
         let received = calls.clone();
@@ -62,7 +62,7 @@ mod tests {
     #[test]
     fn reexported_generic_model_works_across_crate_boundaries() {
         let mut app = App::headless(16, 16);
-        let meter = app.add_model(SmallMeter::new(3));
+        let meter = app.add_model(SmallMeter::new(3)).finish();
         let shared: <SmallMeter as BindType>::Shared = meter.clone();
         assert_eq!(read_reexported_model(&meter), 3);
         assert!(shared.is_active());
@@ -89,7 +89,7 @@ mod tests {
         assert_eq!(meter.visual_revision(), 1);
         assert_eq!(pulses.get(), 1);
 
-        let local = app.add_model(LocalCounter { value: 0 });
+        let local = app.add_model(LocalCounter { value: 0 }).finish();
         local.increment();
         assert_eq!(
             mirui::core::model::ModelHandle::read(&local, |data| data.value),

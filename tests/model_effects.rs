@@ -57,7 +57,7 @@ fn empty_player() -> Player {
 #[test]
 fn single_and_batch_effects_borrow_noncopy_payloads_after_state_publication() {
     let mut app = App::headless(1, 1);
-    let player = app.add_model(empty_player());
+    let player = app.add_model(empty_player()).finish();
     let drops = Rc::new(Cell::new(0));
     let calls = Rc::new(Cell::new(0));
     let source = player.clone();
@@ -102,7 +102,7 @@ fn single_and_batch_effects_borrow_noncopy_payloads_after_state_publication() {
 #[test]
 fn unhandled_optional_effect_is_dropped_and_not_replayed_on_registration() {
     let mut app = App::headless(1, 1);
-    let player = app.add_model(empty_player());
+    let player = app.add_model(empty_player()).finish();
     let drops = Rc::new(Cell::new(0));
     player.emit(
         Some(Sound {

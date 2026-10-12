@@ -65,8 +65,8 @@ fn motion_uses_delta_throttles_wave_and_settles_when_paused() {
 #[test]
 fn animation_system_advances_registered_motion_model() {
     let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
-    let model = app.add_model(ConsoleModel::default());
-    let motion = app.add_model(ConsoleMotion::default());
+    let model = app.add_model(ConsoleModel::default()).finish();
+    let motion = app.add_model(ConsoleMotion::default()).finish();
     let mut scheduler = SystemScheduler::new();
     scheduler.add(kinetic_animation_system::system(model, motion.clone()));
     app.world.insert_resource(DeltaTimeMs(50));

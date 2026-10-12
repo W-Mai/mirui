@@ -11,7 +11,7 @@ use core::cell::Cell;
 #[test]
 fn registered_model_forwards_actions_observations_and_sound() {
     let mut app = App::headless(480, 320);
-    let model = app.add_model(MarbleModel::new());
+    let model = app.add_model(MarbleModel::new()).finish();
     let sounds = Rc::new(Cell::new(0));
     let received = sounds.clone();
     model
@@ -40,7 +40,7 @@ fn registered_model_forwards_actions_observations_and_sound() {
 #[test]
 fn equivalent_bpm_inputs_do_not_publish_visual_changes() {
     let mut app = App::headless(480, 320);
-    let model = app.add_model(MarbleModel::new());
+    let model = app.add_model(MarbleModel::new()).finish();
     let visual = model.visual_revision();
 
     model.set_bpm(Fixed64::from_ratio(9_625, 100));
@@ -59,7 +59,7 @@ fn equivalent_bpm_inputs_do_not_publish_visual_changes() {
 #[test]
 fn equivalent_gravity_and_bounce_inputs_do_not_publish_visual_changes() {
     let mut app = App::headless(480, 320);
-    let model = app.add_model(MarbleModel::new());
+    let model = app.add_model(MarbleModel::new()).finish();
     let visual = model.visual_revision();
 
     let gravity = model.gravity();
@@ -200,7 +200,7 @@ fn board_taps_use_one_semantic_command_without_a_trailing_drag_change() {
 #[test]
 fn registered_board_tap_publishes_one_visual_revision() {
     let mut app = App::headless(480, 320);
-    let model = app.add_model(MarbleModel::new());
+    let model = app.add_model(MarbleModel::new()).finish();
     model.set_page(Page::Edit);
     let point = crate::core::model::ModelHandle::read(&model, |model| model.selected_pad().pos);
     let before = model.visual_revision();

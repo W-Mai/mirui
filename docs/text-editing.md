@@ -95,7 +95,7 @@ app.with_widget(search_view::view())
     .with_widget(text_input::view())
     .with_widget(text_editing::view());
 let root = app.spawn_root().id();
-let form = app.add_model(SearchForm::default());
+let form = app.add_model(SearchForm::default()).finish();
 form.query().set_capacity(256)?;
 form.query().set_text("Canvas")?;
 app.compose(root, panel(form.clone()));
@@ -163,7 +163,7 @@ fn keyboard_panel(keyboard: model!(Keyboard)) {
 # fn main() {
 let mut app = App::headless(320, 160);
 app.with_default_widgets();
-let keyboard = app.add_model(Keyboard::default());
+let keyboard = app.add_model(Keyboard::default()).finish();
 app.with_input_method(InputMethod::software((context::callback(keyboard.clone()),)));
 let root = app.spawn_root().id();
 app.compose(root, keyboard_panel(keyboard));

@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn same_value_reset_invalidates_descendant_watches_without_changing_identity() {
     let mut app = App::headless(16, 16);
-    let workspace = app.add_model(Workspace::new());
+    let workspace = app.add_model(Workspace::new()).finish();
     let pair = workspace.pair();
     let left = pair.left();
     let right = pair.right();
@@ -34,7 +34,7 @@ fn same_value_reset_invalidates_descendant_watches_without_changing_identity() {
 #[test]
 fn rejected_replacement_clears_its_marker_without_delayed_watch_publication() {
     let mut app = App::headless(16, 16);
-    let workspace = app.add_model(Workspace::new());
+    let workspace = app.add_model(Workspace::new()).finish();
     let pair = workspace.pair();
     let left = pair.left();
     assert_eq!(pair.rejected_reset(), Err(Rejected));
@@ -60,7 +60,7 @@ fn advance(counter: model!(Counter)) {
 #[test]
 fn child_owner_and_registration_lifetime_follow_the_parent() {
     let mut owner = App::headless(16, 16);
-    let workspace = owner.add_model(Workspace::new());
+    let workspace = owner.add_model(Workspace::new()).finish();
     let child = workspace.pair().left();
     let mut foreign = App::headless(16, 16);
     assert!(
@@ -99,7 +99,7 @@ fn owned_construction_and_warm_tree_operations_do_not_allocate() {
         0
     );
     let mut app = App::headless(16, 16);
-    let workspace = app.add_model(Workspace::new());
+    let workspace = app.add_model(Workspace::new()).finish();
     let child = workspace.pair().left();
     let observed = workspace.clone();
     let (_effect, _) = count_reads(move || {

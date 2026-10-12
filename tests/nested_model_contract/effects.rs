@@ -41,7 +41,7 @@ macro_rules! record_route {
 #[test]
 fn effects_read_final_tree_in_declared_depth_first_order() {
     let mut app = App::headless(16, 16);
-    let workspace = app.add_model(Workspace::new());
+    let workspace = app.add_model(Workspace::new()).finish();
     let pair = workspace.pair();
     let trace = Rc::new(RefCell::new(Trace::default()));
     record_route!(workspace, workspace, trace, 0, Note, false);
@@ -83,7 +83,7 @@ fn effects_read_final_tree_in_declared_depth_first_order() {
 #[test]
 fn external_error_keeps_data_without_notifying_or_replaying_effects() {
     let mut app = App::headless(16, 16);
-    let workspace = app.add_model(Workspace::new());
+    let workspace = app.add_model(Workspace::new()).finish();
     let pair = workspace.pair();
     let left = pair.left();
     let right = pair.right();
@@ -128,7 +128,7 @@ fn external_error_keeps_data_without_notifying_or_replaying_effects() {
 #[test]
 fn handled_inner_errors_use_outer_result_without_independent_savepoints() {
     let mut app = App::headless(16, 16);
-    let workspace = app.add_model(Workspace::new());
+    let workspace = app.add_model(Workspace::new()).finish();
     let pair = workspace.pair();
     let left = pair.left();
     let right = pair.right();
@@ -163,7 +163,7 @@ fn handled_inner_errors_use_outer_result_without_independent_savepoints() {
 #[test]
 fn reset_discards_replaced_effects_and_swap_routes_moved_data_at_final_field() {
     let mut app = App::headless(16, 16);
-    let workspace = app.add_model(Workspace::new());
+    let workspace = app.add_model(Workspace::new()).finish();
     let pair = workspace.pair();
     let left = pair.left();
     let right = pair.right();
@@ -211,7 +211,7 @@ fn reset_discards_replaced_effects_and_swap_routes_moved_data_at_final_field() {
 #[test]
 fn effect_consumers_can_read_the_tree_but_cannot_reenter_writes() {
     let mut app = App::headless(16, 16);
-    let workspace = app.add_model(Workspace::new());
+    let workspace = app.add_model(Workspace::new()).finish();
     let left = workspace.pair().left();
     let root = workspace.clone();
     left.on_effect(move |_note: &Note| {

@@ -40,7 +40,7 @@ fn example() -> Result<(), CollectionError> {
         (2, Task { done: false }),
     ]).map_err(|(error, _input)| error)?;
     let mut app = App::headless(32, 32);
-    let tasks = app.add_model(Tasks { items: data.into() });
+    let tasks = app.add_model(Tasks { items: data.into() }).finish();
     tasks.items().get(&7).unwrap().toggle();
     assert_eq!(tasks.remaining(), 1);
     Ok(())
@@ -133,7 +133,7 @@ impl Pad {
 
 fn example() -> Result<(), EffectRegistrationError> {
     let mut app = App::headless(32, 32);
-    let pads = app.add_model(ModelList::from([Pad { pending: None }]));
+    let pads = app.add_model(ModelList::from([Pad { pending: None }])).finish();
     let (id, pad) = pads.entries().next().unwrap();
     pads.on_effect(move |effect: &ModelItemEffect<Note>| {
         assert_eq!(effect.id, id);

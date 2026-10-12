@@ -94,10 +94,12 @@ where
         .add_plugin(FpsSummaryPlugin::default());
 
     //~focus-start
-    let controls = app.add_model(Controls {
-        level: Fixed::from_int(60),
-        notifications: false,
-    });
+    let controls = app
+        .add_model(Controls {
+            level: Fixed::from_int(60),
+            notifications: false,
+        })
+        .finish();
     app.compose(parent, |tree| {
         tree.children(column_style(), |c| {
             c.spawn(

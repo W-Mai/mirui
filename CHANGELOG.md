@@ -9,9 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Persistent Models restore declared fields before observation is initialized and register weak save endpoints automatically. Instance keys, disabled IO, duplicate-key rejection, and failed-restore protection are supported.
+
 - Model archive codecs separate encoding, restoration preparation, and application. Weak save endpoints validate root lifetimes and confirm candidates only after successful storage writes.
 
 ### Changed
+
+- `App::add_model` returns a pending builder. Call `.finish()` to register the Model; `.with_key(...)` configures a persistent instance before any storage access.
 
 - Storage operations report errors and distinguish unchanged writes. File and browser storage constructors return errors instead of silently replacing unavailable or corrupt data with empty state. Persistence callbacks propagate restore failures and retain retryable saves.
 

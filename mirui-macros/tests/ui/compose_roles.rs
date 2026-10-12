@@ -75,8 +75,8 @@ fn main() {
     let mut views = ViewRegistry::default();
     views.insert(ui!(compose CounterCard));
     app.world.insert_resource(views);
-    let counter = app.add_model(Counter { value: 1 });
-    let optional = app.add_model(Counter { value: 2 });
+    let counter = app.add_model(Counter { value: 1 }).finish();
+    let optional = app.add_model(Counter { value: 2 }).finish();
     app.compose(root, |cx| {
         assert_eq!(generic_passthrough(7_u8)(cx), 7);
         counter_panel(counter, Some(optional), "count")(cx);

@@ -88,9 +88,11 @@ impl Workspace {
 #[test]
 fn registered_nested_document_reuses_identity_and_publishes_parent_observations() {
     let mut app = App::headless(32, 32);
-    let workspace = app.add_model(Workspace {
-        document: TextDocument::new().into(),
-    });
+    let workspace = app
+        .add_model(Workspace {
+            document: TextDocument::new().into(),
+        })
+        .finish();
     let first = workspace.document();
     let second = workspace.document();
     let parent = workspace.clone();
@@ -118,7 +120,7 @@ fn registered_nested_document_reuses_identity_and_publishes_parent_observations(
 #[test]
 fn registered_capacity_is_observable_without_changing_content_revision() {
     let mut app = App::headless(32, 32);
-    let document = app.add_model(TextDocument::new());
+    let document = app.add_model(TextDocument::new()).finish();
     let source = document.clone();
     let capacity = with_world_scope(&mut app.world, || Computed::new(move || source.capacity()));
     assert_eq!(capacity.get(), INLINE_CAPACITY);

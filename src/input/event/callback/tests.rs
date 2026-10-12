@@ -258,8 +258,8 @@ fn input_callback_normalizes_consume_results() {
 #[test]
 fn model_capture_uses_the_invocation_owner_and_preserves_instance_identity() {
     let mut app = crate::app::App::headless(32, 32);
-    let first = app.add_model(Counter { value: 1 });
-    let second = app.add_model(Counter { value: 8 });
+    let first = app.add_model(Counter { value: 1 }).finish();
+    let second = app.add_model(Counter { value: 8 }).finish();
     let captured = first.clone();
     // SAFETY: Params is empty, the sole captured Model is declared below,
     // and the body does not acquire World through another path.
@@ -288,7 +288,7 @@ fn model_capture_uses_the_invocation_owner_and_preserves_instance_identity() {
 #[test]
 fn shared_capture_preparation_and_first_repeated_invocation_do_not_allocate() {
     let mut app = crate::app::App::headless(32, 32);
-    let model = app.add_model(Counter { value: 0 });
+    let model = app.add_model(Counter { value: 0 }).finish();
     let nested = Some(Some(model.clone()));
     let missing: Option<CounterHandle> = None;
     let signal = Signal::new(5_u32);
@@ -359,7 +359,9 @@ fn retired_model_bindings_skip_plain_and_deferred_parameter_fetch() {
     use crate::core::model::ModelList;
 
     let mut app = crate::app::App::headless(32, 32);
-    let list = app.add_model(ModelList::from([Counter { value: 0 }]));
+    let list = app
+        .add_model(ModelList::from([Counter { value: 0 }]))
+        .finish();
     let (id, item) = list.entries().next().unwrap();
     let target = app.world.spawn_empty();
     const ACCESS: &[SystemAccess] = &[SystemAccess::read_resource::<Missing>()];
@@ -412,7 +414,9 @@ fn collection_lease_skips_collection_callback_but_allows_member_callback() {
     use crate::core::model::ModelList;
 
     let mut app = crate::app::App::headless(32, 32);
-    let list = app.add_model(ModelList::from([Counter { value: 0 }]));
+    let list = app
+        .add_model(ModelList::from([Counter { value: 0 }]))
+        .finish();
     let target = app.world.spawn_empty();
     let captured = list.clone();
     const ACCESS: &[SystemAccess] = &[SystemAccess::read_resource::<Missing>()];
@@ -471,8 +475,8 @@ fn collection_lease_skips_collection_callback_but_allows_member_callback() {
 fn model_capture_rejects_mixed_owners_and_wrong_installation_owner() {
     let mut first_app = crate::app::App::headless(32, 32);
     let mut second_app = crate::app::App::headless(32, 32);
-    let first = first_app.add_model(Counter { value: 1 });
-    let second = second_app.add_model(Counter { value: 2 });
+    let first = first_app.add_model(Counter { value: 1 }).finish();
+    let second = second_app.add_model(Counter { value: 2 }).finish();
     let build = || {
         // SAFETY: the body captures no Models or World and Params is empty.
         unsafe { event_callback::<Key, AppContext, (), ()>("owner", &[], |(), _, (), _scope| ()) }
@@ -506,7 +510,7 @@ fn ended_model_capture_returns_an_owner_error_without_allocating_or_running_body
     for retain_cell in [false, true] {
         let (model, retained) = {
             let mut app = crate::app::App::headless(32, 32);
-            let model = app.add_model(Counter { value: 1 });
+            let model = app.add_model(Counter { value: 1 }).finish();
             let retained = retain_cell.then(|| model.access().upgrade().unwrap());
             (model, retained)
         };

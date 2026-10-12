@@ -66,7 +66,7 @@ fn registered_map_members_share_observation_and_iterator_guards() {
     let data = ModelMap::from_entries([(2, Item { value: 2 }), (1, Item { value: 1 })])
         .ok()
         .unwrap();
-    let map = app.add_model(data);
+    let map = app.add_model(data).finish();
     assert_eq!(map.values().next().unwrap().value(), 1);
     let (id, member) = map.entries().next().unwrap();
     assert_eq!(
@@ -291,17 +291,19 @@ fn map_reconcile_preserves_effect_routes_and_observations_and_rejects_leases() {
         reactive::{Computed, with_world_scope},
     };
     let mut app = App::headless(32, 32);
-    let map = app.add_model(
-        ModelMap::from_entries([(
-            2,
-            NotifyingItem {
-                value: 2,
-                notice: None,
-            },
-        )])
-        .ok()
-        .unwrap(),
-    );
+    let map = app
+        .add_model(
+            ModelMap::from_entries([(
+                2,
+                NotifyingItem {
+                    value: 2,
+                    notice: None,
+                },
+            )])
+            .ok()
+            .unwrap(),
+        )
+        .finish();
     let (id, item) = map.entries().next().unwrap();
     let observed = item.clone();
     let value = with_world_scope(&mut app.world, || Computed::new(move || observed.value()));
@@ -376,12 +378,14 @@ fn map_load_keeps_field_observers_and_retires_children_in_parent_transactions() 
         reactive::{Computed, with_world_scope},
     };
     let mut app = App::headless(32, 32);
-    let group = app.add_model(Group {
-        items: ModelMap::from_entries([(3, Item { value: 3 })])
-            .ok()
-            .unwrap()
-            .into(),
-    });
+    let group = app
+        .add_model(Group {
+            items: ModelMap::from_entries([(3, Item { value: 3 })])
+                .ok()
+                .unwrap()
+                .into(),
+        })
+        .finish();
     let map = group.items();
     let watched = group.clone();
     let total = with_world_scope(&mut app.world, || Computed::new(move || watched.total()));
@@ -421,9 +425,11 @@ fn map_load_keeps_field_observers_and_retires_children_in_parent_transactions() 
 fn explicit_reservation_preserves_observers_and_prepares_first_insert() {
     use crate::core::reactive::{Computed, with_world_scope};
     let mut app = App::headless(32, 32);
-    let group = app.add_model(Group {
-        items: ModelMap::new().into(),
-    });
+    let group = app
+        .add_model(Group {
+            items: ModelMap::new().into(),
+        })
+        .finish();
     let map = group.items();
     let observed = map.clone();
     let missing = with_world_scope(&mut app.world, || {
@@ -489,11 +495,13 @@ fn key_index_survives_partial_retention_and_capacity_errors_preserve_inputs() {
 #[test]
 fn borrowed_key_visits_reject_same_root_mutation_without_poisoning() {
     let mut app = App::headless(32, 32);
-    let map = app.add_model(
-        ModelMap::from_entries([(1, Item { value: 1 })])
-            .ok()
-            .unwrap(),
-    );
+    let map = app
+        .add_model(
+            ModelMap::from_entries([(1, Item { value: 1 })])
+                .ok()
+                .unwrap(),
+        )
+        .finish();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         map.for_each(|_, member| member.increment());
     }));

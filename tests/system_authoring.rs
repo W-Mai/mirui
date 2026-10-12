@@ -114,10 +114,12 @@ fn retired_primary_or_secondary_binding_skips_system_fetch_and_commands() {
     use mirui::core::model::ModelList;
     for retired_index in 0..2 {
         let mut app = App::headless(32, 32);
-        let list = app.add_model(ModelList::from([
-            Counter { value: 0 },
-            Counter { value: 0 },
-        ]));
+        let list = app
+            .add_model(ModelList::from([
+                Counter { value: 0 },
+                Counter { value: 0 },
+            ]))
+            .finish();
         let id = list.entries().nth(retired_index).unwrap().0;
         let first = list.get(0).unwrap();
         let second = list.get(1).unwrap();
@@ -141,7 +143,9 @@ fn guarded_list(list: model!(mirui::core::model::ModelList<Counter>), _missing: 
 fn system_waits_for_collection_lease_without_poisoning_model() {
     use mirui::core::model::ModelList;
     let mut app = App::headless(32, 32);
-    let list = app.add_model(ModelList::from([Counter { value: 0 }]));
+    let list = app
+        .add_model(ModelList::from([Counter { value: 0 }]))
+        .finish();
     app.add_system(guarded_list::system(list.clone()));
     let lease = list.iter();
     app.systems.run_all(&mut app.world).unwrap();
@@ -186,7 +190,7 @@ mod nested {
 #[test]
 fn generated_system_composes_all_roles_and_reuses_its_command_queue() {
     let mut app = App::headless(32, 32);
-    let counter = app.add_model(Counter { value: 0 });
+    let counter = app.add_model(Counter { value: 0 }).finish();
     app.world.insert_resource(Settings { ticks: 0 });
 
     let visible = app.world.spawn_empty();

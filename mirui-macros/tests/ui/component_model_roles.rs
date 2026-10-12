@@ -42,7 +42,7 @@ fn main() {
     assert_component::<PlainState>();
 
     let mut app = App::headless(16, 16);
-    let game = app.add_model(Game { score: 0 });
+    let game = app.add_model(Game { score: 0 }).finish();
     assert_eq!(game.score(), 0);
     let board = Board::<Game> {
         game: game.clone(),

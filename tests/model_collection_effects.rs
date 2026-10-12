@@ -147,7 +147,7 @@ impl Group {
 #[test]
 fn members_and_collection_borrow_the_same_event_after_all_observations_publish() {
     let mut app = App::headless(1, 1);
-    let group = app.add_model(Group::new());
+    let group = app.add_model(Group::new()).finish();
     let items = group.items();
     let identities: Vec<_> = items.entries().map(|(id, _)| id).collect();
     let root = app.spawn_root().id();
@@ -215,7 +215,7 @@ fn members_and_collection_borrow_the_same_event_after_all_observations_publish()
 #[test]
 fn collection_routes_survive_member_retirement_and_remain_on_their_field() {
     let mut app = App::headless(1, 1);
-    let group = app.add_model(Group::new());
+    let group = app.add_model(Group::new()).finish();
     let items = group.items();
     let other = group.other();
     let delivered = Rc::new(Cell::new(0));
@@ -276,7 +276,7 @@ fn collection_routes_survive_member_retirement_and_remain_on_their_field() {
 #[test]
 fn load_retires_member_consumers_and_reconcile_keeps_matching_consumers() {
     let mut app = App::headless(1, 1);
-    let items = app.add_model(ModelList::from([Item::new(1)]));
+    let items = app.add_model(ModelList::from([Item::new(1)])).finish();
     let calls = Rc::new(Cell::new(0));
     let count = calls.clone();
     items
@@ -309,7 +309,7 @@ fn load_retires_member_consumers_and_reconcile_keeps_matching_consumers() {
 #[test]
 fn map_aggregates_by_key_order_with_the_same_member_identities() {
     let mut app = App::headless(1, 1);
-    let group = app.add_model(Group::new());
+    let group = app.add_model(Group::new()).finish();
     let map = group.keyed();
     let ids: Vec<_> = map.entries().map(|(id, _)| id).collect();
     let actual = Rc::new(RefCell::new(Vec::<ModelItemId>::with_capacity(4)));
@@ -344,7 +344,7 @@ fn map_aggregates_by_key_order_with_the_same_member_identities() {
 fn panic_discards_remaining_events_and_restores_both_routes_without_replay() {
     for panic_in_member in [false, true] {
         let mut app = App::headless(1, 1);
-        let items = app.add_model(ModelList::from([Item::new(1)]));
+        let items = app.add_model(ModelList::from([Item::new(1)])).finish();
         let item = items.get(0).unwrap();
         let first = Rc::new(Cell::new(true));
         let fail = first.clone();
@@ -382,7 +382,7 @@ fn panic_discards_remaining_events_and_restores_both_routes_without_replay() {
 #[test]
 fn aggregate_callbacks_cannot_start_a_model_write() {
     let mut app = App::headless(1, 1);
-    let items = app.add_model(ModelList::from([Item::new(1)]));
+    let items = app.add_model(ModelList::from([Item::new(1)])).finish();
     let item = items.get(0).unwrap();
     let feedback = item.clone();
     items
@@ -402,8 +402,12 @@ fn aggregate_callbacks_cannot_start_a_model_write() {
 #[test]
 fn optional_effects_drop_without_a_consumer_and_install_one_shared_handler() {
     let mut app = App::headless(1, 1);
-    let tones = app.add_model(ModelList::from([Tone { pending: None }]));
-    let other = app.add_model(ModelList::from([Tone { pending: None }]));
+    let tones = app
+        .add_model(ModelList::from([Tone { pending: None }]))
+        .finish();
+    let other = app
+        .add_model(ModelList::from([Tone { pending: None }]))
+        .finish();
     let drops = Rc::new(Cell::new(0));
     tones.get(0).unwrap().emit(sound(&drops, "unhandled"));
     assert_eq!(drops.get(), 1);

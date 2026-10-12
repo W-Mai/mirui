@@ -175,7 +175,7 @@ mod paint_contract_tests {
 
     fn assert_resource_contract(render: crate::ui::view::ViewRender) {
         let mut app = App::headless(1, 1);
-        let model = app.add_model(CurveModel::default());
+        let model = app.add_model(CurveModel::default()).finish();
         let node = app.world.spawn_empty();
         app.world.insert(node, CurveStage { model });
         let rect = Rect::new(11, 17, 640, 360);

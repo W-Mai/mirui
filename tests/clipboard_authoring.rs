@@ -162,16 +162,18 @@ fn drive_clipboard(drive: model!(Drive), commands: commands!()) {
 #[compose]
 fn tile(data: model!(TileData)) -> Entity {
     ui! {
-        View(width: 8, height: 8) [Tile { data: data.clone() }]
-        on CopySelection {
+        View (width: 8, height: 8) [
+            Tile { data: data.clone() },
+        ] on CopySelection {
             assert_eq!(data.value(), [3, 7]);
             Ok(ClipboardData::borrowed(ITEMS))
-        }
-        on PasteSelection(|event: event!(PasteSelection), node: entity!(), tiles: query!(Tile)| {
+        } on PasteSelection(|event: event!(PasteSelection), node: entity!(), tiles: query!(Tile)| {
             let [item] = event.data().items() else {
                 return Err(ClipboardError::Unsupported);
             };
-            let format = item.formats().iter()
+            let format = item
+                .formats()
+                .iter()
                 .find(|format| format.mime() == "application/x-test-tile")
                 .ok_or(ClipboardError::Unsupported)?;
             let value = <[u8; 2]>::try_from(format.bytes())
@@ -179,10 +181,7 @@ fn tile(data: model!(TileData)) -> Entity {
             let tile = tiles.get(node).ok_or(ClipboardError::Unavailable)?;
             tile.data.replace(value);
             Ok(())
-        })
-        on ClipboardFinished {
-            data.finish(event.result);
-        }
+        }) on ClipboardFinished { data.finish(event.result); }
     }
 }
 
@@ -196,12 +195,14 @@ fn external_component_requests_share_public_authoring_and_platform_boundaries() 
     };
     let mut app = App::new(surface);
     app.with_widget(tile_view::view());
-    let data = app.add_model(TileData {
-        value: [3, 7],
-        revision: 0,
-        result: None,
-    });
-    let drive = app.add_model(Drive::default());
+    let data = app
+        .add_model(TileData {
+            value: [3, 7],
+            revision: 0,
+            result: None,
+        })
+        .finish();
+    let drive = app.add_model(Drive::default()).finish();
     app.add_system(drive_clipboard::system(drive.clone()));
     let root = app.spawn_root().id();
     let node = app.compose(root, tile(data.clone()));
