@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- State Todo saves its Model collection, including owning titles, completion, order, and sample-label progression.
+- Reactive flushing tolerates callbacks that retire other queued effects, including keyed-row replacement during collection restoration.
+
 - Tidal Atlas and Echo Walker use Model persistence codecs for replay saves, retaining their archive format and restoring before UI observation is installed.
 - Folding Ark and Twin Beacons register game archives through Model codecs without separate persistence watches or captured save callbacks.
 

@@ -215,3 +215,129 @@ fn collection_changes_relayout_rows_and_keep_overflow_scrollable() {
     assert!(app.world.get::<Style>(list).unwrap().clip_children);
     assert!(list_rect.y + list_rect.h <= Fixed::from_int(280));
 }
+
+#[cfg(feature = "persistence")]
+mod persistence {
+    use super::*;
+    use crate::core::{
+        model::ModelHandle,
+        persistence::{PersistencePlugin, PersistenceStatus},
+        storage::{MemoryStorage, Storage, StorageError, WriteOutcome},
+    };
+    use alloc::{rc::Rc, vec::Vec};
+    use core::cell::RefCell;
+
+    #[derive(Clone, Default)]
+    struct Store(Rc<RefCell<MemoryStorage>>);
+
+    impl Storage for Store {
+        fn read(&self, key: &str) -> Result<Option<Vec<u8>>, StorageError> {
+            self.0.borrow().read(key)
+        }
+        fn write(&mut self, key: &str, bytes: &[u8]) -> Result<WriteOutcome, StorageError> {
+            self.0.borrow_mut().write(key, bytes)
+        }
+        fn remove(&mut self, key: &str) -> Result<(), StorageError> {
+            self.0.borrow_mut().remove(key)
+        }
+    }
+
+    #[test]
+    fn saved_collection_restores_order_completion_and_replaces_row_bindings() {
+        let store = Store::default();
+        let mut first = App::headless(320, 280);
+        first.add_plugin(PersistencePlugin::new(store.clone()));
+        let todo = first.add_model(TodoModel::default()).finish();
+        todo.items().get(0).unwrap().toggle();
+        todo.rotate();
+        todo.add().unwrap();
+        first.persistence().save(&todo).unwrap();
+        drop(first);
+
+        let mut app = App::headless(320, 280);
+        app.add_plugin(PersistencePlugin::new(store));
+        let todo = app.add_model(TodoModel::default()).finish();
+        assert_eq!(todo.items().len(), 4);
+        assert_eq!(todo.remaining(), 3);
+        assert_eq!(app.persistence().status(&todo), PersistenceStatus::Clean);
+        let parent = app.spawn_root().id();
+        app.compose(parent, build_widgets(todo.clone()));
+        let root = app.world.get::<Children>(parent).unwrap().0[0];
+        let summary = app.world.get::<Children>(root).unwrap().0[0];
+        let (list, _) = list_and_controls(&app.world, summary);
+        let original = app.world.get::<Children>(list).unwrap().0.clone();
+        for (row, expected) in
+            original
+                .iter()
+                .zip(["Write docs", "Ship release", "Buy milk", "Read a book"])
+        {
+            assert_eq!(row_label(&app.world, *row), expected);
+        }
+        assert!(row_completed(&app.world, original[2]));
+        assert_eq!(label_text(&app.world, summary), "3 REMAINING");
+
+        todo.clear_completed();
+        todo.add().unwrap();
+        todo.items().get(0).unwrap().toggle();
+        app.persistence().restore(&todo).unwrap();
+        flush_signal_dirty(&mut app.world);
+        assert_eq!(todo.items().len(), 4);
+        assert_eq!(label_text(&app.world, summary), "3 REMAINING");
+        assert!(original.iter().all(|row| !app.world.is_alive(*row)));
+        let restored = app.world.get::<Children>(list).unwrap().0.clone();
+        assert!(!row_completed(&app.world, restored[0]));
+        assert!(row_completed(&app.world, restored[2]));
+        tap_row(&mut app.world, restored[0]);
+        assert_eq!(todo.remaining(), 2);
+        todo.add().unwrap();
+        flush_signal_dirty(&mut app.world);
+        let added = *app.world.get::<Children>(list).unwrap().0.last().unwrap();
+        assert_eq!(row_label(&app.world, added), "Water plants");
+    }
+
+    #[test]
+    fn owning_titles_are_saved_without_copying_them_during_item_updates() {
+        use super::super::model::TodoItemModel;
+        use crate::core::model::ModelList;
+
+        let store = Store::default();
+        let mut data = TodoModel::default();
+        let mut items = ModelList::bounded(6);
+        items
+            .try_push(TodoItemModel {
+                title: "A loaded task".into(),
+                completed: false,
+            })
+            .unwrap_or_else(|_| panic!("prepared item capacity"));
+        items
+            .try_push(TodoItemModel {
+                title: "Another loaded task".into(),
+                completed: false,
+            })
+            .unwrap_or_else(|_| panic!("prepared item capacity"));
+        data.items = items.into();
+        let mut app = App::headless(320, 280);
+        app.add_plugin(PersistencePlugin::new(store));
+        let todo = app.add_model(data).finish();
+        let item = todo.items().get(0).unwrap();
+        let allocation = item.read(|item| item.title.as_ptr());
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                item.toggle();
+                item.toggle();
+                todo.rotate();
+                todo.rotate();
+            }),
+            0
+        );
+        assert_eq!(item.read(|item| item.title.as_ptr()), allocation);
+        app.persistence().save(&todo).unwrap();
+        item.toggle();
+        todo.clear_completed();
+        app.persistence().restore(&todo).unwrap();
+        todo.items().get(0).unwrap().read(|item| {
+            assert_eq!(item.title, "A loaded task");
+            assert!(!item.completed);
+        });
+    }
+}

@@ -1,4 +1,5 @@
 use super::model::{TodoItemModel, TodoModel};
+use crate::core::model::ModelHandle;
 use crate::input::event::scroll::{ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 use crate::ui::icons::ICON_CHECK;
@@ -6,6 +7,7 @@ use crate::ui::widgets::{Button, Icon, ParagraphStyle, Text};
 
 #[compose]
 fn todo_row(item: model!(TodoItemModel)) -> Entity {
+    let title = item.read(|item| item.title.clone());
     ui! {
         Button (
             width: Dimension::percent(100),
@@ -17,7 +19,7 @@ fn todo_row(item: model!(TodoItemModel)) -> Entity {
             text_color: ColorToken::OnSurface
         ) {
             Text (
-                text: ${ item.title() },
+                text: title,
                 grow: 1.0,
                 paragraph: ParagraphStyle::label()
             )

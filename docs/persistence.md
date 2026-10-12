@@ -55,6 +55,8 @@ Restoration prepares the entire root, including member observation storage, befo
 
 Restoring a collection retires its previous members and creates new identities, even for unchanged keys or values. The collection handle, its observers, and its aggregate effect handler remain installed; callbacks bound to retired members stop executing. Empty stored collections clear membership while retaining prepared capacity. Ordinary reordering and reconciliation continue to preserve matched member identities.
 
+The [State Todo demo](../src/gallery/demos/state_todo/model.rs) saves task titles, completion, order, and the next sample-label index with the default field codec. Its runtime installs storage before Model registration when persistence is enabled. Titles are owning strings without `#[observe]`; rows read them once during composition, while completion remains observable. Restoration replaces member identities and rebuilds keyed rows from the restored titles. Adding tasks constructs business strings; toggling and reordering do not copy them.
+
 ## Registering a Model
 
 Install the plugin before registering persistent Models. `add_model(value)` creates a pending builder; `finish()` performs registration and returns the shared handle. Restoration completes before observation sources are initialized. Discarding a builder performs no registration or storage access; the type's `must_use` warning reminds callers to finish it.

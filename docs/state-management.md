@@ -262,6 +262,8 @@ Declared owned fields form a finite tree; owned Model collections add dynamic me
 
 The [State Todo model](../src/gallery/demos/state_todo/model.rs) owns a `ModelList` of tasks. Keyed rows retain their item bindings during reordering, completed tasks can be removed, and the parent derives the remaining count from current members. See [Model collections](model-collections.md) for data sources, identity, and capacity rules.
 
+With the `persistence` feature enabled, the demo saves its task collection. See [Persistence](persistence.md#collections) for archive and restoration behavior.
+
 ### Model roles
 
 Model roles keep generated handle types out of application code. A

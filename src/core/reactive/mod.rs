@@ -850,7 +850,7 @@ pub fn flush_signal_dirty(world: &mut World) {
         let mut ran_effect = false;
         for _ in 0..pending_effects {
             let effect = with_reactive(|r| {
-                let id = r.dirty_effects.pop_front().expect("queued effect");
+                let id = r.dirty_effects.pop_front()?;
                 match r.effects.get(&id).map(|effect| effect.borrow().owner_world) {
                     Some(Some(owner)) if owner != world_id => {
                         r.dirty_effects.push_back(id);
@@ -2764,6 +2764,57 @@ mod tests {
         trigger.set(5);
         drain_effects();
         assert_eq!(target.get_untracked(), 10);
+    }
+
+    #[test]
+    fn flushing_effects_can_retire_queued_successors_without_consuming_other_worlds() {
+        for foreign_queued in [false, true] {
+            reset();
+            let mut world = World::new();
+            let mut other = World::new();
+            let trigger = Signal::new(0u8);
+            let victim = Rc::new(RefCell::new(None::<Effect>));
+            let victim_runs = Rc::new(Cell::new(0));
+            let other_runs = Rc::new(Cell::new(0));
+            let source = trigger.clone();
+            let retiring = Rc::clone(&victim);
+            let _retirement = with_world_scope(&mut world, || {
+                Effect::new(move || {
+                    if source.get() != 0
+                        && let Some(effect) = retiring.borrow_mut().take()
+                    {
+                        effect.dispose();
+                    }
+                })
+            });
+            let source = trigger.clone();
+            let runs = Rc::clone(&victim_runs);
+            *victim.borrow_mut() = Some(with_world_scope(&mut world, || {
+                Effect::new(move || {
+                    let _ = source.get();
+                    runs.set(runs.get() + 1);
+                })
+            }));
+            let _foreign = foreign_queued.then(|| {
+                let source = trigger.clone();
+                let runs = Rc::clone(&other_runs);
+                with_world_scope(&mut other, || {
+                    Effect::new(move || {
+                        let _ = source.get();
+                        runs.set(runs.get() + 1);
+                    })
+                })
+            });
+            trigger.set(1);
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| flush_signal_dirty(&mut world)),
+                0
+            );
+            assert_eq!(victim_runs.get(), 1);
+            assert_eq!(other_runs.get(), u32::from(foreign_queued));
+            flush_signal_dirty(&mut other);
+            assert_eq!(other_runs.get(), 2 * u32::from(foreign_queued));
+        }
     }
 
     #[test]

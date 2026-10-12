@@ -1,4 +1,5 @@
 use crate::core::model::{CollectionError, ModelList};
+use alloc::string::String;
 
 const LABELS: [&str; 6] = [
     "Buy milk",
@@ -9,11 +10,13 @@ const LABELS: [&str; 6] = [
     "Take a walk",
 ];
 
-#[crate::model]
+#[crate::model(persistence)]
+#[derive(Default)]
 pub(super) struct TodoItemModel {
+    #[persist]
+    pub(super) title: String,
     #[observe]
-    pub(super) title: &'static str,
-    #[observe]
+    #[persist]
     pub(super) completed: bool,
 }
 
@@ -24,9 +27,11 @@ impl TodoItemModel {
     }
 }
 
-#[crate::model]
+#[crate::model(persistence(key = "state_todo"))]
 pub struct TodoModel {
+    #[persist]
     pub(super) items: crate::model!(owned ModelList<TodoItemModel>),
+    #[persist]
     next_label: usize,
 }
 
@@ -36,7 +41,7 @@ impl Default for TodoModel {
         for title in &LABELS[..3] {
             items
                 .try_push(TodoItemModel {
-                    title,
+                    title: (*title).into(),
                     completed: false,
                 })
                 .unwrap_or_else(|_| unreachable!("initial tasks fit prepared capacity"));
@@ -56,13 +61,14 @@ impl TodoModel {
     }
 
     pub(super) fn add(&mut self) -> Result<(), CollectionError> {
+        let next_label = self.next_label % LABELS.len();
         self.items
             .try_push(TodoItemModel {
-                title: LABELS[self.next_label],
+                title: LABELS[next_label].into(),
                 completed: false,
             })
             .map_err(|(error, _)| error)?;
-        self.next_label = (self.next_label + 1) % LABELS.len();
+        self.next_label = (next_label + 1) % LABELS.len();
         Ok(())
     }
 

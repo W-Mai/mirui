@@ -10,6 +10,15 @@ where
 {
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
+    #[cfg(feature = "persistence")]
+    match crate::gallery::play::storage::gallery_storage("mirui_state_todo.bin") {
+        Ok(storage) => {
+            app.add_plugin(
+                crate::core::persistence::PersistencePlugin::new(storage).autosave(2000),
+            );
+        }
+        Err(error) => crate::warn!("todo persistence unavailable: {error}"),
+    }
     let todo = app.add_model(TodoModel::default()).finish();
     app.compose(parent, build_widgets(todo));
 }
