@@ -178,14 +178,17 @@ impl<'a> Edit<'a> {
 #[crate::event]
 pub(super) fn attach(
     entity: entity!(),
-    editors: query!(mut TextEditing, optional Focusable),
+    editors: query!(mut TextEditing, optional Focusable, optional crate::input::event::scroll::TouchAction),
     commands: commands!(),
 ) {
-    let Some((editor, focusable)) = editors.get(entity) else {
+    let Some((editor, focusable, touch_action)) = editors.get(entity) else {
         return;
     };
     if focusable.is_none() {
         commands.insert(entity, Focusable);
+    }
+    if touch_action.is_none() {
+        commands.insert(entity, crate::input::event::scroll::TouchAction::PanY);
     }
     commands.insert(entity, crate::ui::HitTarget);
     commands.insert(entity, crate::ui::InteractionFeedback);
@@ -225,6 +228,125 @@ pub(super) fn tap(
 #[crate::event]
 pub(super) fn committed(node: entity!(), _event: event!(TextCommitted), commands: commands!()) {
     commands.apply_event(node, apply_committed);
+}
+
+#[crate::event]
+pub(super) fn drag_start(
+    node: entity!(),
+    event: event!(crate::input::event::gesture::DragStart),
+    commands: commands!(),
+) -> bool {
+    commands.apply(
+        node,
+        crate::types::Point::new(event.x, event.y),
+        |world, node, point| {
+            if let Some(editor) = world.get_mut::<TextEditing>(node) {
+                editor.drag_revision = None;
+            }
+            let Some(cursor) = super::geometry::hit_caret(world, node, point) else {
+                return Ok(());
+            };
+            let Some(focus) = world.resource_mut::<FocusState>() else {
+                return Ok(());
+            };
+            focus.focused = Some(node);
+            let result = apply(
+                world,
+                node,
+                Edit::Select(TextSelection {
+                    anchor: cursor,
+                    cursor,
+                }),
+            );
+            if let Some(editor) = world.get_mut::<TextEditing>(node)
+                && editor.selection()
+                    == (TextSelection {
+                        anchor: cursor,
+                        cursor,
+                    })
+            {
+                editor.drag_revision = Some(super::edit_target::EditVersion::capture(editor));
+            }
+            result
+        },
+    );
+    true
+}
+
+#[crate::event]
+pub(super) fn drag_move(
+    node: entity!(),
+    event: event!(crate::input::event::gesture::DragMove),
+    commands: commands!(),
+) -> bool {
+    commands.apply(
+        node,
+        (crate::types::Point::new(event.x, event.y), false),
+        drag_select,
+    );
+    true
+}
+
+#[crate::event]
+pub(super) fn drag_end(
+    node: entity!(),
+    event: event!(crate::input::event::gesture::DragEnd),
+    commands: commands!(),
+) -> bool {
+    commands.apply(
+        node,
+        (crate::types::Point::new(event.x, event.y), true),
+        drag_select,
+    );
+    true
+}
+
+#[crate::event]
+pub(super) fn drag_cancel(
+    node: entity!(),
+    _event: event!(crate::input::event::gesture::DragCancel),
+    editors: query!(mut TextEditing),
+) -> bool {
+    if let Some(editor) = editors.get(node) {
+        editor.drag_revision = None;
+    }
+    true
+}
+
+fn drag_select(
+    world: &mut World,
+    node: Entity,
+    (point, end): (crate::types::Point, bool),
+) -> Result<(), CommandError> {
+    if !world
+        .get::<TextEditing>(node)
+        .is_some_and(|editor| editor.usable(world))
+    {
+        return Ok(());
+    }
+    let focused = world
+        .resource::<FocusState>()
+        .is_some_and(|focus| focus.focused == Some(node));
+    let Some(editor) = world.get_mut::<TextEditing>(node) else {
+        return Ok(());
+    };
+    let current = super::edit_target::EditVersion::capture(editor);
+    if !focused || editor.drag_revision != Some(current) {
+        editor.drag_revision = None;
+        return Ok(());
+    }
+    let anchor = editor.selection().anchor;
+    if end {
+        editor.drag_revision = None;
+    }
+    let Some(cursor) = super::geometry::hit_caret(world, node, point) else {
+        return Ok(());
+    };
+    let result = apply(world, node, Edit::Select(TextSelection { anchor, cursor }));
+    if !end && let Some(editor) = world.get_mut::<TextEditing>(node) {
+        editor.drag_revision = Some(super::edit_target::EditVersion::capture(editor));
+    }
+    result
 }
 
 fn apply_committed(
@@ -394,3 +516,6 @@ mod event_tests;
 
 #[cfg(test)]
 mod queue_tests;
+
+#[cfg(test)]
+mod drag_tests;

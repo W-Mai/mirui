@@ -58,13 +58,13 @@ impl EditorIdentity {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct EditVersion {
+pub(super) struct EditVersion {
     document: u64,
     selection: u64,
 }
 
 impl EditVersion {
-    fn capture(editor: &TextEditing) -> Self {
+    pub(super) fn capture(editor: &TextEditing) -> Self {
         Self {
             document: editor.read_document(TextDocument::revision),
             selection: editor.selection_revision,

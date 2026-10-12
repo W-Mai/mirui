@@ -60,6 +60,7 @@ pub struct TextEditing {
     document: model!(optional TextDocument),
     selection: TextSelection,
     selection_revision: u64,
+    drag_revision: Option<edit_target::EditVersion>,
     focused: bool,
     preedit: preedit::Preedit,
 }
@@ -71,6 +72,7 @@ impl Default for TextEditing {
             document: None,
             selection: TextSelection::default(),
             selection_revision: 0,
+            drag_revision: None,
             focused: false,
             preedit: preedit::Preedit::default(),
         }
@@ -84,6 +86,7 @@ impl TextEditing {
             document: Some(document),
             selection: TextSelection::default(),
             selection_revision: 0,
+            drag_revision: None,
             focused: false,
             preedit: preedit::Preedit::default(),
         }
@@ -184,7 +187,7 @@ impl TextEditing {
     name = "TextEditing",
     invalidation = Layout,
     attach = input::attach::callback(),
-    input = (input::key::callback(), input::committed::callback(), input::tap::callback(), input::preedit::callback(), input::composition_ended::callback()),
+    input = (input::key::callback(), input::committed::callback(), input::tap::callback(), input::preedit::callback(), input::composition_ended::callback(), input::drag_start::callback(), input::drag_move::callback(), input::drag_end::callback(), input::drag_cancel::callback()),
     systems = [input::normalize_selections::system(), input::cursor_blink::system()]
 )]
 fn text_editing_state(_document: model!(optional component.document, watch(revision, capacity))) {}
