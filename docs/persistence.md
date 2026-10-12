@@ -59,6 +59,8 @@ The [State Todo demo](../src/gallery/demos/state_todo/model.rs) saves task title
 
 ## Registering a Model
 
+The [Reader Settings demo](../src/gallery/demos/persistence_settings/model.rs) stores text size and detail visibility. Its controls and preview subscribe to the same Model; preview expansion is observable but is not saved. The [runtime](../src/gallery/demos/persistence_settings/runtime.rs) installs storage before registration and saves every second. Without persistence, the same controls remain usable in memory.
+
 Install the plugin before registering persistent Models. `add_model(value)` creates a pending builder; `finish()` performs registration and returns the shared handle. Restoration completes before observation sources are initialized. Discarding a builder performs no registration or storage access; the type's `must_use` warning reminds callers to finish it.
 
 ```rust

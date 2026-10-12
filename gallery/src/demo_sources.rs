@@ -416,6 +416,11 @@ split_demo_sources! {
         marker: "fn pick_storage",
         parts: ["storage.rs", "composition.rs", "runtime.rs", "tests.rs"]
     },
+    PERSISTENCE_SETTINGS => {
+        demo: "persistence_settings",
+        marker: "fn build_widgets",
+        parts: ["model.rs", "composition.rs", "runtime.rs", "tests.rs"]
+    },
     LAZY_LIST => {
         demo: "lazy_list",
         marker: "fn create_row",

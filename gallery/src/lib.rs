@@ -227,6 +227,7 @@ register_demos! {
     ("state_list",           "reactive walk list",   "State",       state_list, source = demo_sources::STATE_LIST),
     ("state_keyed",          "keyed walk reorder",   "State",       state_keyed),
     ("persistence_counter",  "persistence counter",  "State",       persistence_counter, source = demo_sources::PERSISTENCE_COUNTER),
+    ("persistence_settings", "reader settings",      "State",       persistence_settings, source = demo_sources::PERSISTENCE_SETTINGS),
 
     ("scroll",               "scroll",               "Scroll",      scroll),
     ("nested_scroll",        "nested scroll",        "Scroll",      nested_scroll),
