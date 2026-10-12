@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Web runners deliver queued input within browser interactions without running an extra system or render frame.
+
 - Widget attachments become ready before subsequent input and notification delivery.
 
 - Editor Lab preserves explicitly attached editor appearance and document state.

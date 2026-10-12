@@ -1235,8 +1235,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         }
     }
 
-    /// One frame. Returns `true` on `Quit` (after `on_quit` hooks).
-    pub fn tick(&mut self) -> bool {
+    fn dispatch_pending_input(&mut self) -> bool {
         if self.quitting {
             return true;
         }
@@ -1272,22 +1271,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             self.apply_suspend_request();
             self.flush_event_notifications();
             if self.suspended {
-                #[cfg(feature = "std")]
-                std::thread::sleep(core::time::Duration::from_millis(50));
                 return false;
             }
-            // Fell through resume() — continue into the normal frame body.
         }
-
-        let transient =
-            self.backend.persistence() == crate::surface::BackbufferPersistence::Transient;
-
-        if let Some(gs) = self.world.resource_mut::<GestureSystem>() {
-            gs.events.clear();
-        }
-
-        let frame_start = self.clock_ns();
-
         let mut quit = false;
 
         {
@@ -1336,13 +1322,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                     None => break,
                 }
             }
-            {
-                let now_ms = (self.clock_ns() / 1_000_000) as u32;
-                if let Some(gs) = self.world.resource_mut::<GestureSystem>() {
-                    gs.recognizer.check_long_press(now_ms, &mut gs.events);
-                }
-            }
-
             self.dispatch_gestures();
 
             if quit {
@@ -1351,10 +1330,38 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             }
             self.flush_event_notifications();
         }
+        self.sync_text_input();
+        false
+    }
+
+    /// One frame. Returns `true` on `Quit` (after `on_quit` hooks).
+    pub fn tick(&mut self) -> bool {
+        let frame_start = self.clock_ns();
+        if self.dispatch_pending_input() {
+            return true;
+        }
 
         if self.suspended {
+            #[cfg(feature = "std")]
+            std::thread::sleep(core::time::Duration::from_millis(50));
             return false;
         }
+        let _owner_scope = crate::core::reactive::OwnerGuard::enter(&mut self.world);
+        let now_ms = (self.clock_ns() / 1_000_000) as u32;
+        if let Some(gs) = self.world.resource_mut::<GestureSystem>() {
+            gs.recognizer.check_long_press(now_ms, &mut gs.events);
+        }
+        if self
+            .world
+            .resource::<GestureSystem>()
+            .is_some_and(|system| !system.events.buffer.is_empty())
+        {
+            self.dispatch_gestures();
+        }
+        self.flush_event_notifications();
+
+        let transient =
+            self.backend.persistence() == crate::surface::BackbufferPersistence::Transient;
 
         let input_end = self.clock_ns();
 
@@ -1756,7 +1763,7 @@ impl<B: Surface, F: RendererFactory<B>> Runner<B, F> {
     /// Drive a shared, swappable `App` from `requestAnimationFrame`. The
     /// cell may hold `None` while a host swaps the `App` (e.g. the web
     /// gallery rebuilding for a new demo); those frames are skipped and
-    /// the loop keeps rescheduling.
+    /// the loop keeps rescheduling. Browser input is also delivered during DOM event bubbling; scheduled systems and rendering remain on animation frames.
     #[cfg(all(target_arch = "wasm32", feature = "web-canvas"))]
     pub fn drive_animation_frame(app: alloc::rc::Rc<core::cell::RefCell<Option<App<B, F>>>>)
     where
@@ -1770,10 +1777,12 @@ impl<B: Surface, F: RendererFactory<B>> Runner<B, F> {
 
         let holder: Rc<RefCell<Option<Closure<dyn FnMut()>>>> = Rc::new(RefCell::new(None));
         let holder_inner = holder.clone();
+        let mut input = Some(web_runner::InputBoundary::new(&app));
 
         *holder.borrow_mut() = Some(Closure::<dyn FnMut()>::new(move || {
             if let Some(app) = app.borrow_mut().as_mut() {
                 if app.tick() {
+                    input.take();
                     return;
                 }
             }
@@ -1809,6 +1818,9 @@ impl<B: Surface, F: RendererFactory<B>> Runner<B, F> {
         unimplemented!("Runner::start_animation_frame requires the `web-canvas` feature on wasm32");
     }
 }
+
+#[cfg(all(target_arch = "wasm32", feature = "web-canvas"))]
+mod web_runner;
 
 fn clone_texture_owned(
     src: &crate::render::texture::Texture<'static>,
@@ -3048,6 +3060,47 @@ mod queued_surface {
         app.world.resource_mut::<FocusState>().unwrap().focused = None;
         app.poll_event();
         assert!(app.backend.text_input.is_none());
+    }
+
+    #[test]
+    fn input_boundary_establishes_a_session_and_edits_without_rendering() {
+        use crate::ui::widgets::{TextEditing, TextInput};
+        #[crate::compose]
+        fn panel() -> Entity {
+            crate::ui! {
+                TextInput (width: 160, height: 36)
+            }
+        }
+        let mut app = App::new(QueuedSurface::new(200, 100, Fixed::ONE));
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        let editor = app.compose(root, panel());
+        app.render().unwrap();
+        let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+        app.backend.events.extend([
+            InputEvent::PointerDown {
+                kind: crate::surface::PointerKind::Mouse,
+                id: 0,
+                x: Fixed::from_int(8),
+                y: Fixed::from_int(8),
+            },
+            InputEvent::PointerUp {
+                kind: crate::surface::PointerKind::Mouse,
+                id: 0,
+                x: Fixed::from_int(8),
+                y: Fixed::from_int(8),
+            },
+        ]);
+        assert!(!app.dispatch_pending_input());
+        let session = app.backend.text_input.unwrap().session;
+        app.backend.events.push_back(session.commit("abc"));
+        assert!(!app.dispatch_pending_input());
+        app.world.get::<TextEditing>(editor).unwrap().read(|text| {
+            assert_eq!(text, "abc");
+        });
+        assert_eq!(app.backend.framebuffer().buf.as_slice(), pixels);
+        assert!(!app.dispatch_pending_input());
+        assert_eq!(app.world.get::<TextEditing>(editor).unwrap().len(), 3);
     }
 }
 
