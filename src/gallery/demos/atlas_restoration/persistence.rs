@@ -22,6 +22,6 @@ where
                 }
             },
         )
-        .autosave_every_ms(1000);
+        .autosave(1000);
     app.add_plugin(plugin);
 }

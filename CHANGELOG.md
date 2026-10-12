@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Persistence auto-saving uses `autosave(interval)`, accepting integer milliseconds or `core::time::Duration` without truncating submillisecond or long intervals.
+
 ### Performance
 
 - Widget effect cleanup no longer allocates a temporary list of effect IDs.

@@ -4,6 +4,10 @@
 
 extern crate alloc;
 
+mod autosave;
+use autosave::Autosave;
+pub use autosave::IntoDuration;
+
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::marker::PhantomData;
@@ -36,13 +40,17 @@ struct TrackedItem {
 pub struct PersistenceRegistry {
     storage: Box<dyn Storage>,
     items: Vec<TrackedItem>,
-    autosave_interval_ms: Option<u32>,
-    last_save_ms: u32,
+    autosave: Autosave,
 }
 
 impl PersistenceRegistry {
-    pub fn autosave_every_ms(&mut self, interval: u32) -> &mut Self {
-        self.autosave_interval_ms = if interval == 0 { None } else { Some(interval) };
+    /// Configure the periodic autosave interval, starting at the next clock sample.
+    ///
+    /// # Arguments
+    ///
+    /// * `interval` - Integer values are milliseconds. A `core::time::Duration` specifies the interval directly. Zero disables periodic autosaving. Invalid integers leave the configuration unchanged and emit a warning.
+    pub fn autosave(&mut self, interval: impl IntoDuration) -> &mut Self {
+        self.autosave.configure(interval);
         self
     }
 
@@ -180,7 +188,7 @@ type Pending = Box<dyn FnOnce(&mut PersistenceRegistry, &mut World)>;
 pub struct PersistencePlugin<S: Storage + 'static> {
     storage: Option<S>,
     pending: Vec<Pending>,
-    autosave_interval_ms: Option<u32>,
+    autosave: Autosave,
 }
 
 impl<S: Storage + 'static> PersistencePlugin<S> {
@@ -188,7 +196,7 @@ impl<S: Storage + 'static> PersistencePlugin<S> {
         Self {
             storage: Some(storage),
             pending: Vec::new(),
-            autosave_interval_ms: None,
+            autosave: Autosave::default(),
         }
     }
 
@@ -243,8 +251,23 @@ impl<S: Storage + 'static> PersistencePlugin<S> {
         self
     }
 
-    pub fn autosave_every_ms(mut self, interval: u32) -> Self {
-        self.autosave_interval_ms = if interval == 0 { None } else { Some(interval) };
+    /// Configure the periodic autosave interval.
+    ///
+    /// # Arguments
+    ///
+    /// * `interval` - Integer values are milliseconds. A `core::time::Duration` specifies the interval directly. Zero disables periodic autosaving. Invalid integers leave the configuration unchanged and emit a warning.
+    ///
+    /// Due saves run at the next persistence scheduling boundary. Periodic autosaving is disabled by default; suspend and quit still save.
+    ///
+    /// ```
+    /// use core::time::Duration;
+    /// use mirui::core::{persistence::PersistencePlugin, storage::MemoryStorage};
+    ///
+    /// let plugin = PersistencePlugin::new(MemoryStorage::new()).autosave(1000);
+    /// let plugin = plugin.autosave(Duration::from_secs(2));
+    /// ```
+    pub fn autosave(mut self, interval: impl IntoDuration) -> Self {
+        self.autosave.configure(interval);
         self
     }
 }
@@ -263,17 +286,14 @@ where
         let mut registry = PersistenceRegistry {
             storage: Box::new(storage),
             items: Vec::new(),
-            autosave_interval_ms: self.autosave_interval_ms,
-            last_save_ms: clock_ms(&app.world),
+            autosave: core::mem::take(&mut self.autosave),
         };
+        registry.autosave.reset(clock_ns(&app.world));
         // No MonoClock → autosave never ticks; on_suspend/on_quit still flush.
-        #[cfg(feature = "std")]
-        if self.autosave_interval_ms.is_some()
-            && app.world.resource::<crate::ecs::MonoClock>().is_none()
-        {
+        if registry.autosave.enabled() && app.world.resource::<crate::ecs::MonoClock>().is_none() {
             crate::warn!(
                 target: "mirui::persistence",
-                "PersistencePlugin: autosave_every_ms set but no MonoClock resource installed; \
+                "PersistencePlugin: autosave set but no MonoClock resource installed; \
                  periodic flushes will not fire. Add a clock plugin (e.g. StdInstantClockPlugin) \
                  before this one. on_suspend / on_quit flushes still work."
             );
@@ -285,41 +305,36 @@ where
     }
 
     fn post_render(&mut self, world: &mut World, _render_nanos: u64) {
-        let now_ms = clock_ms(world);
+        let now_ns = clock_ns(world);
         let due = world
-            .resource::<PersistenceRegistry>()
-            .map(|reg| match reg.autosave_interval_ms {
-                Some(interval) => now_ms.wrapping_sub(reg.last_save_ms) >= interval,
-                None => false,
-            })
-            .unwrap_or(false);
+            .resource_mut::<PersistenceRegistry>()
+            .is_some_and(|reg| reg.autosave.due(now_ns));
         if due {
-            flush_and_stamp(world, now_ms);
+            flush_and_stamp(world, now_ns);
         }
     }
 
     fn on_suspend(&mut self, world: &mut World) {
-        let now_ms = clock_ms(world);
-        flush_and_stamp(world, now_ms);
+        let now_ns = clock_ns(world);
+        flush_and_stamp(world, now_ns);
     }
 
     fn on_quit(&mut self, world: &mut World) {
-        let now_ms = clock_ms(world);
-        flush_and_stamp(world, now_ms);
+        let now_ns = clock_ns(world);
+        flush_and_stamp(world, now_ns);
     }
 }
 
-fn clock_ms(world: &World) -> u32 {
+fn clock_ns(world: &World) -> Option<u64> {
     world
         .resource::<crate::ecs::MonoClock>()
-        .map(|c| c.now_ms())
-        .unwrap_or(0)
+        .map(|c| c.now_ns())
 }
 
-fn flush_and_stamp(world: &mut World, now_ms: u32) {
+fn flush_and_stamp(world: &mut World, now_ns: Option<u64>) {
     world.with_resource_box::<PersistenceRegistry, _>(|registry, world| {
         registry.save_all(world);
-        registry.last_save_ms = now_ms;
+        registry.autosave.reset(now_ns);
     });
 }
 
@@ -333,10 +348,49 @@ mod tests {
         let registry = PersistenceRegistry {
             storage: Box::new(MemoryStorage::new()),
             items: Vec::new(),
-            autosave_interval_ms: None,
-            last_save_ms: 0,
+            autosave: Autosave::default(),
         };
         (world, registry)
+    }
+
+    #[test]
+    fn autosave_runs_at_frame_boundaries_and_suspend_without_a_clock() {
+        use core::cell::Cell;
+        std::thread_local! {
+            static NOW: Cell<u64> = const { Cell::new(0) };
+        }
+        let saves = alloc::rc::Rc::new(Cell::new(0));
+        let recorded = saves.clone();
+        let mut app = App::headless(16, 16);
+        app.add_resource(crate::ecs::MonoClock::new(|| NOW.get()));
+        app.add_plugin(
+            PersistencePlugin::new(MemoryStorage::new())
+                .autosave(core::time::Duration::from_nanos(500))
+                .bytes(
+                    "count",
+                    move || {
+                        recorded.set(recorded.get() + 1);
+                        None
+                    },
+                    |_| {},
+                ),
+        );
+        app.spawn_root().id();
+        for (now, expected) in [(499, 0), (500, 1), (999, 1), (1000, 2)] {
+            NOW.set(now);
+            app.tick();
+            assert_eq!(saves.get(), expected);
+        }
+        app.world
+            .resource_mut::<PersistenceRegistry>()
+            .unwrap()
+            .autosave(0);
+        NOW.set(10_000);
+        app.tick();
+        assert_eq!(saves.get(), 2);
+        app.world.remove_resource::<crate::ecs::MonoClock>();
+        app.suspend();
+        assert_eq!(saves.get(), 3);
     }
 
     #[test]
@@ -474,15 +528,14 @@ mod tests {
         let address = world.resource::<PersistenceRegistry>().unwrap() as *const _;
 
         let allocations = crate::test_support::tracked_allocations(|| {
-            for now_ms in 1..=16 {
-                flush_and_stamp(&mut world, now_ms);
+            for now_ns in 1..=16 {
+                flush_and_stamp(&mut world, Some(now_ns));
             }
         });
 
         assert_eq!(allocations, 0);
         let registry = world.resource::<PersistenceRegistry>().unwrap();
         assert_eq!(registry as *const _, address);
-        assert_eq!(registry.last_save_ms, 16);
         assert_eq!(registry.items.len(), 1);
     }
 
@@ -502,16 +555,14 @@ mod tests {
         let address = world.resource::<PersistenceRegistry>().unwrap() as *const _;
 
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            flush_and_stamp(&mut world, 12);
+            flush_and_stamp(&mut world, Some(12));
         }));
         assert!(result.is_err());
         let registry = world.resource::<PersistenceRegistry>().unwrap();
         assert_eq!(registry as *const _, address);
-        assert_eq!(registry.last_save_ms, 0);
 
-        flush_and_stamp(&mut world, 20);
+        flush_and_stamp(&mut world, Some(20));
         let registry = world.resource::<PersistenceRegistry>().unwrap();
         assert_eq!(registry.storage.read("custom"), Some(vec![7]));
-        assert_eq!(registry.last_save_ms, 20);
     }
 }

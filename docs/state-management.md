@@ -8,6 +8,8 @@ diffing, no observer wiring.
 This guide is the long-form companion to the `mirui::core::reactive` API docs and
 the State demos in the gallery.
 
+See [Persistence](persistence.md) for storage and automatic-save configuration.
+
 ## Contents
 
 1. [Registered model instances](#registered-model-instances)

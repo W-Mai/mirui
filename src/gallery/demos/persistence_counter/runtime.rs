@@ -21,7 +21,7 @@ where
     let count = Signal::new(0i32);
     let plugin = PersistencePlugin::new(pick_storage())
         .signal("count", count.clone())
-        .autosave_every_ms(2000);
+        .autosave(2000);
     app.add_plugin(plugin);
 
     app.compose(parent, build_widgets(count));

@@ -27,6 +27,6 @@ where
                 restore_model.restore_replay(restored);
             },
         )
-        .autosave_every_ms(1000);
+        .autosave(1000);
     app.add_plugin(plugin);
 }
