@@ -7,7 +7,7 @@ use super::{
 use crate::{
     core::{
         model::{self, Candidate, Model, PersistModel, PersistenceEndpoint, PersistenceTarget},
-        storage::Storage,
+        storage::{Storage, WriteOutcome},
     },
     ecs::World,
 };
@@ -33,7 +33,7 @@ pub(super) trait ModelEndpoint {
         storage: &mut dyn Storage,
         output: &mut Vec<u8>,
         force: bool,
-    ) -> Result<(), PersistenceError>;
+    ) -> Result<Option<WriteOutcome>, PersistenceError>;
 }
 
 impl<C: ModelCodec> ModelEndpoint for PersistenceEndpoint<C>
@@ -67,8 +67,8 @@ where
         storage: &mut dyn Storage,
         output: &mut Vec<u8>,
         force: bool,
-    ) -> Result<(), PersistenceError> {
-        self.save(world, key, storage, output, force).map(|_| ())
+    ) -> Result<Option<WriteOutcome>, PersistenceError> {
+        self.save(world, key, storage, output, force)
     }
 }
 
@@ -101,14 +101,15 @@ impl ModelEntry {
         storage: &dyn Storage,
     ) -> Result<(), PersistenceError> {
         let result = self.endpoint.restore(world, &self.key, storage);
-        self.last_error = result.as_ref().err().copied();
         match result {
             Ok(true) => {
+                self.last_error = None;
                 self.protected = None;
                 Ok(())
             }
             Ok(false) => Ok(()),
             Err(error) => {
+                self.last_error = Some(error);
                 if matches!(
                     error,
                     PersistenceError::Storage(_)
@@ -134,12 +135,18 @@ impl ModelEntry {
             self.last_error = Some(error);
             return Err(error);
         }
-        let result = self.endpoint.save(world, &self.key, storage, output, force);
-        self.last_error = result.as_ref().err().copied();
-        if result.is_ok() {
-            self.protected = None;
+        match self.endpoint.save(world, &self.key, storage, output, force) {
+            Ok(Some(_)) => {
+                self.last_error = None;
+                self.protected = None;
+                Ok(())
+            }
+            Ok(None) => Ok(()),
+            Err(error) => {
+                self.last_error = Some(error);
+                Err(error)
+            }
         }
-        result
     }
 }
 

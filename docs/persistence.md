@@ -128,7 +128,7 @@ Missing records leave data unchanged. Failed decoding or storage reads leave dat
 
 `PersistenceStatus` distinguishes `Unavailable`, `Unregistered`, `Disabled`, `Clean`, `Pending`, and `Failed { error, protected }`. Queries perform no storage IO or allocation. Registration failures, including duplicate keys and missing codecs, remain visible on the returned Model handle. Child Models are not independent archive registrations. `Clean` describes an acknowledged save candidate, not a fresh check of storage contents or durability.
 
-`Failed` reports the latest operation error and whether automatic overwrite is blocked. Ordinary Model changes do not clear failures; successful saves or restorations do. Reading a missing record preserves existing restore protection. Disabling persistence hides a registered entry's saved error behind `Disabled` without discarding it; re-enabling retains the error and marks current data for saving.
+`Failed` reports the latest operation error and whether automatic overwrite is blocked. Ordinary Model changes do not clear failures; acknowledged writes or applied restorations do. Skipping a clean Model or reading a missing record preserves the existing error and restore protection. Disabling persistence hides a registered entry's saved error behind `Disabled` without discarding it; re-enabling retains the error and marks current data for saving.
 
 ## Deferred operations
 

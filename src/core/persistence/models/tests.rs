@@ -8,6 +8,7 @@ use core::cell::RefCell;
 
 mod codecs;
 mod lifecycle;
+mod receipts;
 
 #[crate::model(persistence(key = "settings"))]
 struct Settings {

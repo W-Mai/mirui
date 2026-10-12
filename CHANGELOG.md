@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Persistence retains operation errors when a clean Model needs no write or a restore finds no record. Acknowledged writes and applied restorations clear those errors.
+
 - Failed file writes and removals preserve the confirmed cache; Gallery game saves no longer acknowledge revisions before storage succeeds.
 
 - Deferred entity deletion removes attached descendants, node bindings, and IDs, preserves the active App root, and repaints the vacated display.
