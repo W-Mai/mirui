@@ -8,6 +8,7 @@ enum Route {
     Home,
     Details,
     Rejected,
+    Other(u8),
 }
 
 #[crate::model]
@@ -32,6 +33,7 @@ fn make_page(event: event!(CreatePage<Route>), target: entity!()) -> Entity {
             ui! { Text("discarded") };
             target
         }
+        Route::Other(_) => ui! { Text("other", grow: 1.0) },
     }
 }
 
@@ -84,16 +86,18 @@ fn selection_reuses_equal_values_and_retires_only_the_previous_subtree() {
     assert!(!app.world.is_alive(home));
     assert!(app.world.is_alive(root));
     assert!(app.world.is_alive(container));
-    assert_eq!(app.world.get::<Children>(container).unwrap().0, [details]);
+    assert!(mount::attached(&app.world, container, details));
     app.world
         .get_mut::<PageView<Route>>(container)
         .unwrap()
         .page = None;
     crate::ui::delivery::flush(&mut app.world).unwrap();
     assert!(!app.world.is_alive(details));
-    assert!(app.world.get::<Children>(container).unwrap().0.is_empty());
+    assert_eq!(app.world.query::<Text>().iter().count(), 0);
     assert_eq!(selection.selected(), Route::Details);
 }
+
+mod animation;
 
 #[test]
 fn rejected_construction_keeps_the_page_and_does_not_retry_each_frame() {

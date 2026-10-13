@@ -37,7 +37,8 @@ assert!(path.is_empty());
 ```rust
 use mirui::prelude::*;
 use mirui::ui::widgets::{Button, Text};
-use mirui::ui::widgets::navigation::{self, CreatePage, NavigationPath, NavigationStack};
+use mirui::ui::widgets::navigation::{self, CreatePage, NavigationPath, NavigationStack, PageTransition};
+use mirui::anim::SMOOTH;
 
 #[derive(Clone, Copy)]
 enum Route { Devices, Device(u32), Settings }
@@ -45,7 +46,8 @@ enum Route { Devices, Device(u32), Settings }
 #[compose]
 fn shell(path: model!(NavigationPath<Route>)) -> Entity {
     ui! {
-        NavigationStack(path: path.clone(), grow: 1.0) {
+        NavigationStack(path: path.clone(), grow: 1.0,
+            transition: PageTransition::slide(SMOOTH)) {
             Column(grow: 1.0) {
                 Text("Home")
                 Button(height: 40) [Text::label("Devices")]
@@ -175,3 +177,11 @@ fn main() {
 ```
 
 `PageView::new(page)` supports non-macro composition. Its `page` field stores `Option<R>`; `None` selects no page, and ordinary DSL field conversion accepts an `R` directly. Routes need `Clone + PartialEq`, not `Default`. Page construction can allocate; an unchanged selection does not clone its route or rebuild its widgets. The factory also accepts the ordinary inline closure and `on CreatePage { ... }` forms.
+
+## Page transitions
+
+Both containers accept `transition: PageTransition::slide(SMOOTH)` or `PageTransition::fade(SMOOTH)`, using a preset or custom `mirui::anim::SpringConfig`. The default is `PageTransition::None`; first mount and configurations with a zero duration hint switch immediately. Stack pushes and returns slide in opposite directions. `PageView` uses a fixed horizontal replacement direction without inferring navigation history.
+
+Transitions use the shared spring animation mechanism and finish when the spring settles. Reversing the active page pair retains its position and velocity without rebuilding either page. Other changes retain only the latest destination until the pair finishes. Both transitioning pages reject input; the selected page resumes input when the transition completes. Page-local transforms remain intact, and slide offsets follow the current container size. Slide retains spring overshoot within the clipped viewport; fade clamps only the composited opacity.
+
+Slide requires no pixel buffers. Fade composites complete subtrees using the offscreen pool configured through `app.with_offscreen_pool_budget(bytes)`. Two W × H RGBA buffers at scale 1 require 8 × W × H pixel bytes, in addition to other retained outputs and metadata. Insufficient storage or unsupported output composition logs a warning and completes the page switch without animation; it does not increase the budget.

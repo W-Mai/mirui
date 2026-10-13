@@ -1625,8 +1625,20 @@ fn draw_tree_offset(
         return Ok(());
     }
 
+    let offscreen = crate::ui::offscreen::config(world, entity).map(|mut off| {
+        if let Some(fallback) = world.get::<crate::ui::offscreen::CompositeFallback>(entity)
+            && !output_plan.is_some_and(|plan| plan.ready(entity) && plan.ready(fallback.required))
+        {
+            off.opacity = fallback.opacity;
+        }
+        off
+    });
+    if offscreen.is_some_and(|off| off.opacity == 0) {
+        *idx += count_nodes(node);
+        return Ok(());
+    }
     if output_plan.is_some_and(|plan| plan.ready(entity))
-        && let Some(off) = crate::ui::offscreen::config(world, entity)
+        && let Some(off) = offscreen
     {
         let handled = if !tf_3d.is_identity() {
             let mut scoped = ProjectiveRenderer {

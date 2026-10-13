@@ -66,6 +66,13 @@ pub struct OffscreenRender {
 
 impl crate::ecs::Component for OffscreenRender {}
 
+/// Select a fallback opacity when either member of a paired composition is unavailable.
+pub(crate) struct CompositeFallback {
+    pub required: crate::ecs::Entity,
+    pub opacity: u8,
+}
+impl crate::ecs::Component for CompositeFallback {}
+
 impl Default for OffscreenRender {
     fn default() -> Self {
         Self::new()

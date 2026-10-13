@@ -243,6 +243,9 @@ enum DispatchStep {
     },
 }
 
+pub(crate) struct InputBlocked;
+impl crate::ecs::Component for InputBlocked {}
+
 pub(crate) struct InputBranch {
     alive: bool,
     hidden: bool,
@@ -269,6 +272,7 @@ impl InputBranch {
             remaining -= 1;
             branch.hidden |= crate::ui::branch::is_effectively_hidden(world, entity);
             branch.disabled |= matches!(world.get::<UserState>(entity), Some(UserState::Disabled));
+            branch.disabled |= world.has::<InputBlocked>(entity);
             if branch.focusable.is_none() && world.has::<Focusable>(entity) {
                 branch.focusable = Some(entity);
             }

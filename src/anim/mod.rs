@@ -110,6 +110,8 @@ pub struct Spring {
     origin: Fixed,
     mode: SpringMode,
     duration_hint_ms: u16,
+    integrated_position: Fixed64,
+    integrated_velocity: Fixed64,
 }
 
 impl Spring {
@@ -135,6 +137,8 @@ impl Spring {
             origin: from,
             mode: SpringMode::Once,
             duration_hint_ms: config.duration_ms,
+            integrated_position: Fixed64::from_fixed(from),
+            integrated_velocity: Fixed64::ZERO,
         }
     }
 
@@ -148,11 +152,13 @@ impl Spring {
             origin: from,
             mode: SpringMode::Once,
             duration_hint_ms: 500,
+            integrated_position: Fixed64::from_fixed(from),
+            integrated_velocity: Fixed64::ZERO,
         }
     }
 
     pub fn with_velocity(mut self, velocity: Fixed) -> Self {
-        self.velocity = velocity;
+        self.set_velocity(velocity);
         self
     }
 
@@ -163,6 +169,7 @@ impl Spring {
 
     pub fn set_velocity(&mut self, velocity: Fixed) {
         self.velocity = velocity;
+        self.integrated_velocity = Fixed64::from_fixed(velocity);
     }
 
     /// Idempotent on `target` — same value is a no-op so per-frame
@@ -199,8 +206,8 @@ impl Spring {
         let stiff = Fixed64::from_fixed(self.stiffness);
         let damp = Fixed64::from_fixed(self.damping);
         let target = Fixed64::from_fixed(self.target);
-        let mut pos = Fixed64::from_fixed(self.position);
-        let mut vel = Fixed64::from_fixed(self.velocity);
+        let mut pos = self.precise_position();
+        let mut vel = self.precise_velocity();
 
         for _ in 0..substep_count {
             let accel = (target - pos) * stiff - vel * damp;
@@ -210,6 +217,8 @@ impl Spring {
 
         self.position = pos.to_fixed();
         self.velocity = vel.to_fixed();
+        self.integrated_position = pos;
+        self.integrated_velocity = vel;
 
         if self.mode == SpringMode::Repeat && self.is_settled() {
             core::mem::swap(&mut self.origin, &mut self.target);
@@ -228,9 +237,27 @@ impl Spring {
         // 1.0 floor: from==to needs nonzero eps; unit amplitude reproduces
         // the old absolute-pixel behaviour.
         let span = (self.target - self.origin).abs().max(Fixed::ONE);
-        let dist_eps = span / Fixed::from_int(200);
-        let speed_eps = span * Fixed::from_int(2);
-        (self.target - self.position).abs() < dist_eps && self.velocity.abs() < speed_eps
+        let span = Fixed64::from_fixed(span);
+        let dist_eps = span / Fixed64::from_int(200);
+        let speed_eps = span * Fixed64::from_int(2);
+        (Fixed64::from_fixed(self.target) - self.precise_position()).abs() < dist_eps
+            && self.precise_velocity().abs() < speed_eps
+    }
+
+    fn precise_position(&self) -> Fixed64 {
+        if self.integrated_position.to_fixed() == self.position {
+            self.integrated_position
+        } else {
+            Fixed64::from_fixed(self.position)
+        }
+    }
+
+    fn precise_velocity(&self) -> Fixed64 {
+        if self.integrated_velocity.to_fixed() == self.velocity {
+            self.integrated_velocity
+        } else {
+            Fixed64::from_fixed(self.velocity)
+        }
     }
 
     pub fn perceptual_duration(&self) -> u16 {
@@ -609,6 +636,57 @@ mod tween_zero_one_check {
 #[cfg(test)]
 mod settle_threshold_check {
     use super::*;
+
+    #[test]
+    fn small_springs_settle_after_repeated_direction_changes() {
+        for config in [INTERACTIVE, SMOOTH, BOUNCY] {
+            for dt in [1, 8, 16, 33] {
+                for target in [Fixed::ONE, -Fixed::ONE, Fixed::from_ratio(1, 16)] {
+                    let mut spring = Spring::preset(Fixed::ZERO, target, config);
+                    for _ in 0..(8000 / dt) {
+                        spring.tick(dt);
+                        if (spring.position - target).abs() < Fixed::from_ratio(1, 32) {
+                            break;
+                        }
+                    }
+                    let position = spring.precise_position();
+                    let velocity = spring.precise_velocity();
+                    spring.retarget(Fixed::ZERO, None);
+                    spring.retarget(target, None);
+                    assert_eq!(spring.precise_position(), position);
+                    assert_eq!(spring.precise_velocity(), velocity);
+                    for _ in 0..(8000 / dt) {
+                        if spring.is_settled() {
+                            break;
+                        }
+                        spring.tick(dt);
+                    }
+                    assert!(
+                        spring.is_settled(),
+                        "dt={dt}, target={target}, position={}",
+                        spring.position
+                    );
+                    assert_eq!(spring.value(), target);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn explicit_spring_state_writes_override_retained_integration() {
+        let mut spring = Spring::preset(Fixed::ZERO, Fixed::ONE, SMOOTH);
+        spring.tick(16);
+        spring.position = Fixed::from_int(10);
+        spring.velocity = Fixed::from_int(-3);
+        let mut expected =
+            Spring::preset(spring.position, spring.target, SMOOTH).with_velocity(spring.velocity);
+        spring.tick(16);
+        expected.tick(16);
+        assert_eq!(spring.precise_position(), expected.precise_position());
+        assert_eq!(spring.precise_velocity(), expected.precise_velocity());
+        spring.set_velocity(Fixed::ZERO);
+        assert_eq!(spring.precise_velocity(), Fixed64::ZERO);
+    }
 
     #[test]
     fn spring_on_normalized_range_produces_intermediate_frames() {

@@ -328,7 +328,7 @@ pub(crate) fn scroll_system_with_target(
                 .resource::<ScrollDragState>()
                 .and_then(|s| s.last_resolved_target);
             if let Some(target) = target {
-                if !world.is_alive(target) {
+                if !input_allowed(world, target) {
                     return false;
                 }
                 let step = Fixed::from_int(20);
@@ -366,6 +366,9 @@ pub(crate) fn scroll_system_with_target(
             let Some(hit) = hit_test(world, root, *x, *y, screen_w, screen_h) else {
                 return false;
             };
+            if !input_allowed(world, hit) {
+                return false;
+            }
             let delta_x = *dx;
             let delta_y = -*dy;
             let gesture_dir = if dy.abs() >= dx.abs() {
@@ -477,6 +480,9 @@ pub(crate) fn scroll_inertia_system(world: &mut World) -> Result<(), crate::ecs:
 crate::ecs::system::framework_system!(pub scroll_inertia_system, ScrollInertia);
 
 fn pointer_scroll_allowed(world: &World, start: Entity, gesture_dir: ScrollAxis) -> bool {
+    if !input_allowed(world, start) {
+        return false;
+    }
     let mut current = start;
     loop {
         if let Some(action) = world.get::<TouchAction>(current).copied()
@@ -490,6 +496,12 @@ fn pointer_scroll_allowed(world: &World, start: Entity, gesture_dir: ScrollAxis)
             return true;
         }
     }
+}
+
+fn input_allowed(world: &World, entity: Entity) -> bool {
+    crate::core::reactive::retained::enabled(world, entity)
+        && crate::input::event::listeners::InputBranch::scan(world, entity)
+            .is_ok_and(|branch| branch.allowed())
 }
 
 fn find_scroll_target_for_direction(
@@ -584,6 +596,44 @@ fn is_at_boundary(world: &World, entity: Entity, delta_x: Fixed, delta_y: Fixed)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wheel_and_rotary_respect_ancestor_input_locks() {
+        let (mut world, root) = fallback_scroll_world();
+        let owner = world.spawn(crate::input::event::listeners::InputBlocked);
+        world.insert(root, crate::ui::Parent(owner));
+        for event in [
+            InputEvent::Wheel {
+                dx: Fixed::ZERO,
+                dy: Fixed::from_int(-20),
+                x: 20.into(),
+                y: 20.into(),
+            },
+            InputEvent::Rotary { id: 0, delta: -1 },
+        ] {
+            assert!(!scroll_system_with_target(
+                &mut world,
+                root,
+                &event,
+                100,
+                100,
+                Some(root),
+                0
+            ));
+            assert_eq!(world.get::<ScrollOffset>(root).unwrap().y, Fixed::ZERO);
+        }
+        world.remove::<crate::input::event::listeners::InputBlocked>(owner);
+        assert!(scroll_system_with_target(
+            &mut world,
+            root,
+            &InputEvent::Rotary { id: 0, delta: -1 },
+            100,
+            100,
+            None,
+            16
+        ));
+        assert!(world.get::<ScrollOffset>(root).unwrap().y > Fixed::ZERO);
+    }
 
     fn fallback_scroll_world() -> (World, Entity) {
         use crate::types::{Dimension, Viewport};

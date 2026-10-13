@@ -366,7 +366,9 @@ pub(crate) fn retire_subtree_interaction(world: &mut World, root: Entity) {
 pub(crate) fn entity_or_ancestor_disabled(world: &World, entity: Entity) -> bool {
     let mut cur = Some(entity);
     while let Some(e) = cur {
-        if matches!(world.get::<UserState>(e), Some(UserState::Disabled)) {
+        if matches!(world.get::<UserState>(e), Some(UserState::Disabled))
+            || world.has::<listeners::InputBlocked>(e)
+        {
             return true;
         }
         cur = world.get::<Parent>(e).map(|p| p.0);

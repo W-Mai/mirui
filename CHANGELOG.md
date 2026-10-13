@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `PageTransition` adds spring-driven slide and group-fade transitions to page containers, preserving velocity on reversal, with bounded pending navigation, viewport clipping, and input isolation. Unavailable fade buffers complete the switch without animation.
+
 - `NavigationStack` retains visited page subtrees, restores them on return, and constructs destinations through typed callbacks.
 
 - `PageView` mounts application-selected pages through typed construction callbacks and releases replaced subtrees without replacing the application root.
@@ -66,6 +68,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Widget effect cleanup no longer allocates a temporary list of effect IDs.
 
 ### Fixed
+
+- Springs retain fractional integration state across frames, allowing small ranges and near-target reversals to settle without stalling.
 
 - Returning from a Gallery demo restores the homepage's featured selection instead of leaving the opened demo between unrelated preview cards.
 

@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use core::any::TypeId;
 
-use super::{NavigationPath, mount};
+use super::{NavigationPath, PageTransition, mount, transition};
 use crate::core::model::{BindingOwner, ModelHandle, ModelInvalidation, ModelSubscription};
 use crate::ecs::{Entity, World};
 use crate::input::event::contract::{Event, EventKey, WidgetConstruction, WidgetSource};
@@ -13,11 +13,15 @@ use crate::input::event::runtime::ConstructionProvider;
 #[crate::component]
 pub struct NavigationStack<R: Clone + 'static> {
     pub path: model!(optional NavigationPath<R>),
+    pub transition: PageTransition,
 }
 
 impl<R: Clone + 'static> Default for NavigationStack<R> {
     fn default() -> Self {
-        Self { path: None }
+        Self {
+            path: None,
+            transition: PageTransition::None,
+        }
     }
 }
 
@@ -119,6 +123,7 @@ fn claim<R: Clone + 'static>(world: &World, entity: Entity, binding: &Binding<R>
 }
 
 fn reset<R: Clone + 'static>(world: &mut World, entity: Entity, binding: Binding<R>) -> bool {
+    transition::cancel(world, entity);
     while let Some((_, page)) = world
         .get_mut::<StackState<R>>(entity)
         .and_then(|state| state.pages.pop())
@@ -212,9 +217,6 @@ fn reconcile<R: Clone + 'static>(world: &mut World, entity: Entity) -> bool {
     let state = world.get::<StackState<R>>(entity).unwrap();
     let path = state.binding.path.clone();
     let revision = path.as_ref().map_or(0, |path| path.revision());
-    if state.attempted == Some(revision) && mount::attached(world, entity, state.shown) {
-        return changed;
-    }
     let provider = state.binding.provider.clone();
     let root = state.root;
     let id = path
@@ -229,6 +231,25 @@ fn reconcile<R: Clone + 'static>(world: &mut World, entity: Entity) -> bool {
                 .map(|entry| entry.1)
         })
         .filter(|&page| mount::attached(world, entity, page));
+    if transition::running(world, entity).is_some() {
+        let target = if id.is_none() { Some(root) } else { cached };
+        changed |= transition::redirect(world, entity, target);
+        let Some((winner, loser)) = transition::finish(world, entity) else {
+            return changed;
+        };
+        let state = world.get_mut::<StackState<R>>(entity).unwrap();
+        state.shown = winner;
+        state.attempted = None;
+        mount::conceal(world, loser);
+        if current::<R>(world, entity, revision) && mount::attached(world, entity, winner) {
+            mount::reveal(world, winner);
+            prune(world, entity, path.as_ref(), revision);
+        }
+        return true;
+    }
+    if state.attempted == Some(revision) && mount::attached(world, entity, state.shown) {
+        return changed;
+    }
     let state = world.get_mut::<StackState<R>>(entity).unwrap();
     state.claimed = true;
     state.warned = false;
@@ -271,7 +292,25 @@ fn reconcile<R: Clone + 'static>(world: &mut World, entity: Entity) -> bool {
         }
     };
     let previous = world.get::<StackState<R>>(entity).unwrap().shown;
+    let previous_id = world
+        .get::<StackState<R>>(entity)
+        .unwrap()
+        .pages
+        .iter()
+        .find(|entry| entry.1 == previous)
+        .map_or(0, |entry| entry.0);
     world.get_mut::<StackState<R>>(entity).unwrap().shown = next;
+    let config = world.get::<NavigationStack<R>>(entity).unwrap().transition;
+    if transition::begin(
+        world,
+        entity,
+        previous,
+        next,
+        config,
+        id.unwrap_or(0) > previous_id,
+    ) {
+        return true;
+    }
     if previous != next {
         mount::conceal(world, previous);
     }
@@ -296,9 +335,10 @@ fn prune<R: Clone + 'static>(
         let retired = world.get::<StackState<R>>(entity).and_then(|state| {
             state.pages.iter().position(|&(id, page)| {
                 !mount::attached(world, entity, page)
-                    || path.is_none_or(|path| {
-                        path.read(|path| !path.entries.iter().any(|entry| entry.0 == id))
-                    })
+                    || (page != state.shown
+                        && path.is_none_or(|path| {
+                            path.read(|path| !path.entries.iter().any(|entry| entry.0 == id))
+                        }))
             })
         });
         let Some(index) = retired else {
@@ -334,7 +374,17 @@ fn navigation_stack<R: Clone + 'static>() {}
 
 /// Registers retained page construction and path coordination for a route type.
 pub fn view<R: Clone + 'static>() -> crate::ui::view::View {
-    navigation_stack::view::<R>().with_reconcile(reconcile::<R>)
+    navigation_stack::view::<R>()
+        .with_reconcile(reconcile::<R>)
+        .with_systems(
+            const {
+                &[crate::ecs::System::new(
+                    "navigation_stack_transition",
+                    crate::ecs::SystemSlot::Animation.priority(),
+                    transition::advance::<StackState<R>>,
+                )]
+            } as &'static [crate::ecs::System],
+        )
 }
 
 #[cfg(test)]
