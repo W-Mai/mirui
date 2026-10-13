@@ -39,7 +39,9 @@ mod nested {
     fn attach() {}
 
     #[mirui::event]
-    fn gesture(_tap: event!(mirui::input::event::gesture::Tap)) -> bool { false }
+    fn gesture(_tap: event!(mirui::input::event::gesture::Tap)) -> bool {
+        false
+    }
 
     fn local_offset() -> u8 {
         3
@@ -73,7 +75,7 @@ mod nested {
     {
         let value = state.value + super::ROOT_OFFSET + self::local_offset() + OFFSET;
         let optional_value = optional.map(|state| state.value);
-        let _: Option<&<T as super::Palette>::Theme> = fallback;
+        let _: Option<&<T as super::Palette>::Theme> = fallback.as_deref();
         let _ = (tile, value, optional_value, theme, entity, paint);
     }
 }
