@@ -5,7 +5,7 @@ use crate::types::{Transform, Viewport};
 use crate::ui::widgets::WidgetTransform;
 use crate::ui::{Hidden, OffscreenRender, Style};
 
-type TestApp =
+pub(super) type TestApp =
     App<crate::surface::framebuf::FramebufSurface<fn(&[u8], crate::types::PhysicalRect)>>;
 const BLUE: Color = Color::rgb(20, 80, 240);
 
@@ -31,7 +31,7 @@ fn scene() {
     };
 }
 
-fn fixture() -> (TestApp, Entity, Entity, Entity) {
+pub(super) fn fixture() -> (TestApp, Entity, Entity, Entity) {
     let mut app = App::headless(128, 96);
     app.with_default_widgets()
         .with_offscreen_pool_budget(128 * 96 * 12);
@@ -42,7 +42,7 @@ fn fixture() -> (TestApp, Entity, Entity, Entity) {
     (app, root, source, follower)
 }
 
-fn rect(app: &TestApp, entity: Entity) -> Rect {
+pub(super) fn rect(app: &TestApp, entity: Entity) -> Rect {
     app.world.get::<ComputedRect>(entity).unwrap().0
 }
 

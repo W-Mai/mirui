@@ -29,7 +29,9 @@ app.render().unwrap();
 
 `with_content(true)` selects the target's content box after resolved padding. `with_outset(value)` expands the mapped rectangle; negative values inset it. `with_offset(x, y)` translates it. Both use the follower parent's logical coordinates. Rotation maps to an axis-aligned bounding rectangle rather than matching an arbitrary outline.
 
-The follower respects its own ancestor clips and the target's ancestor clip. Hidden, deleted, detached, cyclic, or unmappable targets make the follower unavailable for drawing, input, and output reads until the relation becomes valid. Self-targets and targets inside the follower subtree are cyclic. Removing `FollowBounds` restores the authored `Style`; the component never overwrites that style. Use `follow_bounds::view()` for selective widget registration, or `with_default_widgets()` to include it automatically. Bounds updates are immediate.
+The follower respects its own ancestor clips and the target's ancestor clip. Hidden, deleted, detached, cyclic, or unmappable targets make the follower unavailable for drawing, input, and output reads until the relation becomes valid. Self-targets and targets inside the follower subtree are cyclic. Removing `FollowBounds` restores the authored `Style`; the component never overwrites that style. Use `follow_bounds::view()` for selective widget registration, or `with_default_widgets()` to include it automatically.
+
+Bounds update immediately by default. Add `.with_spring(mirui::anim::SNAPPY)` to animate position and size changes. The first valid placement and recovery from an unavailable target are immediate. Retargeting preserves each axis's current position and velocity; rendering and hit testing use the displayed bounds, clipped to the current source viewport. `spring: None` or a zero duration hint switches immediately. Only animated followers allocate motion component storage, prepared when animation is enabled; advancing and retargeting reuse it.
 
 ## Interactive example
 

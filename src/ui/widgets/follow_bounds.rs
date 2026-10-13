@@ -2,6 +2,7 @@
 
 use alloc::vec::Vec;
 
+use crate::anim::SpringConfig;
 use crate::ecs::{Entity, World};
 use crate::input::event::scroll::ScrollOffset;
 use crate::types::{Dimension, Fixed, Point, Rect, Transform3D};
@@ -10,6 +11,7 @@ use crate::ui::outputs::graph::OutputGraph;
 use crate::ui::{ComputedRect, LayoutGeometry, Outputs, Parent, View};
 
 pub(crate) mod clip;
+mod motion;
 
 /// Positions this widget around a target's prepared bounds, in its own parent's coordinates.
 ///
@@ -26,6 +28,8 @@ pub struct FollowBounds {
     pub outset: Fixed,
     /// Translation in the follower parent's coordinates.
     pub offset: Point,
+    /// Animate subsequent bounds changes with a spring. `None` updates immediately.
+    pub spring: Option<SpringConfig>,
 }
 
 impl FollowBounds {
@@ -36,6 +40,7 @@ impl FollowBounds {
             content: false,
             outset: Fixed::ZERO,
             offset: Point::ZERO,
+            spring: None,
         }
     }
 
@@ -54,6 +59,12 @@ impl FollowBounds {
     /// Translate in the follower parent's logical coordinates.
     pub fn with_offset(mut self, x: impl Into<Fixed>, y: impl Into<Fixed>) -> Self {
         self.offset = Point::new(x, y);
+        self
+    }
+
+    /// Animate bounds changes after the first valid placement. A zero duration hint updates immediately.
+    pub const fn with_spring(mut self, spring: SpringConfig) -> Self {
+        self.spring = Some(spring);
         self
     }
 }
@@ -82,18 +93,27 @@ fn follow_bounds() {}
 
 /// Register layout following. Included by `App::with_default_widgets()`.
 pub fn view() -> View {
-    follow_bounds::view().with_reconcile(prepare)
+    follow_bounds::view().with_reconcile(prepare).with_systems(
+        const {
+            &[crate::ecs::System::new(
+                "follow_bounds_motion",
+                crate::ecs::SystemSlot::Animation.priority(),
+                motion::advance,
+            )]
+        } as &'static [crate::ecs::System],
+    )
 }
 
 fn prepare(world: &mut World, entity: Entity) -> bool {
-    if world.has::<FollowState>(entity) {
-        return false;
+    let mut changed = motion::prepare(world, entity);
+    if !world.has::<FollowState>(entity) {
+        world.insert(entity, FollowState::default());
+        changed = true;
     }
-    world.insert(entity, FollowState::default());
     if world.resource::<FollowPlan>().is_none() {
         world.insert_resource(FollowPlan::default());
     }
-    true
+    changed
 }
 
 pub(crate) fn active(world: &World) -> bool {
@@ -148,6 +168,7 @@ impl FollowPlan {
         self.entities.retain(|&entity| {
             if !world.has::<FollowBounds>(entity) {
                 world.remove::<FollowState>(entity);
+                world.remove::<motion::FollowMotion>(entity);
                 return false;
             }
             entities.contains(&entity)
@@ -207,6 +228,10 @@ fn resolve(world: &World, entity: Entity) -> Option<Resolved> {
 }
 
 fn assign(world: &mut World, entity: Entity, geometry: Option<Resolved>) -> bool {
+    let geometry = geometry.map(|mut geometry| {
+        geometry.rect = motion::redirect(world, entity, geometry.rect);
+        geometry
+    });
     let state = world.get_mut::<FollowState>(entity).unwrap();
     if geometry.is_none() && !state.warned {
         crate::warn!(target: "mirui::layout", "FollowBounds has no valid target geometry: {:?}", entity);
@@ -249,7 +274,7 @@ pub(crate) fn reconcile(
                 let entity = plan.entities[index];
                 let geometry = resolve(world, entity);
                 changed |= assign(world, entity, geometry);
-                if let Some(geometry) = geometry {
+                if let Some(geometry) = world.get::<FollowState>(entity).unwrap().geometry {
                     let parent = world.get::<Parent>(entity).unwrap().0;
                     let origin = world.get::<ComputedRect>(parent).unwrap().0;
                     let node = node_mut(tree, entity).unwrap();

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `FollowBounds::with_spring` animates position and size through shared spring motion, retaining velocity when redirected and using displayed geometry for layout and input.
+
 - `FollowBounds` positions a widget around another widget's border or content bounds without occupying flex space, with cross-parent transforms, source clipping, and invalid-target recovery.
 
 - `Outputs<LayoutGeometry>` exposes prepared widget bounds, resolved content bounds, screen transforms, and ancestor clipping through component-declared dependencies.
