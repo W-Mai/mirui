@@ -16,11 +16,8 @@ pub(super) const TRANSLATIONS: &[Translation] = &[
     (Locale::ZhCn, "toggle", "切换语言"),
 ];
 
-pub(super) fn register_font(manager: Option<&FontManager>) {
-    let Some(mgr) = manager else {
-        return;
-    };
+pub(super) fn register_font(manager: &FontManager) {
     let font = Font::from_mirx("MiSans UI", 14, UI_FONT, &mirx::reader::PayloadLimits::HOST)
         .expect("UI font");
-    mgr.add_static(TOKEN_CJK.cache_key(), font);
+    manager.add_static(TOKEN_CJK.cache_key(), font);
 }

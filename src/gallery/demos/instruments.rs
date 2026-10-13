@@ -11,10 +11,7 @@ const FONT_BYTES: &[u8] = include_bytes!("assets/misans_ui.mirx");
 
 #[compose]
 pub(super) fn register_fonts() {
-    res!(optional FontManager).with(|manager| {
-        let Some(manager) = manager else {
-            return;
-        };
+    res!(FontManager).with(|manager| {
         let base = Font::from_mirx(
             "Product Instruments",
             24,

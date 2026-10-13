@@ -11,7 +11,7 @@ use crate::ui::{ComputedRect, Style, Theme, WidgetRoot};
 #[mirui_macros::system(order = Animation)]
 pub fn flip_system(
     delta: res!(DeltaTimeMs),
-    theme: res!(optional Theme),
+    theme: res!(Theme),
     root: res!(optional WidgetRoot),
     rects: query!(Entity, ComputedRect),
     cards: query!(Entity, mut FlipCard, mut Style),
@@ -45,10 +45,7 @@ pub fn flip_system(
         } else {
             card.back_color
         };
-        let color = theme.as_deref().map_or_else(
-            || Theme::default().resolve(color_token),
-            |theme| theme.resolve(color_token),
-        );
+        let color = theme.resolve(color_token);
         style.set_bg_color(color);
         style.layout.left = Dimension::px(card_left);
         style.layout.top = Dimension::px(card_top);

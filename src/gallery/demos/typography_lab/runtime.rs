@@ -30,10 +30,7 @@ fn font(bytes: &'static [u8], family: &'static str) -> Font {
 
 #[compose]
 pub(crate) fn register_fonts() {
-    res!(optional FontManager).with(|manager| {
-        let Some(manager) = manager else {
-            return;
-        };
+    res!(FontManager).with(|manager| {
         manager.add_static(UI.cache_key(), font(UI_FONT, "MiSans UI"));
         manager.add_static(CJK.cache_key(), font(CJK_FONT, "MiSans CJK"));
         manager.add_static(ARABIC.cache_key(), font(ARABIC_FONT, "MiSans Arabic"));

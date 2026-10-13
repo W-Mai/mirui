@@ -11,7 +11,7 @@ use crate::ui::{ComputedRect, WidgetRoot};
 //~focus-start
 #[mirui_macros::system]
 pub fn layout_system(
-    fallback: res!(optional CoverFlowBounds),
+    fallback: res!(CoverFlowBounds),
     cache: res!(optional LayoutCache),
     root: res!(optional WidgetRoot),
     rects: query!(Entity, ComputedRect),
@@ -27,8 +27,7 @@ pub fn layout_system(
     });
     let bounds = viewport
         .map(|rect| CoverFlowBounds::for_px(rect.w.to_int(), rect.h.to_int()))
-        .or_else(|| fallback.map(|b| CoverFlowBounds::for_px(b.view_w, b.view_h)));
-    let Some(bounds) = bounds else { return };
+        .unwrap_or_else(|| CoverFlowBounds::for_px(fallback.view_w, fallback.view_h));
     let CoverFlowBounds {
         view_w,
         view_h,

@@ -41,9 +41,7 @@ fn stroke(
 }
 
 #[crate::view(component = StrokeStyles, name = "StrokeStyles", priority = 60)]
-fn stroke_styles_render(theme: res!(optional Theme), paint_ctx: paint!()) {
-    let default_theme = Theme::default();
-    let theme = theme.as_deref().unwrap_or(&default_theme);
+fn stroke_styles_render(theme: res!(Theme), paint_ctx: paint!()) {
     let paint = Paint::Color(theme.resolve(ColorToken::Primary).into());
     let hot = Paint::Color(theme.resolve(ColorToken::Error).into());
     let green = Paint::Color(theme.resolve(ColorToken::Success).into());

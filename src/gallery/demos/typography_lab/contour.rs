@@ -40,13 +40,10 @@ fn contour_color(theme: &Theme, value: Fixed) -> Color {
 #[crate::view(component = RasterContour, name = "RasterContour", priority = 61)]
 fn raster_contour_render(
     spec: component!(),
-    manager: res!(optional FontManager),
-    theme: res!(optional Theme),
+    manager: res!(FontManager),
+    theme: res!(Theme),
     paint: paint!(),
 ) {
-    let Some(manager) = manager else {
-        return;
-    };
     let font = manager.resolve(spec.font.cache_key());
     let Some(raster) = font
         .map_char(spec.character)
@@ -83,8 +80,6 @@ fn raster_contour_render(
         y: rect.y + (rect.h - grid_height) / Fixed::from_int(2),
     };
     let extent = Fixed::from_int((cell - 1).max(1));
-    let default_theme = Theme::default();
-    let theme = theme.as_deref().unwrap_or(&default_theme);
     for y in 0..height {
         for x in 0..width {
             paint.draw(&DrawCommand::Fill {
@@ -96,7 +91,7 @@ fn raster_contour_render(
                 },
                 transform: paint.transform(),
                 quad: None,
-                color: contour_color(theme, field.sample(x, y)),
+                color: contour_color(&theme, field.sample(x, y)),
                 radius: Fixed::ZERO,
                 opa: 255,
             });
@@ -149,7 +144,7 @@ mod paint_contract_tests {
     }
 
     #[test]
-    fn contour_view_refetches_optional_resources_without_allocating_parameter_storage() {
+    fn contour_view_refetches_resources_without_allocating_parameter_storage() {
         let mut app = App::headless(1, 1);
         let node = app.world.spawn_empty();
         app.world.insert(node, RasterContour::default());
@@ -167,17 +162,13 @@ mod paint_contract_tests {
         let render = view.render().unwrap();
         let rect = Rect::new(11, 17, 256, 256);
         let style = Style::default();
-        for present in [None, Some(false), Some(true), Some(false), None, Some(true)] {
-            if let Some(with_raster) = present {
-                app.world.insert_resource(prepared_manager(with_raster));
-            } else {
-                app.world.remove_resource::<FontManager>();
-            }
+        for with_raster in [false, true, false, true] {
+            app.world.insert_resource(prepared_manager(with_raster));
             for light in [false, true] {
                 if light {
                     app.world.insert_resource(Theme::light());
                 } else {
-                    app.world.remove_resource::<Theme>();
+                    app.world.insert_resource(Theme::default());
                 }
                 for fail in [false, true] {
                     for _ in 0..2 {
@@ -195,7 +186,7 @@ mod paint_contract_tests {
                             tracked_allocations(|| render(&app.world, node, &mut paint)),
                             0
                         );
-                        let draws = present == Some(true);
+                        let draws = with_raster;
                         assert_eq!(
                             paint.error(),
                             if fail && draws {

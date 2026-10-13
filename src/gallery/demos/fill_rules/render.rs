@@ -21,9 +21,7 @@ pub(super) const LOGICAL_WIDTH: i32 = 400;
 pub(super) const LOGICAL_HEIGHT: i32 = 240;
 
 #[crate::view(component = FillRules, name = "FillRules", priority = 60)]
-fn fill_rules_render(theme: res!(optional Theme), paint: paint!()) {
-    let default_theme = Theme::default();
-    let theme = theme.as_deref().unwrap_or(&default_theme);
+fn fill_rules_render(theme: res!(Theme), paint: paint!()) {
     let fill = Paint::Color(theme.resolve(ColorToken::Secondary).into());
     let stroke = Paint::Color(theme.resolve(ColorToken::OnSurface).into());
     let canvas = crate::gallery::fit_logical_canvas(

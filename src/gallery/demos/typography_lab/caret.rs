@@ -32,8 +32,8 @@ pub(super) fn caret_overlay_render(
     component: component!(),
     model: model!(component.model, watch(path_probe)),
     outputs: res!(Outputs<TextGeometry>),
-    theme: res!(optional Theme),
-    paths: res!(optional PathStore),
+    theme: res!(Theme),
+    paths: res!(PathStore),
     entity: entity!(),
     paint: paint!(),
 ) {
@@ -42,8 +42,6 @@ pub(super) fn caret_overlay_render(
     };
     let layout = geometry.layout();
     let metrics = geometry.metrics();
-    let default_theme = Theme::default();
-    let theme = theme.as_deref().unwrap_or(&default_theme);
     let border = theme.resolve(BORDER);
     let primary = theme.resolve(CYAN);
     let secondary = theme.resolve(BLUE);
@@ -58,9 +56,6 @@ pub(super) fn caret_overlay_render(
         };
         let probe_hit =
             probe.and_then(|probe| geometry.hit_test(probe, Fixed::from_int(16)).ok().flatten());
-        let Some(paths) = paths else {
-            return;
-        };
         if let Ok(path) = paths.get(text_path.path()) {
             let path_paint = Paint::Color(secondary.into());
             paint.draw(&DrawCommand::StrokePath {

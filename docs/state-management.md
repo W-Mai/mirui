@@ -34,7 +34,7 @@ Application setup installs shared services with `app.add_resource(value)` and cr
 
 Within a `#[compose]` Rust body, resource expressions access that composition's existing application storage. Each `with` closure borrows only for its call and returns a value independent of the resource reference. Resources remain shared services or configuration; mutating one does not add Model observations.
 
-A composition can initialize resources without creating widgets. Gallery font registration uses `app.compose(parent, register_fonts())` to borrow the installed `FontManager` through `res!(optional FontManager).with(...)` before constructing text widgets; it does not replace the manager or require a World parameter.
+A composition can initialize resources without creating widgets. Gallery font registration uses `app.compose(parent, register_fonts())` to borrow the installed `FontManager` through `res!(FontManager).with(...)` before constructing text widgets; it does not replace the manager or require a World parameter.
 
 Optional initialization can check `res!(optional T)` and insert a default through `res!().insert(...)` after the read closure returns. The Gallery clock composition uses this pattern to preserve a host-provided `MonoClock` and its timing state.
 
@@ -53,6 +53,8 @@ Widgets uses the same named-target lookup, so its automation does not select unr
 | Remove a resource | `res!().remove::<T>()` | `Option<T>` |
 
 Resource borrows carry their application's identity and dereference to the stored value. Field and method access stay direct. Pass `&value` or `&mut value` to ordinary helpers taking references; use `optional.as_deref()` for helpers taking `Option<&T>`. Callback macros supply the mutable binding for `res!(mut T)`. A composition closure that modifies a resource writes `.with(|mut value| { ... })`; read-only use needs no mutable binding. These borrows add no heap allocation and cannot escape a composition's `with` call.
+
+Only `res!(optional T)` permits an absent resource. Use required roles for dependencies installed by application or composition setup; use optional roles when absence is part of the callback's behavior, such as checking whether a clock is installed or reading a cache before its first update. Dereferencing a resource never creates a default value.
 
 ```rust,ignore
 struct PanelConfig {
@@ -112,7 +114,7 @@ Compute resource-backed arguments before passing them to `ui!`, `format!`, or an
 
 CoverFlow and Particles install their bounds from within their compositions through `res!().insert(...)`. Shapes, Butterfly, and Vector Mandala read an optional MonoClock before building their trees, retaining zero start time when the clock is absent.
 
-The I18n composition borrows an optional FontManager to register its font and installs its translation resource through `res!().insert(...)`. Its locale Signal is captured before installation and remains the language button's state source.
+The I18n composition borrows the application's FontManager to register its font and installs its translation resource through `res!().insert(...)`. Its locale Signal is captured before installation and remains the language button's state source.
 
 Application creation supplies the named-widget ID registry. Compositions declare `id: ...` without initializing that registry, and existing named entries remain available to later compositions.
 

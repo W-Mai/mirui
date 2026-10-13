@@ -6,19 +6,14 @@ use crate::ui::Children;
 
 #[test]
 fn build_widgets_smoke() {
-    for with_fonts in [false, true] {
+    for locale in [Locale::EnUs, Locale::ZhCn] {
         let mut app = App::headless(64, 64);
-        if !with_fonts {
-            assert!(app.world.remove_resource::<FontManager>().is_some());
-        }
-        assert_eq!(app.world.resource::<FontManager>().is_some(), with_fonts);
-        let previous = I18n::new(Locale::ZhCn);
+        let previous = I18n::new(locale);
         let previous_locale = previous.locale_signal();
         app.add_resource(previous);
         let parent = app.spawn_root().id();
         app.compose(parent, build_widgets());
         let world = &app.world;
-        assert_eq!(world.resource::<FontManager>().is_some(), with_fonts);
         let column = world
             .get::<Children>(parent)
             .and_then(|c| c.0.first().copied())
@@ -31,19 +26,18 @@ fn build_widgets_smoke() {
         let i18n = world.resource::<I18n>().expect("I18n resource inserted");
         assert_eq!(i18n.locale(), Locale::EnUs);
         assert_eq!(i18n.translate("welcome"), Some("Welcome to mirui"));
-        let locale = i18n.locale_signal();
-        locale.set(Locale::ZhCn);
+        let next_locale = i18n.locale_signal();
+        next_locale.set(Locale::ZhCn);
         assert_eq!(i18n.translate("welcome"), Some("欢迎使用 mirui"));
-        assert_eq!(previous_locale.get_untracked(), Locale::ZhCn);
+        assert_eq!(previous_locale.get_untracked(), locale);
         previous_locale.set(Locale::EnUs);
-        assert_eq!(locale.get_untracked(), Locale::ZhCn);
-        if let Some(manager) = world.resource::<FontManager>() {
-            assert_eq!(
-                manager
-                    .resolve(super::catalog::TOKEN_CJK.cache_key())
-                    .family,
-                "MiSans UI"
-            );
-        }
+        assert_eq!(next_locale.get_untracked(), Locale::ZhCn);
+        let manager = world.resource::<FontManager>().unwrap();
+        assert_eq!(
+            manager
+                .resolve(super::catalog::TOKEN_CJK.cache_key())
+                .family,
+            "MiSans UI"
+        );
     }
 }

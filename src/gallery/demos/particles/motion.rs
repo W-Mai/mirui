@@ -14,11 +14,8 @@ pub fn particle_bounds_system(arenas: query!(ParticleArena, ComputedRect), comma
 
 //~focus-start
 #[mirui_macros::system(order = Animation)]
-pub fn particle_system(
-    bounds: res!(optional ParticleBounds),
-    particles: query!(mut Particle, mut Style),
-) {
-    let (bw, bh) = bounds.map(|b| (b.w, b.h)).unwrap_or((128, 128));
+pub fn particle_system(bounds: res!(ParticleBounds), particles: query!(mut Particle, mut Style)) {
+    let (bw, bh) = (bounds.w, bounds.h);
     for (particle, style) in particles {
         particle.x += particle.vx;
         particle.y += particle.vy;
@@ -45,11 +42,8 @@ pub fn particle_system(
 //~focus-end
 
 #[mirui_macros::system(order = Animation)]
-pub fn pulse_ring_system(
-    bounds: res!(optional ParticleBounds),
-    rings: query!(mut PulseRing, mut Style),
-) {
-    let (bw, bh) = bounds.map(|b| (b.w, b.h)).unwrap_or((128, 128));
+pub fn pulse_ring_system(bounds: res!(ParticleBounds), rings: query!(mut PulseRing, mut Style)) {
+    let (bw, bh) = (bounds.w, bounds.h);
     for (ring, style) in rings {
         ring.radius += ring.grow_speed;
         if ring.radius > ring.max_radius {
@@ -66,8 +60,8 @@ pub fn pulse_ring_system(
 }
 
 #[mirui_macros::system(order = Animation)]
-pub fn bar_system(bounds: res!(optional ParticleBounds), bars: query!(mut BouncingBar, mut Style)) {
-    let (bw, bh) = bounds.map(|b| (b.w, b.h)).unwrap_or((128, 128));
+pub fn bar_system(bounds: res!(ParticleBounds), bars: query!(mut BouncingBar, mut Style)) {
+    let (bw, bh) = (bounds.w, bounds.h);
     for (bar, style) in bars {
         bar.pos += bar.speed;
         let max = if bar.vertical {

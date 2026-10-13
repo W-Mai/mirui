@@ -11,12 +11,10 @@ pub struct Shapes {
 #[crate::view(component = Shapes, name = "Shapes", priority = 60)]
 fn shapes_render(
     state: component!(),
-    theme: res!(optional Theme),
+    theme: res!(Theme),
     clock: res!(optional MonoClock),
     paint: paint!(),
 ) {
-    let default_theme = Theme::default();
-    let theme = theme.as_deref().unwrap_or(&default_theme);
     let arc_color = theme.resolve(ColorToken::Primary);
     let hand_color = theme.resolve(ColorToken::Secondary);
     let tick_color = theme.resolve(ColorToken::OnSurfaceVariant);

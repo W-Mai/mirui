@@ -80,17 +80,12 @@ pub(super) fn curve_stage_background_render(
 
 #[crate::view(component = CurveStage, name = "CurvePaths", priority = 61)]
 fn curve_paths_render(
-    paths: res!(optional CurvePaths),
-    store: res!(optional PathStore),
-    theme: res!(optional Theme),
+    paths: res!(CurvePaths),
+    store: res!(PathStore),
+    theme: res!(Theme),
     paint: paint!(),
 ) {
-    let default_theme = Theme::default();
-    let theme = theme.as_deref().unwrap_or(&default_theme);
     let lane_colors = LANE_COLORS.map(|token| theme.resolve(token));
-    let (Some(paths), Some(store)) = (paths, store) else {
-        return;
-    };
     let rect = paint.rect();
     let transform = paint
         .transform()
@@ -180,51 +175,27 @@ mod paint_contract_tests {
         app.world.insert(node, CurveStage { model });
         let rect = Rect::new(11, 17, 640, 360);
         let style = Style::default();
-        for (step, (has_paths, has_store)) in [
-            (false, false),
-            (true, false),
-            (false, true),
-            (true, true),
-            (true, true),
-            (true, true),
-            (false, false),
-        ]
-        .into_iter()
-        .enumerate()
-        {
+        for step in 0..4 {
             let mut store = PathStore::new(3).unwrap();
             let ids = core::array::from_fn(|lane| {
                 store
                     .insert(super::super::geometry::make_lane(lane))
                     .unwrap()
             });
-            if step == 5 {
+            if step == 2 {
                 store.remove(ids[0]).unwrap();
             }
             let paths = ids.map(|id| store.get(id).ok().map(|path| path.commands().as_ptr()));
-            if has_paths {
-                app.world.insert_resource(CurvePaths { ids });
-            } else {
-                app.world.remove_resource::<CurvePaths>();
-            }
-            if has_store {
-                app.world.insert_resource(store);
-            } else {
-                app.world.remove_resource::<PathStore>();
-            }
-            if step >= 4 {
+            app.world.insert_resource(CurvePaths { ids });
+            app.world.insert_resource(store);
+            if step >= 1 {
                 app.world.insert_resource(Theme::light());
             } else {
-                app.world.remove_resource::<Theme>();
+                app.world.insert_resource(Theme::default());
             }
-            let default_theme = Theme::default();
-            let theme = app.world.resource::<Theme>().unwrap_or(&default_theme);
+            let theme = app.world.resource::<Theme>().unwrap();
             let colors = LANE_COLORS.map(|token| theme.resolve(token));
-            let expected = if has_paths && has_store {
-                2 * paths.iter().flatten().count()
-            } else {
-                0
-            };
+            let expected = 2 * paths.iter().flatten().count();
             for transform in [
                 Transform::IDENTITY,
                 Transform {

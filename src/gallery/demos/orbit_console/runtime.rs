@@ -16,10 +16,7 @@ use crate::render::font::{Font, FontManager};
 #[cfg(any(feature = "std", test))]
 #[compose]
 pub(super) fn register_fonts() {
-    res!(optional FontManager).with(|manager| {
-        let Some(manager) = manager else {
-            return;
-        };
+    res!(FontManager).with(|manager| {
         let base = Font::from_mirx(
             "Orbit Console",
             14,

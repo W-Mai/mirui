@@ -56,12 +56,10 @@ fn fill_wing(
 #[crate::view(component = Butterfly, name = "Butterfly", priority = 60)]
 fn butterfly_render(
     state: component!(),
-    theme: res!(optional Theme),
+    theme: res!(Theme),
     clock: res!(optional MonoClock),
     paint: paint!(),
 ) {
-    let default_theme = Theme::default();
-    let theme = theme.as_deref().unwrap_or(&default_theme);
     let outer_wing = theme.resolve(ColorToken::Primary);
     let inner_wing = theme.resolve(ColorToken::Secondary);
     let body_color = theme.resolve(ColorToken::OnSurface);

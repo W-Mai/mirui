@@ -30,7 +30,7 @@ pub fn physics_tick_system(
     clock: res!(optional MonoClock),
     time: res!(mut PhysicsTime),
     bounds: res!(mut WorldBounds),
-    spring: res!(optional SpringLength),
+    spring: res!(SpringLength),
     scratch: res!(mut PhysicsScratch),
     root: res!(optional WidgetRoot),
     rects: query!(Entity, ComputedRect),
@@ -55,7 +55,7 @@ pub fn physics_tick_system(
         _ => (Fixed::ZERO, Fixed::ZERO),
     };
 
-    let now_ms = clock.as_deref().map(MonoClock::now_ms).unwrap_or(0);
+    let now_ms = clock.map_or(0, |clock| clock.now_ms());
     let elapsed = now_ms.wrapping_sub(time.last_tick_ms);
     time.last_tick_ms = now_ms;
     time.accumulator_ms = time.accumulator_ms.saturating_add(elapsed);
@@ -75,7 +75,7 @@ pub fn physics_tick_system(
         return;
     }
 
-    let equilibrium = spring.map_or(Fixed::from_int(30), |spring| spring.0);
+    let equilibrium = spring.0;
     let (bound_w, bound_h) = (bounds.w, bounds.h);
     let v_max = Fixed::from_int(5);
     let v_min = Fixed::ZERO - v_max;

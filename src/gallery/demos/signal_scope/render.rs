@@ -413,12 +413,9 @@ fn paint_scope(scratch: &ScopeWaveScratch, state: &ScopeModel, paint: &mut Paint
 #[crate::view(component = ScopeCanvas, name = "ScopeCanvas", priority = 61)]
 fn scope_render(
     model: model!(component.model, watch(visual_revision)),
-    scratch: res!(optional ScopeWaveScratch),
+    scratch: res!(ScopeWaveScratch),
     paint: paint!(),
 ) {
-    let Some(scratch) = scratch else {
-        return;
-    };
     paint_scope(&scratch, model, paint);
 }
 
@@ -491,20 +488,13 @@ mod paint_contract_tests {
             ty: Fixed::from_int(13),
             ..Transform::IDENTITY
         };
-        for present in [false, true, true, false] {
-            if present {
-                app.world.insert_resource(ScopeWaveScratch::default());
-            } else {
-                app.world.remove_resource::<ScopeWaveScratch>();
-            }
-            let paths = app
-                .world
-                .resource::<ScopeWaveScratch>()
-                .map(|scratch| {
-                    let paths = scratch.paths.borrow();
-                    [paths[0].commands().as_ptr(), paths[1].commands().as_ptr()]
-                })
-                .unwrap_or([core::ptr::null(); 2]);
+        for _ in 0..2 {
+            app.world.insert_resource(ScopeWaveScratch::default());
+            let scratch = app.world.resource::<ScopeWaveScratch>().unwrap();
+            let paths = {
+                let paths = scratch.paths.borrow();
+                [paths[0].commands().as_ptr(), paths[1].commands().as_ptr()]
+            };
             for fail in [false, true] {
                 for _ in 0..2 {
                     let mut renderer = Trace {
@@ -527,16 +517,16 @@ mod paint_contract_tests {
                     );
                     assert_eq!(
                         paint.error(),
-                        if present && fail {
+                        if fail {
                             Some(RenderError::BackendFailure)
                         } else {
                             None
                         }
                     );
-                    if present && !fail {
+                    if !fail {
                         assert!(renderer.calls > 0);
                     } else {
-                        assert_eq!(renderer.calls, usize::from(present));
+                        assert_eq!(renderer.calls, 1);
                     }
                 }
             }
