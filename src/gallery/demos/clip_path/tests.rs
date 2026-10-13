@@ -41,6 +41,7 @@ impl Renderer for FailingRenderer {
 fn failed_content_still_pops_clip() {
     let mut renderer = FailingRenderer::default();
     let mut world = World::new();
+    world.insert_resource(Theme::default());
     let entity = world.spawn_empty();
     world.insert(entity, ClipPath);
     let style = Style::default();
@@ -55,9 +56,10 @@ fn failed_content_still_pops_clip() {
         WidgetState::Enabled,
     );
 
+    let view = clip_path_view();
     assert_eq!(
         crate::test_support::tracked_allocations(|| {
-            clip_path_view().render().unwrap()(&world, entity, &mut paint);
+            view.render().unwrap()(&world, entity, &mut paint);
         }),
         0
     );
