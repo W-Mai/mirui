@@ -214,29 +214,53 @@ mod tests {
 
     #[test]
     fn input_updates_model_bindings_and_reset_restores_controls() {
-        use crate::input::event::gesture::GestureEvent;
+        use crate::input::event::input::{InputEvent, PointerKind};
+        use crate::input::event::sim::{SimCommand, SimulatedInput, sim_input_system};
+        use crate::surface::framebuf::FramebufSurface;
+        use crate::types::PhysicalRect;
         use crate::ui::ComputedRect;
+
+        type TestApp = App<FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
         let mut app = App::headless(420, 360);
         app.with_default_widgets().with_default_systems();
+        app.add_system(sim_input_system::system());
         let root = app.spawn_root().id();
         setup_app(&mut app, root);
+        app.render().unwrap();
         let column = app.world.get::<Children>(root).unwrap().0[0];
         let children = &app.world.get::<Children>(column).unwrap().0;
         let (slider, row, progress, reset) = (children[2], children[3], children[4], children[5]);
         let switch = app.world.get::<Children>(row).unwrap().0[1];
-        app.world
-            .insert(slider, ComputedRect(crate::types::Rect::new(0, 0, 100, 28)));
-        let tap = |target| GestureEvent::Tap {
-            x: Fixed::from_int(75),
-            y: Fixed::ZERO,
-            target,
+        let click = |app: &mut TestApp, target, ratio: Fixed| {
+            let rect = app.world.get::<ComputedRect>(target).unwrap().0;
+            let x = rect.x + rect.w * ratio;
+            let y = rect.y + rect.h / Fixed::from_int(2);
+            app.add_resource(SimulatedInput::new(alloc::vec![
+                SimCommand::at(
+                    0,
+                    InputEvent::PointerDown {
+                        kind: PointerKind::Mouse,
+                        id: 0,
+                        x,
+                        y,
+                    }
+                ),
+                SimCommand::at(
+                    0,
+                    InputEvent::PointerUp {
+                        kind: PointerKind::Mouse,
+                        id: 0,
+                        x,
+                        y,
+                    }
+                ),
+            ]));
+            assert!(!app.tick());
         };
 
-        crate::ui::delivery::dispatch_gesture(&mut app.world, &tap(slider), 1).unwrap();
-        crate::ui::delivery::dispatch_gesture(&mut app.world, &tap(switch), 1).unwrap();
-        crate::ui::delivery::flush(&mut app.world).unwrap();
-        crate::core::reactive::flush_signal_dirty(&mut app.world);
+        click(&mut app, slider, Fixed::from_f32(0.75));
+        click(&mut app, switch, Fixed::from_f32(0.5));
         assert_eq!(
             app.world.get::<Slider>(slider).unwrap().value,
             Fixed::from_int(75)
@@ -244,9 +268,7 @@ mod tests {
         assert_eq!(app.world.get::<ProgressBar>(progress).unwrap().value, 0.75);
         assert!(app.world.get::<Switch>(switch).unwrap().on);
 
-        crate::ui::delivery::dispatch_gesture(&mut app.world, &tap(reset), 1).unwrap();
-        crate::ui::delivery::flush(&mut app.world).unwrap();
-        crate::core::reactive::flush_signal_dirty(&mut app.world);
+        click(&mut app, reset, Fixed::from_f32(0.5));
         assert_eq!(app.world.get::<Slider>(slider).unwrap().value, Fixed::ZERO);
         assert_eq!(app.world.get::<ProgressBar>(progress).unwrap().value, 0.0);
         assert!(!app.world.get::<Switch>(switch).unwrap().on);
