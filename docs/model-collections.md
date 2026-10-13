@@ -34,7 +34,7 @@ impl Tasks {
     }
 }
 
-fn example() -> Result<(), CollectionError> {
+fn main() -> Result<(), CollectionError> {
     let data = ModelMap::from_entries([
         (7, Task { done: false }),
         (2, Task { done: false }),
@@ -131,7 +131,7 @@ impl Pad {
     }
 }
 
-fn example() -> Result<(), EffectRegistrationError> {
+fn main() -> Result<(), EffectRegistrationError> {
     let mut app = App::headless(32, 32);
     let pads = app.add_model(ModelList::from([Pad { pending: None }])).finish();
     let (id, pad) = pads.entries().next().unwrap();
