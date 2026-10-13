@@ -104,30 +104,55 @@ pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_mos
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::reactive::flush_signal_dirty;
     use crate::ecs::World;
-    use crate::ui::Children;
+    use crate::input::event::input::{InputEvent, PointerKind, TextCommitted};
+    use crate::input::event::sim::{SimCommand, SimulatedInput, sim_input_system};
+    use crate::ui::{Children, ComputedRect};
 
-    fn emit_input_changed(world: &mut World, entity: Entity, len: u32) {
-        {
-            crate::input::event::emission::submit_if_listened(
-                world,
-                entity,
-                crate::ui::widgets::text_editing::Changed { len },
-            )
-            .unwrap();
-            crate::__macro_support::flush_entity_events(world).unwrap();
-        };
-        flush_signal_dirty(world);
+    type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
+
+    fn input(app: &mut TestApp, events: impl IntoIterator<Item = InputEvent>) {
+        app.add_resource(SimulatedInput::new(
+            events
+                .into_iter()
+                .map(|event| SimCommand::at(0, event))
+                .collect(),
+        ));
+        assert!(!app.tick());
+    }
+
+    fn click(app: &mut TestApp, entity: Entity) {
+        let rect = app.world.get::<ComputedRect>(entity).unwrap().0;
+        let x = rect.x + rect.w / Fixed::from_int(2);
+        let y = rect.y + rect.h / Fixed::from_int(2);
+        input(
+            app,
+            [
+                InputEvent::PointerDown {
+                    kind: PointerKind::Mouse,
+                    id: 0,
+                    x,
+                    y,
+                },
+                InputEvent::PointerUp {
+                    kind: PointerKind::Mouse,
+                    id: 0,
+                    x,
+                    y,
+                },
+            ],
+        );
     }
 
     #[test]
     fn submit_lights_up_only_when_both_set() {
         let mut app = App::headless(360, 280);
         app.with_default_widgets();
+        app.add_system(sim_input_system::system());
         let parent = app.spawn_root().id();
         app.compose(parent, build_widgets());
-        let world = &mut app.world;
+        app.render().unwrap();
+        let world = &app.world;
 
         let col = world.get::<Children>(parent).unwrap().0[0];
         let name = world.find_by_id("state_form_name").unwrap();
@@ -148,30 +173,19 @@ mod tests {
         let on = crate::ui::theme::ThemedColor::Token(ColorToken::Primary);
 
         assert_eq!(normal(world, false), off, "starts disabled");
-        emit_input_changed(world, name, 3);
-        assert_eq!(normal(world, false), off, "name alone is not enough");
-        {
-            crate::input::event::emission::submit_if_listened(
-                world,
-                agree,
-                crate::ui::widgets::checkbox::Toggled { now: true },
-            )
-            .unwrap();
-            crate::__macro_support::flush_entity_events(world).unwrap();
-        };
-        flush_signal_dirty(world);
-        assert_eq!(normal(world, true), on, "both set -> submit enabled");
+        click(&mut app, name);
+        input(&mut app, [TextCommitted::new("Ada").into()]);
+        app.world
+            .get::<TextEditing>(name)
+            .unwrap()
+            .read(|text| assert_eq!(text, "Ada"));
+        assert_eq!(normal(&app.world, false), off, "name alone is not enough");
+        click(&mut app, agree);
+        assert!(app.world.get::<Checkbox>(agree).unwrap().checked);
+        assert_eq!(normal(&app.world, true), on, "both set -> submit enabled");
 
-        {
-            crate::input::event::emission::submit_if_listened(
-                world,
-                agree,
-                crate::ui::widgets::checkbox::Toggled { now: false },
-            )
-            .unwrap();
-            crate::__macro_support::flush_entity_events(world).unwrap();
-        };
-        flush_signal_dirty(world);
-        assert_eq!(normal(world, false), off, "unchecking disables submit");
+        click(&mut app, agree);
+        assert!(!app.world.get::<Checkbox>(agree).unwrap().checked);
+        assert_eq!(normal(&app.world, false), off, "unchecking disables submit");
     }
 }
