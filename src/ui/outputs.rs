@@ -87,6 +87,7 @@ pub(crate) enum OutputStoreError {
 /// Prepared output records and their uniquely owned payload storage.
 ///
 /// Reads borrow the storage for the lifetime of the returned view. Missing or invalidated current data returns `None`; reads do not request production or allocate memory.
+/// Component-declared output dependencies invalidate their consumers according to the registered View's visual or layout policy.
 pub struct Outputs<T: Output> {
     storage: RefCell<T::Storage>,
     records: RefCell<HashMap<Entity, OutputState<T::Record>>>,

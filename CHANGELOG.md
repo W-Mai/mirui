@@ -71,6 +71,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Output dependencies honor each consuming View's visual or layout invalidation policy, including publication, source invalidation, and registry removal.
+
 - Springs retain fractional integration state across frames, allowing small ranges and near-target reversals to settle without stalling.
 
 - Returning from a Gallery demo restores the homepage's featured selection instead of leaving the opened demo between unrelated preview cards.

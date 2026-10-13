@@ -117,6 +117,8 @@ Ordinary outputs reuse one pixel slot. `TemporalMix` requests a second slot for 
 
 Output consumers declare their sources on components. Registering a View filtered by that component activates the declarations; editing a source field rebinds the request, and removing the component releases it. Several effects on one entity keep independent source declarations. Implicit requests do not insert `OffscreenRender` or replace the consumer's transform.
 
+Source changes and new publications invalidate each consumer according to its View's `invalidation` setting: `Visual` requests repainting, while `Layout` also requests layout. An existing visual invalidation does not prevent a layout consumer from receiving the stronger invalidation.
+
 ```rust
 use mirui::{component, ecs::Entity, ui::WidgetTexture};
 

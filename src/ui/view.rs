@@ -508,7 +508,7 @@ pub(crate) mod generated {
 
 pub(crate) type ViewObserve = fn(&World, Entity, &mut ViewObservationBindings);
 
-/// Dirty scope used for both filtered-component changes and model notifications.
+/// Dirty scope used for component changes, model notifications, and output dependencies.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ViewInvalidation {
     #[default]
@@ -996,6 +996,7 @@ impl ViewRegistry {
                             view.registration_id(),
                             slot,
                             dependency,
+                            view.invalidation(),
                         );
                     }
                 } else {
@@ -1865,6 +1866,35 @@ mod tests {
             ViewRegistry::reconcile_observations(&mut world);
             assert!(requested(&world, source));
             assert!(!world.has::<OffscreenRender>(source));
+        }
+
+        #[test]
+        fn output_publications_use_the_registered_views_invalidation_policy() {
+            let mut world = World::default();
+            world.insert_resource(Outputs::<WidgetTexture>::with_budget(1024));
+            let source = world.spawn_empty();
+            let owner = world.spawn_empty();
+            world.insert(owner, OtherSource(source));
+            let mut views = ViewRegistry::default();
+            views.insert(
+                make_view("layout-output-reader", 60)
+                    .with_filter::<OtherSource>()
+                    .with_invalidation(ViewInvalidation::Layout),
+            );
+            world.insert_resource(views);
+            ViewRegistry::reconcile_observations(&mut world);
+            clear_dirty(&mut world, &[source, owner]);
+            publish(&world, source, 0);
+            ViewRegistry::propagate_output_publications(&mut world);
+            assert!(world.has::<Dirty>(owner));
+            assert!(!world.has::<Dirty>(source));
+            assert!(
+                world
+                    .resource::<Outputs<WidgetTexture>>()
+                    .unwrap()
+                    .get(source)
+                    .is_some()
+            );
         }
 
         #[test]
