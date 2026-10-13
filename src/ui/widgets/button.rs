@@ -347,11 +347,12 @@ mod tests {
         app.world
             .insert(button, crate::ui::Children(alloc::vec![label]));
 
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut app.world,
             button,
             &crate::types::Viewport::new(100, 40, crate::types::Fixed::ONE),
-        );
+        )
+        .unwrap();
         let rect = app.world.get::<crate::ui::ComputedRect>(label).unwrap().0;
         assert_eq!(rect.x, crate::types::Fixed::from_int(45));
         assert_eq!(rect.y, crate::types::Fixed::from_int(15));
@@ -396,11 +397,12 @@ mod tests {
         app.world
             .insert(button, crate::ui::Children(alloc::vec![label]));
 
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut app.world,
             button,
             &crate::types::Viewport::new(80, 20, crate::types::Fixed::ONE),
-        );
+        )
+        .unwrap();
         let rect = app.world.get::<crate::ui::ComputedRect>(label).unwrap().0;
         assert_eq!(rect.y, crate::types::Fixed::from_int(5));
         assert!(rect.y >= crate::types::Fixed::ZERO);

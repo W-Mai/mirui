@@ -673,7 +673,7 @@ fn seed_plain_scene() {
 
 #[test]
 fn seed_after_root_change_does_not_apply_another_roots_capture_geometry() {
-    use crate::ui::render_system::{render, seed_prev_rects, update_layout};
+    use crate::ui::render_system::{render, seed_prev_rects, try_update_layout};
 
     for retain_snapshot in [false, true] {
         let (mut app, old_capture) = overflow_app(true);
@@ -691,7 +691,7 @@ fn seed_after_root_change_does_not_apply_another_roots_capture_geometry() {
         let plain = app.world.find_by_id("seed_plain").unwrap();
         let viewport = crate::types::Viewport::new(SIZE as u16, SIZE as u16, Fixed::ONE);
         if retain_snapshot {
-            update_layout(&mut app.world, root, &viewport);
+            try_update_layout(&mut app.world, root, &viewport).unwrap();
         }
         seed_prev_rects(&mut app.world, root, &viewport);
         assert_eq!(
@@ -735,7 +735,7 @@ fn seed_after_root_change_does_not_apply_another_roots_capture_geometry() {
 
 #[test]
 fn layout_reorder_invalidates_seed_geometry_and_reuses_plan_capacity() {
-    use crate::ui::render_system::{seed_prev_rects, update_layout};
+    use crate::ui::render_system::{seed_prev_rects, try_update_layout};
 
     let (mut app, capture) = overflow_app(true);
     let root = app.world.resource::<crate::ui::WidgetRoot>().unwrap().0;
@@ -757,7 +757,7 @@ fn layout_reorder_invalidates_seed_geometry_and_reuses_plan_capacity() {
         children.swap(0, 1);
     }
     let viewport = crate::types::Viewport::new(SIZE as u16, SIZE as u16, Fixed::ONE);
-    update_layout(&mut app.world, root, &viewport);
+    try_update_layout(&mut app.world, root, &viewport).unwrap();
     {
         let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
         let plan = outputs.take_texture_plan().unwrap();

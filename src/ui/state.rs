@@ -394,11 +394,12 @@ mod hover_press_e2e {
             },
         );
         world.insert_resource(WidgetRoot(root));
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &crate::types::Viewport::new(64, 64, Fixed::ONE),
-        );
+        )
+        .unwrap();
         (world, root)
     }
 
@@ -423,20 +424,22 @@ mod hover_press_e2e {
             },
         );
         world.insert(root, Children(alloc::vec![child]));
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &crate::types::Viewport::new(64, 64, Fixed::ONE),
-        );
+        )
+        .unwrap();
         (world, root, child)
     }
 
     fn refresh_hit_geometry(world: &mut World, root: Entity) {
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             world,
             root,
             &crate::types::Viewport::new(64, 64, Fixed::ONE),
-        );
+        )
+        .unwrap();
     }
 
     #[derive(Default)]

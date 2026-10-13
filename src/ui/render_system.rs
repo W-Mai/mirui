@@ -3568,7 +3568,7 @@ mod layout_snapshot_reuse_check {
         world.insert(shallow, Children(vec![shallow_leaf]));
         world.insert(shallow, Hidden);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
 
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
         assert!(snapshot.parked.capacity() >= 1);
@@ -3592,7 +3592,7 @@ mod layout_snapshot_reuse_check {
 
         world.insert(deep, Hidden);
         world.remove::<Hidden>(shallow);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
         assert_eq!(snapshot.entities, [root, shallow, shallow_leaf, tail]);
         assert_eq!(snapshot.layout_tree.children.as_ptr(), root_children_ptr);
@@ -3602,7 +3602,7 @@ mod layout_snapshot_reuse_check {
         world.remove::<Hidden>(deep);
         world.insert(shallow, Hidden);
         world.get_mut::<Children>(root).unwrap().0 = vec![tail, deep, shallow];
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
         assert_eq!(snapshot.entities, [root, tail, deep, middle, leaf]);
         assert_eq!(snapshot.layout_tree.children.as_ptr(), root_children_ptr);
@@ -3628,14 +3628,14 @@ mod layout_snapshot_reuse_check {
         world.insert(root, Children(vec![old]));
         world.insert(old, Hidden);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         assert!(world.despawn(old));
 
         let replacement = widget(&mut world, 40);
         assert_eq!(replacement.id, old.id);
         assert_ne!(replacement.generation, old.generation);
         world.get_mut::<Children>(root).unwrap().0[0] = replacement;
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
 
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
         assert_eq!(snapshot.entities, [root, replacement]);
@@ -3654,7 +3654,7 @@ mod layout_snapshot_reuse_check {
         let first = widget(&mut world, 16);
         let second = widget(&mut world, 16);
         world.insert(root, Children(vec![first, second]));
-        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+        try_update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE)).unwrap();
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
         assert_eq!(snapshot.parked.capacity(), 0);
         assert_eq!(snapshot.layout_tree.children.len(), 2);
@@ -3665,15 +3665,15 @@ mod layout_snapshot_reuse_check {
         let mut world = World::new();
         let root = widget(&mut world, 64);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         assert!(world.resource::<LayoutSnapshot>().is_some());
 
         world.insert(root, Hidden);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         assert!(world.resource::<LayoutSnapshot>().is_none());
 
         world.remove::<Hidden>(root);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         assert!(world.resource::<LayoutSnapshot>().is_some());
     }
 
@@ -3687,11 +3687,11 @@ mod layout_snapshot_reuse_check {
         world.insert(hidden, Children(vec![child]));
         world.insert(hidden, Hidden);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         assert!(world.resource::<LayoutSnapshot>().unwrap().parked.len() == 1);
 
         world.get_mut::<Children>(root).unwrap().0.clear();
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
         assert!(world.is_alive(hidden));
         assert!(snapshot.parked.is_empty());
@@ -3707,7 +3707,7 @@ mod layout_snapshot_reuse_check {
         world.insert(hidden, Hidden);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
 
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         assert!(world.get::<crate::text::TextLayoutHandle>(hidden).is_none());
         assert!(
             world
@@ -3719,7 +3719,7 @@ mod layout_snapshot_reuse_check {
         );
 
         world.remove::<Hidden>(hidden);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         assert!(world.get::<crate::text::TextLayoutHandle>(hidden).is_some());
     }
 
@@ -3796,7 +3796,7 @@ mod layout_snapshot_reuse_check {
         let root = widget(&mut world, 64);
         let label = child(&mut world, root, Some("VISIBLE"));
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
 
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
         let snapshot_ptr = snapshot as *const LayoutSnapshot;
@@ -3811,7 +3811,7 @@ mod layout_snapshot_reuse_check {
         let mut drawn = GlyphRecorder::default();
         render(&world, root, &viewport, &mut drawn).unwrap();
         assert_eq!(drawn.0, 0);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let hidden = world.resource::<LayoutSnapshot>().unwrap();
         assert_eq!(hidden as *const LayoutSnapshot, snapshot_ptr);
         assert_eq!(hidden.entities.as_ptr(), entities_ptr);
@@ -3825,7 +3825,7 @@ mod layout_snapshot_reuse_check {
                 .unwrap()
                 .matches(root, 64, 64)
         );
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let mut drawn = GlyphRecorder::default();
         render(&world, root, &viewport, &mut drawn).unwrap();
         assert!(drawn.0 > 0);
@@ -3844,7 +3844,7 @@ mod layout_snapshot_reuse_check {
         let label = child(&mut world, root, None);
         let wide = Viewport::new(64, 64, Fixed::ONE);
         let narrow = Viewport::new(32, 64, Fixed::ONE);
-        update_layout(&mut world, root, &wide);
+        try_update_layout(&mut world, root, &wide).unwrap();
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
         let snapshot_ptr = snapshot as *const LayoutSnapshot;
         let entities_ptr = snapshot.entities.as_ptr();
@@ -3870,7 +3870,7 @@ mod layout_snapshot_reuse_check {
         let root = widget(&mut world, 64);
         let label = child(&mut world, root, None);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
         let snapshot_ptr = snapshot as *const LayoutSnapshot;
         let entities_ptr = snapshot.entities.as_ptr();
@@ -3916,13 +3916,13 @@ mod layout_snapshot_reuse_check {
         world.insert(root, Children(vec![first, second]));
         let viewport = Viewport::new(64, 64, Fixed::ONE);
 
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
         let snapshot_ptr = snapshot as *const LayoutSnapshot;
         let tree_ptr = snapshot.layout_tree.children.as_ptr();
         let entities_ptr = snapshot.entities.as_ptr();
 
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
         assert_eq!(snapshot as *const LayoutSnapshot, snapshot_ptr);
         assert_eq!(snapshot.layout_tree.children.as_ptr(), tree_ptr);
@@ -3939,18 +3939,18 @@ mod layout_snapshot_reuse_check {
         let hidden = child(&mut world, panel, Some("hidden"));
         let viewport = Viewport::new(64, 64, Fixed::ONE);
 
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let visible_handle = text_handle(&world, visible);
         let hidden_handle = text_handle(&world, hidden);
         world.insert(panel, Hidden);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
 
         assert_eq!(text_handle(&world, visible), visible_handle);
         assert!(layout_is_live(&world, visible_handle));
         assert!(!layout_is_live(&world, hidden_handle));
 
         world.remove::<Hidden>(panel);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let returned = text_handle(&world, hidden);
         assert_ne!(returned, hidden_handle);
         assert!(layout_is_live(&world, returned));
@@ -3965,12 +3965,12 @@ mod layout_snapshot_reuse_check {
         world.insert(root, Children(vec![label]));
         let viewport = Viewport::new(64, 64, Fixed::ONE);
 
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let handle = text_handle(&world, label);
         assert!(layout_is_live(&world, handle));
 
         world.insert(root, Hidden);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         assert!(world.resource::<LayoutSnapshot>().is_none());
         assert!(!layout_is_live(&world, handle));
     }
@@ -3984,9 +3984,9 @@ mod layout_snapshot_reuse_check {
         world.insert(root, Children(vec![label]));
         let viewport = Viewport::new(64, 64, Fixed::ONE);
 
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let first = text_handle(&world, label);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
 
         assert_eq!(text_handle(&world, label), first);
         assert!(layout_is_live(&world, first));
@@ -4017,14 +4017,14 @@ mod layout_snapshot_reuse_check {
         let label = child(&mut world, branch, Some("branch"));
         let viewport = Viewport::new(64, 64, Fixed::ONE);
 
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let first = text_handle(&world, label);
         world.insert(branch, CachedBranchVisibility { selected: false });
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         assert!(!layout_is_live(&world, first));
 
         world.insert(branch, CachedBranchVisibility { selected: true });
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let rebuilt = text_handle(&world, label);
         assert_ne!(rebuilt, first);
         assert!(layout_is_live(&world, rebuilt));
@@ -4037,7 +4037,7 @@ mod layout_snapshot_reuse_check {
         let old = child(&mut world, root, Some("before"));
         let viewport = Viewport::new(64, 64, Fixed::ONE);
 
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let stale = text_handle(&world, old);
         assert!(world.despawn(old));
         world.get_mut::<Children>(root).unwrap().0.clear();
@@ -4045,7 +4045,7 @@ mod layout_snapshot_reuse_check {
         assert_eq!(replacement.id, old.id);
         assert_ne!(replacement.generation, old.generation);
 
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let current = text_handle(&world, replacement);
         assert!(!layout_is_live(&world, stale));
         assert!(layout_is_live(&world, current));
@@ -4061,9 +4061,9 @@ mod layout_snapshot_reuse_check {
         let second_label = child(&mut world, second_root, Some("second"));
         let viewport = Viewport::new(64, 64, Fixed::ONE);
 
-        update_layout(&mut world, first_root, &viewport);
+        try_update_layout(&mut world, first_root, &viewport).unwrap();
         let previous = text_handle(&world, first_label);
-        update_layout(&mut world, second_root, &viewport);
+        try_update_layout(&mut world, second_root, &viewport).unwrap();
         assert!(!layout_is_live(&world, previous));
         assert!(layout_is_live(&world, text_handle(&world, second_label)));
     }
@@ -4156,7 +4156,7 @@ mod layout_snapshot_reuse_check {
             left: Fixed::from_int(11),
         });
 
-        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+        try_update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE)).unwrap();
 
         assert_eq!(
             world.get::<super::super::ComputedRect>(child).unwrap().0,
@@ -4184,7 +4184,7 @@ mod layout_snapshot_reuse_check {
             left: Fixed::from_int(11),
         });
 
-        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+        try_update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE)).unwrap();
 
         assert_eq!(
             world.get::<super::super::ComputedRect>(child).unwrap().0,
@@ -4201,10 +4201,10 @@ mod layout_snapshot_reuse_check {
         world.insert(root, Children(vec![first, second]));
         let viewport = Viewport::new(64, 64, Fixed::ONE);
 
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         world.get_mut::<Children>(root).unwrap().0.swap(0, 1);
         world.get_mut::<Style>(second).unwrap().layout.width = Dimension::px(30);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         assert_eq!(
             world.resource::<LayoutSnapshot>().unwrap().entities,
             [root, second, first]
@@ -4219,7 +4219,7 @@ mod layout_snapshot_reuse_check {
         );
 
         world.insert(second, Hidden);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         assert_eq!(
             world.resource::<LayoutSnapshot>().unwrap().entities,
             [root, first]
@@ -4230,7 +4230,7 @@ mod layout_snapshot_reuse_check {
         );
 
         world.remove::<Hidden>(second);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         assert_eq!(
             world.resource::<LayoutSnapshot>().unwrap().entities,
             [root, second, first]
@@ -4498,7 +4498,7 @@ mod text_layout_check {
         );
         world.insert(label, Text::from("abc"));
 
-        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+        try_update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE)).unwrap();
 
         let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
         assert_eq!(rect.w, Fixed::from_int(24));
@@ -4541,7 +4541,7 @@ mod text_layout_check {
         );
         world.insert(label, Text::from("abc"));
 
-        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+        try_update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE)).unwrap();
 
         let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
         assert_eq!(rect.w, Fixed::from_int(32));
@@ -4578,7 +4578,7 @@ mod text_layout_check {
         );
         world.insert(label, Text::from("ab cd"));
 
-        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+        try_update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE)).unwrap();
 
         let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
         assert_eq!(rect.w, Fixed::from_int(24));
@@ -4625,7 +4625,7 @@ mod text_layout_check {
         );
         world.insert(label, Text::from("ab cd"));
 
-        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+        try_update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE)).unwrap();
 
         let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
         assert_eq!(rect.w, Fixed::from_int(32));
@@ -4704,7 +4704,7 @@ mod text_layout_check {
         );
         world.insert(label, Text::new("abc").with_capacity(8).unwrap());
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
 
         let mut recorder = Recorder::default();
         render(&world, root, &viewport, &mut recorder).unwrap();
@@ -4719,7 +4719,7 @@ mod text_layout_check {
         );
 
         world.get_mut::<Text>(label).unwrap().set_content("def");
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let mut recorder = Recorder::default();
         render(&world, root, &viewport, &mut recorder).unwrap();
         assert_eq!(
@@ -4731,7 +4731,7 @@ mod text_layout_check {
         );
 
         world.insert(label, Text::from("abc"));
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let mut recorder = Recorder::default();
         render(&world, root, &viewport, &mut recorder).unwrap();
         assert_eq!(recorder.pos, Some(Point::new(4, 3)));
@@ -4797,7 +4797,7 @@ mod text_layout_check {
             }),
         );
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
 
         let mut recorder = Recorder::default();
         render(&world, root, &viewport, &mut recorder).unwrap();
@@ -4874,7 +4874,7 @@ mod text_layout_check {
         );
         let viewport = Viewport::new(64, 64, Fixed::ONE);
 
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         let mut recorder = Recorder::default();
         render(&world, root, &viewport, &mut recorder).unwrap();
 
@@ -4929,7 +4929,7 @@ mod text_layout_check {
             },
         );
 
-        update_layout(&mut world, root, &Viewport::new(64, 16, Fixed::ONE));
+        try_update_layout(&mut world, root, &Viewport::new(64, 16, Fixed::ONE)).unwrap();
 
         assert_eq!(
             world.get::<super::super::ComputedRect>(label).unwrap().0,
@@ -4977,7 +4977,7 @@ mod text_layout_check {
             }),
         );
 
-        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+        try_update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE)).unwrap();
 
         let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
         assert_eq!(rect.h, Fixed::from_int(16));
@@ -5061,7 +5061,7 @@ mod text_layout_check {
         );
         world.insert(label, Text::from("A日"));
 
-        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+        try_update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE)).unwrap();
 
         let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
         assert_eq!(rect.w, Fixed::from_int(18));
@@ -5153,7 +5153,7 @@ mod text_layout_check {
         );
         world.insert(label, Text::from("AAA"));
 
-        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+        try_update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE)).unwrap();
 
         let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
         assert_eq!(rect.w, Fixed::from_int(30));
@@ -5208,7 +5208,7 @@ mod text_layout_check {
         );
         world.insert(label, Text::from("A日"));
 
-        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+        try_update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE)).unwrap();
 
         let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
         assert_eq!(rect.w, Fixed::from_int(20));
@@ -5910,7 +5910,7 @@ mod text_layout_check {
             .unwrap();
         world.widget_mut(label).unwrap().text_path(path);
         let viewport = Viewport::new(96, 96, Fixed::ONE);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
 
         let label_rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
         let uncut_ink = crate::ui::widgets::text::path_text_ink_bounds(
@@ -6331,7 +6331,7 @@ mod clip_children_check {
             )),
         );
         let viewport = vp();
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
         collect_dirty_region(&mut world, root, &viewport);
 
         let root_rect = world.get::<super::super::ComputedRect>(root).unwrap().0;
@@ -6928,7 +6928,7 @@ mod offscreen_render_check {
 
         let (mut world, root, source, _) = offscreen_read_probe_world(false);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        super::update_layout(&mut world, root, &viewport);
+        super::try_update_layout(&mut world, root, &viewport).unwrap();
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
         for _ in 0..2 {
             let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();

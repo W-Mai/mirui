@@ -130,7 +130,7 @@ fn inline_scene() {
 }
 
 #[test]
-fn inline_requests_without_outputs_are_deferred_coalesced_and_stop_when_unrequested() {
+fn inline_requests_without_outputs_schedule_one_redraw_and_stop_when_unrequested() {
     let mut app = app(4, 4, false);
     let root = app.spawn_root().id();
     app.compose(root, inline_scene());
@@ -140,11 +140,9 @@ fn inline_requests_without_outputs_are_deferred_coalesced_and_stop_when_unreques
 
     app.render().unwrap();
     assert_eq!(probe(&app.world, requester).calls.get(), 1);
-    assert!(!app.world.has::<VisualDirty>(requester));
+    assert!(app.world.has::<VisualDirty>(requester));
     assert_eq!(app.backend.framebuffer().get_pixel(1, 1), RED);
 
-    flush_signal_dirty(&mut app.world);
-    assert!(app.world.has::<VisualDirty>(requester));
     probe(&app.world, requester).requests.set(false);
     app.render_dirty().unwrap();
     assert_eq!(probe(&app.world, requester).calls.get(), 2);
@@ -341,8 +339,10 @@ fn split_dirty_regions_commit_main_requests_only_after_every_region_succeeds() {
             [plan.rects[0], plan.rects[1]]
         );
 
-        app.world.clear_subtree_dirty(root);
-        flush_signal_dirty(&mut app.world);
+        if fail_right {
+            app.world.clear_subtree_dirty(root);
+            flush_signal_dirty(&mut app.world);
+        }
         assert_eq!(app.world.has::<VisualDirty>(root), !fail_right);
     }
 

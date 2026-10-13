@@ -421,7 +421,7 @@ fn a_renderer_without_offscreen_support_draws_the_destination_inline() {
     crate::ui::delivery::flush(&mut app.world).unwrap();
     let root = app.root.unwrap();
     let viewport = crate::types::Viewport::new(100, 80, Fixed::ONE);
-    crate::ui::render_system::update_layout(&mut app.world, root, &viewport);
+    crate::ui::render_system::try_update_layout(&mut app.world, root, &viewport).unwrap();
     let mut pixels = [0; 100 * 80 * 4];
     let texture = Texture::new(&mut pixels, 100, 80, ColorFormat::RGBA8888);
     let mut renderer = InlineOnly(SwRenderer::new(texture));

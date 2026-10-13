@@ -259,8 +259,8 @@ mod tests {
         );
         let viewport = Viewport::new(320, 240, Fixed::ONE);
 
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
         assert_eq!(world.resource::<Probe>().unwrap().calls, 1);
         assert_eq!(
             world.resource::<Probe>().unwrap().last,
@@ -268,7 +268,7 @@ mod tests {
         );
 
         world.get_mut::<Style>(root).unwrap().layout.width = Dimension::px(280);
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
         assert_eq!(world.resource::<Probe>().unwrap().calls, 2);
         assert_eq!(
             world.resource::<Probe>().unwrap().last,
@@ -300,11 +300,12 @@ mod tests {
             ),
         );
 
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &Viewport::new(300, 200, Fixed::ONE),
-        );
+        )
+        .unwrap();
         assert_eq!(
             world.get::<ComputedRect>(target).unwrap().0.w,
             Fixed::from_int(150)
@@ -366,11 +367,12 @@ mod tests {
             ),
         );
 
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &Viewport::new(300, 200, Fixed::ONE),
-        );
+        )
+        .unwrap();
         assert_eq!(world.resource::<Probe>().unwrap().calls, 2);
         assert_eq!(
             world.get::<ComputedRect>(root).unwrap().0.w,
@@ -421,11 +423,12 @@ mod tests {
             world.insert(target, LayoutBinding::new(dependencies, size_child));
         }
 
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &Viewport::new(320, 200, Fixed::ONE),
-        );
+        )
+        .unwrap();
         assert_eq!(
             world.get::<ComputedRect>(fourth).unwrap().0.w,
             Fixed::from_int(20)
@@ -463,11 +466,12 @@ mod tests {
             }),
         );
 
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &Viewport::new(320, 240, Fixed::ONE),
-        );
+        )
+        .unwrap();
         let probe = world.resource::<Probe>().unwrap();
         assert_eq!(probe.calls, 1);
         assert_eq!(probe.last, Fixed::from_int(300));
@@ -505,7 +509,7 @@ mod tests {
         );
         let viewport = Viewport::new(320, 240, Fixed::ONE);
 
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
         assert_eq!(
             world.resource::<Probe>().unwrap().last,
             Fixed::from_int(120)
@@ -516,7 +520,7 @@ mod tests {
             .resource_mut::<IdMap>()
             .unwrap()
             .insert("stage", second);
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
         assert_eq!(
             world.resource::<Probe>().unwrap().last,
             Fixed::from_int(220)
@@ -549,7 +553,7 @@ mod tests {
         );
         let viewport = Viewport::new(320, 240, Fixed::ONE);
 
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
         assert_eq!(
             world.resource::<Probe>().unwrap().last,
             Fixed::from_int(120)
@@ -558,7 +562,7 @@ mod tests {
         world.get_mut::<Children>(first).unwrap().0.clear();
         world.get_mut::<Children>(second).unwrap().0.push(target);
         world.insert(target, Parent(second));
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
         assert_eq!(
             world.resource::<Probe>().unwrap().last,
             Fixed::from_int(220)
