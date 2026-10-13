@@ -14,7 +14,7 @@ pub enum NavigationError {
 /// Register through `app.add_model(path).finish()` or store as an owned Model field. Mutations reuse the capacity prepared by [`Self::with_capacity`]; equal destinations remain distinct entries.
 #[crate::model]
 pub struct NavigationPath<R: Clone + 'static> {
-    entries: Vec<(u64, R)>,
+    pub(super) entries: Vec<(u64, R)>,
     capacity: usize,
     revision: u64,
 }

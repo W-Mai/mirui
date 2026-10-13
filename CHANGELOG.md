@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `NavigationStack` retains visited page subtrees, restores them on return, and constructs destinations through typed callbacks.
+
 - `PageView` mounts application-selected pages through typed construction callbacks and releases replaced subtrees without replacing the application root.
 
 - `NavigationPath<R>` provides bounded observable navigation state with distinct entry identities and allocation-free prepared mutations.
