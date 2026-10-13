@@ -16,6 +16,7 @@ pub mod clipboard;
 pub(crate) mod construction;
 pub(crate) mod delivery;
 pub mod dirty;
+pub(crate) mod geometry;
 pub mod icons;
 pub mod id;
 pub mod layout;

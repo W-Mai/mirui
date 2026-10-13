@@ -1,7 +1,6 @@
 use crate::types::{Fixed, Transform3D};
 
-/// Per-entity 3×3 homography. Absent = identity, zero cost.
-/// Takes priority over `WidgetTransform` (2D) when both are attached.
+/// Per-entity 3×3 homography. Absent = identity, zero cost. Composes outside the local `WidgetTransform` (2D) when both are attached.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct WidgetTransform3D(pub Transform3D);
 
@@ -13,9 +12,7 @@ impl From<Transform3D> for WidgetTransform3D {
     }
 }
 
-/// Pivot for 2D / 3D transforms, expressed as fractions of the widget rect
-/// (`Fixed::ZERO` = top / left edge, `Fixed::ONE` = bottom / right edge).
-/// Absent defaults to center `(0.5, 0.5)`.
+/// Pivot for `WidgetTransform3D`, expressed as fractions of the widget rect (`Fixed::ZERO` = top / left edge, `Fixed::ONE` = bottom / right edge). Absent defaults to center `(0.5, 0.5)`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TransformOrigin {
     pub x: Fixed,

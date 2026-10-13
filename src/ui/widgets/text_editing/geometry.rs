@@ -131,8 +131,7 @@ pub(super) fn hit_caret(world: &World, entity: Entity, point: Point) -> Option<u
     let editing = world
         .get::<TextEditing>(entity)
         .filter(|editor| editor.usable(world))?;
-    let (rect, affine, projective) =
-        crate::ui::render_system::widget_render_geometry(world, entity)?;
+    let (rect, affine, projective) = crate::ui::geometry::widget_render_geometry(world, entity)?;
     let point = if projective.is_identity() {
         affine.inverse()?.apply_point(point)
     } else {
@@ -171,8 +170,7 @@ pub(crate) fn caret_rect(world: &World, entity: Entity) -> Option<Rect> {
     let editing = world
         .get::<TextEditing>(entity)
         .filter(|editor| editor.usable(world))?;
-    let (rect, affine, projective) =
-        crate::ui::render_system::widget_render_geometry(world, entity)?;
+    let (rect, affine, projective) = crate::ui::geometry::widget_render_geometry(world, entity)?;
     let handle = world.get::<TextEditingLayoutHandle>(entity)?.0;
     with_layout_request(world, entity, rect, |_, request, fingerprint| {
         let outputs = world.resource::<Outputs<TextGeometry>>().unwrap();

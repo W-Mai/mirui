@@ -4,8 +4,6 @@ use crate::ecs::{Entity, World};
 use crate::input::event::scroll::{ScrollConfig, ScrollOffset};
 use crate::types::{Fixed, Point, Rect, Transform, Transform3D};
 use crate::ui::layout::LayoutNode;
-use crate::ui::widgets::transform::WidgetTransform;
-use crate::ui::widgets::transform_3d::{TransformOrigin, WidgetTransform3D};
 use crate::ui::{HitTarget, IgnoreHitTest};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -196,50 +194,14 @@ fn collect_geometry(
     };
     *index += 1;
 
-    let local_2d = world
-        .get::<WidgetTransform>(entity)
-        .map(|transform| transform.0)
-        .unwrap_or(Transform::IDENTITY);
-    let effective_2d = if local_2d.is_identity() {
-        parent_2d
-    } else {
-        let cx = node.rect.x + node.rect.w / Fixed::from_int(2);
-        let cy = node.rect.y + node.rect.h / Fixed::from_int(2);
-        parent_2d
-            .compose(&Transform::translate(cx, cy))
-            .compose(&local_2d)
-            .compose(&Transform::translate(Fixed::ZERO - cx, Fixed::ZERO - cy))
-    };
-
-    let local_3d = world
-        .get::<WidgetTransform3D>(entity)
-        .map(|transform| transform.0)
-        .filter(|transform| !transform.is_identity());
-    let lifted_2d = if local_3d.is_none() && !parent_3d.is_identity() {
-        (!local_2d.is_identity()).then(|| Transform3D::from_affine(local_2d))
-    } else {
-        None
-    };
-    let effective_3d = if let Some(transform) = local_3d.or(lifted_2d) {
-        let origin = world
-            .get::<TransformOrigin>(entity)
-            .copied()
-            .unwrap_or_default();
-        let cx = node.rect.x + node.rect.w * origin.x;
-        let cy = node.rect.y + node.rect.h * origin.y;
-        parent_3d
-            .compose(&Transform3D::translate(cx, cy))
-            .compose(&transform)
-            .compose(&Transform3D::translate(Fixed::ZERO - cx, Fixed::ZERO - cy))
-    } else {
-        parent_3d
-    };
+    let rect = shifted(node.rect, scroll);
+    let (effective_2d, effective_3d) =
+        crate::ui::geometry::render_transforms(parent_2d, parent_3d, world, entity, rect);
 
     let is_candidate = world.get::<HitTarget>(entity).is_some()
         || world.get::<ScrollConfig>(entity).is_some()
         || world.get::<ScrollOffset>(entity).is_some();
     if is_candidate && world.get::<IgnoreHitTest>(entity).is_none() {
-        let rect = shifted(node.rect, scroll);
         let shape = if effective_3d.is_identity() {
             if effective_2d.is_identity() {
                 Some(HitShape::Rect(rect))
@@ -269,12 +231,8 @@ fn collect_geometry(
             .get::<crate::ui::Style>(entity)
             .is_some_and(|style| style.clip_children)
     {
-        let bounds = crate::ui::render_system::transformed_clip_bounds(
-            shifted(node.rect, scroll),
-            effective_2d,
-            effective_3d,
-        )
-        .unwrap_or(Rect::ZERO);
+        let bounds = crate::ui::geometry::transformed_clip_bounds(rect, effective_2d, effective_3d)
+            .unwrap_or(Rect::ZERO);
         intersect_clip(scroll_clip, bounds)
     } else {
         scroll_clip
@@ -401,6 +359,8 @@ mod tests {
     use crate::input::event::scroll::ScrollAxis;
     use crate::types::{Dimension, Viewport};
     use crate::ui::layout::LayoutStyle;
+    use crate::ui::widgets::transform::WidgetTransform;
+    use crate::ui::widgets::transform_3d::{TransformOrigin, WidgetTransform3D};
     use crate::ui::{Children, Parent, Style, Widget};
 
     fn fixed_style(width: i32, height: i32) -> Style {
@@ -617,6 +577,113 @@ mod tests {
             Some(target)
         );
         assert_eq!(hit_test(&world, root, 45.into(), 10.into(), 128, 128), None);
+    }
+
+    #[test]
+    fn hit_geometry_matches_paint_for_scrolled_and_mixed_transforms() {
+        let rotation = Transform::rotate_deg(Fixed::from_int(30));
+        let projective =
+            Transform3D::rotate_y_perspective(Fixed::from_int(25), Fixed::from_int(300));
+        for (name, parent_affine, parent_projective, local_affine, local_projective) in [
+            (
+                "scrolled rotation",
+                Transform::IDENTITY,
+                Transform3D::IDENTITY,
+                rotation,
+                Transform3D::IDENTITY,
+            ),
+            (
+                "affine ancestor",
+                rotation,
+                Transform3D::IDENTITY,
+                Transform::IDENTITY,
+                projective,
+            ),
+            (
+                "projective ancestor",
+                Transform::IDENTITY,
+                projective,
+                rotation,
+                Transform3D::IDENTITY,
+            ),
+            (
+                "combined local transforms",
+                rotation,
+                projective,
+                rotation,
+                projective,
+            ),
+        ] {
+            let mut world = World::new();
+            let root = world.spawn_empty();
+            world.insert(root, Widget);
+            world.insert(root, fixed_style(128, 128));
+            world.insert(root, Children(Vec::new()));
+            let parent = world.spawn_empty();
+            world.insert(parent, Widget);
+            world.insert(parent, fixed_style(110, 100));
+            world.insert(parent, Children(Vec::new()));
+            world.insert(parent, WidgetTransform(parent_affine));
+            world.insert(parent, WidgetTransform3D(parent_projective));
+            world.insert(parent, TransformOrigin::TOP_LEFT);
+            world.insert(
+                parent,
+                ScrollOffset {
+                    x: 7.into(),
+                    y: 11.into(),
+                },
+            );
+            append(&mut world, root, parent);
+            let target = world.spawn_empty();
+            world.insert(target, Widget);
+            let mut style = fixed_style(24, 20);
+            style.layout.position = crate::ui::layout::Position::Absolute;
+            style.layout.left = Dimension::px(32);
+            style.layout.top = Dimension::px(40);
+            world.insert(target, style);
+            world.insert(target, HitTarget);
+            world.insert(target, WidgetTransform(local_affine));
+            world.insert(target, WidgetTransform3D(local_projective));
+            world.insert(target, TransformOrigin::TOP_LEFT);
+            append(&mut world, parent, target);
+            crate::ui::render_system::update_layout(
+                &mut world,
+                root,
+                &Viewport::new(128, 128, Fixed::ONE),
+            );
+
+            let (rect, affine, projective) =
+                crate::ui::geometry::widget_render_geometry(&world, target).unwrap();
+            let expected = if projective.is_identity() {
+                HitShape::TransformedRect {
+                    rect,
+                    inverse: affine.inverse().unwrap(),
+                }
+            } else {
+                HitShape::Quad(projective.apply_rect(rect).unwrap())
+            };
+            let geometry = world.resource::<HitTestGeometry>().unwrap();
+            let actual = geometry
+                .entries
+                .iter()
+                .find(|entry| entry.entity == target)
+                .unwrap();
+            assert!(actual.shape == expected, "{name}: input and paint disagree");
+            let local_center = Point {
+                x: rect.x + rect.w / 2,
+                y: rect.y + rect.h / 2,
+            };
+            let center = if projective.is_identity() {
+                affine.apply_point(local_center)
+            } else {
+                projective.apply_point(local_center).unwrap()
+            };
+            assert_eq!(
+                hit_test(&world, root, center.x, center.y, 128, 128),
+                Some(target),
+                "{name}"
+            );
+        }
     }
 
     #[test]

@@ -710,7 +710,7 @@ mod tests {
             )),
         );
         let (_, _, projection) =
-            crate::ui::render_system::widget_render_geometry(&world, entity).unwrap();
+            crate::ui::geometry::widget_render_geometry(&world, entity).unwrap();
         let projected = projection.apply_point(Point::new(2, 1)).unwrap();
         assert_eq!(hit(&mut world, entity, projected), 1);
 
