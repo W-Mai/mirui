@@ -1,13 +1,8 @@
-#[cfg(feature = "std")]
 use super::composition::build_widgets;
-#[cfg(feature = "std")]
 use super::state::InteractionModel;
-#[cfg(feature = "std")]
 use crate::prelude::plugin::InputFeedbackPlugin;
-#[cfg(feature = "std")]
 use crate::prelude::*;
 
-#[cfg(feature = "std")]
 pub(super) fn install<B, F>(
     app: &mut App<B, F>,
     parent: Entity,
@@ -23,7 +18,6 @@ where
     model
 }
 
-#[cfg(feature = "std")]
 pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
 where
     B: Surface,
