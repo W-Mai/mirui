@@ -14,7 +14,7 @@
 //!
 //! Configure the budget before composing nodes that request output storage:
 //!
-//! ```ignore
+//! ```
 //! use mirui::prelude::*;
 //! use mirui::ui::OffscreenRender;
 //!
@@ -31,6 +31,7 @@
 //! app.with_offscreen_pool_budget(64 * 1024);
 //!
 //! app.compose(root, cached_panel());
+//! app.render().expect("render cached panel");
 //! ```
 //!
 //! # When it pays off

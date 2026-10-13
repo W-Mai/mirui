@@ -939,7 +939,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// Chain [`RootBuilder::bg_color`] / [`RootBuilder::layout`] to
     /// override, then [`RootBuilder::id`] to finish:
     ///
-    /// ```ignore
+    /// ```
+    /// use mirui::prelude::*;
+    ///
+    /// let mut app = App::headless(128, 128);
     /// let root = app.spawn_root().id();
     /// // or override the defaults:
     /// let root = app.spawn_root().bg_color(ColorToken::Primary).id();
@@ -962,7 +965,22 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     ///
     /// The application activates its reactive owner for construction and prepares dirty storage after the composition returns.
     ///
-    /// ```ignore
+    /// ```
+    /// use mirui::prelude::*;
+    /// use mirui::ui::widgets::Text;
+    ///
+    /// #[compose]
+    /// fn build_panel() -> Entity {
+    ///     ui! {
+    ///         View(width: 128, height: 64) {
+    ///             Text("Ready")
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// let mut app = App::headless(128, 128);
+    /// app.with_default_widgets();
+    /// let root = app.spawn_root().id();
     /// let panel = app.compose(root, build_panel());
     /// ```
     pub fn compose<R>(
