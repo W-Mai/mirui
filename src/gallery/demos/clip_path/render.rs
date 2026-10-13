@@ -29,7 +29,7 @@ fn clip_path_render(theme: res!(optional Theme), paint: paint!()) {
         LOGICAL_SIZE,
     );
     let default_theme = Theme::default();
-    let theme = theme.unwrap_or(&default_theme);
+    let theme = theme.as_deref().unwrap_or(&default_theme);
     let surface = theme.resolve(ColorToken::SurfaceVariant);
     let foreground = theme.resolve(ColorToken::OnSurface);
     let grays = [

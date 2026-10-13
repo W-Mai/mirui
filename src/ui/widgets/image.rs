@@ -267,12 +267,14 @@ fn image_render(
             draw_vector_transformed(
                 paint,
                 path,
-                img.color.resolve_in(theme, paint.state()),
+                img.color.resolve_in(&theme, paint.state()),
                 transform,
             );
             return;
         }
-        let rc = crate::trace_span!("image.resolve", { resolve_image(img, cache, manager) });
+        let rc = crate::trace_span!("image.resolve", {
+            resolve_image(img, cache, manager.as_deref())
+        });
         let Some(rc) = rc else { return };
         crate::trace_span!("image.blit", {
             paint.draw(&DrawCommand::Blit {

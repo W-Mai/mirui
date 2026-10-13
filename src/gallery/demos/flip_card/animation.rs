@@ -45,7 +45,7 @@ pub fn flip_system(
         } else {
             card.back_color
         };
-        let color = theme.map_or_else(
+        let color = theme.as_deref().map_or_else(
             || Theme::default().resolve(color_token),
             |theme| theme.resolve(color_token),
         );

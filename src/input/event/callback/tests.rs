@@ -72,7 +72,7 @@ fn invocation_combines_typed_payload_resources_and_point_query() {
         event_callback::<Changed, EntityContext<Widget>, Params, ()>(
             "changed",
             ACCESS,
-            |(clock, settings, missing, mut rows), payload, target, _scope| {
+            |(clock, mut settings, missing, mut rows), payload, target, _scope| {
                 assert!(missing.is_none());
                 settings.0 += clock.0;
                 let position = rows.get(target).unwrap();
@@ -144,7 +144,7 @@ fn component_and_resource_domains_are_independent_and_shared_reads_are_valid() {
             "shared",
             ACCESS,
             |(first, second, rows), _, target, _scope| {
-                assert!(core::ptr::eq(first, second));
+                assert!(core::ptr::eq(&*first, &*second));
                 assert_eq!(rows.get(target), Some(&Position(3)));
             },
         )
@@ -585,7 +585,7 @@ fn panic_releases_invocation_borrows_and_preserves_prepared_callback() {
         event_callback::<Key, AppContext, (ResMut<Settings>,), bool>(
             "panic",
             ACCESS,
-            |(settings,), payload, (), _scope| {
+            |(mut settings,), payload, (), _scope| {
                 settings.0 += 1;
                 assert!(!payload.pressed, "body failure");
                 false
@@ -623,7 +623,7 @@ fn deferred_body_reads_live_parameters_before_ordered_commit_without_allocating(
         deferred_event_callback::<Key, AppContext, (ResMut<Settings>,), bool>(
             "deferred",
             ACCESS,
-            |(settings,), _, (), _scope, mut commands| {
+            |(mut settings,), _, (), _scope, mut commands| {
                 settings.0 = 1;
                 commands.apply_resource(4i32, |world, value| {
                     world.resource_mut::<Settings>().unwrap().0 += value;
@@ -697,7 +697,7 @@ fn deferred_capacity_error_does_not_commit_partial_commands_or_rollback_resource
         deferred_event_callback::<Key, AppContext, (ResMut<Settings>,), bool>(
             "capacity",
             ACCESS,
-            |(settings,), payload, (), _scope, mut commands| {
+            |(mut settings,), payload, (), _scope, mut commands| {
                 settings.0 += 1;
                 commands.apply_resource(100i32, |world, value| {
                     world.resource_mut::<Settings>().unwrap().0 += value;

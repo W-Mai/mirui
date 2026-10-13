@@ -122,7 +122,7 @@ fn tab_bar_render(tb: component!(), theme: res!(crate::ui::Theme), paint: paint!
     }
     let state = paint.state();
     let rect = paint.rect();
-    let indicator_color = tb.indicator_color.resolve_in(theme, state);
+    let indicator_color = tb.indicator_color.resolve_in(&theme, state);
     let tab_w = rect.w / Fixed::from_int(tb.count as i32);
     let indicator_x = rect.x + tb.indicator_offset * tab_w;
     let indicator_y = rect.y + rect.h - tb.indicator_height;

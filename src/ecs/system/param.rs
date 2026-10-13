@@ -1,3 +1,4 @@
+use crate::ecs::resource::{ResourceMut, ResourceRef};
 use core::any::type_name;
 use core::marker::PhantomData;
 
@@ -15,6 +16,15 @@ mod sealed {
 pub struct Res<T>(PhantomData<fn() -> T>);
 pub struct ResMut<T>(PhantomData<fn() -> T>);
 pub struct OptionalRes<T>(PhantomData<fn() -> T>);
+
+impl<T: 'static> OptionalRes<T> {
+    #[doc(hidden)]
+    pub fn read_for_view(world: &World) -> Option<ResourceRef<'_, T>> {
+        world
+            .resource::<T>()
+            .map(|value| ResourceRef::new(value, world.id()))
+    }
+}
 pub struct QueryParam<D, Q, F>(
     PhantomData<fn() -> D>,
     PhantomData<fn() -> Q>,
@@ -69,52 +79,54 @@ pub unsafe trait SystemParam: sealed::SystemParam {
 impl<T> sealed::SystemParam for Res<T> {}
 
 unsafe impl<T: 'static> SystemParam for Res<T> {
-    type Item<'world> = &'world T;
+    type Item<'world> = ResourceRef<'world, T>;
 
     unsafe fn fetch<'world>(
         cell: &SystemWorldCell<'world>,
         system_name: &'static str,
     ) -> Self::Item<'world> {
         // SAFETY: delegated from SystemParam::fetch.
-        unsafe { cell.resource::<T>() }.unwrap_or_else(|| {
+        let value = unsafe { cell.resource::<T>() }.unwrap_or_else(|| {
             panic!(
                 "callback `{system_name}` requires resource `{}`",
                 type_name::<T>()
             )
-        })
+        });
+        ResourceRef::new(value, cell.owner())
     }
 }
 
 impl<T> sealed::SystemParam for ResMut<T> {}
 
 unsafe impl<T: 'static> SystemParam for ResMut<T> {
-    type Item<'world> = &'world mut T;
+    type Item<'world> = ResourceMut<'world, T>;
 
     unsafe fn fetch<'world>(
         cell: &SystemWorldCell<'world>,
         system_name: &'static str,
     ) -> Self::Item<'world> {
         // SAFETY: delegated from SystemParam::fetch.
-        unsafe { cell.resource_mut::<T>() }.unwrap_or_else(|| {
+        let value = unsafe { cell.resource_mut::<T>() }.unwrap_or_else(|| {
             panic!(
                 "callback `{system_name}` requires resource `{}`",
                 type_name::<T>()
             )
-        })
+        });
+        ResourceMut::new(value, cell.owner())
     }
 }
 
 impl<T> sealed::SystemParam for OptionalRes<T> {}
 
 unsafe impl<T: 'static> SystemParam for OptionalRes<T> {
-    type Item<'world> = Option<&'world T>;
+    type Item<'world> = Option<ResourceRef<'world, T>>;
 
     unsafe fn fetch<'world>(
         cell: &SystemWorldCell<'world>,
         _system_name: &'static str,
     ) -> Self::Item<'world> {
         // SAFETY: delegated from SystemParam::fetch.
-        unsafe { cell.resource::<T>() }
+        unsafe { cell.resource::<T>() }.map(|value| ResourceRef::new(value, cell.owner()))
     }
 }
 
@@ -292,6 +304,36 @@ mod tests {
     struct Missing;
 
     #[test]
+    fn resource_borrows_keep_the_fetched_world_identity_without_allocating() {
+        let mut first = World::new();
+        let mut other = World::new();
+        first.insert_resource(Clock(4));
+        first.insert_resource(Settings(2));
+        let owner = first.id();
+        crate::core::reactive::with_world_scope(&mut other, || {
+            assert_eq!(
+                tracked_allocations(|| {
+                    // SAFETY: all declared resource types are disjoint.
+                    let (clock, mut settings, missing) = unsafe {
+                        fetch_system_params::<(Res<Clock>, ResMut<Settings>, OptionalRes<Missing>)>(
+                            &mut first,
+                            "resource-owner",
+                        )
+                    };
+                    assert_eq!(clock.owner, owner);
+                    assert_eq!(settings.owner, owner);
+                    assert!(missing.is_none());
+                    settings.0 += clock.0;
+                }),
+                0
+            );
+        });
+        let read = OptionalRes::<Settings>::read_for_view(&first).unwrap();
+        assert_eq!(read.owner, owner);
+        assert_eq!(read.0, 6);
+    }
+
+    #[test]
     fn aggregate_fetch_combines_resources_and_multiple_queries() {
         let mut world = World::new();
         world.insert_resource(Clock(4));
@@ -318,7 +360,7 @@ mod tests {
 
         // SAFETY: this test's parameter set has no conflicting accesses and no
         // structural World operations occur while the returned values live.
-        let (clock, settings, missing, positions, velocities) =
+        let (clock, mut settings, missing, positions, velocities) =
             unsafe { fetch_system_params::<Params>(&mut world, "aggregate") };
         settings.0 += clock.0;
         assert!(missing.is_none());

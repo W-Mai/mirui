@@ -19,7 +19,8 @@ fn changed(
     trace: res!(mut Trace),
     commands: commands!(),
 ) {
-    trace.events[trace.len] = Some((node, event.hovered));
+    let index = trace.len;
+    trace.events[index] = Some((node, event.hovered));
     trace.len += 1;
     if event.hovered
         && let Some(hide) = trace.hide.take()

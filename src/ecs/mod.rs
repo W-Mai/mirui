@@ -3,6 +3,7 @@ pub(crate) mod commands;
 pub mod entity;
 pub(crate) mod payload;
 pub mod query;
+pub mod resource;
 pub mod sparse_set;
 pub mod system;
 pub mod time;

@@ -69,7 +69,7 @@ fn icon_transform(icon: &Icon, rect: &Rect, parent: Transform) -> Option<Transfo
 
 #[crate::view(component = Icon, name = "Icon", priority = 70)]
 fn icon_render(icon: component!(), theme: res!(crate::ui::Theme), paint: paint!()) {
-    let color = icon.color.resolve_in(theme, paint.state());
+    let color = icon.color.resolve_in(&theme, paint.state());
     let rect = paint.rect();
 
     let Some(transform) = icon_transform(icon, &rect, paint.transform()) else {

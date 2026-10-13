@@ -102,8 +102,8 @@ impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::Ent
 fn progress_bar_render(pb: component!(), theme: res!(crate::ui::Theme), paint: paint!()) {
     let state = paint.state();
     let rect = paint.rect();
-    let track_color = pb.track_color.resolve_in(theme, state);
-    let fill_color = pb.fill_color.resolve_in(theme, state);
+    let track_color = pb.track_color.resolve_in(&theme, state);
+    let fill_color = pb.fill_color.resolve_in(&theme, state);
     paint.draw(&DrawCommand::Fill {
         area: rect,
         transform: paint.transform(),

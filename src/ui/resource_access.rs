@@ -5,6 +5,7 @@ use ::core::marker::PhantomData;
 
 use crate::core::reactive::{OwnerGuard, WorldAccessGuard};
 use crate::ecs::World;
+use crate::ecs::resource::{ResourceMut, ResourceRef};
 
 struct Access<'scope> {
     world: &'scope mut World,
@@ -45,13 +46,13 @@ impl<'scope, T: 'static> ResourceRead<'scope, T> {
         }
     }
 
-    pub fn with<R>(&self, read: impl for<'resource> FnOnce(&'resource T) -> R) -> R {
+    pub fn with<R>(&self, read: impl for<'resource> FnOnce(ResourceRef<'resource, T>) -> R) -> R {
         let value = self
             .access
             .world
             .resource::<T>()
             .unwrap_or_else(|| panic!("composition requires resource `{}`", type_name::<T>()));
-        read(value)
+        read(ResourceRef::new(value, self.access.world.id()))
     }
 }
 
@@ -70,8 +71,16 @@ impl<'scope, T: 'static> OptionalResourceRead<'scope, T> {
         }
     }
 
-    pub fn with<R>(&self, read: impl for<'resource> FnOnce(Option<&'resource T>) -> R) -> R {
-        read(self.access.world.resource::<T>())
+    pub fn with<R>(
+        &self,
+        read: impl for<'resource> FnOnce(Option<ResourceRef<'resource, T>>) -> R,
+    ) -> R {
+        read(
+            self.access
+                .world
+                .resource::<T>()
+                .map(|value| ResourceRef::new(value, self.access.world.id())),
+        )
     }
 }
 
@@ -90,13 +99,17 @@ impl<'scope, T: 'static> ResourceWrite<'scope, T> {
         }
     }
 
-    pub fn with<R>(&mut self, write: impl for<'resource> FnOnce(&'resource mut T) -> R) -> R {
+    pub fn with<R>(
+        &mut self,
+        write: impl for<'resource> FnOnce(ResourceMut<'resource, T>) -> R,
+    ) -> R {
+        let owner = self.access.world.id();
         let value = self
             .access
             .world
             .resource_mut::<T>()
             .unwrap_or_else(|| panic!("composition requires resource `{}`", type_name::<T>()));
-        write(value)
+        write(ResourceMut::new(value, owner))
     }
 }
 
@@ -158,11 +171,19 @@ mod tests {
     fn typed_resource_access_is_immediate_and_scoped() {
         let mut world = World::new();
         world.insert_resource(3_u32);
+        let owner = world.id();
         let root = world.spawn_empty();
         let mut cx = UiScope::new(&mut world, root);
         assert_eq!(cx.__res_read::<u32>().with(|value| *value), 3);
+        assert_eq!(cx.__res_read::<u32>().with(|value| value.owner), owner);
+        assert_eq!(cx.__res_write::<u32>().with(|value| value.owner), owner);
+        assert_eq!(
+            cx.__res_optional::<u32>()
+                .with(|value| value.unwrap().owner),
+            owner
+        );
         assert!(cx.__res_optional::<u64>().with(|value| value.is_none()));
-        cx.__res_write::<u32>().with(|value| *value += 4);
+        cx.__res_write::<u32>().with(|mut value| *value += 4);
         assert_eq!(cx.__res_read::<u32>().with(|value| *value), 7);
         cx.__resources().insert(11_u32);
         assert_eq!(cx.__resources().remove::<u32>(), Some(11));
@@ -243,7 +264,7 @@ mod tests {
                 assert!(failed.is_err());
                 assert_eq!(cx.__res_read::<u32>().with(|value| *value), 3);
                 let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    cx.__res_write::<u32>().with(|value| {
+                    cx.__res_write::<u32>().with(|mut value| {
                         *value = 9;
                         assert!(with_world(|_| ()).is_none());
                         panic!("resource unwind");
@@ -271,7 +292,7 @@ mod tests {
         let signal = Signal::new(0_u32);
         let runs = Rc::new(Cell::new(0));
         app.compose(root, |cx| {
-            cx.__res_write::<u32>().with(|value| {
+            cx.__res_write::<u32>().with(|mut value| {
                 assert_eq!(current_world_id(), Some(owner));
                 model.increment();
                 signal.set(5);
@@ -343,7 +364,7 @@ mod tests {
         let allocations = crate::test_support::tracked_allocations(|| {
             for value in 0_u32..64 {
                 cx.__resources().insert(value);
-                cx.__res_write::<u32>().with(|value| *value += 1);
+                cx.__res_write::<u32>().with(|mut value| *value += 1);
                 assert_eq!(cx.__res_read::<u32>().with(|value| *value), value + 1);
                 assert!(cx.__res_optional::<u64>().with(|value| value.is_none()));
             }

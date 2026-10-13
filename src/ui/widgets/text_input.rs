@@ -196,7 +196,7 @@ fn text_input_render(
     };
     let face_limit = outputs.storage().layouts.limits().fallback_faces;
     let Ok(Some(fonts)) = crate::render::font::ResolvedFontStack::resolve(
-        manager,
+        manager.as_deref(),
         &paint.style().font_stack,
         paint.style().font_size,
         face_limit,
@@ -212,10 +212,10 @@ fn text_input_render(
         theme.expect("App::new must insert Theme; missing means a test fixture skipped App");
     let state = paint.state();
     let rect = paint.rect();
-    let text_color = ti.text_color.resolve_in(theme, state);
-    let placeholder_color = ti.placeholder_color.resolve_in(theme, state);
-    let cursor_color = ti.cursor_color.resolve_in(theme, state);
-    let focus_border_color = ti.focus_border_color.resolve_in(theme, state);
+    let text_color = ti.text_color.resolve_in(&theme, state);
+    let placeholder_color = ti.placeholder_color.resolve_in(&theme, state);
+    let cursor_color = ti.cursor_color.resolve_in(&theme, state);
+    let focus_border_color = ti.focus_border_color.resolve_in(&theme, state);
 
     if editing.focused() {
         paint.draw(&DrawCommand::Border {

@@ -800,7 +800,7 @@ mod tests {
             unreachable!();
         };
         let helper_parameters = helper.sig.inputs.to_token_stream().to_string();
-        assert!(helper_parameters.contains(&quote!(&self::Clock).to_string()));
+        assert!(helper_parameters.contains(&quote!(ResourceRef<'_, self::Clock>).to_string()));
         assert!(helper_parameters.contains(&quote!(&self::DragMove).to_string()));
         assert!(helper_parameters.contains(&quote!(Write<super::Position>).to_string()));
         let syn::Item::Mod(factory_module) = &output.items[1] else {

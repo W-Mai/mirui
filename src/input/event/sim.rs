@@ -1220,7 +1220,8 @@ mod tests {
         trace: res!(mut ProgramTrace),
         commands: commands!(),
     ) -> bool {
-        trace.codes[trace.len] = input.code;
+        let index = trace.len;
+        trace.codes[index] = input.code;
         trace.len += 1;
         if input.code == 1 {
             if trace.replace {
@@ -1347,7 +1348,8 @@ mod tests {
         assert_eq!(input.target, target);
         let entry = taps.last.unwrap();
         assert_eq!(entry.entity, target);
-        trace.observations[trace.len] = Some(SimTapObservation {
+        let index = trace.len;
+        trace.observations[index] = Some(SimTapObservation {
             focused: focus.focused,
             time_ms: entry.time_ms,
             tracker_count: entry.count,
@@ -1548,7 +1550,8 @@ mod tests {
         trace: res!(mut SimKeyTrace),
     ) -> bool {
         assert_eq!(input.code, crate::input::event::input::KEY_ROTARY_PRESS);
-        trace.pressed[trace.len] = input.pressed;
+        let index = trace.len;
+        trace.pressed[index] = input.pressed;
         trace.len += 1;
         true
     }
@@ -1617,7 +1620,8 @@ mod tests {
         trace: res!(mut SimBatchTrace),
     ) -> bool {
         assert_eq!(input.target, node);
-        trace.values[trace.len] = input.x.to_int();
+        let index = trace.len;
+        trace.values[index] = input.x.to_int();
         trace.len += 1;
         true
     }
@@ -2816,7 +2820,8 @@ mod tests {
         probe.deltas.push(input.scale_delta);
         probe.accum_scale64 = probe.accum_scale64 * input.scale_delta;
         probe.accum_scale = probe.accum_scale64.to_fixed();
-        probe.per_frame.push(probe.accum_scale);
+        let scale = probe.accum_scale;
+        probe.per_frame.push(scale);
         true
     }
 

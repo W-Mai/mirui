@@ -1338,7 +1338,7 @@ mod tests {
         theme: res!(crate::ui::Theme),
         paint: paint!(),
     ) {
-        tile.seen.set(value.map(|value| value.0));
+        tile.seen.set(value.as_deref().map(|value| value.0));
         tile.visits.set(tile.visits.get() + 1);
         let _ = theme;
         paint.set_background_handled(value.is_some());

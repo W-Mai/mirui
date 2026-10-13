@@ -166,9 +166,9 @@ fn knob_center_offset(ratio: Fixed, track_w: Fixed, thumb_size: Fixed) -> Fixed 
 fn slider_render(component: component!(), paint: paint!(), theme: res!(crate::ui::Theme)) {
     let rect = paint.rect();
     let state = paint.state();
-    let track_color = component.track_color.resolve_in(theme, state);
-    let fill_color = component.fill_color.resolve_in(theme, state);
-    let thumb_color = component.thumb_color.resolve_in(theme, state);
+    let track_color = component.track_color.resolve_in(&theme, state);
+    let fill_color = component.fill_color.resolve_in(&theme, state);
+    let thumb_color = component.thumb_color.resolve_in(&theme, state);
     let ratio = component.ratio();
     let cap_radius = rect.h / Fixed::from_int(2);
     let thumb_size = rect.h;

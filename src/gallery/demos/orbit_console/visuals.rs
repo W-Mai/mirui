@@ -524,7 +524,7 @@ pub(super) fn backdrop_render(component: component!(), paint: paint!(), theme: r
     let rect = paint.rect();
     let transform = paint.transform();
     let mut painter = DemoPainter::new(paint, transform);
-    component.render(&mut painter, &rect, theme);
+    component.render(&mut painter, &rect, &theme);
 }
 
 #[crate::view(
@@ -541,7 +541,7 @@ pub(super) fn orbit_render(
     let rect = paint.rect();
     let transform = paint.transform();
     let mut painter = DemoPainter::new(paint, transform);
-    component.render(&mut painter, &rect, model, theme);
+    component.render(&mut painter, &rect, model, &theme);
 }
 
 #[crate::view(component = SignalMeter, name = "SignalMeter", priority = 60)]
@@ -554,7 +554,7 @@ pub(super) fn signal_render(
     let rect = paint.rect();
     let transform = paint.transform();
     let mut painter = DemoPainter::new(paint, transform);
-    component.render(&mut painter, &rect, model, theme);
+    component.render(&mut painter, &rect, model, &theme);
 }
 
 #[crate::view(component = ActivityPlot, name = "ActivityPlot", priority = 60)]
@@ -567,5 +567,5 @@ pub(super) fn activity_render(
     let rect = paint.rect();
     let transform = paint.transform();
     let mut painter = DemoPainter::new(paint, transform);
-    component.render(&mut painter, &rect, model, theme);
+    component.render(&mut painter, &rect, model, &theme);
 }

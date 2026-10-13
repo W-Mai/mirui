@@ -55,7 +55,7 @@ pub fn physics_tick_system(
         _ => (Fixed::ZERO, Fixed::ZERO),
     };
 
-    let now_ms = clock.map(MonoClock::now_ms).unwrap_or(0);
+    let now_ms = clock.as_deref().map(MonoClock::now_ms).unwrap_or(0);
     let elapsed = now_ms.wrapping_sub(time.last_tick_ms);
     time.last_tick_ms = now_ms;
     time.accumulator_ms = time.accumulator_ms.saturating_add(elapsed);

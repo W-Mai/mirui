@@ -150,9 +150,9 @@ impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::Ent
 fn button_render(component: component!(), paint: paint!(), theme: res!(crate::ui::Theme)) {
     let state = paint.state();
     let color = if matches!(state, crate::ui::theme::WidgetState::Pressed) {
-        component.pressed_color.resolve_in(theme, state)
+        component.pressed_color.resolve_in(&theme, state)
     } else {
-        component.normal_color.resolve_in(theme, state)
+        component.normal_color.resolve_in(&theme, state)
     };
     paint.draw(&DrawCommand::Fill {
         area: paint.rect(),

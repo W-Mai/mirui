@@ -69,7 +69,7 @@ pub fn rotary_feedback_system(
     overlays: query!(Entity, mut Style; with OverlayRotary;),
     commands: commands!(),
 ) {
-    let Some(mut feedback) = feedback.copied() else {
+    let Some(mut feedback) = feedback.as_deref().copied() else {
         return;
     };
     if !feedback.rotary.enabled {
@@ -78,7 +78,7 @@ pub fn rotary_feedback_system(
     let before = feedback.rotary;
     let max_pull = MagneticMembrane::default().max_pull();
 
-    let input = input.copied().unwrap_or_default();
+    let input = input.as_deref().copied().unwrap_or_default();
     if input.event_seq != feedback.rotary.last_input_seq {
         let impulse = Fixed::from_int(input.rotary_delta as i32)
             - input.wheel_delta_y / crate::input::event::input::WHEEL_LINE_PIXELS;

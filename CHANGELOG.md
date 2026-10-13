@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Resource parameters carry their application's identity in short-lived borrows. Callback and composition helpers use explicit reborrowing without allocating parameter storage.
+
 - State Todo saves its Model collection, including owning titles, completion, order, and sample-label progression.
 - Reactive flushing tolerates callbacks that retire other queued effects, including keyed-row replacement during collection restoration.
 

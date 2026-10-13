@@ -628,17 +628,9 @@ fn lower_helper_parameter(binding: &BindingSpec) -> Option<syn::Result<TokenStre
             let ty = &component.ty;
             Some(Ok(quote!(#name: &#ty)))
         }
-        BindingSource::Resource(resource) => {
-            let ty = &resource.ty;
-            Some(Ok(match binding.cardinality {
-                BindingCardinality::Required => quote!(#name: &#ty),
-                BindingCardinality::Optional => quote!(#name: ::core::option::Option<&#ty>),
-                BindingCardinality::Many => unreachable!("resources have singular cardinality"),
-            }))
-        }
-        BindingSource::Query(_) => Some(callback_lowering::lower_helper_parameter(
-            binding, "#[view]",
-        )),
+        BindingSource::Resource(_) | BindingSource::Query(_) => Some(
+            callback_lowering::lower_helper_parameter(binding, "#[view]"),
+        ),
         BindingSource::Capability(capability) => Some(match capability {
             BindingCapability::Entity => Ok(quote!(#name: ::mirui::ecs::Entity)),
             BindingCapability::Paint => Ok(quote!(#name: &mut ::mirui::ui::view::PaintCtx<'_>)),
@@ -691,7 +683,8 @@ fn lower_render_fetch(
         BindingSource::Resource(resource) => {
             let ty = ChildScope::ty(&resource.ty);
             let local = fetched_name(&binding.name);
-            let fetch = quote!(__mirui_world.resource::<#ty>());
+            let fetch =
+                quote!(::mirui::__macro_support::OptionalRes::<#ty>::read_for_view(__mirui_world));
             Some(Ok(match binding.cardinality {
                 BindingCardinality::Required => quote! {
                     let #local = #fetch.expect(concat!("View `", stringify!(#function_name), "` requires resource `", stringify!(#ty), "`"));
@@ -861,7 +854,7 @@ mod tests {
         assert!(expanded.contains("__macro_support :: ViewObservationBindings"));
         assert!(!expanded.contains("fn render"));
         assert!(!expanded.contains("fn __mirui_view_body"));
-        assert!(!expanded.contains("resource ::"));
+        assert!(!expanded.contains("read_for_view"));
         assert!(!expanded.contains("with_model_read_only"));
         assert!(expanded.contains("query_dependencies : const { & [] }"));
     }
@@ -1237,9 +1230,13 @@ mod tests {
                 }
             },
         );
-        assert!(expanded.contains("clock : :: core :: option :: Option < & super :: Clock >"));
-        assert!(expanded.contains("let __mirui_resource_clock = __mirui_world . resource :: < super :: super :: Clock > () ;"));
-        assert!(expanded.contains("theme : & Theme"));
+        assert!(expanded.contains(&quote!(clock: ::core::option::Option<::mirui::ecs::resource::ResourceRef<'_, super::Clock>>).to_string()));
+        assert!(expanded.contains("let __mirui_resource_clock = :: mirui :: __macro_support :: OptionalRes :: < super :: super :: Clock > :: read_for_view (__mirui_world) ;"));
+        assert!(
+            expanded.contains(
+                &quote!(theme: ::mirui::ecs::resource::ResourceRef<'_, Theme>).to_string()
+            )
+        );
         assert!(expanded.contains("requires resource"));
         for role in [quote!(optional mut Theme), quote!(mut optional Theme)] {
             let error = expand(

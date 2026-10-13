@@ -483,7 +483,7 @@ mod tests {
                         RouteCalls,
                     >()]
                 },
-                |(calls,), _, _, _scope| {
+                |(mut calls,), _, _, _scope| {
                     calls.user += 1;
                     true
                 },

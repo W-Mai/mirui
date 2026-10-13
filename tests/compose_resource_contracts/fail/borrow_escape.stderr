@@ -1,8 +1,17 @@
 error: lifetime may not live long enough
  --> tests/compose_resource_contracts/fail/borrow_escape.rs:7:34
   |
-7 |     res!(Counter).with(|counter| counter)
-  |                         -------- ^^^^^^^ returning this value requires that `'1` must outlive `'2`
+7 |     res!(Counter).with(|counter| &*counter)
+  |                         -------- ^^^^^^^^^ returning this value requires that `'1` must outlive `'2`
   |                         |      |
   |                         |      return type of closure is &'2 Counter
-  |                         has type `&'1 Counter`
+  |                         has type `mirui::ecs::resource::ResourceRef<'1, Counter>`
+
+error[E0515]: cannot return value referencing function parameter `counter`
+ --> tests/compose_resource_contracts/fail/borrow_escape.rs:7:34
+  |
+7 |     res!(Counter).with(|counter| &*counter)
+  |                                  ^^-------
+  |                                  | |
+  |                                  | `counter` is borrowed here
+  |                                  returns a value referencing data owned by the current function

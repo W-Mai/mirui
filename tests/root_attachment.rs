@@ -64,7 +64,7 @@ fn record_root_appearance(
 ) {
     let (style, safe_area, ignore_hit) = widgets.get(entity).unwrap();
     let appearance = (
-        style.bg_color.unwrap().resolve(theme),
+        style.bg_color.unwrap().resolve(&theme),
         style.layout.width,
         safe_area.is_some(),
         ignore_hit.is_some(),

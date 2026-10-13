@@ -419,7 +419,7 @@ fn scope_render(
     let Some(scratch) = scratch else {
         return;
     };
-    paint_scope(scratch, model, paint);
+    paint_scope(&scratch, model, paint);
 }
 
 pub(super) use scope_render::view as scope_view;

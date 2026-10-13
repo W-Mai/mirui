@@ -31,6 +31,7 @@ const _: () = {
 #[cfg_attr(not(test), allow(dead_code))]
 #[doc(hidden)]
 pub struct SystemWorldCell<'world> {
+    owner: WorldId,
     storages: NonNull<HashMap<TypeId, Box<dyn ComponentStorage>, FxBuildHasher>>,
     resources: NonNull<ResourceMap>,
     watched_component_types: NonNull<alloc::vec::Vec<WatchedComponentType>>,
@@ -42,12 +43,17 @@ pub struct SystemWorldCell<'world> {
 impl<'world> SystemWorldCell<'world> {
     pub(crate) fn new(world: &'world mut World) -> Self {
         Self {
+            owner: world.id(),
             storages: NonNull::from(&mut world.storages),
             resources: NonNull::from(&mut world.resources),
             watched_component_types: NonNull::from(&mut world.watched_component_types),
             component_changes: NonNull::from(&mut world.component_changes),
             _marker: PhantomData,
         }
+    }
+
+    pub(crate) fn owner(&self) -> WorldId {
+        self.owner
     }
 
     /// # Safety

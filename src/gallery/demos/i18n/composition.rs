@@ -7,7 +7,7 @@ use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
 #[compose]
 pub fn build_widgets() {
-    res!(optional FontManager).with(register_font);
+    res!(optional FontManager).with(|manager| register_font(manager.as_deref()));
     let i18n = I18n::new(Locale::EnUs).with_translations(TRANSLATIONS);
     let locale = i18n.locale_signal();
     res!().insert(i18n);

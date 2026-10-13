@@ -46,11 +46,13 @@ Widgets uses the same named-target lookup, so its automation does not select unr
 
 | Operation | Expression | Result |
 | --- | --- | --- |
-| Read a required resource | `res!(T).with(read)` | `read` receives `&T` |
-| Read an optional resource | `res!(optional T).with(read)` | `read` receives `Option<&T>` |
-| Mutate a required resource | `res!(mut T).with(write)` | `write` receives `&mut T` |
+| Read a required resource | `res!(T).with(read)` | `read` receives `ResourceRef<'_, T>` |
+| Read an optional resource | `res!(optional T).with(read)` | `read` receives `Option<ResourceRef<'_, T>>` |
+| Mutate a required resource | `res!(mut T).with(write)` | `write` receives `ResourceMut<'_, T>` |
 | Install or replace a resource | `res!().insert(value)` | Immediate replacement; the previous value drops |
 | Remove a resource | `res!().remove::<T>()` | `Option<T>` |
+
+Resource borrows carry their application's identity and dereference to the stored value. Field and method access stay direct. Pass `&value` or `&mut value` to ordinary helpers taking references; use `optional.as_deref()` for helpers taking `Option<&T>`. Callback macros supply the mutable binding for `res!(mut T)`. A composition closure that modifies a resource writes `.with(|mut value| { ... })`; read-only use needs no mutable binding. These borrows add no heap allocation and cannot escape a composition's `with` call.
 
 ```rust,ignore
 struct PanelConfig {
@@ -532,7 +534,7 @@ observed getter, or a named revision. An optional model field uses
 frame-scoped paint context. `PaintCtx` provides the current geometry, style,
 widget state, transform, clip, drawing, and scene replay operations without
 exposing the renderer as a separate callback parameter.
-View resources are read-only. `res!(T)` requires the resource at each paint invocation; `res!(optional T)` supplies `Option<&T>` and still runs the body when the resource is absent. Both use the same resource role grammar as systems and events, without cloning the resource or allocating parameter storage.
+View resources are read-only. `res!(T)` requires the resource at each paint invocation; `res!(optional T)` supplies `Option<ResourceRef<'_, T>>` and still runs the body when the resource is absent. Both use the same resource role grammar as systems and events, without cloning the resource or allocating parameter storage.
 
 View queries use the same `query!` grammar and row types as systems and events, but accept only shared component access. A required component item or `with` filter drives the query; `Entity` and optional items alone do not supply a driver. The query can read other entities, iterate its complete dataset, or call `get(entity)`; the View's `component = T` filter selects its own instances rather than restricting query results.
 

@@ -132,7 +132,8 @@ fn inspect_static_attachment(
     let on = switch.map(|switch| switch.on);
     let parent = parent.map(|parent| parent.0);
     let registered = name.is_some_and(|id| ids.get(id.0) == Some(entity));
-    probe.entries[probe.count] = Some(MountEntry {
+    let index = probe.count;
+    probe.entries[index] = Some(MountEntry {
         seed,
         on,
         entity,

@@ -22,7 +22,8 @@ fn changed(
     trace: res!(mut Trace),
     focus: res!(mut FocusState),
 ) {
-    trace.entries[trace.len] = Some((node, *event));
+    let index = trace.len;
+    trace.entries[index] = Some((node, *event));
     trace.len += 1;
     if !event.focused
         && let Some(next) = trace.redirect.take()

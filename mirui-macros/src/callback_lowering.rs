@@ -56,11 +56,15 @@ pub(crate) fn lower_helper_parameter(
         BindingSource::Resource(resource) => {
             let ty = &resource.ty;
             match (binding.access, binding.cardinality) {
-                (BindingAccess::Read, BindingCardinality::Required) => Ok(quote!(#name: &#ty)),
-                (BindingAccess::Write, BindingCardinality::Required) => Ok(quote!(#name: &mut #ty)),
-                (BindingAccess::Read, BindingCardinality::Optional) => {
-                    Ok(quote!(#name: ::core::option::Option<&#ty>))
+                (BindingAccess::Read, BindingCardinality::Required) => {
+                    Ok(quote!(#name: ::mirui::ecs::resource::ResourceRef<'_, #ty>))
                 }
+                (BindingAccess::Write, BindingCardinality::Required) => Ok(
+                    quote!(#[allow(unused_mut)] mut #name: ::mirui::ecs::resource::ResourceMut<'_, #ty>),
+                ),
+                (BindingAccess::Read, BindingCardinality::Optional) => Ok(
+                    quote!(#name: ::core::option::Option<::mirui::ecs::resource::ResourceRef<'_, #ty>>),
+                ),
                 _ => Err(syn::Error::new(
                     binding.syntax.span(),
                     "unsupported resource binding",

@@ -48,7 +48,7 @@ pub fn layout_system(
         view_h,
         offset,
     };
-    if cache == Some(&frame) {
+    if cache.as_deref() == Some(&frame) {
         return;
     }
     commands.insert_resource(frame);

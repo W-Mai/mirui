@@ -86,7 +86,7 @@ fn curve_paths_render(
     paint: paint!(),
 ) {
     let default_theme = Theme::default();
-    let theme = theme.unwrap_or(&default_theme);
+    let theme = theme.as_deref().unwrap_or(&default_theme);
     let lane_colors = LANE_COLORS.map(|token| theme.resolve(token));
     let (Some(paths), Some(store)) = (paths, store) else {
         return;

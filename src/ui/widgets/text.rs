@@ -691,14 +691,14 @@ fn text_render(
     };
     let theme =
         theme.expect("App::new must insert Theme; missing means a test fixture skipped App");
-    let color = paint.style().text_color.resolve_in(theme, paint.state());
+    let color = paint.style().text_color.resolve_in(&theme, paint.state());
     let Some(outputs) = outputs else {
         return;
     };
     let storage = outputs.storage();
     let face_limit = storage.layouts.limits().fallback_faces;
     let Ok(Some(fonts)) = crate::render::font::ResolvedFontStack::resolve(
-        manager,
+        manager.as_deref(),
         &paint.style().font_stack,
         paint.style().font_size,
         face_limit,
@@ -1461,7 +1461,7 @@ fn static_glyph_run_render(
         transform: paint.transform(),
         glyphs: run.glyphs,
         font: &font,
-        color: paint.style().text_color.resolve_in(theme, paint.state()),
+        color: paint.style().text_color.resolve_in(&theme, paint.state()),
         opa: 255,
     });
 }

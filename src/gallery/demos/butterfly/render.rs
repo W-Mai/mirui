@@ -61,7 +61,7 @@ fn butterfly_render(
     paint: paint!(),
 ) {
     let default_theme = Theme::default();
-    let theme = theme.unwrap_or(&default_theme);
+    let theme = theme.as_deref().unwrap_or(&default_theme);
     let outer_wing = theme.resolve(ColorToken::Primary);
     let inner_wing = theme.resolve(ColorToken::Secondary);
     let body_color = theme.resolve(ColorToken::OnSurface);

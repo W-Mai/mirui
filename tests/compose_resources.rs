@@ -14,7 +14,7 @@ fn resource_operations(seed: u32) -> (u32, bool, u32) {
     res!().insert(Counter(seed));
     let initial = res!(Counter).with(|counter| counter.0);
     let missing = res!(optional Missing).with(|value| value.is_none());
-    res!(mut Counter).with(|counter| counter.0 += 1);
+    res!(mut Counter).with(|mut counter| counter.0 += 1);
     let removed = res!().remove::<Counter>().expect("installed counter");
     let final_value = removed.0;
     res!().insert(removed);
@@ -29,7 +29,7 @@ fn move_resource<T: 'static>(value: T) -> Option<T> {
 
 #[compose]
 fn update_existing_resource() -> u32 {
-    res!(mut Counter).with(|counter| counter.0 += 1);
+    res!(mut Counter).with(|mut counter| counter.0 += 1);
     let value = res!(Counter).with(|counter| counter.0);
     res!().insert(Counter(value));
     let optional = res!(optional Counter).with(|counter| counter.map(|counter| counter.0));
@@ -38,7 +38,7 @@ fn update_existing_resource() -> u32 {
 
 #[compose]
 fn helper_closure() -> u32 {
-    let mut update = || res!(mut Counter).with(|counter| counter.0 += 2);
+    let mut update = || res!(mut Counter).with(|mut counter| counter.0 += 2);
     update();
     res!(Counter).with(|counter| counter.0)
 }

@@ -84,7 +84,7 @@ fn raster_contour_render(
     };
     let extent = Fixed::from_int((cell - 1).max(1));
     let default_theme = Theme::default();
-    let theme = theme.unwrap_or(&default_theme);
+    let theme = theme.as_deref().unwrap_or(&default_theme);
     for y in 0..height {
         for x in 0..width {
             paint.draw(&DrawCommand::Fill {

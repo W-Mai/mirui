@@ -230,7 +230,8 @@ fn record_peer(
     trace: res!(mut PeerTrace),
 ) {
     assert_eq!(geometry.get(node).unwrap().0.w, change.new.width);
-    trace.widths[trace.calls] = change.new.width;
+    let index = trace.calls;
+    trace.widths[index] = change.new.width;
     trace.calls += 1;
 }
 

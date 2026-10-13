@@ -1,8 +1,8 @@
 error[E0500]: closure requires unique access to value but it is already borrowed
   --> tests/compose_resource_contracts/fail/structural_alias.rs:7:28
    |
- 7 |     res!(mut Counter).with(|counter| {
-   |     ---                    ^^^^^^^^^ closure construction occurs here
+ 7 |     res!(mut Counter).with(|mut counter| {
+   |     ---                    ^^^^^^^^^^^^^ closure construction occurs here
    |     |
    |     borrow occurs here
    |     a temporary with access to the first borrow is created here ...

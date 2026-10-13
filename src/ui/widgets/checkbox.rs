@@ -115,9 +115,9 @@ impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::Ent
 fn checkbox_render(cb: component!(), theme: res!(crate::ui::Theme), paint: paint!()) {
     let state = paint.state();
     let color = if cb.checked {
-        cb.checked_color.resolve_in(theme, state)
+        cb.checked_color.resolve_in(&theme, state)
     } else {
-        cb.unchecked_color.resolve_in(theme, state)
+        cb.unchecked_color.resolve_in(&theme, state)
     };
     paint.draw(&DrawCommand::Fill {
         area: paint.rect(),

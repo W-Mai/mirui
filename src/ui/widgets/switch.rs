@@ -196,9 +196,9 @@ fn switch_render(
         theme.expect("App::new must insert Theme; missing means a test fixture skipped App");
     let state = paint.state();
     let rect = paint.rect();
-    let on_color = s.on_color.resolve_in(theme, state);
-    let off_color = s.off_color.resolve_in(theme, state);
-    let thumb_color = s.thumb_color.resolve_in(theme, state);
+    let on_color = s.on_color.resolve_in(&theme, state);
+    let off_color = s.off_color.resolve_in(&theme, state);
+    let thumb_color = s.thumb_color.resolve_in(&theme, state);
     let cap_radius = rect.h / Fixed::from_int(2);
 
     let t = background

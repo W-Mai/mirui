@@ -43,7 +43,7 @@ pub(super) fn caret_overlay_render(
     let layout = geometry.layout();
     let metrics = geometry.metrics();
     let default_theme = Theme::default();
-    let theme = theme.unwrap_or(&default_theme);
+    let theme = theme.as_deref().unwrap_or(&default_theme);
     let border = theme.resolve(BORDER);
     let primary = theme.resolve(CYAN);
     let secondary = theme.resolve(BLUE);

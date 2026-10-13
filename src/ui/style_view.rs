@@ -16,7 +16,7 @@ fn style_render(theme: res!(crate::ui::Theme), paint: paint!()) {
                 area: paint.rect(),
                 transform: paint.transform(),
                 quad: paint.quad(),
-                color: color.resolve_in(theme, paint.state()),
+                color: color.resolve_in(&theme, paint.state()),
                 radius: border_radius,
                 opa: 255,
             });
@@ -30,7 +30,7 @@ fn style_render(theme: res!(crate::ui::Theme), paint: paint!()) {
                 area: paint.rect(),
                 transform: paint.transform(),
                 quad: paint.quad(),
-                color: border_color.resolve_in(theme, paint.state()),
+                color: border_color.resolve_in(&theme, paint.state()),
                 width: border_width,
                 radius: border_radius,
                 opa: 255,

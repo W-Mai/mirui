@@ -17,7 +17,7 @@ fn read_localized(
     result: res!(mut ReadResult),
 ) {
     for text in texts {
-        result.text = text.resolve(translations).into_owned();
+        result.text = text.resolve(translations.as_deref()).into_owned();
         result.calls += 1;
     }
 }
