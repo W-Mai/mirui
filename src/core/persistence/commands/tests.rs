@@ -1,4 +1,6 @@
 use super::*;
+use crate::core::reactive::Signal;
+
 use crate::{
     app::App,
     core::{
@@ -172,4 +174,90 @@ fn foreign_and_unregistered_targets_do_not_rebind_at_commit() {
     batch.commands().persistence().save(&current);
     batch.finish(&mut app.world).unwrap();
     assert_eq!(store.writes.get(), 1);
+}
+
+#[test]
+fn save_requests_copy_only_source_identity_and_reuse_prepared_storage() {
+    let mut world = World::new();
+    world.insert_resource(7_u32);
+    let signal = Signal::new(3_u32);
+    let owner = world.id();
+    let resource = crate::ecs::resource::ResourceRef::new(world.resource::<u32>().unwrap(), owner);
+    let mut queue = CommandQueue::bounded(CommandCapacity::new().persistence(3)).unwrap();
+    assert_eq!(
+        tracked_allocations(|| {
+            for _ in 0..16 {
+                let mut batch = queue.begin();
+                batch.commands().persistence().save(&resource);
+                batch.commands().persistence().save(&signal);
+                batch.commands().persistence().save("literal");
+            }
+        }),
+        0
+    );
+}
+
+#[test]
+fn retired_signal_sources_do_not_select_reused_slots() {
+    let store = Store::default();
+    let mut app = App::headless(8, 8);
+    app.add_plugin(PersistencePlugin::new(store.clone()));
+    let old = Signal::new(3_u32);
+    let old_id = old.source_id();
+    let mut queue = CommandQueue::bounded(CommandCapacity::new().persistence(1)).unwrap();
+    let mut batch = queue.begin();
+    batch.commands().persistence().save(&old);
+    drop(old);
+    let current = Signal::new(7_u32);
+    assert_ne!(old_id, current.source_id());
+    app.persistence()
+        .register_signal("value", current.clone())
+        .unwrap();
+    batch.finish(&mut app.world).unwrap();
+    assert_eq!(store.writes.get(), 0);
+    app.persistence().save(&current).unwrap();
+    assert_eq!(store.writes.get(), 1);
+}
+
+#[test]
+fn deferred_registration_restores_before_later_saves_and_releases_captures() {
+    let store = Store::default();
+    store.data.borrow_mut().write("bytes", &[9]).unwrap();
+    let mut app = App::headless(8, 8);
+    app.add_plugin(PersistencePlugin::new(store.clone()));
+    let signal = Signal::new(3_u32);
+    let value = Rc::new(Cell::new(1_u8));
+    let save = value.clone();
+    let restore = value.clone();
+    let mut queue = CommandQueue::bounded(CommandCapacity::new().persistence(5)).unwrap();
+    let mut batch = queue.begin();
+    batch
+        .commands()
+        .persistence()
+        .register_signal("signal", signal.clone());
+    batch.commands().persistence().save(&signal);
+    batch.commands().persistence().register_bytes(
+        "bytes",
+        move || Some(alloc::vec![save.get()]),
+        move |bytes| {
+            restore.set(bytes[0]);
+            Ok(())
+        },
+    );
+    batch.commands().persistence().save("bytes");
+    batch
+        .commands()
+        .persistence()
+        .autosave(core::time::Duration::ZERO);
+    assert_eq!(value.get(), 1);
+    batch.finish(&mut app.world).unwrap();
+    assert_eq!(value.get(), 9);
+    assert_eq!(Rc::strong_count(&value), 2);
+    assert_eq!(store.writes.get(), 2);
+    let mut batch = queue.begin();
+    batch.commands().persistence().remove("bytes");
+    batch.finish(&mut app.world).unwrap();
+    assert!(store.data.borrow().read("bytes").unwrap().is_none());
+    drop(app);
+    assert_eq!(Rc::strong_count(&value), 1);
 }

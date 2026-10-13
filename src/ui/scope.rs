@@ -90,6 +90,12 @@ impl<'w> UiScope<'w> {
         super::resource_access::Resources::new(self.world)
     }
 
+    /// Access synchronous persistence registration and saving during composition.
+    #[cfg(feature = "persistence")]
+    pub fn persistence(&mut self) -> crate::core::persistence::Persistence<'_> {
+        crate::core::persistence::Persistence::new(self.world)
+    }
+
     pub(crate) fn world_mut(&mut self) -> &mut World {
         self.world
     }

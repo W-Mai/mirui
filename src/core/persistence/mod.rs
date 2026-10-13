@@ -12,6 +12,8 @@ mod error;
 mod model_codec;
 mod models;
 mod status;
+mod target;
+pub use target::SaveTarget;
 #[doc(hidden)]
 pub mod value;
 pub use access::Persistence;
@@ -26,7 +28,9 @@ pub use status::PersistenceStatus;
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use core::any::TypeId;
 use core::marker::PhantomData;
+use target::Source;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -44,16 +48,14 @@ type SaveFn = Box<dyn FnMut(&World) -> Result<Option<Vec<u8>>, PersistenceError>
 
 struct TrackedItem {
     key: &'static str,
+    source: Source,
     save: SaveFn,
-    // `bytes()` escape hatch round-trips verbatim; postcard path gets a
-    // VALUE_VERSION byte for migrations.
-    framed: bool,
 }
 
 impl TrackedItem {
     fn save(&mut self, world: &World, storage: &mut dyn Storage) -> Result<(), PersistenceError> {
         if let Some(bytes) = (self.save)(world)? {
-            if self.framed {
+            if self.source != Source::Bytes {
                 write_value(storage, self.key, &bytes)?;
             } else {
                 storage.write(self.key, &bytes)?;
@@ -63,10 +65,7 @@ impl TrackedItem {
     }
 }
 
-/// World resource the plugin installs. Live save/restore endpoints stay
-/// reachable after `App::add_plugin` so user systems can register more
-/// items as widgets spawn at runtime, or trigger `save_all` manually.
-pub struct PersistenceRegistry {
+pub(crate) struct PersistenceRegistry {
     storage: Box<dyn Storage>,
     items: Vec<TrackedItem>,
     autosave: Autosave,
@@ -118,19 +117,17 @@ impl PersistenceRegistry {
         let save_sig = signal;
         self.items.push(TrackedItem {
             key,
+            source: Source::Signal(save_sig.source_id()),
             save: Box::new(move |_world: &World| {
                 postcard::to_allocvec(&save_sig.get_untracked())
                     .map(Some)
                     .map_err(|_| PersistenceError::Encoding)
             }),
-            framed: true,
         });
         Ok(())
     }
 
-    /// Persist a World resource `T`. The resource must already exist
-    /// when `save_all` runs; restore only writes if a resource of type
-    /// `T` is present (matching the resource's existing identity rules).
+    /// Restore and track the current resource of type `T`; missing resources are inserted on restore and skipped on save.
     pub fn resource<T>(
         &mut self,
         world: &mut World,
@@ -149,6 +146,7 @@ impl PersistenceRegistry {
         }
         self.items.push(TrackedItem {
             key,
+            source: Source::Resource(TypeId::of::<T>()),
             save: Box::new(|world: &World| {
                 world
                     .resource::<T>()
@@ -156,7 +154,6 @@ impl PersistenceRegistry {
                     .transpose()
                     .map_err(|_| PersistenceError::Encoding)
             }),
-            framed: true,
         });
         Ok(())
     }
@@ -176,8 +173,8 @@ impl PersistenceRegistry {
         }
         self.items.push(TrackedItem {
             key,
+            source: Source::Bytes,
             save: Box::new(move |_| Ok(save())),
-            framed: false,
         });
         Ok(())
     }
@@ -199,18 +196,10 @@ impl PersistenceRegistry {
         result
     }
 
-    /// Flush a single tracked item by key. Useful when only one piece
-    /// of state changed and the caller wants to avoid touching others.
+    /// Save one non-Model registration by key.
     pub fn save(&mut self, world: &World, key: &str) -> Result<(), PersistenceError> {
         if !self.enabled {
             return Err(PersistenceError::Disabled);
-        }
-        if let Some(item) = self
-            .models
-            .iter_mut()
-            .find(|item| item.key == key && item.endpoint.is_alive())
-        {
-            return item.save(world, &mut *self.storage, &mut self.output, true);
         }
         for item in &mut self.items {
             if item.key == key {
@@ -264,7 +253,7 @@ type Pending =
 /// Typed save / restore on top of a [`Storage`] backend.
 ///
 /// **Inserts**
-/// - resource: [`PersistenceRegistry`]
+/// - resource: internal persistence registrations
 /// - system:   none
 /// - view:     none
 /// - entity:   none

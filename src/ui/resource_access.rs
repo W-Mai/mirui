@@ -133,6 +133,12 @@ impl<'scope> Resources<'scope> {
     pub fn remove<T: 'static>(&mut self) -> Option<T> {
         self.access.world.remove_resource::<T>()
     }
+
+    /// Access persistence after other resource borrows have ended.
+    #[cfg(feature = "persistence")]
+    pub fn persistence(&mut self) -> crate::core::persistence::Persistence<'_> {
+        crate::core::persistence::Persistence::new(self.access.world)
+    }
 }
 
 #[cfg(test)]

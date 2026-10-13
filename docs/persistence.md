@@ -130,6 +130,27 @@ Missing records leave data unchanged. Failed decoding or storage reads leave dat
 
 `Failed` reports the latest operation error and whether automatic overwrite is blocked. Ordinary Model changes do not clear failures; acknowledged writes or applied restorations do. Skipping a clean Model or reading a missing record preserves the existing error and restore protection. Disabling persistence hides a registered entry's saved error behind `Disabled` without discarding it; re-enabling retains the error and marks current data for saving.
 
+## Signals, resources, and bytes
+
+Plugin configuration accepts `.signal(key, signal)`, `.resource::<T>(key)`, and `.bytes(key, save, restore)`. Register additional values through `app.persistence()`, `tree.persistence()` inside `App::compose`, or `res!().persistence()` inside `#[compose]`:
+
+```rust,ignore
+app.add_resource(NetworkSettings::default());
+app.add_plugin(PersistencePlugin::new(storage).autosave(1000));
+app.persistence().register_resource::<NetworkSettings>("network")?;
+app.persistence().register_signal("counter", counter.clone())?;
+app.persistence().register_bytes("cache", save_cache, restore_cache)?;
+
+app.persistence().save(&counter)?;
+app.persistence().save("network")?;
+```
+
+Registration immediately restores an existing record when IO is enabled. Missing records leave current values unchanged. Restoring a resource inserts it even if that type is absent; saving a resource reads the current value and skips an absent type. Invalid records or duplicate keys reject registration. Resource and Signal values use postcard; byte callbacks own their complete format. These operations do not turn resources into observable Models.
+
+`save(target)` accepts Model handles, Signal instances, resource borrows supplied by `res!`, and non-Model keys. Resource identity includes its App and type; Signal identity includes its source generation. An unrelated value of the same type cannot select a registration. The same Signal can be registered explicitly in multiple Apps. A source registered under multiple keys returns `AmbiguousTarget` without encoding or writing; use `save("specific-key")` to choose. Keys accept static strings, owned `String`, or `Cow<'static, str>`, and cannot select Model archives.
+
+`remove(key)` deletes stored bytes without unregistering the source, resetting current data, or changing a Model's save candidate. A subsequent save can recreate the record. `restore` and `status` remain Model operations; non-Model restoration occurs during registration.
+
 ## Deferred operations
 
 Event, system, and timer callbacks record persistence operations through `commands.persistence()`. Commands run in order after callback borrows end and use the Model's data at that time, not a snapshot captured by the callback.
@@ -142,6 +163,25 @@ fn save_settings(settings: model!(Settings), commands: commands!()) {
 ```
 
 The same facade provides `restore(model)`, `save_all()`, and `set_enabled(bool)`. Requests retain weak instance identities; retiring a Model invalidates its queued requests even if another instance later uses the same storage key. Storage failures emit a warning and skip that request; later commands still run. Recording a request is not confirmation of successful IO. Read `app.persistence().status(&model)` outside the callback to inspect saved state and errors.
+
+Resources use the same shared-borrow save call for both read-only and mutable parameters:
+
+```rust,ignore
+#[event]
+fn change_network(settings: res!(mut NetworkSettings), commands: commands!()) {
+    settings.server.clear();
+    commands.persistence().save(&settings);
+}
+
+#[event]
+fn save_network(settings: res!(NetworkSettings), commands: commands!()) {
+    commands.persistence().save(&settings);
+}
+```
+
+Saving does not mutate or consume the borrowed resource. The command records its source, not the reference or a snapshot. Changes after `save(&settings)` are included when the callback ends. A preceding `insert_resource` command makes the save read the replacement; a preceding removal leaves no value to save. Foreign App resource targets are rejected. Non-Model registration lookup happens at submission, so `register_resource` followed by `save` in the same batch works in that order.
+
+`commands.persistence()` also provides `register_resource`, `register_signal`, `register_bytes`, `remove`, and `autosave`. Resource registration records a static function and key. Signal and byte registration allocate a temporary capture box released on submission or cancellation. Ordinary save-target conversion and recording add no heap allocations; resource/Signal serialization, custom byte callbacks, and storage IO may allocate. Synchronous composition registration must run after other resource borrows have ended.
 
 For an explicit command budget, use `CommandCapacity::new().persistence(count)`. Recording requests uses the existing reusable command storage; encoding, restoring, and storage IO have their own memory costs. Exceeding the callback's command budget discards its entire unsubmitted batch.
 
@@ -169,7 +209,7 @@ Install a clock plugin before the persistence plugin to enable periodic saves. D
 
 `FileStorage::open` and `LocalStorageStorage::with_prefix` return `Result`. A corrupt file is not replaced with an empty store. File writes and removals restore the confirmed in-memory cache if the filesystem operation fails, so retrying cannot mistake uncommitted bytes for a successful save. Use one owner per storage namespace; these backends do not coordinate concurrent writers.
 
-Registry operations return `PersistenceError`. `save_all` attempts all registered items and returns the first failure. Plugin lifecycle hooks log failures and retry saves on subsequent save boundaries. Failed signal, resource, or byte restores do not install saving callbacks; Model restores retain a protected endpoint. Neither path automatically overwrites a failed record.
+Synchronous persistence operations return `PersistenceError`. `save_all` attempts all registered items and returns the first failure. Plugin lifecycle hooks log failures and retry saves on subsequent save boundaries. Failed signal, resource, or byte restores do not install saving callbacks; Model restores retain a protected endpoint. Neither path automatically overwrites a failed record.
 
 `PersistenceError::Capacity` reports failure to prepare encoding or restoration memory; it is distinct from a storage backend failure.
 

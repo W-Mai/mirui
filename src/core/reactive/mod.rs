@@ -48,7 +48,7 @@ pub struct EffectId(SlotId);
 pub struct ComputedId(SlotId);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-struct SourceId(SlotId);
+pub(crate) struct SourceId(SlotId);
 
 #[derive(Clone, Copy)]
 struct WorldWindow {
@@ -1041,6 +1041,11 @@ impl<T: 'static> Drop for Signal<T> {
 }
 
 impl<T: 'static> Signal<T> {
+    #[cfg(feature = "persistence")]
+    pub(crate) fn source_id(&self) -> SourceId {
+        self.inner.borrow().id
+    }
+
     pub fn new(initial: T) -> Self {
         let (id, graph_source) = with_reactive(|r| {
             let id = SourceId(r.source_slots.allocate());

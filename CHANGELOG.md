@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Persistence saves accept Model handles, Signal instances, resource borrows, and non-Model keys. Dynamic registration is available during application setup, composition, and deferred callbacks; ambiguous source registrations require an explicit key.
+
 - Reader Settings demonstrates persistent Model preferences, reactive controls and preview, and session-only state.
 
 - Model field archives support owned lists, maps, and sets with deterministic encoding, capacity checks, and whole-root restoration. Collection restoration retires old member identities and preserves collection observers and effect handlers.

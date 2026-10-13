@@ -85,7 +85,14 @@ fn stored(store: &Store, key: &str) -> u8 {
 fn save(world: &mut World, key: Option<&str>) -> Result<(), PersistenceError> {
     world
         .with_resource_box::<PersistenceRegistry, _>(|registry, world| match key {
-            Some(key) => registry.save(world, key),
+            Some(key) => {
+                let item = registry
+                    .models
+                    .iter_mut()
+                    .find(|entry| entry.key == key && entry.endpoint.is_alive())
+                    .ok_or(PersistenceError::Unregistered)?;
+                item.save(world, &mut *registry.storage, &mut registry.output, true)
+            }
             None => registry.save_all(world),
         })
         .unwrap()

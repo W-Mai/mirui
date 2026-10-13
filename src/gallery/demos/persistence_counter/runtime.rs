@@ -16,16 +16,13 @@ where
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
 
-    // PersistencePlugin must register before widgets spawn so the
-    // Registry sits in the World when on_suspend / on_quit fire.
     let count = Signal::new(0i32);
     match pick_storage() {
         Ok(storage) => {
-            app.add_plugin(
-                PersistencePlugin::new(storage)
-                    .signal("count", count.clone())
-                    .autosave(2000),
-            );
+            app.add_plugin(PersistencePlugin::new(storage).autosave(2000));
+            if let Err(error) = app.persistence().register_signal("count", count.clone()) {
+                crate::warn!("counter persistence registration failed: {error}");
+            }
         }
         Err(error) => crate::warn!("counter persistence unavailable: {error}"),
     }
