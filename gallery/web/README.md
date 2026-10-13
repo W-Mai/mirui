@@ -26,6 +26,8 @@ The watcher includes the gallery, mirui, mirx, and macro sources outside this di
 
 The homepage keeps one application live while neighboring featured cards use generated previews. Selecting a card reuses the live canvas instead of creating another renderer or application instance.
 
+Opening a demo from the homepage preserves the homepage's selected featured demo and scroll position in browser history. Returning restores that selection; returning from a direct demo URL opens the default featured demo.
+
 The Play section contains thirteen fixed 480×320 applications. Each application has a standalone native launcher, and the same setup function drives its Web Canvas route and generated card image.
 
 The demo workspace groups the remaining entries by their registry category and retains the canvas size controls, source panel, theme selection, and query-string routes.

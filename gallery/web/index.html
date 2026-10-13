@@ -2479,6 +2479,7 @@
 
         function openDemo(slug, push, sourceOpen = false, trigger = null) {
           const requestedSlug = slug || activeSlug;
+          const homeSlug = activeSlug;
           const demoChanged = switchDemo(requestedSlug);
           const modeChanged = siteMode !== "focus";
           const fromHome = siteMode === "home";
@@ -2487,7 +2488,7 @@
             homeTransitionTarget = homeOriginFor(trigger);
             if (push) {
               history.replaceState(
-                { mode: "home", demo: activeSlug, scrollY: homeScrollY },
+                { mode: "home", demo: homeSlug, scrollY: homeScrollY },
                 "",
                 location.pathname + location.hash,
               );
@@ -2508,9 +2509,12 @@
         }
 
         function openHome(push) {
-          runViewTransition(() => applySiteMode("home"), { to: homeTransitionTarget });
+          runViewTransition(() => {
+            switchDemo(homeDemo);
+            applySiteMode("home");
+          }, { to: homeTransitionTarget });
           if (push) {
-            history.replaceState({ mode: "home", demo: activeSlug, scrollY: homeScrollY }, "", location.pathname);
+            history.replaceState({ mode: "home", demo: homeDemo, scrollY: homeScrollY }, "", location.pathname);
           }
         }
 
@@ -3323,19 +3327,22 @@
             || (locationParams.has("demo") || locationParams.get("backend_parity") === "1" ? "focus" : "home");
           const slug = (e.state && e.state.demo)
             || locationParams.get("demo")
-            || (mode === "home" ? activeSlug || homeDemo : defaultDemo);
-          switchDemo(slug);
+            || (mode === "home" ? homeDemo : defaultDemo);
           if (mode === "home" && Number.isFinite(e.state && e.state.scrollY)) {
             homeScrollY = e.state.scrollY;
           }
           if (mode !== siteMode) {
             runViewTransition(
-              () => applySiteMode(mode),
+              () => {
+                switchDemo(slug);
+                applySiteMode(mode);
+              },
               mode === "home"
                 ? { to: homeTransitionTarget }
                 : { from: homeTransitionTarget },
             );
           } else {
+            switchDemo(slug);
             applySiteMode(mode);
           }
           if (mode === "home" && location.hash) {

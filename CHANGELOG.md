@@ -59,6 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Returning from a Gallery demo restores the homepage's featured selection instead of leaving the opened demo between unrelated preview cards.
+
 - Persistence retains operation errors when a clean Model needs no write or a restore finds no record. Acknowledged writes and applied restorations clear those errors.
 
 - Failed file writes and removals preserve the confirmed cache; Gallery game saves no longer acknowledge revisions before storage succeeds.
