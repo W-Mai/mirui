@@ -37,7 +37,7 @@ fn composition_installs_a_timeline_for_its_gesture_target() {
     use crate::ecs::SystemScheduler;
     use crate::input::event::sim::{SimTimeline, sim_timeline_system};
     use crate::types::Viewport;
-    use crate::ui::render_system::update_layout;
+    use crate::ui::render_system::try_update_layout;
     use core::cell::Cell;
 
     std::thread_local! {
@@ -58,7 +58,7 @@ fn composition_installs_a_timeline_for_its_gesture_target() {
     );
 
     app.add_resource(MonoClock::new(now_ns));
-    update_layout(&mut app.world, root, &Viewport::new(480, 360, Fixed::ONE));
+    try_update_layout(&mut app.world, root, &Viewport::new(480, 360, Fixed::ONE)).unwrap();
     let mut scheduler = SystemScheduler::new();
     scheduler.add(sim_timeline_system::system());
     for now in (0..=10_000).step_by(50) {
@@ -124,11 +124,11 @@ fn pinch_updates_target_and_status() {
 fn portrait_layout_reflows_the_target_between_status_and_footer() {
     use crate::types::Viewport;
     use crate::ui::ComputedRect;
-    use crate::ui::render_system::update_layout;
+    use crate::ui::render_system::try_update_layout;
 
     let mut app = fixture(360, 480);
     let root = app.root.expect("root");
-    update_layout(&mut app.world, root, &Viewport::new(360, 480, Fixed::ONE));
+    try_update_layout(&mut app.world, root, &Viewport::new(360, 480, Fixed::ONE)).unwrap();
 
     let target = app.world.find_by_id("pinch_target").expect("target id");
     let status = app.world.find_by_id("pinch_status").expect("status id");

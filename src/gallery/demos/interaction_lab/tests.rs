@@ -325,14 +325,15 @@ fn setup_installs_input_feedback() {
 fn default_viewport_keeps_the_two_by_two_grid_inside_the_shell() {
     use crate::types::Viewport;
     use crate::ui::ComputedRect;
-    use crate::ui::render_system::update_layout;
+    use crate::ui::render_system::try_update_layout;
 
     let (mut world, parent) = fixture_tree();
-    update_layout(
+    try_update_layout(
         &mut world,
         parent,
         &Viewport::new(VIEWPORT.0, VIEWPORT.1, Fixed::ONE),
-    );
+    )
+    .unwrap();
     let rect = |world: &World, id| {
         world
             .get::<ComputedRect>(world.find_by_id(id).unwrap())
@@ -391,10 +392,10 @@ fn dirty_first_frame_reconciles_the_responsive_tree() {
 fn phone_viewport_stacks_cards_and_wraps_gesture_targets() {
     use crate::types::Viewport;
     use crate::ui::ComputedRect;
-    use crate::ui::render_system::update_layout;
+    use crate::ui::render_system::try_update_layout;
 
     let (mut world, parent) = fixture_tree();
-    update_layout(&mut world, parent, &Viewport::new(320, 568, Fixed::ONE));
+    try_update_layout(&mut world, parent, &Viewport::new(320, 568, Fixed::ONE)).unwrap();
     let rect = |world: &World, id| {
         world
             .get::<ComputedRect>(world.find_by_id(id).unwrap())
@@ -429,7 +430,7 @@ fn phone_viewport_stacks_cards_and_wraps_gesture_targets() {
 fn medium_portrait_cards_fill_the_single_column() {
     use crate::types::Viewport;
     use crate::ui::ComputedRect;
-    use crate::ui::render_system::update_layout;
+    use crate::ui::render_system::try_update_layout;
 
     for (width, height) in [(672, 666), (666, 674), (502, 900), (320, 568)] {
         let mut app = App::headless(width, height);
@@ -437,11 +438,12 @@ fn medium_portrait_cards_fill_the_single_column() {
         let parent = app.spawn_root().id();
         setup_app(&mut app, parent);
         app.set_root(parent);
-        update_layout(
+        try_update_layout(
             &mut app.world,
             parent,
             &Viewport::new(width, height, Fixed::ONE),
-        );
+        )
+        .unwrap();
         let rect = |world: &World, id| {
             world
                 .get::<ComputedRect>(world.find_by_id(id).unwrap())
@@ -484,15 +486,16 @@ fn phone_scroll_extent_keeps_the_last_card_reachable() {
     use crate::input::event::scroll::ScrollBounds;
     use crate::types::Viewport;
     use crate::ui::ComputedRect;
-    use crate::ui::render_system::update_layout;
+    use crate::ui::render_system::try_update_layout;
 
     for (width, height) in [(320, 568), (422, 600), (480, 320)] {
         let (mut world, parent) = fixture_tree();
-        update_layout(
+        try_update_layout(
             &mut world,
             parent,
             &Viewport::new(width, height, Fixed::ONE),
-        );
+        )
+        .unwrap();
         let shell = world.find_by_id("interaction_lab_shell").unwrap();
         let controls = world.find_by_id("interaction_controls").unwrap();
         let shell_rect = world.get::<ComputedRect>(shell).unwrap().0;

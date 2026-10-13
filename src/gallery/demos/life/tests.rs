@@ -8,7 +8,7 @@ use crate::ecs::World;
 use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::ComputedRect;
-use crate::ui::render_system::update_layout;
+use crate::ui::render_system::try_update_layout;
 
 #[test]
 fn shared_setup_installs_board_view_and_timer() {
@@ -81,11 +81,12 @@ fn responsive_shell_contains_the_board_at_supported_viewports() {
         let root = app.spawn_root().id();
         app.compose(root, build_widgets(width, height));
         app.set_root(root);
-        update_layout(
+        try_update_layout(
             &mut app.world,
             root,
             &Viewport::new(width, height, Fixed::ONE),
-        );
+        )
+        .unwrap();
 
         for id in ["life_header", "life_stage", "life_board"] {
             let entity = app.world.find_by_id(id).unwrap();

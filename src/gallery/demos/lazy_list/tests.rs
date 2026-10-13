@@ -12,11 +12,12 @@ fn build_widgets_smoke() {
     app.with_default_widgets();
     let parent = app.spawn_root().id();
     app.compose(parent, build_widgets());
-    crate::ui::render_system::update_layout(
+    crate::ui::render_system::try_update_layout(
         &mut app.world,
         parent,
         &crate::types::Viewport::new(320, 320, Fixed::ONE),
-    );
+    )
+    .unwrap();
     let mut world = app.world;
     assert!(
         world

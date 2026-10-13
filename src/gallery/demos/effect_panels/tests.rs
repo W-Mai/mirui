@@ -5,7 +5,7 @@ use super::runtime::setup_app;
 use crate::ecs::DeltaTimeMs;
 use crate::prelude::*;
 use crate::types::Viewport;
-use crate::ui::render_system::update_layout;
+use crate::ui::render_system::try_update_layout;
 use crate::ui::widgets::{DropGlow, DropShadow, WidgetTransform};
 use crate::ui::{Children, ComputedRect, OffscreenRender, Parent, Theme, ViewRegistry};
 
@@ -60,11 +60,12 @@ fn cards_stay_inside_portrait_landscape_and_desktop_viewports() {
         let root = app.spawn_root().id();
         app.compose(root, build_widgets());
         app.set_root(root);
-        update_layout(
+        try_update_layout(
             &mut app.world,
             root,
             &Viewport::new(width, height, Fixed::ONE),
-        );
+        )
+        .unwrap();
 
         for id in [
             "effect_mirror_card",
@@ -113,7 +114,7 @@ fn blur_motion_updates_only_the_visual_transform() {
     let root = app.spawn_root().id();
     app.compose(root, build_widgets());
     app.set_root(root);
-    update_layout(&mut app.world, root, &Viewport::new(480, 320, Fixed::ONE));
+    try_update_layout(&mut app.world, root, &Viewport::new(480, 320, Fixed::ONE)).unwrap();
 
     let overlay = app.world.find_by_id("effect_blur_overlay").unwrap();
     let left_before = app.world.get::<Style>(overlay).unwrap().layout.left;

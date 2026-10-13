@@ -5,7 +5,7 @@ use crate::input::event::gesture::GestureEvent;
 use crate::input::event::scroll::{ScrollBounds, ScrollConfig};
 use crate::prelude::*;
 use crate::types::Viewport;
-use crate::ui::render_system::update_layout;
+use crate::ui::render_system::try_update_layout;
 use crate::ui::{Children, ComputedRect};
 
 fn row_count(world: &World, list: Entity) -> usize {
@@ -65,7 +65,7 @@ fn list_grows_and_shrinks_by_signal() {
     for _ in 0..8 {
         tap(&mut world, inc);
     }
-    update_layout(&mut world, parent, &Viewport::new(320, 320, Fixed::ONE));
+    try_update_layout(&mut world, parent, &Viewport::new(320, 320, Fixed::ONE)).unwrap();
     let bounds = world.get::<ScrollBounds>(list).unwrap();
     let last = *world.get::<Children>(list).unwrap().0.last().unwrap();
     let last_rect = world.get::<ComputedRect>(last).unwrap().0;
@@ -91,11 +91,11 @@ fn list_grows_and_shrinks_by_signal() {
         first_before,
         "row 0 survives shrink"
     );
-    update_layout(&mut world, parent, &Viewport::new(320, 320, Fixed::ONE));
+    try_update_layout(&mut world, parent, &Viewport::new(320, 320, Fixed::ONE)).unwrap();
     assert_eq!(world.get::<ScrollBounds>(list).unwrap().max_y, Fixed::ZERO);
     tap(&mut world, dec);
     tap(&mut world, dec);
-    update_layout(&mut world, parent, &Viewport::new(320, 320, Fixed::ONE));
+    try_update_layout(&mut world, parent, &Viewport::new(320, 320, Fixed::ONE)).unwrap();
     assert_eq!(row_count(&world, list), 0);
     assert_eq!(world.get::<ScrollBounds>(list).unwrap().max_y, Fixed::ZERO);
 }

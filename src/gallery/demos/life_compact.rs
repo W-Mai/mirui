@@ -199,22 +199,24 @@ mod tests {
         app.set_root(root);
         app.render().unwrap();
 
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut app.world,
             root,
             &Viewport::new(160, 96, Fixed::ONE),
-        );
+        )
+        .unwrap();
         let shell = app.world.find_by_id("compact_life_shell").unwrap();
         assert_eq!(
             app.world.get::<Style>(shell).unwrap().layout.direction,
             FlexDirection::Row,
         );
 
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut app.world,
             root,
             &Viewport::new(96, 160, Fixed::ONE),
-        );
+        )
+        .unwrap();
         assert_eq!(
             app.world.get::<Style>(shell).unwrap().layout.direction,
             FlexDirection::Column,

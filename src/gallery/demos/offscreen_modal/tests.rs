@@ -4,7 +4,7 @@ use super::state::{FpsReadout, MODAL_H, MODAL_W, ModalAnim, UPDATE_EVERY};
 use crate::ecs::{FrameTimings, SystemScheduler, World};
 use crate::prelude::*;
 use crate::types::Viewport;
-use crate::ui::render_system::update_layout;
+use crate::ui::render_system::try_update_layout;
 use crate::ui::widgets::{Text, WidgetTransform};
 use crate::ui::{Children, ComputedRect};
 
@@ -28,11 +28,12 @@ fn modal_is_centered_and_contained_across_supported_viewports() {
         let root = app.spawn_root().id();
         app.compose(root, build_widgets());
         app.set_root(root);
-        update_layout(
+        try_update_layout(
             &mut app.world,
             root,
             &Viewport::new(width, height, Fixed::ONE),
-        );
+        )
+        .unwrap();
 
         let panel = app.world.find_by_id("offscreen_modal_panel").unwrap();
         let rect = app.world.get::<ComputedRect>(panel).unwrap().0;

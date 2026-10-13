@@ -816,7 +816,8 @@ fn nav_pointer_tap_reaches_edit_after_layout() {
     app.world.insert_resource(IdMap::new());
     let root = app.spawn_root().id();
     setup_app(&mut app, root);
-    render_system::update_layout(&mut app.world, root, &Viewport::new(480, 320, Fixed::ONE));
+    render_system::try_update_layout(&mut app.world, root, &Viewport::new(480, 320, Fixed::ONE))
+        .unwrap();
 
     let edit = app.world.find_by_id("marble_nav_edit").unwrap();
     assert_eq!(

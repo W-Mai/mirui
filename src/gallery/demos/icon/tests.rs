@@ -4,7 +4,7 @@ use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::Children;
 use crate::ui::ComputedRect;
-use crate::ui::render_system::update_layout;
+use crate::ui::render_system::try_update_layout;
 
 #[test]
 fn build_widgets_smoke() {
@@ -30,7 +30,7 @@ fn icon_grid_stays_inside_phone_shell() {
     app.compose(parent, build_widgets());
     let world = &mut app.world;
 
-    update_layout(world, parent, &Viewport::new(320, 568, Fixed::ONE));
+    try_update_layout(world, parent, &Viewport::new(320, 568, Fixed::ONE)).unwrap();
     let rect = |id| {
         world
             .get::<ComputedRect>(world.find_by_id(id).unwrap())

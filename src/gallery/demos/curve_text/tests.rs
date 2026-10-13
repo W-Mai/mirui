@@ -107,11 +107,12 @@ fn size_events_update_all_path_ranges_while_animation_is_paused() {
     assert!(model.paused());
     let phase = model.phase();
     let root = app.root.expect("root");
-    crate::ui::render_system::update_layout(
+    crate::ui::render_system::try_update_layout(
         &mut app.world,
         root,
         &Viewport::new(400, 540, Fixed::ONE),
-    );
+    )
+    .unwrap();
 
     let stage = app.world.find_by_id("curve_text_stage").unwrap();
     let primary = app.world.find_by_id("curve_text_primary").unwrap();
@@ -142,11 +143,12 @@ fn size_events_update_all_path_ranges_while_animation_is_paused() {
         );
     }
 
-    crate::ui::render_system::update_layout(
+    crate::ui::render_system::try_update_layout(
         &mut app.world,
         root,
         &Viewport::new(VIEWPORT.0, VIEWPORT.1, Fixed::ONE),
-    );
+    )
+    .unwrap();
     assert_eq!(
         app.world.get::<Style>(controls).unwrap().layout.height,
         Dimension::px(62)
@@ -179,11 +181,12 @@ fn controls_and_stage_share_the_available_height_at_medium_sizes() {
     {
         let mut app = fixture();
         let root = app.root.expect("root");
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut app.world,
             root,
             &Viewport::new(width, height, Fixed::ONE),
-        );
+        )
+        .unwrap();
 
         let rect = |world: &World, id| {
             world

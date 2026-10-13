@@ -30,7 +30,7 @@ fn build_widgets_smoke() {
 #[test]
 fn layout_system_tracks_live_viewport() {
     use crate::types::Viewport;
-    use crate::ui::render_system::update_layout;
+    use crate::ui::render_system::try_update_layout;
 
     let mut app = crate::app::App::headless(640, 360);
     app.with_default_widgets().with_default_systems();
@@ -43,7 +43,7 @@ fn layout_system_tracks_live_viewport() {
 
     let widths_at = |app: &mut crate::app::App<_, _>, w: u16, h: u16| -> (i32, i32) {
         let vp = Viewport::new(w, h, Fixed::ONE);
-        update_layout(&mut app.world, root, &vp);
+        try_update_layout(&mut app.world, root, &vp).unwrap();
         let mut scheduler = SystemScheduler::new();
         scheduler.add(layout_system::system());
         scheduler.run_all(&mut app.world).unwrap();

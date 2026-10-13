@@ -5,7 +5,7 @@ use crate::ecs::{FrameTimings, SystemScheduler};
 use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::dirty::{Dirty, VisualDirty};
-use crate::ui::render_system::update_layout;
+use crate::ui::render_system::try_update_layout;
 use crate::ui::widgets::Text;
 use crate::ui::{Children, ComputedRect};
 
@@ -56,11 +56,12 @@ fn panel_is_centered_and_contained_across_supported_viewports() {
         app.with_default_widgets().with_default_systems();
         let root = app.spawn_root().id();
         app.compose(root, build_widgets());
-        update_layout(
+        try_update_layout(
             &mut app.world,
             root,
             &Viewport::new(width, height, Fixed::ONE),
-        );
+        )
+        .unwrap();
 
         let panel = app.world.find_by_id("offscreen_panel").unwrap();
         let rect = app.world.get::<ComputedRect>(panel).unwrap().0;

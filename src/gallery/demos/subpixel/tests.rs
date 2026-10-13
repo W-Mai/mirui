@@ -6,7 +6,7 @@ use crate::ecs::{SystemScheduler, World};
 use crate::prelude::*;
 use crate::types::Viewport;
 use crate::ui::dirty::{Dirty, VisualDirty};
-use crate::ui::render_system::update_layout;
+use crate::ui::render_system::try_update_layout;
 use crate::ui::{Children, ComputedRect, Style};
 
 fn run_bar_motion(world: &mut World) {
@@ -88,11 +88,12 @@ fn stage_and_arena_fit_phone_and_desktop_viewports() {
         let root = app.spawn_root().id();
         setup_app(&mut app, root);
         app.set_root(root);
-        update_layout(
+        try_update_layout(
             &mut app.world,
             root,
             &Viewport::new(width, height, Fixed::ONE),
-        );
+        )
+        .unwrap();
 
         for id in ["subpixel_stage", "subpixel_arena"] {
             let entity = app.world.find_by_id(id).unwrap();
@@ -112,7 +113,7 @@ fn bars_follow_theme_and_live_arena_bounds() {
     let root = app.spawn_root().id();
     setup_app(&mut app, root);
     app.set_root(root);
-    update_layout(&mut app.world, root, &Viewport::new(320, 568, Fixed::ONE));
+    try_update_layout(&mut app.world, root, &Viewport::new(320, 568, Fixed::ONE)).unwrap();
 
     let snapped = app.world.find_by_id("subpixel_snapped_bar").unwrap();
     let smooth = app.world.find_by_id("subpixel_smooth_bar").unwrap();
@@ -149,7 +150,7 @@ fn snapped_bar_stays_clean_until_its_pixel_position_changes() {
     let root = app.spawn_root().id();
     setup_app(&mut app, root);
     app.set_root(root);
-    update_layout(&mut app.world, root, &Viewport::new(320, 568, Fixed::ONE));
+    try_update_layout(&mut app.world, root, &Viewport::new(320, 568, Fixed::ONE)).unwrap();
 
     let snapped = app.world.find_by_id("subpixel_snapped_bar").unwrap();
     app.world.remove::<Dirty>(snapped);

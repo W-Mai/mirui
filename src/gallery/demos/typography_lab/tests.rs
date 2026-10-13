@@ -96,11 +96,12 @@ fn phone_layout_stacks_controls_below_the_grid_and_scrolls_to_them() {
         while let Some(parent) = world.get::<Parent>(root).map(|parent| parent.0) {
             root = parent;
         }
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &Viewport::new(width, height, Fixed::ONE),
-        );
+        )
+        .unwrap();
         let grid = world.find_by_id("typography_lab_grid").unwrap();
         let controls = world.find_by_id("typography_controls").unwrap();
         let shell_rect = world.get::<ComputedRect>(shell).unwrap().0;
@@ -198,11 +199,12 @@ fn mixed_bidi_sample_ellipsizes_within_its_card() {
     while let Some(parent) = world.get::<Parent>(root).map(|parent| parent.0) {
         root = parent;
     }
-    crate::ui::render_system::update_layout(
+    crate::ui::render_system::try_update_layout(
         &mut world,
         root,
         &Viewport::new(VIEWPORT.0, VIEWPORT.1, Fixed::ONE),
-    );
+    )
+    .unwrap();
 
     let card = world.find_by_id("typography_bidi").unwrap();
     let sample = world.find_by_id("typography_bidi_sample").unwrap();
@@ -298,11 +300,12 @@ fn path_sample_shares_curved_bidi_interaction_geometry() {
     while let Some(next) = world.get::<Parent>(parent).map(|parent| parent.0) {
         parent = next;
     }
-    crate::ui::render_system::update_layout(
+    crate::ui::render_system::try_update_layout(
         &mut world,
         parent,
         &Viewport::new(VIEWPORT.0, VIEWPORT.1, Fixed::ONE),
-    );
+    )
+    .unwrap();
     let sample = world.find_by_id("typography_path_sample").unwrap();
     let geometry = world
         .resource::<Outputs<TextGeometry>>()

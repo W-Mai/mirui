@@ -120,22 +120,24 @@ fn compact_widgets_reflow_after_live_viewport_changes() {
     app.set_root(root);
     app.render().unwrap();
 
-    crate::ui::render_system::update_layout(
+    crate::ui::render_system::try_update_layout(
         &mut app.world,
         root,
         &Viewport::new(160, 96, Fixed::ONE),
-    );
+    )
+    .unwrap();
     let shell = app.world.find_by_id("compact_widgets_shell").unwrap();
     assert_eq!(
         app.world.get::<Style>(shell).unwrap().layout.direction,
         FlexDirection::Row,
     );
 
-    crate::ui::render_system::update_layout(
+    crate::ui::render_system::try_update_layout(
         &mut app.world,
         root,
         &Viewport::new(96, 160, Fixed::ONE),
-    );
+    )
+    .unwrap();
     assert_eq!(
         app.world.get::<Style>(shell).unwrap().layout.direction,
         FlexDirection::Column,
@@ -166,11 +168,12 @@ fn compact_tabs_keep_distinct_pages_and_a_bounded_virtual_pool() {
             .0
             .is_empty()
     );
-    crate::ui::render_system::update_layout(
+    crate::ui::render_system::try_update_layout(
         &mut app.world,
         root,
         &Viewport::new(VIEWPORT.0, VIEWPORT.1, Fixed::ONE),
-    );
+    )
+    .unwrap();
     let list_state = app.world.get::<LazyList>(list).unwrap();
     let cells = &app.world.get::<crate::ui::Children>(list).unwrap().0;
     let light = app.world.find_by_id("compact_theme_light").unwrap();

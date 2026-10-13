@@ -48,11 +48,12 @@ fn timeline_ignores_other_lists_and_controls() {
     let _guard = crate::core::time::mock::install();
     crate::core::time::mock::set_ms(0);
     app.add_resource(MonoClock::from_time_source());
-    crate::ui::render_system::update_layout(
+    crate::ui::render_system::try_update_layout(
         &mut app.world,
         root,
         &crate::types::Viewport::new(320, 480, Fixed::ONE),
-    );
+    )
+    .unwrap();
     let mut scheduler = SystemScheduler::new();
     scheduler.add(crate::input::event::sim::sim_timeline_system::system());
     for now in (0..=1_000).step_by(50) {
@@ -143,11 +144,12 @@ fn list_binding_updates_content_without_dropping_paragraph_style() {
     app.with_default_widgets().with_default_systems();
     let parent = app.spawn_root().id();
     app.compose(parent, build_widgets());
-    crate::ui::render_system::update_layout(
+    crate::ui::render_system::try_update_layout(
         &mut app.world,
         parent,
         &crate::types::Viewport::new(DEFAULT_VIEW.0, DEFAULT_VIEW.1, Fixed::ONE),
-    );
+    )
+    .unwrap();
     let mut world = app.world;
 
     let list = world.find_by_id("widgets_list").expect("widgets list id");
@@ -178,14 +180,14 @@ fn list_binding_updates_content_without_dropping_paragraph_style() {
 fn portrait_layout_keeps_the_workbench_inside_the_viewport() {
     use crate::types::Viewport;
     use crate::ui::ComputedRect;
-    use crate::ui::render_system::update_layout;
+    use crate::ui::render_system::try_update_layout;
 
     let mut app = App::headless(320, 480);
     app.with_default_widgets().with_default_systems();
     let root = app.spawn_root().id();
     app.compose(root, build_widgets());
     app.set_root(root);
-    update_layout(&mut app.world, root, &Viewport::new(320, 480, Fixed::ONE));
+    try_update_layout(&mut app.world, root, &Viewport::new(320, 480, Fixed::ONE)).unwrap();
 
     let tabs = app.world.find_by_id("widgets_tabs").expect("tabs id");
     let list = app.world.find_by_id("widgets_list").expect("list id");

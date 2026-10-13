@@ -237,15 +237,16 @@ fn build_widgets_creates_product_regions_and_controls() {
 #[test]
 fn workspace_responds_across_supported_viewports() {
     use crate::types::Viewport;
-    use crate::ui::render_system::update_layout;
+    use crate::ui::render_system::try_update_layout;
 
     for (width, height) in [(320, 568), (480, 320), (768, 480), (1024, 640), (1440, 900)] {
         let (mut world, parent) = fixture();
-        update_layout(
+        try_update_layout(
             &mut world,
             parent,
             &Viewport::new(width, height, Fixed::ONE),
-        );
+        )
+        .unwrap();
         let rect = |world: &World, id| {
             let entity = world.find_by_id(id).expect("responsive region id");
             world.get::<ComputedRect>(entity).expect("computed rect").0

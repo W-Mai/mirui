@@ -136,7 +136,7 @@ mod tests {
     use super::*;
     use crate::types::Viewport;
     use crate::ui::ComputedRect;
-    use crate::ui::render_system::update_layout;
+    use crate::ui::render_system::try_update_layout;
 
     #[test]
     fn every_composite_mode_has_one_image_sample() {
@@ -156,11 +156,12 @@ mod tests {
             let root = app.spawn_root().id();
             app.compose(root, build_widgets());
             app.set_root(root);
-            update_layout(
+            try_update_layout(
                 &mut app.world,
                 root,
                 &Viewport::new(width, height, Fixed::ONE),
-            );
+            )
+            .unwrap();
 
             let samples: alloc::vec::Vec<Entity> = app
                 .world
@@ -187,11 +188,12 @@ mod tests {
             let root = app.spawn_root().id();
             app.compose(root, build_widgets());
             app.set_root(root);
-            update_layout(
+            try_update_layout(
                 &mut app.world,
                 root,
                 &Viewport::new(width, height, Fixed::ONE),
-            );
+            )
+            .unwrap();
 
             let mut rows: alloc::vec::Vec<i32> = app
                 .world

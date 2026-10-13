@@ -50,7 +50,7 @@ fn tap_button_swaps_global_theme() {
 fn token_grid_stays_inside_landscape_and_portrait_viewports() {
     use crate::types::Viewport;
     use crate::ui::ComputedRect;
-    use crate::ui::render_system::update_layout;
+    use crate::ui::render_system::try_update_layout;
 
     for (width, height) in [(480, 320), (320, 480)] {
         let mut app = App::headless(width, height);
@@ -61,11 +61,12 @@ fn token_grid_stays_inside_landscape_and_portrait_viewports() {
         let root = app.spawn_root().id();
         app.compose(root, build_widgets());
         app.set_root(root);
-        update_layout(
+        try_update_layout(
             &mut app.world,
             root,
             &Viewport::new(width, height, Fixed::ONE),
-        );
+        )
+        .unwrap();
 
         let grid = app.world.find_by_id("theme_token_grid").unwrap();
         let accent = app.world.find_by_id("theme_accent_row").unwrap();

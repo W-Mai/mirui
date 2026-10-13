@@ -62,15 +62,16 @@ fn preserves_every_migrated_layout_capability() {
 fn default_viewport_keeps_the_two_by_two_grid_inside_the_shell() {
     use crate::types::Viewport;
     use crate::ui::ComputedRect;
-    use crate::ui::render_system::update_layout;
+    use crate::ui::render_system::try_update_layout;
 
     let (mut app, parent) = fixture(VIEWPORT.0, VIEWPORT.1);
     let world = &mut app.world;
-    update_layout(
+    try_update_layout(
         world,
         parent,
         &Viewport::new(VIEWPORT.0, VIEWPORT.1, Fixed::ONE),
-    );
+    )
+    .unwrap();
     let rect = |world: &World, id| {
         world
             .get::<ComputedRect>(world.find_by_id(id).unwrap())
@@ -100,11 +101,11 @@ fn default_viewport_keeps_the_two_by_two_grid_inside_the_shell() {
 fn phone_viewport_stacks_cards_without_horizontal_overflow() {
     use crate::types::Viewport;
     use crate::ui::ComputedRect;
-    use crate::ui::render_system::update_layout;
+    use crate::ui::render_system::try_update_layout;
 
     let (mut app, parent) = fixture(320, 568);
     let world = &mut app.world;
-    update_layout(world, parent, &Viewport::new(320, 568, Fixed::ONE));
+    try_update_layout(world, parent, &Viewport::new(320, 568, Fixed::ONE)).unwrap();
     let rect = |world: &World, id| {
         world
             .get::<ComputedRect>(world.find_by_id(id).unwrap())
@@ -132,7 +133,7 @@ fn phone_viewport_stacks_cards_without_horizontal_overflow() {
 fn medium_portrait_cards_fill_the_single_column() {
     use crate::types::Viewport;
     use crate::ui::ComputedRect;
-    use crate::ui::render_system::update_layout;
+    use crate::ui::render_system::try_update_layout;
 
     for (width, height) in [(539, 734), (320, 568)] {
         let mut app = App::headless(width, height);
@@ -140,11 +141,12 @@ fn medium_portrait_cards_fill_the_single_column() {
         let parent = app.spawn_root().id();
         setup_app(&mut app, parent);
         app.set_root(parent);
-        update_layout(
+        try_update_layout(
             &mut app.world,
             parent,
             &Viewport::new(width, height, Fixed::ONE),
-        );
+        )
+        .unwrap();
         let rect = |world: &World, id| {
             world
                 .get::<ComputedRect>(world.find_by_id(id).unwrap())
@@ -171,12 +173,12 @@ fn phone_scroll_extent_ends_at_the_last_visible_descendant() {
     use crate::input::event::scroll::ScrollBounds;
     use crate::types::Viewport;
     use crate::ui::ComputedRect;
-    use crate::ui::render_system::update_layout;
+    use crate::ui::render_system::try_update_layout;
 
     for (width, height) in [(320, 568), (422, 600), (480, 320)] {
         let (mut app, parent) = fixture(width, height);
         let world = &mut app.world;
-        update_layout(world, parent, &Viewport::new(width, height, Fixed::ONE));
+        try_update_layout(world, parent, &Viewport::new(width, height, Fixed::ONE)).unwrap();
         let shell = world.find_by_id("layout_lab_shell").unwrap();
         let content = world.find_by_id("layout_lab_document").unwrap();
         let last = world.find_by_id("layout_lab_collection").unwrap();

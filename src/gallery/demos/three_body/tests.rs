@@ -83,7 +83,7 @@ fn animation_systems_reuse_body_entities() {
 #[test]
 fn viewport_resize_recenters_bodies_and_orbit_guides() {
     use crate::types::Viewport;
-    use crate::ui::render_system::update_layout;
+    use crate::ui::render_system::try_update_layout;
 
     fn stopped_clock() -> u64 {
         0
@@ -99,7 +99,7 @@ fn viewport_resize_recenters_bodies_and_orbit_guides() {
     let body = app.world.query::<PhysicsBody>().iter().next().unwrap().0;
     let before = app.world.get::<PhysicsBody>(body).unwrap();
     let before = (before.x, before.y);
-    update_layout(&mut app.world, root, &Viewport::new(320, 480, Fixed::ONE));
+    try_update_layout(&mut app.world, root, &Viewport::new(320, 480, Fixed::ONE)).unwrap();
     let mut scheduler = SystemScheduler::new();
     scheduler.add(physics_tick_system::system());
     scheduler.add(sync_layout_system::system());
