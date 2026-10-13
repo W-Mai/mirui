@@ -18,7 +18,8 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    render_system::update_layout(&mut app.world, root, &viewport);
+    render_system::try_update_layout(&mut app.world, root, &viewport)
+        .map_err(|_| RenderError::TextLayout)?;
     let mut renderer = app.factory.make(&mut app.backend, &viewport);
     render_system::render(&app.world, root, &viewport, &mut renderer)?;
     renderer.prepare_readback(&full)?;

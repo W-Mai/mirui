@@ -37,7 +37,8 @@ where
         Demo::CoverFlow => cover_flow::setup_app(app, root),
     }
     let viewport = app.backend.display_info().viewport();
-    render_system::update_layout(&mut app.world, root, &viewport);
+    render_system::try_update_layout(&mut app.world, root, &viewport)
+        .expect("prepare projective demo layout");
     match demo {
         Demo::FlipCard => {
             let mut scheduler = SystemScheduler::new();

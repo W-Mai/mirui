@@ -77,6 +77,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Snapshot and rendering benchmark tools stop on layout failures instead of drawing from an incomplete layout.
+
 - Web Canvas uses physical-pixel scissors for partial redraws, preventing blended seams along fractional clipping edges.
 - Empty logical regions remain empty when converted to physical pixels at fractional coordinates.
 

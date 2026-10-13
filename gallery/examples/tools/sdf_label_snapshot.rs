@@ -104,7 +104,8 @@ fn main() {
     use mirui::ui::render_system;
 
     let viewport = Viewport::new(width, height, Fixed::from_f32(scale));
-    render_system::update_layout(&mut app.world, root, &viewport);
+    render_system::try_update_layout(&mut app.world, root, &viewport)
+        .expect("prepare snapshot layout");
     {
         use mirui::surface::FramebufferAccess;
         let tex = app.backend.framebuffer();

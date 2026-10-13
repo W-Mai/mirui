@@ -22,6 +22,8 @@ For a regression check, capture before and after a change with identical argumen
 
 Scene construction belongs in `#[compose]` functions called through `App::compose`. Tools that inspect render internals keep those diagnostics outside the composition body.
 
+Tools that prepare layout directly use `try_update_layout` and stop on failure before drawing or writing an image. Shared backend capture reports this as `RenderError::TextLayout`.
+
 ## Interactive diagnostics
 
 ```sh

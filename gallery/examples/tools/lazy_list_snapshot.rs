@@ -116,7 +116,8 @@ fn main() {
     scheduler.run_all(&mut app.world).unwrap();
 
     let viewport = Viewport::new(W, H, Fixed::ONE);
-    render_system::update_layout(&mut app.world, root, &viewport);
+    render_system::try_update_layout(&mut app.world, root, &viewport)
+        .expect("prepare snapshot layout");
     {
         let tex = app.backend.framebuffer();
         let mut renderer = SwRenderer::new(tex);

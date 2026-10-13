@@ -131,7 +131,7 @@ fn main() {
     scheduler.run_all(world).unwrap();
 
     let viewport = Viewport::new(width, height, Fixed::ONE);
-    render_system::update_layout(world, root, &viewport);
+    render_system::try_update_layout(world, root, &viewport).expect("prepare snapshot layout");
     {
         use mirui::surface::FramebufferAccess;
         let tex = app.backend.framebuffer();

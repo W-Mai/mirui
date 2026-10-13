@@ -161,7 +161,8 @@ fn run_scene_image_heavy(count: u32, label: &str) {
 
     record_scene(label, || {
         mirui::trace_span!("frame.layout", {
-            render_system::update_layout(&mut app.world, root, &viewport);
+            render_system::try_update_layout(&mut app.world, root, &viewport)
+                .expect("prepare benchmark layout");
         });
         let tex = app.backend.framebuffer();
         let mut renderer = SwRenderer::new(tex);
@@ -183,7 +184,8 @@ fn run_scene_no_image(count: u32, label: &str) {
 
     record_scene(label, || {
         mirui::trace_span!("frame.layout", {
-            render_system::update_layout(&mut app.world, root, &viewport);
+            render_system::try_update_layout(&mut app.world, root, &viewport)
+                .expect("prepare benchmark layout");
         });
         let tex = app.backend.framebuffer();
         let mut renderer = SwRenderer::new(tex);

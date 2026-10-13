@@ -86,7 +86,8 @@ fn main() {
     app.compose(root, font_panel(font));
 
     let viewport = Viewport::new(width, height, Fixed::ONE);
-    render_system::update_layout(&mut app.world, root, &viewport);
+    render_system::try_update_layout(&mut app.world, root, &viewport)
+        .expect("prepare snapshot layout");
     {
         let texture = app.backend.framebuffer();
         let mut renderer = SwRenderer::new(texture);
