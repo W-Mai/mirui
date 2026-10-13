@@ -1380,11 +1380,12 @@ mod tests {
         )
         .unwrap();
         set_sim_root(&mut world, target);
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             target,
             &crate::types::Viewport::new(128, 128, Fixed::ONE),
-        );
+        )
+        .unwrap();
         (world, target)
     }
 
@@ -2125,7 +2126,7 @@ mod tests {
             },
         );
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
 
         world.insert_resource(SimTimeline::new(alloc::vec![
             SimAction::tap(DimPoint::CENTER).on(target),
@@ -2182,7 +2183,7 @@ mod tests {
             },
         );
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
 
         world.insert_resource(SimTimeline::new(alloc::vec![
             SimAction::drag(
@@ -2304,11 +2305,12 @@ mod tests {
             tb.selected = 2;
         }
         tab_pages_system(&mut world).unwrap();
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &crate::types::Viewport::new(128, 128, Fixed::ONE),
-        );
+        )
+        .unwrap();
 
         let cx = Fixed::from_int(64);
         let cy = Fixed::from_int(71);
@@ -2377,11 +2379,12 @@ mod tests {
                 y: Fixed::from_int(30),
             },
         );
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &crate::types::Viewport::new(60, 90, Fixed::ONE),
-        );
+        )
+        .unwrap();
 
         let hit = hit_test(
             &world,
@@ -2450,11 +2453,12 @@ mod tests {
                 y: Fixed::from_int(95),
             },
         );
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &crate::types::Viewport::new(100, 100, Fixed::ONE),
-        );
+        )
+        .unwrap();
 
         let hit = hit_test(
             &world,
@@ -2486,11 +2490,12 @@ mod tests {
             tb.selected = 2;
         }
         tab_pages_system(&mut world).unwrap();
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &crate::types::Viewport::new(128, 128, Fixed::ONE),
-        );
+        )
+        .unwrap();
 
         let cx = Fixed::from_int(64);
         let cy = Fixed::from_int(71);
@@ -2563,11 +2568,12 @@ mod tests {
             tb.selected = 2;
         }
         tab_pages_system(&mut world).unwrap();
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &crate::types::Viewport::new(128, 128, Fixed::ONE),
-        );
+        )
+        .unwrap();
 
         let cx = Fixed::from_int(64);
         let cy = Fixed::from_int(71);
@@ -2757,7 +2763,7 @@ mod tests {
         let total_frames: u64 = (cycle_ms * 25 / 10) / step; // ~2.5 cycles
 
         let viewport = crate::types::Viewport::new(128, 128, Fixed::ONE);
-        crate::ui::render_system::update_layout(&mut world, _root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, _root, &viewport).unwrap();
 
         let mut cycle1_toggles = 0u32;
         let mut cycle2_toggles = 0u32;
@@ -2772,7 +2778,7 @@ mod tests {
             crate::input::event::scroll::system::scroll_inertia_system(&mut world).unwrap();
             tab_pages_system(&mut world).unwrap();
             switch_systems.run_all(&mut world).unwrap();
-            crate::ui::render_system::update_layout(&mut world, _root, &viewport);
+            crate::ui::render_system::try_update_layout(&mut world, _root, &viewport).unwrap();
 
             let on = world.get::<Switch>(switch).map(|s| s.on).unwrap_or(false);
             if on != last_on {
@@ -2876,7 +2882,7 @@ mod tests {
         );
         install_pinch_probe(&mut world, target);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
 
         let center = Point {
             x: Fixed::from_int(64),
@@ -2978,7 +2984,7 @@ mod tests {
         );
         install_pinch_probe(&mut world, target);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
 
         let center = Point {
             x: Fixed::from_int(64),
@@ -3052,7 +3058,7 @@ mod tests {
         );
         install_pinch_probe(&mut world, target);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
 
         world.insert_resource(SimTimeline::new(alloc::vec![
             SimAction::pinch(
@@ -3102,7 +3108,7 @@ mod tests {
         );
         install_pinch_probe(&mut world, target);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
 
         world.insert_resource(SimTimeline::new(alloc::vec![
             SimAction::pinch(
@@ -3152,7 +3158,7 @@ mod tests {
         );
         install_pinch_probe(&mut world, target);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
 
         world.insert_resource(SimTimeline::new(alloc::vec![
             SimAction::rotate_gesture(
@@ -3203,7 +3209,7 @@ mod tests {
         );
         install_pinch_probe(&mut world, target);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
 
         let center = Point {
             x: Fixed::from_int(64),

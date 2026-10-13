@@ -78,7 +78,8 @@ fn setup_with_capacity(capacity: super::super::EventCapacity) -> (World, [Entity
 }
 
 fn layout(world: &mut World, root: Entity) {
-    crate::ui::render_system::update_layout(world, root, &Viewport::new(100, 100, Fixed::ONE));
+    crate::ui::render_system::try_update_layout(world, root, &Viewport::new(100, 100, Fixed::ONE))
+        .unwrap();
 }
 
 fn input(world: &mut World, root: Entity, input: InputEvent) {

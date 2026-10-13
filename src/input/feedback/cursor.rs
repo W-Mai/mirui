@@ -333,11 +333,12 @@ mod tests {
         );
         world.insert(target, HitTarget);
         world.insert_resource(WidgetRoot(root));
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             world,
             root,
             &crate::types::Viewport::new(128, 128, Fixed::ONE),
-        );
+        )
+        .unwrap();
         root
     }
 
@@ -506,11 +507,12 @@ mod tests {
         style.layout.position = Position::Absolute;
         style.layout.left = Dimension::px(0);
         style.layout.top = Dimension::px(20);
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &crate::types::Viewport::new(128, 128, Fixed::ONE),
-        );
+        )
+        .unwrap();
 
         // Layout-motion signal that triggers the gate: a published
         // shift on the previous frame.

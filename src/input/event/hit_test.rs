@@ -404,21 +404,23 @@ mod tests {
         world.insert(target, Children(Vec::new()));
         append(&mut world, root, target);
 
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &Viewport::new(128, 128, Fixed::ONE),
-        );
+        )
+        .unwrap();
         assert_eq!(
             hit_test(&world, root, 4.into(), 4.into(), 128, 128),
             Some(target)
         );
         let revision = geometry_revision(&world);
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &Viewport::new(128, 128, Fixed::ONE),
-        );
+        )
+        .unwrap();
         assert_eq!(geometry_revision(&world), revision);
         let capacity = world
             .resource::<HitTestGeometry>()
@@ -455,7 +457,7 @@ mod tests {
         assert!(world.get::<Parent>(target).is_none());
 
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
         assert_eq!(
             hit_test(&world, root, 4.into(), 4.into(), 128, 128),
             Some(target)
@@ -463,7 +465,7 @@ mod tests {
 
         world.insert(root, crate::ui::Hidden);
         assert_eq!(hit_test(&world, root, 4.into(), 4.into(), 128, 128), None);
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
         assert_eq!(hit_test(&world, root, 4.into(), 4.into(), 128, 128), None);
     }
 
@@ -496,14 +498,14 @@ mod tests {
         }
 
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
         let geometry = world.resource::<HitTestGeometry>().unwrap();
         let reserved = geometry.entries.capacity();
         assert_eq!(geometry.entries.len(), 1);
         assert!(reserved >= 3);
 
         world.remove::<crate::ui::Hidden>(hidden);
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
         let geometry = world.resource::<HitTestGeometry>().unwrap();
         assert_eq!(geometry.entries.len(), 3);
         assert_eq!(geometry.entries.capacity(), reserved);
@@ -537,11 +539,12 @@ mod tests {
         );
         append(&mut world, root, scroll);
 
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &Viewport::new(128, 128, Fixed::ONE),
-        );
+        )
+        .unwrap();
         assert_eq!(
             hit_test(&world, root, 40.into(), 40.into(), 128, 128),
             Some(scroll)
@@ -574,11 +577,12 @@ mod tests {
         );
         append(&mut world, scroll, target);
 
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &Viewport::new(128, 128, Fixed::ONE),
-        );
+        )
+        .unwrap();
         assert_eq!(
             hit_test(&world, root, 35.into(), 10.into(), 128, 128),
             Some(target)
@@ -653,11 +657,12 @@ mod tests {
             world.insert(target, WidgetTransform3D(local_projective));
             world.insert(target, TransformOrigin::TOP_LEFT);
             append(&mut world, parent, target);
-            crate::ui::render_system::update_layout(
+            crate::ui::render_system::try_update_layout(
                 &mut world,
                 root,
                 &Viewport::new(128, 128, Fixed::ONE),
-            );
+            )
+            .unwrap();
 
             let (rect, affine, projective) =
                 crate::ui::geometry::widget_render_geometry(&world, target).unwrap();
@@ -707,7 +712,7 @@ mod tests {
         world.insert(target, Children(Vec::new()));
         append(&mut world, root, target);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::ui::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::try_update_layout(&mut world, root, &viewport).unwrap();
         let revision = geometry_revision(&world);
 
         world.insert(

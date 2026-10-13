@@ -668,11 +668,12 @@ mod tests {
             ..ScrollDragState::default()
         });
         world.insert_resource(ScrollMotion::default());
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &Viewport::new(100, 100, Fixed::ONE),
-        );
+        )
+        .unwrap();
         world.invalidate_visual(root);
         (world, root)
     }

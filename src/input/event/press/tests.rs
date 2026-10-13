@@ -86,7 +86,12 @@ fn setup(capacity: super::super::EventCapacity) -> (World, Entity, Entity) {
     world.insert(root, Children(alloc::vec![child]));
     world.insert(child, Parent(root));
     world.insert(child, HitTarget);
-    crate::ui::render_system::update_layout(&mut world, root, &Viewport::new(100, 100, Fixed::ONE));
+    crate::ui::render_system::try_update_layout(
+        &mut world,
+        root,
+        &Viewport::new(100, 100, Fixed::ONE),
+    )
+    .unwrap();
     (world, root, child)
 }
 

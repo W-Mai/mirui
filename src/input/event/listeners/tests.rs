@@ -1250,11 +1250,12 @@ impl ScrollFixture {
             wheel: Cell::new(None),
             rotary: Cell::new(None),
         });
-        crate::ui::render_system::update_layout(
+        crate::ui::render_system::try_update_layout(
             &mut world,
             root,
             &Viewport::new(100, 100, Fixed::ONE),
-        );
+        )
+        .unwrap();
         let pool = EventListeners::new(&mut world);
         pool.reserve(ListenerCapacity {
             listeners: 4,

@@ -352,11 +352,12 @@ fn scrolling_world() -> (World, Entity) {
             ..Default::default()
         },
     );
-    crate::ui::render_system::update_layout(
+    crate::ui::render_system::try_update_layout(
         &mut world,
         node,
         &crate::types::Viewport::new(100, 100, Fixed::ONE),
-    );
+    )
+    .unwrap();
     (world, node)
 }
 
