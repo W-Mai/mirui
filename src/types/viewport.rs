@@ -107,6 +107,9 @@ impl Viewport {
         target_width: u32,
         target_height: u32,
     ) -> Option<PhysicalRect> {
+        if logical.w <= Fixed::ZERO || logical.h <= Fixed::ZERO {
+            return None;
+        }
         let (x0, y0, x1, y1) = self.rect_to_physical_pixel_bounds(logical);
         let width = target_width.min(u32::from(self.physical_w)) as i32;
         let height = target_height.min(u32::from(self.physical_h)) as i32;
@@ -253,6 +256,22 @@ mod tests {
         ];
         for (viewport, expected) in cases {
             assert_eq!(viewport.physical_rect(logical), expected);
+        }
+    }
+
+    #[test]
+    fn empty_logical_regions_never_expand_to_physical_pixels() {
+        for scale in [Fixed::ONE, Fixed::from_ratio(3, 2), Fixed::from_int(2)] {
+            let viewport = Viewport::new(32, 32, scale);
+            for (width, height) in [(0, 4), (4, 0), (-1, 4), (4, -1)] {
+                let region = Rect::new(
+                    Fixed::from_ratio(1, 4),
+                    Fixed::from_ratio(1, 4),
+                    width,
+                    height,
+                );
+                assert_eq!(viewport.physical_rect(region), None);
+            }
         }
     }
 }

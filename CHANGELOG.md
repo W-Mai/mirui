@@ -77,6 +77,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Web Canvas uses physical-pixel scissors for partial redraws, preventing blended seams along fractional clipping edges.
+- Empty logical regions remain empty when converted to physical pixels at fractional coordinates.
+
 - Offscreen captures reuse software path and clip storage across frames and release it on memory warnings or when capture demand ends.
 
 - Layout preparation reserves visual-dirty markers for initially hidden branches, avoiding marker-table growth on their first reveal.

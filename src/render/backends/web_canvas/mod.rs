@@ -656,24 +656,24 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
             .physical_rect_in(*src, u32::from(pw), u32::from(ph))
     }
 
-    /// Push a clip rect onto the context state stack. The clip lives
-    /// in logical pixels, so it stays anchored to the screen even when
-    /// the caller already pushed a widget transform onto `ctx`.
-    /// `pop_clip` undoes both the clip and the transform restoration.
+    /// Clip in physical pixels so partial redraw edges do not blend with retained pixels. The scissor stays in screen space regardless of the current widget transform.
     fn push_rect_clip(&self, clip: &Rect) {
         let ctx = self.ctx();
         let saved = self.context_transform();
         ctx.save();
-        let d = self.dpr();
-        ctx.set_transform(d, 0.0, 0.0, d, 0.0, 0.0)
-            .expect("setTransform(dpr)");
+        ctx.set_transform(1.0, 0.0, 0.0, 1.0, 0.0, 0.0)
+            .expect("setTransform(identity)");
         ctx.begin_path();
-        ctx.rect(
-            clip.x.to_f32() as f64,
-            clip.y.to_f32() as f64,
-            clip.w.to_f32() as f64,
-            clip.h.to_f32() as f64,
-        );
+        if let Some(physical) = self.physical_clip_rect(clip) {
+            ctx.rect(
+                f64::from(physical.x()),
+                f64::from(physical.y()),
+                f64::from(physical.width()),
+                f64::from(physical.height()),
+            );
+        } else {
+            ctx.rect(0.0, 0.0, 0.0, 0.0);
+        }
         ctx.clip();
         ctx.set_transform(saved[0], saved[1], saved[2], saved[3], saved[4], saved[5])
             .expect("setTransform(restore)");

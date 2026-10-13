@@ -60,10 +60,7 @@ Numeric conversion follows one direction:
 | MIRX dimensions, offsets, and stride | `u32` | stable wire representation |
 | SDL/WGPU/Web coordinates | backend-required `u32` or `f64` | final host call only |
 
-Logical bounds are scaled in `Fixed`; top and left are floored, bottom and
-right are ceiled; signed edges are clipped to the target; conversion to `u16`
-happens last. Backends consume the resulting `PhysicalRect` and do not round it
-again.
+Logical bounds are scaled in `Fixed`; top and left are floored, bottom and right are ceiled; signed edges are clipped to the target; conversion to `u16` happens last. Empty logical bounds remain empty. Backends consume the resulting `PhysicalRect` and do not round it again. Web Canvas applies rectangular scissors in physical pixels; path clips retain their geometric coverage.
 
 ## Aligned caller storage
 
