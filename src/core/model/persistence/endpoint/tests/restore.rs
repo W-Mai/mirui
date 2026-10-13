@@ -1,4 +1,5 @@
 use super::*;
+use crate::core::persistence::EncodeOutcome;
 use crate::core::{
     model::{ModelHandle, OwnedModel},
     reactive::{Computed, with_world_scope},
@@ -226,7 +227,7 @@ fn active_member_iteration_blocks_whole_root_restore_without_storage_io() {
 impl ModelCodec for FaultyCodec {
     type Model = State;
     type Prepared = u8;
-    fn encode(&self, _: &State, _: &mut Vec<u8>) -> Result<(), PersistenceError> {
+    fn encode(&self, _: &State, _: &mut Vec<u8>) -> Result<EncodeOutcome, PersistenceError> {
         unreachable!()
     }
     fn prepare(&self, _: &State, _: &[u8]) -> Result<u8, PersistenceError> {

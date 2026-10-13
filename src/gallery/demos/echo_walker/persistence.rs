@@ -1,3 +1,4 @@
+use crate::core::persistence::EncodeOutcome;
 use crate::core::persistence::{ModelCodec, PersistenceError, PersistencePlugin};
 use crate::gallery::play::echo::EchoModel;
 use crate::gallery::play::storage::{EchoReplayLog, ReplayKind, replay_echo};
@@ -12,8 +13,8 @@ impl ModelCodec for EchoArchive {
         &self,
         model: &EchoModel,
         output: &mut alloc::vec::Vec<u8>,
-    ) -> Result<(), PersistenceError> {
-        model.encode_replay(output)
+    ) -> Result<EncodeOutcome, PersistenceError> {
+        model.encode_replay(output).map(|()| EncodeOutcome::Encoded)
     }
     fn prepare(&self, _: &EchoModel, bytes: &[u8]) -> Result<EchoModel, PersistenceError> {
         let log = EchoReplayLog::decode(bytes, ReplayKind::Echo)
@@ -65,7 +66,12 @@ mod tests {
         EchoArchive.encode(&source, &mut bytes).unwrap();
         assert_eq!(&bytes[..4], b"MAH1");
         assert_eq!(
-            tracked_allocations(|| EchoArchive.encode(&source, &mut bytes).unwrap()),
+            tracked_allocations(|| {
+                assert_eq!(
+                    EchoArchive.encode(&source, &mut bytes).unwrap(),
+                    EncodeOutcome::Encoded
+                );
+            }),
             0
         );
         let mut storage = MemoryStorage::new();

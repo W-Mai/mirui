@@ -1,4 +1,5 @@
 use super::{manual::SharedStore, *};
+use mirui::core::persistence::EncodeOutcome;
 use mirui::{
     app::App,
     core::{
@@ -120,8 +121,13 @@ struct CheckedCollections;
 impl mirui::core::persistence::ModelCodec for CheckedCollections {
     type Model = Collections;
     type Prepared = <Collections as PersistValue>::Prepared;
-    fn encode(&self, value: &Collections, output: &mut Vec<u8>) -> Result<(), PersistenceError> {
-        archive::encode(&Collections::SCHEMA, output, |writer| value.encode(writer))
+    fn encode(
+        &self,
+        value: &Collections,
+        output: &mut Vec<u8>,
+    ) -> Result<EncodeOutcome, PersistenceError> {
+        archive::encode(&Collections::SCHEMA, output, |writer| value.encode(writer))?;
+        Ok(EncodeOutcome::Encoded)
     }
     fn prepare(
         &self,

@@ -1,4 +1,5 @@
 use super::*;
+use crate::core::persistence::EncodeOutcome;
 use crate::core::persistence::PersistencePlugin;
 use core::cell::Cell;
 
@@ -11,10 +12,14 @@ impl ModelCodec for SettingsCodec {
     type Model = Settings;
     type Prepared = (u8, bool);
 
-    fn encode(&self, model: &Settings, output: &mut Vec<u8>) -> Result<(), PersistenceError> {
+    fn encode(
+        &self,
+        model: &Settings,
+        output: &mut Vec<u8>,
+    ) -> Result<EncodeOutcome, PersistenceError> {
         self.encodes.set(self.encodes.get() + 1);
         output.extend_from_slice(&[self.prefix, model.value, u8::from(model.temporary)]);
-        Ok(())
+        Ok(EncodeOutcome::Encoded)
     }
 
     fn prepare(&self, _: &Settings, bytes: &[u8]) -> Result<Self::Prepared, PersistenceError> {
@@ -91,9 +96,13 @@ struct DocumentCodec(u8);
 impl ModelCodec for DocumentCodec {
     type Model = Document;
     type Prepared = u8;
-    fn encode(&self, model: &Document, output: &mut Vec<u8>) -> Result<(), PersistenceError> {
+    fn encode(
+        &self,
+        model: &Document,
+        output: &mut Vec<u8>,
+    ) -> Result<EncodeOutcome, PersistenceError> {
         output.extend_from_slice(&[self.0, model.data.0]);
-        Ok(())
+        Ok(EncodeOutcome::Encoded)
     }
     fn prepare(&self, _: &Document, bytes: &[u8]) -> Result<u8, PersistenceError> {
         match bytes {

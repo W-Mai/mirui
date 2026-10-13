@@ -5,6 +5,15 @@ use core::marker::PhantomData;
 use super::{PersistenceError, archive, value::PersistValue};
 use crate::core::model::{Model, PersistModel};
 
+/// Whether encoding produced a complete record or postponed saving.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EncodeOutcome {
+    /// Submit the complete output buffer to storage, including an empty record.
+    Encoded,
+    /// Discard this attempt's output and retain the pending save without adding an error.
+    Deferred,
+}
+
 /// A complete archive format for one Model type.
 ///
 /// Encoding receives the raw Model and a reusable output buffer. Preparation validates all bytes and completes fallible work without modifying the Model. Application consumes that prepared result without allocation, business effects, or additional validation; apply it only to the instance used for preparation, without intervening edits.
@@ -12,8 +21,12 @@ pub trait ModelCodec: 'static {
     type Model: Model;
     type Prepared;
 
-    /// Encode the complete storage record. The caller clears `output` before invoking this method.
-    fn encode(&self, model: &Self::Model, output: &mut Vec<u8>) -> Result<(), PersistenceError>;
+    /// Encode the complete storage record. The caller clears `output` before invoking this method. Returning `Deferred` discards any output without releasing its capacity; a subsequent save request can retry. Deferral does not clear previous errors or confirm a save, including during shutdown.
+    fn encode(
+        &self,
+        model: &Self::Model,
+        output: &mut Vec<u8>,
+    ) -> Result<EncodeOutcome, PersistenceError>;
 
     /// Prepare restoration from the complete storage record, with no framework prefix removed.
     fn prepare(
@@ -29,7 +42,11 @@ pub trait ModelCodec: 'static {
 impl<C: ModelCodec + ?Sized> ModelCodec for Rc<C> {
     type Model = C::Model;
     type Prepared = C::Prepared;
-    fn encode(&self, model: &Self::Model, output: &mut Vec<u8>) -> Result<(), PersistenceError> {
+    fn encode(
+        &self,
+        model: &Self::Model,
+        output: &mut Vec<u8>,
+    ) -> Result<EncodeOutcome, PersistenceError> {
         (**self).encode(model, output)
     }
     fn prepare(
@@ -58,8 +75,9 @@ impl<M: PersistModel + PersistValue> ModelCodec for FieldCodec<M> {
     type Model = M;
     type Prepared = M::Prepared;
 
-    fn encode(&self, model: &M, output: &mut Vec<u8>) -> Result<(), PersistenceError> {
-        archive::encode(&M::SCHEMA, output, |writer| model.encode(writer))
+    fn encode(&self, model: &M, output: &mut Vec<u8>) -> Result<EncodeOutcome, PersistenceError> {
+        archive::encode(&M::SCHEMA, output, |writer| model.encode(writer))?;
+        Ok(EncodeOutcome::Encoded)
     }
 
     fn prepare(&self, model: &M, bytes: &[u8]) -> Result<Self::Prepared, PersistenceError> {

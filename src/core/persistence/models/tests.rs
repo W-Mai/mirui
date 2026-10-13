@@ -7,6 +7,7 @@ use alloc::rc::Rc;
 use core::cell::RefCell;
 
 mod codecs;
+mod deferral;
 mod lifecycle;
 mod receipts;
 

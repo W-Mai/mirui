@@ -1,3 +1,4 @@
+use crate::core::persistence::EncodeOutcome;
 use crate::core::persistence::{ModelCodec, PersistenceError, PersistencePlugin};
 use crate::gallery::play::fold::{FoldModel, SAVE_LEN};
 use crate::prelude::{App, RendererFactory, Surface};
@@ -12,7 +13,7 @@ impl ModelCodec for FoldArchive {
         &self,
         model: &FoldModel,
         output: &mut alloc::vec::Vec<u8>,
-    ) -> Result<(), PersistenceError> {
+    ) -> Result<EncodeOutcome, PersistenceError> {
         output.clear();
         output
             .try_reserve_exact(SAVE_LEN)
@@ -21,7 +22,7 @@ impl ModelCodec for FoldArchive {
         model
             .encode_into(output)
             .map_err(|_| PersistenceError::Encoding)?;
-        Ok(())
+        Ok(EncodeOutcome::Encoded)
     }
 
     fn prepare(&self, _: &FoldModel, bytes: &[u8]) -> Result<FoldModel, PersistenceError> {
@@ -73,7 +74,12 @@ mod tests {
         assert_eq!(bytes.len(), SAVE_LEN);
         assert_eq!(&bytes[..4], b"FLD1");
         assert_eq!(
-            tracked_allocations(|| FoldArchive.encode(&source, &mut bytes).unwrap()),
+            tracked_allocations(|| {
+                assert_eq!(
+                    FoldArchive.encode(&source, &mut bytes).unwrap(),
+                    EncodeOutcome::Encoded
+                );
+            }),
             0
         );
         let mut storage = MemoryStorage::new();

@@ -73,14 +73,20 @@ mod enabled {
     mod manual;
     mod status;
 
+    use mirui::core::persistence::EncodeOutcome;
+
     struct RawSettings;
 
     impl mirui::core::persistence::ModelCodec for RawSettings {
         type Model = Settings;
         type Prepared = u8;
-        fn encode(&self, model: &Settings, output: &mut Vec<u8>) -> Result<(), PersistenceError> {
+        fn encode(
+            &self,
+            model: &Settings,
+            output: &mut Vec<u8>,
+        ) -> Result<EncodeOutcome, PersistenceError> {
             output.push(model.volume);
-            Ok(())
+            Ok(EncodeOutcome::Encoded)
         }
         fn prepare(&self, _: &Settings, bytes: &[u8]) -> Result<u8, PersistenceError> {
             match bytes {

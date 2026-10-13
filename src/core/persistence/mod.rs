@@ -23,7 +23,7 @@ pub use commands::PersistenceCommands;
 pub use error::PersistenceError;
 #[doc(hidden)]
 pub use model_codec::FieldCodec;
-pub use model_codec::ModelCodec;
+pub use model_codec::{EncodeOutcome, ModelCodec};
 pub use status::PersistenceStatus;
 
 use alloc::boxed::Box;

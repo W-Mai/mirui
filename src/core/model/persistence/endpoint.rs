@@ -6,7 +6,7 @@ use alloc::{
 use crate::{
     core::{
         model::{Model, ModelAccess, ModelChildren, ModelRoot, PersistenceTarget},
-        persistence::{ModelCodec, PersistenceError},
+        persistence::{EncodeOutcome, ModelCodec, PersistenceError},
         storage::{Storage, WriteOutcome},
     },
     ecs::world::WorldId,
@@ -155,20 +155,27 @@ where
             return Ok(None);
         }
         let stamp = root.persistence.stamp();
-        {
+        let encoded = {
             let value = root
                 .value
                 .try_borrow()
                 .map_err(|_| PersistenceError::ModelBusy)?;
             let _read_only = crate::core::reactive::ModelReadOnlyGuard::enter();
-            if let Err(error) = self.codec.encode(&value, output) {
-                output.clear();
-                return Err(error);
+            match self.codec.encode(&value, output) {
+                Ok(outcome) => outcome,
+                Err(error) => {
+                    output.clear();
+                    return Err(error);
+                }
             }
-        }
+        };
         if let Err(error) = self.validate(&root, owner) {
             output.clear();
             return Err(error);
+        }
+        if encoded == EncodeOutcome::Deferred {
+            output.clear();
+            return Ok(None);
         }
         let outcome = storage.write(key, output)?;
         if self.validate(&root, owner).is_ok() {

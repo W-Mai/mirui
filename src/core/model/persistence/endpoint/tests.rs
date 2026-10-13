@@ -1,4 +1,5 @@
 use super::*;
+use crate::core::persistence::EncodeOutcome;
 use crate::{
     core::{model, persistence::FieldCodec, storage::StorageError},
     ecs::World,
@@ -219,13 +220,18 @@ fn invalid_roots_never_reach_storage() {
 
 struct RawCodec {
     fail: Cell<bool>,
+    outcome: Cell<EncodeOutcome>,
     on_encode: Option<Box<dyn Fn()>>,
 }
 
 impl ModelCodec for RawCodec {
     type Model = State;
     type Prepared = u8;
-    fn encode(&self, model: &State, output: &mut Vec<u8>) -> Result<(), PersistenceError> {
+    fn encode(
+        &self,
+        model: &State,
+        output: &mut Vec<u8>,
+    ) -> Result<EncodeOutcome, PersistenceError> {
         if let Some(callback) = &self.on_encode {
             callback();
         }
@@ -233,7 +239,7 @@ impl ModelCodec for RawCodec {
         if self.fail.get() {
             Err(PersistenceError::Encoding)
         } else {
-            Ok(())
+            Ok(self.outcome.get())
         }
     }
     fn prepare(&self, _: &State, bytes: &[u8]) -> Result<u8, PersistenceError> {
@@ -253,6 +259,7 @@ fn custom_codec_owns_complete_bytes_and_failed_encoding_never_writes() {
     let (registration, _) = model::register(&mut world, state());
     let codec = Rc::new(RawCodec {
         fail: Cell::new(true),
+        outcome: Cell::new(EncodeOutcome::Encoded),
         on_encode: None,
     });
     let endpoint = PersistenceEndpoint::new(&registration.root, codec.clone());
@@ -294,6 +301,7 @@ fn retirement_during_encoding_prevents_storage_access() {
     let registration = core::cell::RefCell::new(Some(registration));
     let codec = Rc::new(RawCodec {
         fail: Cell::new(false),
+        outcome: Cell::new(EncodeOutcome::Deferred),
         on_encode: Some(Box::new(move || {
             registration.borrow_mut().take();
         })),
@@ -327,4 +335,41 @@ fn field_codec_prepares_complete_records_without_mutating_the_source() {
     );
     assert_eq!(restored.value, 7);
     assert!(restored.temporary);
+}
+
+#[test]
+fn deferred_encoding_discards_partial_output_and_reuses_capacity_until_saved() {
+    let mut world = World::new();
+    let (registration, _) = model::register(&mut world, state());
+    let codec = Rc::new(RawCodec {
+        fail: Cell::new(false),
+        outcome: Cell::new(EncodeOutcome::Deferred),
+        on_encode: None,
+    });
+    let endpoint = PersistenceEndpoint::new(&registration.root, codec.clone());
+    let mut store = Store::default();
+    let mut output = Vec::with_capacity(8);
+    let capacity = output.capacity();
+    assert_eq!(
+        tracked_allocations(|| {
+            for force in [false, true] {
+                assert_eq!(
+                    endpoint.save(&world, "state", &mut store, &mut output, force),
+                    Ok(None)
+                );
+                assert!(output.is_empty());
+                assert_eq!(output.capacity(), capacity);
+                assert!(registration.root.persistence.pending());
+            }
+        }),
+        0
+    );
+    assert_eq!(store.writes, 0);
+    codec.outcome.set(EncodeOutcome::Encoded);
+    assert_eq!(
+        endpoint.save(&world, "state", &mut store, &mut output, false),
+        Ok(Some(WriteOutcome::Written))
+    );
+    assert_eq!(store.bytes, [0xff, 7]);
+    assert!(!registration.root.persistence.pending());
 }

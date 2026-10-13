@@ -1,3 +1,4 @@
+use crate::core::persistence::EncodeOutcome;
 use crate::core::persistence::{ModelCodec, PersistenceError, PersistencePlugin};
 use crate::gallery::play::storage::{ReplayKind, TidalReplayLog, replay_tide};
 use crate::gallery::play::tidal::TideModel;
@@ -12,8 +13,8 @@ impl ModelCodec for TideArchive {
         &self,
         model: &TideModel,
         output: &mut alloc::vec::Vec<u8>,
-    ) -> Result<(), PersistenceError> {
-        model.encode_replay(output)
+    ) -> Result<EncodeOutcome, PersistenceError> {
+        model.encode_replay(output).map(|()| EncodeOutcome::Encoded)
     }
     fn prepare(&self, _: &TideModel, bytes: &[u8]) -> Result<TideModel, PersistenceError> {
         let log = TidalReplayLog::decode(bytes, ReplayKind::Tidal)
@@ -65,7 +66,12 @@ mod tests {
         TideArchive.encode(&source, &mut bytes).unwrap();
         assert_eq!(&bytes[..4], b"MAH1");
         assert_eq!(
-            tracked_allocations(|| TideArchive.encode(&source, &mut bytes).unwrap()),
+            tracked_allocations(|| {
+                assert_eq!(
+                    TideArchive.encode(&source, &mut bytes).unwrap(),
+                    EncodeOutcome::Encoded
+                );
+            }),
             0
         );
         let mut storage = MemoryStorage::new();
