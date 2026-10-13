@@ -1,5 +1,4 @@
 use super::runtime::dims_from_px;
-#[cfg(feature = "std")]
 use super::runtime::install_runtime;
 use super::state::seeded_board;
 use crate::prelude::*;
@@ -116,7 +115,6 @@ pub fn build_widgets(view_w: u16, view_h: u16) {
     //~focus-end
 }
 
-#[cfg(feature = "std")]
 pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
 where
     B: Surface,

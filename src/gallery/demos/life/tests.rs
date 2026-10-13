@@ -11,6 +11,23 @@ use crate::ui::ComputedRect;
 use crate::ui::render_system::update_layout;
 
 #[test]
+fn shared_setup_installs_board_view_and_timer() {
+    let mut app = App::headless(320, 320);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    super::setup_app(&mut app, root);
+    let board = app.world.find_by_id("life_board").unwrap();
+    assert!(app.world.has::<LifeBoard>(board));
+    assert_eq!(
+        app.world
+            .query::<crate::core::timer::Timer>()
+            .iter()
+            .count(),
+        1
+    );
+}
+
+#[test]
 fn authored_step_system_runs_only_for_a_timer_tick() {
     let mut world = World::new();
     let board_entity = world.spawn_empty();

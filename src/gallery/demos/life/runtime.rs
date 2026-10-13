@@ -1,7 +1,5 @@
-#[cfg(feature = "std")]
 use super::render::life_render;
 use super::state::{LifeBoard, MAX_GRID_EDGE};
-#[cfg(feature = "std")]
 use crate::prelude::*;
 
 const PX_PER_CELL: i32 = 1;
@@ -48,17 +46,19 @@ fn life_tick(timer: entity!(), commands: commands!()) {
     commands.insert(timer, LifeStepDue);
 }
 
-#[cfg(feature = "std")]
 pub(in crate::gallery::demos) fn install_runtime<B, F>(app: &mut App<B, F>)
 where
     B: Surface,
     F: RendererFactory<B>,
 {
-    use crate::app::plugins::StdInstantClockPlugin;
-    use crate::prelude::plugin::FpsSummaryPlugin;
-    app.with_widget(life_render::view())
-        .add_plugin(StdInstantClockPlugin)
-        .add_plugin(FpsSummaryPlugin::default());
+    app.with_widget(life_render::view());
+    #[cfg(feature = "std")]
+    {
+        use crate::app::plugins::StdInstantClockPlugin;
+        use crate::prelude::plugin::FpsSummaryPlugin;
+        app.add_plugin(StdInstantClockPlugin)
+            .add_plugin(FpsSummaryPlugin::default());
+    }
     app.add_system(life_step_system::system());
     app.add_timer(life_tick::timer());
 }

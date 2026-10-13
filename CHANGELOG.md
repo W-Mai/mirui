@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Life's shared setup is available on `no_std` targets and installs its view, update system, and timer.
+
 - Model codecs return `EncodeOutcome::Encoded` or `Deferred` to distinguish complete archives from postponed saves. Deferred saves retain pending changes and existing failure protection without writing partial output.
 
 - Atlas Restoration restores its Model before UI composition and saves completed drawing strokes through a reusable codec buffer.
