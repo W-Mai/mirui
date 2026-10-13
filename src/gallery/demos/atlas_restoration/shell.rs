@@ -1641,14 +1641,14 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(PlayFontPlugin);
+    #[cfg(feature = "persistence")]
+    install_persistence(app);
     let model = app.add_model(PictureModel::default()).finish();
     let expedition = app.add_model(ExpeditionUiModel::default()).finish();
     app.on_event(
         TextCommitted::EVENT,
         keyboard::callback(model.clone(), expedition.clone()),
     );
-    #[cfg(feature = "persistence")]
-    install_persistence(app, model.clone());
     app.with_widget(surface_render::view());
     app.compose(parent, build_widgets(model, expedition));
 }

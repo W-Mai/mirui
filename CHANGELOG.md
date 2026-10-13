@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Model codecs return `EncodeOutcome::Encoded` or `Deferred` to distinguish complete archives from postponed saves. Deferred saves retain pending changes and existing failure protection without writing partial output.
 
+- Atlas Restoration restores its Model before UI composition and saves completed drawing strokes through a reusable codec buffer.
+
 - Persistence saves accept Model handles, Signal instances, resource borrows, and non-Model keys. Dynamic registration is available during application setup, composition, and deferred callbacks; ambiguous source registrations require an explicit key.
 
 - Reader Settings demonstrates persistent Model preferences, reactive controls and preview, and session-only state.

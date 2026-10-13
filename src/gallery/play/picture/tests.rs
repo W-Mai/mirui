@@ -112,17 +112,17 @@ fn result_and_final_modals_freeze_picture_commands() {
 }
 
 #[test]
-fn snapshots_only_include_committed_strokes() {
+fn stroke_lifecycle_tracks_uncommitted_changes() {
     let mut model = PictureModel::default();
     let cell = (0..model.level().size() * model.level().size())
         .find(|cell| !model.level().is_given(*cell))
         .expect("Picture level has an editable cell");
 
-    assert!(model.encode_snapshot().is_some());
+    assert!(!model.stroke_active());
     assert_ne!(model.begin_stroke(cell), ChangeSet::NONE);
-    assert!(model.encode_snapshot().is_none());
+    assert!(model.stroke_active());
     assert_ne!(model.end_stroke(false), ChangeSet::NONE);
-    assert!(model.encode_snapshot().is_some());
+    assert!(!model.stroke_active());
 }
 
 #[test]

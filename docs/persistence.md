@@ -102,7 +102,7 @@ let game = app.add_model(GameModel::default()).finish();
 
 The Gallery's Tidal Atlas and Echo Walker codecs encode replay logs into the plugin's reusable output buffer. Their `prepare` methods validate the log and reconstruct temporary game data; `apply` installs that data. The plugin is installed before `add_model(...).finish()`, so UI composition reads the restored game state.
 
-Folding Ark and Twin Beacons use the same registration flow with their fixed-length game archives. Their codecs retain domain validation and checksums; game methods do not maintain a separate persistence revision or invoke storage.
+Folding Ark, Twin Beacons, and Atlas Restoration use the same registration flow with their fixed-length game archives. Their codecs retain domain validation and checksums; game methods do not maintain a separate persistence revision or invoke storage. Atlas Restoration defers saving while a drawing stroke is active and resumes after the stroke is completed or cancelled.
 
 Without a custom codec, declared fields use the built-in field archive. A persistent root with no declared fields and no custom codec remains unregistered with storage and emits a warning. A custom codec can handle opaque business fields that do not implement field serialization; omit `#[persist]` on those fields.
 

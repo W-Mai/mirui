@@ -11,7 +11,11 @@ use crate::gallery::play::expeditions::{
     ExpeditionSaveError, RECORD_BYTES, finish_packet, read_records, validate_packet, write_records,
 };
 
-#[crate::model(change = ChangeSet, watch(visual = ChangeSet::VISUAL))]
+#[crate::model(
+    change = ChangeSet,
+    watch(visual = ChangeSet::VISUAL),
+    persistence(key = "atlas_restoration/save")
+)]
 #[derive(Clone, Copy)]
 pub(crate) struct PictureModel {
     pub(super) level: u8,
@@ -354,12 +358,6 @@ impl PictureModel {
         self.restart()
     }
 
-    #[cfg(feature = "persistence")]
-    pub(crate) fn restore(&mut self, restored: PictureModel) -> ChangeSet {
-        *self = restored;
-        ChangeSet::MODEL | ChangeSet::VISUAL
-    }
-
     #[model(local)]
     pub(crate) fn complete(&self) -> bool {
         let level = self.level();
@@ -560,13 +558,7 @@ impl PictureModel {
 
     #[cfg(any(feature = "persistence", test))]
     #[model(local)]
-    pub(crate) fn encode_snapshot(&self) -> Option<alloc::vec::Vec<u8>> {
-        if self.stroke_active {
-            return None;
-        }
-        let mut output = alloc::vec![0; SAVE_LEN];
-        self.encode_into(&mut output)
-            .expect("exact Atlas save buffer");
-        Some(output)
+    pub(crate) const fn stroke_active(&self) -> bool {
+        self.stroke_active
     }
 }
