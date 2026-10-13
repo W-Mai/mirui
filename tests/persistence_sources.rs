@@ -65,15 +65,21 @@ fn save_readonly(settings: res!(Settings), commands: commands!()) {
     commands.persistence().save(&settings);
 }
 
+#[compose]
+fn assert_settings(expected: Option<&Settings>) {
+    res!(optional Settings).with(|settings| assert_eq!(settings.as_deref(), expected));
+}
+
 #[test]
 fn mutable_and_shared_parameters_save_without_moving_or_mutably_borrowing_targets() {
     let store = Store::default();
     let mut app = App::headless(8, 8);
     app.add_resource(settings("before"));
     app.add_plugin(PersistencePlugin::new(store.clone()).resource::<Settings>("network"));
+    app.spawn_root().id();
     app.add_system(change::system());
     app.add_system(save_readonly::system());
-    app.systems.run_all(&mut app.world).unwrap();
+    assert!(!app.tick());
     assert_eq!(read::<Settings>(&store, "network"), settings("latest"));
     assert_eq!(store.writes.get(), 2);
 }
@@ -102,10 +108,7 @@ fn composition_registration_restores_then_saves_through_the_same_registry() {
             tree.persistence().register_resource::<Settings>("network")
         })
         .unwrap();
-    assert_eq!(
-        second.world.resource::<Settings>(),
-        Some(&settings("stored"))
-    );
+    second.compose(root, assert_settings(Some(&settings("stored"))));
     assert_eq!(
         second
             .persistence()
@@ -130,6 +133,7 @@ fn resource_sources_reject_other_apps_and_ambiguous_keys_without_writes() {
     let mut second = App::headless(8, 8);
     second.add_resource(settings("second"));
     second.add_plugin(PersistencePlugin::new(store.clone()).resource::<Settings>("network"));
+    second.spawn_root().id();
     assert_eq!(
         first.compose(root, save_in_other(&mut second)),
         Err(PersistenceError::WrongOwner)
@@ -140,7 +144,7 @@ fn resource_sources_reject_other_apps_and_ambiguous_keys_without_writes() {
         .register_resource::<Settings>("alternate")
         .unwrap();
     second.add_system(save_readonly::system());
-    second.systems.run_all(&mut second.world).unwrap();
+    assert!(!second.tick());
     assert_eq!(store.writes.get(), 0);
     second
         .persistence()
@@ -253,10 +257,11 @@ fn resource_commands_resolve_registration_and_current_value_in_submission_order(
     let mut app = App::headless(8, 8);
     app.add_resource(settings("initial"));
     app.add_plugin(PersistencePlugin::new(store.clone()));
+    let root = app.spawn_root().id();
     app.add_system(register_replace_save::system());
     app.add_system(remove_save::system());
-    app.systems.run_all(&mut app.world).unwrap();
+    assert!(!app.tick());
     assert_eq!(read::<Settings>(&store, "network"), settings("replacement"));
     assert_eq!(store.writes.get(), 1);
-    assert!(app.world.resource::<Settings>().is_none());
+    app.compose(root, assert_settings(None));
 }
