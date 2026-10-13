@@ -13,6 +13,8 @@ mod drop_effect_tests;
 #[cfg(test)]
 mod geometry_tests;
 #[cfg(test)]
+mod raster_tests;
+#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod workspace_tests;
@@ -103,10 +105,16 @@ pub(crate) struct TexturePlan {
     batch: u64,
     root: Option<Entity>,
     cycle_reported: bool,
+    raster: Option<crate::render::backends::sw::SwScratch>,
     pub(crate) workspace: PaintWorkspace,
 }
 
 impl TexturePlan {
+    pub(crate) fn trim_memory(&mut self) -> usize {
+        self.raster = None;
+        self.workspace.release()
+    }
+
     pub(super) fn matches_root(&self, root: Entity) -> bool {
         self.root == Some(root)
     }
@@ -535,6 +543,7 @@ pub(super) fn prepare<'a>(
     {
         if let Some(mut plan) = outputs.take_texture_plan() {
             outputs.reserve_workspace(&mut plan.workspace, 0);
+            plan.raster = None;
             plan.root = None;
             plan.nodes.clear();
             plan.captures.clear();
@@ -641,6 +650,10 @@ pub(super) fn prepare<'a>(
         }
         let node = node_at(tree, capture.start).expect("capture belongs to the layout snapshot");
         let mut index = capture.start;
+        let mut raster = plan
+            .raster
+            .take()
+            .unwrap_or_else(crate::render::backends::sw::SwScratch::new);
         let result = super::prepare_offscreen(
             node,
             world,
@@ -651,7 +664,9 @@ pub(super) fn prepare<'a>(
             capture.key,
             capture.entity,
             Some(plan),
+            &mut raster,
         );
+        plan.raster = Some(raster);
         let published = match result {
             Ok(published) => published,
             Err(error) => {

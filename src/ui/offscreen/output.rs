@@ -118,7 +118,7 @@ impl Outputs<WidgetTexture> {
         let mut storage = self.storage_mut();
         assert!(storage.plan.is_none(), "texture plan is already stored");
         if storage.deferred_workspace_trim {
-            storage.allocated -= plan.workspace.release();
+            storage.allocated -= plan.trim_memory();
             storage.deferred_workspace_trim = false;
         }
         storage.plan = Some(plan);
@@ -352,7 +352,7 @@ impl Outputs<WidgetTexture> {
         });
         storage.allocated -= released;
         if let Some(plan) = storage.plan.as_mut() {
-            let released = plan.workspace.release();
+            let released = plan.trim_memory();
             storage.allocated -= released;
         } else {
             storage.deferred_workspace_trim = true;

@@ -2004,6 +2004,7 @@ fn prepare_offscreen(
     key: super::offscreen::BufferKey,
     entity: Entity,
     output_plan: Option<&output_plan::TexturePlan>,
+    scratch: &mut crate::render::backends::sw::SwScratch,
 ) -> Result<bool, RenderError> {
     use crate::render::canvas::Canvas;
     use crate::render::sw::SwRenderer;
@@ -2040,8 +2041,8 @@ fn prepare_offscreen(
 
     {
         let inner_tex = Texture::new(texture.buf.as_mut_slice(), buf_w, buf_h, key.format);
-        let mut inner =
-            SwRenderer::new(inner_tex).with_alpha_mode(crate::render::sw::AlphaMode::Blend);
+        let mut inner = SwRenderer::with_scratch(inner_tex, scratch)
+            .with_alpha_mode(crate::render::sw::AlphaMode::Blend);
         inner.viewport = Viewport::new(buf_w, buf_h, scale);
 
         // Dispatch the root directly so its marker is not treated as a nested

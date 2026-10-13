@@ -73,6 +73,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Offscreen captures reuse software path and clip storage across frames and release it on memory warnings or when capture demand ends.
+
 - Layout preparation reserves visual-dirty markers for initially hidden branches, avoiding marker-table growth on their first reveal.
 
 - Pointer hit geometry uses the same scrolled pivots and combined affine/projective transforms as drawing and text editing.
