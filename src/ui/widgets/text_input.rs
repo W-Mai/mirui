@@ -184,7 +184,7 @@ fn text_input_render(
     entity: entity!(),
     outputs: res!(optional Outputs<TextGeometry>),
     manager: res!(optional crate::render::font::FontManager),
-    theme: res!(optional crate::ui::Theme),
+    theme: res!(crate::ui::Theme),
     phase: res!(optional CursorBlinkPhase),
     paint: paint!(),
 ) {
@@ -208,8 +208,6 @@ fn text_input_render(
         return;
     };
     let metrics = fonts.primary().metrics(fonts.primary().size);
-    let theme =
-        theme.expect("App::new must insert Theme; missing means a test fixture skipped App");
     let state = paint.state();
     let rect = paint.rect();
     let text_color = ti.text_color.resolve_in(&theme, state);
@@ -778,6 +776,7 @@ mod tests {
             fn flush(&mut self) {}
         }
         let mut world = World::new();
+        world.insert_resource(Theme::default());
         let entity = world.spawn_empty();
         let descriptor = view();
         assert_eq!(descriptor.name(), "TextInput");
@@ -828,6 +827,7 @@ mod tests {
         world.insert(entity, Placeholder("A"));
         let handle = prepare_layout(&world, entity, rect).unwrap().unwrap();
         world.insert(entity, TextEditingLayoutHandle(handle));
+        world.remove_resource::<Theme>();
         let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let mut trace = Trace(0);
             let mut paint = PaintCtx::new(

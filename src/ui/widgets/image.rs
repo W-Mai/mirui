@@ -249,7 +249,7 @@ fn image_render(
     rows: query!(Image, optional ImageResource),
     entity: entity!(),
     manager: res!(optional ResourceManager<Texture<'static>>),
-    theme: res!(optional crate::ui::Theme),
+    theme: res!(crate::ui::Theme),
     paint: paint!(),
 ) {
     crate::trace_span!("image.render", {
@@ -262,8 +262,6 @@ fn image_render(
             else {
                 return;
             };
-            let theme = theme
-                .expect("App::new must insert Theme; missing means a test fixture skipped App");
             draw_vector_transformed(
                 paint,
                 path,
@@ -603,6 +601,7 @@ mod tests {
     fn typed_paint_retains_borrowed_requests_early_returns_and_first_error_without_allocating() {
         static COMMANDS: &[PathCmd] = &[PathCmd::Close];
         let mut world = World::new();
+        world.insert_resource(Theme::default());
         let entity = world.spawn_empty();
         let descriptor = view();
         assert_eq!(descriptor.name(), "Image");
@@ -664,6 +663,7 @@ mod tests {
         assert_eq!(trace.calls, 0);
 
         world.insert(entity, Image::new(Path::from_static(COMMANDS)));
+        world.remove_resource::<Theme>();
         let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let mut trace = Trace::default();
             let mut paint = PaintCtx::new(
@@ -678,6 +678,7 @@ mod tests {
             render(&world, entity, &mut paint);
         }));
         assert!(rejected.is_err(), "a drawable vector requires Theme");
+        world.insert_resource(Theme::default());
 
         world.insert_resource(image_manager());
         world.insert(

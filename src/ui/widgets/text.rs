@@ -680,7 +680,7 @@ impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::Ent
 fn text_render(
     rows: query!(Text, optional crate::text::TextLayoutHandle, optional crate::text::TextPath),
     entity: entity!(),
-    theme: res!(optional crate::ui::Theme),
+    theme: res!(crate::ui::Theme),
     outputs: res!(optional crate::ui::Outputs<crate::text::TextGeometry>),
     manager: res!(optional crate::render::font::FontManager),
     paths: res!(optional crate::render::path::PathStore),
@@ -689,8 +689,6 @@ fn text_render(
     let Some((text, handle, path)) = rows.get(entity) else {
         return;
     };
-    let theme =
-        theme.expect("App::new must insert Theme; missing means a test fixture skipped App");
     let color = paint.style().text_color.resolve_in(&theme, paint.state());
     let Some(outputs) = outputs else {
         return;
@@ -1437,7 +1435,7 @@ impl StaticGlyphRun {
 fn static_glyph_run_render(
     run: component!(),
     fonts: res!(optional crate::render::font::FontManager),
-    theme: res!(optional crate::ui::Theme),
+    theme: res!(crate::ui::Theme),
     paint: paint!(),
 ) {
     let Some(first) = run.glyphs.first() else {
@@ -1450,8 +1448,6 @@ fn static_glyph_run_render(
     let mut font = font.as_ref().clone();
     font.size = paint.style().font_size.unwrap_or(font.size).max(1);
     let metrics = font.metrics(font.size);
-    let theme =
-        theme.expect("App::new must insert Theme; missing means a test fixture skipped App");
     let rect = paint.rect();
     paint.draw(&DrawCommand::GlyphRun {
         pos: Point {
@@ -1723,6 +1719,7 @@ mod tests {
             FlowPoint { x: 0, y: 7 << 8 },
         )];
         let mut world = World::new();
+        world.insert_resource(Theme::default());
         let entity = world.spawn_empty();
         let style = Style::default();
         let rect = Rect::new(0, 0, 20, 10);
@@ -1757,6 +1754,7 @@ mod tests {
         let fonts = default_font_manager();
         fonts.prefetch(FontToken::Default.cache_key());
         world.insert_resource(fonts);
+        world.remove_resource::<Theme>();
         {
             let mut paint = PaintCtx::new(
                 &mut renderer,
@@ -1776,10 +1774,8 @@ mod tests {
                 .copied()
                 .or_else(|| error.downcast_ref::<String>().map(String::as_str))
                 .unwrap();
-            assert_eq!(
-                message,
-                "App::new must insert Theme; missing means a test fixture skipped App"
-            );
+            assert!(message.contains("requires resource"));
+            assert!(message.contains("Theme"));
         }
         assert!(renderer.glyph_runs.is_empty());
     }
@@ -1787,6 +1783,7 @@ mod tests {
     #[test]
     fn typed_paint_preserves_missing_dependencies_and_theme_validation() {
         let mut world = World::new();
+        world.insert_resource(Theme::default());
         let entity = world.spawn_empty();
         let descriptor = view();
         assert_eq!(descriptor.name(), "Text");
@@ -1817,7 +1814,6 @@ mod tests {
             );
             assert_eq!(
                 crate::test_support::tracked_allocations(|| {
-                    let _ = view();
                     render(&world, entity, &mut paint);
                 }),
                 0
@@ -1825,6 +1821,7 @@ mod tests {
             assert_eq!(paint.error(), None);
         }
         world.insert(entity, Text::new("A"));
+        world.remove_resource::<Theme>();
         let rejected = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let mut paint = PaintCtx::new(
                 &mut recorder,

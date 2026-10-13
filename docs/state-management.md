@@ -518,7 +518,7 @@ Cursor and rotary feedback Views use their overlay marker as the descriptor filt
 
 Button, Slider, Switch, Checkbox, ProgressBar, TabBar, Text, TextInput, Icon, Image, and BackgroundBlur use this declaration for built-in paint callbacks. Their widget modules export the generated `view` factory directly; component filters, paint priorities, and typed input callbacks remain part of the descriptor.
 
-StaticGlyphRun declares its component filter, paint priority 80, and layout invalidation through `#[view]`. It submits its borrowed positioned glyph slice without runtime shaping or a layout workspace. FontManager and Theme are borrowed as optional resources, retaining the empty-run and missing-font-manager early returns; a run that reaches painting requires a Theme.
+StaticGlyphRun declares its component filter, paint priority 80, and layout invalidation through `#[view]`. It submits its borrowed positioned glyph slice without runtime shaping or a layout workspace. Theme is required; FontManager remains optional, with empty runs and unavailable fonts producing no draw commands.
 
 Render Showcase and Blur Filter declare their retained scene workspace with
 read-only `res!` and replay borrowed scene operations through `paint!()`.
@@ -559,24 +559,13 @@ Pending dependencies are consumed before layout and after layout before the dirt
 
 Switch queries its component together with optional background and thumb-animation state. Its generated View declares attachment and Tap callbacks, paint priority, and animation systems.
 
-Image queries its component together with its optional resource lease and borrows the texture manager and Theme as optional resources. A cached lease can be used without a manager; replacing a manager affects direct resolutions and newly created leases rather than retargeting an existing lease. Vector paths remain borrowed, and a drawable vector requires Theme only after its geometry is validated.
+Image queries its component together with its optional resource lease and borrows the required Theme and optional texture manager. A cached lease can be used without a manager; replacing a manager affects direct resolutions and newly created leases rather than retargeting an existing lease. Vector paths remain borrowed.
 
-TextInput queries its optional Placeholder and borrows layout, font, theme, and blink resources. Font-stack resolution receives the font manager directly, validates fallback capacity before handling a missing manager, and retains the existing font selection and layout cache. Its attachment installs TextEditing for input and cursor state; painting retains its own priority.
+TextInput queries its optional Placeholder and borrows the required Theme and optional layout, font, and blink resources. Font-stack resolution receives the font manager directly, validates fallback capacity before handling a missing manager, and retains the existing font selection and layout cache. Its attachment installs TextEditing for input and cursor state; painting retains its own priority.
 
-Text queries its optional layout handle and TextPath and borrows font, layout, theme, and path resources. Linear and path text retain their borrowed glyph data, draw clipping, text-run identity, and layout invalidation policy. Layout publishes a handle only when its identity changes, so unrelated layout work does not publish a same-value query change. Cache replacement and memory-pressure resets explicitly invalidate handle dependencies because a new cache can reuse the same handle numbers.
+Text queries its optional layout handle and TextPath and borrows the required Theme and optional font, layout, and path resources. Linear and path text retain their borrowed glyph data, draw clipping, text-run identity, and layout invalidation policy. Layout publishes a handle only when its identity changes, so unrelated layout work does not publish a same-value query change. Cache replacement and memory-pressure resets explicitly invalidate handle dependencies because a new cache can reuse the same handle numbers.
 
-Shapes and Butterfly borrow optional Theme and MonoClock resources; Vector
-Mandala borrows an optional MonoClock. Their generated paint adapters retain
-the default theme and zero-time behavior when those resources are absent.
-FillRules, ClipPath, and StrokeStyles borrow an optional Theme. Their paths
-remain static, and ClipPath uses the paint context's scoped clip cleanup.
-ScopeCanvas observes its model's `visual_revision` and borrows optional waveform
-scratch storage. Replacing the component's model rebinds the observation; absent
-scratch storage skips painting. Waveform paths reuse buffers prepared at setup.
-CurvePaths borrows optional path IDs, a path store, and a theme. Missing path
-resources skip painting; retired path IDs are skipped without copying paths.
-RasterContour receives its component and optional FontManager/Theme resources.
-Missing fonts or unsupported raster representations retain the no-paint behavior.
+Gallery Views require the Theme, FontManager, and PathStore supplied by the App when they use those resources. ScopeCanvas requires its setup's waveform workspace, and CurvePaths requires its registered path IDs; retired path IDs are skipped without copying paths. RasterContour skips missing glyphs and unsupported raster representations. Shapes, Butterfly, and Vector Mandala retain an optional MonoClock so static snapshots can render without a running clock.
 
 The generic Style pass uses `#[view]` with a required Theme resource and `paint!()`. It retains paint priority 50 and layout invalidation, skips a background already handled by an earlier widget, and draws the border through the same paint context.
 

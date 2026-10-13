@@ -186,14 +186,12 @@ pub(crate) fn switch_init_system(
 fn switch_render(
     rows: query!(Switch, optional SwitchBgT, optional AnimatedThumbX, optional AnimateThumbX),
     entity: entity!(),
-    theme: res!(optional crate::ui::Theme),
+    theme: res!(crate::ui::Theme),
     paint: paint!(),
 ) {
     let Some((s, background, animated_x, animation)) = rows.get(entity) else {
         return;
     };
-    let theme =
-        theme.expect("App::new must insert Theme; missing means a test fixture skipped App");
     let state = paint.state();
     let rect = paint.rect();
     let on_color = s.on_color.resolve_in(&theme, state);
@@ -499,6 +497,7 @@ mod tests {
     #[test]
     fn render_skips_missing_switch_and_retains_first_error_without_allocating() {
         let mut world = World::new();
+        world.insert_resource(Theme::dark());
         let entity = world.spawn_empty();
         let render = view().render().unwrap();
         let style = Style::default();
@@ -526,7 +525,6 @@ mod tests {
         assert_eq!(trace.fills, [None, None]);
 
         world.insert(entity, Switch::new());
-        world.insert_resource(Theme::dark());
         for failure_at in [0, 1] {
             for _ in 0..2 {
                 let mut trace = Trace {
