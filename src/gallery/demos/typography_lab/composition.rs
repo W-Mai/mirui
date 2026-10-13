@@ -1,11 +1,8 @@
 use super::caret::CaretOverlay;
-#[cfg(feature = "std")]
 use super::caret::caret_overlay_view;
 use super::contour::RasterContour;
-#[cfg(feature = "std")]
 use super::contour::raster_contour_view;
 use super::runtime::{ARABIC, CJK, DEVANAGARI, FEATURES_OFF, LIVE_SAMPLE, THAI, UI, mixed_stack};
-#[cfg(feature = "std")]
 use super::runtime::{register_fonts, register_path};
 use super::state::{TypographyModel, align_label, live_paragraph, overflow_label, wrap_label};
 use super::style::{
@@ -647,7 +644,6 @@ fn build_widgets(model: model!(TypographyModel), wave_path: PathId) {
     //~focus-end
 }
 
-#[cfg(feature = "std")]
 pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
 where
     B: Surface,
