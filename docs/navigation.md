@@ -1,5 +1,16 @@
 # Navigation paths
 
+## Interactive example
+
+Page Studio is available in the Gallery's Showcase section as `page_studio`. Its collection, place details and note editor demonstrate stack navigation and retained controls; the scene panel demonstrates `PageView`. The toolbar selects no animation, slide or group fade, with Smooth, Snappy and Bouncy Spring presets.
+
+```sh
+cargo run -p gallery --example page_studio_demo
+cargo run -p gallery --example page_studio_demo --no-default-features --features wgpu
+```
+
+## Navigation state
+
 `NavigationPath<R>` is an observable Model containing pushed destinations. The root page is not part of the path. Register an instance with `App::add_model` or store it in an owned Model field.
 
 ```rust
@@ -179,6 +190,8 @@ fn main() {
 `PageView::new(page)` supports non-macro composition. Its `page` field stores `Option<R>`; `None` selects no page, and ordinary DSL field conversion accepts an `R` directly. Routes need `Clone + PartialEq`, not `Default`. Page construction can allocate; an unchanged selection does not clone its route or rebuild its widgets. The factory also accepts the ordinary inline closure and `on CreatePage { ... }` forms.
 
 ## Page transitions
+
+`transition: ${ expression }` binds the transition configuration reactively on either container. Changes apply to subsequent transitions; an active spring keeps its current configuration and velocity.
 
 Both containers accept `transition: PageTransition::slide(SMOOTH)` or `PageTransition::fade(SMOOTH)`, using a preset or custom `mirui::anim::SpringConfig`. The default is `PageTransition::None`; first mount and configurations with a zero duration hint switch immediately. Stack pushes and returns slide in opposite directions. `PageView` uses a fixed horizontal replacement direction without inferring navigation history.
 

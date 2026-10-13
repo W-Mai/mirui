@@ -4,7 +4,7 @@ use crate::ecs::{Entity, World};
 use crate::types::Fixed;
 
 /// Visual replacement of two page subtrees. The first page is shown immediately.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum PageTransition {
     #[default]
     None,

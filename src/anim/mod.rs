@@ -71,7 +71,7 @@ impl Tween {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct SpringConfig {
     pub duration_ms: u16,
     pub bounce: Fixed,

@@ -287,6 +287,9 @@ fn reactive_property(widget: &str, attr: &str) -> Option<&'static str> {
         "value" if widget == "Slider" => Some("SliderValue"),
         "items" if widget == "LazyList" => Some("LazyListItems"),
         "page" if widget == "PageView" => Some("Page"),
+        "transition" if widget == "PageView" || widget == "NavigationStack" => {
+            Some("PageTransition")
+        }
         "item_extent" if widget == "LazyList" => Some("LazyListExtent"),
         "on" if widget == "Switch" => Some("SwitchOn"),
         "checked" if widget == "Checkbox" => Some("CheckboxChecked"),
@@ -1133,14 +1136,22 @@ impl MiruiRune {
             );
             let property = &binding.property;
             let expr = &binding.expr;
-            let body = if property == "Page" {
+            let body = if property == "Page" || property == "PageTransition" {
                 let kind = quote::format_ident!("{var}_kind");
+                let field = quote::format_ident!(
+                    "{}",
+                    if property == "Page" {
+                        "page"
+                    } else {
+                        "transition"
+                    }
+                );
                 quote! {
                     let __value = #expr;
                     ::mirui::__macro_support::apply_component_field(#kind, #var, __value, |component, value| {
                         let value = ::core::convert::Into::into(value);
-                        if component.page == value { return false; }
-                        component.page = value;
+                        if component.#field == value { return false; }
+                        component.#field = value;
                         true
                     });
                 }

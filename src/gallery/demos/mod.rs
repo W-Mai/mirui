@@ -44,6 +44,7 @@ pub mod offscreen;
 pub mod offscreen_modal;
 pub mod orbit_console;
 pub mod orbital_mission;
+pub mod page_studio;
 pub mod particles;
 pub mod persistence_counter;
 pub mod persistence_settings;

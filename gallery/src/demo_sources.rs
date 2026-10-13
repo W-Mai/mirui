@@ -39,6 +39,11 @@ macro_rules! split_demo_sources {
 }
 
 split_demo_sources! {
+    PAGE_STUDIO => {
+        demo: "page_studio",
+        marker: "fn create_page",
+        parts: ["model.rs", "style.rs", "pages.rs", "composition.rs", "tests.rs"]
+    },
     EDITOR_LAB => {
         demo: "editor_lab",
         marker: "fn search_attach",

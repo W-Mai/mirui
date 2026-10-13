@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Page Studio demonstrates nested navigation, retained controls and scroll position, application-selected pages, and reactive slide/fade Spring presets in the Gallery and native launcher.
+
 - `PageTransition` adds spring-driven slide and group-fade transitions to page containers, preserving velocity on reversal, with bounded pending navigation, viewport clipping, and input isolation. Unavailable fade buffers complete the switch without animation.
 
 - `NavigationStack` retains visited page subtrees, restores them on return, and constructs destinations through typed callbacks.
