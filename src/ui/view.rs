@@ -1067,6 +1067,7 @@ impl ViewRegistry {
         reg.insert(crate::ui::widgets::switch::view());
         reg.insert(crate::ui::widgets::tab_pages::view());
         reg.insert(crate::ui::widgets::lazy_list::view());
+        reg.insert(crate::ui::widgets::follow_bounds::view());
         reg.insert(crate::ui::widgets::mirror::view());
         reg.insert(crate::ui::widgets::temporal_mix::view());
         reg.insert(crate::ui::widgets::background_blur::view());

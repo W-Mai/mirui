@@ -91,7 +91,9 @@ pub(crate) fn publish(world: &World, tree: &LayoutNode, entities: &[Entity], vie
     if !outputs.has_requests() {
         return;
     }
-    outputs.reset_where(|entity| !entities.contains(&entity));
+    outputs.reset_where(|entity| {
+        !entities.contains(&entity) || super::branch::is_hidden_in_tree(world, entity)
+    });
     publish_node(
         world,
         outputs,
@@ -126,6 +128,10 @@ fn publish_node(
     };
     let (affine, projective) =
         super::geometry::render_transforms(parent.affine, parent.projective, world, entity, rect);
+    let parent_clip = super::widgets::follow_bounds::clip(world, entity)
+        .map_or(parent.clip, |clip| {
+            parent.clip.intersect(&clip).unwrap_or(Rect::ZERO)
+        });
     if outputs.is_requested(entity) {
         let content = node.content_rect();
         let record = LayoutGeometryRead {
@@ -141,7 +147,7 @@ fn publish_node(
                 projective
             }
             .compose(&Transform3D::translate(rect.x, rect.y)),
-            clip: parent.clip,
+            clip: parent_clip,
         };
         if let Err(error) = outputs.publish_changed(entity, record) {
             outputs.invalidate(entity);
@@ -155,10 +161,10 @@ fn publish_node(
             .is_some_and(|style| style.clip_children)
     {
         super::geometry::transformed_clip_bounds(rect, affine, projective)
-            .and_then(|bounds| parent.clip.intersect(&bounds))
+            .and_then(|bounds| parent_clip.intersect(&bounds))
             .unwrap_or(Rect::ZERO)
     } else {
-        parent.clip
+        parent_clip
     };
     let child = Placement {
         scroll_x: parent.scroll_x + scroll.map_or(Fixed::ZERO, |scroll| scroll.x),

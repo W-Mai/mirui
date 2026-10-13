@@ -1,5 +1,36 @@
 # Navigation paths
 
+## Following widget bounds
+
+Attach `FollowBounds` to a widget to position it around another widget. It uses prepared `LayoutGeometry` outputs, including scrolling and transforms, and maps the target into the follower parent's coordinates. The follower does not occupy flex space; its children retain ordinary layout and padding.
+
+```rust
+use mirui::prelude::*;
+use mirui::ui::widgets::FollowBounds;
+
+#[compose]
+fn selection() {
+    ui! {
+        View (width: 240, height: 120) {
+            View (id: "selected", width: 80, height: 40, bg_color: Color::rgb(30, 70, 120))
+            View (border_width: 2, border_color: Color::rgb(80, 160, 240)) [
+                FollowBounds::new(id("selected")).with_outset(3),
+            ]
+        }
+    };
+}
+
+let mut app = App::headless(240, 120);
+app.with_default_widgets();
+let root = app.spawn_root().id();
+app.compose(root, selection());
+app.render().unwrap();
+```
+
+`with_content(true)` selects the target's content box after resolved padding. `with_outset(value)` expands the mapped rectangle; negative values inset it. `with_offset(x, y)` translates it. Both use the follower parent's logical coordinates. Rotation maps to an axis-aligned bounding rectangle rather than matching an arbitrary outline.
+
+The follower respects its own ancestor clips and the target's ancestor clip. Hidden, deleted, detached, cyclic, or unmappable targets make the follower unavailable for drawing, input, and output reads until the relation becomes valid. Self-targets and targets inside the follower subtree are cyclic. Removing `FollowBounds` restores the authored `Style`; the component never overwrites that style. Use `follow_bounds::view()` for selective widget registration, or `with_default_widgets()` to include it automatically. Bounds updates are immediate.
+
 ## Interactive example
 
 Page Studio is available in the Gallery's Showcase section as `page_studio`. Its collection, place details and note editor demonstrate stack navigation and retained controls; the scene panel demonstrates `PageView`. The toolbar selects no animation, slide or group fade, with Smooth, Snappy and Bouncy Spring presets.

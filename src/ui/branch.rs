@@ -12,6 +12,10 @@ pub(crate) struct CachedBranchVisibility {
 
 #[doc(hidden)]
 pub fn is_effectively_hidden(world: &World, entity: Entity) -> bool {
+    is_authored_hidden(world, entity) || super::widgets::follow_bounds::hidden(world, entity)
+}
+
+pub(crate) fn is_authored_hidden(world: &World, entity: Entity) -> bool {
     world.has::<Hidden>(entity)
         || world
             .get::<CachedBranchVisibility>(entity)

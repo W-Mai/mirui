@@ -323,6 +323,9 @@ fn planned_visual_bounds(
     position: usize,
     plan: Option<&output_plan::TexturePlan>,
 ) -> Rect {
+    if super::branch::is_hidden_in_tree(world, entity) {
+        return Rect::ZERO;
+    }
     let bounds = visual_bounds(world, entity, rect, affine, projective, output_scale);
     plan.and_then(|plan| plan.local_paint_bounds(position, rect))
         .and_then(|extra| transformed_clip_bounds(extra, affine, projective))
@@ -482,7 +485,7 @@ fn build_layout_tree(
     world: &World,
     entity: Entity,
 ) -> Result<Option<LayoutNode>, TextLayoutFailure> {
-    if super::branch::is_effectively_hidden(world, entity) {
+    if super::branch::is_authored_hidden(world, entity) {
         return Ok(None);
     }
     let Some(mut node) = layout_node(world, entity, true)? else {
@@ -558,7 +561,7 @@ fn build_retained_layout_tree(
     if let Some(children) = world.get::<Children>(entity) {
         node.children.reserve_exact(children.0.len());
         for &child in &children.0 {
-            let child_active = active && !super::branch::is_effectively_hidden(world, child);
+            let child_active = active && !super::branch::is_authored_hidden(world, child);
             if let Some(child_node) =
                 build_retained_layout_tree(world, child, child_active, parked)?
             {
@@ -645,7 +648,7 @@ fn refresh_layout_tree(
 ) -> Result<bool, TextLayoutFailure> {
     if node.entity != Some(entity)
         || world.get::<Widget>(entity).is_none()
-        || super::branch::is_effectively_hidden(world, entity)
+        || super::branch::is_authored_hidden(world, entity)
     {
         return Ok(false);
     }
@@ -663,7 +666,7 @@ fn refresh_layout_tree(
         for &child in &children.0 {
             if world.get::<Widget>(child).is_none()
                 || world.get::<Style>(child).is_none()
-                || super::branch::is_effectively_hidden(world, child)
+                || super::branch::is_authored_hidden(world, child)
             {
                 continue;
             }
@@ -699,6 +702,7 @@ fn refresh_layout_tree(
 }
 
 fn layout_style(world: &World, entity: Entity, mut layout: LayoutStyle) -> LayoutStyle {
+    super::widgets::follow_bounds::layout_style(world, entity, &mut layout);
     if world.get::<super::RespectSafeArea>(entity).is_none() {
         return layout;
     }
@@ -1098,7 +1102,7 @@ fn compute_layout_snapshot(
     world.watch_component_revision::<crate::input::event::scroll::ScrollConfig>();
     output_plan::invalidate_geometry(world);
     let mut previous = world.take_resource_box::<LayoutSnapshot>();
-    if super::branch::is_effectively_hidden(world, root) {
+    if super::branch::is_authored_hidden(world, root) {
         if let Some(cache) = world.resource::<Outputs<TextGeometry>>() {
             cache
                 .storage_mut()
@@ -1409,7 +1413,7 @@ fn rects_intersect(a: &Rect, b: &Rect) -> bool {
     a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
 }
 
-fn count_nodes(node: &LayoutNode) -> usize {
+pub(crate) fn count_nodes(node: &LayoutNode) -> usize {
     1 + node.children.iter().map(count_nodes).sum::<usize>()
 }
 
@@ -1431,6 +1435,83 @@ fn intersect_with_self(clip: &Rect, rect: &Rect) -> Rect {
 #[allow(clippy::too_many_arguments)]
 #[mirui::trace_fn("draw.entity")]
 fn draw_tree_offset(
+    node: &LayoutNode,
+    world: &World,
+    entities: &[Entity],
+    idx: &mut usize,
+    renderer: &mut dyn Renderer,
+    clip: &Rect,
+    offset_x: Fixed,
+    offset_y: Fixed,
+    parent_transform: &Transform,
+    parent_transform_3d: &Transform3D,
+    output_plan: Option<&output_plan::TexturePlan>,
+    requests: &PaintRequestScope,
+) -> Result<(), RenderError> {
+    let Some(&entity) = entities.get(*idx) else {
+        return Ok(());
+    };
+    if super::branch::is_effectively_hidden(world, entity) {
+        *idx += count_nodes(node);
+        return Ok(());
+    }
+    if super::widgets::follow_bounds::clip(world, entity).is_none() {
+        return draw_tree_content(
+            node,
+            world,
+            entities,
+            idx,
+            renderer,
+            clip,
+            offset_x,
+            offset_y,
+            parent_transform,
+            parent_transform_3d,
+            output_plan,
+            requests,
+        );
+    }
+    let rect = Rect {
+        x: node.rect.x - offset_x,
+        y: node.rect.y - offset_y,
+        ..node.rect
+    };
+    let (affine, projective) =
+        render_transforms(*parent_transform, *parent_transform_3d, world, entity, rect);
+    let before = *idx;
+    let result = super::widgets::follow_bounds::clip::draw(
+        world,
+        entity,
+        rect,
+        affine,
+        projective,
+        renderer,
+        *clip,
+        |renderer, clip| {
+            draw_tree_content(
+                node,
+                world,
+                entities,
+                idx,
+                renderer,
+                &clip,
+                offset_x,
+                offset_y,
+                parent_transform,
+                parent_transform_3d,
+                output_plan,
+                requests,
+            )
+        },
+    );
+    if *idx == before {
+        *idx += count_nodes(node);
+    }
+    result
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_tree_content(
     node: &LayoutNode,
     world: &World,
     entities: &[Entity],
@@ -2009,7 +2090,7 @@ fn prepare_offscreen(
     use crate::render::canvas::Canvas;
     use crate::render::sw::SwRenderer;
 
-    if renderer.offscreen_format().is_none() {
+    if renderer.offscreen_format().is_none() || super::branch::is_hidden_in_tree(world, entity) {
         return Ok(false);
     }
 
@@ -2057,53 +2138,66 @@ fn prepare_offscreen(
         };
         let inner_clip = Rect::new(0, 0, key.local_bounds.w, key.local_bounds.h);
 
-        if let Some(style) = world.get::<Style>(entity) {
-            let state = resolve_widget_state(world, entity);
-            let mut ctx = PaintCtx::new(
-                &mut inner,
-                style,
-                &entity_rect,
-                &inner_clip,
-                Transform::IDENTITY,
-                None,
-                state,
-            );
-            if let Some(plan) = output_plan {
-                ctx.set_workspace(&plan.workspace);
-            }
-            ctx.set_layout_offset(Point::new(inner_offset_x, inner_offset_y));
-            render_views(world, entity, &mut ctx, &requests)?;
-        }
-        *idx += 1;
+        super::widgets::follow_bounds::clip::draw(
+            world,
+            entity,
+            entity_rect,
+            Transform::IDENTITY,
+            Transform3D::IDENTITY,
+            &mut inner,
+            inner_clip,
+            |inner, inner_clip| {
+                if let Some(style) = world.get::<Style>(entity) {
+                    let state = resolve_widget_state(world, entity);
+                    let mut ctx = PaintCtx::new(
+                        inner,
+                        style,
+                        &entity_rect,
+                        &inner_clip,
+                        Transform::IDENTITY,
+                        None,
+                        state,
+                    );
+                    if let Some(plan) = output_plan {
+                        ctx.set_workspace(&plan.workspace);
+                    }
+                    ctx.set_layout_offset(Point::new(inner_offset_x, inner_offset_y));
+                    render_views(world, entity, &mut ctx, &requests)?;
+                }
+                *idx += 1;
 
-        // Children retain their scroll offsets inside the local buffer.
-        let scroll = world.get::<crate::input::event::scroll::ScrollOffset>(entity);
-        let (sx, sy) = scroll.map_or((inner_offset_x, inner_offset_y), |scroll| {
-            (inner_offset_x + scroll.x, inner_offset_y + scroll.y)
-        });
-        let child_clip =
-            if scroll.is_some() || world.get::<Style>(entity).is_some_and(|s| s.clip_children) {
-                inner_clip.intersect(&entity_rect).unwrap_or(Rect::ZERO)
-            } else {
-                inner_clip
-            };
+                // Children retain their scroll offsets inside the local buffer.
+                let scroll = world.get::<crate::input::event::scroll::ScrollOffset>(entity);
+                let (sx, sy) = scroll.map_or((inner_offset_x, inner_offset_y), |scroll| {
+                    (inner_offset_x + scroll.x, inner_offset_y + scroll.y)
+                });
+                let child_clip = if scroll.is_some()
+                    || world.get::<Style>(entity).is_some_and(|s| s.clip_children)
+                {
+                    inner_clip.intersect(&entity_rect).unwrap_or(Rect::ZERO)
+                } else {
+                    inner_clip
+                };
 
-        for child in &node.children {
-            draw_tree_offset(
-                child,
-                world,
-                entities,
-                idx,
-                &mut inner as &mut dyn Renderer,
-                &child_clip,
-                sx,
-                sy,
-                &Transform::IDENTITY,
-                &Transform3D::IDENTITY,
-                output_plan,
-                &requests,
-            )?;
-        }
+                for child in &node.children {
+                    draw_tree_offset(
+                        child,
+                        world,
+                        entities,
+                        idx,
+                        inner,
+                        &child_clip,
+                        sx,
+                        sy,
+                        &Transform::IDENTITY,
+                        &Transform3D::IDENTITY,
+                        output_plan,
+                        &requests,
+                    )?;
+                }
+                Ok(())
+            },
+        )?;
         Canvas::flush(&mut inner);
     }
 
@@ -2180,7 +2274,7 @@ fn draw_prepared_output(
 }
 
 fn collect_entities_preorder(world: &World, entity: Entity, out: &mut Vec<Entity>) {
-    if super::branch::is_effectively_hidden(world, entity) {
+    if super::branch::is_authored_hidden(world, entity) {
         return;
     }
     out.push(entity);
@@ -2295,7 +2389,8 @@ fn reconcile_layout_snapshot(
     let binding_count = world
         .storage::<super::layout_binding::LayoutBinding>()
         .map_or(0, |storage| storage.len())
-        + crate::input::event::runtime::size_observer_count(world);
+        + crate::input::event::runtime::size_observer_count(world)
+        + usize::from(super::widgets::follow_bounds::active(world));
     let update_budget = if world
         .query::<super::widgets::LazyList>()
         .iter()
@@ -2311,12 +2406,18 @@ fn reconcile_layout_snapshot(
     let pass_count = update_budget.saturating_add(1);
 
     for pass in 0..pass_count {
-        let Some(snapshot) = compute_layout_snapshot(world, root, logical_w, logical_h)? else {
+        let Some(mut snapshot) = compute_layout_snapshot(world, root, logical_w, logical_h)? else {
             return Ok(None);
         };
 
         let mut idx = 0;
         write_computed_rects(&snapshot.layout_tree, world, &snapshot.entities, &mut idx);
+        let followed = super::widgets::follow_bounds::reconcile(
+            world,
+            &mut snapshot.layout_tree,
+            &snapshot.entities,
+            Rect::new(0, 0, logical_w, logical_h),
+        );
         let invoke = pass < update_budget;
         let sizes =
             match crate::input::event::runtime::capture_sizes(world, &snapshot.entities, invoke) {
@@ -2327,7 +2428,7 @@ fn reconcile_layout_snapshot(
                 }
             };
         world.put_resource_box(snapshot);
-        let mut changed = super::layout_binding::apply_layout_bindings(world, invoke);
+        let mut changed = followed | super::layout_binding::apply_layout_bindings(world, invoke);
         if invoke {
             changed |= super::widgets::lazy_list::reconcile(world);
         }
@@ -2440,7 +2541,7 @@ pub(crate) fn prepare_input_geometry(
 ) -> Result<(), TextLayoutFailure> {
     use crate::input::event::hit_test;
     hit_test::prepare_geometry_tracking(world);
-    if super::branch::is_effectively_hidden(world, root) {
+    if super::branch::is_authored_hidden(world, root) {
         if let Some(outputs) = world.resource::<Outputs<super::LayoutGeometry>>() {
             outputs.reset_all();
         }
@@ -2460,7 +2561,10 @@ pub(crate) fn prepare_input_geometry(
             && !snapshot.bindings_pending
             && snapshot.scroll_config_current(world)
     });
-    if layout_changed || !layout_current {
+    if layout_changed
+        || !layout_current
+        || (visual_changed && super::widgets::follow_bounds::active(world))
+    {
         return try_update_layout(world, root, viewport);
     }
     if visual_changed || !hit_test::geometry_matches(world, root, width, height) {
@@ -2485,7 +2589,7 @@ pub(crate) fn prepare_input_geometry(
     Ok(())
 }
 
-fn write_computed_rects(
+pub(crate) fn write_computed_rects(
     node: &LayoutNode,
     world: &mut World,
     entities: &[Entity],
@@ -3119,7 +3223,7 @@ pub(crate) fn try_collect_dirty_regions_into(
         cache.storage_mut().paths.begin_layout();
     }
 
-    if super::branch::is_effectively_hidden(world, root) {
+    if super::branch::is_authored_hidden(world, root) {
         let had_snapshot = world.resource::<LayoutSnapshot>().is_some();
         if let Err(failure) = compute_layout_snapshot(world, root, logical_w, logical_h) {
             record_text_layout_failure(world, root, failure);
@@ -3183,7 +3287,8 @@ pub(crate) fn try_collect_dirty_regions_into(
         return Ok(());
     }
 
-    let visual_only = !has_layout_dirty && !snapshot_stale;
+    let visual_only =
+        !has_layout_dirty && !snapshot_stale && !super::widgets::follow_bounds::active(world);
     let existing = match world.take_resource_box::<LayoutSnapshot>() {
         Some(snapshot) if snapshot.matches(root, logical_w, logical_h) => Some(snapshot),
         Some(snapshot) => {

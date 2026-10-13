@@ -192,7 +192,14 @@ fn collect_geometry(
     let Some(&entity) = entities.get(*index) else {
         return;
     };
+    if crate::ui::branch::is_effectively_hidden(world, entity) {
+        *index += crate::ui::render_system::count_nodes(node);
+        return;
+    }
     *index += 1;
+
+    let scroll_clip = crate::ui::widgets::follow_bounds::clip(world, entity)
+        .map_or(scroll_clip, |clip| intersect_clip(scroll_clip, clip));
 
     let rect = shifted(node.rect, scroll);
     let (effective_2d, effective_3d) =

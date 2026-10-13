@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `FollowBounds` positions a widget around another widget's border or content bounds without occupying flex space, with cross-parent transforms, source clipping, and invalid-target recovery.
+
 - `Outputs<LayoutGeometry>` exposes prepared widget bounds, resolved content bounds, screen transforms, and ancestor clipping through component-declared dependencies.
 
 - Page Studio demonstrates nested navigation, retained controls and scroll position, application-selected pages, and reactive slide/fade Spring presets in the Gallery and native launcher.

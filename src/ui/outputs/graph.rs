@@ -42,34 +42,37 @@ impl OutputGraph {
 
     /// Resolve a deterministic producer-first order without allocating. Cycles and their dependent successors remain excluded.
     pub(crate) fn resolve(&mut self) -> &[usize] {
-        self.order.clear();
-        for (index, node) in self.nodes.iter_mut().enumerate() {
+        for node in &mut self.nodes {
             node.remaining = node.indegree;
-            if node.remaining == 0 {
-                self.order.push(index);
-            }
         }
-
-        // The retained order also serves as the ready queue. Sorted edges make
-        // each producer's successor order independent of edge insertion order.
-        let mut cursor = 0;
-        while cursor < self.order.len() {
-            let current = self.order[cursor];
-            cursor += 1;
-            let start = self
-                .edges
-                .partition_point(|&(producer, _)| producer < current);
-            for &(producer, consumer) in &self.edges[start..] {
+        let edges = &self.edges;
+        resolve_nodes(&mut self.nodes, &mut self.order, |current, visit| {
+            let start = edges.partition_point(|&(producer, _)| producer < current);
+            for &(producer, consumer) in &edges[start..] {
                 if producer != current {
                     break;
                 }
-                let node = &mut self.nodes[consumer];
-                node.remaining -= 1;
-                if node.remaining == 0 {
-                    self.order.push(consumer);
+                visit(consumer);
+            }
+        });
+        &self.order
+    }
+
+    /// Resolve dependencies derived from retained state without storing an edge matrix.
+    pub(crate) fn resolve_implicit(&mut self, depends: impl Fn(usize, usize) -> bool) -> &[usize] {
+        let count = self.nodes.len();
+        for (consumer, node) in self.nodes.iter_mut().enumerate() {
+            node.remaining = (0..count)
+                .filter(|&producer| depends(producer, consumer))
+                .count();
+        }
+        resolve_nodes(&mut self.nodes, &mut self.order, |producer, visit| {
+            for consumer in 0..count {
+                if depends(producer, consumer) {
+                    visit(consumer);
                 }
             }
-        }
+        });
         &self.order
     }
 
@@ -90,6 +93,34 @@ impl OutputGraph {
     }
 }
 
+fn resolve_nodes(
+    nodes: &mut [Node],
+    order: &mut Vec<usize>,
+    mut successors: impl FnMut(usize, &mut dyn FnMut(usize)),
+) {
+    order.clear();
+    for (index, node) in nodes.iter_mut().enumerate() {
+        if node.remaining == 0 {
+            order.push(index);
+        }
+    }
+
+    // The retained order also serves as the ready queue. Sorted edges make
+    // each producer's successor order independent of edge insertion order.
+    let mut cursor = 0;
+    while cursor < order.len() {
+        let current = order[cursor];
+        cursor += 1;
+        successors(current, &mut |consumer| {
+            let node = &mut nodes[consumer];
+            node.remaining -= 1;
+            if node.remaining == 0 {
+                order.push(consumer);
+            }
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::OutputGraph;
@@ -100,6 +131,31 @@ mod tests {
             assert_eq!(graph.add_node(), index);
         }
         graph
+    }
+
+    #[test]
+    fn implicit_dependencies_reuse_the_solver_without_retaining_dynamic_edges() {
+        let mut graph = with_nodes(4);
+        graph.add_dependency(3, 0);
+        let allocations = crate::test_support::tracked_allocations(|| {
+            assert_eq!(
+                graph.resolve_implicit(|producer, consumer| producer == consumer + 1),
+                &[3, 2, 1, 0]
+            );
+            assert_eq!(
+                graph.resolve_implicit(|producer, consumer| producer < consumer),
+                &[0, 1, 2, 3]
+            );
+            assert!(
+                graph
+                    .resolve_implicit(|producer, consumer| producer == consumer)
+                    .is_empty()
+            );
+            assert!((0..4).all(|node| graph.is_blocked(node)));
+            assert_eq!(graph.resolve(), &[1, 2, 3, 0]);
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(graph.edges, [(3, 0)]);
     }
 
     #[test]
