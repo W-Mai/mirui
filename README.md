@@ -233,7 +233,7 @@ Use `#[component]` with `model!(T)` fields to attach registered model instances 
 
 Inside a Model, `child: model!(owned Child)` stores child data constructed with `.into()`. Register the parent once and pass `parent.child()` to existing model roles. Parent and child mutations commit one tree; replacing child data preserves its field identity and installed bindings. See [owned child models](docs/state-management.md#owned-child-models) for construction, notifications, effects, and error handling, and [Model collections](docs/model-collections.md) for ordered and keyed data.
 
-Views register widget kinds with independent paint, attach, gesture, observation, and system hooks. An empty `#[view]` function declares a behavior-only widget without generating a paint callback; `app.with_widget(function_name::view())` installs its declared hooks and systems. `view().with_systems([tick::system(model)])` replaces the declared system list with instance-bound systems owned by the App scheduler. Paint priority affects drawing order, not gesture dispatch or system scheduling.
+Views register widget kinds with independent paint, attach, input, observation, and system hooks. Attachment and input handlers use `#[event]` callbacks through `attach = initialize::callback()` and `input = (tap::callback(), key::callback())`. An empty `#[view]` function declares a behavior-only widget without generating a paint callback; `app.with_widget(function_name::view())` installs its declared hooks and systems. `view().with_systems([tick::system(model)])` replaces the declared system list with instance-bound systems owned by the App scheduler. Paint priority affects drawing order, not input dispatch or system scheduling.
 
 ### Common attributes
 

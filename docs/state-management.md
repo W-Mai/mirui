@@ -561,9 +561,7 @@ Switch queries its component together with optional background and thumb-animati
 
 Image queries its component together with its optional resource lease and borrows the required Theme and optional texture manager. A cached lease can be used without a manager; replacing a manager affects direct resolutions and newly created leases rather than retargeting an existing lease. Vector paths remain borrowed.
 
-TextInput queries its optional Placeholder and borrows the required Theme and optional layout, font, and blink resources. Font-stack resolution receives the font manager directly, validates fallback capacity before handling a missing manager, and retains the existing font selection and layout cache. Its attachment installs TextEditing for input and cursor state; painting retains its own priority.
-
-Text queries its optional layout handle and TextPath and borrows the required Theme and optional font, layout, and path resources. Linear and path text retain their borrowed glyph data, draw clipping, text-run identity, and layout invalidation policy. Layout publishes a handle only when its identity changes, so unrelated layout work does not publish a same-value query change. Cache replacement and memory-pressure resets explicitly invalidate handle dependencies because a new cache can reuse the same handle numbers.
+Text and TextInput paint from prepared layout storage in `Outputs<TextGeometry>`. TextInput's attachment installs the `TextEditing` capability; its View paints that capability's current content, selection, and cursor. See [text geometry](typography.md#query-caret-and-selection-geometry) for output dependencies and [text editing](text-editing.md) for editor composition and input handling.
 
 Gallery Views require the Theme, FontManager, and PathStore supplied by the App when they use those resources. ScopeCanvas requires its setup's waveform workspace, and CurvePaths requires its registered path IDs; retired path IDs are skipped without copying paths. RasterContour skips missing glyphs and unsupported raster representations. Shapes, Butterfly, and Vector Mandala retain an optional MonoClock so static snapshots can render without a running clock.
 
@@ -604,9 +602,7 @@ remain paint callbacks even when they do not draw. Parameter roles are still
 validated, and declared model watches still create subscriptions. Systems are
 installed only when the View is registered, preserving their execution order
 and component requirements. Paint traversal skips these descriptors.
-Paint priority orders only drawing, with registration order
-breaking ties. Gesture hooks retain registration order, and contributed systems
-use their own `SystemSlot`.
+Paint priority orders only drawing, with registration order breaking ties. View input hooks retain registration order, and contributed systems use their own `SystemSlot`.
 
 `ui!(compose Name { ... })` declares a Niche with tree and slot attachment but no paint hook. Register its descriptor with `app.with_widget(ui!(compose Name))`. Declared fields retain their Rust types, and parameter snapshots, fallback content, filled slots, and instance isolation remain part of attachment rather than paint traversal.
 
