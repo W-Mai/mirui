@@ -180,6 +180,13 @@ Requests are delivered after callback borrows are released. The default event pr
 
 See [Widget input and notifications](https://github.com/W-Mai/mirui/blob/main/docs/widget-events.md) for notification ordering. Gallery's [Editor Lab](https://github.com/W-Mai/mirui/tree/main/src/gallery/demos/editor_lab) includes search filtering, command submission, shared-document editing, and a software keyboard with a static n → ni → 你 sequence.
 
+Run Editor Lab with SDL or WGPU, then select **System** to use the operating system's input method:
+
+```bash
+cargo run -p gallery --example editor_lab_demo --no-default-features --features sdl
+cargo run -p gallery --example editor_lab_demo --no-default-features --features wgpu
+```
+
 ## Native input backends
 
 App calls `Surface::set_text_input(Option<TextInputState>)` before polling input and after layout and rendering. `Some` selects a native editor session and its logical surface-space caret rectangle; `None` stops native text input. Moving the caret does not replace the session. Surfaces without a text-input service can use the default no-op implementation.

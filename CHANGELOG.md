@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Editor Lab has a native example entry point for SDL and WGPU.
+
 - Interaction Lab's shared setup is available on `no_std` targets with typed input handlers and feedback.
 
 - Typography Lab's shared setup is available on `no_std` targets, including its bundled fonts and text geometry views.
