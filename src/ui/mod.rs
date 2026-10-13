@@ -21,6 +21,7 @@ pub mod icons;
 pub mod id;
 pub mod layout;
 pub(crate) mod layout_binding;
+mod layout_geometry;
 pub(crate) mod lifecycle;
 pub mod niche;
 pub mod offscreen;
@@ -46,6 +47,7 @@ pub use layout_binding::{
     LAYOUT_DEPENDENCY_CAPACITY, LayoutAxis, LayoutContainer, LayoutDependency, LayoutSource,
     LayoutValues,
 };
+pub use layout_geometry::{LayoutGeometry, LayoutGeometryRead};
 pub use niche::NicheMap;
 pub use offscreen::{OffscreenGeneration, OffscreenRender, WidgetTexture, WidgetTextureRead};
 pub use outputs::{Output, Outputs};

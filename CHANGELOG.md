@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Outputs<LayoutGeometry>` exposes prepared widget bounds, resolved content bounds, screen transforms, and ancestor clipping through component-declared dependencies.
+
 - Page Studio demonstrates nested navigation, retained controls and scroll position, application-selected pages, and reactive slide/fade Spring presets in the Gallery and native launcher.
 
 - `PageTransition` adds spring-driven slide and group-fade transitions to page containers, preserving velocity on reversal, with bounded pending navigation, viewport clipping, and input isolation. Unavailable fade buffers complete the switch without animation.
@@ -70,6 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Widget effect cleanup no longer allocates a temporary list of effect IDs.
 
 ### Fixed
+
+- Layout preparation reserves visual-dirty markers for initially hidden branches, avoiding marker-table growth on their first reveal.
 
 - Pointer hit geometry uses the same scrolled pivots and combined affine/projective transforms as drawing and text editing.
 

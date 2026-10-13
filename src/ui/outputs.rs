@@ -225,6 +225,34 @@ impl<T: Output> Outputs<T> {
         Ok(previous)
     }
 
+    /// Revalidate equal records without advancing their publication version.
+    pub(crate) fn publish_changed(
+        &self,
+        entity: Entity,
+        record: T::Record,
+    ) -> Result<(), OutputStoreError>
+    where
+        T::Record: PartialEq,
+    {
+        let state = self
+            .state(entity)
+            .ok_or(OutputStoreError::Missing(entity))?;
+        if state
+            .current
+            .is_some_and(|current| current.record == record)
+            && self.revalidate_current(entity, state.input_version)
+        {
+            return Ok(());
+        }
+        let input_version = state
+            .input_version
+            .checked_add(1)
+            .ok_or(OutputStoreError::PublicationExhausted)?;
+        self.prepare(entity, input_version)?;
+        self.publish(entity, input_version, record)?;
+        Ok(())
+    }
+
     /// Hide current data before its writable payload is detached or its production fails.
     pub(crate) fn invalidate(&self, entity: Entity) -> Option<OutputState<T::Record>> {
         let mut records = self.records.borrow_mut();

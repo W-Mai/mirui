@@ -117,23 +117,7 @@ impl Outputs<TextGeometry> {
             self.invalidate(entity);
             return Err(OutputStoreError::Missing(entity));
         }
-        let state = self
-            .state(entity)
-            .ok_or(OutputStoreError::Missing(entity))?;
-        if state
-            .current
-            .is_some_and(|current| current.record == record)
-            && self.revalidate_current(entity, state.input_version)
-        {
-            return Ok(());
-        }
-        let input_version = state
-            .input_version
-            .checked_add(1)
-            .ok_or(OutputStoreError::PublicationExhausted)?;
-        self.prepare(entity, input_version)?;
-        self.publish(entity, input_version, record)?;
-        Ok(())
+        self.publish_changed(entity, record)
     }
 }
 

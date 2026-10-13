@@ -505,6 +505,7 @@ struct LayoutStorageDemand {
     parked_roots: usize,
     max_entity_id: u32,
     missing_computed: usize,
+    missing_visual_dirty: usize,
     missing_prev: usize,
     missing_text_handles: usize,
     missing_input_handles: usize,
@@ -523,6 +524,7 @@ fn count_layout_storage(world: &World, entity: Entity, demand: &mut LayoutStorag
     }
     demand.max_entity_id = demand.max_entity_id.max(entity.id);
     demand.missing_computed += usize::from(world.get::<super::ComputedRect>(entity).is_none());
+    demand.missing_visual_dirty += usize::from(!world.has::<super::dirty::VisualDirty>(entity));
     demand.missing_prev += usize::from(world.get::<super::dirty::PrevRect>(entity).is_none());
     demand.missing_scroll_bounds += usize::from(
         world.has::<crate::input::event::scroll::ScrollOffset>(entity)
@@ -1114,6 +1116,12 @@ fn compute_layout_snapshot(
         demand
     });
     if let Some(demand) = &initial_demand {
+        if demand.missing_visual_dirty > 0 {
+            world.reserve_component_storage::<super::dirty::VisualDirty>(
+                demand.max_entity_id,
+                demand.missing_visual_dirty,
+            );
+        }
         if demand.missing_scroll_bounds > 0 {
             world.reserve_component_storage::<crate::input::event::scroll::ScrollBounds>(
                 demand.max_entity_id,
@@ -2351,6 +2359,9 @@ pub fn update_layout(world: &mut World, root: Entity, transform: &Viewport) {
 }
 
 fn record_text_layout_failure(world: &mut World, root: Entity, failure: TextLayoutFailure) {
+    if let Some(outputs) = world.resource::<Outputs<super::LayoutGeometry>>() {
+        outputs.reset_all();
+    }
     if let Some(snapshot) = world.resource_mut::<LayoutSnapshot>() {
         snapshot.valid = false;
     }
@@ -2381,6 +2392,9 @@ pub fn try_update_layout(
         }
     };
     let Some(mut snapshot) = snapshot else {
+        if let Some(outputs) = world.resource::<Outputs<super::LayoutGeometry>>() {
+            outputs.reset_all();
+        }
         crate::input::event::scroll::bounds::publish(world, &[]);
         world.remove_resource::<TextLayoutFailure>();
         super::view::ViewRegistry::invalidate_queries(world);
@@ -2405,6 +2419,12 @@ pub fn try_update_layout(
         record_text_layout_failure(world, root, failure);
         return Err(failure);
     }
+    super::layout_geometry::publish(
+        world,
+        &snapshot.layout_tree,
+        &snapshot.entities,
+        Rect::new(0, 0, logical_w, logical_h),
+    );
     super::view::ViewRegistry::propagate_output_publications(world);
     snapshot.publish_scroll_bounds(world);
     world.put_resource_box(snapshot);
@@ -2420,6 +2440,9 @@ pub(crate) fn prepare_input_geometry(
     use crate::input::event::hit_test;
     hit_test::prepare_geometry_tracking(world);
     if super::branch::is_effectively_hidden(world, root) {
+        if let Some(outputs) = world.resource::<Outputs<super::LayoutGeometry>>() {
+            outputs.reset_all();
+        }
         hit_test::invalidate_hit_test_geometry(world);
         return Ok(());
     }
@@ -2449,7 +2472,14 @@ pub(crate) fn prepare_input_geometry(
                 &snapshot.layout_tree,
                 &snapshot.entities,
             );
+            super::layout_geometry::publish(
+                world,
+                &snapshot.layout_tree,
+                &snapshot.entities,
+                Rect::new(0, 0, width, height),
+            );
         });
+        super::view::ViewRegistry::propagate_output_publications(world);
     }
     Ok(())
 }
@@ -3186,6 +3216,9 @@ pub(crate) fn try_collect_dirty_regions_into(
         }
     };
     let Some(mut snapshot) = snapshot else {
+        if let Some(outputs) = world.resource::<Outputs<super::LayoutGeometry>>() {
+            outputs.reset_all();
+        }
         world.remove_resource::<TextLayoutFailure>();
         super::view::ViewRegistry::invalidate_queries(world);
         return Ok(());
@@ -3207,6 +3240,12 @@ pub(crate) fn try_collect_dirty_regions_into(
     if layout_recomputed {
         snapshot.publish_scroll_bounds(world);
     }
+    super::layout_geometry::publish(
+        world,
+        &snapshot.layout_tree,
+        &snapshot.entities,
+        Rect::new(0, 0, logical_w, logical_h),
+    );
     super::view::ViewRegistry::propagate_output_publications(world);
     let output_plan =
         output_plan::measure_for_dirty(world, &snapshot.layout_tree, &snapshot.entities);

@@ -160,6 +160,21 @@ impl LayoutNode {
         self.children.push(child);
     }
 
+    pub(crate) fn content_rect(&self) -> Rect {
+        let Rect { x, y, w, h } = self.rect;
+        let padding = self.style.padding;
+        let left = padding.left.resolve(w).unwrap_or(Fixed::ZERO);
+        let right = padding.right.resolve(w).unwrap_or(Fixed::ZERO);
+        let top = padding.top.resolve(h).unwrap_or(Fixed::ZERO);
+        let bottom = padding.bottom.resolve(h).unwrap_or(Fixed::ZERO);
+        Rect {
+            x: x + left,
+            y: y + top,
+            w: (w - left - right).max(Fixed::ZERO),
+            h: (h - top - bottom).max(Fixed::ZERO),
+        }
+    }
+
     pub(crate) fn set_intrinsic_size(&mut self, width: Fixed, height: Fixed) {
         self.intrinsic_width = Some(width);
         self.intrinsic_height = Some(height);

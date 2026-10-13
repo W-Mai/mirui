@@ -45,15 +45,12 @@ fn compute_node(
         return;
     }
 
-    let pad_l = node.style.padding.left.resolve(w).unwrap_or(Fixed::ZERO);
-    let pad_r = node.style.padding.right.resolve(w).unwrap_or(Fixed::ZERO);
-    let pad_t = node.style.padding.top.resolve(h).unwrap_or(Fixed::ZERO);
-    let pad_b = node.style.padding.bottom.resolve(h).unwrap_or(Fixed::ZERO);
-
-    let inner_w = (w - pad_l - pad_r).max(Fixed::ZERO);
-    let inner_h = (h - pad_t - pad_b).max(Fixed::ZERO);
-    let inner_x = x + pad_l;
-    let inner_y = y + pad_t;
+    let Rect {
+        x: inner_x,
+        y: inner_y,
+        w: inner_w,
+        h: inner_h,
+    } = node.content_rect();
 
     let is_row = node.style.direction == FlexDirection::Row;
     let main_size = if is_row { inner_w } else { inner_h };
