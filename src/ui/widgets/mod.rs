@@ -8,6 +8,7 @@ pub mod image;
 pub mod lazy_list;
 pub mod mirror;
 pub mod navigation;
+pub mod page_view;
 pub mod progress_bar;
 pub mod slider;
 pub mod switch;

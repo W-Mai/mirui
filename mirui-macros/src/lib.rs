@@ -286,6 +286,7 @@ fn reactive_property(widget: &str, attr: &str) -> Option<&'static str> {
         "value" if widget == "ProgressBar" => Some("ProgressValue"),
         "value" if widget == "Slider" => Some("SliderValue"),
         "items" if widget == "LazyList" => Some("LazyListItems"),
+        "page" if widget == "PageView" => Some("Page"),
         "item_extent" if widget == "LazyList" => Some("LazyListExtent"),
         "on" if widget == "Switch" => Some("SwitchOn"),
         "checked" if widget == "Checkbox" => Some("CheckboxChecked"),
@@ -898,7 +899,15 @@ impl MiruiRune {
                     #world, #widget_var, #key, __mirui_callback,
                 );
             };
-            let selector = quote!(#host::#event);
+            let selector = if handler.qualifier.is_none()
+                && !RESERVED_LAYOUT_NAMES.contains(&widget_name)
+                && !matches!(widget_name, "Text" | "TextInput")
+            {
+                let kind = quote::format_ident!("{widget_var}_kind");
+                quote!(::mirui::__macro_support::component_event(#kind, #host::#event))
+            } else {
+                quote!(#host::#event)
+            };
             let options = &handler.options;
             let binding = if options.is_empty() {
                 quote! {
@@ -1050,15 +1059,18 @@ impl MiruiRune {
                 });
             } else {
                 let comp_fields = &cmd.component_fields;
+                let kind = quote::format_ident!("{var}_kind");
                 tokens.extend(quote! {
-                    (#world).insert(#var, {
+                    let #kind = {
                         #[allow(clippy::needless_update)]
                         let __c = #comp_name {
                             #(#comp_fields,)*
                             ..Default::default()
                         };
-                        __c
-                    });
+                        let __kind = ::mirui::__macro_support::component_type(&__c);
+                        (#world).insert(#var, __c);
+                        __kind
+                    };
                 });
                 if cmd.name == "Button" {
                     if let Some(capacity) = &cmd.capacity {
@@ -1121,7 +1133,18 @@ impl MiruiRune {
             );
             let property = &binding.property;
             let expr = &binding.expr;
-            let body = if property == "TextContent"
+            let body = if property == "Page" {
+                let kind = quote::format_ident!("{var}_kind");
+                quote! {
+                    let __value = #expr;
+                    ::mirui::__macro_support::apply_component_field(#kind, #var, __value, |component, value| {
+                        let value = ::core::convert::Into::into(value);
+                        if component.page == value { return false; }
+                        component.page = value;
+                        true
+                    });
+                }
+            } else if property == "TextContent"
                 && (cmd.name == "Text" || cmd.name == "Button")
                 && let Some(capacity) = &cmd.capacity
             {

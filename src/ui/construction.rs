@@ -2,6 +2,40 @@ use crate::ecs::{Entity, World};
 
 use super::{Children, IdMap, NamedId, Parent, Style, Widget};
 
+#[doc(hidden)]
+pub fn component_type<C: crate::ecs::Component>(_: &C) -> core::marker::PhantomData<fn() -> C> {
+    core::marker::PhantomData
+}
+
+#[doc(hidden)]
+pub fn component_event<C, E>(
+    _: core::marker::PhantomData<fn() -> C>,
+    key: crate::input::event::contract::EventKey<E>,
+) -> crate::input::event::contract::EventKey<E>
+where
+    C: crate::ecs::Component,
+    E: crate::input::event::contract::Event,
+    E::Source: crate::input::event::contract::EntitySourceFor<C>,
+{
+    key
+}
+
+#[doc(hidden)]
+pub fn apply_component_field<C: crate::ecs::Component, V>(
+    _: core::marker::PhantomData<fn() -> C>,
+    entity: Entity,
+    value: V,
+    apply: impl FnOnce(&mut C, V) -> bool,
+) {
+    crate::core::reactive::with_world(|world| {
+        if let Some(component) = world.get_mut::<C>(entity)
+            && apply(component, value)
+        {
+            world.invalidate(entity);
+        }
+    });
+}
+
 pub(crate) fn spawn_widget(world: &mut World) -> Entity {
     let entity = world.spawn_empty();
     initialize_widget(world, entity);

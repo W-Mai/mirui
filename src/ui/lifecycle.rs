@@ -57,17 +57,19 @@ pub(crate) struct InputAttach {
     component_filter: Option<core::any::TypeId>,
     attach: Option<view_attach::Attachment>,
     inputs: Option<view_input::SharedInputs>,
+    reconcile: Option<fn(&mut World, Entity) -> bool>,
     instances: Rc<AttachedInstances>,
 }
 
 impl InputAttach {
     pub(crate) fn for_view(view: &crate::ui::view::View) -> Option<Self> {
         let attach = view.auto_attach().cloned();
-        (attach.is_some() || view.inputs().is_some()).then(|| Self {
+        (attach.is_some() || view.inputs().is_some() || view.reconcile().is_some()).then(|| Self {
             registration: view.registration_id(),
             component_filter: view.component_filter(),
             attach,
             inputs: view.inputs().cloned(),
+            reconcile: view.reconcile(),
             instances: Rc::new(AttachedInstances::default()),
         })
     }
@@ -218,9 +220,6 @@ pub(crate) fn prepare(world: &mut World) {
             prepare_plan(world, &plan);
         }
         let pending = world.pending_attachment_changes();
-        if pending == 0 {
-            return;
-        }
         for _ in 0..pending {
             let Some(entity) = world.next_attachment_change() else {
                 break;
@@ -229,11 +228,31 @@ pub(crate) fn prepare(world: &mut World) {
                 attach_handlers_for(world, entity);
             }
         }
+        let mut changed = false;
+        if let Some(plan) = input_attach_plan(world) {
+            for hook in plan.iter() {
+                let Some(reconcile) = hook.reconcile else {
+                    continue;
+                };
+                let count = hook.instances.values.borrow().len();
+                for index in 0..count {
+                    let instance = hook.instances.values.borrow()[index];
+                    if !hook.ready(world, instance.entity) {
+                        continue;
+                    }
+                    let Some(_guard) = AttachmentGuard::enter(world, instance.entity) else {
+                        continue;
+                    };
+                    changed |= reconcile(world, instance.entity);
+                }
+            }
+        }
+        if !changed && pending == 0 && world.pending_attachment_changes() == 0 {
+            return;
+        }
     }
-    if world.pending_attachment_changes() != 0 {
-        crate::warn!("View initialization stopped after repeated structural changes");
-        while world.next_attachment_change().is_some() {}
-    }
+    crate::warn!("View initialization stopped after repeated structural changes");
+    while world.next_attachment_change().is_some() {}
 }
 
 pub(crate) struct ViewInputGuard {

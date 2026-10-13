@@ -552,6 +552,7 @@ struct ViewDefinition {
     name: &'static str,
     paint: Option<ViewPaint>,
     auto_attach: Option<crate::input::event::view_attach::Attachment>,
+    reconcile: Option<fn(&mut World, Entity) -> bool>,
     /// When set, the walker only invokes `render` on entities that
     /// own a component of this type. `None` runs on every entity
     /// (e.g. the generic Style stage).
@@ -594,6 +595,7 @@ impl View {
                 name: descriptor.name,
                 paint,
                 auto_attach: descriptor.attach.map(Into::into),
+                reconcile: None,
                 component_filter,
                 query_dependencies: descriptor.query_dependencies,
                 query_scope: Cell::new(QueryScope::Unobserved),
@@ -644,6 +646,15 @@ impl View {
 }
 
 impl<Systems> View<Systems> {
+    pub(crate) fn with_reconcile(mut self, reconcile: fn(&mut World, Entity) -> bool) -> Self {
+        self.definition.reconcile = Some(reconcile);
+        self
+    }
+
+    pub(crate) fn reconcile(&self) -> Option<fn(&mut World, Entity) -> bool> {
+        self.definition.reconcile
+    }
+
     #[cfg(test)]
     pub(crate) fn with_attach(mut self, attach: fn(&mut crate::ui::UiScope<'_>)) -> Self {
         self.definition.auto_attach = Some(

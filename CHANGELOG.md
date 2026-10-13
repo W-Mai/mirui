@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `PageView` mounts application-selected pages through typed construction callbacks and releases replaced subtrees without replacing the application root.
+
 - `NavigationPath<R>` provides bounded observable navigation state with distinct entry identities and allocation-free prepared mutations.
 
 - Editor Lab has a native example entry point for SDL and WGPU.
