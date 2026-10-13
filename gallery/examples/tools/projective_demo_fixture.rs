@@ -1,4 +1,4 @@
-use mirui::ecs::SystemScheduler;
+use mirui::ecs::{DeltaTimeMs, SystemScheduler};
 use mirui::gallery::demos::{book_flip, cover_flow, flip_card, image_flip};
 use mirui::prelude::*;
 use mirui::ui::render_system;
@@ -28,7 +28,9 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.with_default_widgets().with_default_systems();
+    app.with_default_widgets()
+        .with_default_systems()
+        .add_resource(DeltaTimeMs(16));
     let root = app.spawn_root().id();
     match demo {
         Demo::FlipCard => flip_card::setup_app(app, root),

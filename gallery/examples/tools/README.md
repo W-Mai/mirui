@@ -24,6 +24,12 @@ Scene construction belongs in `#[compose]` functions called through `App::compos
 
 Tools that prepare layout directly use `try_update_layout` and stop on failure before drawing or writing an image. Shared backend capture reports this as `RenderError::TextLayout`.
 
+Projective snapshots advance the selected animation with a fixed 16 ms step per frame. The software capture accepts an output path, frame count, and demo name (`flip_card`, `image_flip`, `book_flip`, or `cover_flow`):
+
+```sh
+cargo run -p gallery --example projective_sw_snapshot --no-default-features --features snapshot -- .local/screenshots/projective.png 45 flip_card
+```
+
 ## Interactive diagnostics
 
 ```sh
