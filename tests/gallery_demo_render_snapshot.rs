@@ -47,7 +47,7 @@ fn finish_snapshot(
     app.systems.run_all(&mut app.world).unwrap();
 
     let viewport = Viewport::new(width, height, Fixed::ONE);
-    render_system::update_layout(&mut app.world, parent, &viewport);
+    render_system::try_update_layout(&mut app.world, parent, &viewport).unwrap();
     let tex = app.backend.framebuffer();
     let mut renderer = SwRenderer::new(tex);
     renderer.viewport = viewport;
@@ -293,7 +293,7 @@ fn custom_view_renders() {
     app.compose(parent, mirui::gallery::demos::custom_view::build_widgets());
 
     let viewport = Viewport::new(480, 200, Fixed::ONE);
-    render_system::update_layout(&mut app.world, parent, &viewport);
+    render_system::try_update_layout(&mut app.world, parent, &viewport).unwrap();
     let tex = app.backend.framebuffer();
     let mut renderer = SwRenderer::new(tex);
     renderer.viewport = viewport;

@@ -71,7 +71,7 @@ mod tests {
 
         let world = &mut app.world;
         let viewport = Viewport::new(width, height, Fixed::ONE);
-        render_system::update_layout(world, root, &viewport);
+        render_system::try_update_layout(world, root, &viewport).unwrap();
         {
             let tex = app.backend.framebuffer();
             let mut renderer = SwRenderer::new(tex);
@@ -142,7 +142,7 @@ mod tests {
 
         let world = &mut app.world;
         let viewport = Viewport::new(width, height, Fixed::ONE);
-        render_system::update_layout(world, root, &viewport);
+        render_system::try_update_layout(world, root, &viewport).unwrap();
         {
             let tex = app.backend.framebuffer();
             let mut renderer = SwRenderer::new(tex);
@@ -205,7 +205,7 @@ mod tests {
 
         let world = &mut app.world;
         let viewport = Viewport::new(width, height, Fixed::ONE);
-        render_system::update_layout(world, root, &viewport);
+        render_system::try_update_layout(world, root, &viewport).unwrap();
         {
             let tex = app.backend.framebuffer();
             let mut renderer = SwRenderer::new(tex);

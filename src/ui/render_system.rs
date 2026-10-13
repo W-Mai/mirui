@@ -2453,13 +2453,6 @@ fn reconcile_layout_snapshot(
     Ok(None)
 }
 
-/// Compute layout and write ComputedRect to each entity (logical pixels).
-/// This compatibility entry records failures as a [`TextLayoutFailure`] world resource;
-/// use [`try_update_layout`] when the caller must stop rendering on failure.
-pub fn update_layout(world: &mut World, root: Entity, transform: &Viewport) {
-    let _ = try_update_layout(world, root, transform);
-}
-
 fn record_text_layout_failure(world: &mut World, root: Entity, failure: TextLayoutFailure) {
     if let Some(outputs) = world.resource::<Outputs<super::LayoutGeometry>>() {
         outputs.reset_all();

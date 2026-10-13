@@ -42,7 +42,8 @@ mod tests {
     fn tap_at(world: &mut World, root: Entity, x: i32, y: i32, screen: u16) {
         let xf = Fixed::from_int(x);
         let yf = Fixed::from_int(y);
-        render_system::update_layout(world, root, &Viewport::new(screen, screen, Fixed::ONE));
+        render_system::try_update_layout(world, root, &Viewport::new(screen, screen, Fixed::ONE))
+            .unwrap();
         let hit = hit_test(world, root, xf, yf, screen, screen);
 
         let mut rec = GestureRecognizer::new();

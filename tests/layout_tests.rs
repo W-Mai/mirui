@@ -710,7 +710,7 @@ mod tests {
     fn initially_hidden_deeper_branch_layout_switches_without_allocating() {
         use mirui::ecs::{Entity, World};
         use mirui::types::Viewport;
-        use mirui::ui::render_system::update_layout;
+        use mirui::ui::render_system::try_update_layout;
         use mirui::ui::{Children, ComputedRect, Hidden, Style, Widget};
 
         fn widget(world: &mut World, width: i32) -> Entity {
@@ -745,11 +745,11 @@ mod tests {
         world.insert(shallow, Children(vec![shallow_leaf]));
         world.insert(deep, Hidden);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        update_layout(&mut world, root, &viewport);
+        try_update_layout(&mut world, root, &viewport).unwrap();
 
         world.remove::<Hidden>(deep);
         world.insert(shallow, Hidden);
-        let first = tracked_allocations(|| update_layout(&mut world, root, &viewport));
+        let first = tracked_allocations(|| try_update_layout(&mut world, root, &viewport).unwrap());
         assert_eq!(first, 0, "first deeper-branch reveal allocated");
         assert_eq!(
             world.get::<ComputedRect>(leaf).unwrap().0.w,
@@ -758,7 +758,7 @@ mod tests {
 
         world.insert(deep, Hidden);
         world.remove::<Hidden>(shallow);
-        let back = tracked_allocations(|| update_layout(&mut world, root, &viewport));
+        let back = tracked_allocations(|| try_update_layout(&mut world, root, &viewport).unwrap());
         assert_eq!(back, 0, "return to initial branch allocated");
         assert_eq!(
             world.get::<ComputedRect>(shallow_leaf).unwrap().0.w,

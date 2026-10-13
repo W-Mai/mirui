@@ -162,7 +162,7 @@ fn hidden_if_branches_leave_layout_and_hit_testing() {
     let enabled = world.find_by_id("enabled").unwrap();
     let disabled = world.find_by_id("disabled").unwrap();
     let viewport = Viewport::new(80, 80, Fixed::ONE);
-    render_system::update_layout(world, root, &viewport);
+    render_system::try_update_layout(world, root, &viewport).unwrap();
     assert_eq!(
         hit_test(world, root, 10.into(), 10.into(), 80, 80),
         Some(disabled)
@@ -179,7 +179,7 @@ fn hidden_if_branches_leave_layout_and_hit_testing() {
     assert_eq!(switch_allocations, 0);
     assert!(world.get::<InteractionState>(disabled).is_none());
     assert_eq!(hit_test(world, root, 10.into(), 10.into(), 80, 80), None);
-    render_system::update_layout(world, root, &viewport);
+    render_system::try_update_layout(world, root, &viewport).unwrap();
     assert_eq!(
         hit_test(world, root, 10.into(), 10.into(), 80, 80),
         Some(enabled)

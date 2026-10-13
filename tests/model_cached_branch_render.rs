@@ -132,7 +132,7 @@ impl Renderer for FillColors {
 
 fn rendered_fills_and_hit(world: &mut World, root: Entity) -> (Vec<Color>, Option<Entity>) {
     let viewport = Viewport::new(64, 64, Fixed::ONE);
-    render_system::update_layout(world, root, &viewport);
+    render_system::try_update_layout(world, root, &viewport).unwrap();
     let hit = hit_test(world, root, 8.into(), 8.into(), 64, 64);
     let mut fills = FillColors::default();
     render_system::render(world, root, &viewport, &mut fills).unwrap();
@@ -189,7 +189,8 @@ fn observed_model_switches_cached_match_paint_and_hit_target_in_both_directions(
     let model_allocations = tracked_allocations(|| mode.select(1));
     let flush_allocations = tracked_allocations(|| flush_signal_dirty(&mut app.world));
     let layout_allocations = tracked_allocations(|| {
-        render_system::update_layout(&mut app.world, root, &Viewport::new(64, 64, Fixed::ONE));
+        render_system::try_update_layout(&mut app.world, root, &Viewport::new(64, 64, Fixed::ONE))
+            .unwrap();
     });
     let hit_allocations = tracked_allocations(|| {
         assert_eq!(
@@ -216,7 +217,8 @@ fn observed_model_switches_cached_match_paint_and_hit_target_in_both_directions(
     let switch_back_allocations = tracked_allocations(|| {
         mode.select(0);
         flush_signal_dirty(&mut app.world);
-        render_system::update_layout(&mut app.world, root, &Viewport::new(64, 64, Fixed::ONE));
+        render_system::try_update_layout(&mut app.world, root, &Viewport::new(64, 64, Fixed::ONE))
+            .unwrap();
         assert_eq!(
             hit_test(&app.world, root, 8.into(), 8.into(), 64, 64),
             Some(first)

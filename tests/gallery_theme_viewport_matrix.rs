@@ -168,9 +168,12 @@ fn registered_demos_render_in_both_themes_across_supported_viewports() {
     let mut covered = BTreeSet::new();
 
     macro_rules! responsive {
-        ($module:ident) => {{
+        ($module:ident) => {
+            responsive!($module, [(320, 568), (480, 320), (1024, 640)]);
+        };
+        ($module:ident, $viewports:expr) => {{
             covered.insert(stringify!($module));
-            for (width, height) in [(320, 568), (480, 320), (1024, 640)] {
+            for (width, height) in $viewports {
                 let light = render_demo!($module, width, height, Theme::light());
                 let dark = render_demo!($module, width, height, Theme::dark());
                 assert_theme_pair(stringify!($module), width, height, light, dark);
@@ -188,9 +191,12 @@ fn registered_demos_render_in_both_themes_across_supported_viewports() {
     }
 
     macro_rules! fixed_palette {
-        ($module:ident) => {{
+        ($module:ident) => {
+            fixed_palette!($module, [(320, 568), (480, 320), (1024, 640)]);
+        };
+        ($module:ident, $viewports:expr) => {{
             covered.insert(stringify!($module));
-            for (width, height) in [(320, 568), (480, 320), (1024, 640)] {
+            for (width, height) in $viewports {
                 for theme in [Theme::light(), Theme::dark()] {
                     let frame = render_demo!($module, width, height, theme);
                     assert!(
@@ -227,11 +233,11 @@ fn registered_demos_render_in_both_themes_across_supported_viewports() {
                     app.set_root(root);
                     app.set_theme(theme).unwrap();
                     app.systems.run_all(&mut app.world).unwrap();
-                    mirui::ui::render_system::update_layout(
+                    mirui::ui::render_system::try_update_layout(
                         &mut app.world,
                         root,
                         &mirui::types::Viewport::new(width, height, mirui::types::Fixed::ONE),
-                    );
+                    ).unwrap();
                     let visible_rects = app
                         .world
                         .query::<mirui::ui::ComputedRect>()
@@ -254,6 +260,8 @@ fn registered_demos_render_in_both_themes_across_supported_viewports() {
     responsive!(curve_text);
     compact!(curve_text_compact);
     responsive!(interaction_lab);
+    responsive!(editor_lab, [(440, 760)]);
+    fixed_palette!(page_studio, [(960, 680)]);
     compact!(kinetic_console);
     fixed_palette!(signal_scope);
     fixed_palette!(marble_play);
@@ -308,6 +316,7 @@ fn registered_demos_render_in_both_themes_across_supported_viewports() {
     responsive!(state_list);
     responsive!(state_keyed);
     persistence_counter!();
+    responsive!(persistence_settings, [(240, 240), (320, 320)]);
     responsive!(scroll);
     responsive!(nested_scroll);
     responsive!(lazy_list);

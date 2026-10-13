@@ -67,7 +67,7 @@ fn render_text(text: &str, font_token: FontToken, size: Option<u16>) -> Vec<u8> 
     });
 
     let viewport = Viewport::new(width, height, Fixed::ONE);
-    render_system::update_layout(&mut app.world, root, &viewport);
+    render_system::try_update_layout(&mut app.world, root, &viewport).unwrap();
     {
         let tex = app.backend.framebuffer();
         let mut renderer = SwRenderer::new(tex);

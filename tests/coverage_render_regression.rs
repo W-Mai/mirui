@@ -71,7 +71,7 @@ fn render_coverage_text(text: &str) -> Vec<u8> {
     });
 
     let viewport = Viewport::new(width, height, Fixed::ONE);
-    render_system::update_layout(&mut app.world, root, &viewport);
+    render_system::try_update_layout(&mut app.world, root, &viewport).unwrap();
     {
         let tex = app.backend.framebuffer();
         let mut renderer = SwRenderer::new(tex);

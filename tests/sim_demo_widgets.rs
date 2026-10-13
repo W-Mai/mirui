@@ -98,7 +98,7 @@ fn build() -> (World, SystemScheduler, Entity, Entity, Entity, Entity) {
     scheduler.add(tab_pages_system::system());
     scheduler.run_all(&mut world).unwrap();
     let viewport = Viewport::new(W, H, Fixed::ONE);
-    render_system::update_layout(&mut world, root, &viewport);
+    render_system::try_update_layout(&mut world, root, &viewport).unwrap();
     (world, scheduler, root, slider, switch, tab_bar)
 }
 
@@ -162,7 +162,7 @@ fn select_tab(
     let next = tap_at(world, root, cx, 7, now_ms);
     scheduler.run_all(world).unwrap();
     let viewport = Viewport::new(W, H, Fixed::ONE);
-    render_system::update_layout(world, root, &viewport);
+    render_system::try_update_layout(world, root, &viewport).unwrap();
     next
 }
 
