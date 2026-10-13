@@ -115,35 +115,47 @@ pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_mos
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::reactive::flush_signal_dirty;
-    use crate::ecs::World;
-    use crate::input::event::gesture::GestureEvent;
-    use crate::ui::Children;
+    use crate::input::event::input::{InputEvent, PointerKind};
+    use crate::input::event::sim::{SimCommand, SimulatedInput, sim_input_system};
+    use crate::ui::{Children, ComputedRect};
 
-    fn tap(world: &mut World, e: Entity) {
-        {
-            let decision = crate::__macro_support::dispatch_entity_gesture(
-                world,
-                &GestureEvent::Tap {
-                    x: Fixed::ZERO,
-                    y: Fixed::ZERO,
-                    target: e,
+    type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
+
+    fn tap(app: &mut TestApp, entity: Entity) {
+        let rect = app.world.get::<ComputedRect>(entity).unwrap().0;
+        let x = rect.x + rect.w / Fixed::from_int(2);
+        let y = rect.y + rect.h / Fixed::from_int(2);
+        app.add_resource(SimulatedInput::new(
+            [
+                InputEvent::PointerDown {
+                    kind: PointerKind::Mouse,
+                    id: 0,
+                    x,
+                    y,
                 },
-                0,
-            )
-            .unwrap();
-            crate::__macro_support::flush_entity_events(world).unwrap();
-            assert_eq!(decision, crate::input::event::BubbleControl::Prevent);
-        };
-        flush_signal_dirty(world);
+                InputEvent::PointerUp {
+                    kind: PointerKind::Mouse,
+                    id: 0,
+                    x,
+                    y,
+                },
+            ]
+            .into_iter()
+            .map(|event| SimCommand::at(0, event))
+            .collect(),
+        ));
+        assert!(!app.tick());
     }
 
     #[test]
     fn rotate_keeps_widget_identity_per_key() {
         let mut app = App::headless(320, 320);
+        app.with_default_widgets();
+        app.add_system(sim_input_system::system());
         let parent = app.spawn_root().id();
         app.compose(parent, build_widgets());
-        let world = &mut app.world;
+        app.render().unwrap();
+        let world = &app.world;
 
         let col = world.get::<Children>(parent).unwrap().0[0];
         let rotate_btn = world.get::<Children>(col).unwrap().0[0];
@@ -155,9 +167,9 @@ mod tests {
         let row_green = before[1];
 
         // rotate: [Red,Green,Blue,Gold] -> [Green,Blue,Gold,Red]
-        tap(world, rotate_btn);
+        tap(&mut app, rotate_btn);
 
-        let after = world.get::<Children>(list).unwrap().0.clone();
+        let after = app.world.get::<Children>(list).unwrap().0.clone();
         assert_eq!(after.len(), 4, "still four cards");
         // Green moved to front but is the SAME entity (keyed identity)
         assert_eq!(
@@ -175,10 +187,10 @@ mod tests {
     #[test]
     fn rotate_relayouts_reused_rows_before_dirty_render() {
         use crate::surface::FramebufferAccess;
-        use crate::ui::ComputedRect;
 
         let mut app = App::headless(320, 320);
         app.with_default_widgets();
+        app.add_system(sim_input_system::system());
         let root = app.spawn_root().id();
         app.compose(root, build_widgets());
         app.render_dirty().unwrap();
@@ -192,8 +204,7 @@ mod tests {
         assert!(slots.windows(2).all(|pair| pair[0].y < pair[1].y));
 
         for rotation in 1..=original.len() {
-            tap(&mut app.world, button);
-            app.render_dirty().unwrap();
+            tap(&mut app, button);
 
             let current = &app.world.get::<Children>(list).unwrap().0;
             for (slot, &entity) in current.iter().enumerate() {
