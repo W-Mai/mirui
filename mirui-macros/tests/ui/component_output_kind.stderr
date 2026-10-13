@@ -5,7 +5,12 @@ error[E0277]: the trait bound `u32: mirui::ui::Output` is not satisfied
   |              ^^^ the trait `mirui::ui::Output` is not implemented for `u32`
   |
 help: the following other types implement trait `mirui::ui::Output`
- --> $WORKSPACE/src/text/geometry.rs
+ --> $WORKSPACE/src/ui/layout_geometry.rs
+  |
+  | impl Output for LayoutGeometry {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `LayoutGeometry`
+  |
+ ::: $WORKSPACE/src/text/geometry.rs
   |
   | impl Output for TextGeometry {
   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `TextGeometry`
