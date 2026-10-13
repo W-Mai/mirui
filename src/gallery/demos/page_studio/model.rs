@@ -55,12 +55,16 @@ impl Studio {
     }
 }
 
-pub(super) fn transition(effect: u8, spring: u8) -> PageTransition {
-    let config = match spring {
+pub(super) fn spring_config(spring: u8) -> crate::anim::SpringConfig {
+    match spring {
         0 => SMOOTH,
         1 => SNAPPY,
         _ => BOUNCY,
-    };
+    }
+}
+
+pub(super) fn transition(effect: u8, spring: u8) -> PageTransition {
+    let config = spring_config(spring);
     match effect {
         0 => PageTransition::None,
         1 => PageTransition::slide(config),

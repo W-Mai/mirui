@@ -35,7 +35,7 @@ Bounds update immediately by default. Add `.with_spring(mirui::anim::SNAPPY)` to
 
 ## Interactive example
 
-Page Studio is available in the Gallery's Showcase section as `page_studio`. Its collection, place details and note editor demonstrate stack navigation and retained controls; the scene panel demonstrates `PageView`. The toolbar selects no animation, slide or group fade, with Smooth, Snappy and Bouncy Spring presets.
+Page Studio is available in the Gallery's Showcase section as `page_studio`. Its collection, place details and note editor demonstrate stack navigation and retained controls; the scene panel demonstrates `PageView`. The toolbar selects no animation, slide or group fade, with Smooth, Snappy and Bouncy Spring presets. The Follow Bounds panel moves an independent outline between three differently sized buttons using `FollowBounds`; each selection uses the toolbar's current Spring preset.
 
 ```sh
 cargo run -p gallery --example page_studio_demo

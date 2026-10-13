@@ -42,7 +42,7 @@ split_demo_sources! {
     PAGE_STUDIO => {
         demo: "page_studio",
         marker: "fn create_page",
-        parts: ["model.rs", "style.rs", "pages.rs", "composition.rs", "tests.rs"]
+        parts: ["model.rs", "style.rs", "pages.rs", "following.rs", "composition.rs", "tests.rs"]
     },
     EDITOR_LAB => {
         demo: "editor_lab",

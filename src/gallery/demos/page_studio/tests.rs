@@ -7,7 +7,7 @@ use crate::input::event::sim::{SimCommand, SimulatedInput, sim_input_system};
 use crate::ui::ComputedRect;
 use crate::ui::widgets::navigation::{NavigationPath, NavigationStack, PageTransition, transition};
 use crate::ui::widgets::page_view::PageView;
-use crate::ui::widgets::{Slider, Switch, Text};
+use crate::ui::widgets::{FollowBounds, Slider, Switch, Text};
 
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 type Path = <NavigationPath<Route> as BindType>::Shared;
@@ -99,6 +99,39 @@ fn finish(app: &mut TestApp) {
         }
     }
     panic!("page transition did not settle");
+}
+
+#[test]
+fn following_selection_reuses_the_frame_and_applies_spring_presets() {
+    let (mut app, _, controls) = fixture();
+    let frame = app.world.find_by_id("pages_follow_frame").unwrap();
+    for (preset, id) in [
+        (0, "pages_follow_b"),
+        (1, "pages_follow_c"),
+        (2, "pages_follow_a"),
+    ] {
+        controls.set_spring(preset);
+        let before = app.world.get::<ComputedRect>(frame).unwrap().0;
+        click_id(&mut app, id);
+        let target = app.world.find_by_id(id).unwrap();
+        let bounds = app.world.get::<FollowBounds>(frame).unwrap();
+        assert_eq!(bounds.target, target);
+        assert!(bounds.spring == Some(model::spring_config(preset)));
+        let target_rect = app.world.get::<ComputedRect>(target).unwrap().0;
+        let expected = Rect::new(
+            target_rect.x - Fixed::from_int(4),
+            target_rect.y - Fixed::from_int(4),
+            target_rect.w + Fixed::from_int(8),
+            target_rect.h + Fixed::from_int(8),
+        );
+        assert_ne!(before, expected);
+        assert_ne!(app.world.get::<ComputedRect>(frame).unwrap().0, expected);
+        for _ in 0..160 {
+            assert!(!app.tick());
+        }
+        assert_eq!(app.world.get::<ComputedRect>(frame).unwrap().0, expected);
+        assert_eq!(app.world.find_by_id("pages_follow_frame"), Some(frame));
+    }
 }
 
 #[test]

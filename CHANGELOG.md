@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `Outputs<LayoutGeometry>` exposes prepared widget bounds, resolved content bounds, screen transforms, and ancestor clipping through component-declared dependencies.
 
-- Page Studio demonstrates nested navigation, retained controls and scroll position, application-selected pages, and reactive slide/fade Spring presets in the Gallery and native launcher.
+- Page Studio demonstrates nested navigation, retained controls and scroll position, application-selected pages, reactive slide/fade Spring presets, and an animated bounds-following outline in the Gallery and native launcher.
 
 - `PageTransition` adds spring-driven slide and group-fade transitions to page containers, preserving velocity on reversal, with bounded pending navigation, viewport clipping, and input isolation. Unavailable fade buffers complete the switch without animation.
 

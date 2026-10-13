@@ -1,3 +1,4 @@
+use super::following::bounds_panel;
 use super::model::{Route, Scene, Studio, transition};
 use super::pages::{create_page, create_scene, home};
 use super::style::*;
@@ -120,6 +121,7 @@ pub fn build_widgets(path: model!(NavigationPath<Route>), controls: model!(Studi
                         clip_children: true,
                         transition: ${ transition(controls.effect(), controls.spring()) }
                     ) on CreatePage(create_scene::callback())
+                    bounds_panel (controls)
                 }
             }
             Row (height: 34, align: AlignItems::Center, column_gap: 10) {
