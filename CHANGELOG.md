@@ -89,6 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Slider fill clipping follows the component transform during page transitions.
 
+- TextInput content clipping follows the component transform for text, placeholders, selections, carets, and preedit underlines.
+
 - Spring motion preserves its overshoot before settling and remains at rest after completion, including page transitions and bounds following.
 
 - Snapshot and rendering benchmark tools stop on layout failures instead of drawing from an incomplete layout.

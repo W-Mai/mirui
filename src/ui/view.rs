@@ -125,6 +125,7 @@ impl<'frame> PaintCtx<'frame> {
         *self.rect
     }
 
+    /// The inherited clip in the current render target's logical coordinates.
     pub fn clip(&self) -> Rect {
         *self.clip
     }
@@ -160,7 +161,7 @@ impl<'frame> PaintCtx<'frame> {
         self.draw_clipped(command, *self.clip);
     }
 
-    /// Submit a draw with an explicit clip and retain its first failure.
+    /// Submit a draw with an explicit clip in render-target logical coordinates and retain its first failure. The command's transform does not transform this clip.
     pub fn draw_clipped(&mut self, command: &DrawCommand<'_>, clip: Rect) {
         if self.error.is_some() {
             return;

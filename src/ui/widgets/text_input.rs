@@ -228,7 +228,8 @@ fn text_input_render(
     }
 
     let content_rect = input_content_rect(rect);
-    let Some(content_clip) = paint.clip().intersect(&content_rect) else {
+    let content_bounds = paint.transform().apply_rect_bbox(content_rect);
+    let Some(content_clip) = paint.clip().intersect(&content_bounds) else {
         return;
     };
     let display_empty = editing.read_display(str::is_empty);
@@ -722,6 +723,105 @@ mod tests {
         world.get_mut::<ComputedRect>(entity).unwrap().0 = rect;
         world.get_mut::<Style>(entity).unwrap().font_size = Some(15);
         assert_eq!(hit(&mut world, entity, projected), 2);
+    }
+
+    #[test]
+    fn content_layers_share_the_transformed_clip_without_allocating() {
+        struct Trace {
+            clip: Option<Rect>,
+            transform: Transform,
+            glyphs: usize,
+            fills: usize,
+        }
+        impl Renderer for Trace {
+            fn submit(
+                &mut self,
+                request: &crate::render::DrawRequest<'_, '_>,
+            ) -> Result<(), crate::render::RenderError> {
+                let transform = match request.command {
+                    DrawCommand::GlyphRun { transform, .. } => {
+                        self.glyphs += 1;
+                        transform
+                    }
+                    DrawCommand::Fill { transform, .. } => {
+                        self.fills += 1;
+                        transform
+                    }
+                    DrawCommand::Border { .. } => return Ok(()),
+                    _ => panic!("unexpected text input command"),
+                };
+                assert_eq!(Some(request.clip), self.clip);
+                assert_eq!(*transform, self.transform);
+                Ok(())
+            }
+
+            fn flush(&mut self) {}
+        }
+
+        for stage in 0..3 {
+            let text: &[u8] = if stage == 0 { b"" } else { b"WWW" };
+            let (mut world, entity, style, _) = input_fixture(text, Some("Wi"), 20);
+            if stage > 0 {
+                let editing = world.get_mut::<TextEditing>(entity).unwrap();
+                editing
+                    .set_selection(super::super::TextSelection {
+                        anchor: 0,
+                        cursor: 3,
+                    })
+                    .unwrap();
+                if stage == 2 {
+                    editing.update_preedit("WWW", Some(0..3)).unwrap();
+                }
+            }
+            let rect = Rect::new(20, 30, 20, 20);
+            let handle = prepare_layout(&world, entity, rect).unwrap().unwrap();
+            world.insert(entity, TextEditingLayoutHandle(handle));
+            let render = view().render().unwrap();
+            for transform in [
+                Transform::IDENTITY,
+                Transform::translate(40.into(), 10.into()),
+                Transform::translate(140.into(), 80.into())
+                    .compose(&Transform::scale((-1).into(), 2.into())),
+            ] {
+                let content = transform.apply_rect_bbox(input_content_rect(rect));
+                for clip in [
+                    Rect::new(0, 0, 300, 200),
+                    Rect {
+                        x: content.x + content.w / Fixed::from_int(2),
+                        ..content
+                    },
+                    Rect::new(0, 0, 1, 1),
+                ] {
+                    let mut trace = Trace {
+                        clip: clip.intersect(&content),
+                        transform,
+                        glyphs: 0,
+                        fills: 0,
+                    };
+                    let mut paint = PaintCtx::new(
+                        &mut trace,
+                        &style,
+                        &rect,
+                        &clip,
+                        transform,
+                        None,
+                        WidgetState::Enabled,
+                    );
+                    assert_eq!(
+                        crate::test_support::tracked_allocations(|| {
+                            render(&world, entity, &mut paint);
+                        }),
+                        0
+                    );
+                    assert_eq!(paint.error(), None);
+                    assert_eq!(trace.glyphs, usize::from(trace.clip.is_some()));
+                    assert_eq!(
+                        trace.fills,
+                        if trace.clip.is_some() { stage + 1 } else { 0 }
+                    );
+                }
+            }
+        }
     }
 
     #[test]
