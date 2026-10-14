@@ -457,6 +457,8 @@ app.add_timer(tick::timer(counter));
 The schedule forms are `after = ms`, `every = ms`,
 `repeat = (count, ms)`, and `until = (deadline, ms)`.
 
+`TweenConfig::new(duration_ms, &ease::OUT_CUBIC)` configures finite tweens without storing endpoints or elapsed time. `Tween::preset(from, to, config)` creates their running state. `Tween::new` accepts a static `Easing` reference and a `PlayMode` for explicit once, loop, or ping-pong animations. Custom curves use `static CUSTOM: Easing = Easing::new(sample)`, where `sample: fn(Fixed) -> Fixed` has normalized endpoints; reusing the same descriptor retains its configuration identity.
+
 `#[animate]` declares how a scalar `Motion` is applied. It generates the named
 motion component and a system constructor; the callback can receive model,
 component, entity, motion, and deferred-command roles:

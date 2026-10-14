@@ -3,7 +3,7 @@ pub mod ease;
 use crate::ecs::{Component, DeltaTimeMs, MonoClock};
 use crate::types::{Fixed, Fixed64};
 
-pub use ease::EaseFn;
+pub use ease::{EaseFn, Easing};
 
 /// Upper bound on a single frame's delta, applied where dt is sourced.
 /// Caps the semi-implicit Euler step so a stalled clock can't diverge the
@@ -23,12 +23,18 @@ pub struct Tween {
     pub to: Fixed,
     pub duration_ms: u16,
     pub elapsed_ms: u16,
-    pub ease: EaseFn,
+    pub ease: &'static Easing,
     pub mode: PlayMode,
 }
 
 impl Tween {
-    pub fn new(from: Fixed, to: Fixed, duration_ms: u16, ease: EaseFn, mode: PlayMode) -> Self {
+    pub fn new(
+        from: Fixed,
+        to: Fixed,
+        duration_ms: u16,
+        ease: &'static Easing,
+        mode: PlayMode,
+    ) -> Self {
         Self {
             from,
             to,
@@ -40,7 +46,11 @@ impl Tween {
     }
 
     pub fn ease_to(from: Fixed, to: Fixed, duration_ms: u16) -> Self {
-        Self::new(from, to, duration_ms, ease::ease_out_quad, PlayMode::Once)
+        Self::new(from, to, duration_ms, &ease::OUT_QUAD, PlayMode::Once)
+    }
+
+    pub fn preset(from: Fixed, to: Fixed, config: TweenConfig) -> Self {
+        Self::new(from, to, config.duration_ms, config.ease, PlayMode::Once)
     }
 
     pub fn tick(&mut self, dt_ms: u16) {
@@ -62,12 +72,25 @@ impl Tween {
 
     pub fn value(&self) -> Fixed {
         let t = Fixed::from_int(self.elapsed_ms as i32) / Fixed::from_int(self.duration_ms as i32);
-        let eased = (self.ease)(t);
+        let eased = self.ease.sample(t);
         self.from + eased * (self.to - self.from)
     }
 
     pub fn is_finished(&self) -> bool {
         self.mode == PlayMode::Once && self.elapsed_ms >= self.duration_ms
+    }
+}
+
+/// Duration and easing for a finite tween, independent of its endpoints and progress.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct TweenConfig {
+    pub duration_ms: u16,
+    pub ease: &'static Easing,
+}
+
+impl TweenConfig {
+    pub const fn new(duration_ms: u16, ease: &'static Easing) -> Self {
+        Self { duration_ms, ease }
     }
 }
 
@@ -460,6 +483,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn tween_configuration_separates_identity_from_running_state() {
+        static CUSTOM: Easing = Easing::new(ease::ease_out_cubic);
+        let config = TweenConfig::new(300, &ease::OUT_CUBIC);
+        let repeated = TweenConfig::new(300, &ease::OUT_CUBIC);
+        assert!(config == repeated);
+        assert!(config != TweenConfig::new(301, &ease::OUT_CUBIC));
+        assert!(config != TweenConfig::new(300, &CUSTOM));
+        let mut first = Tween::preset(Fixed::ZERO, Fixed::ONE, config);
+        let second = Tween::preset(Fixed::ZERO, Fixed::ONE, repeated);
+        first.tick(100);
+        assert_ne!(first.value(), second.value());
+        assert_eq!(second.elapsed_ms, 0);
+    }
+
     struct TestMotion(Motion);
 
     impl Component for TestMotion {}
@@ -490,7 +528,7 @@ mod tests {
                 Fixed::ZERO,
                 Fixed::from_int(10),
                 100,
-                ease::linear,
+                &ease::LINEAR,
                 PlayMode::Loop,
             )
             .into(),
@@ -517,7 +555,7 @@ mod tests {
                     Fixed::ZERO,
                     Fixed::from_int(10),
                     100,
-                    ease::linear,
+                    &ease::LINEAR,
                     PlayMode::Loop,
                 )
                 .into(),
@@ -562,7 +600,7 @@ mod tests {
             Fixed::ZERO,
             Fixed::from_int(100),
             100,
-            ease::linear,
+            &ease::LINEAR,
             PlayMode::Once,
         );
         t.tick(50);
@@ -584,7 +622,7 @@ mod tests {
             Fixed::ZERO,
             Fixed::from_int(100),
             100,
-            ease::linear,
+            &ease::LINEAR,
             PlayMode::Loop,
         );
         t.tick(150);
@@ -598,7 +636,7 @@ mod tests {
             Fixed::ZERO,
             Fixed::from_int(100),
             100,
-            ease::linear,
+            &ease::LINEAR,
             PlayMode::PingPong,
         );
         t.tick(100);

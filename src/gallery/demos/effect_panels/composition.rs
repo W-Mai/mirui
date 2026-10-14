@@ -165,7 +165,7 @@ pub fn build_widgets() {
                                         Fixed::ZERO,
                                         Fixed::ONE,
                                         2200,
-                                        ease::ease_in_out_cubic,
+                                        &ease::IN_OUT_CUBIC,
                                         PlayMode::PingPong,
                                     )
                                     .into(),
@@ -211,7 +211,7 @@ pub fn build_widgets() {
                                             Fixed::from_int(2),
                                             Fixed::from_int(8),
                                             1500,
-                                            ease::ease_in_out_cubic,
+                                            &ease::IN_OUT_CUBIC,
                                             PlayMode::PingPong,
                                         )
                                         .into(),
@@ -246,7 +246,7 @@ pub fn build_widgets() {
                                             Fixed::from_int(6),
                                             Fixed::from_int(18),
                                             1800,
-                                            ease::ease_in_out_cubic,
+                                            &ease::IN_OUT_CUBIC,
                                             PlayMode::PingPong,
                                         )
                                         .into(),

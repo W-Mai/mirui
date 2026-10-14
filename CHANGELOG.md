@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `TweenConfig` separates duration and easing from running animation state. Static `Easing` descriptors provide stable curve identity for built-in and custom tweens.
+
 - `anim::Transition` configures shared motion for page effects and `FollowBounds::with_transition`, accepting spring presets directly and retaining velocity when redirected.
 
 - `FollowBounds` positions a widget around another widget's border or content bounds without occupying flex space, with cross-parent transforms, source clipping, and invalid-target recovery.

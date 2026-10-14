@@ -92,7 +92,7 @@ pub fn build_widgets() {
                         Fixed::from_int(GLASS_MARGIN),
                         Fixed::from_int(DEFAULT_VIEW.0 as i32 - GLASS_W - GLASS_MARGIN),
                         GLASS_PERIOD_MS,
-                        ease::ease_in_out_cubic,
+                        &ease::IN_OUT_CUBIC,
                         PlayMode::PingPong,
                     )
                     .into(),
@@ -102,7 +102,7 @@ pub fn build_widgets() {
                         Fixed::from_int(0),
                         Fixed::from_int(3),
                         GLASS_PERIOD_MS,
-                        ease::ease_in_out_cubic,
+                        &ease::IN_OUT_CUBIC,
                         PlayMode::PingPong,
                     )
                     .into(),

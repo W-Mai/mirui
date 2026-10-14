@@ -13,7 +13,7 @@ pub(super) fn beat() -> IconScale {
             Fixed::ONE,
             Fixed::from_f32(1.4),
             600,
-            ease::ease_in_out_cubic,
+            &ease::IN_OUT_CUBIC,
             PlayMode::PingPong,
         )
         .into(),

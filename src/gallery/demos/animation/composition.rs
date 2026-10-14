@@ -76,13 +76,13 @@ pub fn build_widgets() {
                                 Fixed::from_int(18),
                                 Fixed::from_int(246),
                                 1200,
-                                ease::ease_in_out_cubic,
+                                &ease::IN_OUT_CUBIC,
                                 PlayMode::PingPong,
                             )
                             .into(),
                     ),
                     AnimateColor(
-                        Tween::new(Fixed::ZERO, Fixed::ONE, 2400, ease::ease_in_out_quad, PlayMode::Loop)
+                        Tween::new(Fixed::ZERO, Fixed::ONE, 2400, &ease::IN_OUT_QUAD, PlayMode::Loop)
                             .into(),
                     ),
                 ]

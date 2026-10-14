@@ -87,7 +87,7 @@ pub fn build_widgets() {
                                 Fixed::from_int(48),
                                 Fixed::from_int(220),
                                 800,
-                                ease::ease_in_out_cubic,
+                                &ease::IN_OUT_CUBIC,
                                 PlayMode::PingPong,
                             )
                             .into(),
