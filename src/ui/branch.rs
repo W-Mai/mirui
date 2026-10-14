@@ -101,24 +101,8 @@ fn set_selected(world: &mut World, root: Entity, selected: bool) {
         return;
     }
     if !selected {
-        // A scroll blit can move old pixels without updating descendant PrevRect.
-        let mut old_bounds = if has_scroll_ancestor(world, root) {
-            world
-                .resource::<crate::surface::DisplayInfo>()
-                .map(|display| {
-                    crate::types::Rect::new(
-                        0,
-                        0,
-                        i32::from(display.width),
-                        i32::from(display.height),
-                    )
-                })
-        } else {
-            None
-        };
-        if old_bounds.is_none() {
-            collect_old_bounds(world, root, &mut old_bounds);
-        }
+        let mut old_bounds = None;
+        collect_old_bounds(world, root, &mut old_bounds);
         if let Some(bounds) = old_bounds {
             world.invalidate_rect(bounds);
         }
@@ -135,18 +119,6 @@ fn set_selected(world: &mut World, root: Entity, selected: bool) {
     }
     if let Some(parent) = world.get::<Parent>(root).map(|parent| parent.0) {
         world.invalidate(parent);
-    }
-}
-
-fn has_scroll_ancestor(world: &World, mut entity: Entity) -> bool {
-    loop {
-        if world.has::<crate::input::event::scroll::ScrollOffset>(entity) {
-            return true;
-        }
-        let Some(parent) = world.get::<Parent>(entity) else {
-            return false;
-        };
-        entity = parent.0;
     }
 }
 
@@ -246,6 +218,6 @@ mod tests {
             .resource_mut::<ExactDirtyRegions>()
             .unwrap()
             .prepare_into(&mut rects);
-        assert_eq!(rects, [Rect::new(0, 0, 80, 40)]);
+        assert_eq!(rects, [Rect::new(0, 0, 10, 10)]);
     }
 }

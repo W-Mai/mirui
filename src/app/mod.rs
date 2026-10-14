@@ -2390,6 +2390,45 @@ mod app_invariant_tests {
         }
     }
 
+    #[test]
+    fn nested_scroll_erases_hidden_and_retired_content_after_a_query() {
+        use crate::input::event::scroll::ScrollOffset;
+        for retire in [false, true] {
+            let mut app = App::headless(64, 64);
+            app.with_default_widgets();
+            let root = app.spawn_root().id();
+            app.compose(root, nested_painted_scroll_scene());
+            let outer = app.world.find_by_id("outer").unwrap();
+            let inner = app.world.find_by_id("inner").unwrap();
+            let marker = app.world.find_by_id("nested-marker").unwrap();
+            let branches = [alloc::vec![marker]];
+            crate::ui::branch::prepare(&mut app.world, inner, &branches);
+            crate::ui::branch::select(&mut app.world, &branches, None, Some(0));
+            app.render().unwrap();
+            app.world.get_mut::<ScrollOffset>(outer).unwrap().y = (-2).into();
+            app.world.get_mut::<ScrollOffset>(inner).unwrap().y = 5.into();
+            app.world.invalidate_visual(outer);
+            app.world.invalidate_visual(inner);
+            app.dirty_regions().unwrap();
+            if retire {
+                crate::ui::retirement::despawn_subtree(&mut app.world, marker);
+            } else {
+                crate::ui::branch::select(&mut app.world, &branches, Some(0), None);
+            }
+            let plan = app.dirty_regions().unwrap();
+            assert_eq!(plan.shifts.len(), 2);
+            assert!(!plan.rects.contains(&Rect::new(0, 0, 64, 64)));
+            app.render_dirty().unwrap();
+            let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+            app.render().unwrap();
+            assert!(
+                app.backend.framebuffer().buf.as_slice() == dirty,
+                "retire={retire}"
+            );
+            assert!(app.dirty_regions().unwrap().is_empty());
+        }
+    }
+
     #[crate::view(component = FailedFrame)]
     fn failed_frame(probe: component!(), paint: paint!()) {
         if probe.enabled.get() {

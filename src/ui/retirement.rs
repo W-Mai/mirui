@@ -52,10 +52,6 @@ pub(crate) fn despawn_subtree(world: &mut World, entity: Entity) {
         return;
     }
 
-    if let Some(viewport) = world.resource::<crate::app::RenderViewport>() {
-        let (width, height) = viewport.0.logical_size();
-        world.invalidate_rect(crate::types::Rect::new(0, 0, width, height));
-    }
     if let Some(parent) = world.get::<Parent>(entity).map(|parent| parent.0) {
         if let Some(children) = world.get_mut::<Children>(parent) {
             children.0.retain(|child| *child != entity);
@@ -79,6 +75,14 @@ pub(crate) fn despawn_subtree(world: &mut World, entity: Entity) {
         }
 
         let parent = world.get::<Parent>(current).map(|parent| parent.0);
+        if let Some(rect) = world
+            .get::<super::dirty::PrevRect>(current)
+            .map(|rect| rect.0)
+            && rect.w > crate::types::Fixed::ZERO
+            && rect.h > crate::types::Fixed::ZERO
+        {
+            world.invalidate_rect(rect);
+        }
         if let Some(name) = world.get::<NamedId>(current).map(|name| name.0)
             && let Some(map) = world.resource_mut::<IdMap>()
             && map.get(name) == Some(current)
