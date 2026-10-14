@@ -191,7 +191,8 @@ fn slider_render(component: component!(), paint: paint!(), theme: res!(crate::ui
             w: ratio_w,
             h: rect.h,
         };
-        if let Some(fill_clip) = paint.clip().intersect(&ratio_box) {
+        let ratio_clip = paint.transform().apply_rect_bbox(ratio_box);
+        if let Some(fill_clip) = paint.clip().intersect(&ratio_clip) {
             paint.draw_clipped(
                 &DrawCommand::Fill {
                     area: rect,
@@ -793,6 +794,82 @@ mod tests {
             );
             assert!(world.has::<VisualDirty>(entity));
             assert_eq!(world.resource::<EventLog>().unwrap().len, 0);
+        }
+    }
+
+    #[test]
+    fn fill_clip_follows_the_same_transform_as_the_track() {
+        use crate::render::renderer::{DrawRequest, RenderError, Renderer};
+        use crate::types::Transform;
+        use crate::ui::theme::WidgetState;
+        use crate::ui::view::PaintCtx;
+        use crate::ui::{Style, Theme};
+
+        struct Trace {
+            clips: [Rect; 3],
+            count: usize,
+            transform: Transform,
+        }
+        impl Renderer for Trace {
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                let DrawCommand::Fill { transform, .. } = request.command else {
+                    panic!("expected slider fill")
+                };
+                assert_eq!(*transform, self.transform);
+                self.clips[self.count] = request.clip;
+                self.count += 1;
+                Ok(())
+            }
+            fn flush(&mut self) {}
+        }
+
+        let mut world = World::new();
+        world.insert_resource(Theme::default());
+        let node = world.spawn_empty();
+        world.insert(
+            node,
+            Slider {
+                value: Fixed::from_ratio(1, 2),
+                ..Slider::default()
+            },
+        );
+        let rect = Rect::new(20, 30, 100, 20);
+        let clip = Rect::new(0, 0, 300, 200);
+        let style = Style::default();
+        let render = view().render().unwrap();
+        for transform in [
+            Transform::IDENTITY,
+            Transform::translate(40.into(), 10.into()),
+            Transform::translate(140.into(), 80.into())
+                .compose(&Transform::scale((-1).into(), 2.into())),
+        ] {
+            let mut trace = Trace {
+                clips: [Rect::ZERO; 3],
+                count: 0,
+                transform,
+            };
+            let mut paint = PaintCtx::new(
+                &mut trace,
+                &style,
+                &rect,
+                &clip,
+                transform,
+                None,
+                WidgetState::Enabled,
+            );
+            let allocations = crate::test_support::tracked_allocations(|| {
+                render(&world, node, &mut paint);
+            });
+            assert_eq!(paint.error(), None);
+            assert_eq!(allocations, 0);
+            assert_eq!(trace.count, 3);
+            assert_eq!(
+                trace.clips[1],
+                transform
+                    .apply_rect_bbox(Rect::new(20, 30, 50, 20))
+                    .intersect(&clip)
+                    .unwrap()
+            );
         }
     }
 
