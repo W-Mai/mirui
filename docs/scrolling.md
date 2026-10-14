@@ -25,6 +25,8 @@ An independently held Model can still change while a query result is borrowed. T
 
 Redraw rectangles are normalized into non-overlapping areas. Intersecting regions retain their gaps when the prepared region capacity permits; excess fragmentation is conservatively merged. Scroll-transfer areas remain ordered and may overlap redraw areas.
 
+Unfilled borders retain their untouched center in the painted baseline. Transparent layout containers do not add their whole layout rectangle to damage; their children are measured independently. Custom drawing without a known coverage measurement retains conservative bounds.
+
 ## Input and viewport
 
 Scrolling does not snap to cell boundaries. Pointer and wheel input share elastic resistance and released motion; continued input controls the content without a concurrent rebound. Pointer-release inertia follows recent content movement and expires after the pointer stops. Within scroll bounds, wheel input applies its fractional deltas directly, retaining platform-provided momentum. Scroll offsets invalidate painting and hit geometry, while cell reassignment or size changes still update layout. Framebuffer reuse is restricted to whole physical-pixel shifts in untransformed rectangular viewports without borders or rounded corners; other movement repaints the affected viewport.

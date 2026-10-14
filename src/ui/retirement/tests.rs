@@ -107,13 +107,23 @@ fn retirement_does_not_remove_an_id_rebound_to_another_generation() {
 
 #[test]
 fn retirement_preserves_painted_coverage_without_full_viewport_damage() {
-    use crate::ui::dirty::{ExactDirtyRegions, PrevRect};
+    use crate::ui::dirty::{ExactDirtyRegions, PaintedCoverage};
     let mut app = App::headless(128, 128);
     let root = app.spawn_root().id();
     let target = attach(&mut app.world, root);
     let leaf = attach(&mut app.world, target);
-    app.world.insert(target, PrevRect(Rect::new(10, 20, 4, 5)));
-    app.world.insert(leaf, PrevRect(Rect::new(30, 40, 5, 6)));
+    app.world.insert(
+        target,
+        PaintedCoverage(crate::ui::dirty::PaintCoverage::solid(Rect::new(
+            10, 20, 4, 5,
+        ))),
+    );
+    app.world.insert(
+        leaf,
+        PaintedCoverage(crate::ui::dirty::PaintCoverage::solid(Rect::new(
+            30, 40, 5, 6,
+        ))),
+    );
     app.world.invalidate(root);
     assert_eq!(
         crate::test_support::tracked_allocations(|| {

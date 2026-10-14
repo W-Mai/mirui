@@ -229,7 +229,7 @@ impl TexturePlan {
             .any(|capture| capture.entity == entity && capture.state == CaptureState::Ready)
     }
 
-    fn output_layout(&self, entity: Entity) -> Option<SourceGeometry> {
+    pub(super) fn output_layout(&self, entity: Entity) -> Option<SourceGeometry> {
         let capture = self
             .captures
             .iter()
@@ -273,7 +273,8 @@ impl TexturePlan {
             else {
                 continue;
             };
-            if let Some(bounds) = measured.bounds {
+            if !measured.coverage.is_empty() {
+                let bounds = measured.coverage.outer;
                 let bounds = geometry_translate(bounds, Point::new(rect.x, rect.y), Point::ZERO)?;
                 self.nodes[position].extra = Some(match self.nodes[position].extra {
                     Some(previous) => geometry_union(previous, bounds)?,
@@ -299,6 +300,11 @@ impl TexturePlan {
             None => node.extra?,
         };
         geometry_translate(bounds, Point::ZERO, Point::new(rect.x, rect.y)).ok()
+    }
+
+    pub(super) fn captured_paint_bounds(&self, position: usize, rect: Rect) -> Option<Rect> {
+        self.nodes.get(position)?.capture?;
+        self.local_paint_bounds(position, rect)
     }
 
     #[allow(clippy::too_many_arguments)]

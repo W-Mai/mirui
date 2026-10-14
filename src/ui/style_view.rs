@@ -39,7 +39,33 @@ fn style_render(theme: res!(crate::ui::Theme), paint: paint!()) {
     }
 }
 
-pub use style_render::view;
+pub fn view() -> super::view::View {
+    style_render::view().with_measurement(style_measurement)
+}
+
+fn style_measurement(
+    world: &crate::ecs::World,
+    entity: crate::ecs::Entity,
+    rect: crate::types::Rect,
+    _source: &dyn Fn(crate::ecs::Entity) -> Option<super::view::SourceGeometry>,
+) -> Option<super::view::PaintMeasurement> {
+    use super::dirty::PaintCoverage;
+    let style = world.get::<Style>(entity)?;
+    let coverage = if style.bg_color.is_some() {
+        PaintCoverage::solid(rect)
+    } else if style.border_color.is_some() && style.border_width > Fixed::ZERO {
+        let inset = style
+            .border_width
+            .max(style.border_radius + style.border_width / 2);
+        PaintCoverage::frame(rect, rect.inflate(-inset))
+    } else {
+        PaintCoverage::EMPTY
+    };
+    Some(super::view::PaintMeasurement {
+        coverage,
+        workspace: None,
+    })
+}
 
 #[cfg(all(test, feature = "std"))]
 mod tests {

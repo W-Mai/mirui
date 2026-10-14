@@ -89,7 +89,7 @@ fn shadow_measurement(
         shadow.offset,
     )?;
     Some(PaintMeasurement {
-        bounds: Some(bounds),
+        coverage: crate::ui::dirty::PaintCoverage::solid(bounds),
         workspace: Some(plane.layout),
     })
 }
@@ -352,7 +352,7 @@ fn glow_measurement(
         (Fixed::ZERO, Fixed::ZERO),
     )?;
     Some(PaintMeasurement {
-        bounds: Some(bounds),
+        coverage: crate::ui::dirty::PaintCoverage::solid(bounds),
         workspace: Some(plane.layout),
     })
 }
@@ -404,7 +404,7 @@ mod tests {
                 let (plane, bounds) =
                     effect_geometry(geometry, Fixed::from_int(2), offset).unwrap();
                 assert_eq!(bounds, expected);
-                assert_eq!(measured.bounds, Some(bounds));
+                assert_eq!(measured.coverage.outer, bounds);
                 assert_eq!(measured.workspace, Some(plane.layout));
                 assert!(measure(&world, owner, owner_rect, &|_| None).is_none());
             }

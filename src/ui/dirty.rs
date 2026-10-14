@@ -7,7 +7,14 @@ use crate::ecs::{Entity, World};
 use crate::types::{Fixed, Rect};
 use alloc::vec::Vec;
 
+mod coverage;
 mod regions;
+pub(crate) use regions::RegionSet;
+#[cfg(test)]
+mod baseline_tests;
+#[cfg(test)]
+mod traversal_tests;
+pub(crate) use coverage::PaintCoverage;
 
 /// Dirty flag component — marks an entity as needing redraw.
 pub struct Dirty;
@@ -92,7 +99,7 @@ impl<'a> DirtyTraversal<'a> {
             if self.world.has::<super::Widget>(entity) && self.world.has::<super::Style>(entity) {
                 max_entity_id = max_entity_id.max(entity.id);
                 missing_computed += usize::from(!self.world.has::<super::ComputedRect>(entity));
-                missing_prev += usize::from(!self.world.has::<PrevRect>(entity));
+                missing_prev += usize::from(!self.world.has::<PaintedCoverage>(entity));
             }
             self.world.insert(entity, Dirty);
             if let Some(children) = self.world.get::<Children>(entity) {
@@ -197,7 +204,7 @@ impl World {
             self.reserve_component_storage::<super::ComputedRect>(max_entity_id, missing_computed);
         }
         if missing_prev > 0 {
-            self.reserve_component_storage::<PrevRect>(max_entity_id, missing_prev);
+            self.reserve_component_storage::<PaintedCoverage>(max_entity_id, missing_prev);
         }
     }
 
@@ -263,7 +270,8 @@ fn is_visible_descendant(world: &World, root: Entity, mut entity: Entity) -> boo
 }
 
 /// Stores the visible paint bounds within the committed clip after a successful render.
-pub struct PrevRect(pub Rect);
+#[derive(Clone, Copy)]
+pub(crate) struct PaintedCoverage(pub PaintCoverage);
 
 /// Optional per-entity expansion of the dirty-region rect that the
 /// walker writes when `Dirty` triggers. Effects whose paint area

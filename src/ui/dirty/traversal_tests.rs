@@ -1,14 +1,12 @@
-#[path = "support/tracking_allocator.rs"]
-mod tracking_allocator;
-
+use crate::test_support::tracked_allocations;
+use alloc::{vec, vec::Vec};
 use mirui::app::App;
 use mirui::ecs::World;
 use mirui::types::Rect;
 use mirui::ui::{
     Children, ComputedRect, Hidden, Style, Widget, branch,
-    dirty::{Dirty, PrevRect},
+    dirty::{Dirty, PaintedCoverage},
 };
-use tracking_allocator::tracked_allocations;
 
 #[test]
 fn warmed_subtree_dirty_traversal_reuses_its_stack() {
@@ -78,16 +76,22 @@ fn cached_branches_reserve_geometry_components_without_creating_placeholders() {
     let branches = [vec![first], vec![second]];
     branch::prepare(&mut world, parent, &branches);
     assert!(world.get::<ComputedRect>(second_child).is_none());
-    assert!(world.get::<PrevRect>(second_child).is_none());
+    assert!(world.get::<PaintedCoverage>(second_child).is_none());
 
     let geometry = Rect::new(1, 2, 3, 4);
     let allocations = tracked_allocations(|| {
         for entity in [first, first_child, second, second_child] {
             world.insert(entity, ComputedRect(geometry));
-            world.insert(entity, PrevRect(geometry));
+            world.insert(
+                entity,
+                PaintedCoverage(crate::ui::dirty::PaintCoverage::solid(geometry)),
+            );
         }
     });
     assert_eq!(allocations, 0);
     assert_eq!(world.get::<ComputedRect>(second_child).unwrap().0, geometry);
-    assert_eq!(world.get::<PrevRect>(second_child).unwrap().0, geometry);
+    assert_eq!(
+        world.get::<PaintedCoverage>(second_child).unwrap().0.outer,
+        geometry
+    );
 }

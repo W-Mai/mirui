@@ -680,9 +680,10 @@ fn seed_after_root_change_does_not_apply_another_roots_capture_geometry() {
         app.render().unwrap();
         assert!(
             app.world
-                .get::<crate::ui::dirty::PrevRect>(old_capture)
+                .get::<crate::ui::dirty::PaintedCoverage>(old_capture)
                 .unwrap()
                 .0
+                .outer
                 .w
                 > Fixed::from_int(4)
         );
@@ -696,9 +697,10 @@ fn seed_after_root_change_does_not_apply_another_roots_capture_geometry() {
         seed_prev_rects(&mut app.world, root, &viewport);
         assert_eq!(
             app.world
-                .get::<crate::ui::dirty::PrevRect>(plain)
+                .get::<crate::ui::dirty::PaintedCoverage>(plain)
                 .unwrap()
-                .0,
+                .0
+                .outer,
             Rect::new(2, 16, 2, 2),
             "retained snapshot: {retain_snapshot}"
         );
@@ -726,9 +728,10 @@ fn seed_after_root_change_does_not_apply_another_roots_capture_geometry() {
     seed_prev_rects(&mut app.world, retained_root, &viewport);
     assert_eq!(
         app.world
-            .get::<crate::ui::dirty::PrevRect>(plain)
+            .get::<crate::ui::dirty::PaintedCoverage>(plain)
             .unwrap()
-            .0,
+            .0
+            .outer,
         Rect::new(2, 16, 2, 2)
     );
 }
@@ -774,9 +777,10 @@ fn layout_reorder_invalidates_seed_geometry_and_reuses_plan_capacity() {
     seed_prev_rects(&mut app.world, root, &viewport);
     assert_eq!(
         app.world
-            .get::<crate::ui::dirty::PrevRect>(plain)
+            .get::<crate::ui::dirty::PaintedCoverage>(plain)
             .unwrap()
-            .0,
+            .0
+            .outer,
         Rect::new(2, 16, 2, 2)
     );
 
@@ -784,9 +788,10 @@ fn layout_reorder_invalidates_seed_geometry_and_reuses_plan_capacity() {
     let capture_rect = app.world.get::<crate::ui::ComputedRect>(capture).unwrap().0;
     let previous = app
         .world
-        .get::<crate::ui::dirty::PrevRect>(capture)
+        .get::<crate::ui::dirty::PaintedCoverage>(capture)
         .unwrap()
-        .0;
+        .0
+        .outer;
     assert!(previous.w > capture_rect.w);
     assert_eq!(pixel(&mut app, 5, 5), RED);
 }

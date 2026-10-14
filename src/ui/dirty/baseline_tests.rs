@@ -1,8 +1,9 @@
 #[cfg(test)]
 mod tests {
+    use alloc::{vec, vec::Vec};
     use mirui::ecs::World;
     use mirui::types::{Dimension, Fixed, Rect, Viewport};
-    use mirui::ui::dirty::{Dirty, PrevRect};
+    use mirui::ui::dirty::{Dirty, PaintedCoverage};
     use mirui::ui::layout::*;
     use mirui::ui::{Children, Style};
 
@@ -47,7 +48,7 @@ mod tests {
         // Move from (10, 20) to (15, 25) — pixels change
         mirui::ui::set_position(&mut world, child, 15, 25);
 
-        assert!(world.get::<PrevRect>(child).is_none());
+        assert!(world.get::<PaintedCoverage>(child).is_none());
     }
 
     #[test]
@@ -57,10 +58,10 @@ mod tests {
         // Move from (10, 20) to (10, 20) — exact same position
         mirui::ui::set_position(&mut world, child, 10, 20);
 
-        let prev = world.get::<PrevRect>(child);
+        let prev = world.get::<PaintedCoverage>(child);
         assert!(
             prev.is_none(),
-            "PrevRect should NOT be stored when pixel footprint unchanged"
+            "PaintedCoverage should NOT be stored when pixel footprint unchanged"
         );
     }
 
@@ -79,7 +80,7 @@ mod tests {
         );
 
         // The recorded frame remains the baseline until another render succeeds.
-        let prev = world.get::<PrevRect>(child).unwrap().0;
+        let prev = world.get::<PaintedCoverage>(child).unwrap().0.outer;
         assert_eq!(prev.pixel_bounds(), (10, 20, 26, 36));
 
         // Move from 10.78 to 11.2 — pixel x changes from 10 to 11
@@ -90,7 +91,7 @@ mod tests {
             Fixed::from_int(20),
         );
 
-        let prev = world.get::<PrevRect>(child).unwrap().0;
+        let prev = world.get::<PaintedCoverage>(child).unwrap().0.outer;
         // Unpainted intermediate positions do not change the baseline.
         assert_eq!(prev.pixel_bounds(), (10, 20, 26, 36));
     }

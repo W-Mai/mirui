@@ -89,6 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Border redraws preserve untouched centers, and transparent layout containers no longer enlarge damage to their entire layout bounds. Painted coverage is committed only after successful drawing.
+
 - Dirty-region normalization preserves gaps between intersecting rectangles and produces non-overlapping redraw areas with reusable planning storage.
 
 - Hidden and deleted subtrees retain their painted damage without forcing viewport-wide invalidation during scrolling.

@@ -534,9 +534,9 @@ pub(crate) struct SourceGeometry {
     pub local_bounds: Rect,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub(crate) struct PaintMeasurement {
-    pub bounds: Option<Rect>,
+    pub coverage: super::dirty::PaintCoverage,
     pub workspace: Option<PlaneLayout>,
 }
 

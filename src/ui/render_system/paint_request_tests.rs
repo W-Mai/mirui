@@ -285,14 +285,23 @@ fn published_capture_requests_survive_parent_capture_and_main_target_failure() {
 fn separated_damage_scene() {
     ui! {
         View (width: 64, height: 4) {
-            View (id: "left", position: Position::Absolute, left: 0, top: 0, width: 4, height: 4)
+            View (
+                id: "left",
+                position: Position::Absolute,
+                left: 0,
+                top: 0,
+                width: 4,
+                height: 4,
+                bg_color: RED
+            )
             View (
                 id: "right",
                 position: Position::Absolute,
                 left: 60,
                 top: 0,
                 width: 4,
-                height: 4
+                height: 4,
+                bg_color: BLUE
             )
         }
     };
@@ -302,6 +311,7 @@ fn separated_damage_scene() {
 fn split_dirty_regions_commit_main_requests_only_after_every_region_succeeds() {
     for fail_right in [true, false] {
         let mut app = app(64, 4, false);
+        app.with_widget(crate::ui::style_view::view());
         let root = app.spawn_root().id();
         app.compose(root, separated_damage_scene());
         let left = app.world.find_by_id("left").unwrap();

@@ -39,7 +39,7 @@ fn mirror_render(mirror: component!(), outputs: res!(Outputs<WidgetTexture>), pa
 fn mirror_measurement(
     world: &World,
     entity: Entity,
-    _rect: Rect,
+    rect: Rect,
     source_geometry: &dyn Fn(Entity) -> Option<SourceGeometry>,
 ) -> Option<PaintMeasurement> {
     let mirror = world.get::<MirrorOf>(entity)?;
@@ -51,7 +51,7 @@ fn mirror_measurement(
         ColorFormat::RGB888 | ColorFormat::BGRA8888 => return None,
     };
     Some(PaintMeasurement {
-        bounds: None,
+        coverage: crate::ui::dirty::PaintCoverage::solid(rect),
         workspace: Some(workspace),
     })
 }

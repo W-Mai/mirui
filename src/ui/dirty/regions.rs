@@ -2,6 +2,61 @@ use alloc::vec::Vec;
 
 use crate::types::{Fixed, Rect};
 
+pub(crate) struct RegionSet<const N: usize> {
+    rects: [Rect; N],
+    len: usize,
+}
+
+impl<const N: usize> RegionSet<N> {
+    pub const fn new() -> Self {
+        Self {
+            rects: [Rect::ZERO; N],
+            len: 0,
+        }
+    }
+
+    pub fn as_slice(&self) -> &[Rect] {
+        &self.rects[..self.len]
+    }
+
+    pub fn insert(&mut self, rect: Rect) {
+        if rect.w <= Fixed::ZERO || rect.h <= Fixed::ZERO {
+            return;
+        }
+        let (x0, y0, x1, y1) = rect.pixel_bounds();
+        let rect = Rect::new(x0, y0, x1 - x0, y1 - y0);
+        assert!(N > 0);
+        if self.len < N {
+            self.rects[self.len] = rect;
+            self.len += 1;
+        } else {
+            let get = |index| if index == N { rect } else { self.rects[index] };
+            let pair = cheapest_pair(N + 1, get);
+            self.rects[pair.0] = get(pair.0).union(&get(pair.1));
+            if pair.1 != N {
+                self.rects[pair.1] = rect;
+            }
+        }
+        self.merge_rectangular_unions();
+    }
+
+    fn merge_rectangular_unions(&mut self) {
+        'merge: loop {
+            for left in 0..self.len {
+                for right in left + 1..self.len {
+                    if merge_cost(self.rects[left], self.rects[right]) == 0 {
+                        self.rects[left] = self.rects[left].union(&self.rects[right]);
+                        self.len -= 1;
+                        self.rects[right] = self.rects[self.len];
+                        continue 'merge;
+                    }
+                }
+            }
+            break;
+        }
+    }
+}
+
 pub(super) fn normalize(input: &mut Vec<Rect>, output: &mut Vec<Rect>) {
     input.retain(|rect| rect.w > Fixed::ZERO && rect.h > Fixed::ZERO);
     for rect in input.iter_mut() {
@@ -15,7 +70,7 @@ pub(super) fn normalize(input: &mut Vec<Rect>, output: &mut Vec<Rect>) {
             return;
         }
         // Each retry removes an input rectangle, so bounded output always terminates.
-        let (left, right) = cheapest_pair(input);
+        let (left, right) = cheapest_pair(input.len(), |index| input[index]);
         let other = input.swap_remove(right);
         input[left] = input[left].union(&other);
     }
@@ -84,14 +139,14 @@ fn merged_interval(
     }
 }
 
-fn cheapest_pair(rects: &[Rect]) -> (usize, usize) {
+fn cheapest_pair(count: usize, get: impl Fn(usize) -> Rect) -> (usize, usize) {
     let mut best = (0, 1);
     let mut cost = u128::MAX;
-    for left in 0..rects.len() {
-        for right in left + 1..rects.len() {
-            let a = rects[left];
-            let b = rects[right];
-            let extra = area(a.union(&b)) + a.intersect(&b).map_or(0, area) - area(a) - area(b);
+    for left in 0..count {
+        for right in left + 1..count {
+            let a = get(left);
+            let b = get(right);
+            let extra = merge_cost(a, b);
             if extra < cost {
                 cost = extra;
                 best = (left, right);
@@ -99,6 +154,10 @@ fn cheapest_pair(rects: &[Rect]) -> (usize, usize) {
         }
     }
     best
+}
+
+fn merge_cost(a: Rect, b: Rect) -> u128 {
+    area(a.union(&b)) + a.intersect(&b).map_or(0, area) - area(a) - area(b)
 }
 
 fn area(rect: Rect) -> u128 {
@@ -123,6 +182,45 @@ mod tests {
                     .iter()
                     .all(|other| rect.intersect(other).is_none())
             );
+        }
+    }
+
+    #[test]
+    fn inline_overflow_preserves_every_input_pixel_with_bounded_storage() {
+        for capacity in [1, 2, 8] {
+            let check = |rects: &[Rect], inputs: &[Rect]| {
+                assert!(rects.len() <= capacity);
+                for y in -5..20 {
+                    for x in -5..20 {
+                        if contains(inputs, x, y) {
+                            assert!(contains(rects, x, y));
+                        }
+                    }
+                }
+            };
+            let mut one = RegionSet::<1>::new();
+            let mut two = RegionSet::<2>::new();
+            let mut eight = RegionSet::<8>::new();
+            let inputs: Vec<_> = (0..20)
+                .map(|i| Rect::new(i % 11 - 4, (i * 3) % 17 - 4, 2, 3))
+                .collect();
+            for (index, rect) in inputs.iter().copied().enumerate() {
+                let set = match capacity {
+                    1 => {
+                        one.insert(rect);
+                        one.as_slice()
+                    }
+                    2 => {
+                        two.insert(rect);
+                        two.as_slice()
+                    }
+                    _ => {
+                        eight.insert(rect);
+                        eight.as_slice()
+                    }
+                };
+                check(set, &inputs[..=index]);
+            }
         }
     }
 

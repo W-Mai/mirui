@@ -75,13 +75,13 @@ fn temporal_mix_render(
 fn temporal_measurement(
     world: &World,
     entity: Entity,
-    _rect: Rect,
+    rect: Rect,
     source_geometry: &dyn Fn(Entity) -> Option<SourceGeometry>,
 ) -> Option<PaintMeasurement> {
     let temporal = world.get::<TemporalMix>(entity)?;
     let source = source_geometry(temporal.source)?.plane;
     (source.format() == ColorFormat::RGBA8888).then_some(PaintMeasurement {
-        bounds: None,
+        coverage: crate::ui::dirty::PaintCoverage::solid(rect),
         workspace: Some(source),
     })
 }

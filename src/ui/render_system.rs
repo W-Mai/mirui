@@ -13,7 +13,7 @@ use crate::ui::widgets::transform_3d::WidgetTransform3D;
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use super::dirty::{DirtyRegions, RegionShift};
+use super::dirty::{DirtyRegions, PaintCoverage, RegionShift};
 #[cfg(test)]
 use super::geometry::{effective_transform, effective_transform_3d};
 use super::geometry::{render_transforms, transformed_clip_bounds, widget_render_geometry};
@@ -326,13 +326,89 @@ fn planned_visual_bounds(
     position: usize,
     plan: Option<&output_plan::TexturePlan>,
 ) -> Rect {
+    planned_paint_coverage(
+        world,
+        entity,
+        rect,
+        affine,
+        projective,
+        output_scale,
+        position,
+        plan,
+    )
+    .outer
+}
+
+#[allow(clippy::too_many_arguments)]
+fn planned_paint_coverage(
+    world: &World,
+    entity: Entity,
+    rect: Rect,
+    affine: Transform,
+    projective: Transform3D,
+    output_scale: Fixed,
+    position: usize,
+    plan: Option<&output_plan::TexturePlan>,
+) -> PaintCoverage {
     if super::branch::is_hidden_in_tree(world, entity) {
-        return Rect::ZERO;
+        return PaintCoverage::EMPTY;
     }
-    let bounds = visual_bounds(world, entity, rect, affine, projective, output_scale);
-    plan.and_then(|plan| plan.local_paint_bounds(position, rect))
-        .and_then(|extra| transformed_clip_bounds(extra, affine, projective))
-        .map_or(bounds, |extra| bounds.union(&extra))
+    let fallback = || {
+        PaintCoverage::solid(visual_bounds(
+            world,
+            entity,
+            rect,
+            affine,
+            projective,
+            output_scale,
+        ))
+    };
+    if !projective.is_identity()
+        || affine.m00 != Fixed::ONE
+        || affine.m11 != Fixed::ONE
+        || affine.m01 != Fixed::ZERO
+        || affine.m10 != Fixed::ZERO
+    {
+        return plan
+            .and_then(|plan| plan.local_paint_bounds(position, rect))
+            .and_then(|extra| transformed_clip_bounds(extra, affine, projective))
+            .map_or_else(fallback, |extra| {
+                fallback().union(PaintCoverage::solid(extra))
+            });
+    }
+    let Some(registry) = world.resource::<ViewRegistry>() else {
+        return fallback();
+    };
+    let mut coverage = PaintCoverage::EMPTY;
+    for view in registry.paint_iter() {
+        if view
+            .component_filter()
+            .is_some_and(|ty| !world.has_type(entity, ty))
+        {
+            continue;
+        }
+        let measured = view.measurement().and_then(|measure| {
+            measure(world, entity, rect, &|source| {
+                plan.and_then(|plan| plan.output_layout(source))
+            })
+        });
+        let next = match measured {
+            Some(measured) if measured.coverage.is_empty() => PaintCoverage::EMPTY,
+            Some(measured) if output_scale < Fixed::ONE => {
+                PaintCoverage::solid(affine.apply_rect_bbox(measured.coverage.outer))
+            }
+            Some(measured) => PaintCoverage::frame(
+                affine.apply_rect_bbox(measured.coverage.outer),
+                affine.apply_rect_bbox(measured.coverage.excluded),
+            ),
+            None => fallback(),
+        };
+        coverage = coverage.union(next);
+    }
+    if let Some(capture) = plan.and_then(|plan| plan.captured_paint_bounds(position, rect)) {
+        coverage = coverage.union(PaintCoverage::solid(affine.apply_rect_bbox(capture)));
+    }
+    coverage
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -373,7 +449,7 @@ fn seed_prev_rect_walk(
     {
         world.insert(entity, painted);
     }
-    let mut effective_rect = planned_visual_bounds(
+    let mut coverage = planned_paint_coverage(
         world,
         entity,
         shifted_rect,
@@ -383,27 +459,13 @@ fn seed_prev_rect_walk(
         *idx,
         output_plan,
     );
-    if let Some(inflate) = world.get::<super::dirty::PaintInflate>(entity) {
-        effective_rect.x -= inflate.left;
-        effective_rect.y -= inflate.top;
-        effective_rect.w += inflate.left + inflate.right;
-        effective_rect.h += inflate.top + inflate.bottom;
-    }
+    coverage = inflated_coverage(world, entity, shifted_rect, coverage);
     if let Some(clip) = scroll_clip {
-        effective_rect = effective_rect.intersect(&clip).unwrap_or(Rect::ZERO);
+        coverage = coverage.clipped(clip);
     }
-    let x0 = effective_rect.x.floor();
-    let y0 = effective_rect.y.floor();
-    let x1 = (effective_rect.x + effective_rect.w).ceil();
-    let y1 = (effective_rect.y + effective_rect.h).ceil();
     world.insert(
         entity,
-        super::dirty::PrevRect(Rect {
-            x: x0,
-            y: y0,
-            w: x1 - x0,
-            h: y1 - y0,
-        }),
+        super::dirty::PaintedCoverage(coverage.pixel_aligned()),
     );
     super::dirty::VisualDirty::acknowledge(world, entity);
     let child_scroll =
@@ -583,7 +645,8 @@ fn count_layout_storage(world: &World, entity: Entity, demand: &mut LayoutStorag
     demand.max_entity_id = demand.max_entity_id.max(entity.id);
     demand.missing_computed += usize::from(world.get::<super::ComputedRect>(entity).is_none());
     demand.missing_visual_dirty += usize::from(!world.has::<super::dirty::VisualDirty>(entity));
-    demand.missing_prev += usize::from(world.get::<super::dirty::PrevRect>(entity).is_none());
+    demand.missing_prev +=
+        usize::from(world.get::<super::dirty::PaintedCoverage>(entity).is_none());
     demand.missing_scroll_bounds += usize::from(
         world.has::<crate::input::event::scroll::ScrollOffset>(entity)
             && !world.has::<crate::input::event::scroll::ScrollBounds>(entity),
@@ -1194,7 +1257,7 @@ fn compute_layout_snapshot(
             );
         }
         if demand.missing_prev > 0 {
-            world.reserve_component_storage::<super::dirty::PrevRect>(
+            world.reserve_component_storage::<super::dirty::PaintedCoverage>(
                 demand.max_entity_id,
                 demand.missing_prev,
             );
@@ -2788,18 +2851,12 @@ fn render_region_with(
     Ok(())
 }
 
-pub(crate) const DIRTY_REGION_CAPACITY: usize = 4;
+pub(crate) const DIRTY_REGION_CAPACITY: usize = 8;
 pub(crate) const DIRTY_PLAN_RECT_CAPACITY: usize =
     DIRTY_REGION_CAPACITY + super::dirty::EXACT_DIRTY_REGION_CAPACITY;
 
 struct DirtyBounds {
-    min_x: Fixed,
-    min_y: Fixed,
-    max_x: Fixed,
-    max_y: Fixed,
-    regions: [Rect; DIRTY_REGION_CAPACITY],
-    region_count: usize,
-    overflow: bool,
+    regions: super::dirty::RegionSet<DIRTY_REGION_CAPACITY>,
 }
 
 impl DirtyBounds {
@@ -2809,21 +2866,7 @@ impl DirtyBounds {
         }
         let (x0, y0, x1, y1) = rect.pixel_bounds();
         let rect = Rect::new(x0, y0, x1 - x0, y1 - y0);
-        self.min_x = self.min_x.min(rect.x);
-        self.min_y = self.min_y.min(rect.y);
-        self.max_x = self.max_x.max(rect.x + rect.w);
-        self.max_y = self.max_y.max(rect.y + rect.h);
-        if let Some(region) = self.regions[..self.region_count]
-            .iter_mut()
-            .find(|region| region.intersect(&rect).is_some())
-        {
-            *region = region.union(&rect);
-        } else if let Some(region) = self.regions.get_mut(self.region_count) {
-            *region = rect;
-            self.region_count += 1;
-        } else {
-            self.overflow = true;
-        }
+        self.regions.insert(rect);
     }
 }
 
@@ -2842,7 +2885,7 @@ pub(crate) struct LayoutSnapshot {
     pub(crate) layout_tree: LayoutNode,
     parked: Vec<LayoutNode>,
     pub(crate) entities: Vec<Entity>,
-    painted_damage: Vec<Rect>,
+    painted_damage: Vec<Entity>,
 }
 
 impl LayoutSnapshot {
@@ -2884,7 +2927,7 @@ fn collect_dirty_walk(
     carrier: Option<Point>,
     bounds: &mut DirtyBounds,
     plan: &mut DirtyRegions,
-    painted_damage: &mut alloc::vec::Vec<Rect>,
+    painted_damage: &mut alloc::vec::Vec<Entity>,
     output_plan: Option<&output_plan::TexturePlan>,
 ) {
     use super::dirty::VisualDirty;
@@ -3085,11 +3128,11 @@ fn push_entity_dirty(
     output_scale: Fixed,
     scroll_clip: Option<Rect>,
     bounds: &mut DirtyBounds,
-    painted_damage: &mut alloc::vec::Vec<Rect>,
+    painted_damage: &mut alloc::vec::Vec<Entity>,
     position: usize,
     output_plan: Option<&output_plan::TexturePlan>,
 ) {
-    let mut curr = planned_visual_bounds(
+    let mut curr = planned_paint_coverage(
         world,
         entity,
         rect,
@@ -3099,23 +3142,44 @@ fn push_entity_dirty(
         position,
         output_plan,
     );
-    if let Some(inflate) = world.get::<super::dirty::PaintInflate>(entity).copied() {
-        curr.x -= inflate.left;
-        curr.y -= inflate.top;
-        curr.w += inflate.left + inflate.right;
-        curr.h += inflate.top + inflate.bottom;
-    }
-    if let Some(prev) = world.get::<super::dirty::PrevRect>(entity) {
-        painted_damage.push(prev.0);
+    curr = inflated_coverage(world, entity, rect, curr);
+    if world.has::<super::dirty::PaintedCoverage>(entity) {
+        painted_damage.push(entity);
     }
     if let Some(clip) = scroll_clip {
-        if let Some(inter) = curr.intersect(&clip) {
-            curr = inter;
-        } else {
-            return;
-        }
+        curr = curr.clipped(clip);
     }
-    bounds.include(curr);
+    for rect in curr.pixel_aligned().regions() {
+        bounds.include(rect);
+    }
+}
+
+fn inflated_coverage(
+    world: &World,
+    entity: Entity,
+    rect: Rect,
+    coverage: PaintCoverage,
+) -> PaintCoverage {
+    let Some(inflate) = world.get::<super::dirty::PaintInflate>(entity) else {
+        return coverage;
+    };
+    if inflate.left == Fixed::ZERO
+        && inflate.right == Fixed::ZERO
+        && inflate.top == Fixed::ZERO
+        && inflate.bottom == Fixed::ZERO
+    {
+        return coverage;
+    }
+    let mut outer = if coverage.is_empty() {
+        rect
+    } else {
+        coverage.outer
+    };
+    outer.x -= inflate.left;
+    outer.y -= inflate.top;
+    outer.w += inflate.left + inflate.right;
+    outer.h += inflate.top + inflate.bottom;
+    PaintCoverage::solid(outer)
 }
 
 fn merge_pending(
@@ -3331,13 +3395,7 @@ pub(crate) fn try_collect_dirty_regions_into(
         output_plan::measure_for_dirty(world, &snapshot.layout_tree, &snapshot.entities);
 
     let mut bounds = DirtyBounds {
-        min_x: Fixed::from(logical_w),
-        min_y: Fixed::from(logical_h),
-        max_x: Fixed::from_int(-1),
-        max_y: Fixed::from_int(-1),
-        regions: [Rect::ZERO; DIRTY_REGION_CAPACITY],
-        region_count: 0,
-        overflow: false,
+        regions: super::dirty::RegionSet::new(),
     };
 
     snapshot.painted_damage.clear();
@@ -3364,24 +3422,16 @@ pub(crate) fn try_collect_dirty_regions_into(
     }
     output_plan::return_plan(world, output_plan);
 
-    for prev in &snapshot.painted_damage {
-        if let Some(mapped) = scroll::map_painted_damage(*prev, &plan.shifts) {
-            bounds.include(mapped);
+    for entity in &snapshot.painted_damage {
+        if let Some(painted) = world.get::<super::dirty::PaintedCoverage>(*entity) {
+            for rect in painted.0.regions() {
+                if let Some(mapped) = scroll::map_painted_damage(rect, &plan.shifts) {
+                    bounds.include(mapped);
+                }
+            }
         }
     }
-
-    let (min_x, min_y, max_x, max_y) = (bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y);
-    if plan.shifts.is_empty() && !bounds.overflow {
-        plan.rects
-            .extend_from_slice(&bounds.regions[..bounds.region_count]);
-    } else if max_x >= Fixed::ZERO {
-        plan.rects.push(Rect {
-            x: min_x,
-            y: min_y,
-            w: max_x - min_x,
-            h: max_y - min_y,
-        });
-    }
+    plan.rects.extend_from_slice(bounds.regions.as_slice());
 
     if !plan.shifts.is_empty() {
         visit_overlay_rects(world, |overlay| {
@@ -4269,7 +4319,11 @@ mod layout_snapshot_reuse_check {
                 prepare_input_geometry(&mut world, root, &viewport).unwrap();
                 assert!(world.has::<Dirty>(child));
                 assert_eq!(
-                    world.get::<super::super::dirty::PrevRect>(child).unwrap().0,
+                    world
+                        .get::<super::super::dirty::PaintedCoverage>(child)
+                        .unwrap()
+                        .0
+                        .outer,
                     Rect::new(0, 0, 10, 10)
                 );
                 assert_eq!(
@@ -4312,7 +4366,11 @@ mod layout_snapshot_reuse_check {
         prepare_input_geometry(&mut world, root, &viewport).unwrap();
         assert!(world.has::<super::super::dirty::VisualDirty>(child));
         assert_eq!(
-            world.get::<super::super::dirty::PrevRect>(child).unwrap().0,
+            world
+                .get::<super::super::dirty::PaintedCoverage>(child)
+                .unwrap()
+                .0
+                .outer,
             Rect::new(0, 0, 10, 10)
         );
         assert_eq!(
@@ -4383,7 +4441,12 @@ mod layout_snapshot_reuse_check {
         let root = widget(&mut world, 64);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         let mut plan = DirtyRegions::default();
-        world.insert(root, super::super::dirty::PrevRect(Rect::new(0, 0, 64, 10)));
+        world.insert(
+            root,
+            super::super::dirty::PaintedCoverage(crate::ui::dirty::PaintCoverage::solid(
+                Rect::new(0, 0, 64, 10),
+            )),
+        );
 
         world.insert(root, Dirty);
         try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
@@ -6166,6 +6229,7 @@ mod clip_children_check {
             &mut world,
             Some(root),
             Style {
+                bg_color: Some(crate::types::Color::rgb(255, 255, 255).into()),
                 layout: LayoutStyle {
                     position: Position::Absolute,
                     left: Dimension::Px(Fixed::from_int(20)),
@@ -6223,6 +6287,7 @@ mod clip_children_check {
             &mut world,
             Some(root),
             Style {
+                bg_color: Some(crate::types::Color::rgb(255, 255, 255).into()),
                 layout: LayoutStyle {
                     position: Position::Absolute,
                     left: Dimension::Px(Fixed::from_int(20)),
@@ -6261,7 +6326,7 @@ mod clip_children_check {
     #[test]
     fn projective_dirty_and_previous_bounds_include_affine_ancestors() {
         use crate::types::{Transform, Transform3D};
-        use crate::ui::dirty::{Dirty, PrevRect};
+        use crate::ui::dirty::{Dirty, PaintedCoverage};
         use crate::ui::widgets::transform::WidgetTransform;
         use crate::ui::widgets::transform_3d::WidgetTransform3D;
 
@@ -6331,7 +6396,10 @@ mod clip_children_check {
         let expected = Rect::new(x0, y0, x1 - x0, y1 - y0);
 
         seed_prev_rects(&mut world, root, &viewport);
-        assert_eq!(world.get::<PrevRect>(target).unwrap().0, expected);
+        assert_eq!(
+            world.get::<PaintedCoverage>(target).unwrap().0.outer,
+            expected
+        );
 
         world.insert(target, Dirty);
         assert_eq!(
@@ -8578,7 +8646,7 @@ mod offscreen_render_check {
         world.insert(leaf, OffscreenRender::default());
         let viewport = Viewport::new(64, 64, Fixed::ONE);
 
-        // Frame 1 cold — first dirty walk (no PrevRect yet).
+        // Frame 1 cold — first dirty walk (no PaintedCoverage yet).
         world.insert(leaf, Dirty);
         let _ = super::collect_dirty_region(&mut world, leaf, &viewport).unwrap();
         let g1 = world
@@ -8605,7 +8673,7 @@ mod offscreen_render_check {
     /// Multi-frame regression: the OffscreenRender entity's bounds
     /// must end up in the dirty region every time a descendant goes
     /// Dirty, not just the first time. The previous code path made
-    /// the rect-promotion conditional on `PrevRect.is_none()` — true
+    /// the rect-promotion conditional on `PaintedCoverage.is_none()` — true
     /// only on the very first dirty walk for a given entity — so the
     /// second time a child went Dirty the offscreen entity dropped
     /// out of the dirty bounds entirely, render_region had nothing
@@ -8613,7 +8681,7 @@ mod offscreen_render_check {
     /// previous frame's pixels.
     #[test]
     fn dirty_walker_promotes_subtree_dirty_on_every_frame() {
-        use super::super::dirty::{Dirty, PrevRect};
+        use super::super::dirty::{Dirty, PaintedCoverage};
         use super::super::offscreen::OffscreenGeneration;
 
         let mut world = make_world();
@@ -8656,9 +8724,12 @@ mod offscreen_render_check {
             .map(|g| g.0)
             .unwrap_or(0);
         assert_eq!(g1, 1, "frame 1 generation = 1");
-        assert!(world.get::<PrevRect>(panel).is_none());
+        assert!(world.get::<PaintedCoverage>(panel).is_none());
         super::seed_prev_rects(&mut world, panel, &viewport);
-        assert!(world.get::<PrevRect>(panel).is_some(), "panel PrevRect set");
+        assert!(
+            world.get::<PaintedCoverage>(panel).is_some(),
+            "panel PaintedCoverage set"
+        );
 
         // Frame 2: child goes Dirty again. Walker must bump generation
         // a second time AND include the panel rect in bounds. If it

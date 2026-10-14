@@ -76,8 +76,8 @@ pub(crate) fn despawn_subtree(world: &mut World, entity: Entity) {
 
         let parent = world.get::<Parent>(current).map(|parent| parent.0);
         if let Some(rect) = world
-            .get::<super::dirty::PrevRect>(current)
-            .map(|rect| rect.0)
+            .get::<super::dirty::PaintedCoverage>(current)
+            .map(|rect| rect.0.outer)
             && rect.w > crate::types::Fixed::ZERO
             && rect.h > crate::types::Fixed::ZERO
         {

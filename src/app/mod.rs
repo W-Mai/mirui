@@ -1169,7 +1169,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let flush_end = self.clock_ns();
         self.last_flush_ns = flush_end.saturating_sub(render_end);
 
-        // Seed PrevRect so the next render_dirty frame's dirty union
+        // Seed PaintedCoverage so the next render_dirty frame's dirty union
         // covers pixels this full render actually wrote — otherwise
         // any widget that shrinks or moves between the full render
         // and the first dirty render leaves residue.
@@ -2110,7 +2110,7 @@ mod app_invariant_tests {
     #[test]
     fn paint_bounds_advance_after_scroll_render_without_a_descendant_redraw() {
         use crate::input::event::scroll::ScrollOffset;
-        use crate::ui::dirty::PrevRect;
+        use crate::ui::dirty::PaintedCoverage;
 
         let mut app = App::headless(48, 32);
         app.with_default_widgets();
@@ -2141,7 +2141,7 @@ mod app_invariant_tests {
                 1
             );
             assert_eq!(
-                app.world.get::<PrevRect>(marker).unwrap().0,
+                app.world.get::<PaintedCoverage>(marker).unwrap().0.outer,
                 Rect::new(8, 16 - offset, 8, 8)
             );
             let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
@@ -2221,7 +2221,7 @@ mod app_invariant_tests {
 
     #[test]
     fn positioning_and_collection_preserve_painted_bounds() {
-        use crate::ui::dirty::{PaintInflate, PrevRect};
+        use crate::ui::dirty::{PaintInflate, PaintedCoverage};
 
         let mut app = App::headless(48, 32);
         app.with_default_widgets();
@@ -2237,16 +2237,25 @@ mod app_invariant_tests {
         );
         app.render().unwrap();
         let painted = Rect::new(7, 16, 9, 8);
-        assert_eq!(app.world.get::<PrevRect>(marker).unwrap().0, painted);
+        assert_eq!(
+            app.world.get::<PaintedCoverage>(marker).unwrap().0.outer,
+            painted
+        );
         for left in [32, 2, 20] {
             crate::ui::set_position(&mut app.world, marker, left, 16);
-            assert_eq!(app.world.get::<PrevRect>(marker).unwrap().0, painted);
+            assert_eq!(
+                app.world.get::<PaintedCoverage>(marker).unwrap().0.outer,
+                painted
+            );
             app.dirty_region().unwrap();
-            assert_eq!(app.world.get::<PrevRect>(marker).unwrap().0, painted);
+            assert_eq!(
+                app.world.get::<PaintedCoverage>(marker).unwrap().0.outer,
+                painted
+            );
         }
         app.render().unwrap();
         assert_eq!(
-            app.world.get::<PrevRect>(marker).unwrap().0,
+            app.world.get::<PaintedCoverage>(marker).unwrap().0.outer,
             Rect::new(19, 16, 9, 8)
         );
     }
@@ -2368,7 +2377,7 @@ mod app_invariant_tests {
     #[test]
     fn painted_bounds_record_only_pixels_inside_the_committed_clip() {
         use crate::input::event::scroll::ScrollOffset;
-        use crate::ui::dirty::PrevRect;
+        use crate::ui::dirty::PaintedCoverage;
         let mut app = App::headless(48, 32);
         app.with_default_widgets();
         let root = app.spawn_root().id();
@@ -2383,7 +2392,10 @@ mod app_invariant_tests {
             let expected = Rect::new(8, 16 - offset, 8, 8)
                 .intersect(&Rect::new(0, 0, 48, 32))
                 .unwrap_or(Rect::ZERO);
-            assert_eq!(app.world.get::<PrevRect>(marker).unwrap().0, expected);
+            assert_eq!(
+                app.world.get::<PaintedCoverage>(marker).unwrap().0.outer,
+                expected
+            );
             let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
             app.render().unwrap();
             assert!(app.backend.framebuffer().buf.as_slice() == dirty);
@@ -2439,7 +2451,7 @@ mod app_invariant_tests {
     #[test]
     fn interrupted_drawing_requires_a_complete_frame_before_reusing_pixels() {
         use crate::input::event::scroll::ScrollOffset;
-        use crate::ui::dirty::PrevRect;
+        use crate::ui::dirty::PaintedCoverage;
 
         for full in [false, true] {
             let mut app = App::headless(48, 32);
@@ -2451,7 +2463,7 @@ mod app_invariant_tests {
             let marker = app.world.find_by_id("marker").unwrap();
             app.render().unwrap();
             let before = app.backend.framebuffer().buf.as_slice().to_vec();
-            let painted = app.world.get::<PrevRect>(marker).unwrap().0;
+            let painted = app.world.get::<PaintedCoverage>(marker).unwrap().0.outer;
 
             app.world
                 .get::<FailedFrame>(root)
@@ -2467,7 +2479,10 @@ mod app_invariant_tests {
             };
             assert_eq!(result, Err(crate::render::RenderError::BackendFailure));
             assert_ne!(app.backend.framebuffer().buf.as_slice(), before);
-            assert_eq!(app.world.get::<PrevRect>(marker).unwrap().0, painted);
+            assert_eq!(
+                app.world.get::<PaintedCoverage>(marker).unwrap().0.outer,
+                painted
+            );
 
             app.world
                 .get::<FailedFrame>(root)
@@ -2593,9 +2608,10 @@ mod app_invariant_tests {
             assert_eq!(app.backend.pixels[0], app.backend.pixels[1]);
             assert_eq!(
                 app.world
-                    .get::<crate::ui::dirty::PrevRect>(marker)
+                    .get::<crate::ui::dirty::PaintedCoverage>(marker)
                     .unwrap()
-                    .0,
+                    .0
+                    .outer,
                 Rect::new(x, 16, 8, 8)
             );
         }

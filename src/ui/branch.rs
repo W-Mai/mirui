@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 
 use crate::ecs::{Entity, World};
 
-use super::{Children, Hidden, Parent, dirty::PrevRect};
+use super::{Children, Hidden, Parent, dirty::PaintedCoverage};
 
 pub(crate) struct CachedBranchVisibility {
     pub selected: bool,
@@ -123,7 +123,10 @@ fn set_selected(world: &mut World, root: Entity, selected: bool) {
 }
 
 fn collect_old_bounds(world: &World, entity: Entity, bounds: &mut Option<crate::types::Rect>) {
-    if let Some(rect) = world.get::<PrevRect>(entity).map(|rect| rect.0) {
+    if let Some(rect) = world
+        .get::<PaintedCoverage>(entity)
+        .map(|rect| rect.0.outer)
+    {
         *bounds = Some(bounds.map_or(rect, |current| current.union(&rect)));
     }
     if let Some(children) = world.get::<Children>(entity) {
@@ -175,8 +178,18 @@ mod tests {
         let branches = [alloc::vec![root]];
         prepare(&mut world, parent, &branches);
         select(&mut world, &branches, None, Some(0));
-        world.insert(root, PrevRect(Rect::new(0, 0, 10, 10)));
-        world.insert(child, PrevRect(Rect::new(25, 3, 5, 4)));
+        world.insert(
+            root,
+            PaintedCoverage(crate::ui::dirty::PaintCoverage::solid(Rect::new(
+                0, 0, 10, 10,
+            ))),
+        );
+        world.insert(
+            child,
+            PaintedCoverage(crate::ui::dirty::PaintCoverage::solid(Rect::new(
+                25, 3, 5, 4,
+            ))),
+        );
 
         select(&mut world, &branches, Some(0), None);
         let mut rects = alloc::vec::Vec::new();
@@ -210,7 +223,12 @@ mod tests {
         let branches = [alloc::vec![root]];
         prepare(&mut world, parent, &branches);
         select(&mut world, &branches, None, Some(0));
-        world.insert(root, PrevRect(Rect::new(0, 0, 10, 10)));
+        world.insert(
+            root,
+            PaintedCoverage(crate::ui::dirty::PaintCoverage::solid(Rect::new(
+                0, 0, 10, 10,
+            ))),
+        );
 
         select(&mut world, &branches, Some(0), None);
         let mut rects = alloc::vec::Vec::new();
