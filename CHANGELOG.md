@@ -59,6 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Tween retargeting preserves progress for unchanged targets and configurations. Zero-duration tweens finish immediately, and looping tweens retain elapsed time and ping-pong direction across multiple periods.
+
 - `App::dirty_region` and the low-level dirty-region collectors return `Result`, distinguishing layout failures from an empty redraw plan.
 
 - Low-level layout callers use `render_system::try_update_layout`; the error-discarding `update_layout` entry is removed.

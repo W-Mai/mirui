@@ -459,6 +459,8 @@ The schedule forms are `after = ms`, `every = ms`,
 
 `TweenConfig::new(duration_ms, &ease::OUT_CUBIC)` configures finite tweens without storing endpoints or elapsed time. `Tween::preset(from, to, config)` creates their running state. `Tween::new` accepts a static `Easing` reference and a `PlayMode` for explicit once, loop, or ping-pong animations. Custom curves use `static CUSTOM: Easing = Easing::new(sample)`, where `sample: fn(Fixed) -> Fixed` has normalized endpoints; reusing the same descriptor retains its configuration identity.
 
+`Tween::retarget(target, config)` preserves progress when the target and configuration are unchanged. A new target or configuration starts a finite tween from its displayed value over the configured duration; position is continuous, but velocity is not retained. Zero duration completes immediately, including zero-period loop and ping-pong requests. A stationary finite tween is already complete.
+
 `#[animate]` declares how a scalar `Motion` is applied. It generates the named
 motion component and a system constructor; the callback can receive model,
 component, entity, motion, and deferred-command roles:

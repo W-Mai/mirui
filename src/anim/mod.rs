@@ -1,5 +1,8 @@
 pub mod ease;
 
+#[cfg(test)]
+mod tween_tests;
+
 use crate::ecs::{Component, DeltaTimeMs, MonoClock};
 use crate::types::{Fixed, Fixed64};
 
@@ -38,8 +41,12 @@ impl Tween {
         Self {
             from,
             to,
-            duration_ms: duration_ms.max(1),
-            elapsed_ms: 0,
+            duration_ms,
+            elapsed_ms: if mode == PlayMode::Once && from == to {
+                duration_ms
+            } else {
+                0
+            },
             ease,
             mode,
         }
@@ -53,17 +60,29 @@ impl Tween {
         Self::new(from, to, config.duration_ms, config.ease, PlayMode::Once)
     }
 
+    /// Redirect a finite tween from its displayed value. Repeating the same target and configuration preserves progress; changed configurations use their full duration without preserving velocity.
+    pub fn retarget(&mut self, target: Fixed, config: TweenConfig) {
+        if self.mode == PlayMode::Once
+            && self.to == target
+            && self.duration_ms == config.duration_ms
+            && self.ease == config.ease
+        {
+            return;
+        }
+        *self = Self::preset(self.value(), target, config);
+    }
+
     pub fn tick(&mut self, dt_ms: u16) {
         if self.is_finished() {
             return;
         }
-        self.elapsed_ms = self.elapsed_ms.saturating_add(dt_ms);
-        if self.elapsed_ms >= self.duration_ms {
-            match self.mode {
-                PlayMode::Once => self.elapsed_ms = self.duration_ms,
-                PlayMode::Loop => self.elapsed_ms %= self.duration_ms,
-                PlayMode::PingPong => {
-                    self.elapsed_ms %= self.duration_ms;
+        let elapsed = u32::from(self.elapsed_ms) + u32::from(dt_ms);
+        let duration = u32::from(self.duration_ms);
+        match self.mode {
+            PlayMode::Once => self.elapsed_ms = elapsed.min(duration) as u16,
+            PlayMode::Loop | PlayMode::PingPong => {
+                self.elapsed_ms = (elapsed % duration) as u16;
+                if self.mode == PlayMode::PingPong && (elapsed / duration) % 2 == 1 {
                     core::mem::swap(&mut self.from, &mut self.to);
                 }
             }
@@ -71,13 +90,17 @@ impl Tween {
     }
 
     pub fn value(&self) -> Fixed {
+        if self.is_finished() {
+            return self.to;
+        }
         let t = Fixed::from_int(self.elapsed_ms as i32) / Fixed::from_int(self.duration_ms as i32);
         let eased = self.ease.sample(t);
         self.from + eased * (self.to - self.from)
     }
 
     pub fn is_finished(&self) -> bool {
-        self.mode == PlayMode::Once && self.elapsed_ms >= self.duration_ms
+        self.duration_ms == 0
+            || (self.mode == PlayMode::Once && self.elapsed_ms >= self.duration_ms)
     }
 }
 
