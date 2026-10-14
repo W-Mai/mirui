@@ -41,7 +41,13 @@ pub(super) fn live_label(
             min_height: i32::from(size) + 6,
             font: font(size),
             font_size: size,
-            text_color: color,
+            text_color: ${
+                if field == TextField::HostButton && !state.action_enabled() {
+                    DISABLED
+                } else {
+                    color
+                }
+            },
             paragraph: paragraph(align, 1),
             clip_children: true
         )
@@ -136,7 +142,7 @@ pub(super) fn header(view: &Snapshot, state: model!(DisplayState), metrics: Metr
 }
 
 #[compose]
-fn keycap(value: &str, metrics: Metrics) -> Entity {
+fn keycap(value: &'static str, state: model!(DisplayState), metrics: Metrics) -> Entity {
     ui! {
         Text (
             value.to_owned(),
@@ -148,7 +154,13 @@ fn keycap(value: &str, metrics: Metrics) -> Entity {
             font_size: metrics.small,
             text_color: SECONDARY,
             paragraph: paragraph(Center, 1)
-        )
+        ) on Tap {
+            if value == "B" {
+                state.back_page();
+            } else {
+                state.refresh_rooms();
+            };
+        }
     }
 }
 
@@ -171,7 +183,11 @@ pub(super) fn footer(view: &Snapshot, state: model!(DisplayState), metrics: Metr
                 font_size: metrics.small,
                 text_color: SECONDARY,
                 paragraph: paragraph(Center, 1)
-            )
+            ) on Tap {
+                if state.confirm_visible() {
+                    state.confirm();
+                }
+            }
             Text (
                 text: ${ state.confirm_label() },
                 width: Dimension::Content,
@@ -181,8 +197,12 @@ pub(super) fn footer(view: &Snapshot, state: model!(DisplayState), metrics: Metr
                 font_size: metrics.small,
                 text_color: SECONDARY,
                 paragraph: paragraph(Start, 1)
-            )
-            keycap ("B", metrics)
+            ) on Tap {
+                if state.confirm_visible() {
+                    state.confirm();
+                }
+            }
+            keycap ("B", state, metrics)
             Text (
                 text: ${ state.back() },
                 max_width: if metrics.compact { 130 } else { 210 },
@@ -192,9 +212,9 @@ pub(super) fn footer(view: &Snapshot, state: model!(DisplayState), metrics: Metr
                 font_size: metrics.small,
                 text_color: SECONDARY,
                 paragraph: paragraph(Start, 1)
-            )
+            ) on Tap { state.back_page(); }
             if view.page == Page::Rooms {
-                keycap ("X", metrics)
+                keycap ("X", state, metrics)
                 Text (
                     "刷新",
                     height: Dimension::Content,
@@ -202,7 +222,7 @@ pub(super) fn footer(view: &Snapshot, state: model!(DisplayState), metrics: Metr
                     font_size: metrics.small,
                     text_color: SECONDARY,
                     paragraph: paragraph(Start, 1)
-                )
+                ) on Tap { state.refresh_rooms(); }
             }
             Text (
                 text: ${ state.hint() },

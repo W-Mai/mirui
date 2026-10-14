@@ -15,11 +15,10 @@ fn create_page(
     event: event!(CreatePage<PageKey>),
     state: model!(DisplayState),
     metrics: Metrics,
-    frame: Entity,
 ) -> Entity {
     let mut snapshot = state.snapshot();
     snapshot.page = event.route().page;
-    ui! { pages::page (&snapshot, state, metrics, frame) }
+    ui! { pages::page (&snapshot, state, metrics) }
 }
 
 #[compose]
@@ -145,20 +144,13 @@ pub(super) fn build_widgets(state: model!(DisplayState), height: u16) {
                     Text::label("Restart"),
                 ] on Tap { state.restart(); }
             }
-            page_host (state, metrics, id("nearby_focus"))
-            View (id: "nearby_focus", border_color: ACCENT, border_width: 2) [
-                crate::ui::widgets::FollowBounds::new(id("nearby_pages"))
-                    .with_transition(
-                        crate::anim::TweenConfig::new(220, &crate::anim::ease::IN_OUT_CUBIC),
-                    ),
-                crate::ui::IgnoreHitTest,
-            ]
+            page_host (state, metrics)
         }
     };
 }
 
 #[compose]
-fn page_host(state: model!(DisplayState), metrics: Metrics, frame: Entity) -> Entity {
+fn page_host(state: model!(DisplayState), metrics: Metrics) -> Entity {
     ui! {
         PageView (
             id: "nearby_pages",
@@ -167,7 +159,7 @@ fn page_host(state: model!(DisplayState), metrics: Metrics, frame: Entity) -> En
             min_height: 0,
             bg_color: BACKGROUND,
             clip_children: true,
-            transition: PageTransition::None
-        ) on CreatePage(create_page::callback(state, metrics, frame))
+            transition: PageTransition::slide(crate::anim::SNAPPY)
+        ) on CreatePage(create_page::callback(state, metrics))
     }
 }

@@ -1,6 +1,124 @@
 use super::data::{LaunchSource, Outcome, Page, Phase, Scenario};
 use super::*;
 use crate::surface::FramebufferAccess;
+use crate::ui::widgets::navigation::transition;
+
+type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
+
+fn fixture() -> (TestApp, model::DisplayStateHandle) {
+    let mut app = App::headless(640, 480);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    let state = setup_app(&mut app, root);
+    app.world.remove_resource::<crate::ecs::MonoClock>();
+    app.add_resource(crate::ecs::DeltaTimeMs(16));
+    app.prepare_text_layout().unwrap();
+    app.render().unwrap();
+    (app, state)
+}
+
+fn finish_transition(app: &mut TestApp) {
+    let host = app.world.find_by_id("nearby_pages").unwrap();
+    for _ in 0..240 {
+        app.tick();
+        if transition::running(&app.world, host).is_none() {
+            return;
+        }
+    }
+    panic!("Nearby page transition did not settle");
+}
+
+fn frames(app: &TestApp) -> alloc::vec::Vec<Entity> {
+    app.world
+        .query::<input::SelectionFrame>()
+        .iter()
+        .map(|(entity, _)| entity)
+        .collect()
+}
+
+#[test]
+fn page_transitions_animate_but_session_progress_retains_the_mounted_page() {
+    let (mut app, state) = fixture();
+    let initial_frame = frames(&app)[0];
+    assert!(
+        app.world
+            .get::<crate::ui::widgets::FollowBounds>(initial_frame)
+            .is_some()
+    );
+    state.activate(0);
+    app.render_dirty().unwrap();
+    let host = app.world.find_by_id("nearby_pages").unwrap();
+    assert!(transition::running(&app.world, host).is_some());
+    assert_eq!(frames(&app).len(), 2);
+    for _ in 0..8 {
+        app.tick();
+        let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+        app.render().unwrap();
+        assert_eq!(pixels, app.backend.framebuffer().buf.as_slice());
+    }
+    finish_transition(&mut app);
+    assert!(!app.world.is_alive(initial_frame));
+    state.activate(0);
+    app.render_dirty().unwrap();
+    finish_transition(&mut app);
+    let mounted = frames(&app);
+    let route = state.page_key();
+    for _ in 0..3 {
+        state.advance();
+        app.render_dirty().unwrap();
+    }
+    state.confirm();
+    state.advance();
+    app.render_dirty().unwrap();
+    assert_eq!(state.snapshot().phase, Phase::NetworkConnected);
+    assert_eq!(state.page_key(), route);
+    assert_eq!(frames(&app), mounted);
+    assert!(transition::running(&app.world, host).is_none());
+    assert!(
+        app.world
+            .query::<crate::ui::widgets::Text>()
+            .iter()
+            .any(|(_, text)| text.resolve(app.world.resource()) == "本机  192.168.4.1")
+    );
+    state.confirm();
+    app.render_dirty().unwrap();
+    assert!(transition::running(&app.world, host).is_some());
+    finish_transition(&mut app);
+    assert_eq!(frames(&app).len(), 1);
+}
+
+#[test]
+fn discovery_refresh_and_rapid_return_do_not_replace_the_wrong_page() {
+    let (mut app, state) = fixture();
+    state.switch_entry();
+    app.render_dirty().unwrap();
+    finish_transition(&mut app);
+    state.activate(1);
+    app.render_dirty().unwrap();
+    finish_transition(&mut app);
+    let mounted = frames(&app);
+    state.advance();
+    app.render_dirty().unwrap();
+    assert_eq!(frames(&app), mounted);
+    state.refresh_rooms();
+    app.render_dirty().unwrap();
+    state.advance();
+    app.render_dirty().unwrap();
+    assert_eq!(frames(&app), mounted);
+    state.activate(0);
+    app.render_dirty().unwrap();
+    app.tick();
+    state.back_page();
+    app.render_dirty().unwrap();
+    state.advance();
+    app.render_dirty().unwrap();
+    finish_transition(&mut app);
+    assert_eq!(state.snapshot().page, Page::Rooms);
+    assert_eq!(frames(&app).len(), 1);
+    let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+    app.render().unwrap();
+    assert_eq!(pixels, app.backend.framebuffer().buf.as_slice());
+}
 
 #[test]
 fn pixel_fonts_cover_the_demo_charset_at_native_sizes() {

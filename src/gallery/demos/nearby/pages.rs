@@ -10,12 +10,38 @@ use TextAlign::Start;
 use alloc::borrow::ToOwned;
 
 #[compose]
-pub(super) fn page(
-    view: &Snapshot,
-    state: model!(DisplayState),
-    metrics: Metrics,
-    frame: Entity,
-) -> Entity {
+pub(super) fn page(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> Entity {
+    ui! {
+        Column (grow: 1.0, min_width: 0, min_height: 0, bg_color: BACKGROUND, clip_children: true) {
+            mounted_contents (view, state, metrics)
+        }
+    }
+}
+
+#[compose]
+fn mounted_contents(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> Entity {
+    let body = ui! {
+        contents (view, state, metrics)
+    };
+    ui! {
+        View (
+            border_color: ACCENT,
+            border_width: 2,
+            position: Position::Absolute,
+            width: 0,
+            height: 0
+        ) [
+            crate::ui::IgnoreHitTest,
+            super::input::SelectionFrame {
+                body,
+                page: state.page_key(),
+            },
+        ]
+    }
+}
+
+#[compose]
+fn contents(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> Entity {
     let heading = match view.page {
         Page::Mode => "选择连接方式",
         Page::Choice if view.network_only => "和好友建立局域网",
@@ -104,17 +130,17 @@ pub(super) fn page(
                     clip_children: true
                 )
                 if view.network_only && matches!(view.page, Page::Host | Page::Joined) {
-                    network_panel (view, state, metrics, frame)
+                    network_panel (state, metrics)
                 } else {
                     match view.page {
                         Page :: Choice | Page :: Mode => {
-                            choice (view, state, metrics, frame)
+                            choice (view, state, metrics)
                         }
                         Page :: Host => {
-                            host (view, state, metrics, frame)
+                            host (state, metrics)
                         }
                         Page :: Rooms => {
-                            rooms (view, state, metrics, frame)
+                            rooms (view, state, metrics)
                         }
                         Page :: Joined => {
                             joined (view, state, metrics)
@@ -126,7 +152,7 @@ pub(super) fn page(
                             unavailable (metrics)
                         }
                         Page :: Games => {
-                            games (view, state, metrics, frame)
+                            games (view, state, metrics)
                         }
                         Page :: Outcome => {
                             outcome (view, metrics)

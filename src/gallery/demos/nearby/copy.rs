@@ -145,11 +145,13 @@ pub(super) fn peer_text(view: &Presentation) -> &'static str {
 pub(super) fn status_text(view: &Presentation) -> &'static str {
     match view.page {
         Page::Mode => "请选择仅组网或选择游戏",
+        Page::Choice if view.network_only => "选择房间，与附近掌机组网",
         Page::Choice => "两台掌机选择同一款游戏，再创建或加入房间",
+        Page::Host if view.network_only => next_step(view),
         Page::Host => "请好友选择同一款游戏，加入这个房间",
         Page::Rooms => "选择房间后确认加入，列表会自动刷新",
         Page::Joined => next_step(view),
-        Page::Leaving => "正在结束本次联机...",
+        Page::Leaving => next_step(view),
         Page::Unavailable => "这款游戏暂时不支持附近联机",
         Page::Games => "选择游戏后创建或加入房间",
         Page::Outcome => "LOCAL SIMULATION / NO NETWORK REQUESTS",
@@ -164,7 +166,7 @@ pub(super) fn hint_text(view: &Presentation) -> &'static str {
         return if view.busy {
             "正在核对游戏"
         } else {
-            "L/R 翻页"
+            "方向键选择"
         };
     }
     match phase(view) {

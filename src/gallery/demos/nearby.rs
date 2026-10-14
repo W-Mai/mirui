@@ -42,10 +42,16 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     app.with_fonts(fonts);
     app.with_offscreen_pool_budget(640 * 480 * 8);
     app.with_widget(crate::ui::widgets::page_view::view::<model::PageKey>());
+    app.with_widget(input::selection_target::view());
+    app.with_widget(input::selection_frame::view());
     #[cfg(feature = "std")]
     app.add_plugin(crate::app::plugins::StdInstantClockPlugin);
     let height = app.backend.viewport().logical_size().1;
     let state = app.add_model(model::DisplayState::default()).finish();
+    app.on_event(
+        crate::input::event::input::Key::EVENT,
+        input::keyboard::callback(state.clone()),
+    );
     app.compose(parent, composition::build_widgets(state.clone(), height));
     state
 }

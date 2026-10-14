@@ -2,17 +2,15 @@ use super::{copy, data::*, style::*};
 use crate::prelude::*;
 use alloc::{string::ToString, vec};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PageKey {
     pub page: Page,
     source: LaunchSource,
     network_only: bool,
-    ready: bool,
-    connected: bool,
-    refresh: u32,
+    session: u32,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum TextField {
     Headline,
     Next,
@@ -29,7 +27,7 @@ pub(super) struct StepColors {
 #[model]
 pub struct DisplayState {
     view: Snapshot,
-    refresh: u32,
+    session: u32,
     scenario: Scenario,
     fault_delivered: bool,
     leave_to: Page,
@@ -82,7 +80,7 @@ impl Default for DisplayState {
                 ],
                 ..Snapshot::default()
             },
-            refresh: 0,
+            session: 0,
             scenario: Scenario::Normal,
             fault_delivered: false,
             leave_to: Page::Choice,
@@ -94,9 +92,6 @@ impl Default for DisplayState {
 impl DisplayState {
     pub fn snapshot(&self) -> Snapshot {
         let mut snapshot = self.view.clone();
-        if !self.rooms_visible() {
-            snapshot.rooms.clear();
-        }
         if self.scenario == Scenario::EmptyGames {
             snapshot.entries.clear();
         }
@@ -108,9 +103,7 @@ impl DisplayState {
             page: self.view.page,
             source: self.view.source,
             network_only: self.view.network_only,
-            ready: self.view.ready,
-            connected: self.view.connected,
-            refresh: self.refresh,
+            session: self.session,
         }
     }
     #[observe]
@@ -278,7 +271,6 @@ impl DisplayState {
     pub fn advance(&mut self) {
         if self.view.page == Page::Rooms && self.view.refreshing {
             self.view.refreshing = false;
-            self.refresh = self.refresh.wrapping_add(1);
             return;
         }
         let current = self.view.phase;
@@ -362,6 +354,7 @@ impl DisplayState {
         self.clear_connection();
     }
     pub fn restart(&mut self) {
+        self.session = self.session.wrapping_add(1);
         self.clear_connection();
         self.view.network_only = false;
         self.view.page = if self.view.source == LaunchSource::Game {
@@ -384,7 +377,6 @@ impl DisplayState {
         }
         self.view.refreshing = true;
         self.view.selected = 0;
-        self.refresh = self.refresh.wrapping_add(1);
     }
     pub fn switch_entry(&mut self) {
         self.view.source = match self.view.source {
@@ -471,6 +463,29 @@ pub struct Presentation {
 }
 
 impl DisplayStateHandle {
+    pub(super) fn action_enabled(&self) -> bool {
+        !copy::confirm_text(&self.presentation()).is_empty()
+    }
+    pub(super) fn local_address(&self) -> &'static str {
+        let view = self.presentation();
+        if !view.connected {
+            "等待分配地址"
+        } else if view.page == Page::Host {
+            "本机  192.168.4.1"
+        } else {
+            "本机  192.168.4.2"
+        }
+    }
+    pub(super) fn peers(&self) -> &'static str {
+        let view = self.presentation();
+        if !view.connected {
+            ""
+        } else if view.page == Page::Host {
+            "好友  192.168.4.2"
+        } else {
+            "房主  192.168.4.1"
+        }
+    }
     pub(super) fn status(&self) -> &'static str {
         copy::status_text(&self.presentation())
     }

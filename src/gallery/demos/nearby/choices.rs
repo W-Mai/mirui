@@ -1,5 +1,6 @@
 use super::chrome::label;
 use super::data::{Page, Snapshot};
+use super::input::SelectionTarget;
 use super::model::DisplayState;
 use super::style::*;
 use crate::prelude::*;
@@ -7,12 +8,7 @@ use crate::ui::OffscreenRender;
 use crate::ui::widgets::{Text, TextAlign};
 use TextAlign::{Center, Start};
 #[compose]
-pub(super) fn choice(
-    view: &Snapshot,
-    state: model!(DisplayState),
-    metrics: Metrics,
-    frame: Entity,
-) -> Entity {
+pub(super) fn choice(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> Entity {
     let cards = if view.page == Page::Mode {
         [
             (0, "仅组网", "连接附近的掌机", "返回系统后保持连接"),
@@ -49,6 +45,11 @@ pub(super) fn choice(
                     clip_children: true
                 ) [
                     Focusable,
+                    SelectionTarget {
+                        frame: None,
+                        index: card.0,
+                        state: state.clone(),
+                    },
                 ] {
                     Row (
                         height: if metrics.compact { 28 } else { 44 },
@@ -93,7 +94,7 @@ pub(super) fn choice(
                             Start
                         )
                     }
-                } on SizeChanged(super::input::place::callback(frame, state, card.0)) on HoverChanged(super::input::hover::callback(frame, state, card.0)) on Tap { state.activate(card.0); }
+                } on SizeChanged(super::input::place::callback(state, card.0)) on HoverChanged(super::input::hover::callback(state, card.0)) on Tap { state.activate(card.0); }
             }
         }
     }
@@ -121,16 +122,12 @@ fn room_signal(strength: u8, available: bool) -> Entity {
 }
 
 #[compose]
-pub(super) fn rooms(
-    view: &Snapshot,
-    state: model!(DisplayState),
-    metrics: Metrics,
-    frame: Entity,
-) -> Entity {
+pub(super) fn rooms(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> Entity {
     let first = view
         .selected
         .saturating_sub(3)
         .min(view.rooms.len().saturating_sub(4));
+    let rows = view.rooms.clone();
     ui! {
         Column (
             grow: 1.0,
@@ -140,14 +137,20 @@ pub(super) fn rooms(
             StaticCache,
             OffscreenRender::default(),
         ] {
-            if !state.rooms_visible() || view.rooms.is_empty() {
+            if ${ !state.rooms_visible() } {
                 Column (
                     grow: 1.0,
                     bg_color: PANEL,
                     padding: Padding::all(metrics.inset),
                     justify: JustifyContent::Center,
                     row_gap: metrics.gap
-                ) {
+                ) [
+                    SelectionTarget {
+                        frame: None,
+                        index: 0,
+                        state: state.clone(),
+                    },
+                ] {
                     label (
                         "正在搜索附近的房间",
                         metrics.title,
@@ -165,7 +168,7 @@ pub(super) fn rooms(
                     )
                 }
             } else {
-                walk view.rooms.iter().enumerate().skip(first).take(4) with item {
+                walk rows.iter().enumerate().skip(first).take(4) with item {
                     Row (
                         grow: 1.0,
                         min_height: i32::from(metrics.row_title + metrics.row_detail) + 17,
@@ -177,6 +180,11 @@ pub(super) fn rooms(
                         clip_children: true
                     ) [
                         Focusable,
+                        SelectionTarget {
+                            frame: None,
+                            index: item.0,
+                            state: state.clone(),
+                        },
                     ] {
                         Column (
                             grow: 1.0,
@@ -204,7 +212,7 @@ pub(super) fn rooms(
                             item.1.signal,
                             item.1.available
                         )
-                    } on SizeChanged(super::input::place::callback(frame, state, item.0)) on HoverChanged(super::input::hover::callback(frame, state, item.0)) on Tap { state.activate(item.0); }
+                    } on SizeChanged(super::input::place::callback(state, item.0)) on HoverChanged(super::input::hover::callback(state, item.0)) on Tap { state.activate(item.0); }
                 }
                 View (
                     grow: 1.0,
@@ -216,12 +224,7 @@ pub(super) fn rooms(
 }
 
 #[compose]
-pub(super) fn games(
-    view: &Snapshot,
-    state: model!(DisplayState),
-    metrics: Metrics,
-    frame: Entity,
-) -> Entity {
+pub(super) fn games(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> Entity {
     ui! {
         Column (
             grow: 1.0,
@@ -258,6 +261,11 @@ pub(super) fn games(
                         clip_children: true
                     ) [
                         Focusable,
+                        SelectionTarget {
+                            frame: None,
+                            index: item.0,
+                            state: state.clone(),
+                        },
                     ] {
                         Text (
                             if item.1.directory { ">" } else { "·" },
@@ -287,7 +295,7 @@ pub(super) fn games(
                                 Start
                             )
                         }
-                    } on SizeChanged(super::input::place::callback(frame, state, item.0)) on HoverChanged(super::input::hover::callback(frame, state, item.0)) on Tap { state.activate(item.0); }
+                    } on SizeChanged(super::input::place::callback(state, item.0)) on HoverChanged(super::input::hover::callback(state, item.0)) on Tap { state.activate(item.0); }
                 }
                 View (
                     grow: 1.0,
