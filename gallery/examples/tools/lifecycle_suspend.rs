@@ -134,15 +134,15 @@ fn main() {
                 InputEvent::Key {
                     code: KEY_ESCAPE,
                     pressed: true,
-                    modifiers: Some(Default::default()),
+                    modifiers,
                     repeat: Some(false),
-                } => break,
+                } if modifiers == Some(Default::default()) => break,
                 InputEvent::Key {
                     code: KEY_RETURN,
                     pressed: true,
-                    modifiers: Some(Default::default()),
+                    modifiers,
                     repeat: Some(false),
-                } => {
+                } if modifiers == Some(Default::default()) => {
                     if app.is_suspended() {
                         app.resume();
                     } else {
