@@ -101,6 +101,61 @@ enum Route {
     Rejected,
 }
 
+#[test]
+fn rapid_pop_clear_and_new_push_use_entry_identity_and_preserve_current_positions() {
+    for config in [
+        crate::anim::Transition::from(crate::anim::BOUNCY),
+        crate::anim::TweenConfig::new(300, &crate::anim::ease::OUT_CUBIC).into(),
+    ] {
+        let (mut app, stack, path) = setup(3);
+        app.world
+            .get_mut::<NavigationStack<Route>>(stack)
+            .unwrap()
+            .transition = PageTransition::slide(config);
+        let leaf = shown(&app.world, stack);
+        path.pop().unwrap();
+        app.render().unwrap();
+        let ancestor = shown(&app.world, stack);
+        assert_eq!(
+            app.world.get::<mount::PageOffset>(ancestor).unwrap().0,
+            -Fixed::ONE
+        );
+        animate(&mut app, 32);
+        path.clear().unwrap();
+        settle(&mut app);
+        let pair = transition::running(&app.world, stack).unwrap();
+        assert_eq!((pair.from, pair.to), (leaf, ancestor));
+        finish_pair(&mut app, stack);
+        let root = shown(&app.world, stack);
+        assert_eq!(
+            app.world.get::<mount::PageOffset>(root).unwrap().0,
+            -Fixed::ONE
+        );
+        animate(&mut app, 32);
+        path.push(Route::Details(0)).unwrap();
+        settle(&mut app);
+        finish_pair(&mut app, stack);
+        let fresh = shown(&app.world, stack);
+        assert_ne!(fresh, ancestor);
+        assert_eq!(
+            app.world.get::<mount::PageOffset>(fresh).unwrap().0,
+            Fixed::ONE
+        );
+        let offset = app.world.get::<mount::PageOffset>(fresh).unwrap().0;
+        path.pop().unwrap();
+        settle(&mut app);
+        if transition::running(&app.world, stack).is_some() {
+            assert_eq!(app.world.get::<mount::PageOffset>(fresh).unwrap().0, offset);
+            finish_pair(&mut app, stack);
+        }
+        assert_eq!(shown(&app.world, stack), root);
+        assert!(!app.world.is_alive(leaf));
+        assert!(!app.world.is_alive(ancestor));
+        assert!(!app.world.is_alive(fresh));
+        assert_eq!(app.world.query::<Text>().iter().count(), 1);
+    }
+}
+
 #[crate::event]
 fn make_page(event: event!(CreatePage<Route>), target: entity!()) -> Entity {
     match event.route() {

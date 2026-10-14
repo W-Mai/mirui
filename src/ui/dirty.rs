@@ -181,6 +181,10 @@ impl World {
         DirtyTraversal::new(self, root).visit(Self::invalidate_painted_coverage);
     }
 
+    pub(crate) fn mark_subtree_visual_dirty(&mut self, root: Entity) {
+        DirtyTraversal::new(self, root).visit(Self::invalidate_visual);
+    }
+
     pub(crate) fn clear_subtree_paint(&mut self, root: Entity) {
         DirtyTraversal::new(self, root).visit(|world, entity| {
             if let Some(painted) = world.get_mut::<PaintedCoverage>(entity) {

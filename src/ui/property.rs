@@ -403,6 +403,7 @@ pub mod prop {
                 return PropertyChange::Unchanged;
             }
             world.insert(entity, crate::ui::widgets::WidgetTransform(value));
+            world.mark_subtree_visual_dirty(entity);
             PropertyChange::Visual
         }
     }
@@ -570,10 +571,13 @@ mod tests {
     use crate::ui::{Children, Parent, Widget};
 
     #[test]
-    fn transform_property_invalidates_only_changed_values() {
+    fn transform_property_invalidates_subtree_visuals_only_for_changed_values() {
         let mut world = World::new();
         let entity = world.spawn_empty();
         world.insert(entity, Widget);
+        let child = world.spawn_empty();
+        world.insert(entity, Children(alloc::vec![child]));
+        world.insert(child, Parent(entity));
         let transform = Transform::scale(Fixed::from_int(2), Fixed::from_int(2));
 
         assert_eq!(
@@ -586,13 +590,26 @@ mod tests {
                 .map(|value| value.0),
             Some(transform)
         );
+        assert!(world.has::<VisualDirty>(child));
+        assert!(!world.has::<Dirty>(entity));
+        assert!(!world.has::<Dirty>(child));
         world.remove::<VisualDirty>(entity);
+        world.remove::<VisualDirty>(child);
 
         assert_eq!(
             apply_to_world::<prop::Transform>(&mut world, entity, transform),
             PropertyChange::Unchanged
         );
         assert!(!world.has::<VisualDirty>(entity));
+        assert!(!world.has::<VisualDirty>(child));
+        assert_eq!(
+            tracked_allocations(|| {
+                apply_to_world::<prop::Transform>(&mut world, entity, Transform::IDENTITY);
+            }),
+            0
+        );
+        assert!(world.has::<VisualDirty>(child));
+        assert!(!world.has::<Dirty>(child));
     }
 
     #[test]

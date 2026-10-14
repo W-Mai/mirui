@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `PageTransition::with_direction` configures forward or backward slides without adding container properties. Navigation stacks retain automatic push/pop direction when no override is supplied.
+- Animated transforms invalidate descendant paint, and page fades invalidate their composited output, keeping partial redraws consistent with complete frames.
 - Nearby demonstrates local room creation, joining and session states with reactive pages, bounds-following selection, and Chinese pixel typography.
 - Nearby provides menu and in-game entry, explicit local confirmation and simulated peer progress, recoverable failure cases, and game/system exit outcomes.
 - Nearby animates page changes and keeps session progress on the mounted page, with page-local selection outlines and keyboard actions.

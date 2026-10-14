@@ -227,10 +227,11 @@ fn main() {
 ```rust
 use mirui::anim::{BOUNCY, Easing, Transition, TweenConfig, ease};
 use mirui::types::Fixed;
-use mirui::ui::widgets::navigation::PageTransition;
+use mirui::ui::widgets::navigation::{PageDirection, PageTransition};
 
 const MOVE: TweenConfig = TweenConfig::new(300, &ease::OUT_CUBIC);
 let slide = PageTransition::slide(MOVE);
+let returning = PageTransition::slide(MOVE).with_direction(PageDirection::Backward);
 let fade = PageTransition::fade(BOUNCY);
 
 fn custom_progress(t: Fixed) -> Fixed { t * t }
@@ -245,7 +246,9 @@ config.retarget(&mut motion, Fixed::from_int(2));
 
 `FollowBounds::with_transition` and `PageTransition::slide` / `fade` accept the shared `anim::Transition` configuration. `Transition::Tween(TweenConfig)` and `Transition::Spring(SpringConfig)` select the motion algorithm; either configuration converts directly. `TweenConfig::new(300, &ease::OUT_CUBIC)` selects a 300 ms tween; `SMOOTH`, `SNAPPY`, `BOUNCY`, and `INTERACTIVE` are spring presets. The configuration creates and redirects existing `Motion` state; page effects determine how its value is applied to the page subtrees.
 
-Both containers accept `transition: PageTransition::slide(config)` or `PageTransition::fade(config)`, using either tween or spring configuration. The default is `PageTransition::None`; first mount and configurations with zero duration switch immediately. Stack pushes and returns slide in opposite directions. `PageView` uses a fixed horizontal replacement direction without inferring navigation history.
+Both containers accept `transition: PageTransition::slide(config)` or `PageTransition::fade(config)`, using either tween or spring configuration. The default is `PageTransition::None`; first mount and configurations with zero duration switch immediately. Stack pushes and returns automatically slide in opposite directions. `PageView` defaults to forward movement without inferring navigation history.
+
+Use `PageTransition::slide(config).with_direction(PageDirection::Backward)` to enter from the left and move the current page to the right; `Forward` does the opposite. The explicit direction overrides the container's automatic direction. Bind the complete configuration through the existing `transition: ${state.transition()}` property and update it with the page in one Model operation. Direction changes alone do not replace a page or alter an active pair. Returning to either member of that pair redirects the existing motion; a pending third page uses the latest configuration when its transition starts. Fade and None ignore direction.
 
 Repeated targets with unchanged configuration do not restart motion. Tween redirection starts at the displayed value over the full configured duration, without inheriting velocity. Spring redirection preserves position and velocity. Changing algorithms starts the selected motion at the displayed value. Page containers retain the active transition's configuration through reversal; property changes apply to the next transition. `FollowBounds` applies configuration changes to its current motion. Loop and ping-pong modes remain available for ordinary animations, not finite transitions.
 

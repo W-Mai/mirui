@@ -3,19 +3,47 @@ use crate::anim::{Motion, MotionComponent, Transition};
 use crate::ecs::{Entity, World};
 use crate::types::Fixed;
 
+/// Horizontal page movement, independent of the motion algorithm.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PageDirection {
+    /// The destination enters from the right; the current page leaves to the left.
+    Forward,
+    /// The destination enters from the left; the current page leaves to the right.
+    Backward,
+}
+
 /// Visual replacement of two page subtrees. The first page is shown immediately.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 pub enum PageTransition {
     #[default]
     None,
-    Slide(Transition),
+    Slide {
+        motion: Transition,
+        direction: Option<PageDirection>,
+    },
     Fade(Transition),
 }
 
 impl PageTransition {
     /// Slide horizontally using the configured transition.
     pub fn slide(transition: impl Into<Transition>) -> Self {
-        Self::Slide(transition.into())
+        Self::Slide {
+            motion: transition.into(),
+            direction: None,
+        }
+    }
+
+    /// Override the container's slide direction. Fade and None have no spatial direction.
+    ///
+    /// Without an override, NavigationStack derives direction from its path and PageView enters forward. An active page pair keeps its original direction, including when it reverses.
+    pub const fn with_direction(mut self, direction: PageDirection) -> Self {
+        if let Self::Slide {
+            direction: value, ..
+        } = &mut self
+        {
+            *value = Some(direction);
+        }
+        self
     }
 
     /// Cross-fade complete page groups using the configured offscreen pixel budget.
@@ -79,9 +107,13 @@ pub(crate) fn begin(
     transition: PageTransition,
     forward: bool,
 ) -> bool {
-    let config = match transition {
+    let (config, forward) = match transition {
         PageTransition::None => return false,
-        PageTransition::Slide(config) | PageTransition::Fade(config) => config,
+        PageTransition::Slide { motion, direction } => (
+            motion,
+            direction.map_or(forward, |direction| direction == PageDirection::Forward),
+        ),
+        PageTransition::Fade(config) => (config, forward),
     };
     if config.is_immediate()
         || from == to
@@ -199,7 +231,11 @@ fn apply(world: &mut World, motion: PagePair) {
         let opacity = ((progress * 255).to_int()).clamp(0, 255) as u8;
         for (page, opacity) in [(motion.from, 255 - opacity), (motion.to, opacity)] {
             if let Some(offscreen) = world.get_mut::<crate::ui::OffscreenRender>(page) {
+                if offscreen.opacity == opacity {
+                    continue;
+                }
                 offscreen.opacity = opacity;
+                world.invalidate_visual(page);
             }
         }
         return;

@@ -12,6 +12,82 @@ fn animated() -> (TestApp, Entity, SelectionModelHandle) {
     (app, container, selection)
 }
 
+#[test]
+fn explicit_slide_direction_is_frozen_until_the_next_page_pair() {
+    use crate::anim::{MotionComponent, TweenConfig, ease};
+    use crate::ui::widgets::navigation::PageDirection;
+    for config in [
+        crate::anim::Transition::from(crate::anim::BOUNCY),
+        TweenConfig::new(300, &ease::LINEAR).into(),
+    ] {
+        let (mut app, container, selection) = animated();
+        let set_direction = |app: &mut TestApp, direction| {
+            app.world
+                .get_mut::<PageView<Route>>(container)
+                .unwrap()
+                .transition = PageTransition::slide(config).with_direction(direction);
+        };
+        let home = mounted(&app.world, container);
+        set_direction(&mut app, PageDirection::Backward);
+        selection.select(Route::Details);
+        app.render().unwrap();
+        let details = mounted(&app.world, container);
+        assert_eq!(offset(&app, details), Fixed::from_int(-120));
+        advance(&mut app, 32);
+        let before = transition::running(&app.world, container).unwrap();
+        let positions = (offset(&app, home), offset(&app, details));
+        set_direction(&mut app, PageDirection::Forward);
+        selection.select(Route::Home);
+        crate::ui::delivery::flush(&mut app.world).unwrap();
+        let reversed = transition::running(&app.world, container).unwrap();
+        assert_eq!(reversed.destination(), home);
+        assert_eq!(reversed.motion().value(), before.motion().value());
+        assert_eq!((offset(&app, home), offset(&app, details)), positions);
+        selection.select(Route::Details);
+        crate::ui::delivery::flush(&mut app.world).unwrap();
+        assert_eq!(
+            transition::running(&app.world, container)
+                .unwrap()
+                .destination(),
+            details
+        );
+        assert_eq!((offset(&app, home), offset(&app, details)), positions);
+        selection.select(Route::Other(1));
+        selection.select(Route::Other(2));
+        crate::ui::delivery::flush(&mut app.world).unwrap();
+        assert_eq!(app.world.query::<Text>().iter().count(), 2);
+        finish_pair(&mut app, container);
+        let latest = mounted(&app.world, container);
+        assert_eq!(offset(&app, latest), Fixed::from_int(120));
+        finish_pair(&mut app, container);
+        assert!(!app.world.is_alive(home));
+        assert!(!app.world.is_alive(details));
+        assert_eq!(offset(&app, latest), Fixed::ZERO);
+        assert_eq!(
+            app.world
+                .get::<PageState<Route>>(container)
+                .unwrap()
+                .displayed,
+            Some(Route::Other(2))
+        );
+        set_direction(&mut app, PageDirection::Backward);
+        app.render().unwrap();
+        assert_eq!(mounted(&app.world, container), latest);
+        assert!(transition::running(&app.world, container).is_none());
+    }
+}
+
+#[test]
+fn direction_does_not_change_non_spatial_effects() {
+    use crate::ui::widgets::navigation::PageDirection;
+    for effect in [
+        PageTransition::None,
+        PageTransition::fade(crate::anim::SNAPPY),
+    ] {
+        assert!(effect == effect.with_direction(PageDirection::Backward));
+    }
+}
+
 fn advance(app: &mut TestApp, dt: u16) {
     app.world.insert_resource(crate::ecs::DeltaTimeMs(dt));
     transition::advance::<PageState<Route>>(&mut app.world).unwrap();
@@ -518,7 +594,16 @@ fn fade_reverses_without_reallocation_and_matches_dirty_composition() {
         );
         let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
         app.render().unwrap();
-        assert_eq!(dirty, app.backend.framebuffer().buf.as_slice());
+        let full = app.backend.framebuffer();
+        assert!(
+            dirty == full.buf.as_slice(),
+            "first mismatch: {:?}",
+            dirty
+                .iter()
+                .zip(full.buf.as_slice())
+                .enumerate()
+                .find(|(_, (a, b))| a != b)
+        );
         finish_pair(&mut app, container);
         assert_eq!(mounted(&app.world, container), home);
         assert_eq!(pixel(&mut app, 20, 20), Color::rgb(255, 0, 0));
@@ -578,7 +663,16 @@ fn slide_is_clipped_and_dirty_frames_match_full_frames() {
             assert_eq!(pixel(&mut app, 95, 35), Color::rgb(0, 0, 0));
             let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
             app.render().unwrap();
-            assert_eq!(dirty, app.backend.framebuffer().buf.as_slice());
+            let full = app.backend.framebuffer();
+            assert!(
+                dirty == full.buf.as_slice(),
+                "first mismatch: {:?}",
+                dirty
+                    .iter()
+                    .zip(full.buf.as_slice())
+                    .enumerate()
+                    .find(|(_, (a, b))| a != b)
+            );
             app.world.insert_resource(crate::ecs::DeltaTimeMs(16));
             transition::advance::<PageState<Route>>(&mut app.world).unwrap();
             crate::ui::delivery::flush(&mut app.world).unwrap();
