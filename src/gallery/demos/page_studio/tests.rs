@@ -102,6 +102,48 @@ fn finish(app: &mut TestApp) {
 }
 
 #[test]
+fn page_actions_stay_inside_their_content_insets() {
+    fn layout_parent(app: &TestApp, mut entity: Entity) -> Rect {
+        loop {
+            entity = app.world.get::<crate::ui::Parent>(entity).unwrap().0;
+            if let Some(bounds) = app.world.get::<ComputedRect>(entity) {
+                return bounds.0;
+            }
+        }
+    }
+
+    let (mut app, path, controls) = fixture();
+    controls.set_effect(0);
+    for route in [None, Some(Route::Place(0))] {
+        if let Some(route) = route {
+            path.push(route).unwrap();
+        }
+        app.render().unwrap();
+        for (entity, _) in app.world.query::<crate::ui::widgets::Button>().iter() {
+            let Some(button) = app.world.get::<ComputedRect>(entity).map(|rect| rect.0) else {
+                continue;
+            };
+            let bounds = layout_parent(&app, entity);
+            assert!(button.x >= bounds.x && button.y >= bounds.y);
+            assert!(button.x + button.w <= bounds.x + bounds.w);
+            assert!(button.y + button.h <= bounds.y + bounds.h);
+        }
+        let label = if route.is_some() {
+            "Write a note  >"
+        } else {
+            "Explore the collection  >"
+        };
+        let button = text_entity(&app, label);
+        let bounds = layout_parent(&app, button);
+        let action = app.world.get::<ComputedRect>(button).unwrap().0;
+        let inset = Fixed::from_int(22);
+        assert_eq!(action.x, bounds.x + inset);
+        assert_eq!(action.x + action.w, bounds.x + bounds.w - inset);
+        assert_eq!(action.y + action.h, bounds.y + bounds.h - inset);
+    }
+}
+
+#[test]
 fn following_selection_reuses_the_frame_and_applies_transition_presets() {
     for motion in [model::MotionKind::Spring, model::MotionKind::Tween] {
         let (mut app, _, controls) = fixture();

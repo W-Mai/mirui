@@ -85,6 +85,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Page Studio keeps navigation actions within the page padding and sizes artwork to the remaining content space.
+
 - Slider fill clipping follows the component transform during page transitions.
 
 - Spring motion preserves its overshoot before settling and remains at rest after completion, including page transitions and bounds following.

@@ -18,10 +18,10 @@ pub(super) const PLACES: [&str; 6] = [
 ];
 
 #[compose]
-pub(super) fn artwork(index: u8, height: i32) -> Entity {
+pub(super) fn artwork(index: u8) -> Entity {
     let (sky, hill) = colors(index);
     ui! {
-        View (height: height, bg_color: sky, clip_children: true, border_radius: 16) {
+        View (grow: 1.0, bg_color: sky, clip_children: true, border_radius: 16) {
             View (
                 position: Position::Absolute,
                 left: Dimension::percent(60),
@@ -34,7 +34,7 @@ pub(super) fn artwork(index: u8, height: i32) -> Entity {
             View (
                 position: Position::Absolute,
                 left: -30,
-                top: height / 2,
+                top: Dimension::percent(50),
                 width: 340,
                 height: 200,
                 border_radius: 100,
@@ -43,7 +43,7 @@ pub(super) fn artwork(index: u8, height: i32) -> Entity {
             View (
                 position: Position::Absolute,
                 left: Dimension::percent(50),
-                top: height * 2 / 3,
+                top: Dimension::percent(67),
                 width: 250,
                 height: 150,
                 border_radius: 75,
@@ -67,7 +67,7 @@ pub(super) fn artwork(index: u8, height: i32) -> Entity {
 pub(super) fn home(path: model!(NavigationPath<Route>)) -> Entity {
     ui! {
         Column (grow: 1.0, padding: Padding::all(22), row_gap: 12) {
-            artwork (0, 184)
+            artwork (0)
             Text ("Somewhere slower.", height: 38, font_size: 27, text_color: INK)
             Text (
                 "A small collection of places to get lost in.",
@@ -75,9 +75,9 @@ pub(super) fn home(path: model!(NavigationPath<Route>)) -> Entity {
                 font_size: 13,
                 text_color: MUTED
             )
-            View (grow: 1.0)
             Button (
                 id: "pages_explore",
+                width: Dimension::percent(100),
                 height: 44,
                 border_radius: 12,
                 normal_color: INK,
@@ -175,7 +175,7 @@ fn place_card(path: model!(NavigationPath<Route>), index: u8) -> Entity {
 fn place(path: model!(NavigationPath<Route>), index: u8) -> Entity {
     ui! {
         Column (grow: 1.0, padding: Padding::all(22), row_gap: 12) {
-            artwork (index, 152)
+            artwork (index)
             Text (PLACES[index as usize], height: 34, font_size: 26, text_color: INK)
             Row (height: 28, align: AlignItems::Center) {
                 Text ("Save for later", grow: 1.0, height: 26, font_size: 14, text_color: MUTED)
@@ -188,9 +188,9 @@ fn place(path: model!(NavigationPath<Route>), index: u8) -> Entity {
                 track_color: LINE,
                 thumb_color: INK
             )
-            View (grow: 1.0)
             Button (
-                height: 42,
+                width: Dimension::percent(100),
+                height: 44,
                 border_radius: 12,
                 normal_color: MINT,
                 pressed_color: LINE,
@@ -245,10 +245,9 @@ pub(super) fn create_scene(event: event!(page_view::CreatePage<Scene>)) -> Entit
     };
     ui! {
         Column (grow: 1.0, padding: Padding::all(16), row_gap: 6) {
-            artwork (index, 80)
+            artwork (index)
             Text (subtitle, height: 18, font_size: 11, text_color: MUTED)
             Text (title, height: 36, font_size: 28, text_color: INK)
-            View (grow: 1.0)
             Text ("A MOMENT, NOT A DESTINATION.", height: 22, font_size: 10, text_color: MUTED)
         }
     }
