@@ -89,6 +89,56 @@ pub(super) fn children_are_transferable(world: &World, entity: Entity) -> bool {
             .is_none_or(|style| !style.clip_children || style.border_radius == Fixed::ZERO)
 }
 
+/// Project old damage through the actual framebuffer operations. Disconnected surviving pieces are conservatively bounded without allocating a fragment list.
+pub(super) fn map_painted_damage(mut rect: Rect, shifts: &[RegionShift]) -> Option<Rect> {
+    if rect.w <= Fixed::ZERO || rect.h <= Fixed::ZERO {
+        return None;
+    }
+    for shift in shifts {
+        let Some(inside) = rect.intersect(&shift.area) else {
+            continue;
+        };
+        let mut remaining: Option<Rect> = None;
+        let mut include = |piece: Rect| {
+            if piece.w > Fixed::ZERO && piece.h > Fixed::ZERO {
+                remaining = Some(remaining.map_or(piece, |old| old.union(&piece)));
+            }
+        };
+        include(Rect {
+            h: inside.y - rect.y,
+            ..rect
+        });
+        include(Rect {
+            y: inside.y + inside.h,
+            h: rect.y + rect.h - inside.y - inside.h,
+            ..rect
+        });
+        include(Rect {
+            x: rect.x,
+            y: inside.y,
+            w: inside.x - rect.x,
+            h: inside.h,
+        });
+        include(Rect {
+            x: inside.x + inside.w,
+            y: inside.y,
+            w: rect.x + rect.w - inside.x - inside.w,
+            h: inside.h,
+        });
+        if let Some(moved) = (Rect {
+            x: inside.x + shift.dx,
+            y: inside.y + shift.dy,
+            ..inside
+        })
+        .intersect(&shift.area)
+        {
+            include(moved);
+        }
+        rect = remaining?;
+    }
+    Some(rect)
+}
+
 pub(crate) fn has_pending_scroll(world: &World) -> bool {
     world.storage::<ScrollOffset>().is_some_and(|offsets| {
         offsets.iter().any(|(entity, offset)| {
@@ -97,4 +147,55 @@ pub(crate) fn has_pending_scroll(world: &World) -> bool {
                 .is_some_and(|painted| painted.offset != *offset)
         })
     })
+}
+
+#[cfg(test)]
+mod damage_tests {
+    use super::*;
+
+    #[test]
+    fn mapped_damage_covers_surviving_pixels_through_ordered_transfers() {
+        let shifts = [
+            RegionShift {
+                area: Rect::new(4, 4, 12, 12),
+                dx: (-3).into(),
+                dy: 2.into(),
+            },
+            RegionShift {
+                area: Rect::new(0, 0, 24, 24),
+                dx: 2.into(),
+                dy: (-4).into(),
+            },
+        ];
+        for y in -2..24 {
+            for x in -2..24 {
+                let rect = Rect::new(x, y, 5, 7);
+                let mapped = map_painted_damage(rect, &shifts);
+                for py in y..y + 7 {
+                    for px in x..x + 5 {
+                        let mut pixel = Some(Rect::new(px, py, 1, 1));
+                        for shift in &shifts {
+                            pixel = pixel.and_then(|pixel| {
+                                if pixel.intersect(&shift.area).is_none() {
+                                    return Some(pixel);
+                                }
+                                Rect {
+                                    x: pixel.x + shift.dx,
+                                    y: pixel.y + shift.dy,
+                                    ..pixel
+                                }
+                                .intersect(&shift.area)
+                            });
+                        }
+                        if let Some(pixel) = pixel {
+                            assert_eq!(
+                                mapped.and_then(|mapped| mapped.intersect(&pixel)),
+                                Some(pixel)
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

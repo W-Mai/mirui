@@ -2175,6 +2175,7 @@ mod app_invariant_tests {
                     crate::input::event::scroll::ScrollOffset::default(),
                 ] {
                     View (
+                        id: "nested-marker",
                         position: crate::ui::layout::Position::Absolute,
                         left: 8,
                         top: 10,
@@ -2330,6 +2331,63 @@ mod app_invariant_tests {
         app.render().unwrap();
         assert_eq!(app.backend.framebuffer().buf.as_slice(), dirty);
         assert!(app.dirty_regions().unwrap().is_empty());
+    }
+
+    #[test]
+    fn nested_scroll_repaints_moved_and_shrunken_content_from_painted_bounds() {
+        use crate::input::event::scroll::ScrollOffset;
+        let mut app = App::headless(64, 64);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.compose(root, nested_painted_scroll_scene());
+        let outer = app.world.find_by_id("outer").unwrap();
+        let inner = app.world.find_by_id("inner").unwrap();
+        let marker = app.world.find_by_id("nested-marker").unwrap();
+        app.render().unwrap();
+        for (outer_y, inner_y, x) in [(-2, 5, 24), (1, 8, 12), (4, 2, 30)] {
+            app.world.get_mut::<ScrollOffset>(outer).unwrap().y = outer_y.into();
+            app.world.get_mut::<ScrollOffset>(inner).unwrap().y = inner_y.into();
+            app.world.invalidate_visual(outer);
+            app.world.invalidate_visual(inner);
+            app.dirty_regions().unwrap();
+            let style = app.world.get_mut::<crate::ui::Style>(marker).unwrap();
+            style.layout.left = Dimension::px(x);
+            style.layout.height = Dimension::px(6);
+            app.world.invalidate(marker);
+            assert_eq!(app.dirty_regions().unwrap().shifts.len(), 2);
+            app.render_dirty().unwrap();
+            let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+            app.render().unwrap();
+            assert!(
+                app.backend.framebuffer().buf.as_slice() == dirty,
+                "offsets {outer_y}/{inner_y}"
+            );
+        }
+    }
+
+    #[test]
+    fn painted_bounds_record_only_pixels_inside_the_committed_clip() {
+        use crate::input::event::scroll::ScrollOffset;
+        use crate::ui::dirty::PrevRect;
+        let mut app = App::headless(48, 32);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.compose(root, painted_bounds_scene());
+        let scroll = app.world.find_by_id("scroll").unwrap();
+        let marker = app.world.find_by_id("marker").unwrap();
+        app.render().unwrap();
+        for offset in [20, 24, 8] {
+            app.world.get_mut::<ScrollOffset>(scroll).unwrap().y = offset.into();
+            app.world.invalidate_visual(scroll);
+            app.render_dirty().unwrap();
+            let expected = Rect::new(8, 16 - offset, 8, 8)
+                .intersect(&Rect::new(0, 0, 48, 32))
+                .unwrap_or(Rect::ZERO);
+            assert_eq!(app.world.get::<PrevRect>(marker).unwrap().0, expected);
+            let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+            app.render().unwrap();
+            assert!(app.backend.framebuffer().buf.as_slice() == dirty);
+        }
     }
 
     #[crate::view(component = FailedFrame)]

@@ -89,6 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Dirty rendering repaints changed content at its transferred location during nested scrolling and records previous bounds within the painted clip.
+
 - Scroll transfers use the last successfully painted offsets and source windows, including nested scrolling. Removed the input-side `ScrollDelta` accumulator.
 
 - Interrupted drawing requires a complete redraw before framebuffer pixels can be reused. Full and partial frames synchronize rotating buffers through the same renderer factory.

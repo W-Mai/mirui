@@ -260,7 +260,7 @@ fn is_visible_descendant(world: &World, root: Entity, mut entity: Entity) -> boo
     }
 }
 
-/// Stores the paint bounds recorded after a successful render.
+/// Stores the visible paint bounds within the committed clip after a successful render.
 pub struct PrevRect(pub Rect);
 
 /// Optional per-entity expansion of the dirty-region rect that the

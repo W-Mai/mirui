@@ -389,6 +389,9 @@ fn seed_prev_rect_walk(
         effective_rect.w += inflate.left + inflate.right;
         effective_rect.h += inflate.top + inflate.bottom;
     }
+    if let Some(clip) = scroll_clip {
+        effective_rect = effective_rect.intersect(&clip).unwrap_or(Rect::ZERO);
+    }
     let x0 = effective_rect.x.floor();
     let y0 = effective_rect.y.floor();
     let x1 = (effective_rect.x + effective_rect.w).ceil();
@@ -1268,7 +1271,7 @@ fn compute_layout_snapshot(
                     layout_tree,
                     parked,
                     entities,
-                    out_of_scroll_prev: Vec::with_capacity(node_count),
+                    painted_damage: Vec::with_capacity(node_count),
                 })
             }
         }
@@ -2799,6 +2802,31 @@ struct DirtyBounds {
     overflow: bool,
 }
 
+impl DirtyBounds {
+    fn include(&mut self, rect: Rect) {
+        if rect.w <= Fixed::ZERO || rect.h <= Fixed::ZERO {
+            return;
+        }
+        let (x0, y0, x1, y1) = rect.pixel_bounds();
+        let rect = Rect::new(x0, y0, x1 - x0, y1 - y0);
+        self.min_x = self.min_x.min(rect.x);
+        self.min_y = self.min_y.min(rect.y);
+        self.max_x = self.max_x.max(rect.x + rect.w);
+        self.max_y = self.max_y.max(rect.y + rect.h);
+        if let Some(region) = self.regions[..self.region_count]
+            .iter_mut()
+            .find(|region| region.intersect(&rect).is_some())
+        {
+            *region = region.union(&rect);
+        } else if let Some(region) = self.regions.get_mut(self.region_count) {
+            *region = rect;
+            self.region_count += 1;
+        } else {
+            self.overflow = true;
+        }
+    }
+}
+
 /// Resource exposing the last frame's plan. Read-only for probes /
 /// debug overlays; production code should not depend on it.
 #[derive(Clone, Debug, Default)]
@@ -2814,7 +2842,7 @@ pub(crate) struct LayoutSnapshot {
     pub(crate) layout_tree: LayoutNode,
     parked: Vec<LayoutNode>,
     pub(crate) entities: Vec<Entity>,
-    out_of_scroll_prev: Vec<Rect>,
+    painted_damage: Vec<Rect>,
 }
 
 impl LayoutSnapshot {
@@ -2851,16 +2879,12 @@ fn collect_dirty_walk(
     parent_3d: &Transform3D,
     output_scale: Fixed,
     scroll_offset: (Fixed, Fixed),
-    inside_scroll: bool,
-    // Innermost scroll container's screen rect: a LazyList row
-    // far below `visible_start` has a layout-y in the thousands
-    // and would otherwise blow the dirty bbox out vertically.
     scroll_clip: Option<Rect>,
     parent_scroll: Option<Entity>,
     carrier: Option<Point>,
     bounds: &mut DirtyBounds,
     plan: &mut DirtyRegions,
-    out_of_scroll_prev: &mut alloc::vec::Vec<Rect>,
+    painted_damage: &mut alloc::vec::Vec<Rect>,
     output_plan: Option<&output_plan::TexturePlan>,
 ) {
     use super::dirty::VisualDirty;
@@ -2894,10 +2918,9 @@ fn collect_dirty_walk(
                 &tf,
                 &tf_3d,
                 output_scale,
-                inside_scroll,
                 scroll_clip,
                 bounds,
-                out_of_scroll_prev,
+                painted_damage,
                 *idx,
                 output_plan,
             );
@@ -2927,7 +2950,6 @@ fn collect_dirty_walk(
     let my_scroll_op = current_scroll
         .zip(painted_scroll)
         .and_then(|(current, painted)| current.shift_from(painted, carrier, output_scale));
-    let child_inside_scroll = inside_scroll || my_scroll_op.is_some();
     let child_carrier = match (current_scroll, painted_scroll, my_scroll_op.as_ref()) {
         (_, _, Some(shift)) => carrier.map(|point| Point {
             x: point.x + shift.dx,
@@ -2946,10 +2968,9 @@ fn collect_dirty_walk(
             &tf,
             &tf_3d,
             output_scale,
-            inside_scroll,
             scroll_clip,
             bounds,
-            out_of_scroll_prev,
+            painted_damage,
             *idx,
             output_plan,
         );
@@ -2984,7 +3005,6 @@ fn collect_dirty_walk(
             &tf_3d,
             output_scale,
             child_scroll,
-            child_inside_scroll,
             child_scroll_clip,
             if current_scroll.is_some() {
                 Some(entity)
@@ -2994,7 +3014,7 @@ fn collect_dirty_walk(
             child_carrier.filter(|_| scroll::children_are_transferable(world, entity)),
             bounds,
             plan,
-            out_of_scroll_prev,
+            painted_damage,
             output_plan,
         );
     }
@@ -3055,22 +3075,17 @@ fn push_scroll_strips(sop: &RegionShift, plan: &mut DirtyRegions) {
     }
 }
 
-/// Helper extracted from `collect_dirty_walk` so the OffscreenRender
-/// branch can call it without duplicating the bbox-union accounting.
-/// Caller has already verified `world.get::<Dirty>(entity).is_some()`
-/// or wants the entity rect contributed regardless.
 #[allow(clippy::too_many_arguments)]
 fn push_entity_dirty(
-    world: &mut World,
+    world: &World,
     entity: Entity,
     rect: Rect,
     tf: &Transform,
     tf_3d: &Transform3D,
     output_scale: Fixed,
-    inside_scroll: bool,
     scroll_clip: Option<Rect>,
     bounds: &mut DirtyBounds,
-    out_of_scroll_prev: &mut alloc::vec::Vec<Rect>,
+    painted_damage: &mut alloc::vec::Vec<Rect>,
     position: usize,
     output_plan: Option<&output_plan::TexturePlan>,
 ) {
@@ -3090,60 +3105,17 @@ fn push_entity_dirty(
         curr.w += inflate.left + inflate.right;
         curr.h += inflate.top + inflate.bottom;
     }
-    // Inside a scroll container the self-blit already moved the prev
-    // rect's pixels to their new spot, so unioning prev here would
-    // re-stretch the bbox over the area self-blit handled.
-    //
-    // Out-of-scroll prev rects feed post-walk shift translation
-    // (overlay smear from ancestor-scroll self-blit).
-    let mut union_rect = if inside_scroll {
-        curr
-    } else {
-        match world.get::<super::dirty::PrevRect>(entity) {
-            Some(prev) => {
-                out_of_scroll_prev.push(prev.0);
-                curr.union(&prev.0)
-            }
-            None => curr,
-        }
-    };
+    if let Some(prev) = world.get::<super::dirty::PrevRect>(entity) {
+        painted_damage.push(prev.0);
+    }
     if let Some(clip) = scroll_clip {
-        if let Some(inter) = union_rect.intersect(&clip) {
-            union_rect = inter;
+        if let Some(inter) = curr.intersect(&clip) {
+            curr = inter;
         } else {
             return;
         }
     }
-    let (ux0, uy0, ux1, uy1) = union_rect.pixel_bounds();
-    let x0 = Fixed::from_int(ux0);
-    let y0 = Fixed::from_int(uy0);
-    let x1 = Fixed::from_int(ux1);
-    let y1 = Fixed::from_int(uy1);
-    if x0 < bounds.min_x {
-        bounds.min_x = x0;
-    }
-    if y0 < bounds.min_y {
-        bounds.min_y = y0;
-    }
-    if x1 > bounds.max_x {
-        bounds.max_x = x1;
-    }
-    if y1 > bounds.max_y {
-        bounds.max_y = y1;
-    }
-    if x1 > x0 && y1 > y0 {
-        if let Some(region) = bounds.regions.get_mut(bounds.region_count) {
-            *region = Rect {
-                x: x0,
-                y: y0,
-                w: x1 - x0,
-                h: y1 - y0,
-            };
-            bounds.region_count += 1;
-        } else {
-            bounds.overflow = true;
-        }
-    }
+    bounds.include(curr);
 }
 
 fn merge_pending(
@@ -3368,7 +3340,7 @@ pub(crate) fn try_collect_dirty_regions_into(
         overflow: false,
     };
 
-    snapshot.out_of_scroll_prev.clear();
+    snapshot.painted_damage.clear();
     {
         crate::trace_span!("dirty.walk");
         let mut idx = 0;
@@ -3381,50 +3353,20 @@ pub(crate) fn try_collect_dirty_regions_into(
             &Transform3D::IDENTITY,
             transform.scale(),
             (Fixed::ZERO, Fixed::ZERO),
-            false,
             Some(Rect::new(0, 0, logical_w, logical_h)),
             None,
             Some(Point::new(0, 0)),
             &mut bounds,
             plan,
-            &mut snapshot.out_of_scroll_prev,
+            &mut snapshot.painted_damage,
             output_plan.as_ref(),
         );
     }
     output_plan::return_plan(world, output_plan);
 
-    // Cover the smear strip from ancestor-scroll self-blit dragging overlay prev pixels.
-    for prev in &snapshot.out_of_scroll_prev {
-        for sop in &plan.shifts {
-            let Some(inter) = prev.intersect(&sop.area) else {
-                continue;
-            };
-            let shifted = Rect {
-                x: inter.x + sop.dx,
-                y: inter.y + sop.dy,
-                w: inter.w,
-                h: inter.h,
-            };
-            let (sx0, sy0, sx1, sy1) = shifted.pixel_bounds();
-            if sx1 <= sx0 || sy1 <= sy0 {
-                continue;
-            }
-            let fx0 = Fixed::from_int(sx0);
-            let fy0 = Fixed::from_int(sy0);
-            let fx1 = Fixed::from_int(sx1);
-            let fy1 = Fixed::from_int(sy1);
-            if fx0 < bounds.min_x {
-                bounds.min_x = fx0;
-            }
-            if fy0 < bounds.min_y {
-                bounds.min_y = fy0;
-            }
-            if fx1 > bounds.max_x {
-                bounds.max_x = fx1;
-            }
-            if fy1 > bounds.max_y {
-                bounds.max_y = fy1;
-            }
+    for prev in &snapshot.painted_damage {
+        if let Some(mapped) = scroll::map_painted_damage(*prev, &plan.shifts) {
+            bounds.include(mapped);
         }
     }
 
@@ -3441,29 +3383,19 @@ pub(crate) fn try_collect_dirty_regions_into(
         });
     }
 
-    // Overlays (cursor / rotary feedback) sit on top of a scroll
-    // area but live outside its subtree, so self-blit drags their
-    // pixels sideways and leaves a residue at their logical position.
-    // Two small redraw rects per (overlay × shift) absorb both ends:
-    // the overlay's current rect (repaints under it) and the dragged
-    // rect (covers the residue). The shift itself stays so the bulk
-    // of the area still self-blits.
     if !plan.shifts.is_empty() {
-        for sop in &plan.shifts {
-            visit_overlay_rects(world, |overlay| {
-                if overlay.intersect(&sop.area).is_none() {
-                    return;
-                }
-                let shifted = Rect {
-                    x: overlay.x + sop.dx,
-                    y: overlay.y + sop.dy,
-                    w: overlay.w,
-                    h: overlay.h,
-                };
+        visit_overlay_rects(world, |overlay| {
+            if plan
+                .shifts
+                .iter()
+                .any(|shift| overlay.intersect(&shift.area).is_some())
+            {
                 plan.rects.push(overlay);
-                plan.rects.push(shifted);
-            });
-        }
+                if let Some(mapped) = scroll::map_painted_damage(overlay, &plan.shifts) {
+                    plan.rects.push(mapped);
+                }
+            }
+        });
     }
 
     prepare_dirty_rects(world, plan);
@@ -3484,7 +3416,13 @@ pub(crate) fn try_collect_dirty_regions_into(
 
 fn prepare_dirty_rects(world: &mut World, plan: &mut DirtyRegions) {
     if let Some(regions) = world.resource_mut::<super::dirty::ExactDirtyRegions>() {
+        let start = plan.rects.len();
         regions.prepare_into(&mut plan.rects);
+        for rect in &mut plan.rects[start..] {
+            if let Some(mapped) = scroll::map_painted_damage(*rect, &plan.shifts) {
+                *rect = rect.union(&mapped);
+            }
+        }
     }
 }
 
@@ -3577,7 +3515,7 @@ mod layout_snapshot_reuse_check {
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
         assert!(snapshot.parked.capacity() >= 1);
         assert!(snapshot.entities.capacity() >= 7);
-        assert!(snapshot.out_of_scroll_prev.capacity() >= 7);
+        assert!(snapshot.painted_damage.capacity() >= 7);
         let root_children_ptr = snapshot.layout_tree.children.as_ptr();
         let nested_ptr = snapshot.layout_tree.children[0].children.as_ptr();
         let nested_leaf_ptr = snapshot.layout_tree.children[0].children[0]
@@ -4396,7 +4334,11 @@ mod layout_snapshot_reuse_check {
         assert_eq!(allocations, 0);
         try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
 
-        assert_eq!(plan.rects, [Rect::new(0, 0, 30, 10)]);
+        assert_eq!(
+            plan.rects,
+            [Rect::new(20, 0, 10, 10), Rect::new(0, 0, 10, 10)]
+        );
+        assert_eq!(plan.bounding_rect(), Some(Rect::new(0, 0, 30, 10)));
         assert_eq!(
             world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot,
             snapshot
@@ -4445,14 +4387,14 @@ mod layout_snapshot_reuse_check {
         world.insert(root, Dirty);
         try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
-        assert_eq!(snapshot.out_of_scroll_prev.len(), 1);
-        let scratch_ptr = snapshot.out_of_scroll_prev.as_ptr();
+        assert_eq!(snapshot.painted_damage.len(), 1);
+        let scratch_ptr = snapshot.painted_damage.as_ptr();
 
         world.insert(root, Dirty);
         try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
-        assert_eq!(snapshot.out_of_scroll_prev.len(), 1);
-        assert_eq!(snapshot.out_of_scroll_prev.as_ptr(), scratch_ptr);
+        assert_eq!(snapshot.painted_damage.len(), 1);
+        assert_eq!(snapshot.painted_damage.as_ptr(), scratch_ptr);
     }
 }
 
