@@ -2501,6 +2501,7 @@ mod app_invariant_tests {
         pixels: [[u8; 48 * 32 * 4]; 2],
         active: usize,
         advances: usize,
+        persistence: crate::surface::BackbufferPersistence,
     }
 
     impl crate::core::cache::InspectCaches for RotatingBuffers {}
@@ -2523,6 +2524,10 @@ mod app_invariant_tests {
 
         fn buffer_count(&self) -> usize {
             2
+        }
+
+        fn persistence(&self) -> crate::surface::BackbufferPersistence {
+            self.persistence
         }
     }
 
@@ -2565,6 +2570,7 @@ mod app_invariant_tests {
             pixels: [[0; 48 * 32 * 4]; 2],
             active: 0,
             advances: 0,
+            persistence: crate::surface::BackbufferPersistence::Persistent,
         });
         app.with_default_widgets();
         let root = app.spawn_root().id();
@@ -2572,7 +2578,12 @@ mod app_invariant_tests {
         let marker = app.world.find_by_id("marker").unwrap();
 
         for (frame, x) in [8, 16, 24, 12].into_iter().enumerate() {
+            let _ = app.dirty_regions().unwrap();
             crate::ui::set_position(&mut app.world, marker, x, 16);
+            for _ in 0..3 {
+                assert!(!app.dirty_regions().unwrap().is_empty());
+                assert_eq!(app.backend.advances, frame);
+            }
             if frame % 2 == 0 {
                 app.render().unwrap();
             } else {
@@ -2593,6 +2604,39 @@ mod app_invariant_tests {
             app.backend.advances, 4,
             "idle frames must not rotate buffers"
         );
+    }
+
+    #[test]
+    fn transient_queries_preserve_full_redraw_without_advancing_buffers() {
+        let mut app = App::new(RotatingBuffers {
+            pixels: [[0; 48 * 32 * 4]; 2],
+            active: 0,
+            advances: 0,
+            persistence: crate::surface::BackbufferPersistence::Transient,
+        });
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.compose(root, painted_bounds_scene());
+        app.render().unwrap();
+        let painted = app.backend.pixels[0];
+        for frame in 1..=3 {
+            app.backend.pixels[app.backend.active].fill(0);
+            for _ in 0..3 {
+                let plan = app.dirty_regions().unwrap();
+                assert_eq!(plan.rects, [Rect::new(0, 0, 48, 32)]);
+                assert!(plan.shifts.is_empty());
+                assert_eq!(app.backend.advances, frame);
+                assert!(
+                    app.backend.pixels[app.backend.active]
+                        .iter()
+                        .all(|byte| *byte == 0)
+                );
+            }
+            app.render_dirty().unwrap();
+            assert_eq!(app.backend.advances, frame + 1);
+            assert_eq!(app.backend.pixels[0], painted);
+            assert_eq!(app.backend.pixels[1], painted);
+        }
     }
 
     #[test]
@@ -3550,6 +3594,16 @@ mod app_invariant_tests {
 
         let cb: HeadlessFlush = |_buf, _area| {};
         app.backend = FramebufSurface::new(64, 32, cb);
+        for _ in 0..3 {
+            let plan = app.dirty_regions().unwrap();
+            assert_eq!(plan.rects, [Rect::new(0, 0, 64, 32)]);
+            assert!(plan.shifts.is_empty());
+        }
+        app.world
+            .get_mut::<crate::ui::Style>(target)
+            .unwrap()
+            .set_bg_color(Color::rgb(20, 200, 80));
+        app.world.invalidate_visual(target);
         app.render_dirty().unwrap();
 
         let resized = app.world.resource::<LayoutSnapshot>().unwrap();
@@ -3580,7 +3634,8 @@ mod app_invariant_tests {
         );
         let texture = app.backend.framebuffer();
         let pixel = (4 * 64 + 24) * 4;
-        assert_eq!(&texture.buf.as_slice()[pixel..pixel + 3], &[240, 20, 30]);
+        assert_eq!(&texture.buf.as_slice()[pixel..pixel + 3], &[20, 200, 80]);
+        assert!(app.dirty_regions().unwrap().is_empty());
     }
 
     #[test]
