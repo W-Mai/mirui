@@ -21,6 +21,8 @@ app.render_dirty()?;
 
 The query is not a frozen rendering command or a promise of exact surface flush rectangles. Render hooks, subsequent changes and backend capabilities can change the final plan. Successful drawing acknowledges prepared damage; preparation or drawing failures retain pending work. First frames, resized surfaces and transient backbuffers require full coverage.
 
+An independently held Model can still change while a query result is borrowed. That result remains a snapshot; query again to inspect the new state, or call `render_dirty()` to draw it.
+
 ## Input and viewport
 
 Scrolling does not snap to cell boundaries. Pointer and wheel input share elastic resistance and released motion; continued input controls the content without a concurrent rebound. Pointer-release inertia follows recent content movement and expires after the pointer stops. Within scroll bounds, wheel input applies its fractional deltas directly, retaining platform-provided momentum. Scroll offsets invalidate painting and hit geometry, while cell reassignment or size changes still update layout. Framebuffer reuse is restricted to whole physical-pixel shifts in untransformed rectangular viewports without borders or rounded corners; other movement repaints the affected viewport.
