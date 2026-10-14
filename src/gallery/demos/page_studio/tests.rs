@@ -102,7 +102,7 @@ fn finish(app: &mut TestApp) {
 }
 
 #[test]
-fn following_selection_reuses_the_frame_and_applies_spring_presets() {
+fn following_selection_reuses_the_frame_and_applies_transition_presets() {
     let (mut app, _, controls) = fixture();
     let frame = app.world.find_by_id("pages_follow_frame").unwrap();
     for (preset, id) in [
@@ -110,13 +110,13 @@ fn following_selection_reuses_the_frame_and_applies_spring_presets() {
         (1, "pages_follow_c"),
         (2, "pages_follow_a"),
     ] {
-        controls.set_spring(preset);
+        controls.set_preset(preset);
         let before = app.world.get::<ComputedRect>(frame).unwrap().0;
         click_id(&mut app, id);
         let target = app.world.find_by_id(id).unwrap();
         let bounds = app.world.get::<FollowBounds>(frame).unwrap();
         assert_eq!(bounds.target, target);
-        assert!(bounds.spring == Some(model::spring_config(preset)));
+        assert!(bounds.transition == Some(model::transition_config(preset)));
         let target_rect = app.world.get::<ComputedRect>(target).unwrap().0;
         let expected = Rect::new(
             target_rect.x - Fixed::from_int(4),
@@ -180,7 +180,7 @@ fn reactive_transition_controls_apply_to_both_containers_without_restarting_moti
     app.render().unwrap();
     assert!(!app.tick());
     let before = transition::running(&app.world, stack).unwrap();
-    controls.set_spring(2);
+    controls.set_preset(2);
     controls.set_effect(2);
     app.render().unwrap();
     let expected = PageTransition::fade(crate::anim::BOUNCY);

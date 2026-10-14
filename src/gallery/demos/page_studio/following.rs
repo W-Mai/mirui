@@ -1,4 +1,4 @@
-use super::model::{Studio, spring_config};
+use super::model::{Studio, transition_config};
 use super::style::*;
 use crate::prelude::*;
 use crate::ui::widgets::{Button, FollowBounds, Text};
@@ -12,7 +12,7 @@ fn select(
 ) {
     if let Some(bounds) = frames.get(frame) {
         bounds.target = target;
-        bounds.spring = Some(spring_config(controls.spring()));
+        bounds.transition = Some(transition_config(controls.preset()));
     }
 }
 
@@ -37,7 +37,7 @@ pub(super) fn bounds_panel(controls: model!(Studio)) -> Entity {
             ) [
                 FollowBounds::new(id("pages_follow_a"))
                     .with_outset(4)
-                    .with_spring(spring_config(controls.spring())),
+                    .with_transition(transition_config(controls.preset())),
             ]
         }
     }

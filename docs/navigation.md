@@ -31,11 +31,11 @@ app.render().unwrap();
 
 The follower respects its own ancestor clips and the target's ancestor clip. Hidden, deleted, detached, cyclic, or unmappable targets make the follower unavailable for drawing, input, and output reads until the relation becomes valid. Self-targets and targets inside the follower subtree are cyclic. Removing `FollowBounds` restores the authored `Style`; the component never overwrites that style. Use `follow_bounds::view()` for selective widget registration, or `with_default_widgets()` to include it automatically.
 
-Bounds update immediately by default. Add `.with_spring(mirui::anim::SNAPPY)` to animate position and size changes. The first valid placement and recovery from an unavailable target are immediate. Retargeting preserves each axis's current position and velocity; rendering and hit testing use the displayed bounds, clipped to the current source viewport. `spring: None` or a zero duration hint switches immediately. Only animated followers allocate motion component storage, prepared when animation is enabled; advancing and retargeting reuse it.
+Bounds update immediately by default. Add `.with_transition(mirui::anim::SNAPPY)` to animate position and size changes. The first valid placement and recovery from an unavailable target are immediate. Retargeting preserves each axis's current position and velocity; rendering and hit testing use the displayed bounds, clipped to the current source viewport. `transition: None` or a zero duration hint switches immediately. Only animated followers allocate motion component storage, prepared when animation is enabled; advancing and retargeting reuse it.
 
 ## Interactive example
 
-Page Studio is available in the Gallery's Showcase section as `page_studio`. Its collection, place details and note editor demonstrate stack navigation and retained controls; the scene panel demonstrates `PageView`. The toolbar selects no animation, slide or group fade, with Smooth, Snappy and Bouncy Spring presets. The Follow Bounds panel moves an independent outline between three differently sized buttons using `FollowBounds`; each selection uses the toolbar's current Spring preset.
+Page Studio is available in the Gallery's Showcase section as `page_studio`. Its collection, place details and note editor demonstrate stack navigation and retained controls; the scene panel demonstrates `PageView`. The toolbar selects no animation, slide or group fade, with Smooth, Snappy and Bouncy transition presets. The Follow Bounds panel moves an independent outline between three differently sized buttons using `FollowBounds`; each selection uses the toolbar's current transition preset.
 
 ```sh
 cargo run -p gallery --example page_studio_demo
@@ -224,7 +224,9 @@ fn main() {
 
 ## Page transitions
 
-`transition: ${ expression }` binds the transition configuration reactively on either container. Changes apply to subsequent transitions; an active spring keeps its current configuration and velocity.
+`transition: ${ expression }` binds the transition configuration reactively on either container. Changes apply to subsequent transitions; active motion keeps its current configuration and velocity.
+
+`FollowBounds::with_transition` and `PageTransition::slide` / `fade` accept the shared `anim::Transition` configuration. `Transition::Spring(SpringConfig)` selects spring motion; `SMOOTH`, `SNAPPY`, `BOUNCY`, and custom `SpringConfig` values convert directly. The configuration creates and redirects existing `Motion` state; page effects determine how its value is applied to the page subtrees.
 
 Both containers accept `transition: PageTransition::slide(SMOOTH)` or `PageTransition::fade(SMOOTH)`, using a preset or custom `mirui::anim::SpringConfig`. The default is `PageTransition::None`; first mount and configurations with a zero duration hint switch immediately. Stack pushes and returns slide in opposite directions. `PageView` uses a fixed horizontal replacement direction without inferring navigation history.
 

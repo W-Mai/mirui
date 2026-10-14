@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 
-use crate::anim::SpringConfig;
+use crate::anim::Transition;
 use crate::ecs::{Entity, World};
 use crate::input::event::scroll::ScrollOffset;
 use crate::types::{Dimension, Fixed, Point, Rect, Transform3D};
@@ -28,8 +28,8 @@ pub struct FollowBounds {
     pub outset: Fixed,
     /// Translation in the follower parent's coordinates.
     pub offset: Point,
-    /// Animate subsequent bounds changes with a spring. `None` updates immediately.
-    pub spring: Option<SpringConfig>,
+    /// Animate subsequent bounds changes. `None` updates immediately.
+    pub transition: Option<Transition>,
 }
 
 impl FollowBounds {
@@ -40,7 +40,7 @@ impl FollowBounds {
             content: false,
             outset: Fixed::ZERO,
             offset: Point::ZERO,
-            spring: None,
+            transition: None,
         }
     }
 
@@ -63,8 +63,8 @@ impl FollowBounds {
     }
 
     /// Animate bounds changes after the first valid placement. A zero duration hint updates immediately.
-    pub const fn with_spring(mut self, spring: SpringConfig) -> Self {
-        self.spring = Some(spring);
+    pub fn with_transition(mut self, transition: impl Into<Transition>) -> Self {
+        self.transition = Some(transition.into());
         self
     }
 }

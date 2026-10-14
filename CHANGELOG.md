@@ -9,13 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `FollowBounds::with_spring` animates position and size through shared spring motion, retaining velocity when redirected and using displayed geometry for layout and input.
+- `anim::Transition` configures shared motion for page effects and `FollowBounds::with_transition`, accepting spring presets directly and retaining velocity when redirected.
 
 - `FollowBounds` positions a widget around another widget's border or content bounds without occupying flex space, with cross-parent transforms, source clipping, and invalid-target recovery.
 
 - `Outputs<LayoutGeometry>` exposes prepared widget bounds, resolved content bounds, screen transforms, and ancestor clipping through component-declared dependencies.
 
-- Page Studio demonstrates nested navigation, retained controls and scroll position, application-selected pages, reactive slide/fade Spring presets, and an animated bounds-following outline in the Gallery and native launcher.
+- Page Studio demonstrates nested navigation, retained controls and scroll position, application-selected pages, reactive slide/fade transition presets, and an animated bounds-following outline in the Gallery and native launcher.
 
 - `PageTransition` adds spring-driven slide and group-fade transitions to page containers, preserving velocity on reversal, with bounded pending navigation, viewport clipping, and input isolation. Unavailable fade buffers complete the switch without animation.
 

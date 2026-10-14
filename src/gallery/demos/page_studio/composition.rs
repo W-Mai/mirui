@@ -25,14 +25,14 @@ pub fn build_widgets(path: model!(NavigationPath<Route>), controls: model!(Studi
                 Text ("MIRUI / 01", width: 112, height: 24, font_size: 12, text_color: MUTED)
             }
             Row (height: 40, column_gap: 8, align: AlignItems::Center) {
-                Text ("MOTION", width: 68, height: 24, font_size: 11, text_color: MUTED)
+                Text ("EFFECT", width: 68, height: 24, font_size: 11, text_color: MUTED)
                 walk ["None", "Slide", "Fade"].iter().enumerate() with item {
                     effect_button (controls.clone(), item.0 as u8, *item.1)
                 }
                 View (grow: 1.0)
-                Text ("SPRING", width: 68, height: 24, font_size: 11, text_color: MUTED)
+                Text ("TRANSITION", width: 88, height: 24, font_size: 11, text_color: MUTED)
                 walk ["Smooth", "Snappy", "Bouncy"].iter().enumerate() with item {
-                    spring_button (controls.clone(), item.0 as u8, *item.1)
+                    preset_button (controls.clone(), item.0 as u8, *item.1)
                 }
             }
             Row (grow: 1.0, column_gap: 20) {
@@ -85,7 +85,7 @@ pub fn build_widgets(path: model!(NavigationPath<Route>), controls: model!(Studi
                         bg_color: CARD,
                         border_radius: 20,
                         clip_children: true,
-                        transition: ${ transition(controls.effect(), controls.spring()) }
+                        transition: ${ transition(controls.effect(), controls.preset()) }
                     ) {
                         home (path)
                     } on CreatePage(create_page::callback(path))
@@ -119,7 +119,7 @@ pub fn build_widgets(path: model!(NavigationPath<Route>), controls: model!(Studi
                         bg_color: CARD,
                         border_radius: 20,
                         clip_children: true,
-                        transition: ${ transition(controls.effect(), controls.spring()) }
+                        transition: ${ transition(controls.effect(), controls.preset()) }
                     ) on CreatePage(create_scene::callback())
                     bounds_panel (controls)
                 }
@@ -166,19 +166,19 @@ fn effect_button(controls: model!(Studio), index: u8, label: &'static str) -> En
 }
 
 #[compose]
-fn spring_button(controls: model!(Studio), index: u8, label: &'static str) -> Entity {
+fn preset_button(controls: model!(Studio), index: u8, label: &'static str) -> Entity {
     ui! {
         Button (
             width: 78,
             height: 34,
             border_radius: 10,
             font_size: 12,
-            normal_color: ${ if controls.spring() == index { MINT } else { CARD } },
+            normal_color: ${ if controls.preset() == index { MINT } else { CARD } },
             text_color: INK,
             pressed_color: LINE
         ) [
             Text::label(label),
-        ] on Tap { controls.set_spring(index); }
+        ] on Tap { controls.set_preset(index); }
     }
 }
 

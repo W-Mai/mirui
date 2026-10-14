@@ -1,5 +1,5 @@
 use super::mount;
-use crate::anim::{Motion, MotionComponent, Spring, SpringConfig};
+use crate::anim::{Motion, MotionComponent, Transition};
 use crate::ecs::{Entity, World};
 use crate::types::Fixed;
 
@@ -8,21 +8,21 @@ use crate::types::Fixed;
 pub enum PageTransition {
     #[default]
     None,
-    Slide(SpringConfig),
-    Fade(SpringConfig),
+    Slide(Transition),
+    Fade(Transition),
 }
 
 impl PageTransition {
-    /// Slide horizontally using a spring. A zero duration hint switches immediately.
-    pub const fn slide(spring: SpringConfig) -> Self {
-        Self::Slide(spring)
+    /// Slide horizontally using the configured transition.
+    pub fn slide(transition: impl Into<Transition>) -> Self {
+        Self::Slide(transition.into())
     }
 
     /// Cross-fade complete page groups using the configured offscreen pixel budget.
     ///
     /// Unavailable output storage or backend support completes the switch without animation and logs a warning.
-    pub const fn fade(spring: SpringConfig) -> Self {
-        Self::Fade(spring)
+    pub fn fade(transition: impl Into<Transition>) -> Self {
+        Self::Fade(transition.into())
     }
 }
 
@@ -31,6 +31,7 @@ pub(crate) struct PagePair {
     pub from: Entity,
     pub to: Entity,
     motion: Motion,
+    transition: Transition,
     direction: Fixed,
     reversed: bool,
     fade: bool,
@@ -78,11 +79,11 @@ pub(crate) fn begin(
     transition: PageTransition,
     forward: bool,
 ) -> bool {
-    let spring = match transition {
+    let config = match transition {
         PageTransition::None => return false,
-        PageTransition::Slide(spring) | PageTransition::Fade(spring) => spring,
+        PageTransition::Slide(config) | PageTransition::Fade(config) => config,
     };
-    if spring.duration_ms == 0
+    if config.is_immediate()
         || from == to
         || !mount::attached(world, container, from)
         || !mount::attached(world, container, to)
@@ -93,7 +94,8 @@ pub(crate) fn begin(
     let motion = PagePair {
         from,
         to,
-        motion: Spring::preset(Fixed::ZERO, Fixed::ONE, spring).into(),
+        motion: config.motion(Fixed::ZERO, Fixed::ONE),
+        transition: config,
         direction: if forward { Fixed::ONE } else { -Fixed::ONE },
         reversed: false,
         fade: matches!(transition, PageTransition::Fade(_)),
@@ -144,9 +146,10 @@ pub(crate) fn redirect(world: &mut World, container: Entity, target: Option<Enti
         return false;
     }
     motion.reversed = reversed;
-    if let Motion::Spring(spring) = motion.motion_mut() {
-        spring.retarget(if reversed { Fixed::ZERO } else { Fixed::ONE }, None);
-    }
+    motion.transition.retarget(
+        &mut motion.motion,
+        if reversed { Fixed::ZERO } else { Fixed::ONE },
+    );
     if motion.fade {
         let motion = *motion;
         redirect_fade(world, motion);

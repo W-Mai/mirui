@@ -1,5 +1,5 @@
 use super::{FollowBounds, FollowState};
-use crate::anim::{Motion, Spring, SpringConfig};
+use crate::anim::{Motion, Transition};
 use crate::ecs::{Entity, World};
 use crate::types::{Fixed, Rect};
 
@@ -9,10 +9,9 @@ pub(super) struct FollowMotion {
 impl crate::ecs::Component for FollowMotion {}
 
 impl FollowMotion {
-    fn new(rect: Rect, config: SpringConfig) -> Self {
+    fn new(rect: Rect, config: Transition) -> Self {
         Self {
-            axes: [rect.x, rect.y, rect.w, rect.h]
-                .map(|value| Spring::preset(value, value, config).into()),
+            axes: [rect.x, rect.y, rect.w, rect.h].map(|value| config.motion(value, value)),
         }
     }
 
@@ -29,8 +28,8 @@ impl FollowMotion {
 pub(super) fn prepare(world: &mut World, entity: Entity) -> bool {
     let config = world
         .get::<FollowBounds>(entity)
-        .and_then(|follow| follow.spring);
-    if let Some(config) = config.filter(|config| config.duration_ms != 0) {
+        .and_then(|follow| follow.transition);
+    if let Some(config) = config.filter(|config| !config.is_immediate()) {
         if !world.has::<FollowMotion>(entity) {
             let rect = world
                 .get::<FollowState>(entity)
@@ -51,7 +50,7 @@ pub(super) fn redirect(world: &mut World, entity: Entity, target: Rect) -> Rect 
         .is_some_and(|state| state.geometry.is_some());
     let config = world
         .get::<FollowBounds>(entity)
-        .and_then(|follow| follow.spring);
+        .and_then(|follow| follow.transition);
     let Some((motion, config)) = world.get_mut::<FollowMotion>(entity).zip(config) else {
         return target;
     };
@@ -63,9 +62,7 @@ pub(super) fn redirect(world: &mut World, entity: Entity, target: Rect) -> Rect 
             .iter_mut()
             .zip([target.x, target.y, target.w, target.h])
         {
-            if let Motion::Spring(spring) = axis {
-                spring.retarget(target, Some(config));
-            }
+            config.retarget(axis, target);
         }
     }
     motion.rect()

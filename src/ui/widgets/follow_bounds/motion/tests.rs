@@ -1,5 +1,5 @@
 use super::*;
-use crate::anim::{BOUNCY, SMOOTH};
+use crate::anim::{BOUNCY, SMOOTH, Spring, SpringConfig};
 use crate::surface::FramebufferAccess;
 use crate::types::Dimension;
 use crate::ui::widgets::follow_bounds::tests::{fixture, rect};
@@ -8,7 +8,10 @@ use crate::ui::{Hidden, Style};
 #[test]
 fn first_placement_is_immediate_and_registered_motion_matches_shared_spring() {
     let (mut app, _, source, follower) = fixture();
-    app.world.get_mut::<FollowBounds>(follower).unwrap().spring = Some(SMOOTH);
+    app.world
+        .get_mut::<FollowBounds>(follower)
+        .unwrap()
+        .transition = Some(SMOOTH.into());
     app.render().unwrap();
     assert_eq!(rect(&app, follower), rect(&app, source));
     app.world.get_mut::<Style>(source).unwrap().layout.left = Dimension::px(24);
@@ -35,7 +38,10 @@ fn first_placement_is_immediate_and_registered_motion_matches_shared_spring() {
 #[test]
 fn retarget_keeps_velocity_and_dirty_pixels_match_full_frames() {
     let (mut app, _, source, follower) = fixture();
-    app.world.get_mut::<FollowBounds>(follower).unwrap().spring = Some(BOUNCY);
+    app.world
+        .get_mut::<FollowBounds>(follower)
+        .unwrap()
+        .transition = Some(BOUNCY.into());
     app.render().unwrap();
     app.world.get_mut::<Style>(source).unwrap().layout.left = Dimension::px(24);
     app.world.invalidate(source);
@@ -76,7 +82,10 @@ fn retarget_keeps_velocity_and_dirty_pixels_match_full_frames() {
 #[test]
 fn hidden_recovery_and_disabling_motion_do_not_replay_stale_bounds() {
     let (mut app, _, source, follower) = fixture();
-    app.world.get_mut::<FollowBounds>(follower).unwrap().spring = Some(SMOOTH);
+    app.world
+        .get_mut::<FollowBounds>(follower)
+        .unwrap()
+        .transition = Some(SMOOTH.into());
     app.render().unwrap();
     app.world.insert(source, Hidden);
     app.world.invalidate(source);
@@ -94,7 +103,10 @@ fn hidden_recovery_and_disabling_motion_do_not_replay_stale_bounds() {
             ..SMOOTH
         }),
     ] {
-        app.world.get_mut::<FollowBounds>(follower).unwrap().spring = config;
+        app.world
+            .get_mut::<FollowBounds>(follower)
+            .unwrap()
+            .transition = config.map(Into::into);
         app.world.get_mut::<Style>(source).unwrap().layout.width = Dimension::px(10);
         app.world.invalidate(source);
         app.world.invalidate(follower);
@@ -109,7 +121,10 @@ fn prepared_animation_reuses_storage_and_static_followers_have_no_motion_state()
     let (mut app, _, source, follower) = fixture();
     app.render().unwrap();
     assert!(!app.world.has::<FollowMotion>(follower));
-    app.world.get_mut::<FollowBounds>(follower).unwrap().spring = Some(SMOOTH);
+    app.world
+        .get_mut::<FollowBounds>(follower)
+        .unwrap()
+        .transition = Some(SMOOTH.into());
     app.world.invalidate(follower);
     app.render_dirty().unwrap();
     for _ in 0..3 {
@@ -132,7 +147,10 @@ fn prepared_animation_reuses_storage_and_static_followers_have_no_motion_state()
 #[test]
 fn bouncy_sizes_remain_nonnegative_and_input_uses_displayed_bounds() {
     let (mut app, root, source, follower) = fixture();
-    app.world.get_mut::<FollowBounds>(follower).unwrap().spring = Some(BOUNCY);
+    app.world
+        .get_mut::<FollowBounds>(follower)
+        .unwrap()
+        .transition = Some(BOUNCY.into());
     app.render().unwrap();
     app.world.get_mut::<Style>(source).unwrap().layout.width = Dimension::px(1);
     app.world.invalidate(source);

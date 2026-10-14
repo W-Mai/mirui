@@ -77,6 +77,44 @@ pub struct SpringConfig {
     pub bounce: Fixed,
 }
 
+/// Configuration for motion between changing values.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Transition {
+    Spring(SpringConfig),
+}
+
+impl Transition {
+    /// Whether the destination should be applied without animation.
+    pub const fn is_immediate(self) -> bool {
+        match self {
+            Self::Spring(config) => config.duration_ms == 0,
+        }
+    }
+
+    /// Create motion advanced by the existing animation system.
+    pub fn motion(self, from: Fixed, to: Fixed) -> Motion {
+        match self {
+            Self::Spring(config) => Spring::preset(from, to, config).into(),
+        }
+    }
+
+    /// Redirect matching motion in place, retaining position and velocity. A different motion kind starts from its displayed value.
+    pub fn retarget(self, motion: &mut Motion, target: Fixed) {
+        match (self, motion) {
+            (Self::Spring(config), Motion::Spring(spring)) => {
+                spring.retarget(target, Some(config));
+            }
+            (config, motion) => *motion = config.motion(motion.value(), target),
+        }
+    }
+}
+
+impl From<SpringConfig> for Transition {
+    fn from(config: SpringConfig) -> Self {
+        Self::Spring(config)
+    }
+}
+
 pub const SMOOTH: SpringConfig = SpringConfig {
     duration_ms: 500,
     bounce: Fixed::ZERO,
@@ -386,6 +424,41 @@ pub(crate) mod generated {
 mod tests {
     use super::*;
     use crate::test_support::tracked_allocations;
+
+    #[test]
+    fn transition_reuses_motion_state_when_redirected() {
+        for preset in [SMOOTH, SNAPPY, BOUNCY, INTERACTIVE] {
+            let transition = Transition::from(preset);
+            assert!(!transition.is_immediate());
+            let mut motion = transition.motion(Fixed::ZERO, 100.into());
+            let mut expected = Spring::preset(Fixed::ZERO, 100.into(), preset);
+            let allocations = tracked_allocations(|| {
+                for _ in 0..6 {
+                    motion.tick(16);
+                    expected.tick(16);
+                }
+                let before = motion.value();
+                transition.retarget(&mut motion, (-20).into());
+                expected.retarget((-20).into(), Some(preset));
+                assert_eq!(motion.value(), before);
+                for _ in 0..160 {
+                    motion.tick(16);
+                    expected.tick(16);
+                    assert_eq!(motion.value(), expected.value());
+                    assert_eq!(motion.is_done(), expected.is_settled());
+                }
+            });
+            assert_eq!(allocations, 0);
+            assert!(motion.is_done());
+        }
+        assert!(
+            Transition::from(SpringConfig {
+                duration_ms: 0,
+                ..SMOOTH
+            })
+            .is_immediate()
+        );
+    }
 
     struct TestMotion(Motion);
 
