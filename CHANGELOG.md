@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `TweenConfig` separates duration and easing from running animation state. Static `Easing` descriptors provide stable curve identity for built-in and custom tweens.
 
-- `anim::Transition` configures shared motion for page effects and `FollowBounds::with_transition`, accepting spring presets directly and retaining velocity when redirected.
+- `anim::Transition` configures shared tween or spring motion for page effects and `FollowBounds::with_transition`, accepting `TweenConfig` and spring presets directly. Unchanged tween targets retain progress; redirected springs retain velocity.
 
 - `FollowBounds` positions a widget around another widget's border or content bounds without occupying flex space, with cross-parent transforms, source clipping, and invalid-target recovery.
 
@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Page Studio demonstrates nested navigation, retained controls and scroll position, application-selected pages, reactive slide/fade transition presets, and an animated bounds-following outline in the Gallery and native launcher.
 
-- `PageTransition` adds spring-driven slide and group-fade transitions to page containers, preserving velocity on reversal, with bounded pending navigation, viewport clipping, and input isolation. Unavailable fade buffers complete the switch without animation.
+- `PageTransition` adds tween- or spring-driven slide and group-fade transitions to page containers, with bounded pending navigation, viewport clipping, and input isolation. Unavailable fade buffers complete the switch without animation.
 
 - `NavigationStack` retains visited page subtrees, restores them on return, and constructs destinations through typed callbacks.
 

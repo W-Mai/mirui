@@ -1,6 +1,8 @@
 pub mod ease;
 
 #[cfg(test)]
+mod transition_tests;
+#[cfg(test)]
 mod tween_tests;
 
 use crate::ecs::{Component, DeltaTimeMs, MonoClock};
@@ -126,6 +128,7 @@ pub struct SpringConfig {
 /// Configuration for motion between changing values.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Transition {
+    Tween(TweenConfig),
     Spring(SpringConfig),
 }
 
@@ -133,25 +136,40 @@ impl Transition {
     /// Whether the destination should be applied without animation.
     pub const fn is_immediate(self) -> bool {
         match self {
+            Self::Tween(config) => config.duration_ms == 0,
             Self::Spring(config) => config.duration_ms == 0,
         }
     }
 
     /// Create motion advanced by the existing animation system.
     pub fn motion(self, from: Fixed, to: Fixed) -> Motion {
+        let from = if self.is_immediate() { to } else { from };
         match self {
+            Self::Tween(config) => Tween::preset(from, to, config).into(),
             Self::Spring(config) => Spring::preset(from, to, config).into(),
         }
     }
 
-    /// Redirect matching motion in place, retaining position and velocity. A different motion kind starts from its displayed value.
+    /// Redirect finite motion from its displayed value. Matching springs retain velocity; unchanged tween targets and configurations retain progress. Switching kinds starts new motion without inheriting velocity.
     pub fn retarget(self, motion: &mut Motion, target: Fixed) {
+        if self.is_immediate() {
+            *motion = self.motion(target, target);
+            return;
+        }
         match (self, motion) {
+            (Self::Tween(config), Motion::Tween(tween)) => tween.retarget(target, config),
             (Self::Spring(config), Motion::Spring(spring)) => {
+                spring.mode = SpringMode::Once;
                 spring.retarget(target, Some(config));
             }
             (config, motion) => *motion = config.motion(motion.value(), target),
         }
+    }
+}
+
+impl From<TweenConfig> for Transition {
+    fn from(config: TweenConfig) -> Self {
+        Self::Tween(config)
     }
 }
 
