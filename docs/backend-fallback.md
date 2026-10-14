@@ -83,6 +83,8 @@ not inspect or carry this storage.
 
 ## Backend behavior
 
+An `App` draw failure leaves the last completed widget bounds unchanged and requires a full redraw before framebuffer scroll transfers resume. Layout failures before drawing preserve the existing framebuffer. Full and partial frames both use `RendererFactory::mirror_and_advance` to synchronize rotating buffers after a successful render.
+
 - Software writes directly into its framebuffer and normally needs no RGBA
   fallback plane.
 - WGPU keeps supported projective geometry and glyph sampling native; exact

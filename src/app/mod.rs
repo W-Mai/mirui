@@ -94,7 +94,7 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     last_seed_prev_ns: u64,
     dirty_plan: DirtyRegions,
     pending_frame: Option<PendingFrame>,
-    needs_full_first_frame: bool,
+    needs_full_redraw: bool,
     suspended: bool,
     started: bool,
     host_focus: Option<bool>,
@@ -291,7 +291,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             last_seed_prev_ns: 0,
             dirty_plan: DirtyRegions::with_rect_capacity(render_system::DIRTY_PLAN_RECT_CAPACITY),
             pending_frame: None,
-            needs_full_first_frame: true,
+            needs_full_redraw: true,
             suspended: false,
             started: false,
             host_focus: None,
@@ -807,7 +807,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         for plugin in &mut self.plugins {
             plugin.on_memory_warning(&mut self.world);
         }
-        self.needs_full_first_frame = true;
+        self.needs_full_redraw = true;
         if let Some(root) = self.root {
             self.world.invalidate(root);
         }
@@ -1068,6 +1068,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             }
         }
         if viewport_changed {
+            self.needs_full_redraw = true;
             self.notify_app(crate::input::event::lifecycle::ViewportChanged {
                 old: old_viewport,
                 new: viewport,
@@ -1126,6 +1127,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let layout_end = self.clock_ns();
         self.last_layout_ns = layout_end.saturating_sub(layout_start);
 
+        self.needs_full_redraw = true;
         let render_result = {
             crate::trace_span!("frame.render");
             let _outputs_batch = self
@@ -1145,6 +1147,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             return Err(error);
         }
         self.dirty_plan.clear();
+        let (lw, lh) = transform.logical_size();
+        self.dirty_plan.rects.push(Rect::new(0, 0, lw, lh));
         let render_end = self.clock_ns();
         self.last_render_ns = render_end.saturating_sub(layout_end);
         let render_ns = render_end.saturating_sub(layout_start);
@@ -1156,6 +1160,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             self.backend.flush(PhysicalRect::from_size(pw, ph));
             self.backend.end_flush();
         }
+        self.factory
+            .mirror_and_advance(&mut self.backend, &self.dirty_plan, &transform);
         let flush_end = self.clock_ns();
         self.last_flush_ns = flush_end.saturating_sub(render_end);
 
@@ -1168,6 +1174,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             render_system::seed_prev_rects(&mut self.world, root, &transform);
         }
         self.last_seed_prev_ns = self.clock_ns().saturating_sub(flush_end);
+        self.dirty_plan.clear();
+        self.needs_full_redraw = false;
 
         {
             crate::trace_span!("frame.finalize");
@@ -1514,33 +1522,22 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let layout_start = self.clock_ns();
         self.text_layout_started = true;
 
-        let force_full = self.needs_full_first_frame && self.backend.buffer_count() > 1;
         let mut plan = core::mem::take(&mut self.dirty_plan);
-        if force_full {
-            if render_system::try_update_layout(&mut self.world, root, &transform).is_err() {
-                plan.clear();
-                self.dirty_plan = plan;
-                return Err(crate::render::RenderError::TextLayout);
-            }
+        let collected = crate::trace_span!("frame.collect_dirty", {
+            render_system::try_collect_dirty_regions_into(
+                &mut self.world,
+                root,
+                &transform,
+                &mut plan,
+            )
+        });
+        if collected.is_err() {
             plan.clear();
-            let (lw, lh) = transform.logical_size();
-            plan.rects.push(Rect::new(0, 0, lw, lh));
-        } else {
-            let collected = crate::trace_span!("frame.collect_dirty", {
-                render_system::try_collect_dirty_regions_into(
-                    &mut self.world,
-                    root,
-                    &transform,
-                    &mut plan,
-                )
-            });
-            if collected.is_err() {
-                plan.clear();
-                self.dirty_plan = plan;
-                return Err(crate::render::RenderError::TextLayout);
-            }
+            self.dirty_plan = plan;
+            return Err(crate::render::RenderError::TextLayout);
         }
-        if root_hidden && self.needs_full_first_frame && plan.is_empty() {
+        if self.needs_full_redraw {
+            plan.clear();
             let (lw, lh) = transform.logical_size();
             plan.rects.push(Rect::new(0, 0, lw, lh));
         }
@@ -1549,6 +1546,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
         if !plan.is_empty() {
             crate::trace_span!("frame.render_region");
+            self.needs_full_redraw = true;
             let mut renderer = self.factory.make(&mut self.backend, &transform);
 
             let plan = if !renderer.supports_scroll_blit() {
@@ -1671,11 +1669,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             }
             self.factory
                 .mirror_and_advance(&mut self.backend, &plan, &transform);
-            self.needs_full_first_frame = false;
             self.last_flush_ns = self.clock_ns().saturating_sub(render_end);
             let seed_start = self.clock_ns();
             render_system::seed_prev_rects(&mut self.world, root, &transform);
             self.last_seed_prev_ns = self.clock_ns().saturating_sub(seed_start);
+            self.needs_full_redraw = false;
 
             {
                 crate::trace_span!("frame.finalize");
@@ -2141,6 +2139,192 @@ mod app_invariant_tests {
         assert_eq!(
             app.world.get::<PrevRect>(marker).unwrap().0,
             Rect::new(19, 16, 9, 8)
+        );
+    }
+
+    #[crate::component]
+    #[derive(Default)]
+    struct FailedFrame {
+        enabled: core::cell::Cell<bool>,
+    }
+
+    #[crate::view(component = FailedFrame)]
+    fn failed_frame(probe: component!(), paint: paint!()) {
+        if probe.enabled.get() {
+            paint.fail(crate::render::RenderError::BackendFailure);
+        }
+    }
+
+    #[test]
+    fn interrupted_drawing_requires_a_complete_frame_before_reusing_pixels() {
+        use crate::input::event::scroll::{ScrollDelta, ScrollOffset};
+        use crate::ui::dirty::PrevRect;
+
+        for full in [false, true] {
+            let mut app = App::headless(48, 32);
+            app.with_default_widgets().with_widget(failed_frame::view());
+            let root = app.spawn_root().id();
+            app.compose(root, painted_bounds_scene());
+            app.world.insert(root, FailedFrame::default());
+            let scroll = app.world.find_by_id("scroll").unwrap();
+            let marker = app.world.find_by_id("marker").unwrap();
+            app.render().unwrap();
+            let before = app.backend.framebuffer().buf.as_slice().to_vec();
+            let painted = app.world.get::<PrevRect>(marker).unwrap().0;
+
+            app.world
+                .get::<FailedFrame>(root)
+                .unwrap()
+                .enabled
+                .set(true);
+            app.world.get_mut::<ScrollOffset>(scroll).unwrap().y = 8.into();
+            app.world.insert(
+                scroll,
+                ScrollDelta {
+                    dx: Fixed::ZERO,
+                    dy: 8.into(),
+                },
+            );
+            app.world.invalidate_visual(scroll);
+            let result = if full {
+                app.render()
+            } else {
+                app.render_dirty()
+            };
+            assert_eq!(result, Err(crate::render::RenderError::BackendFailure));
+            assert_ne!(app.backend.framebuffer().buf.as_slice(), before);
+            assert_eq!(app.world.get::<PrevRect>(marker).unwrap().0, painted);
+
+            app.world
+                .get::<FailedFrame>(root)
+                .unwrap()
+                .enabled
+                .set(false);
+            app.world.get_mut::<ScrollOffset>(scroll).unwrap().y = 12.into();
+            app.world.insert(
+                scroll,
+                ScrollDelta {
+                    dx: Fixed::ZERO,
+                    dy: 4.into(),
+                },
+            );
+            app.world.invalidate_visual(scroll);
+            app.render_dirty().unwrap();
+            let plan = &app.world.resource::<LastDirtyRegions>().unwrap().0;
+            assert!(
+                plan.shifts.is_empty(),
+                "failed drawing leaves no reusable pixel baseline"
+            );
+            assert_eq!(plan.rects, [Rect::new(0, 0, 48, 32)]);
+            let recovered = app.backend.framebuffer().buf.as_slice().to_vec();
+            app.render().unwrap();
+            assert_eq!(app.backend.framebuffer().buf.as_slice(), recovered);
+            app.render_dirty().unwrap();
+            assert!(
+                app.world
+                    .resource::<LastDirtyRegions>()
+                    .unwrap()
+                    .0
+                    .is_empty()
+            );
+        }
+    }
+
+    struct RotatingBuffers {
+        pixels: [[u8; 48 * 32 * 4]; 2],
+        active: usize,
+        advances: usize,
+    }
+
+    impl crate::core::cache::InspectCaches for RotatingBuffers {}
+
+    impl Surface for RotatingBuffers {
+        fn display_info(&self) -> crate::surface::DisplayInfo {
+            crate::surface::DisplayInfo {
+                width: 48,
+                height: 32,
+                scale: Fixed::ONE,
+                format: crate::render::texture::ColorFormat::RGBA8888,
+            }
+        }
+
+        fn flush(&mut self, _: PhysicalRect) {}
+
+        fn poll_event(&mut self) -> Option<InputEvent> {
+            None
+        }
+
+        fn buffer_count(&self) -> usize {
+            2
+        }
+    }
+
+    impl FramebufferAccess for RotatingBuffers {
+        fn framebuffer(&mut self) -> crate::render::texture::Texture<'_> {
+            crate::render::texture::Texture::new(
+                &mut self.pixels[self.active],
+                48,
+                32,
+                crate::render::texture::ColorFormat::RGBA8888,
+            )
+        }
+
+        fn all_buffers(&mut self) -> Vec<crate::render::texture::Texture<'_>> {
+            let mut textures: Vec<_> = self
+                .pixels
+                .iter_mut()
+                .map(|pixels| {
+                    crate::render::texture::Texture::new(
+                        pixels,
+                        48,
+                        32,
+                        crate::render::texture::ColorFormat::RGBA8888,
+                    )
+                })
+                .collect();
+            textures.rotate_left(self.active);
+            textures
+        }
+
+        fn advance(&mut self) {
+            self.active ^= 1;
+            self.advances += 1;
+        }
+    }
+
+    #[test]
+    fn full_and_dirty_frames_share_the_same_rotating_buffer_baseline() {
+        let mut app = App::new(RotatingBuffers {
+            pixels: [[0; 48 * 32 * 4]; 2],
+            active: 0,
+            advances: 0,
+        });
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.compose(root, painted_bounds_scene());
+        let marker = app.world.find_by_id("marker").unwrap();
+
+        for (frame, x) in [8, 16, 24, 12].into_iter().enumerate() {
+            crate::ui::set_position(&mut app.world, marker, x, 16);
+            if frame % 2 == 0 {
+                app.render().unwrap();
+            } else {
+                app.render_dirty().unwrap();
+            }
+            assert_eq!(app.backend.advances, frame + 1);
+            assert_eq!(app.backend.pixels[0], app.backend.pixels[1]);
+            assert_eq!(
+                app.world
+                    .get::<crate::ui::dirty::PrevRect>(marker)
+                    .unwrap()
+                    .0,
+                Rect::new(x, 16, 8, 8)
+            );
+        }
+        app.render_dirty().unwrap();
+        assert_eq!(
+            app.backend.advances, 4,
+            "idle frames must not rotate buffers"
         );
     }
 

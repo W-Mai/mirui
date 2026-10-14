@@ -87,6 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Interrupted drawing requires a complete redraw before framebuffer pixels can be reused. Full and partial frames synchronize rotating buffers through the same renderer factory.
+
 - Painted widget bounds are recorded after successful full or partial renders, including scroll-transferred descendants. Position updates and damage collection no longer overwrite the rendered baseline.
 
 - Page Studio keeps navigation actions within the page padding and sizes artwork to the remaining content space.

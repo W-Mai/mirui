@@ -300,17 +300,16 @@ fn separated_damage_scene() {
 
 #[test]
 fn split_dirty_regions_commit_main_requests_only_after_every_region_succeeds() {
-    let mut app = app(64, 4, false);
-    let root = app.spawn_root().id();
-    app.compose(root, separated_damage_scene());
-    let left = app.world.find_by_id("left").unwrap();
-    let right = app.world.find_by_id("right").unwrap();
-    let initial = RequestProbe::default();
-    initial.requests.set(false);
-    app.world.insert(root, initial);
-    app.render().unwrap();
-
     for fail_right in [true, false] {
+        let mut app = app(64, 4, false);
+        let root = app.spawn_root().id();
+        app.compose(root, separated_damage_scene());
+        let left = app.world.find_by_id("left").unwrap();
+        let right = app.world.find_by_id("right").unwrap();
+        let initial = RequestProbe::default();
+        initial.requests.set(false);
+        app.world.insert(root, initial);
+        app.render().unwrap();
         {
             let probe = probe(&app.world, root);
             probe.calls.set(0);
@@ -344,13 +343,14 @@ fn split_dirty_regions_commit_main_requests_only_after_every_region_succeeds() {
             flush_signal_dirty(&mut app.world);
         }
         assert_eq!(app.world.has::<VisualDirty>(root), !fail_right);
-    }
 
-    probe(&app.world, root).requests.set(false);
-    app.render_dirty().unwrap();
-    assert_eq!(probe(&app.world, root).calls.get(), 3);
-    assert_idle(&mut app);
-    assert_eq!(probe(&app.world, root).calls.get(), 3);
+        probe(&app.world, root).requests.set(false);
+        probe(&app.world, root).fail_right.set(false);
+        app.render_dirty().unwrap();
+        assert_eq!(probe(&app.world, root).calls.get(), 3);
+        assert_idle(&mut app);
+        assert_eq!(probe(&app.world, root).calls.get(), 3);
+    }
 }
 
 #[test]
