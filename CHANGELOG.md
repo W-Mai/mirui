@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Initially hidden branches prepare repaint traversal storage during layout setup, avoiding allocation when retained content first becomes visible.
+
 ### Added
 
 - `PageTransition::with_direction` configures forward or backward slides without adding container properties. Navigation stacks retain automatic push/pop direction when no override is supplied.

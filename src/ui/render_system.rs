@@ -1267,6 +1267,9 @@ fn compute_layout_snapshot(
         demand
     });
     if let Some(demand) = &initial_demand {
+        if demand.parked_roots > 0 {
+            world.reserve_dirty_traversal_stack();
+        }
         if demand.missing_visual_dirty > 0 {
             world.reserve_component_storage::<super::dirty::VisualDirty>(
                 demand.max_entity_id,
