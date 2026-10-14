@@ -225,6 +225,7 @@ fn bounded_text_formats_locals_inside_static_and_reactive_blocks() {
     );
 }
 
+#[mirui::component]
 #[derive(Default)]
 struct CustomCard {
     capacity: usize,

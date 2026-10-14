@@ -28,7 +28,7 @@ fn main() {
         event_callback::<Hit, EntityContext<Pad>, (ResMut<Hits>,), ()>(
             "hit",
             ACCESS,
-            |(hits,), payload, _, _scope| hits.0 += payload.0.len(),
+            |(mut hits,), payload, _, _scope| hits.0 += payload.0.len(),
         )
     }
     .prepare(&mut world, CommandCapacity::default())

@@ -222,6 +222,10 @@ fn rejected_commands(_event: event!(CreateCell), commands: commands!()) -> Entit
 fn failed_command_submission_discards_the_new_cell() {
     let mut app = App::headless(200, 200);
     app.with_default_widgets();
+    app.with_event_capacity(
+        EventCapacity::new()
+            .commands(CommandCapacity::new().insert::<mirui::ui::widgets::TextEditing>(4)),
+    );
     let mut scheduler = SystemScheduler::new();
     scheduler.add(lazy_list_system::system());
     app.add_resource(7_u32);

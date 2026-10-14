@@ -11,7 +11,7 @@ fn main() {
         let _ = event_callback::<Key, AppContext, (Res<State>,), ()>(
             "escape-resource",
             ACCESS,
-            move |(state,), _, (), _scope| retained.set(Some(state)),
+            move |(state,), _, (), _scope| retained.set(Some(&*state)),
         );
         let _ = event_callback::<Key, AppContext, (), ()>(
             "mutable-payload",

@@ -15,7 +15,7 @@ fn main() {
         deferred_event_callback::<Key, AppContext, (ResMut<State>,), bool>(
             "remove-resource",
             ACCESS,
-            |(state,), _, (), _scope, mut commands| {
+            |(mut state,), _, (), _scope, mut commands| {
                 commands.remove_resource::<State>();
                 state.0 += 1;
                 true

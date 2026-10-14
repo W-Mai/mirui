@@ -4,13 +4,27 @@ error[E0521]: borrowed data escapes outside of closure
  9 |     let retained: Cell<Option<&'static State>> = Cell::new(None);
    |         -------- `retained` declared here, outside of the closure body
 ...
-14 |             move |(state,), _, (), _scope| retained.set(Some(state)),
-   |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^ a temporary borrow escapes the closure body here
+14 |             move |(state,), _, (), _scope| retained.set(Some(&*state)),
+   |                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^ a temporary borrow escapes the closure body here
    |
    = help: `retained` is declared outside the closure, so any data borrowed inside the closure cannot be stored into it
    = note: requirement occurs because of the type `Cell<Option<&State>>`, which makes the generic argument `Option<&State>` invariant
    = note: the struct `Cell<T>` is invariant over the parameter `T`
    = help: see <https://doc.rust-lang.org/nomicon/subtyping.html> for more information about variance
+
+error[E0597]: `state` does not live long enough
+  --> tests/event_type_contracts/fail/callback_borrows.rs:14:64
+   |
+ 9 |     let retained: Cell<Option<&'static State>> = Cell::new(None);
+   |         -------- lifetime `'2` appears in the type of `retained`
+...
+14 |             move |(state,), _, (), _scope| retained.set(Some(&*state)),
+   |                    -----                   --------------------^^^^^--
+   |                    |                       |                   |     |
+   |                    |                       |                   |     `state` dropped here while still borrowed
+   |                    |                       |                   borrowed value does not live long enough
+   |                    |                       argument requires that `state` is borrowed for `'2`
+   |                    binding `state` declared here
 
 error[E0594]: cannot assign to `event.pressed`, which is behind a `&` reference
   --> tests/event_type_contracts/fail/callback_borrows.rs:19:37

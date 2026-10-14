@@ -18,7 +18,7 @@ fn mutates_key(input: event!(Key)) {
 
 #[event]
 fn escapes_resource(state: res!(State)) {
-    retain_state(state);
+    retain_state(&state);
 }
 
 fn main() {}

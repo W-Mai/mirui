@@ -12,6 +12,8 @@ help: `mirui::input::event::contract::WidgetSource<W>` implements trait `EventSo
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EventSource<EntityNotification>`
    | impl<W: Component> EventSource<WidgetConstruction> for WidgetSource<W> {}
    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EventSource<WidgetConstruction>`
+   | impl<W: Component, D: 'static> EventSource<EntityRequest<D>> for WidgetSource<W> {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EventSource<EntityRequest<D>>`
 note: required by a bound in `mirui::prelude::Event::Source`
   --> src/input/event/contract.rs
    |

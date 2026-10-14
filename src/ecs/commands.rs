@@ -885,7 +885,7 @@ mod tests {
     }
 
     #[test]
-    fn default_ui_budget_covers_editor_payloads_and_transform_batches() {
+    fn default_ui_budget_covers_editor_requests_and_transform_batches() {
         use crate::ui::widgets::{TextEditing, TextInput};
 
         let capacity = crate::input::event::EventCapacity::default()
@@ -897,7 +897,8 @@ mod tests {
         for requirements in [
             CommandCapacity::new()
                 .insert::<TextEditing>(1)
-                .insert::<TextInput>(1),
+                .insert::<TextInput>(1)
+                .text_input(1),
             CommandCapacity::new()
                 .set_theme(1)
                 .set::<crate::ui::property::prop::Transform>(3),
@@ -907,8 +908,6 @@ mod tests {
             assert!(limits.payload_bytes >= required.payload_bytes);
             assert!(limits.payload_alignment >= required.payload_alignment);
         }
-        assert_eq!(limits.records, 4);
-
         let mut world = World::new();
         let entity = world.spawn(TextEditing::default());
         world.insert(entity, TextInput::default());

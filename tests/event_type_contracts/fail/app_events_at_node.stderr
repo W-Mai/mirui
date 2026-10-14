@@ -21,7 +21,9 @@ error[E0277]: the trait bound `AppNotification: mirui::input::event::contract::E
    = help: the following other types implement trait `mirui::input::event::contract::EntityRoute`:
              EntityBubble
              EntityNotification
+             EntityRequest<D>
              InputFallback
+             InputNotification
              LayoutNotification
              WidgetConstruction
    = note: required for `mirui::__macro_support::NodeContext` to implement `mirui::__macro_support::CallbackContext<mirui::prelude::Started>`

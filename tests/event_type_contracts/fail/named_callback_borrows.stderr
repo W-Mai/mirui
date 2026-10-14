@@ -26,12 +26,26 @@ help: consider changing this to be a mutable reference
 error[E0521]: borrowed data escapes outside of function
   --> tests/event_type_contracts/fail/named_callback_borrows.rs:21:5
    |
-19 | #[event]
-   | - let's call the lifetime of this reference `'1`
 20 | fn escapes_resource(state: res!(State)) {
-   |                     ----- `state` is a reference that is only valid in the function body
-21 |     retain_state(state);
-   |     ^^^^^^^^^^^^^^^^^^^
+   |                     -----
+   |                     |
+   |                     `state` is a reference that is only valid in the function body
+   |                     has type `mirui::ecs::resource::ResourceRef<'1, State>`
+21 |     retain_state(&state);
+   |     ^^^^^^^^^^^^^^^^^^^^
    |     |
    |     `state` escapes the function body here
    |     argument requires that `'1` must outlive `'static`
+
+error[E0597]: `state` does not live long enough
+  --> tests/event_type_contracts/fail/named_callback_borrows.rs:21:18
+   |
+19 | #[event]
+   |         - `state` dropped here while still borrowed
+20 | fn escapes_resource(state: res!(State)) {
+   |                     ----- binding `state` declared here
+21 |     retain_state(&state);
+   |     -------------^^^^^^-
+   |     |            |
+   |     |            borrowed value does not live long enough
+   |     argument requires that `state` is borrowed for `'static`
