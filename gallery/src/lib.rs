@@ -164,6 +164,7 @@ register_demos! {
     ("kinetic_console",      "Kinetic Console",      "Showcase",    kinetic_console, source = demo_sources::KINETIC_CONSOLE),
 
     ("signal_scope",         "Signal Scope",         "Product",     signal_scope, source = demo_sources::SIGNAL_SCOPE),
+    ("nearby",               "Nearby",               "Product",     nearby, source = demo_sources::NEARBY),
 
     (
         "marble_play",

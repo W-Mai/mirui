@@ -39,6 +39,11 @@ macro_rules! split_demo_sources {
 }
 
 split_demo_sources! {
+    NEARBY => {
+        demo: "nearby",
+        marker: "fn create_page",
+        parts: ["data.rs", "model.rs", "copy.rs", "style.rs", "chrome.rs", "choices.rs", "sessions.rs", "pages.rs", "input.rs", "composition.rs", "tests.rs"]
+    },
     PAGE_STUDIO => {
         demo: "page_studio",
         marker: "fn create_page",

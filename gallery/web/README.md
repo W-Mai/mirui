@@ -32,6 +32,8 @@ The Play section contains thirteen fixed 480×320 applications. Each application
 
 The demo workspace groups the remaining entries by their registry category and retains the canvas size controls, source panel, theme selection, and query-string routes.
 
+`?demo=nearby` opens the Nearby local-session demo. Cards select modes, games and rooms; the top toolbar advances the simulated session, returns, refreshes rooms or restarts. The demo does not open network connections. Its 12px and 24px Chinese pixel fonts include only the bundled interface charset; font sources and licenses are recorded alongside the assets.
+
 The source panel embeds each demo's root module and listed child modules. Each Lab keeps its primary `ui!` tree inside the focused source region and moves named sections into `#[compose]` functions.
 
 Fixed demos keep their logical coordinate space while the browser changes CSS size or device pixel ratio. The canvas maps pointer coordinates from CSS pixels into that logical space, and a viewport change invalidates retained layout geometry before the next hit test. Audio-enabled demos expose a mute button beside the canvas orientation control; the first visit starts muted, while an explicit choice is remembered by the browser for later visits. A remembered unmuted preference is shown as pending until the first trusted page interaction unlocks the browser audio context, as required by autoplay policies.

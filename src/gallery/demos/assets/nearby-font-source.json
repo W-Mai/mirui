@@ -1,0 +1,27 @@
+{
+  "family": "Fusion Pixel 12px Monospaced Simplified Chinese",
+  "version": "2026.09.25",
+  "source_url": "https://github.com/TakWolf/fusion-pixel-font/releases/download/2026.09.25/fusion-pixel-font-12px-monospaced-otf.woff-v2026.09.25.zip",
+  "source_file": "fusion-pixel-12px-monospaced-zh_hans.otf.woff",
+  "source_sha256": "478f35c9be4bd2f527c6b35d789a6fcbb7f85f7dfa4f5a54d61ff0f10bdce37e",
+  "license": "SIL Open Font License 1.1",
+  "licenses": [
+    "Nearby-OFL.txt",
+    "Nearby-Ark-OFL.txt",
+    "Nearby-Cubic-OFL.txt",
+    "Nearby-Galmuri-OFL.txt"
+  ],
+  "tool": "icu 0.11.1 bake-font",
+  "size": 12,
+  "format": "gray",
+  "bit_depth": 1,
+  "charset_count": 274,
+  "charset_file": "nearby-charset.txt",
+  "output": "nearby-menu.mirx",
+  "output_sha256": "c8c530577aabc44aaec0e99013b05481661879588538c8eaf7c226550461a563",
+  "output_size": 44444,
+  "title_output": "nearby-title.mirx",
+  "title_size": 24,
+  "title_output_sha256": "f2dab36f735decbc2b5b185397be64b4d01000679ea4f5747e48822d57c06cd9",
+  "title_output_size": 57788
+}

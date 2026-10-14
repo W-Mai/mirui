@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Nearby demonstrates local room creation, joining and session states with reactive pages, bounds-following selection, and Chinese pixel typography.
+
 - `App::dirty_regions()` borrows pending redraw and scroll-transfer coverage. Single-region and multi-region queries preserve pending drawing, including changes made between queries and rendering.
 
 - `DirtyRegions::affected_regions()` iterates redraw and scroll-transfer coverage without allocating or consuming the plan.

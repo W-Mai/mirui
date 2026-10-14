@@ -38,6 +38,7 @@ pub mod marble_play;
 pub mod module_factory;
 pub mod moss_study;
 mod motion;
+pub mod nearby;
 pub mod nested_scroll;
 pub mod niche;
 pub mod offscreen;

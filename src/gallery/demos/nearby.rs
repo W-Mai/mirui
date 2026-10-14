@@ -1,0 +1,53 @@
+mod choices;
+mod chrome;
+mod composition;
+mod copy;
+pub mod data;
+mod input;
+pub mod model;
+mod pages;
+mod sessions;
+mod style;
+
+#[cfg(test)]
+mod tests;
+
+use crate::prelude::*;
+use crate::render::font::{Font, FontManager};
+
+pub fn setup_app<B: Surface, F: RendererFactory<B>>(
+    app: &mut App<B, F>,
+    parent: Entity,
+) -> model::DisplayStateHandle {
+    crate::gallery::showcase_theme::install(app);
+    let font = Font::from_mirx(
+        "Nearby Pixel",
+        12,
+        include_bytes!("assets/nearby-menu.mirx"),
+        &mirx::reader::PayloadLimits::HOST,
+    )
+    .expect("bundled Nearby font");
+    let fonts = FontManager::new(crate::core::cache::MaxSize::Unbound, font.clone());
+    fonts.add_static(style::FONT.cache_key(), font);
+    fonts.add_static(
+        style::TITLE_FONT.cache_key(),
+        Font::from_mirx(
+            "Nearby Pixel Title",
+            24,
+            include_bytes!("assets/nearby-title.mirx"),
+            &mirx::reader::PayloadLimits::HOST,
+        )
+        .expect("bundled Nearby title font"),
+    );
+    app.with_fonts(fonts);
+    app.with_offscreen_pool_budget(640 * 480 * 8);
+    app.with_widget(crate::ui::widgets::page_view::view::<model::PageKey>());
+    #[cfg(feature = "std")]
+    app.add_plugin(crate::app::plugins::StdInstantClockPlugin);
+    let height = app.backend.viewport().logical_size().1;
+    let state = app.add_model(model::DisplayState::default()).finish();
+    app.compose(parent, composition::build_widgets(state.clone(), height));
+    state
+}
+
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(640, 480);
