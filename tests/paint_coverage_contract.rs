@@ -43,13 +43,45 @@ fn panel(frame: model!(Frame), radius: Fixed) {
 
 #[test]
 fn single_border_retains_precise_coverage_across_queries_and_style_changes() {
-    for radius in [0.0, 8.0] {
-        render_border_sequence(radius);
+    for scale in [0.5, 1.0, 1.5, 2.0] {
+        for radius in [0.0, 8.0] {
+            render_border_sequence(radius, scale, false);
+            render_border_sequence(radius, scale, true);
+        }
     }
 }
 
-fn render_border_sequence(radius: f32) {
-    let mut app = App::headless(160, 120);
+#[compose]
+fn following_panel(frame: model!(Frame), radius: Fixed) {
+    ui! {
+        View (grow: 1.0) {
+            View (
+                id: "source",
+                position: Position::Absolute,
+                left: ${ frame.x() },
+                top: ${ frame.y() },
+                width: 120,
+                height: 70
+            )
+            View (
+                border_color: Color::rgba(40, 200, 110, 150),
+                border_width: ${ frame.stroke() },
+                border_radius: radius
+            ) [
+                mirui::ui::widgets::FollowBounds::new(id("source")),
+            ]
+        }
+    };
+}
+
+fn render_border_sequence(radius: f32, scale: f32, follow: bool) {
+    let surface = mirui::surface::framebuf::FramebufSurface::with_scale(
+        (160.0 * scale) as u16,
+        (120.0 * scale) as u16,
+        scale.into(),
+        |_, _| {},
+    );
+    let mut app = App::new(surface);
     app.with_default_widgets();
     let root = app.spawn_root().id();
     let frame = app
@@ -59,7 +91,11 @@ fn render_border_sequence(radius: f32) {
             stroke: 2.into(),
         })
         .finish();
-    app.compose(root, panel(frame.clone(), radius.into()));
+    if follow {
+        app.compose(root, following_panel(frame.clone(), radius.into()));
+    } else {
+        app.compose(root, panel(frame.clone(), radius.into()));
+    }
     app.render().unwrap();
     for (x, y, stroke) in [
         (11.0, 10.0, 2.0),
@@ -71,7 +107,7 @@ fn render_border_sequence(radius: f32) {
     ] {
         frame.change(x.into(), y.into(), stroke.into());
         let plan = app.dirty_regions().unwrap();
-        if x == 11.0 && radius == 0.0 && stroke == 2.0 {
+        if x == 11.0 && radius == 0.0 && stroke == 2.0 && scale == 1.0 {
             assert!(plan.rects.len() <= 4, "{:?}", plan.rects);
             let area: i32 = plan.rects.iter().map(|r| r.w.to_int() * r.h.to_int()).sum();
             assert!(area < 1520, "{area}: {:?}", plan.rects);
@@ -89,7 +125,7 @@ fn render_border_sequence(radius: f32) {
         app.render().unwrap();
         assert!(
             partial == app.backend.framebuffer().buf.as_slice(),
-            "x={x} y={y} stroke={stroke} radius={radius}"
+            "x={x} y={y} stroke={stroke} radius={radius} scale={scale} follow={follow}"
         );
     }
     frame.change(30.into(), 20.into(), 8.into());
