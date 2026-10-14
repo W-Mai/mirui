@@ -57,6 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `App::dirty_region` and the low-level dirty-region collectors return `Result`, distinguishing layout failures from an empty redraw plan.
+
 - Low-level layout callers use `render_system::try_update_layout`; the error-discarding `update_layout` entry is removed.
 
 - Resource parameters carry their application's identity in short-lived borrows. Callback and composition helpers use explicit reborrowing without allocating parameter storage.

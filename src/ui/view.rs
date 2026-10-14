@@ -1484,7 +1484,7 @@ mod tests {
 
     #[cfg(feature = "gallery")]
     #[test]
-    fn gallery_optional_resource_paint_refetches_theme_and_clock_without_allocating() {
+    fn gallery_paint_refetches_theme_and_optional_clock_without_allocating() {
         use crate::ecs::MonoClock;
         use crate::gallery::demos::{butterfly, clip_path, fill_rules, shapes, stroke_styles};
         use crate::render::canvas::Paint;
@@ -1597,15 +1597,14 @@ mod tests {
                 _ => Theme::default(),
             };
             let colors = fixtures.map(|(_, _, token, _)| theme.resolve(token));
+            world.insert_resource(theme);
             if stage == 1 || stage == 2 {
-                world.insert_resource(theme);
                 world.insert_resource(MonoClock::new(if stage == 1 {
                     || 1_337_000_000
                 } else {
                     || 2_000_000_000
                 }));
             } else {
-                world.remove_resource::<Theme>();
                 world.remove_resource::<MonoClock>();
             }
             for (i, (render, entity, _, animated)) in fixtures.into_iter().enumerate() {
@@ -2324,7 +2323,8 @@ mod tests {
                 &mut app.world,
                 root,
                 &Viewport::new(32, 32, Fixed::ONE),
-            );
+            )
+            .unwrap();
             assert!(plan.is_empty());
             for entity in [root, first, second] {
                 assert!(!app.world.has::<Dirty>(entity));

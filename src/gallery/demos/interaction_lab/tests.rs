@@ -360,7 +360,7 @@ fn dirty_first_frame_reconciles_the_responsive_tree() {
     use crate::types::Viewport;
     use crate::ui::ComputedRect;
     use crate::ui::dirty::DirtyRegions;
-    use crate::ui::render_system::collect_dirty_regions_into;
+    use crate::ui::render_system::try_collect_dirty_regions_into;
 
     let mut app = App::headless(VIEWPORT.0, VIEWPORT.1);
     app.with_default_widgets().with_default_systems();
@@ -369,7 +369,7 @@ fn dirty_first_frame_reconciles_the_responsive_tree() {
     app.set_root(parent);
     let viewport = Viewport::new(VIEWPORT.0, VIEWPORT.1, Fixed::ONE);
     let mut plan = DirtyRegions::default();
-    collect_dirty_regions_into(&mut app.world, parent, &viewport, &mut plan);
+    try_collect_dirty_regions_into(&mut app.world, parent, &viewport, &mut plan).unwrap();
 
     let rect = |world: &World, id| {
         world

@@ -27,7 +27,7 @@ ui! {
 
 `TextEditing` prepares its single-line layout after its final size is known. Glyphs and the cursor read that layout during painting; input edits, placeholder changes, font replacement through `App::with_fonts`, and cache resets prepare it again. Empty inputs keep the cursor at the start, and long content scrolls horizontally to keep the cursor visible.
 
-Low-level callers use `render_system::try_update_layout` to receive layout failures and stop before drawing. A failed pass also records a `TextLayoutFailure` World resource and invalidates cached geometry for retry, but does not restore text-cache entries already retired during preparation.
+Low-level callers use `render_system::try_update_layout` to receive layout failures and stop before drawing. `collect_dirty_region` and `collect_dirty_regions` also return `Result` with `TextLayoutFailure`; `App::dirty_region()` maps failures to `RenderError::TextLayout`. An empty successful query is distinct from a failed layout. A failed pass also records a `TextLayoutFailure` World resource and invalidates cached geometry for retry, but does not restore text-cache entries already retired during preparation.
 
 ## Bound dynamic content
 

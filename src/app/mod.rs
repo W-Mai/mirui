@@ -1223,13 +1223,16 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             .insert_resource(crate::core::cache::CacheRegistry::from_snapshots(snapshots));
     }
 
-    /// Get the dirty region in **logical pixels** after event processing,
-    /// clearing dirty flags in the process. Use the backend's `viewport()`
-    /// to obtain a clipped physical region.
-    pub fn dirty_region(&mut self) -> Option<Rect> {
-        let root = self.root?;
+    /// Get the dirty region in **logical pixels** after event processing, clearing dirty flags on success. Use the backend's `viewport()` to obtain a clipped physical region.
+    ///
+    /// Returns `Ok(None)` when there is no root or no damage. Layout failures return `RenderError::TextLayout`; details are available through `last_text_layout_failure()`.
+    pub fn dirty_region(&mut self) -> Result<Option<Rect>, crate::render::RenderError> {
+        let Some(root) = self.root else {
+            return Ok(None);
+        };
         let transform = self.backend.viewport();
         render_system::collect_dirty_region(&mut self.world, root, &transform)
+            .map_err(|_| crate::render::RenderError::TextLayout)
     }
 
     /// Poll one event
@@ -2762,6 +2765,77 @@ mod app_invariant_tests {
         app.world.get_mut::<Text>(label).unwrap().set_content("OK");
         app.render_dirty().unwrap();
         assert_eq!(app.last_text_layout_failure(), None);
+    }
+
+    #[test]
+    fn dirty_queries_distinguish_idle_damage_and_layout_failure() {
+        let mut app = App::headless(48, 24);
+        assert_eq!(app.dirty_region(), Ok(None));
+        app.with_default_widgets();
+        app.with_text_layout_limits(crate::text::TextLayoutLimits {
+            text_bytes: 2,
+            ..crate::text::TextLayoutLimits::HOST
+        });
+        let root = app.spawn_root().id();
+        let label = WidgetBuilder::new(&mut app.world)
+            .layout(LayoutStyle {
+                width: Dimension::Content,
+                height: Dimension::Content,
+                ..LayoutStyle::default()
+            })
+            .id();
+        app.world.insert(label, Text::from("OK"));
+        app.world.insert(label, Parent(root));
+        app.world.get_mut::<Children>(root).unwrap().0.push(label);
+        app.render().unwrap();
+        assert_eq!(app.dirty_region(), Ok(None));
+        let before = app.backend.framebuffer().buf.as_slice().to_vec();
+
+        app.world
+            .get_mut::<Text>(label)
+            .unwrap()
+            .set_content("LONG");
+        app.world.insert(root, Dirty);
+        let viewport = app.backend.viewport();
+        let failure = render_system::TextLayoutFailure {
+            entity: label,
+            stage: TextLayoutStage::Measure,
+            kind: TextLayoutFailureKind::Text(crate::text::TextLayoutError::TextLimit {
+                required: 4,
+                limit: 2,
+            }),
+        };
+        assert_eq!(
+            render_system::collect_dirty_regions(&mut app.world, root, &viewport).err(),
+            Some(failure)
+        );
+        assert_eq!(
+            render_system::collect_dirty_region(&mut app.world, root, &viewport),
+            Err(failure)
+        );
+        assert_eq!(
+            app.dirty_region(),
+            Err(crate::render::RenderError::TextLayout)
+        );
+        assert_eq!(app.last_text_layout_failure(), Some(failure));
+        assert!(app.world.has::<Dirty>(root));
+        assert_eq!(app.backend.framebuffer().buf.as_slice(), before);
+
+        app.world.get_mut::<Text>(label).unwrap().set_content("OK");
+        assert!(app.dirty_region().unwrap().is_some());
+        assert_eq!(app.last_text_layout_failure(), None);
+        assert!(!app.world.has::<Dirty>(root));
+        assert_eq!(app.dirty_region(), Ok(None));
+        assert_eq!(
+            render_system::collect_dirty_region(&mut app.world, root, &viewport),
+            Ok(None)
+        );
+        assert!(
+            render_system::collect_dirty_regions(&mut app.world, root, &viewport)
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(app.backend.framebuffer().buf.as_slice(), before);
     }
 
     #[test]

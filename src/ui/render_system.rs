@@ -3172,33 +3172,24 @@ fn scan_subtree_dirty(
     *had_dirty |= subtree_dirty;
 }
 
-/// Collect the logical-pixel rects of all dirty entities, then remove Dirty flags.
-/// Returns the bounding rect of all dirty regions, or None if nothing dirty.
-pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewport) -> Option<Rect> {
-    collect_dirty_regions(world, root, transform).bounding_rect()
+/// Collect the bounding rect of dirty regions in logical pixels, removing dirty flags on success. Returns `Ok(None)` when there is no damage, or a layout failure before drawing.
+pub fn collect_dirty_region(
+    world: &mut World,
+    root: Entity,
+    transform: &Viewport,
+) -> Result<Option<Rect>, TextLayoutFailure> {
+    Ok(collect_dirty_regions(world, root, transform)?.bounding_rect())
 }
 
-/// Plan-style dirty walker: returns redraw rects + framebuffer
-/// scroll ops. With no `ScrollDelta` anywhere this is equivalent to
-/// `collect_dirty_region` boxed in a `DirtyRegions`.
+/// Collect redraw rects and framebuffer scroll operations, removing dirty flags on success. Layout failures are returned before any blit or draw.
 pub fn collect_dirty_regions(
     world: &mut World,
     root: Entity,
     transform: &Viewport,
-) -> DirtyRegions {
+) -> Result<DirtyRegions, TextLayoutFailure> {
     let mut plan = DirtyRegions::default();
-    collect_dirty_regions_into(world, root, transform, &mut plan);
-    plan
-}
-
-pub(crate) fn collect_dirty_regions_into(
-    world: &mut World,
-    root: Entity,
-    transform: &Viewport,
-    plan: &mut DirtyRegions,
-) {
-    // Existing plan callers can query the TextLayoutFailure world resource.
-    let _ = try_collect_dirty_regions_into(world, root, transform, plan);
+    try_collect_dirty_regions_into(world, root, transform, &mut plan)?;
+    Ok(plan)
 }
 
 /// Build a dirty plan, reporting text layout failures before any blit or draw.
@@ -3844,7 +3835,7 @@ mod layout_snapshot_reuse_check {
         assert_eq!(snapshot.entities, [root, label]);
 
         let mut plan = DirtyRegions::default();
-        collect_dirty_regions_into(&mut world, root, &narrow, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &narrow, &mut plan).unwrap();
 
         let resized = world.resource::<LayoutSnapshot>().unwrap();
         assert_eq!(resized as *const LayoutSnapshot, snapshot_ptr);
@@ -3876,14 +3867,14 @@ mod layout_snapshot_reuse_check {
                 .unwrap()
                 .matches(root, 64, 64)
         );
-        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         let hidden = world.resource::<LayoutSnapshot>().unwrap();
         assert_eq!(hidden as *const LayoutSnapshot, snapshot_ptr);
         assert_eq!(hidden.entities.as_ptr(), entities_ptr);
         assert_eq!(hidden.entities, [root]);
 
         apply_to_world::<prop::Visible>(&mut world, label, true);
-        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         let visible = world.resource::<LayoutSnapshot>().unwrap();
         assert_eq!(visible as *const LayoutSnapshot, snapshot_ptr);
         assert_eq!(visible.entities.as_ptr(), entities_ptr);
@@ -4092,7 +4083,7 @@ mod layout_snapshot_reuse_check {
         let mut plan = DirtyRegions::default();
 
         world.insert(root, Dirty);
-        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         world
             .resource_mut::<LayoutSnapshot>()
             .unwrap()
@@ -4103,7 +4094,7 @@ mod layout_snapshot_reuse_check {
         world.insert(leaf, super::super::dirty::VisualDirty);
 
         for _ in 0..2 {
-            collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+            try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
             assert!(plan.is_empty());
             assert_eq!(
                 world
@@ -4120,7 +4111,7 @@ mod layout_snapshot_reuse_check {
         world.mark_subtree_dirty(panel);
         assert!(world.has::<Dirty>(panel));
         assert!(world.has::<Dirty>(leaf));
-        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         assert_eq!(
             world
                 .resource::<LayoutSnapshot>()
@@ -4242,16 +4233,16 @@ mod layout_snapshot_reuse_check {
         let mut plan = DirtyRegions::default();
 
         world.insert(root, Dirty);
-        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         assert_eq!(plan.rects.len(), 1);
         let rects_ptr = plan.rects.as_ptr();
 
-        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         assert!(plan.is_empty());
         assert_eq!(plan.rects.as_ptr(), rects_ptr);
 
         world.insert(root, Dirty);
-        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         assert_eq!(plan.rects.len(), 1);
         assert_eq!(plan.rects.as_ptr(), rects_ptr);
     }
@@ -4266,12 +4257,12 @@ mod layout_snapshot_reuse_check {
         let mut plan = DirtyRegions::default();
 
         world.insert(root, Dirty);
-        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         let snapshot = world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot;
         let exact = Rect::new(7, 9, 11, 13);
         world.invalidate_rect(exact);
 
-        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
 
         assert_eq!(plan.rects, [exact]);
         assert!(
@@ -4296,7 +4287,7 @@ mod layout_snapshot_reuse_check {
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         let mut plan = DirtyRegions::default();
         world.invalidate(child);
-        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         let snapshot = world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot;
         let allocations = crate::test_support::tracked_allocations(|| {
             for width in [20, 5, 20, 5] {
@@ -4321,7 +4312,7 @@ mod layout_snapshot_reuse_check {
             }
         });
         assert_eq!(allocations, 0);
-        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         assert_eq!(plan.rects, [Rect::new(0, 0, 10, 10)]);
     }
 
@@ -4336,7 +4327,7 @@ mod layout_snapshot_reuse_check {
         let mut plan = DirtyRegions::default();
 
         world.insert(child, Dirty);
-        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         let snapshot = world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot;
 
         crate::ui::property::apply_to_world::<crate::ui::property::prop::Transform>(
@@ -4368,7 +4359,7 @@ mod layout_snapshot_reuse_check {
             }
         });
         assert_eq!(allocations, 0);
-        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
 
         assert_eq!(plan.rects, [Rect::new(0, 0, 30, 10)]);
         assert_eq!(
@@ -4389,11 +4380,11 @@ mod layout_snapshot_reuse_check {
         world.insert(root, Children(children.clone()));
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         let mut plan = DirtyRegions::default();
-        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
 
         world.insert(children[0], Dirty);
         world.insert(children[2], Dirty);
-        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         assert_eq!(
             plan.rects,
             [Rect::new(0, 0, 10, 10), Rect::new(20, 0, 10, 10)]
@@ -4403,7 +4394,7 @@ mod layout_snapshot_reuse_check {
         for child in children {
             world.insert(child, Dirty);
         }
-        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         assert_eq!(plan.rects, [Rect::new(0, 0, 50, 10)]);
     }
 
@@ -4416,13 +4407,13 @@ mod layout_snapshot_reuse_check {
         world.insert(root, super::super::dirty::PrevRect(Rect::new(0, 0, 64, 10)));
 
         world.insert(root, Dirty);
-        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
         assert_eq!(snapshot.out_of_scroll_prev.len(), 1);
         let scratch_ptr = snapshot.out_of_scroll_prev.as_ptr();
 
         world.insert(root, Dirty);
-        collect_dirty_regions_into(&mut world, root, &viewport, &mut plan);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         let snapshot = world.resource::<LayoutSnapshot>().unwrap();
         assert_eq!(snapshot.out_of_scroll_prev.len(), 1);
         assert_eq!(snapshot.out_of_scroll_prev.as_ptr(), scratch_ptr);
@@ -5823,7 +5814,9 @@ mod text_layout_check {
         render_region(&world, root, &viewport, &ink, &mut recorder).unwrap();
         assert_eq!(recorder.posed_runs, 1);
 
-        let damage = collect_dirty_region(&mut world, root, &viewport).unwrap();
+        let damage = collect_dirty_region(&mut world, root, &viewport)
+            .unwrap()
+            .unwrap();
         assert!(damage.y + damage.h >= ink.y + ink.h);
     }
 
@@ -6207,7 +6200,9 @@ mod clip_children_check {
         );
         let viewport = vp();
         // Settle initial Style registration before measuring transform-only damage.
-        collect_dirty_region(&mut world, root, &viewport).expect("initial layout damage");
+        collect_dirty_region(&mut world, root, &viewport)
+            .unwrap()
+            .expect("initial layout damage");
         assert!(!world.has::<Dirty>(root));
         world.insert(
             target,
@@ -6215,7 +6210,9 @@ mod clip_children_check {
         );
         world.insert(target, Dirty);
 
-        let dirty = collect_dirty_region(&mut world, root, &viewport).expect("dirty region");
+        let dirty = collect_dirty_region(&mut world, root, &viewport)
+            .unwrap()
+            .expect("dirty region");
 
         assert_eq!(dirty.x, Fixed::from_int(15));
         assert_eq!(dirty.y, Fixed::from_int(15));
@@ -6259,7 +6256,9 @@ mod clip_children_check {
         );
         let viewport = vp();
         // Settle the initial frame before seeding a transformed presentation.
-        collect_dirty_region(&mut world, root, &viewport).expect("initial layout damage");
+        collect_dirty_region(&mut world, root, &viewport)
+            .unwrap()
+            .expect("initial layout damage");
         assert!(!world.has::<Dirty>(root));
         world.insert(
             target,
@@ -6269,7 +6268,9 @@ mod clip_children_check {
 
         world.insert(target, WidgetTransform(Transform::IDENTITY));
         world.insert(target, Dirty);
-        let dirty = collect_dirty_region(&mut world, root, &viewport).expect("dirty region");
+        let dirty = collect_dirty_region(&mut world, root, &viewport)
+            .unwrap()
+            .expect("dirty region");
 
         assert_eq!(dirty.x, Fixed::from_int(15));
         assert_eq!(dirty.y, Fixed::from_int(15));
@@ -6325,7 +6326,7 @@ mod clip_children_check {
         );
         let viewport = vp();
         try_update_layout(&mut world, root, &viewport).unwrap();
-        collect_dirty_region(&mut world, root, &viewport);
+        collect_dirty_region(&mut world, root, &viewport).unwrap();
 
         let root_rect = world.get::<super::super::ComputedRect>(root).unwrap().0;
         let target_rect = world.get::<super::super::ComputedRect>(target).unwrap().0;
@@ -6354,7 +6355,7 @@ mod clip_children_check {
 
         world.insert(target, Dirty);
         assert_eq!(
-            collect_dirty_region(&mut world, root, &viewport),
+            collect_dirty_region(&mut world, root, &viewport).unwrap(),
             Some(expected)
         );
     }
@@ -6463,7 +6464,9 @@ mod clip_children_check {
             )),
         );
         world.insert(target, Dirty);
-        let dirty = collect_dirty_region(&mut world, root, &viewport).expect("dirty region");
+        let dirty = collect_dirty_region(&mut world, root, &viewport)
+            .unwrap()
+            .expect("dirty region");
         {
             let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
@@ -6523,7 +6526,9 @@ mod clip_children_check {
             super::render(&world, root, &viewport, &mut renderer).unwrap();
         }
 
-        let dirty = collect_dirty_region(&mut world, root, &viewport).expect("dirty region");
+        let dirty = collect_dirty_region(&mut world, root, &viewport)
+            .unwrap()
+            .expect("dirty region");
         let mut region = std::vec![0u8; 64 * 64 * 4];
         {
             let tex = Texture::new(&mut region, 64, 64, ColorFormat::RGBA8888);
@@ -6831,7 +6836,7 @@ mod offscreen_render_check {
         let mut pixels = [0; 64 * 64 * 4];
         let texture = Texture::new(&mut pixels, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(texture);
-        let _ = super::collect_dirty_regions(&mut world, root, &viewport);
+        let _ = super::collect_dirty_regions(&mut world, root, &viewport).unwrap();
         super::render(&world, root, &viewport, &mut renderer).unwrap();
         assert_eq!(
             world
@@ -6860,7 +6865,7 @@ mod offscreen_render_check {
         let mut pixels = [0; 64 * 64 * 4];
         let texture = Texture::new(&mut pixels, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(texture);
-        let _ = super::collect_dirty_regions(&mut world, root, &viewport);
+        let _ = super::collect_dirty_regions(&mut world, root, &viewport).unwrap();
         super::render(&world, root, &viewport, &mut renderer).unwrap();
         let revision = world
             .resource::<Outputs<WidgetTexture>>()
@@ -6873,7 +6878,7 @@ mod offscreen_render_check {
         probe.fail = true;
         probe.calls.set(0);
         world.invalidate_visual(consumer);
-        let _ = super::collect_dirty_regions(&mut world, root, &viewport);
+        let _ = super::collect_dirty_regions(&mut world, root, &viewport).unwrap();
         assert_eq!(
             super::render(&world, root, &viewport, &mut renderer),
             Err(RenderError::BackendFailure)
@@ -7645,12 +7650,14 @@ mod offscreen_render_check {
             let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 2];
             let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGB565Swapped);
             let mut renderer = SwRenderer::new(tex);
-            let dirty = super::collect_dirty_region(world, root, &viewport).unwrap_or(Rect {
-                x: Fixed::ZERO,
-                y: Fixed::ZERO,
-                w: Fixed::from_int(FB_W as i32),
-                h: Fixed::from_int(FB_H as i32),
-            });
+            let dirty = super::collect_dirty_region(world, root, &viewport)
+                .unwrap()
+                .unwrap_or(Rect {
+                    x: Fixed::ZERO,
+                    y: Fixed::ZERO,
+                    w: Fixed::from_int(FB_W as i32),
+                    h: Fixed::from_int(FB_H as i32),
+                });
             super::render_region(world, root, &viewport, &dirty, &mut renderer).unwrap();
             fb
         };
@@ -8075,8 +8082,9 @@ mod offscreen_render_check {
         );
         world.insert(panel, Dirty);
 
-        let dirty =
-            super::collect_dirty_region(&mut world, panel, &viewport).expect("dirty region");
+        let dirty = super::collect_dirty_region(&mut world, panel, &viewport)
+            .unwrap()
+            .expect("dirty region");
         let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 4];
         {
             let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888);
@@ -8135,12 +8143,14 @@ mod offscreen_render_check {
         };
         let render_dirty = |world: &mut World| -> alloc::vec::Vec<u8> {
             let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 4];
-            let dirty = super::collect_dirty_region(world, panel, &viewport).unwrap_or(Rect {
-                x: Fixed::ZERO,
-                y: Fixed::ZERO,
-                w: Fixed::from_int(FB_W as i32),
-                h: Fixed::from_int(FB_H as i32),
-            });
+            let dirty = super::collect_dirty_region(world, panel, &viewport)
+                .unwrap()
+                .unwrap_or(Rect {
+                    x: Fixed::ZERO,
+                    y: Fixed::ZERO,
+                    w: Fixed::from_int(FB_W as i32),
+                    h: Fixed::from_int(FB_H as i32),
+                });
             let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
             super::render_region(world, panel, &viewport, &dirty, &mut renderer).unwrap();
@@ -8456,12 +8466,14 @@ mod offscreen_render_check {
 
         let render_frame = |world: &mut World, buf: &mut [u8]| {
             world.mark_subtree_dirty(panel);
-            let dirty = super::collect_dirty_region(world, panel, &viewport).unwrap_or(Rect {
-                x: Fixed::ZERO,
-                y: Fixed::ZERO,
-                w: Fixed::from_int(64),
-                h: Fixed::from_int(64),
-            });
+            let dirty = super::collect_dirty_region(world, panel, &viewport)
+                .unwrap()
+                .unwrap_or(Rect {
+                    x: Fixed::ZERO,
+                    y: Fixed::ZERO,
+                    w: Fixed::from_int(64),
+                    h: Fixed::from_int(64),
+                });
             let tex = Texture::new(buf, 64, 64, ColorFormat::RGBA8888);
             let mut renderer = SwRenderer::new(tex);
             super::render_region(world, panel, &viewport, &dirty, &mut renderer).unwrap();
@@ -8542,7 +8554,7 @@ mod offscreen_render_check {
         let viewport = Viewport::new(64, 64, Fixed::ONE);
 
         // Run the dirty walker and grab the bounds.
-        let bounds = super::collect_dirty_region(&mut world, panel, &viewport);
+        let bounds = super::collect_dirty_region(&mut world, panel, &viewport).unwrap();
         assert!(bounds.is_some(), "dirty walker should report some bounds");
 
         // Child's Dirty marker is cleared.
@@ -8587,7 +8599,7 @@ mod offscreen_render_check {
 
         // Frame 1 cold — first dirty walk (no PrevRect yet).
         world.insert(leaf, Dirty);
-        let _ = super::collect_dirty_region(&mut world, leaf, &viewport);
+        let _ = super::collect_dirty_region(&mut world, leaf, &viewport).unwrap();
         let g1 = world
             .get::<OffscreenGeneration>(leaf)
             .map(|g| g.0)
@@ -8597,7 +8609,7 @@ mod offscreen_render_check {
         // Frame 2 — only the offscreen entity itself is Dirty (no
         // children). The cache buffer is stale; generation must bump.
         world.insert(leaf, Dirty);
-        let bounds = super::collect_dirty_region(&mut world, leaf, &viewport);
+        let bounds = super::collect_dirty_region(&mut world, leaf, &viewport).unwrap();
         let g2 = world
             .get::<OffscreenGeneration>(leaf)
             .map(|g| g.0)
@@ -8657,7 +8669,7 @@ mod offscreen_render_check {
         // Frame 1: child goes Dirty. Walker bumps generation, includes
         // panel rect in bounds, sets PrevRect on panel.
         world.insert(child, Dirty);
-        let b1 = super::collect_dirty_region(&mut world, panel, &viewport);
+        let b1 = super::collect_dirty_region(&mut world, panel, &viewport).unwrap();
         assert!(b1.is_some(), "frame 1 must report bounds");
         let g1 = world
             .get::<OffscreenGeneration>(panel)
@@ -8671,7 +8683,7 @@ mod offscreen_render_check {
         // doesn't, render_region won't repaint the offscreen entity
         // and the screen freezes.
         world.insert(child, Dirty);
-        let b2 = super::collect_dirty_region(&mut world, panel, &viewport);
+        let b2 = super::collect_dirty_region(&mut world, panel, &viewport).unwrap();
         let g2 = world
             .get::<OffscreenGeneration>(panel)
             .map(|g| g.0)
@@ -8726,10 +8738,14 @@ mod offscreen_render_check {
         );
 
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        let _ = super::collect_dirty_region(&mut world, panel, &viewport);
+        let _ = super::collect_dirty_region(&mut world, panel, &viewport).unwrap();
 
         let generation = world.get::<OffscreenGeneration>(panel).unwrap().0;
-        assert!(super::collect_dirty_region(&mut world, panel, &viewport).is_none());
+        assert!(
+            super::collect_dirty_region(&mut world, panel, &viewport)
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(
             world.get::<OffscreenGeneration>(panel).unwrap().0,
             generation
@@ -9054,7 +9070,7 @@ mod offscreen_render_check {
         // Frame 1 — initial render, generation gets to 1.
         world.insert(offscreen_grandchild, Dirty);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        let _ = super::collect_dirty_region(&mut world, root, &viewport);
+        let _ = super::collect_dirty_region(&mut world, root, &viewport).unwrap();
         let g0 = world
             .get::<OffscreenGeneration>(offscreen_grandchild)
             .map(|g| g.0)
@@ -9085,7 +9101,7 @@ mod offscreen_render_check {
         // Run the walker and check the offscreen generation has
         // advanced — the cached buffer must be invalidated so the
         // next render misses cache and repaints in the new theme.
-        let _ = super::collect_dirty_region(&mut world, root, &viewport);
+        let _ = super::collect_dirty_region(&mut world, root, &viewport).unwrap();
         let g1 = world
             .get::<OffscreenGeneration>(offscreen_grandchild)
             .map(|g| g.0)
@@ -9222,7 +9238,7 @@ mod scroll_plan_check {
         world.insert(list, Dirty);
 
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        let plan = collect_dirty_regions(&mut world, root, &viewport);
+        let plan = collect_dirty_regions(&mut world, root, &viewport).unwrap();
 
         assert_eq!(plan.shifts.len(), 1, "should emit one RegionShift");
         let sop = &plan.shifts[0];
@@ -9267,7 +9283,7 @@ mod scroll_plan_check {
         );
         world.insert(list, Dirty);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        let plan = collect_dirty_regions(&mut world, root, &viewport);
+        let plan = collect_dirty_regions(&mut world, root, &viewport).unwrap();
         assert_eq!(plan.shifts.len(), 1);
         assert_eq!(plan.shifts[0].dy, Fixed::from_int(3));
         let has_top_strip = plan.rects.iter().any(|r| {
@@ -9302,7 +9318,8 @@ mod scroll_plan_check {
         );
         world.insert(list, Dirty);
 
-        let plan = collect_dirty_regions(&mut world, root, &Viewport::new(128, 128, Fixed::ONE));
+        let plan =
+            collect_dirty_regions(&mut world, root, &Viewport::new(128, 128, Fixed::ONE)).unwrap();
 
         assert!(plan.shifts.is_empty());
         assert!(plan.rects.iter().any(|rect| *rect
@@ -9353,7 +9370,7 @@ mod scroll_plan_check {
         world.insert(inner, Dirty);
 
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        let plan = collect_dirty_regions(&mut world, root, &viewport);
+        let plan = collect_dirty_regions(&mut world, root, &viewport).unwrap();
         assert_eq!(plan.shifts.len(), 2, "two RegionShifts for two containers");
         assert_eq!(plan.shifts[0].dy, Fixed::from_int(5), "inner first");
         assert_eq!(plan.shifts[1].dy, Fixed::from_int(2), "outer second");
@@ -9376,7 +9393,7 @@ mod scroll_plan_check {
         world.insert(list, Dirty);
 
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        let plan = collect_dirty_regions(&mut world, root, &viewport);
+        let plan = collect_dirty_regions(&mut world, root, &viewport).unwrap();
         assert!(plan.shifts.is_empty());
     }
 
@@ -9394,7 +9411,7 @@ mod scroll_plan_check {
                 world.insert(list, ScrollOffset::default());
                 let viewport = Viewport::new(128, 128, scale);
                 world.insert(root, Dirty);
-                let _ = collect_dirty_regions(&mut world, root, &viewport);
+                let _ = collect_dirty_regions(&mut world, root, &viewport).unwrap();
                 for _ in 0..3 {
                     world.get_mut::<ScrollOffset>(list).unwrap().y += delta;
                     world.insert(
@@ -9405,7 +9422,7 @@ mod scroll_plan_check {
                         },
                     );
                     world.invalidate_visual(list);
-                    let plan = collect_dirty_regions(&mut world, root, &viewport);
+                    let plan = collect_dirty_regions(&mut world, root, &viewport).unwrap();
                     assert!(!plan.rects.is_empty());
                     if delta.abs() * scale == Fixed::ONE {
                         assert_eq!(plan.shifts.len(), 1);
@@ -9463,7 +9480,7 @@ mod scroll_plan_check {
         world.insert(overlay, OverlayCursor);
 
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        let plan = collect_dirty_regions(&mut world, root, &viewport);
+        let plan = collect_dirty_regions(&mut world, root, &viewport).unwrap();
 
         assert_eq!(plan.shifts.len(), 1, "scroll kept, got {:?}", plan.shifts);
         let dy = plan.shifts[0].dy;
@@ -9517,7 +9534,7 @@ mod scroll_plan_check {
         world.insert(overlay, OverlayCursor);
 
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        let plan = collect_dirty_regions(&mut world, root, &viewport);
+        let plan = collect_dirty_regions(&mut world, root, &viewport).unwrap();
         assert_eq!(plan.shifts.len(), 1, "scroll kept, got {:?}", plan.shifts);
     }
 
@@ -9529,7 +9546,7 @@ mod scroll_plan_check {
         world.insert(child, Dirty);
 
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        let plan = collect_dirty_regions(&mut world, root, &viewport);
+        let plan = collect_dirty_regions(&mut world, root, &viewport).unwrap();
         assert!(!plan.rects.is_empty(), "child Dirty should produce a rect");
 
         let snap = world
@@ -9550,7 +9567,7 @@ mod scroll_plan_check {
         spawn_widget(&mut world, Some(root), px_style(32, 32));
 
         let viewport = Viewport::new(64, 64, Fixed::ONE);
-        let plan = collect_dirty_regions(&mut world, root, &viewport);
+        let plan = collect_dirty_regions(&mut world, root, &viewport).unwrap();
         assert!(!plan.rects.is_empty());
         assert!(world.resource::<LayoutSnapshot>().is_some());
         assert!(crate::input::event::hit_test::geometry_matches(
@@ -9605,7 +9622,7 @@ mod scroll_plan_check {
             Fixed::from_int(64),
             Fixed::from_int(64),
         );
-        let plan = collect_dirty_regions(&mut world, root, &viewport);
+        let plan = collect_dirty_regions(&mut world, root, &viewport).unwrap();
         assert!(!plan.rects.is_empty());
 
         let snap = world

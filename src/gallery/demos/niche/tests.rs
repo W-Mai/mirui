@@ -15,7 +15,8 @@ fn dirty_text_inside_slots_matches_full_render() {
         &mut app.world,
         root,
         &crate::types::Viewport::new(480, 320, Fixed::ONE),
-    );
+    )
+    .unwrap();
     let texts: Vec<_> = app
         .world
         .query::<Text>()

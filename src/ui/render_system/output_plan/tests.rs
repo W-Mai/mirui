@@ -824,7 +824,7 @@ fn public_region_render_preserves_unpainted_inline_consumer_invalidation() {
     let viewport = Viewport::new(8, 4, Fixed::ONE);
     let source_clip = Rect::new(0, 0, 4, 4);
     let consumer_clip = Rect::new(4, 0, 4, 4);
-    let damage = super::super::collect_dirty_regions(&mut app.world, root, &viewport);
+    let damage = super::super::collect_dirty_regions(&mut app.world, root, &viewport).unwrap();
     assert!(
         damage
             .rects

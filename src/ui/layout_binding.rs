@@ -332,9 +332,10 @@ mod tests {
 
         let viewport = Viewport::new(300, 200, Fixed::ONE);
         let mut plan = crate::ui::dirty::DirtyRegions::default();
-        crate::ui::render_system::collect_dirty_regions_into(
+        crate::ui::render_system::try_collect_dirty_regions_into(
             &mut world, root, &viewport, &mut plan,
-        );
+        )
+        .unwrap();
 
         assert_eq!(
             world.get::<ComputedRect>(target).unwrap().0.w,

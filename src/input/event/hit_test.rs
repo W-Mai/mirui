@@ -721,9 +721,10 @@ mod tests {
         );
         world.insert(target, crate::ui::dirty::VisualDirty);
         let mut dirty = crate::ui::dirty::DirtyRegions::default();
-        crate::ui::render_system::collect_dirty_regions_into(
+        crate::ui::render_system::try_collect_dirty_regions_into(
             &mut world, root, &viewport, &mut dirty,
-        );
+        )
+        .unwrap();
         assert_ne!(geometry_revision(&world), revision);
 
         assert_eq!(hit_test(&world, root, 4.into(), 4.into(), 128, 128), None);

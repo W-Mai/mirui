@@ -119,7 +119,8 @@ mod tests {
 
         // Collect dirty region
         let transform = Viewport::new(128, 128, Fixed::ONE);
-        let dirty = mirui::ui::render_system::collect_dirty_region(&mut world, root, &transform);
+        let dirty =
+            mirui::ui::render_system::collect_dirty_region(&mut world, root, &transform).unwrap();
 
         let area = dirty.expect("should have dirty region");
         let (dx, dy, dr, db) = area.pixel_bounds();
@@ -147,7 +148,8 @@ mod tests {
         );
 
         let transform = Viewport::new(128, 128, Fixed::ONE);
-        let dirty = mirui::ui::render_system::collect_dirty_region(&mut world, root, &transform);
+        let dirty =
+            mirui::ui::render_system::collect_dirty_region(&mut world, root, &transform).unwrap();
 
         let area = dirty.expect("should have dirty region");
         let (dx, dy, dr, db) = area.pixel_bounds();
@@ -226,7 +228,8 @@ mod tests {
 
             let transform = Viewport::new(128, 128, Fixed::ONE);
             let dirty =
-                mirui::ui::render_system::collect_dirty_region(&mut world, root, &transform);
+                mirui::ui::render_system::collect_dirty_region(&mut world, root, &transform)
+                    .unwrap();
 
             let Some(area) = dirty else { continue };
             let (dx, dy, dr, db) = area.pixel_bounds();
@@ -350,7 +353,8 @@ mod tests {
 
                 mirui::ui::set_position(&mut world, child, pos_x, pos_y);
 
-                let dirty = render_system::collect_dirty_region(&mut world, root, &transform);
+                let dirty =
+                    render_system::collect_dirty_region(&mut world, root, &transform).unwrap();
                 if let Some(area) = dirty {
                     let mut renderer =
                         SwRenderer::new(Texture::new(&mut buf, W, H, ColorFormat::RGBA8888));
@@ -483,7 +487,8 @@ mod tests {
                     );
                 }
 
-                let dirty = render_system::collect_dirty_region(&mut world, root, &transform);
+                let dirty =
+                    render_system::collect_dirty_region(&mut world, root, &transform).unwrap();
                 if let Some(area) = dirty {
                     let mut renderer =
                         SwRenderer::new(Texture::new(&mut buf, W, H, ColorFormat::RGBA8888));
