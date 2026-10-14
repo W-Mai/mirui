@@ -88,7 +88,7 @@ struct FollowPlan {
     graph: OutputGraph,
 }
 
-#[crate::view(component = FollowBounds, invalidation = Layout)]
+#[crate::view(component = FollowBounds, invalidation = Visual)]
 fn follow_bounds() {}
 
 /// Register layout following. Included by `App::with_default_widgets()`.
@@ -240,9 +240,14 @@ fn assign(world: &mut World, entity: Entity, geometry: Option<Resolved>) -> bool
     if state.geometry == geometry {
         return false;
     }
+    let layout_changed = state.geometry.map(|value| value.rect) != geometry.map(|value| value.rect);
     state.geometry = geometry;
-    world.mark_subtree_dirty(entity);
-    true
+    if layout_changed {
+        world.mark_subtree_dirty(entity);
+    } else {
+        world.invalidate_subtree_visual(entity);
+    }
+    layout_changed
 }
 
 fn node_mut(node: &mut LayoutNode, entity: Entity) -> Option<&mut LayoutNode> {

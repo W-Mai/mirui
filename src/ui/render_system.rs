@@ -2530,6 +2530,7 @@ fn reconcile_layout_snapshot(
     root: Entity,
     logical_w: u16,
     logical_h: u16,
+    reuse_visual_layout: bool,
 ) -> Result<Option<Box<LayoutSnapshot>>, TextLayoutFailure> {
     const MAX_LAYOUT_BINDING_UPDATES: usize = 32;
     let binding_count = world
@@ -2552,7 +2553,22 @@ fn reconcile_layout_snapshot(
     let pass_count = update_budget.saturating_add(1);
 
     for pass in 0..pass_count {
-        let Some(mut snapshot) = compute_layout_snapshot(world, root, logical_w, logical_h)? else {
+        let reuse = reuse_visual_layout
+            && pass == 0
+            && !super::branch::is_authored_hidden(world, root)
+            && !super::dirty::has_visible_dirty::<super::dirty::Dirty>(world, root)
+            && !crate::input::event::hit_test::geometry_changes(world).0
+            && world.resource::<LayoutSnapshot>().is_some_and(|snapshot| {
+                snapshot.matches(root, logical_w, logical_h)
+                    && !snapshot.bindings_pending
+                    && snapshot.scroll_config_current(world)
+            });
+        let snapshot = if reuse {
+            world.take_resource_box::<LayoutSnapshot>()
+        } else {
+            compute_layout_snapshot(world, root, logical_w, logical_h)?
+        };
+        let Some(mut snapshot) = snapshot else {
             return Ok(None);
         };
 
@@ -2625,7 +2641,7 @@ pub fn try_update_layout(
         cache.storage_mut().paths.begin_layout();
     }
 
-    let snapshot = match reconcile_layout_snapshot(world, root, logical_w, logical_h) {
+    let snapshot = match reconcile_layout_snapshot(world, root, logical_w, logical_h, false) {
         Ok(snapshot) => snapshot,
         Err(failure) => {
             record_text_layout_failure(world, root, failure);
@@ -3371,7 +3387,7 @@ pub(crate) fn try_collect_dirty_regions_into(
         match existing {
             Some(snapshot) => Ok(Some(snapshot)),
             None => crate::trace_span!("dirty.layout", {
-                reconcile_layout_snapshot(world, root, logical_w, logical_h)
+                reconcile_layout_snapshot(world, root, logical_w, logical_h, true)
             }),
         }
     } else {
@@ -3379,7 +3395,7 @@ pub(crate) fn try_collect_dirty_regions_into(
             world.put_resource_box(snapshot);
         }
         crate::trace_span!("dirty.layout", {
-            reconcile_layout_snapshot(world, root, logical_w, logical_h)
+            reconcile_layout_snapshot(world, root, logical_w, logical_h, true)
         })
     };
     let snapshot = match result {

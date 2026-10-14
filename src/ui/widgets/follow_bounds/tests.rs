@@ -9,21 +9,115 @@ pub(super) type TestApp =
     App<crate::surface::framebuf::FramebufSurface<fn(&[u8], crate::types::PhysicalRect)>>;
 const BLUE: Color = Color::rgb(20, 80, 240);
 
+#[test]
+fn clipping_changes_do_not_request_layout_but_repaint_the_followed_subtree() {
+    let (mut app, _, _, follower) = fixture();
+    app.render().unwrap();
+    let previous = app
+        .world
+        .get::<FollowState>(follower)
+        .unwrap()
+        .geometry
+        .unwrap();
+    let next = Resolved {
+        clip: Rect::new(20, 14, 12, 8),
+        ..previous
+    };
+    assert!(!assign(&mut app.world, follower, Some(next)));
+    let child = app.world.find_by_id("fill").unwrap();
+    assert!(!app.world.has::<crate::ui::dirty::Dirty>(follower));
+    assert!(!app.world.has::<crate::ui::dirty::Dirty>(child));
+    assert!(app.world.has::<crate::ui::dirty::VisualDirty>(follower));
+    assert!(app.world.has::<crate::ui::dirty::VisualDirty>(child));
+}
+
+#[crate::compose]
+fn translated_pair() {
+    ui! {
+        View (id: "moving", width: 70, height: 60, clip_children: true) {
+            View (id: "target", width: 60, height: 40)
+            View (id: "outline", border_width: 2, border_color: BLUE) [
+                FollowBounds::new(id("target")),
+            ]
+        }
+    };
+}
+
+#[test]
+fn shared_ancestor_motion_preserves_local_bounds_and_updates_clipping_without_layout_dirt() {
+    use crate::ui::property::{apply_to_world, prop};
+    let mut app = App::headless(128, 96);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    app.compose(root, translated_pair());
+    app.render().unwrap();
+    let moving = app.world.find_by_id("moving").unwrap();
+    let outline = app.world.find_by_id("outline").unwrap();
+    let local = rect(&app, outline);
+    for offset in [-20, 25, 0] {
+        apply_to_world::<prop::Transform>(
+            &mut app.world,
+            moving,
+            Transform::translate(offset.into(), Fixed::ZERO),
+        );
+        app.dirty_regions().unwrap();
+        assert_eq!(rect(&app, outline), local);
+        assert!(!crate::ui::dirty::has_visible_dirty::<
+            crate::ui::dirty::Dirty,
+        >(&app.world, root));
+        assert_eq!(
+            clip(&app.world, outline),
+            Rect::new(offset, 0, 70, 60).intersect(&Rect::new(0, 0, 128, 96))
+        );
+        app.render_dirty().unwrap();
+        let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+        app.render().unwrap();
+        assert!(pixels == app.backend.framebuffer().buf.as_slice());
+    }
+}
+
 #[crate::compose]
 fn scene() {
     ui! {
         View (width: 128, height: 96) {
-            View (id: "scroller", position: Position::Absolute, left: 12, top: 8,
-                width: 40, height: 32, clip_children: true) [ScrollOffset::default()] {
-                View (id: "source", position: Position::Absolute, left: 4, top: 4,
-                    width: 30, height: 20, padding: Padding::all(3))
+            View (
+                id: "scroller",
+                position: Position::Absolute,
+                left: 12,
+                top: 8,
+                width: 40,
+                height: 32,
+                clip_children: true
+            ) [
+                ScrollOffset::default(),
+            ] {
+                View (
+                    id: "source",
+                    position: Position::Absolute,
+                    left: 4,
+                    top: 4,
+                    width: 30,
+                    height: 20,
+                    padding: Padding::all(3)
+                )
             }
-            View (id: "host", position: Position::Absolute, left: 70, top: 14,
-                width: 50, height: 60) {
+            View (
+                id: "host",
+                position: Position::Absolute,
+                left: 70,
+                top: 14,
+                width: 50,
+                height: 60
+            ) {
                 View (id: "follower", width: 7, height: 5, bg_color: BLUE) [
-                    FollowBounds::new(id("source")), HitTarget,
+                    FollowBounds::new(id("source")),
+                    HitTarget,
                 ] {
-                    View (id: "fill", width: Dimension::percent(100), height: Dimension::percent(100))
+                    View (
+                        id: "fill",
+                        width: Dimension::percent(100),
+                        height: Dimension::percent(100)
+                    )
                 }
                 View (id: "marker", width: 4, height: 4)
             }
