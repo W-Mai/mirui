@@ -46,14 +46,13 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     app.with_widget(input::selection_frame::view());
     #[cfg(feature = "std")]
     app.add_plugin(crate::app::plugins::StdInstantClockPlugin);
-    let height = app.backend.viewport().logical_size().1;
     let state = app.add_model(model::DisplayState::default()).finish();
     app.on_event(
         crate::input::event::input::Key::EVENT,
         input::keyboard::callback(state.clone()),
     );
-    app.compose(parent, composition::build_widgets(state.clone(), height));
+    app.compose(parent, composition::build_widgets(state.clone()));
     state
 }
 
-pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::fixed(640, 480);
+pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_least(360, 480);

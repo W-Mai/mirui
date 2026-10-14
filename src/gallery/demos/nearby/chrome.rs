@@ -15,6 +15,7 @@ pub(super) fn label(value: &str, size: u16, color: Color, align: TextAlign) -> E
             height: Dimension::Content,
             min_width: 0,
             min_height: i32::from(size) + 6,
+            shrink: 0.0,
             font: font(size),
             font_size: size,
             text_color: color,
@@ -39,6 +40,7 @@ pub(super) fn live_label(
             height: Dimension::Content,
             min_width: 0,
             min_height: i32::from(size) + 6,
+            shrink: 0.0,
             font: font(size),
             font_size: size,
             text_color: ${
@@ -74,14 +76,14 @@ pub(super) fn header(view: &Snapshot, state: model!(DisplayState), metrics: Metr
     };
     ui! {
         Row (
-            height: if metrics.compact { 44 } else { 68 },
+            height: 56,
             shrink: 0.0,
-            column_gap: metrics.gap + 4,
+            column_gap: metrics.gap,
             align: AlignItems::Center
         ) {
             Row (
-                width: if metrics.compact { 30 } else { 42 },
-                height: if metrics.compact { 30 } else { 42 },
+                width: 42,
+                height: 42,
                 shrink: 0.0,
                 bg_color: ${ state.stamp() },
                 justify: JustifyContent::Center,
@@ -128,8 +130,8 @@ pub(super) fn header(view: &Snapshot, state: model!(DisplayState), metrics: Metr
             }
             Text (
                 step,
-                width: if metrics.compact { 76 } else { 96 },
-                height: if metrics.compact { 26 } else { 34 },
+                width: 76,
+                height: 34,
                 shrink: 0.0,
                 bg_color: PANEL,
                 font: font(metrics.small),
@@ -146,8 +148,8 @@ fn keycap(value: &'static str, state: model!(DisplayState), metrics: Metrics) ->
     ui! {
         Text (
             value.to_owned(),
-            width: if metrics.compact { 20 } else { 25 },
-            height: if metrics.compact { 20 } else { 25 },
+            width: 25,
+            height: 25,
             shrink: 0.0,
             bg_color: PANEL,
             font: font(metrics.small),
@@ -168,15 +170,15 @@ fn keycap(value: &'static str, state: model!(DisplayState), metrics: Metrics) ->
 pub(super) fn footer(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> Entity {
     ui! {
         Row (
-            height: if metrics.compact { 20 } else { 32 },
+            height: 32,
             shrink: 0.0,
             column_gap: metrics.gap,
             align: AlignItems::Center
         ) {
             Text (
                 text: ${ if state.confirm_visible() { "A" } else { "" } },
-                width: if metrics.compact { 20 } else { 25 },
-                height: if metrics.compact { 20 } else { 25 },
+                width: 25,
+                height: 25,
                 shrink: 0.0,
                 bg_color: ${ if state.confirm_visible() { PANEL } else { BACKGROUND } },
                 font: font(metrics.small),
@@ -205,7 +207,7 @@ pub(super) fn footer(view: &Snapshot, state: model!(DisplayState), metrics: Metr
             keycap ("B", state, metrics)
             Text (
                 text: ${ state.back() },
-                max_width: if metrics.compact { 130 } else { 210 },
+                max_width: 210,
                 min_width: 0,
                 height: Dimension::Content,
                 font: font(metrics.small),

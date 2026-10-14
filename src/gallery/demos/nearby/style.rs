@@ -22,7 +22,6 @@ pub(super) const WARNING_PANEL: Color = Color::rgb(233, 218, 186);
 
 #[derive(Clone, Copy)]
 pub(super) struct Metrics {
-    pub(super) compact: bool,
     pub(super) title: u16,
     pub(super) body: u16,
     pub(super) small: u16,
@@ -32,18 +31,16 @@ pub(super) struct Metrics {
     pub(super) inset: i32,
 }
 
-impl Metrics {
-    pub(super) fn for_height(height: u16) -> Self {
-        let compact = height < 400;
+impl Default for Metrics {
+    fn default() -> Self {
         Self {
-            compact,
             title: 24,
             body: 12,
             small: 12,
-            row_title: if compact { 12 } else { 24 },
+            row_title: 24,
             row_detail: 12,
-            gap: if compact { 3 } else { 8 },
-            inset: if compact { 8 } else { 18 },
+            gap: 6,
+            inset: 12,
         }
     }
 }

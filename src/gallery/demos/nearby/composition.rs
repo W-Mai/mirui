@@ -22,8 +22,8 @@ fn create_page(
 }
 
 #[compose]
-pub(super) fn build_widgets(state: model!(DisplayState), height: u16) {
-    let metrics = Metrics::for_height(height);
+pub(super) fn build_widgets(state: model!(DisplayState)) {
+    let metrics = Metrics::default();
     ui! {
         Column (grow: 1.0, bg_color: BACKGROUND) {
             Row (
@@ -35,7 +35,8 @@ pub(super) fn build_widgets(state: model!(DisplayState), height: u16) {
             ) {
                 Button (
                     id: "nearby_entry",
-                    width: 152,
+                    grow: 1.0,
+                    min_width: 0,
                     height: 24,
                     border_radius: 0,
                     normal_color: PANEL,
@@ -52,12 +53,14 @@ pub(super) fn build_widgets(state: model!(DisplayState), height: u16) {
                             }
                         },
                         font: FONT,
-                        font_size: 12
+                        font_size: 12,
+                        text_color: FOREGROUND
                     )
                 } on Tap { state.switch_entry(); }
                 Button (
                     id: "nearby_scenario",
-                    width: 180,
+                    grow: 1.0,
+                    min_width: 0,
                     height: 24,
                     border_radius: 0,
                     normal_color: PANEL,
@@ -65,27 +68,27 @@ pub(super) fn build_widgets(state: model!(DisplayState), height: u16) {
                     font: FONT,
                     font_size: 12
                 ) {
-                    Text (text: ${ state.scenario().label() }, font: FONT, font_size: 12)
+                    Text (
+                        text: ${ state.scenario().label() },
+                        min_width: 0,
+                        font: FONT,
+                        font_size: 12,
+                        text_color: FOREGROUND,
+                        paragraph: paragraph(crate::ui::widgets::TextAlign::Center, 1)
+                    )
                 } on Tap { state.next_scenario(); }
-                Text (
-                    "Next = remote progress",
-                    grow: 1.0,
-                    font: FONT,
-                    font_size: 12,
-                    text_color: SECONDARY
-                )
             }
             Row (
                 height: 36,
                 shrink: 0.0,
                 padding: Padding::all(4),
-                column_gap: 8,
+                column_gap: 4,
                 align: AlignItems::Center
             ) {
-                Text ("LOCAL DEMO", grow: 1.0, font: FONT, font_size: 12, text_color: SECONDARY)
                 Button (
                     id: "nearby_confirm",
-                    width: 72,
+                    grow: 1.0,
+                    min_width: 0,
                     height: 28,
                     border_radius: 0,
                     normal_color: ACCENT,
@@ -97,7 +100,8 @@ pub(super) fn build_widgets(state: model!(DisplayState), height: u16) {
                 ] on Tap { state.confirm(); }
                 Button (
                     id: "nearby_back",
-                    width: 58,
+                    grow: 1.0,
+                    min_width: 0,
                     height: 28,
                     border_radius: 0,
                     normal_color: PANEL,
@@ -109,7 +113,8 @@ pub(super) fn build_widgets(state: model!(DisplayState), height: u16) {
                 ] on Tap { state.back_page(); }
                 Button (
                     id: "nearby_advance",
-                    width: 86,
+                    grow: 1.0,
+                    min_width: 0,
                     height: 28,
                     border_radius: 0,
                     normal_color: ACCENT,
@@ -117,11 +122,12 @@ pub(super) fn build_widgets(state: model!(DisplayState), height: u16) {
                     font: FONT,
                     font_size: 12
                 ) [
-                    Text::label("Next step"),
+                    Text::label("Next"),
                 ] on Tap { state.advance(); }
                 Button (
                     id: "nearby_refresh",
-                    width: 58,
+                    grow: 1.0,
+                    min_width: 0,
                     height: 28,
                     border_radius: 0,
                     normal_color: PANEL,
@@ -133,7 +139,8 @@ pub(super) fn build_widgets(state: model!(DisplayState), height: u16) {
                 ] on Tap { state.refresh_rooms(); }
                 Button (
                     id: "nearby_restart",
-                    width: 58,
+                    grow: 1.0,
+                    min_width: 0,
                     height: 28,
                     border_radius: 0,
                     normal_color: PANEL,

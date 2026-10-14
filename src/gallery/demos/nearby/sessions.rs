@@ -39,8 +39,8 @@ fn avatar(number: &str, local: bool, state: model!(DisplayState), metrics: Metri
     ui! {
         Text (
             number.to_owned(),
-            width: if metrics.compact { 36 } else { 60 },
-            height: if metrics.compact { 36 } else { 60 },
+            width: 60,
+            height: 60,
             bg_color: ${ if local || state.presentation().ready { ACCENT_DIM } else { PANEL } },
             font: font(metrics.title),
             font_size: metrics.title,
@@ -91,7 +91,7 @@ pub(super) fn host(state: model!(DisplayState), metrics: Metrics) -> Entity {
                     )
                 }
                 Row (
-                    width: if metrics.compact { 40 } else { 70 },
+                    width: 70,
                     justify: JustifyContent::SpaceEvenly,
                     align: AlignItems::Center
                 ) {
@@ -126,7 +126,7 @@ pub(super) fn host(state: model!(DisplayState), metrics: Metrics) -> Entity {
                 }
             }
             Column (
-                height: if metrics.compact { 34 } else { 50 },
+                height: 38,
                 shrink: 0.0,
                 bg_color: ${ if state.action_enabled() { ACCENT } else { PANEL } },
                 border_color: ACCENT,
@@ -187,7 +187,7 @@ pub(super) fn network_panel(state: model!(DisplayState), metrics: Metrics) -> En
                 live_label (state, Next, metrics.small, SECONDARY, Center)
             }
             Column (
-                height: if metrics.compact { 34 } else { 50 },
+                height: 38,
                 shrink: 0.0,
                 bg_color: ${ if state.action_enabled() { ACCENT } else { PANEL } },
                 justify: JustifyContent::Center
@@ -224,7 +224,7 @@ pub(super) fn joined(view: &Snapshot, state: model!(DisplayState), metrics: Metr
             clip_children: true
         ) {
             Row (
-                height: if metrics.compact { 44 } else { 60 },
+                height: 60,
                 shrink: 0.0,
                 column_gap: metrics.gap
             ) {
@@ -237,8 +237,8 @@ pub(super) fn joined(view: &Snapshot, state: model!(DisplayState), metrics: Metr
                     ) {
                         Text (
                             (step.0 + 1).to_string(),
-                            width: if metrics.compact { 22 } else { 28 },
-                            height: if metrics.compact { 22 } else { 28 },
+                            width: 28,
+                            height: 28,
                             bg_color: ${ state.steps()[step.0].background },
                             font: font(metrics.small),
                             font_size: metrics.small,

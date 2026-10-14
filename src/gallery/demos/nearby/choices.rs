@@ -52,12 +52,13 @@ pub(super) fn choice(view: &Snapshot, state: model!(DisplayState), metrics: Metr
                     },
                 ] {
                     Row (
-                        height: if metrics.compact { 28 } else { 44 },
+                        height: 36,
+                        shrink: 0.0,
                         align: AlignItems::Center
                     ) {
                         Text (
                             if card.0 == 0 { "+" } else { "2" },
-                            width: if metrics.compact { 28 } else { 44 },
+                            width: 36,
                             height: Dimension::percent(100),
                             bg_color: ACCENT_DIM,
                             font: font(metrics.title),
@@ -78,6 +79,7 @@ pub(super) fn choice(view: &Snapshot, state: model!(DisplayState), metrics: Metr
                     )
                     Text (
                         card.2,
+                        shrink: 0.0,
                         width: Dimension::percent(100),
                         min_width: 0,
                         height: Dimension::Content,
@@ -86,14 +88,7 @@ pub(super) fn choice(view: &Snapshot, state: model!(DisplayState), metrics: Metr
                         text_color: SECONDARY,
                         paragraph: paragraph(Start, 2)
                     )
-                    if !metrics.compact {
-                        label (
-                            card.3,
-                            metrics.small,
-                            SECONDARY,
-                            Start
-                        )
-                    }
+                    label (card.3, metrics.small, SECONDARY, Start)
                 } on SizeChanged(super::input::place::callback(state, card.0)) on HoverChanged(super::input::hover::callback(state, card.0)) on Tap { state.activate(card.0); }
             }
         }
@@ -172,7 +167,7 @@ pub(super) fn rooms(view: &Snapshot, state: model!(DisplayState), metrics: Metri
                     Row (
                         grow: 1.0,
                         min_height: i32::from(metrics.row_title + metrics.row_detail) + 17,
-                        max_height: if metrics.compact { 42 } else { 70 },
+                        max_height: 70,
                         padding: Padding::all(2),
                         column_gap: metrics.gap,
                         bg_color: PANEL,
@@ -253,7 +248,7 @@ pub(super) fn games(view: &Snapshot, state: model!(DisplayState), metrics: Metri
                     Row (
                         grow: 1.0,
                         min_height: i32::from(metrics.row_title + metrics.row_detail) + 17,
-                        max_height: if metrics.compact { 42 } else { 70 },
+                        max_height: 70,
                         padding: Padding::all(2),
                         column_gap: metrics.gap,
                         bg_color: PANEL,
@@ -269,7 +264,7 @@ pub(super) fn games(view: &Snapshot, state: model!(DisplayState), metrics: Metri
                     ] {
                         Text (
                             if item.1.directory { ">" } else { "·" },
-                            width: if metrics.compact { 20 } else { 32 },
+                            width: 32,
                             shrink: 0.0,
                             height: Dimension::Content,
                             font: font(metrics.title),

@@ -6,7 +6,11 @@ use crate::ui::widgets::navigation::transition;
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 fn fixture() -> (TestApp, model::DisplayStateHandle) {
-    let mut app = App::headless(640, 480);
+    fixture_at(640, 480)
+}
+
+fn fixture_at(width: u16, height: u16) -> (TestApp, model::DisplayStateHandle) {
+    let mut app = App::headless(width, height);
     app.with_default_widgets().with_default_systems();
     let root = app.spawn_root().id();
     let state = setup_app(&mut app, root);
@@ -15,6 +19,47 @@ fn fixture() -> (TestApp, model::DisplayStateHandle) {
     app.prepare_text_layout().unwrap();
     app.render().unwrap();
     (app, state)
+}
+
+#[test]
+fn resizing_keeps_the_page_and_matches_direct_layout_at_the_same_size() {
+    use crate::surface::framebuf::FramebufSurface;
+    use crate::ui::{ComputedRect, widgets::Text};
+
+    assert_eq!(DEMO_SIZE.fixed_size(), None);
+    let (mut app, state) = fixture_at(320, 240);
+    let mounted = frames(&app);
+    for (width, height) in [(640, 480), (360, 640), (900, 480)] {
+        let flush: fn(&[u8], PhysicalRect) = |_, _| {};
+        app.backend = FramebufSurface::new(width, height, flush);
+        app.render_dirty().unwrap();
+        assert_eq!(frames(&app), mounted);
+        assert_eq!(state.snapshot().page, Page::Mode);
+        let (direct, _) = fixture_at(width, height);
+        let geometry = |app: &TestApp| {
+            app.world
+                .query::<Text>()
+                .iter()
+                .map(|(entity, text)| {
+                    (
+                        text.resolve(app.world.resource()).to_string(),
+                        app.world.get::<ComputedRect>(entity).unwrap().0,
+                    )
+                })
+                .collect::<alloc::vec::Vec<_>>()
+        };
+        assert_eq!(geometry(&app), geometry(&direct), "{width} x {height}");
+        for (_, text) in &geometry(&app) {
+            assert!(
+                text.w >= Fixed::from_int(12),
+                "{width} x {height}: {text:?}"
+            );
+            assert!(
+                text.h >= Fixed::from_int(12),
+                "{width} x {height}: {text:?}"
+            );
+        }
+    }
 }
 
 fn finish_transition(app: &mut TestApp) {

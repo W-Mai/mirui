@@ -66,7 +66,7 @@ fn contents(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> E
             min_width: 0,
             min_height: 0,
             bg_color: BACKGROUND,
-            padding: Padding::all(if metrics.compact { 8 } else { 24 }),
+            padding: Padding::all(16),
             row_gap: metrics.gap
         ) {
             header (
