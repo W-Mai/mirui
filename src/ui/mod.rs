@@ -354,8 +354,8 @@ fn set_position_inner(
     y: crate::types::Fixed,
     mark_dirty: bool,
 ) {
-    use crate::types::{Dimension, Fixed, Rect};
-    use dirty::{Dirty, PrevRect};
+    use crate::types::Dimension;
+    use dirty::Dirty;
 
     let next_left = Dimension::Px(x);
     let next_top = Dimension::Px(y);
@@ -366,30 +366,6 @@ fn set_position_inner(
         return;
     }
 
-    if let Some(style) = world.get::<Style>(entity) {
-        let l = &style.layout;
-        let old_rect = Rect {
-            x: l.left.resolve_or(Fixed::ZERO, Fixed::ZERO),
-            y: l.top.resolve_or(Fixed::ZERO, Fixed::ZERO),
-            w: l.width.resolve_or(Fixed::ZERO, Fixed::ZERO),
-            h: l.height.resolve_or(Fixed::ZERO, Fixed::ZERO),
-        };
-        let new_rect = Rect {
-            x,
-            y,
-            w: old_rect.w,
-            h: old_rect.h,
-        };
-        if old_rect.pixel_bounds() != new_rect.pixel_bounds() && mark_dirty {
-            let (x0, y0, x1, y1) = old_rect.pixel_bounds();
-            let axis_old = Rect::new(x0, y0, x1 - x0, y1 - y0);
-            let merged = match world.get::<PrevRect>(entity) {
-                Some(p) => p.0.union(&axis_old),
-                None => axis_old,
-            };
-            world.insert(entity, PrevRect(merged));
-        }
-    }
     if let Some(style) = world.get_mut::<Style>(entity) {
         style.layout.left = next_left;
         style.layout.top = next_top;

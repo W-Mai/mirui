@@ -29,6 +29,8 @@ ui! {
 
 Low-level callers use `render_system::try_update_layout` to receive layout failures and stop before drawing. `collect_dirty_region` and `collect_dirty_regions` also return `Result` with `TextLayoutFailure`; `App::dirty_region()` maps failures to `RenderError::TextLayout`. An empty successful query is distinct from a failed layout. A failed pass also records a `TextLayoutFailure` World resource and invalidates cached geometry for retry, but does not restore text-cache entries already retired during preparation.
 
+`App` records painted bounds after successful full and partial renders. Low-level render loops call `render_system::seed_prev_rects` after drawing successfully and before further state changes; collecting damage does not record a frame as painted.
+
 ## Bound dynamic content
 
 `capacity` reserves UTF-8 content storage for a `Text` or `Button` label. A reactive expression can format directly into a stack buffer and copy a complete value into that storage without allocating during the content update:

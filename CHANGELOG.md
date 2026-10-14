@@ -87,6 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Painted widget bounds are recorded after successful full or partial renders, including scroll-transferred descendants. Position updates and damage collection no longer overwrite the rendered baseline.
+
 - Page Studio keeps navigation actions within the page padding and sizes artwork to the remaining content space.
 
 - Slider fill clipping follows the component transform during page transitions.

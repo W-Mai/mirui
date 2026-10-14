@@ -354,7 +354,7 @@ fn seed_prev_rect_walk(
         ..node.rect
     };
     let (tf, tf_3d) = render_transforms(*parent_transform, *parent_3d, world, entity, shifted_rect);
-    let effective_rect = planned_visual_bounds(
+    let mut effective_rect = planned_visual_bounds(
         world,
         entity,
         shifted_rect,
@@ -364,6 +364,12 @@ fn seed_prev_rect_walk(
         *idx,
         output_plan,
     );
+    if let Some(inflate) = world.get::<super::dirty::PaintInflate>(entity) {
+        effective_rect.x -= inflate.left;
+        effective_rect.y -= inflate.top;
+        effective_rect.w += inflate.left + inflate.right;
+        effective_rect.h += inflate.top + inflate.bottom;
+    }
     let x0 = effective_rect.x.floor();
     let y0 = effective_rect.y.floor();
     let x1 = (effective_rect.x + effective_rect.w).ceil();
@@ -399,9 +405,7 @@ fn seed_prev_rect_walk(
     }
 }
 
-/// After a full-screen render, stash each widget's effective bbox so
-/// the next dirty pass knows the pixels just written and can include
-/// them in its union (erasing any residue when widgets move/shrink).
+/// Record paint bounds after a successful full or dirty render, including descendants moved by scroll transfers. Call before subsequent state changes; collecting damage does not advance these bounds.
 pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
     let (logical_w, logical_h) = transform.logical_size();
     if let Some(snapshot) = world.take_resource_box::<LayoutSnapshot>() {
@@ -3087,11 +3091,6 @@ fn push_entity_dirty(
             None => curr,
         }
     };
-    let (cx0, cy0, cx1, cy1) = curr.pixel_bounds();
-    world.insert(
-        entity,
-        super::dirty::PrevRect(Rect::new(cx0, cy0, cx1 - cx0, cy1 - cy0)),
-    );
     world.remove::<Dirty>(entity);
     world.remove::<super::dirty::VisualDirty>(entity);
     if let Some(clip) = scroll_clip {
@@ -4288,6 +4287,7 @@ mod layout_snapshot_reuse_check {
         let mut plan = DirtyRegions::default();
         world.invalidate(child);
         try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
+        seed_prev_rects(&mut world, root, &viewport);
         let snapshot = world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot;
         let allocations = crate::test_support::tracked_allocations(|| {
             for width in [20, 5, 20, 5] {
@@ -4328,6 +4328,7 @@ mod layout_snapshot_reuse_check {
 
         world.insert(child, Dirty);
         try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
+        seed_prev_rects(&mut world, root, &viewport);
         let snapshot = world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot;
 
         crate::ui::property::apply_to_world::<crate::ui::property::prop::Transform>(
@@ -8666,8 +8667,7 @@ mod offscreen_render_check {
 
         let viewport = Viewport::new(64, 64, Fixed::ONE);
 
-        // Frame 1: child goes Dirty. Walker bumps generation, includes
-        // panel rect in bounds, sets PrevRect on panel.
+        // Frame 1: collection promotes the panel; only paint confirmation records its bounds.
         world.insert(child, Dirty);
         let b1 = super::collect_dirty_region(&mut world, panel, &viewport).unwrap();
         assert!(b1.is_some(), "frame 1 must report bounds");
@@ -8676,6 +8676,8 @@ mod offscreen_render_check {
             .map(|g| g.0)
             .unwrap_or(0);
         assert_eq!(g1, 1, "frame 1 generation = 1");
+        assert!(world.get::<PrevRect>(panel).is_none());
+        super::seed_prev_rects(&mut world, panel, &viewport);
         assert!(world.get::<PrevRect>(panel).is_some(), "panel PrevRect set");
 
         // Frame 2: child goes Dirty again. Walker must bump generation

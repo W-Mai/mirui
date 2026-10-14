@@ -41,19 +41,13 @@ mod tests {
     }
 
     #[test]
-    fn set_position_stores_prev_rect_on_pixel_change() {
+    fn set_position_does_not_invent_a_painted_baseline() {
         let (mut world, _root, child) = setup_world();
 
         // Move from (10, 20) to (15, 25) — pixels change
         mirui::ui::set_position(&mut world, child, 15, 25);
 
-        let prev = world.get::<PrevRect>(child);
-        assert!(
-            prev.is_some(),
-            "PrevRect should be stored when pixels change"
-        );
-        let pr = prev.unwrap().0;
-        assert_eq!(pr.pixel_bounds(), (10, 20, 26, 36));
+        assert!(world.get::<PrevRect>(child).is_none());
     }
 
     #[test]
@@ -72,7 +66,9 @@ mod tests {
 
     #[test]
     fn set_position_subpixel_boundary_crossing() {
-        let (mut world, _root, child) = setup_world();
+        let (mut world, root, child) = setup_world();
+        let transform = Viewport::new(128, 128, Fixed::ONE);
+        mirui::ui::render_system::seed_prev_rects(&mut world, root, &transform);
 
         // First move to subpixel position
         mirui::ui::set_position(
@@ -82,17 +78,9 @@ mod tests {
             Fixed::from_int(20),
         );
 
-        // PrevRect should cover old pixel footprint
+        // The recorded frame remains the baseline until another render succeeds.
         let prev = world.get::<PrevRect>(child).unwrap().0;
-        // Old was (10, 20, 16, 16), new is (10.78, 20) -> pixel (10, 20, 17, 16)
-        // They differ in width (16 vs 17), so PrevRect stored
         assert_eq!(prev.pixel_bounds(), (10, 20, 26, 36));
-
-        // Clear PrevRect, update style manually for next test
-        world.remove::<PrevRect>(child);
-        if let Some(style) = world.get_mut::<Style>(child) {
-            style.layout.left = Dimension::Px(Fixed::from_ratio(10 * 256 + 200, 256));
-        }
 
         // Move from 10.78 to 11.2 — pixel x changes from 10 to 11
         mirui::ui::set_position(
@@ -103,13 +91,15 @@ mod tests {
         );
 
         let prev = world.get::<PrevRect>(child).unwrap().0;
-        // Old was (10.78, 20, 16, 16) -> pixel (10, 20, 17, 16)
-        assert_eq!(prev.pixel_bounds(), (10, 20, 27, 36));
+        // Unpainted intermediate positions do not change the baseline.
+        assert_eq!(prev.pixel_bounds(), (10, 20, 26, 36));
     }
 
     #[test]
     fn dirty_region_covers_both_old_and_new() {
         let (mut world, root, child) = setup_world();
+        let transform = Viewport::new(128, 128, Fixed::ONE);
+        mirui::ui::render_system::seed_prev_rects(&mut world, root, &transform);
 
         // Move widget
         mirui::ui::set_position(&mut world, child, 50, 60);
@@ -138,6 +128,8 @@ mod tests {
     #[test]
     fn dirty_region_covers_subpixel_edges() {
         let (mut world, root, child) = setup_world();
+        let transform = Viewport::new(128, 128, Fixed::ONE);
+        mirui::ui::render_system::seed_prev_rects(&mut world, root, &transform);
 
         // Move to subpixel position
         mirui::ui::set_position(
@@ -220,6 +212,8 @@ mod tests {
                 children.0.push(child);
             }
 
+            let transform = Viewport::new(128, 128, Fixed::ONE);
+            mirui::ui::render_system::seed_prev_rects(&mut world, root, &transform);
             mirui::ui::set_position(&mut world, child, new_x, new_y);
 
             if world.get::<Dirty>(child).is_none() {
@@ -333,6 +327,8 @@ mod tests {
                 render_system::render(&world, root, &transform, &mut renderer).unwrap();
             }
 
+            render_system::seed_prev_rects(&mut world, root, &transform);
+
             // Simulate 10-30 frames of movement
             let num_frames = 10 + (rng() % 20) as usize;
             let vel_x = Fixed::from_ratio(rng() % 512 - 256, 256); // -1..+1 px/frame
@@ -360,6 +356,7 @@ mod tests {
                         SwRenderer::new(Texture::new(&mut buf, W, H, ColorFormat::RGBA8888));
                     render_system::render_region(&world, root, &transform, &area, &mut renderer)
                         .unwrap();
+                    render_system::seed_prev_rects(&mut world, root, &transform);
                 }
             }
 
@@ -472,6 +469,7 @@ mod tests {
                 render_system::render(&world, root, &transform, &mut renderer).unwrap();
             }
 
+            render_system::seed_prev_rects(&mut world, root, &transform);
             let num_frames = 10 + (rng() % 20) as usize;
             for _ in 0..num_frames {
                 for i in 0..NUM_WIDGETS {
@@ -494,6 +492,7 @@ mod tests {
                         SwRenderer::new(Texture::new(&mut buf, W, H, ColorFormat::RGBA8888));
                     render_system::render_region(&world, root, &transform, &area, &mut renderer)
                         .unwrap();
+                    render_system::seed_prev_rects(&mut world, root, &transform);
                 }
             }
 

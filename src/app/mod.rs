@@ -1673,7 +1673,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 .mirror_and_advance(&mut self.backend, &plan, &transform);
             self.needs_full_first_frame = false;
             self.last_flush_ns = self.clock_ns().saturating_sub(render_end);
-            self.last_seed_prev_ns = 0;
+            let seed_start = self.clock_ns();
+            render_system::seed_prev_rects(&mut self.world, root, &transform);
+            self.last_seed_prev_ns = self.clock_ns().saturating_sub(seed_start);
 
             {
                 crate::trace_span!("frame.finalize");
@@ -2045,6 +2047,102 @@ mod app_invariant_tests {
     use crate::ui::render_system::{TextLayoutFailureKind, TextLayoutStage};
     use crate::ui::widgets::text::Text;
     use crate::ui::{Children, HitTarget, Parent};
+
+    #[crate::compose]
+    fn painted_bounds_scene() {
+        crate::ui! {
+            View(id: "scroll", width: 48, height: 32, clip_children: true)
+                [crate::input::event::scroll::ScrollOffset::default()] {
+                View(id: "marker", position: crate::ui::layout::Position::Absolute,
+                    left: 8, top: 16, width: 8, height: 8,
+                    bg_color: crate::types::Color::rgb(20, 220, 80))
+            }
+        };
+    }
+
+    #[test]
+    fn paint_bounds_advance_after_scroll_render_without_a_descendant_redraw() {
+        use crate::input::event::scroll::{ScrollDelta, ScrollOffset};
+        use crate::ui::dirty::PrevRect;
+
+        let mut app = App::headless(48, 32);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.compose(root, painted_bounds_scene());
+        let scroll = app.world.find_by_id("scroll").unwrap();
+        let marker = app.world.find_by_id("marker").unwrap();
+        app.render().unwrap();
+        let viewport = app.backend.viewport();
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                render_system::seed_prev_rects(&mut app.world, root, &viewport);
+            }),
+            0
+        );
+        let mut previous = 0;
+        for offset in [8, 12, 4] {
+            app.world.get_mut::<ScrollOffset>(scroll).unwrap().y = Fixed::from_int(offset);
+            app.world.insert(
+                scroll,
+                ScrollDelta {
+                    dx: Fixed::ZERO,
+                    dy: Fixed::from_int(offset - previous),
+                },
+            );
+            app.world.invalidate_visual(scroll);
+            assert!(!app.world.has::<Dirty>(marker));
+            app.render_dirty().unwrap();
+            assert_eq!(
+                app.world
+                    .resource::<LastDirtyRegions>()
+                    .unwrap()
+                    .0
+                    .shifts
+                    .len(),
+                1
+            );
+            assert_eq!(
+                app.world.get::<PrevRect>(marker).unwrap().0,
+                Rect::new(8, 16 - offset, 8, 8)
+            );
+            let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+            app.render().unwrap();
+            assert_eq!(app.backend.framebuffer().buf.as_slice(), dirty);
+            previous = offset;
+        }
+    }
+
+    #[test]
+    fn positioning_and_collection_preserve_painted_bounds() {
+        use crate::ui::dirty::{PaintInflate, PrevRect};
+
+        let mut app = App::headless(48, 32);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.compose(root, painted_bounds_scene());
+        let marker = app.world.find_by_id("marker").unwrap();
+        app.world.insert(
+            marker,
+            PaintInflate {
+                left: Fixed::ONE,
+                ..Default::default()
+            },
+        );
+        app.render().unwrap();
+        let painted = Rect::new(7, 16, 9, 8);
+        assert_eq!(app.world.get::<PrevRect>(marker).unwrap().0, painted);
+        for left in [32, 2, 20] {
+            crate::ui::set_position(&mut app.world, marker, left, 16);
+            assert_eq!(app.world.get::<PrevRect>(marker).unwrap().0, painted);
+            app.dirty_region().unwrap();
+            assert_eq!(app.world.get::<PrevRect>(marker).unwrap().0, painted);
+        }
+        app.render().unwrap();
+        assert_eq!(
+            app.world.get::<PrevRect>(marker).unwrap().0,
+            Rect::new(19, 16, 9, 8)
+        );
+    }
 
     #[test]
     fn text_raster_scratch_hints_share_one_maximum_extent() {
