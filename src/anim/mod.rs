@@ -617,6 +617,44 @@ mod tests {
     }
 
     #[test]
+    fn generated_motion_system_uses_both_transition_algorithms_and_retires_at_completion() {
+        for config in [
+            Transition::from(BOUNCY),
+            TweenConfig::new(300, &ease::OUT_CUBIC).into(),
+        ] {
+            let mut world = crate::ecs::World::new();
+            world.insert_resource(DeltaTimeMs(16));
+            let entity = world.spawn_empty();
+            world.insert(entity, AnimatedValue(Fixed::ZERO));
+            let mut expected = config.motion(Fixed::ZERO, Fixed::ONE);
+            world.insert(entity, GeneratedMotion(expected));
+            let mut scheduler = crate::ecs::SystemScheduler::new();
+            scheduler.add(GeneratedMotion::system());
+            world.insert(
+                entity,
+                GeneratedMotion(Tween::ease_to(Fixed::ZERO, Fixed::ONE, 1).into()),
+            );
+            scheduler.run_all(&mut world).unwrap();
+            world.insert(entity, GeneratedMotion(expected));
+            expected.tick(16);
+            scheduler.run_all(&mut world).unwrap();
+            let allocations = tracked_allocations(|| {
+                for _ in 0..200 {
+                    expected.tick(16);
+                    scheduler.run_all(&mut world).unwrap();
+                    assert_eq!(
+                        world.get::<AnimatedValue>(entity).unwrap().0,
+                        expected.value()
+                    );
+                    assert_eq!(world.has::<GeneratedMotion>(entity), !expected.is_done());
+                }
+            });
+            assert_eq!(allocations, 0);
+            assert!(expected.is_done());
+        }
+    }
+
+    #[test]
     fn generated_motion_system_removes_completed_motion() {
         let mut world = crate::ecs::World::new();
         world.insert_resource(DeltaTimeMs(16));

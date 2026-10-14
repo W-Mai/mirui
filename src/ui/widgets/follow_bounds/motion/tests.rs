@@ -6,6 +6,75 @@ use crate::ui::widgets::follow_bounds::tests::{fixture, rect};
 use crate::ui::{Hidden, Style};
 
 #[test]
+fn tween_following_preserves_progress_across_layout_preparations_and_reconfiguration() {
+    use crate::anim::{Tween, TweenConfig, ease};
+    let (mut app, root, source, follower) = fixture();
+    let config = TweenConfig::new(160, &ease::OUT_CUBIC);
+    app.world
+        .get_mut::<FollowBounds>(follower)
+        .unwrap()
+        .transition = Some(config.into());
+    app.render().unwrap();
+    app.world.get_mut::<Style>(source).unwrap().layout.left = Dimension::px(24);
+    app.world.invalidate(source);
+    app.render_dirty().unwrap();
+    let mut expected = Tween::preset((-54).into(), (-34).into(), config);
+    let viewport = crate::types::Viewport::new(128, 96, Fixed::ONE);
+    for _ in 0..10 {
+        app.tick();
+        expected.tick(16);
+        for _ in 0..3 {
+            crate::ui::render_system::prepare_input_geometry(&mut app.world, root, &viewport)
+                .unwrap();
+        }
+        app.render_dirty().unwrap();
+        let Motion::Tween(actual) = app.world.get::<FollowMotion>(follower).unwrap().axes[0] else {
+            panic!("expected tween");
+        };
+        assert_eq!(actual.elapsed_ms, expected.elapsed_ms);
+        assert_eq!(
+            rect(&app, follower).x,
+            expected.value() + Fixed::from_int(70)
+        );
+        let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+        app.render().unwrap();
+        assert_eq!(dirty, app.backend.framebuffer().buf.as_slice());
+    }
+    assert!(expected.is_finished());
+    assert_eq!(rect(&app, follower), rect(&app, source));
+    app.world.get_mut::<Style>(source).unwrap().layout.left = Dimension::px(4);
+    app.world.invalidate(source);
+    app.render_dirty().unwrap();
+    for config in [
+        Transition::from(BOUNCY),
+        TweenConfig::new(250, &ease::IN_OUT_CUBIC).into(),
+    ] {
+        app.tick();
+        app.render_dirty().unwrap();
+        let before = rect(&app, follower);
+        app.world
+            .get_mut::<FollowBounds>(follower)
+            .unwrap()
+            .transition = Some(config);
+        app.world.invalidate(follower);
+        app.render_dirty().unwrap();
+        assert_eq!(rect(&app, follower), before);
+        assert!(matches!(
+            (
+                config,
+                app.world.get::<FollowMotion>(follower).unwrap().axes[0]
+            ),
+            (Transition::Tween(_), Motion::Tween(_)) | (Transition::Spring(_), Motion::Spring(_))
+        ));
+    }
+    for _ in 0..20 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    assert_eq!(rect(&app, follower), rect(&app, source));
+}
+
+#[test]
 fn first_placement_is_immediate_and_registered_motion_matches_shared_spring() {
     let (mut app, _, source, follower) = fixture();
     app.world
@@ -81,67 +150,78 @@ fn retarget_keeps_velocity_and_dirty_pixels_match_full_frames() {
 
 #[test]
 fn hidden_recovery_and_disabling_motion_do_not_replay_stale_bounds() {
-    let (mut app, _, source, follower) = fixture();
-    app.world
-        .get_mut::<FollowBounds>(follower)
-        .unwrap()
-        .transition = Some(SMOOTH.into());
-    app.render().unwrap();
-    app.world.insert(source, Hidden);
-    app.world.invalidate(source);
-    app.render_dirty().unwrap();
-    app.tick();
-    app.world.get_mut::<Style>(source).unwrap().layout.width = Dimension::px(12);
-    app.world.remove::<Hidden>(source);
-    app.world.invalidate(source);
-    app.render_dirty().unwrap();
-    assert_eq!(rect(&app, follower), rect(&app, source));
     for config in [
-        None,
-        Some(SpringConfig {
-            duration_ms: 0,
-            ..SMOOTH
-        }),
+        crate::anim::Transition::from(crate::anim::INTERACTIVE),
+        crate::anim::TweenConfig::new(300, &crate::anim::ease::OUT_CUBIC).into(),
     ] {
+        let (mut app, _, source, follower) = fixture();
         app.world
             .get_mut::<FollowBounds>(follower)
             .unwrap()
-            .transition = config.map(Into::into);
-        app.world.get_mut::<Style>(source).unwrap().layout.width = Dimension::px(10);
+            .transition = Some(config);
+        app.render().unwrap();
+        app.world.insert(source, Hidden);
         app.world.invalidate(source);
-        app.world.invalidate(follower);
         app.render_dirty().unwrap();
-        assert!(!app.world.has::<FollowMotion>(follower));
+        app.tick();
+        app.world.get_mut::<Style>(source).unwrap().layout.width = Dimension::px(12);
+        app.world.remove::<Hidden>(source);
+        app.world.invalidate(source);
+        app.render_dirty().unwrap();
         assert_eq!(rect(&app, follower), rect(&app, source));
+        for config in [
+            None,
+            Some(Transition::from(SpringConfig {
+                duration_ms: 0,
+                ..SMOOTH
+            })),
+            Some(crate::anim::TweenConfig::new(0, &crate::anim::ease::LINEAR).into()),
+        ] {
+            app.world
+                .get_mut::<FollowBounds>(follower)
+                .unwrap()
+                .transition = config;
+            app.world.get_mut::<Style>(source).unwrap().layout.width = Dimension::px(10);
+            app.world.invalidate(source);
+            app.world.invalidate(follower);
+            app.render_dirty().unwrap();
+            assert!(!app.world.has::<FollowMotion>(follower));
+            assert_eq!(rect(&app, follower), rect(&app, source));
+        }
     }
 }
 
 #[test]
 fn prepared_animation_reuses_storage_and_static_followers_have_no_motion_state() {
-    let (mut app, _, source, follower) = fixture();
-    app.render().unwrap();
-    assert!(!app.world.has::<FollowMotion>(follower));
-    app.world
-        .get_mut::<FollowBounds>(follower)
-        .unwrap()
-        .transition = Some(SMOOTH.into());
-    app.world.invalidate(follower);
-    app.render_dirty().unwrap();
-    for _ in 0..3 {
-        app.tick();
+    for config in [
+        crate::anim::Transition::from(crate::anim::INTERACTIVE),
+        crate::anim::TweenConfig::new(300, &crate::anim::ease::OUT_CUBIC).into(),
+    ] {
+        let (mut app, _, source, follower) = fixture();
+        app.render().unwrap();
+        assert!(!app.world.has::<FollowMotion>(follower));
+        app.world
+            .get_mut::<FollowBounds>(follower)
+            .unwrap()
+            .transition = Some(config);
+        app.world.invalidate(follower);
         app.render_dirty().unwrap();
-    }
-    app.world.get_mut::<Style>(source).unwrap().layout.width = Dimension::px(12);
-    app.world.invalidate(source);
-    app.render_dirty().unwrap();
-    let allocations = crate::test_support::tracked_allocations(|| {
-        for _ in 0..120 {
+        for _ in 0..3 {
             app.tick();
             app.render_dirty().unwrap();
         }
-    });
-    assert_eq!(allocations, 0);
-    assert_eq!(rect(&app, follower), rect(&app, source));
+        app.world.get_mut::<Style>(source).unwrap().layout.width = Dimension::px(12);
+        app.world.invalidate(source);
+        app.render_dirty().unwrap();
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for _ in 0..120 {
+                app.tick();
+                app.render_dirty().unwrap();
+            }
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(rect(&app, follower), rect(&app, source));
+    }
 }
 
 #[test]

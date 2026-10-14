@@ -23,66 +23,76 @@ fn finish_pair(app: &mut TestApp, stack: Entity) {
 
 #[test]
 fn animated_push_reverses_to_the_retained_root_and_pop_uses_the_opposite_direction() {
-    let (mut app, stack, path) = setup(0);
-    app.world
-        .get_mut::<NavigationStack<Route>>(stack)
-        .unwrap()
-        .transition = PageTransition::slide(crate::anim::INTERACTIVE);
-    let root = shown(&app.world, stack);
-    path.push(Route::Details(1)).unwrap();
-    app.render().unwrap();
-    let first = shown(&app.world, stack);
-    animate(&mut app, 80);
-    path.pop().unwrap();
-    settle(&mut app);
-    finish_pair(&mut app, stack);
-    assert_eq!(shown(&app.world, stack), root);
-    assert!(!app.world.is_alive(first));
-    path.push(Route::Details(2)).unwrap();
-    app.render().unwrap();
-    finish_pair(&mut app, stack);
-    let second = shown(&app.world, stack);
-    path.pop().unwrap();
-    app.render().unwrap();
-    let offset = app.world.get::<mount::PageOffset>(root).unwrap().0;
-    assert_eq!(offset, -Fixed::ONE);
-    assert!(app.world.is_alive(second));
-    finish_pair(&mut app, stack);
-    assert!(!app.world.is_alive(second));
-    assert_eq!(shown(&app.world, stack), root);
+    for config in [
+        crate::anim::Transition::from(crate::anim::INTERACTIVE),
+        crate::anim::TweenConfig::new(300, &crate::anim::ease::OUT_CUBIC).into(),
+    ] {
+        let (mut app, stack, path) = setup(0);
+        app.world
+            .get_mut::<NavigationStack<Route>>(stack)
+            .unwrap()
+            .transition = PageTransition::slide(config);
+        let root = shown(&app.world, stack);
+        path.push(Route::Details(1)).unwrap();
+        app.render().unwrap();
+        let first = shown(&app.world, stack);
+        animate(&mut app, 80);
+        path.pop().unwrap();
+        settle(&mut app);
+        finish_pair(&mut app, stack);
+        assert_eq!(shown(&app.world, stack), root);
+        assert!(!app.world.is_alive(first));
+        path.push(Route::Details(2)).unwrap();
+        app.render().unwrap();
+        finish_pair(&mut app, stack);
+        let second = shown(&app.world, stack);
+        path.pop().unwrap();
+        app.render().unwrap();
+        let offset = app.world.get::<mount::PageOffset>(root).unwrap().0;
+        assert_eq!(offset, -Fixed::ONE);
+        assert!(app.world.is_alive(second));
+        finish_pair(&mut app, stack);
+        assert!(!app.world.is_alive(second));
+        assert_eq!(shown(&app.world, stack), root);
+    }
 }
 
 #[test]
 fn animated_path_changes_keep_the_latest_goal_and_prune_departed_entries() {
-    let (mut app, stack, path) = setup(0);
-    app.world
-        .get_mut::<NavigationStack<Route>>(stack)
-        .unwrap()
-        .transition = PageTransition::slide(crate::anim::INTERACTIVE);
-    let root = shown(&app.world, stack);
-    path.push(Route::Details(1)).unwrap();
-    app.render().unwrap();
-    let first = shown(&app.world, stack);
-    for id in 2..10 {
-        path.clear().unwrap();
-        path.push(Route::Details(id)).unwrap();
-        settle(&mut app);
-        assert_eq!(app.world.query::<Text>().iter().count(), 2);
-    }
-    finish_pair(&mut app, stack);
-    assert!(transition::running(&app.world, stack).is_some());
-    finish_pair(&mut app, stack);
-    assert!(!app.world.is_alive(first));
-    assert_eq!(app.world.query::<Text>().iter().count(), 2);
-    assert!(app.world.has::<Hidden>(root));
-    assert_eq!(
+    for config in [
+        crate::anim::Transition::from(crate::anim::INTERACTIVE),
+        crate::anim::TweenConfig::new(300, &crate::anim::ease::OUT_CUBIC).into(),
+    ] {
+        let (mut app, stack, path) = setup(0);
         app.world
-            .get::<StackState<Route>>(stack)
+            .get_mut::<NavigationStack<Route>>(stack)
             .unwrap()
-            .pages
-            .len(),
-        1
-    );
+            .transition = PageTransition::slide(config);
+        let root = shown(&app.world, stack);
+        path.push(Route::Details(1)).unwrap();
+        app.render().unwrap();
+        let first = shown(&app.world, stack);
+        for id in 2..10 {
+            path.clear().unwrap();
+            path.push(Route::Details(id)).unwrap();
+            settle(&mut app);
+            assert_eq!(app.world.query::<Text>().iter().count(), 2);
+        }
+        finish_pair(&mut app, stack);
+        assert!(transition::running(&app.world, stack).is_some());
+        finish_pair(&mut app, stack);
+        assert!(!app.world.is_alive(first));
+        assert_eq!(app.world.query::<Text>().iter().count(), 2);
+        assert!(app.world.has::<Hidden>(root));
+        assert_eq!(
+            app.world
+                .get::<StackState<Route>>(stack)
+                .unwrap()
+                .pages
+                .len(),
+            1
+        );
+    }
 }
 
 #[derive(Clone)]
