@@ -1711,6 +1711,7 @@
         const portraitQuery = window.matchMedia("(orientation: portrait)");
         const defaultFixedCanvasMaxScale = 1.5;
         const defaultFixedCanvasInset = () => mobileQuery.matches ? 12 : 24;
+        const defaultResizableCanvasSize = { width: 640, height: 480 };
 
         // ── Canvas sizing ──────────────────────────────────────
         function optionalBound(value) {
@@ -1831,8 +1832,11 @@
             };
           }
           const available = availableCanvasBounds();
-          const width = clampAxis(requested ? requested.width : available.width, contract.minWidth, contract.maxWidth);
-          const height = clampAxis(requested ? requested.height : available.height, contract.minHeight, contract.maxHeight);
+          const preferred = orientationSwapped
+            ? { width: defaultResizableCanvasSize.height, height: defaultResizableCanvasSize.width }
+            : defaultResizableCanvasSize;
+          const width = clampAxis(requested ? requested.width : Math.min(available.width, contract.maxWidth ?? preferred.width), contract.minWidth, contract.maxWidth);
+          const height = clampAxis(requested ? requested.height : Math.min(available.height, contract.maxHeight ?? preferred.height), contract.minHeight, contract.maxHeight);
           return {
             fixed: false,
             logicalWidth: width,

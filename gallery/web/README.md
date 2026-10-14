@@ -32,6 +32,8 @@ The Play section contains thirteen fixed 480×320 applications. Each application
 
 The demo workspace groups the remaining entries by their registry category and retains the canvas size controls, source panel, theme selection, and query-string routes.
 
+Resizable demos without upper size bounds open at 640×480, constrained by the available space and their minimum dimensions. Dragging the resize handle can enlarge either axis beyond that initial size; reset restores the default size.
+
 `?demo=nearby` opens the Nearby local-session demo. `Entry` switches between the system menu and an already-running game. `Case` selects normal operation, connection or restoration failure, an existing room, empty discovery, reconnection, peer closure, an empty game library or an unsupported game. Cards and `Confirm` perform local actions; `Next` delivers simulated backend or peer progress. `Back` cancels or exits, `Refresh` repeats room discovery, and `Restart` resets the selected case. In-game cancellation returns to solo play; menu entry returns to game selection; network-only completion can return to the system while keeping the connection. Exit screens represent these outcomes without starting another process or opening network connections. The canvas resizes independently in width and height, with a minimum logical size of 360×480. Its 12px and 24px Chinese pixel fonts include only the bundled interface charset; font sources and licenses are recorded alongside the assets.
 
 The source panel embeds each demo's root module and listed child modules. Each Lab keeps its primary `ui!` tree inside the focused source region and moves named sections into `#[compose]` functions.
