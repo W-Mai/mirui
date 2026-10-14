@@ -11,6 +11,66 @@ pub enum Page {
     Leaving,
     Unavailable,
     Games,
+    Outcome,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LaunchSource {
+    #[default]
+    Menu,
+    Game,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Outcome {
+    #[default]
+    System,
+    SinglePlayer,
+    Multiplayer,
+    KeepNetwork,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Scenario {
+    #[default]
+    Normal,
+    ConnectionFailure,
+    RestoreFailure,
+    ExistingRoom,
+    EmptyRooms,
+    Reconnect,
+    PeerClosed,
+    EmptyGames,
+    UnsupportedGame,
+}
+
+impl Scenario {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Normal => Self::ConnectionFailure,
+            Self::ConnectionFailure => Self::RestoreFailure,
+            Self::RestoreFailure => Self::ExistingRoom,
+            Self::ExistingRoom => Self::EmptyRooms,
+            Self::EmptyRooms => Self::Reconnect,
+            Self::Reconnect => Self::PeerClosed,
+            Self::PeerClosed => Self::EmptyGames,
+            Self::EmptyGames => Self::UnsupportedGame,
+            Self::UnsupportedGame => Self::Normal,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Normal => "Case: normal",
+            Self::ConnectionFailure => "Case: fail",
+            Self::RestoreFailure => "Case: restore",
+            Self::ExistingRoom => "Case: occupied",
+            Self::EmptyRooms => "Case: empty",
+            Self::Reconnect => "Case: reconnect",
+            Self::PeerClosed => "Case: closed",
+            Self::EmptyGames => "Case: no games",
+            Self::UnsupportedGame => "Case: unsupported",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -48,6 +108,8 @@ pub struct RoomRow {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Snapshot {
+    pub source: LaunchSource,
+    pub outcome: Outcome,
     pub network_only: bool,
     pub connected: bool,
     pub local_address: String,

@@ -2,7 +2,7 @@ use super::choices::{choice, games, rooms};
 use super::chrome::{footer, header};
 use super::data::{Page, Snapshot};
 use super::model::DisplayState;
-use super::sessions::{host, joined, leaving, network_panel, unavailable};
+use super::sessions::{host, joined, leaving, network_panel, outcome, unavailable};
 use super::style::*;
 use crate::prelude::*;
 use crate::ui::widgets::{Text, TextAlign};
@@ -29,6 +29,7 @@ pub(super) fn page(
         }
         Page::Rooms => "选择好友的房间",
         Page::Games => &view.title,
+        Page::Outcome => "LOCAL DEMO",
         Page::Joined => "加入房间",
         Page::Leaving => "退出联机",
         Page::Unavailable => "附近联机",
@@ -40,28 +41,28 @@ pub(super) fn page(
             min_height: 0,
             bg_color: BACKGROUND,
             padding: Padding::all(if metrics.compact { 8 } else { 24 }),
-            row_gap: metrics.gap,
+            row_gap: metrics.gap
         ) {
             header (
                 view,
                 state,
-                metrics,
+                metrics
             )
             View (
                 height: 1,
                 shrink: 0.0,
-                bg_color: DIVIDER,
+                bg_color: DIVIDER
             )
             Column (
                 grow: 1.0,
                 min_height: 0,
-                row_gap: metrics.gap,
+                row_gap: metrics.gap
             ) {
                 Row (
                     height: i32::from(metrics.title) + 8,
                     shrink: 0.0,
                     align: AlignItems::Center,
-                    column_gap: metrics.gap,
+                    column_gap: metrics.gap
                 ) {
                     Text (
                         heading.to_owned(),
@@ -72,19 +73,19 @@ pub(super) fn page(
                         font: font(metrics.title),
                         font_size: metrics.title,
                         text_color: FOREGROUND,
-                        paragraph: paragraph(Start, 1),
+                        paragraph: paragraph(Start, 1)
                     )
                     Row (
                         width: 36,
                         shrink: 0.0,
                         align: AlignItems::Center,
-                        justify: JustifyContent::SpaceBetween,
+                        justify: JustifyContent::SpaceBetween
                     ) {
                         walk 0_usize..3 with index {
                             View (
                                 width: 6,
                                 height: 6,
-                                bg_color: ${state.activity()[index]},
+                                bg_color: ${ state.activity()[index] }
                             )
                         }
                     }
@@ -100,31 +101,49 @@ pub(super) fn page(
                     font_size: metrics.small,
                     text_color: SECONDARY,
                     paragraph: paragraph(Start, 2),
-                    clip_children: true,
+                    clip_children: true
                 )
                 if view.network_only && matches!(view.page, Page::Host | Page::Joined) {
-                    network_panel(view, state, metrics, frame)
-                } else { match view.page {
-                    Page::Choice | Page::Mode => { choice(view, state, metrics, frame) }
-                    Page::Host => { host(view, state, metrics, frame) }
-                    Page::Rooms => { rooms(view, state, metrics, frame) }
-                    Page::Joined => { joined(view, state, metrics) }
-                    Page::Leaving => { leaving(state, metrics) }
-                    Page::Unavailable => { unavailable(metrics) }
-                    Page::Games => { games(view, state, metrics, frame) }
-                } }
+                    network_panel (view, state, metrics, frame)
+                } else {
+                    match view.page {
+                        Page :: Choice | Page :: Mode => {
+                            choice (view, state, metrics, frame)
+                        }
+                        Page :: Host => {
+                            host (view, state, metrics, frame)
+                        }
+                        Page :: Rooms => {
+                            rooms (view, state, metrics, frame)
+                        }
+                        Page :: Joined => {
+                            joined (view, state, metrics)
+                        }
+                        Page :: Leaving => {
+                            leaving (state, metrics)
+                        }
+                        Page :: Unavailable => {
+                            unavailable (metrics)
+                        }
+                        Page :: Games => {
+                            games (view, state, metrics, frame)
+                        }
+                        Page :: Outcome => {
+                            outcome (view, metrics)
+                        }
+                    }
+                }
             }
             View (
                 height: 1,
                 shrink: 0.0,
-                bg_color: DIVIDER,
+                bg_color: DIVIDER
             )
             footer (
                 view,
                 state,
-                metrics,
+                metrics
             )
-
         }
     }
 }

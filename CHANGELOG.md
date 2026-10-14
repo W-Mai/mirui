@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Nearby demonstrates local room creation, joining and session states with reactive pages, bounds-following selection, and Chinese pixel typography.
+- Nearby provides menu and in-game entry, explicit local confirmation and simulated peer progress, recoverable failure cases, and game/system exit outcomes.
 
 - `App::dirty_regions()` borrows pending redraw and scroll-transfer coverage. Single-region and multi-region queries preserve pending drawing, including changes made between queries and rendering.
 

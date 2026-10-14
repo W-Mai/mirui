@@ -140,7 +140,7 @@ pub(super) fn rooms(
             StaticCache,
             OffscreenRender::default(),
         ] {
-            if view.rooms.is_empty() {
+            if !state.rooms_visible() || view.rooms.is_empty() {
                 Column (
                     grow: 1.0,
                     bg_color: PANEL,

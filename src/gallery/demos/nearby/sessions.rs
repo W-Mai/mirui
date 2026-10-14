@@ -8,6 +8,31 @@ use crate::ui::widgets::{Text, TextAlign};
 use TextAlign::Center;
 use TextField::{Headline, HostButton, Next, Peer};
 use alloc::{borrow::ToOwned, format, string::ToString, vec::Vec};
+
+#[compose]
+pub(super) fn outcome(view: &Snapshot, metrics: Metrics) -> Entity {
+    use super::data::Outcome;
+    let (title, detail) = match view.outcome {
+        Outcome::System => ("返回系统", "SYSTEM MENU"),
+        Outcome::SinglePlayer => ("单机游玩", "GAME RESUMED / SOLO"),
+        Outcome::Multiplayer => ("开始游戏", "GAME STARTED / MULTIPLAYER"),
+        Outcome::KeepNetwork => ("保持连接，返回系统", "SYSTEM MENU / NETWORK CONNECTED"),
+    };
+    ui! {
+        Column (
+            grow: 1.0,
+            bg_color: PANEL,
+            justify: JustifyContent::Center,
+            row_gap: metrics.gap,
+            padding: Padding::all(metrics.inset)
+        ) {
+            label (title, metrics.title, ACCENT, Center)
+            label (&view.title, metrics.body, FOREGROUND, Center)
+            label (detail, metrics.small, SECONDARY, Center)
+            label ("Restart / Back", metrics.small, SECONDARY, Center)
+        }
+    }
+}
 fn host_action_enabled(view: &Snapshot) -> bool {
     (view.ready || view.connected || view.phase == Phase::ApprovalPending) && !view.busy
 }

@@ -1,6 +1,9 @@
 use super::data::{Page, Phase};
 use super::model::Presentation;
 pub(super) fn loading(view: &Presentation) -> bool {
+    if view.page == Page::Outcome {
+        return false;
+    }
     if view.network_only && view.connected && view.phase == Phase::NetworkConnected {
         return view.busy;
     }
@@ -122,7 +125,9 @@ pub(super) fn button_text(view: &Presentation) -> &'static str {
         Phase::ApprovalPending => "确认加入",
         Phase::Starting => "正在开局",
         Phase::Closed | Phase::Failed => "按 B 返回",
-        Phase::Leaving | Phase::RestoreFailed => "正在退出房间",
+        Phase::RestoreFailed => "重试",
+        Phase::RoomActive => "关闭",
+        Phase::Leaving => "正在退出房间",
         _ => "等待好友加入",
     }
 }
@@ -147,6 +152,7 @@ pub(super) fn status_text(view: &Presentation) -> &'static str {
         Page::Leaving => "正在结束本次联机...",
         Page::Unavailable => "这款游戏暂时不支持附近联机",
         Page::Games => "选择游戏后创建或加入房间",
+        Page::Outcome => "LOCAL SIMULATION / NO NETWORK REQUESTS",
     }
 }
 
