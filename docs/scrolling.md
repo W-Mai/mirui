@@ -25,7 +25,7 @@ An independently held Model can still change while a query result is borrowed. T
 
 Redraw rectangles are normalized into non-overlapping areas. Intersecting regions retain their gaps when the prepared region capacity permits; excess fragmentation is conservatively merged. Scroll-transfer areas remain ordered and may overlap redraw areas.
 
-Unfilled borders retain their untouched center in the painted baseline. Transparent layout containers do not add their whole layout rectangle to damage; their children are measured independently. Custom drawing without a known coverage measurement retains conservative bounds.
+Unfilled borders retain their untouched center in the painted baseline. Transparent layout containers do not add their whole layout rectangle to damage; their children are measured independently. Scroll movement that cannot transfer framebuffer pixels contributes the children's old and new coverage, including movement inside rounded clipping. Custom drawing without a known coverage measurement retains conservative bounds.
 
 Hidden or deleted subtrees contribute their last painted coverage before removal from the layout tree. Pending scroll transfers map those regions before erasure; successful drawing clears hidden baselines.
 

@@ -9,7 +9,7 @@ pub(super) struct PaintedScroll {
     pub offset: ScrollOffset,
     area: Rect,
     parent: Option<Entity>,
-    reusable: bool,
+    pub(super) reusable: bool,
 }
 
 impl Component for PaintedScroll {}
@@ -135,6 +135,95 @@ pub(crate) fn has_pending_scroll(world: &World) -> bool {
 #[cfg(test)]
 mod damage_tests {
     use super::*;
+
+    #[crate::compose]
+    fn scroll_scene(radius: u16) {
+        use crate::prelude::*;
+        ui! {
+            View (width: 90, height: 60, border_radius: radius, clip_children: true) {
+                Column (id: "scroll", width: 80, height: 50, clip_children: true) [
+                    ScrollOffset::default(),
+                ] {
+                    View (id: "cached", height: 30, bg_color: Color::rgb(200, 40, 30)) [
+                        crate::ui::OffscreenRender::default(),
+                    ]
+                    View (height: 30, bg_color: Color::rgb(30, 180, 50))
+                    View (height: 30, bg_color: Color::rgb(40, 60, 200))
+                }
+            }
+        };
+    }
+
+    #[test]
+    fn nontransferable_scroll_repaints_descendants_from_the_painted_offset() {
+        use crate::surface::FramebufferAccess;
+        for radius in [0, 8] {
+            let mut app = crate::app::App::headless(100, 80);
+            app.with_default_widgets().with_default_systems();
+            app.with_offscreen_pool_budget(32 * 1024);
+            let root = app.spawn_root().id();
+            app.compose(root, scroll_scene(radius));
+            app.render().unwrap();
+            let list = app.world.find_by_id("scroll").unwrap();
+            let cached = app.world.find_by_id("cached").unwrap();
+            let generation = app
+                .world
+                .get::<crate::ui::OffscreenGeneration>(cached)
+                .unwrap()
+                .0;
+            for offset in [Fixed::from_ratio(7, 2), 75.into(), (-6).into(), 0.into()] {
+                let painted = app.world.get::<PaintedScroll>(list).unwrap().offset;
+                for target in [offset + Fixed::ONE, offset] {
+                    app.world.get_mut::<ScrollOffset>(list).unwrap().y = target;
+                    app.world.invalidate_visual(list);
+                    for _ in 0..2 {
+                        assert!(!app.dirty_regions().unwrap().is_empty());
+                        assert_eq!(
+                            app.world.get::<PaintedScroll>(list).unwrap().offset,
+                            painted
+                        );
+                    }
+                }
+                app.render_dirty().unwrap();
+                let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+                app.render().unwrap();
+                assert!(
+                    dirty == app.backend.framebuffer().buf.as_slice(),
+                    "radius={radius}, offset={offset:?}"
+                );
+                assert_eq!(
+                    app.world
+                        .get::<crate::ui::OffscreenGeneration>(cached)
+                        .unwrap()
+                        .0,
+                    generation
+                );
+            }
+            app.world.get_mut::<ScrollOffset>(list).unwrap().y = 10.into();
+            app.world.invalidate_visual(list);
+            app.render_dirty().unwrap();
+            let cycle = |app: &mut crate::app::App<_>| {
+                for offset in [Fixed::from_ratio(7, 2), 10.into()] {
+                    app.world.get_mut::<ScrollOffset>(list).unwrap().y = offset;
+                    app.world.invalidate_visual(list);
+                    app.dirty_regions().unwrap();
+                    app.render_dirty().unwrap();
+                }
+            };
+            cycle(&mut app);
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| cycle(&mut app)),
+                0
+            );
+            app.world.remove::<ScrollOffset>(list);
+            app.world.invalidate_visual(list);
+            app.render_dirty().unwrap();
+            let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+            app.render().unwrap();
+            assert!(dirty == app.backend.framebuffer().buf.as_slice());
+            assert!(!app.world.has::<PaintedScroll>(list));
+        }
+    }
 
     #[test]
     fn ordered_transfers_keep_disconnected_survivors_and_reuse_stack_storage() {

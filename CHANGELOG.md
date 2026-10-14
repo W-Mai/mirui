@@ -99,6 +99,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Scrolling transparent containers repaints moved content when rounded clipping, fractional offsets, or large displacements prevent framebuffer transfers.
+
 - Unbounded resizable Gallery canvases use a compact initial size instead of filling the available workspace.
 
 - Hiding and deleting subtrees retain individual painted regions, including border gaps and overflowing descendants. Successful erasure clears hidden paint baselines.

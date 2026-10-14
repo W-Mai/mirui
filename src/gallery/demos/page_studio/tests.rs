@@ -4,6 +4,7 @@ use crate::ecs::DeltaTimeMs;
 use crate::input::event::input::{InputEvent, PointerKind};
 use crate::input::event::scroll::ScrollOffset;
 use crate::input::event::sim::{SimCommand, SimulatedInput, sim_input_system};
+use crate::surface::FramebufferAccess;
 use crate::ui::ComputedRect;
 use crate::ui::widgets::navigation::{NavigationPath, NavigationStack, PageTransition, transition};
 use crate::ui::widgets::page_view::PageView;
@@ -231,6 +232,69 @@ fn algorithm_and_preset_buttons_drive_pages_and_following_without_replacing_acti
         Motion::Spring(_)
     ));
     finish(&mut app);
+}
+
+#[test]
+fn collection_scrolls_after_navigation() {
+    let (mut app, path, _) = fixture();
+    path.push(Route::Library).unwrap();
+    app.render().unwrap();
+    finish(&mut app);
+    let list = app.world.find_by_id("pages_collection").unwrap();
+    let rect = app.world.get::<ComputedRect>(list).unwrap().0;
+    let bounds = app
+        .world
+        .get::<crate::input::event::scroll::ScrollBounds>(list)
+        .unwrap();
+    assert!(bounds.max_y > Fixed::ZERO, "{bounds:?}, viewport: {rect:?}");
+    let x = rect.x + rect.w / Fixed::from_int(2);
+    let y = rect.y + Fixed::from_int(40);
+    app.add_resource(SimulatedInput::new(alloc::vec![SimCommand::at(
+        0,
+        InputEvent::Wheel {
+            dx: Fixed::ZERO,
+            dy: Fixed::from_int(-60),
+            x,
+            y
+        },
+    )]));
+    assert!(!app.tick());
+    assert!(app.world.get::<ScrollOffset>(list).unwrap().y > Fixed::ZERO);
+    let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+    app.render().unwrap();
+    assert!(
+        pixels == app.backend.framebuffer().buf.as_slice(),
+        "scroll damage must match full rendering"
+    );
+    let before = app.world.get::<ScrollOffset>(list).unwrap().y;
+    for event in [
+        InputEvent::PointerDown {
+            kind: PointerKind::Mouse,
+            id: 0,
+            x,
+            y: y + Fixed::from_int(100),
+        },
+        InputEvent::PointerMove {
+            kind: PointerKind::Mouse,
+            id: 0,
+            x,
+            y,
+        },
+        InputEvent::PointerUp {
+            kind: PointerKind::Mouse,
+            id: 0,
+            x,
+            y,
+        },
+    ] {
+        app.add_resource(SimulatedInput::new(alloc::vec![SimCommand::at(0, event)]));
+        assert!(!app.tick());
+        let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+        app.render().unwrap();
+        assert!(pixels == app.backend.framebuffer().buf.as_slice());
+    }
+    assert!(app.world.get::<ScrollOffset>(list).unwrap().y > before);
+    assert_eq!(path.len(), 1, "scrolling must not open a card");
 }
 
 #[test]

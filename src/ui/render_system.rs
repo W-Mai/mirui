@@ -440,18 +440,19 @@ fn seed_prev_rect_walk(
         ..node.rect
     };
     let (tf, tf_3d) = render_transforms(*parent_transform, *parent_3d, world, entity, shifted_rect);
-    if scroll_pixels
-        && let Some(painted) = scroll::PaintedScroll::capture(
-            world,
-            entity,
-            shifted_rect,
-            scroll_clip,
-            tf,
-            tf_3d,
-            parent_scroll,
-        )
-    {
+    if let Some(mut painted) = scroll::PaintedScroll::capture(
+        world,
+        entity,
+        shifted_rect,
+        scroll_clip,
+        tf,
+        tf_3d,
+        parent_scroll,
+    ) {
+        painted.reusable &= scroll_pixels;
         world.insert(entity, painted);
+    } else {
+        world.remove::<scroll::PaintedScroll>(entity);
     }
     let mut coverage = planned_paint_coverage(
         world,
@@ -2968,7 +2969,7 @@ fn collect_dirty_walk(
     scroll_clip: Option<Rect>,
     parent_scroll: Option<Entity>,
     carrier: Option<Point>,
-    ancestor_transformed: bool,
+    ancestor_moved: bool,
     bounds: &mut DirtyBounds,
     plan: &mut DirtyRegions,
     painted_damage: &mut alloc::vec::Vec<Entity>,
@@ -2987,7 +2988,7 @@ fn collect_dirty_walk(
     let (tf, tf_3d) = render_transforms(*parent_transform, *parent_3d, world, entity, shifted_rect);
 
     let pending = VisualDirty::prepare(world, entity);
-    let transformed = ancestor_transformed || pending.is_some_and(VisualDirty::transforms_subtree);
+    let moved = ancestor_moved || pending.is_some_and(VisualDirty::transforms_subtree);
     let is_offscreen = crate::ui::offscreen::config(world, entity).is_some();
     if is_offscreen {
         let mut sub_idx = *idx + 1;
@@ -2998,7 +2999,7 @@ fn collect_dirty_walk(
                 scan_subtree_dirty(child, world, entities, &mut sub_idx),
             );
         }
-        if pending.is_some() || transformed {
+        if pending.is_some() || moved {
             push_entity_dirty(
                 world,
                 entity,
@@ -3038,6 +3039,13 @@ fn collect_dirty_walk(
     let my_scroll_op = current_scroll
         .zip(painted_scroll)
         .and_then(|(current, painted)| current.shift_from(painted, carrier, output_scale));
+    let scroll_moved = my_scroll_op.is_none()
+        && current_scroll
+            .map(|scroll| scroll.offset)
+            .unwrap_or_default()
+            != painted_scroll
+                .map(|scroll| scroll.offset)
+                .unwrap_or_default();
     let child_carrier = match (current_scroll, painted_scroll, my_scroll_op.as_ref()) {
         (_, _, Some(shift)) => carrier.map(|point| Point {
             x: point.x + shift.dx,
@@ -3048,7 +3056,7 @@ fn collect_dirty_walk(
         (None, _, _) => carrier,
     };
 
-    if (pending.is_some() || transformed) && my_scroll_op.is_none() {
+    if (pending.is_some() || moved) && my_scroll_op.is_none() {
         push_entity_dirty(
             world,
             entity,
@@ -3100,7 +3108,7 @@ fn collect_dirty_walk(
                 parent_scroll
             },
             child_carrier.filter(|_| scroll::children_are_transferable(world, entity)),
-            transformed,
+            moved || scroll_moved,
             bounds,
             plan,
             painted_damage,
