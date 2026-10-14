@@ -89,6 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Dirty-region normalization preserves gaps between intersecting rectangles and produces non-overlapping redraw areas with reusable planning storage.
+
 - Hidden and deleted subtrees retain their painted damage without forcing viewport-wide invalidation during scrolling.
 
 - Dirty rendering repaints changed content at its transferred location during nested scrolling and records previous bounds within the painted clip.

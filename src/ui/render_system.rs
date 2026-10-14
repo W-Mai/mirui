@@ -3424,6 +3424,7 @@ fn prepare_dirty_rects(world: &mut World, plan: &mut DirtyRegions) {
             }
         }
     }
+    plan.coalesce_overlaps();
 }
 
 fn visit_overlay_rects(world: &World, mut visit: impl FnMut(Rect)) {
@@ -4336,7 +4337,7 @@ mod layout_snapshot_reuse_check {
 
         assert_eq!(
             plan.rects,
-            [Rect::new(20, 0, 10, 10), Rect::new(0, 0, 10, 10)]
+            [Rect::new(0, 0, 10, 10), Rect::new(20, 0, 10, 10)]
         );
         assert_eq!(plan.bounding_rect(), Some(Rect::new(0, 0, 30, 10)));
         assert_eq!(
@@ -9558,7 +9559,7 @@ mod scroll_plan_check {
     }
 
     #[test]
-    fn overlay_over_scroll_emits_overlay_rect_pair_keeps_scroll_op() {
+    fn overlay_over_scroll_covers_both_positions_without_overlapping_draws() {
         use crate::input::feedback::OverlayCursor;
 
         let mut world = World::new();
@@ -9585,23 +9586,9 @@ mod scroll_plan_check {
         let dy = plan.shifts[0].dy;
         assert_eq!(dy, Fixed::from_int(-2));
 
-        let has_overlay_rect = plan.rects.iter().any(|r| {
-            r.x == Fixed::from_int(40) && r.y == Fixed::from_int(50) && r.w == Fixed::from_int(40)
-        });
-        assert!(
-            has_overlay_rect,
-            "expected overlay rect at original pos, got {:?}",
-            plan.rects
-        );
-        let has_shifted_rect = plan.rects.iter().any(|r| {
-            r.x == Fixed::from_int(40)
-                && r.y == Fixed::from_int(50) + dy
-                && r.w == Fixed::from_int(40)
-        });
-        assert!(
-            has_shifted_rect,
-            "expected shifted rect to cover residue, got {:?}",
-            plan.rects
+        assert_eq!(
+            plan.rects,
+            [Rect::new(40, 48, 40, 14), Rect::new(0, 98, 128, 2)]
         );
     }
 

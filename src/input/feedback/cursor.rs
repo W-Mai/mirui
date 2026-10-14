@@ -516,19 +516,18 @@ mod tests {
         // Layout-motion signal that triggers the gate: a published
         // shift on the previous frame.
         use crate::ui::dirty::{DirtyRegions, RegionShift};
-        world.insert_resource(crate::ui::render_system::LastDirtyRegions(DirtyRegions {
-            rects: alloc::vec![],
-            shifts: alloc::vec![RegionShift {
-                area: crate::types::Rect::new(
-                    Fixed::ZERO,
-                    Fixed::ZERO,
-                    Fixed::from_int(128),
-                    Fixed::from_int(128),
-                ),
-                dx: Fixed::ZERO,
-                dy: Fixed::from_int(-4),
-            }],
-        }));
+        let mut plan = DirtyRegions::new();
+        plan.shifts.push(RegionShift {
+            area: crate::types::Rect::new(
+                Fixed::ZERO,
+                Fixed::ZERO,
+                Fixed::from_int(128),
+                Fixed::from_int(128),
+            ),
+            dx: Fixed::ZERO,
+            dy: Fixed::from_int(-4),
+        });
+        world.insert_resource(crate::ui::render_system::LastDirtyRegions(plan));
         cursor_feedback_system(&mut world).unwrap();
         let new_target = world
             .resource::<InputFeedback>()

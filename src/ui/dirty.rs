@@ -7,6 +7,8 @@ use crate::ecs::{Entity, World};
 use crate::types::{Fixed, Rect};
 use alloc::vec::Vec;
 
+mod regions;
+
 /// Dirty flag component — marks an entity as needing redraw.
 pub struct Dirty;
 
@@ -305,6 +307,7 @@ pub struct RegionShift {
 pub struct DirtyRegions {
     pub rects: Vec<Rect>,
     pub shifts: Vec<RegionShift>,
+    scratch: Vec<Rect>,
 }
 
 impl Clone for DirtyRegions {
@@ -312,6 +315,7 @@ impl Clone for DirtyRegions {
         Self {
             rects: self.rects.clone(),
             shifts: self.shifts.clone(),
+            scratch: Vec::new(),
         }
     }
 
@@ -331,12 +335,6 @@ impl DirtyRegions {
         width.saturating_mul(height)
     }
 
-    fn pixels_overlap(a: Rect, b: Rect) -> bool {
-        let (ax0, ay0, ax1, ay1) = a.pixel_bounds();
-        let (bx0, by0, bx1, by1) = b.pixel_bounds();
-        ax0 < bx1 && bx0 < ax1 && ay0 < by1 && by0 < ay1
-    }
-
     pub fn new() -> Self {
         Self::default()
     }
@@ -345,6 +343,7 @@ impl DirtyRegions {
         Self {
             rects: Vec::with_capacity(capacity),
             shifts: Vec::new(),
+            scratch: Vec::with_capacity(capacity),
         }
     }
 
@@ -362,19 +361,9 @@ impl DirtyRegions {
     }
 
     pub(crate) fn coalesce_overlaps(&mut self) {
-        self.rects.retain(|rect| Self::rect_pixel_area(*rect) != 0);
-        'coalesce: loop {
-            for left in 0..self.rects.len() {
-                for right in left + 1..self.rects.len() {
-                    if Self::pixels_overlap(self.rects[left], self.rects[right]) {
-                        let other = self.rects.swap_remove(right);
-                        self.rects[left] = self.rects[left].union(&other);
-                        continue 'coalesce;
-                    }
-                }
-            }
-            break;
-        }
+        self.scratch.clear();
+        self.scratch.extend_from_slice(&self.rects);
+        regions::normalize(&mut self.scratch, &mut self.rects);
     }
 
     pub(crate) fn prefers_split_redraw(&self) -> bool {
@@ -573,6 +562,7 @@ mod tests {
                 Rect::new(3, 0, 5, 4),
             ],
             shifts: Vec::new(),
+            ..Default::default()
         };
 
         plan.coalesce_overlaps();
@@ -581,14 +571,38 @@ mod tests {
     }
 
     #[test]
+    fn normalization_reuses_prepared_storage_and_rounds_fractional_damage_outward() {
+        let mut plan = DirtyRegions::with_rect_capacity(8);
+        let rects = [
+            Rect::new(Fixed::from_f32(-0.5), Fixed::from_f32(0.25), 5, 2),
+            Rect::new(1, 1, 2, 5),
+            Rect::ZERO,
+        ];
+        let pointers = (plan.rects.as_ptr(), plan.scratch.as_ptr());
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for _ in 0..16 {
+                plan.clear();
+                plan.rects.extend_from_slice(&rects);
+                plan.coalesce_overlaps();
+                assert_eq!(plan.bounding_rect(), Some(Rect::new(-1, 0, 6, 6)));
+            }
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!((plan.rects.as_ptr(), plan.scratch.as_ptr()), pointers);
+        assert!(plan.scratch.is_empty());
+    }
+
+    #[test]
     fn sparse_regions_prefer_split_redraw_but_dense_regions_do_not() {
         let sparse = DirtyRegions {
             rects: alloc::vec![Rect::new(0, 0, 8, 8), Rect::new(96, 96, 8, 8)],
             shifts: Vec::new(),
+            ..Default::default()
         };
         let dense = DirtyRegions {
             rects: alloc::vec![Rect::new(0, 0, 8, 8), Rect::new(9, 0, 8, 8)],
             shifts: Vec::new(),
+            ..Default::default()
         };
 
         assert!(sparse.prefers_split_redraw());
@@ -664,6 +678,7 @@ mod tests {
                     dy: Fixed::ZERO
                 },
             ],
+            ..Default::default()
         };
         let before = (plan.rects.as_ptr(), plan.shifts.as_ptr());
         assert_eq!(
@@ -681,6 +696,7 @@ mod tests {
         let empty = DirtyRegions {
             rects: alloc::vec![Rect::ZERO],
             shifts: Vec::new(),
+            ..Default::default()
         };
         assert_eq!(empty.affected_regions().next(), None);
         assert_eq!(empty.bounding_rect(), None);
