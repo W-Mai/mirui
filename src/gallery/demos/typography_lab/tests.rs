@@ -129,7 +129,7 @@ fn phone_layout_stacks_controls_below_the_grid_and_scrolls_to_them() {
 
 #[test]
 fn large_phone_scroll_repaints_the_destination_content() {
-    use crate::input::event::scroll::{ScrollDelta, ScrollOffset};
+    use crate::input::event::scroll::ScrollOffset;
     use crate::surface::FramebufferAccess;
     use crate::ui::dirty::Dirty;
 
@@ -143,13 +143,6 @@ fn large_phone_scroll_repaints_the_destination_content() {
     let bounds = *app.world.get::<ScrollBounds>(shell).unwrap();
     let max_offset = bounds.max_y;
     app.world.get_mut::<ScrollOffset>(shell).unwrap().y = max_offset;
-    app.world.insert(
-        shell,
-        ScrollDelta {
-            dx: Fixed::ZERO,
-            dy: max_offset,
-        },
-    );
     app.world.insert(shell, Dirty);
     app.render().unwrap();
 

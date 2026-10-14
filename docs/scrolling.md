@@ -1,5 +1,7 @@
 # Scrolling
 
+Framebuffer transfers use the difference between the current scroll offset and the last successfully painted offset. Nested transfers use the painted source window; a changed clip or incompatible geometry repaints instead. Input handlers do not maintain a separate render delta.
+
 ## Input and viewport
 
 Scrolling does not snap to cell boundaries. Pointer and wheel input share elastic resistance and released motion; continued input controls the content without a concurrent rebound. Pointer-release inertia follows recent content movement and expires after the pointer stops. Within scroll bounds, wheel input applies its fractional deltas directly, retaining platform-provided momentum. Scroll offsets invalidate painting and hit geometry, while cell reassignment or size changes still update layout. Framebuffer reuse is restricted to whole physical-pixel shifts in untransformed rectangular viewports without borders or rounded corners; other movement repaints the affected viewport.

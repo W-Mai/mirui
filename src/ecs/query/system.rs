@@ -1229,7 +1229,6 @@ mod tests {
         assert_component::<crate::ui::widgets::Switch>();
         assert_component::<crate::ui::widgets::LazyList>();
         assert_component::<crate::input::event::scroll::ScrollOffset>();
-        assert_component::<crate::input::event::scroll::ScrollDelta>();
         assert_component::<crate::input::event::scroll::ScrollConfig>();
         assert_component::<crate::ui::widgets::WidgetTransform>();
         assert_component::<crate::input::feedback::OverlayCursor>();

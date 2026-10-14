@@ -7,7 +7,7 @@ pub mod system;
 mod velocity;
 
 pub use bounds::ScrollBounds;
-pub use components::{ScrollAxis, ScrollConfig, ScrollDelta, ScrollOffset, TouchAction};
+pub use components::{ScrollAxis, ScrollConfig, ScrollOffset, TouchAction};
 pub use controller::ScrollMotion;
 pub use notification::{
     ScrollChanged, ScrollEndReason, ScrollEnded, ScrollSelectors, ScrollStarted,

@@ -47,15 +47,6 @@ pub struct ScrollOffset {
 
 impl crate::ecs::Component for ScrollOffset {}
 
-/// Per-frame `ScrollOffset` increment, consumed by the dirty walker. Whole physical-pixel movements can reuse framebuffer pixels; fractional movements repaint without deferring input to another frame.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct ScrollDelta {
-    pub dx: Fixed,
-    pub dy: Fixed,
-}
-
-impl crate::ecs::Component for ScrollDelta {}
-
 /// Scroll configuration.
 ///
 /// A zero content dimension derives that extent from the widget's retained

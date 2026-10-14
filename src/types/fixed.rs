@@ -82,11 +82,7 @@ impl Fixed {
         self.0 < 0
     }
 
-    /// Truncate toward zero. `to_int` is arithmetic-shift floor
-    /// (`-0.5 → -1`); for the residue-keeping arithmetic that
-    /// `ScrollDelta` quantisation needs, the integer must be the
-    /// part that, subtracted off, leaves a fractional residue with
-    /// the same sign as the original.
+    /// Truncate toward zero, unlike [`Self::to_int`] which floors negative values. Subtracting the result leaves a fractional residue with the original sign.
     #[inline]
     pub const fn trunc_to_int(self) -> i32 {
         if self.0 >= 0 {

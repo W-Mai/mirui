@@ -3096,11 +3096,7 @@ mod tests {
         }
     }
 
-    /// Negative sub-pixel dy must truncate toward zero (no-op), not
-    /// floor (which would emit a 1-pixel shift). The residue lives
-    /// in the caller's `ScrollDelta`; if the renderer floored, a
-    /// `-0.5` shift would clobber a row of pixels and leave the
-    /// caller with a `+0.5` residue that cancels the next `-0.5`.
+    /// Negative fractional movement must not round into a full-pixel transfer.
     #[test]
     fn scroll_target_region_negative_sub_pixel_dy_is_noop() {
         // Stripe the buf per-row so a 1-row shift would be visible.

@@ -1,4 +1,4 @@
-use super::components::{ScrollAxis, ScrollConfig, ScrollDelta, ScrollOffset, TouchAction};
+use super::components::{ScrollAxis, ScrollConfig, ScrollOffset, TouchAction};
 use super::controller::{Driver, ScrollMotion, displace};
 use crate::ecs::{Entity, World};
 use crate::input::event::hit_test::hit_test;
@@ -6,18 +6,6 @@ use crate::input::event::input::InputEvent;
 use crate::types::{Fixed, Fixed64};
 
 use super::bounds::scroll_bounds;
-
-fn accumulate_scroll_delta(world: &mut World, target: Entity, dx: Fixed, dy: Fixed) {
-    if dx == Fixed::ZERO && dy == Fixed::ZERO {
-        return;
-    }
-    if let Some(d) = world.get_mut::<ScrollDelta>(target) {
-        d.dx += dx;
-        d.dy += dy;
-    } else {
-        world.insert(target, ScrollDelta { dx, dy });
-    }
-}
 
 /// Scroll drag state resource
 pub struct ScrollDragState {
@@ -113,7 +101,6 @@ fn settle_offset(world: &mut World, target: Entity) {
     offset.x = offset.x.clamp(Fixed::ZERO, bounds.max_x);
     offset.y = offset.y.clamp(Fixed::ZERO, bounds.max_y);
     let delta = (offset.x - old.0, offset.y - old.1);
-    accumulate_scroll_delta(world, target, delta.0, delta.1);
     if delta != (Fixed::ZERO, Fixed::ZERO) {
         world.invalidate_visual(target);
     }
@@ -279,7 +266,6 @@ pub(crate) fn scroll_system_with_target(
                 }
                 motion.record(target, (applied_dx, applied_dy), Driver::Pointer, now_ms);
             }
-            accumulate_scroll_delta(world, target, applied_dx, applied_dy);
             // Stuck-at-edge drags translate to zero applied delta; no
             // need to redraw a frame whose pixels didn't move.
             if applied_dx != Fixed::ZERO || applied_dy != Fixed::ZERO {
@@ -337,27 +323,21 @@ pub(crate) fn scroll_system_with_target(
                     .get::<ScrollConfig>(target)
                     .map(|c| c.direction)
                     .unwrap_or(ScrollAxis::Vertical);
-                let mut applied_dx = Fixed::ZERO;
-                let mut applied_dy = Fixed::ZERO;
                 if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
                     accepted = true;
                     match axis {
                         ScrollAxis::Vertical => {
                             scroll.y -= offset;
-                            applied_dy = -offset;
                         }
                         ScrollAxis::Horizontal => {
                             scroll.x -= offset;
-                            applied_dx = -offset;
                         }
                         ScrollAxis::Both => {
                             scroll.y -= offset;
-                            applied_dy = -offset;
                         }
                     }
                 }
                 if accepted {
-                    accumulate_scroll_delta(world, target, applied_dx, applied_dy);
                     world.invalidate_visual(target);
                 }
             }
@@ -423,7 +403,6 @@ pub(crate) fn scroll_system_with_target(
                 offset.y = next_y;
             }
             if next_x != offset_x || next_y != offset_y {
-                accumulate_scroll_delta(world, target, next_x - offset_x, next_y - offset_y);
                 world.invalidate_visual(target);
             }
         }
@@ -471,7 +450,6 @@ pub(crate) fn scroll_inertia_system(world: &mut World) -> Result<(), crate::ecs:
         scroll.y = next_y;
     }
     if next_x != offset.x || next_y != offset.y {
-        accumulate_scroll_delta(world, target, next_x - offset.x, next_y - offset.y);
         world.invalidate_visual(target);
     }
     Ok(())
@@ -662,7 +640,6 @@ mod tests {
                 ..ScrollConfig::default()
             },
         );
-        world.insert(root, ScrollDelta::default());
         world.insert_resource(ScrollDragState {
             last_resolved_target: Some(root),
             ..ScrollDragState::default()
@@ -1280,7 +1257,6 @@ mod tests {
                 ..ScrollConfig::default()
             },
         );
-        world.insert(other, ScrollDelta::default());
         world.invalidate_visual(other);
         world
             .resource_mut::<ScrollDragState>()
@@ -1792,12 +1768,10 @@ mod tests {
     }
 
     #[test]
-    fn drag_accumulates_scroll_delta_across_frames() {
+    fn drag_updates_scroll_offset_across_frames() {
         use crate::ecs::World;
         use crate::input::event::input::InputEvent;
-        use crate::input::event::scroll::components::{
-            ScrollAxis, ScrollConfig, ScrollDelta, ScrollOffset,
-        };
+        use crate::input::event::scroll::components::{ScrollAxis, ScrollConfig, ScrollOffset};
         use crate::ui::{ComputedRect, Widget};
         let mut world = World::new();
         world.insert_resource(ScrollDragState::default());
@@ -1851,15 +1825,13 @@ mod tests {
                 100,
             );
         }
-        let delta = world
-            .get::<ScrollDelta>(target)
-            .copied()
-            .unwrap_or_default();
-        assert_eq!(delta.dx, Fixed::ZERO);
+        let offset = world.get::<ScrollOffset>(target).unwrap();
+        let delta = offset.y - Fixed::from_int(50);
+        assert_eq!(offset.x, Fixed::ZERO);
         assert!(
-            delta.dy.to_int().abs() >= 19,
+            delta.to_int().abs() >= 19,
             "expected |dy| ≈ 20, got {:?}",
-            delta.dy
+            delta
         );
     }
 }

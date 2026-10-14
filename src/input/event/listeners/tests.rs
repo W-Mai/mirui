@@ -1301,10 +1301,9 @@ impl ScrollFixture {
 #[test]
 fn scroll_claim_precedes_app_and_does_not_require_fallback_capacity() {
     use crate::input::event::input::{Rotary, Wheel};
-    use crate::input::event::scroll::{ScrollDelta, ScrollMotion, ScrollOffset};
+    use crate::input::event::scroll::{ScrollMotion, ScrollOffset};
 
     let mut fixture = ScrollFixture::new(0);
-    fixture.world.insert(fixture.root, ScrollDelta::default());
     fixture.world.invalidate_visual(fixture.root);
     let wheel = Wheel {
         dx: Fixed::ZERO,

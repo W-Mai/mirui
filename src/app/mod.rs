@@ -2049,18 +2049,25 @@ mod app_invariant_tests {
     #[crate::compose]
     fn painted_bounds_scene() {
         crate::ui! {
-            View(id: "scroll", width: 48, height: 32, clip_children: true)
-                [crate::input::event::scroll::ScrollOffset::default()] {
-                View(id: "marker", position: crate::ui::layout::Position::Absolute,
-                    left: 8, top: 16, width: 8, height: 8,
-                    bg_color: crate::types::Color::rgb(20, 220, 80))
+            View (id: "scroll", width: 48, height: 32, clip_children: true) [
+                crate::input::event::scroll::ScrollOffset::default(),
+            ] {
+                View (
+                    id: "marker",
+                    position: crate::ui::layout::Position::Absolute,
+                    left: 8,
+                    top: 16,
+                    width: 8,
+                    height: 8,
+                    bg_color: crate::types::Color::rgb(20, 220, 80)
+                )
             }
         };
     }
 
     #[test]
     fn paint_bounds_advance_after_scroll_render_without_a_descendant_redraw() {
-        use crate::input::event::scroll::{ScrollDelta, ScrollOffset};
+        use crate::input::event::scroll::ScrollOffset;
         use crate::ui::dirty::PrevRect;
 
         let mut app = App::headless(48, 32);
@@ -2077,16 +2084,8 @@ mod app_invariant_tests {
             }),
             0
         );
-        let mut previous = 0;
         for offset in [8, 12, 4] {
             app.world.get_mut::<ScrollOffset>(scroll).unwrap().y = Fixed::from_int(offset);
-            app.world.insert(
-                scroll,
-                ScrollDelta {
-                    dx: Fixed::ZERO,
-                    dy: Fixed::from_int(offset - previous),
-                },
-            );
             app.world.invalidate_visual(scroll);
             assert!(!app.world.has::<Dirty>(marker));
             app.render_dirty().unwrap();
@@ -2106,7 +2105,74 @@ mod app_invariant_tests {
             let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
             app.render().unwrap();
             assert_eq!(app.backend.framebuffer().buf.as_slice(), dirty);
-            previous = offset;
+        }
+    }
+
+    #[crate::compose]
+    fn nested_painted_scroll_scene() {
+        crate::ui! {
+            View (
+                id: "outer",
+                width: 64,
+                height: 64,
+                clip_children: true,
+                bg_color: crate::types::Color::rgb(25, 40, 80)
+            ) [
+                crate::input::event::scroll::ScrollOffset::default(),
+            ] {
+                View (
+                    id: "inner",
+                    position: crate::ui::layout::Position::Absolute,
+                    left: 4,
+                    top: 12,
+                    width: 48,
+                    height: 32,
+                    clip_children: true,
+                    bg_color: crate::types::Color::rgb(80, 40, 25)
+                ) [
+                    crate::input::event::scroll::ScrollOffset::default(),
+                ] {
+                    View (
+                        position: crate::ui::layout::Position::Absolute,
+                        left: 8,
+                        top: 10,
+                        width: 8,
+                        height: 18,
+                        bg_color: crate::types::Color::rgb(20, 220, 80)
+                    )
+                }
+            }
+        };
+    }
+
+    #[test]
+    fn nested_scroll_plan_uses_painted_sources_and_repaints_final_exposure() {
+        use crate::input::event::scroll::ScrollOffset;
+        let mut app = App::headless(64, 64);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.compose(root, nested_painted_scroll_scene());
+        let outer = app.world.find_by_id("outer").unwrap();
+        let inner = app.world.find_by_id("inner").unwrap();
+        app.render().unwrap();
+        for (outer_y, inner_y) in [(-2, 5), (1, 8), (4, 2)] {
+            app.world.get_mut::<ScrollOffset>(outer).unwrap().y = outer_y.into();
+            app.world.get_mut::<ScrollOffset>(inner).unwrap().y = inner_y.into();
+            app.world.invalidate_visual(outer);
+            app.world.invalidate_visual(inner);
+            app.render_dirty().unwrap();
+            assert_eq!(
+                app.world
+                    .resource::<LastDirtyRegions>()
+                    .unwrap()
+                    .0
+                    .shifts
+                    .len(),
+                2
+            );
+            let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+            app.render().unwrap();
+            assert_eq!(app.backend.framebuffer().buf.as_slice(), dirty);
         }
     }
 
@@ -2157,7 +2223,7 @@ mod app_invariant_tests {
 
     #[test]
     fn interrupted_drawing_requires_a_complete_frame_before_reusing_pixels() {
-        use crate::input::event::scroll::{ScrollDelta, ScrollOffset};
+        use crate::input::event::scroll::ScrollOffset;
         use crate::ui::dirty::PrevRect;
 
         for full in [false, true] {
@@ -2178,13 +2244,6 @@ mod app_invariant_tests {
                 .enabled
                 .set(true);
             app.world.get_mut::<ScrollOffset>(scroll).unwrap().y = 8.into();
-            app.world.insert(
-                scroll,
-                ScrollDelta {
-                    dx: Fixed::ZERO,
-                    dy: 8.into(),
-                },
-            );
             app.world.invalidate_visual(scroll);
             let result = if full {
                 app.render()
@@ -2201,13 +2260,6 @@ mod app_invariant_tests {
                 .enabled
                 .set(false);
             app.world.get_mut::<ScrollOffset>(scroll).unwrap().y = 12.into();
-            app.world.insert(
-                scroll,
-                ScrollDelta {
-                    dx: Fixed::ZERO,
-                    dy: 4.into(),
-                },
-            );
             app.world.invalidate_visual(scroll);
             app.render_dirty().unwrap();
             let plan = &app.world.resource::<LastDirtyRegions>().unwrap().0;

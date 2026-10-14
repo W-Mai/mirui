@@ -1,7 +1,6 @@
 use crate::ecs::{Entity, World};
 use crate::input::event::PointerCursor;
 use crate::input::event::hit_test::hit_test;
-use crate::input::event::scroll::ScrollDelta;
 use crate::input::feedback::{
     CursorFeedbackMode, CursorVisual, InputFeedback, OverlayCursor, write_overlay_layout,
 };
@@ -85,7 +84,7 @@ fn world_has_layout_motion(world: &World) -> bool {
     let shifted = world
         .resource::<LastDirtyRegions>()
         .is_some_and(|r| !r.0.shifts.is_empty());
-    let pending_scroll = world.has_any_by_id(core::any::TypeId::of::<ScrollDelta>());
+    let pending_scroll = crate::ui::render_system::has_pending_scroll(world);
     shifted || pending_scroll
 }
 
@@ -112,8 +111,8 @@ pub(crate) fn cursor_feedback_system(world: &mut World) -> Result<(), crate::ecs
     // `ComputedRect` shifted, leaving the magnetic overlay frozen on
     // a position that no longer corresponds to anything. Force
     // recompute when the previous frame moved entities (any
-    // `RegionShift` published) or when scroll containers carry a
-    // pending `ScrollDelta` this frame.
+    // `RegionShift` published) or when scroll containers carry
+    // an offset different from their painted position.
     if feedback.cursor.entity.is_some()
         && feedback.cursor.current.present == cursor.present
         && feedback.cursor.current.x == cursor.x

@@ -63,7 +63,6 @@ fn build_widgets_smoke() {
 
 #[test]
 fn incremental_scroll_preserves_the_stationary_list_frame() {
-    use crate::input::event::scroll::ScrollDelta;
     use crate::surface::{FramebufferAccess, framebuf::FramebufSurface};
 
     for (scale, radius) in [(1, 0), (1, 12), (2, 0), (2, 12)] {
@@ -90,16 +89,8 @@ fn incremental_scroll_preserves_the_stationary_list_frame() {
             12.0, 24.0, 8.0, 0.0, -12.0, -24.0, -40.0, -20.0, 0.0, 38.0, 76.0, 76.25, 76.5, 77.0,
             0.0,
         ] {
-            let old = app.world.get::<ScrollOffset>(list).unwrap().y;
             let next = Fixed::from_f32(position);
             app.world.get_mut::<ScrollOffset>(list).unwrap().y = next;
-            app.world.insert(
-                list,
-                ScrollDelta {
-                    dx: Fixed::ZERO,
-                    dy: next - old,
-                },
-            );
             app.world.invalidate_visual(list);
             app.render_dirty().unwrap();
             assert!(
