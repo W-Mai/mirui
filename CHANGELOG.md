@@ -7,18 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Initially hidden branches prepare repaint traversal storage during layout setup, avoiding allocation when retained content first becomes visible.
+## [0.49.0] - 2026-10-14
 
 ### Added
 
 - `PageTransition::with_direction` configures forward or backward slides without adding container properties. Navigation stacks retain automatic push/pop direction when no override is supplied.
-- Animated transforms invalidate descendant paint, and page fades invalidate their composited output, keeping partial redraws consistent with complete frames.
-- Transformed subtrees retain unchanged offscreen content; descendant edits invalidate containing captures without rebuilding moved captures unnecessarily.
-- Bounds following reuses prepared layout during visual motion and treats clipping changes as paint invalidation rather than layout changes.
+
 - Nearby demonstrates local room creation, joining and session states with reactive pages, bounds-following selection, and Chinese pixel typography.
+
 - Nearby provides menu and in-game entry, explicit local confirmation and simulated peer progress, recoverable failure cases, and game/system exit outcomes.
+
 - Nearby animates page changes and keeps session progress on the mounted page, with page-local selection outlines and keyboard actions.
+
 - Nearby uses independently resizable flex dimensions and consistent typography across initial canvas sizes.
+
 - Nearby distinguishes forward navigation from returns and provides a resizable 640×480 native launcher with SDL and WGPU backends.
 
 - `App::dirty_regions()` borrows pending redraw and scroll-transfer coverage. Single-region and multi-region queries preserve pending drawing, including changes made between queries and rendering.
@@ -73,130 +75,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Model archive codecs separate encoding, restoration preparation, and application. Weak save endpoints validate root lifetimes and confirm candidates only after successful storage writes.
 
-### Changed
-
-- Tween retargeting preserves progress for unchanged targets and configurations. Zero-duration tweens finish immediately, and looping tweens retain elapsed time and ping-pong direction across multiple periods.
-
-- `App::dirty_region` and the low-level dirty-region collectors return `Result`, distinguishing layout failures from an empty redraw plan.
-
-- Low-level layout callers use `render_system::try_update_layout`; the error-discarding `update_layout` entry is removed.
-
-- Resource parameters carry their application's identity in short-lived borrows. Callback and composition helpers use explicit reborrowing without allocating parameter storage.
-
-- State Todo saves its Model collection, including owning titles, completion, order, and sample-label progression.
-- Reactive flushing tolerates callbacks that retire other queued effects, including keyed-row replacement during collection restoration.
-
-- Tidal Atlas and Echo Walker use Model persistence codecs for replay saves, retaining their archive format and restoring before UI observation is installed.
-- Folding Ark and Twin Beacons register game archives through Model codecs without separate persistence watches or captured save callbacks.
-
-- `App::add_model` returns a pending builder. Call `.finish()` to register the Model; `.with_key(...)` configures a persistent instance before any storage access.
-
-- Storage operations report errors and distinguish unchanged writes. File and browser storage constructors return errors instead of silently replacing unavailable or corrupt data with empty state. Persistence callbacks propagate restore failures and retain retryable saves.
-
-- Persistence auto-saving uses `autosave(interval)`, accepting integer milliseconds or `core::time::Duration` without truncating submillisecond or long intervals.
-
-### Performance
-
-- Widget effect cleanup no longer allocates a temporary list of effect IDs.
-
-### Fixed
-
-- Scrolling transparent containers repaints moved content when rounded clipping, fractional offsets, or large displacements prevent framebuffer transfers.
-
-- Unbounded resizable Gallery canvases use a compact initial size instead of filling the available workspace.
-
-- Hiding and deleting subtrees retain individual painted regions, including border gaps and overflowing descendants. Successful erasure clears hidden paint baselines.
-
-- Scroll transfers preserve disconnected painted fragments instead of expanding them into a single bounding rectangle. Ordinary damage, retained invalidation and overlays share the same ordered mapping.
-
-- Border redraws preserve untouched centers, and transparent layout containers no longer enlarge damage to their entire layout bounds. Painted coverage is committed only after successful drawing.
-
-- Dirty-region normalization preserves gaps between intersecting rectangles and produces non-overlapping redraw areas with reusable planning storage.
-
-- Hidden and deleted subtrees retain their painted damage without forcing viewport-wide invalidation during scrolling.
-
-- Dirty rendering repaints changed content at its transferred location during nested scrolling and records previous bounds within the painted clip.
-
-- Scroll transfers use the last successfully painted offsets and source windows, including nested scrolling. Removed the input-side `ScrollDelta` accumulator.
-
-- Interrupted drawing requires a complete redraw before framebuffer pixels can be reused. Full and partial frames synchronize rotating buffers through the same renderer factory.
-
-- Painted widget bounds are recorded after successful full or partial renders, including scroll-transferred descendants. Position updates and damage collection no longer overwrite the rendered baseline.
-
-- Page Studio keeps navigation actions within the page padding and sizes artwork to the remaining content space.
-
-- Slider fill clipping follows the component transform during page transitions.
-
-- TextInput content clipping follows the component transform for text, placeholders, selections, carets, and preedit underlines.
-
-- Spring motion preserves its overshoot before settling and remains at rest after completion, including page transitions and bounds following.
-
-- Snapshot and rendering benchmark tools stop on layout failures instead of drawing from an incomplete layout.
-
-- Projective snapshot tools provide a fixed animation timestep to their scheduled systems.
-
-- Web Canvas uses physical-pixel scissors for partial redraws, preventing blended seams along fractional clipping edges.
-- Empty logical regions remain empty when converted to physical pixels at fractional coordinates.
-
-- Offscreen captures reuse software path and clip storage across frames and release it on memory warnings or when capture demand ends.
-
-- Layout preparation reserves visual-dirty markers for initially hidden branches, avoiding marker-table growth on their first reveal.
-
-- Pointer hit geometry uses the same scrolled pivots and combined affine/projective transforms as drawing and text editing.
-
-- Output dependencies honor each consuming View's visual or layout invalidation policy, including publication, source invalidation, and registry removal.
-
-- Springs retain fractional integration state across frames, allowing small ranges and near-target reversals to settle without stalling.
-
-- Returning from a Gallery demo restores the homepage's featured selection instead of leaving the opened demo between unrelated preview cards.
-
-- Persistence retains operation errors when a clean Model needs no write or a restore finds no record. Acknowledged writes and applied restorations clear those errors.
-
-- Failed file writes and removals preserve the confirmed cache; Gallery game saves no longer acknowledge revisions before storage succeeds.
-
-- Deferred entity deletion removes attached descendants, node bindings, and IDs, preserves the active App root, and repaints the vacated display.
-
-- Clipboard completion notifications retain their originating item identity and do not reach reused list cells.
-
-- Software input-method keys invoke the same component selection defaults as platform keys without recursively entering the input method.
-
-- Selection requests reject replaced providers, changed component attachments, and rebound retained rows before accepting callback results.
-
-- Editor Lab source includes the on-screen keyboard implementation.
-
-- Text editors extend selections during pointer drags and preserve the selected range on release.
-
-- Web runners deliver queued input within browser interactions without running an extra system or render frame.
-
-- Widget attachments become ready before subsequent input and notification delivery.
-
-- Editor Lab preserves explicitly attached editor appearance and document state.
-
-- Default event command storage supports editor attachment and input payload alignment on WebAssembly.
-
-- Gallery preview generation accepts the registered demo set without a hard-coded image count.
-
-### Removed
-
-- World-based effect cleanup and ancestor-disabled checks are internal to widget retirement and input dispatch.
-
-- Raw `ui::despawn_subtree` is internal; author callbacks use `commands.despawn`.
-
-- Removed the World-based `widgets::set_transform` helper. Typed `prop::Transform` updates preserve layout and invalidate changed visual output.
-
-### Added
-
 - Persistent Model roots track save candidates across child and collection mutations without allocating. Ordinary Models retain zero-sized persistence state.
 
-- Model persistence declarations generate typed field codecs, root key metadata, and prepared restores for static owned fields. Feature selection follows the mirui dependency without requiring a matching application feature.
+- Model persistence declarations generate typed field codecs, root key metadata, and prepared restores for static owned fields. Feature selection uses the mirui dependency without requiring a matching application feature.
 
 - Persistence errors distinguish unavailable encoding or restoration capacity from storage backend failures.
 
 - Web native clipboard menu actions use component capabilities; paste preserves string MIME representations and avoids duplicate hidden-input insertion. Unsupported file pastes leave the component unchanged.
+
 - Pixel Loom copies, cuts, and pastes indexed frames through component clipboard capabilities. Imports validate dimensions, palette, and pixels before one undoable edit; stale results cannot modify a changed selection.
+
 - Web clipboard writes support a single item with multiple MIME representations, including binary custom formats. Unsupported multi-item writes are rejected without discarding data.
+
 - Ctrl/Command+X and V use the focused component's cut and paste capabilities. Key handlers can intercept these defaults; target changes and repeated keys cannot redirect or duplicate them.
+
 - Clipboard paste commands replace the target selection or insert at its caret after checking the original editing context. Web reads retain MIME representations; SDL surfaces read text. Editor Lab includes a Paste button.
+
 - Clipboard cut commands delete the captured selection only after a successful platform write. Changed selections, sources, and composition contexts preserve current content; TextEditing retires stale input-method sessions after accepting the edit. Editor Lab includes a Cut button.
 
 - Ctrl/Command+A and Ctrl/Command+C invoke focused component selection capabilities after Key handlers without redirecting the target. Copy preserves active composition. SDL, WGPU, and Web forward shortcut metadata without inserting duplicate characters.
@@ -256,21 +150,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Slider exposes `DragCancelled` separately from normal drag completion, preserving the last value on cancellation.
 
 - `ViewportChanged` and `SafeAreaChanged` App notifications report old and new surface geometry before subsequent input dispatch.
+
 - View `attach` accepts typed event callbacks for initialization, sharing prepared callbacks across matching entities and committing commands before subsequent attachments.
+
 - View `input` accepts typed event callbacks for gestures, keys, and character input, sharing prepared callbacks across matching widget instances.
+
 - `commands.emit_always` queues notifications independently of listener presence. `commands.emit` skips notifications without a matching entity listener at command commit time.
+
 - `LazyList.items` accepts a row count or a registered ModelList/ModelMap. Collection-backed cells observe membership and expose stable member IDs through `ListItem.id()`.
+
 - Model lists and maps aggregate direct member effects through `on_effect`, carrying stable item IDs and borrowing the same payload after individual delivery. Collection consumers persist across member removal, loading, reconciliation, and owned-field replacement.
+
 - Model effect extractors accept `Option<E>` for a single optional event as well as fixed-capacity arrays.
+
 - State Todo uses a Model collection with task insertion, keyed reordering, completion icons, completed-task removal, and a derived remaining count.
+
 - Model sets load and reconcile owned values with duplicate-aware limits and recoverable input. Reconciliation retains equal stored values and publishes only membership changes.
+
 - Model lists and maps reconcile input by business key while preserving matching identities, subscriptions, and effect routes. Duplicate keys are rejected before merging and missing members are retired. Lists adopt input order; maps retain sorted key order and use their existing keys without a separate extractor.
+
 - Model lists and maps load owned iterators with recoverable batch errors, retained collection limits, and explicit nested capacity preparation. Loading retires old member identities; rejected preflight preserves the previous dataset and returns consumed and remaining input without cloning. Map loads reject duplicate keys before installation.
+
 - `ModelSet` provides observable membership, sorted borrowed traversal, duplicate-free imports, and explicit capacity limits. Duplicate insertion and absent removal do not publish changes; owned fields share parent transactions without per-value Models.
+
 - `ModelMap` provides sorted business keys, borrowed lookup, stable member identities, same-key replacement, and duplicate-checked input imports. Owned Map fields use the Model transaction and observation system; registered iteration permits item updates while guarding structural changes.
+
 - `ModelList` stores ordered Model data with runtime capacity, stable item IDs, and capacity-bounded edits. Owned list fields share parent transactions, separate structural observations from item changes, and reject structural changes during registered iteration. Arrays, vectors, and iterators transfer data without requiring item clones; explicit reservation prepares data and observation storage.
 
 ### Changed
+
+- Tween retargeting preserves progress for unchanged targets and configurations. Zero-duration tweens finish immediately, and looping tweens retain elapsed time and ping-pong direction across multiple periods.
+
+- `App::dirty_region` and the low-level dirty-region collectors return `Result`, distinguishing layout failures from an empty redraw plan.
+
+- Low-level layout callers use `render_system::try_update_layout`; the error-discarding `update_layout` entry is removed.
+
+- Resource parameters carry their application's identity in short-lived borrows. Callback and composition helpers use explicit reborrowing without allocating parameter storage.
+
+- State Todo saves its Model collection, including owning titles, completion, order, and sample-label progression.
+
+- Reactive flushing tolerates callbacks that retire other queued effects, including keyed-row replacement during collection restoration.
+
+- Tidal Atlas and Echo Walker use Model persistence codecs for replay saves, retaining their archive format and restoring before UI observation is installed.
+
+- Folding Ark and Twin Beacons register game archives through Model codecs without separate persistence watches or captured save callbacks.
+
+- `App::add_model` returns a pending builder. Call `.finish()` to register the Model; `.with_key(...)` configures a persistent instance before any storage access.
+
+- Storage operations report errors and distinguish unchanged writes. File and browser storage constructors return errors instead of silently replacing unavailable or corrupt data with empty state. Persistence callbacks propagate restore failures and retain retryable saves.
+
+- Persistence auto-saving uses `autosave(interval)`, accepting integer milliseconds or `core::time::Duration` without truncating submillisecond or long intervals.
 
 - `TextInput` composes the `TextEditing` capability for document storage, keyboard input, selection, focus, and cursor state. Editing notifications are sourced from `TextEditing`; native keyboard requests inspect that component directly.
 
@@ -285,18 +214,106 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Scroll geometry is read through `query!(ScrollBounds)` instead of the public `scroll_bounds(World, Entity)` function.
 
 - Pointer boundary events clear hover and cursor feedback without changing drag capture or synthesizing off-screen movement.
+
 - Raw pointer events carry an explicit device category. Gesture and scroll capture distinguish pointers by category and slot, preserving mouse, touch, pen, and unknown sources through backends and simulation.
 
 - Native and simulated input deliver recognized gestures, notifications, and reactive updates before handling the next raw input.
+
 - Simulated input root fallback installation is internal to App; explicit root overrides remain available.
+
 - Root geometry and tap tracking use typed resources and queries instead of public World-based helpers.
+
 - `Text::resolve` and `Localized` resolution accept an optional borrowed `I18n` instead of World.
+
 - Theme operations use App methods and typed callback resources or commands; World-based theme helpers are no longer public.
+
 - Custom persistence callbacks operate on captured state and byte slices without receiving World. Signal registration no longer requires a World argument.
+
 - `LazyList` uses `items` instead of `item_count`. Replacing its data source or creation callback retires the old cell pool; membership changes reuse cells and cancel input only when their bindings change.
+
 - Effect consumers register on Model instances with `model.on_effect(handler)` and borrow each event. The App registration entry point has been removed.
 
 ### Fixed
+
+- Initially hidden branches prepare repaint traversal storage during layout setup, avoiding allocation when retained content first becomes visible.
+
+- Animated transforms invalidate descendant paint, and page fades invalidate their composited output, keeping partial redraws consistent with complete frames.
+
+- Scrolling transparent containers repaints moved content when rounded clipping, fractional offsets, or large displacements prevent framebuffer transfers.
+
+- Unbounded resizable Gallery canvases use a compact initial size instead of filling the available workspace.
+
+- Hiding and deleting subtrees retain individual painted regions, including border gaps and overflowing descendants. Successful erasure clears hidden paint baselines.
+
+- Scroll transfers preserve disconnected painted fragments instead of expanding them into a single bounding rectangle. Ordinary damage, retained invalidation and overlays share the same ordered mapping.
+
+- Border redraws preserve untouched centers, and transparent layout containers no longer enlarge damage to their entire layout bounds. Painted coverage is committed only after successful drawing.
+
+- Dirty-region normalization preserves gaps between intersecting rectangles and produces non-overlapping redraw areas with reusable planning storage.
+
+- Hidden and deleted subtrees retain their painted damage without forcing viewport-wide invalidation during scrolling.
+
+- Dirty rendering repaints changed content at its transferred location during nested scrolling and records previous bounds within the painted clip.
+
+- Scroll transfers use the last successfully painted offsets and source windows, including nested scrolling. Removed the input-side `ScrollDelta` accumulator.
+
+- Interrupted drawing requires a complete redraw before framebuffer pixels can be reused. Full and partial frames synchronize rotating buffers through the same renderer factory.
+
+- Painted widget bounds are recorded after successful full or partial renders, including scroll-transferred descendants. Position updates and damage collection no longer overwrite the rendered baseline.
+
+- Page Studio keeps navigation actions within the page padding and sizes artwork to the remaining content space.
+
+- Slider fill clipping uses the component transform during page transitions.
+
+- TextInput content clipping uses the component transform for text, placeholders, selections, carets, and preedit underlines.
+
+- Spring motion preserves its overshoot before settling and remains at rest after completion, including page transitions and bounds following.
+
+- Snapshot and rendering benchmark tools stop on layout failures instead of drawing from an incomplete layout.
+
+- Projective snapshot tools provide a fixed animation timestep to their scheduled systems.
+
+- Web Canvas uses physical-pixel scissors for partial redraws, preventing blended seams along fractional clipping edges.
+
+- Empty logical regions remain empty when converted to physical pixels at fractional coordinates.
+
+- Offscreen captures reuse software path and clip storage across frames and release it on memory warnings or when capture demand ends.
+
+- Layout preparation reserves visual-dirty markers for initially hidden branches, avoiding marker-table growth on their first reveal.
+
+- Pointer hit geometry uses the same scrolled pivots and combined affine/projective transforms as drawing and text editing.
+
+- Output dependencies honor each consuming View's visual or layout invalidation policy, including publication, source invalidation, and registry removal.
+
+- Springs retain fractional integration state across frames, allowing small ranges and near-target reversals to settle without stalling.
+
+- Returning from a Gallery demo restores the homepage's featured selection instead of leaving the opened demo between unrelated preview cards.
+
+- Persistence retains operation errors when a clean Model needs no write or a restore finds no record. Acknowledged writes and applied restorations clear those errors.
+
+- Failed file writes and removals preserve the confirmed cache; Gallery game saves no longer acknowledge revisions before storage succeeds.
+
+- Deferred entity deletion removes attached descendants, node bindings, and IDs, preserves the active App root, and repaints the vacated display.
+
+- Clipboard completion notifications retain their originating item identity and do not reach reused list cells.
+
+- Software input-method keys invoke the same component selection defaults as platform keys without recursively entering the input method.
+
+- Selection requests reject replaced providers, changed component attachments, and rebound retained rows before accepting callback results.
+
+- Editor Lab source includes the on-screen keyboard implementation.
+
+- Text editors extend selections during pointer drags and preserve the selected range on release.
+
+- Web runners deliver queued input within browser interactions without running an extra system or render frame.
+
+- Widget attachments become ready before subsequent input and notification delivery.
+
+- Editor Lab preserves explicitly attached editor appearance and document state.
+
+- Default event command storage supports editor attachment and input payload alignment on WebAssembly.
+
+- Gallery preview generation accepts the registered demo set without a hard-coded image count.
 
 - Text editing revalidates retained item identity after document effects, preventing stale caret updates and notifications when an edited row is rebound.
 
@@ -309,21 +326,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Pointer and wheel input refresh stale layout and hit geometry before dispatch, preserving pending paint damage and reusing unchanged geometry between inputs.
 
 - Pointer movement coalescing preserves event order across button, touch, wheel, and text input in WGPU surfaces.
+
 - Queued notifications stop after retained cells change data bindings, including callbacks remaining in an active dispatch.
+
 - Persistence flushes retain their registry allocation and restore the registry if a save callback unwinds.
+
 - Hidden collection cells remain idle after the data becomes empty and resume their bindings when members return.
+
 - Input callback snapshots stop when a retained ancestor is rebound, including nested cells and repeated reuse of the same entity.
+
 - Retiring a reused list cell discards its unread gestures from the active dispatch batch as well as queued input, while preserving later input and buffer capacity.
+
 - Reactive list rows can initialize nested reactive properties during construction without rejecting an explicit World reborrow. Direct ambient reentry remains guarded.
+
 - Event callbacks revalidate declared Model bindings before parameter access. Removed collection members and active collection iteration conflicts skip the callback without running its body or applying commands.
+
 - Model-bound systems and timers skip execution when any declared binding is retired or conflicts with collection iteration. Skipped timers advance their schedules without replaying the missed invocation.
+
 - View queries that only read their current entity invalidate local consumers instead of every instance of the same widget. Cross-entity reads and iteration retain descriptor-wide invalidation; font and text cache replacement still refresh all dependent Views.
 
 ### Performance
 
+- Bounds following reuses prepared layout during visual motion and treats clipping changes as paint invalidation rather than layout changes.
+
+- Transformed subtrees retain unchanged offscreen content; descendant edits invalidate containing captures without rebuilding moved captures unnecessarily.
+
+- Widget effect cleanup no longer allocates a temporary list of effect IDs.
+
 - Simulated input borrows scheduled events from a shared command table without allocating or cloning events during playback.
 
 - Reactive `walk` consumes iterators directly and retains row buffers. Keyed collection reordering preserves entities and item bindings without allocating temporary row tables.
+
+### Removed
+
+- World-based effect cleanup and ancestor-disabled checks are internal to widget retirement and input dispatch.
+
+- Raw `ui::despawn_subtree` is internal; author callbacks use `commands.despawn`.
+
+- Removed the World-based `widgets::set_transform` helper. Typed `prop::Transform` updates preserve layout and invalidate changed visual output.
 
 ## [0.48.0] - 2026-10-10
 
