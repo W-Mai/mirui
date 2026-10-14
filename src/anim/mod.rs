@@ -220,8 +220,14 @@ impl Spring {
         self.integrated_position = pos;
         self.integrated_velocity = vel;
 
-        if self.mode == SpringMode::Repeat && self.is_settled() {
-            core::mem::swap(&mut self.origin, &mut self.target);
+        if self.is_settled() {
+            self.position = self.target;
+            self.velocity = Fixed::ZERO;
+            self.integrated_position = target;
+            self.integrated_velocity = Fixed64::ZERO;
+            if self.mode == SpringMode::Repeat {
+                core::mem::swap(&mut self.origin, &mut self.target);
+            }
         }
     }
 
@@ -234,14 +240,13 @@ impl Spring {
     }
 
     pub fn is_settled(&self) -> bool {
-        // 1.0 floor: from==to needs nonzero eps; unit amplitude reproduces
-        // the old absolute-pixel behaviour.
         let span = (self.target - self.origin).abs().max(Fixed::ONE);
         let span = Fixed64::from_fixed(span);
         let dist_eps = span / Fixed64::from_int(200);
-        let speed_eps = span * Fixed64::from_int(2);
-        (Fixed64::from_fixed(self.target) - self.precise_position()).abs() < dist_eps
-            && self.precise_velocity().abs() < speed_eps
+        let omega = Fixed64::from_fixed(self.stiffness.sqrt());
+        let distance = (Fixed64::from_fixed(self.target) - self.precise_position()).abs();
+        // Bound the remaining excursion, including kinetic energy at a target crossing.
+        distance * omega + self.precise_velocity().abs() < dist_eps * omega
     }
 
     fn precise_position(&self) -> Fixed64 {
@@ -570,6 +575,48 @@ mod tests {
             "bouncy spring should overshoot: max={}",
             max_pos.to_int()
         );
+    }
+
+    #[test]
+    fn bouncy_motion_completes_its_overshoot_before_settling() {
+        for dt in [8, 16, 17, 33] {
+            let mut motion: Motion = Spring::preset(Fixed::ZERO, Fixed::ONE, BOUNCY).into();
+            let mut peak = Fixed::ZERO;
+            for _ in 0..1000 {
+                motion.tick(dt);
+                peak = peak.max(motion.value());
+                if motion.is_done() {
+                    break;
+                }
+            }
+            assert!(
+                peak > Fixed::ONE + Fixed::from_ratio(1, 64),
+                "dt={dt}, peak={peak}"
+            );
+            assert!(motion.is_done());
+        }
+    }
+
+    #[test]
+    fn settled_motion_stays_at_rest_until_retargeted() {
+        for target in [Fixed::ONE, Fixed::from_int(400), Fixed::from_int(-37)] {
+            let mut spring = Spring::preset(Fixed::ZERO, target, BOUNCY);
+            for _ in 0..1000 {
+                spring.tick(16);
+                if spring.is_settled() {
+                    break;
+                }
+            }
+            assert!(spring.is_settled());
+            for _ in 0..120 {
+                spring.tick(16);
+                assert!(spring.is_settled());
+                assert_eq!(spring.value(), target);
+                assert_eq!(spring.velocity, Fixed::ZERO);
+            }
+            spring.retarget(Fixed::ZERO, None);
+            assert!(!spring.is_settled());
+        }
     }
 
     #[test]

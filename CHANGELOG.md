@@ -81,6 +81,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Spring motion preserves its overshoot before settling and remains at rest after completion, including page transitions and bounds following.
+
 - Snapshot and rendering benchmark tools stop on layout failures instead of drawing from an incomplete layout.
 
 - Projective snapshot tools provide a fixed animation timestep to their scheduled systems.
