@@ -1,5 +1,5 @@
 use super::following::bounds_panel;
-use super::model::{Route, Scene, Studio, transition};
+use super::model::{MotionKind, Route, Scene, Studio, transition};
 use super::pages::{create_page, create_scene, home};
 use super::style::*;
 use crate::prelude::*;
@@ -30,9 +30,27 @@ pub fn build_widgets(path: model!(NavigationPath<Route>), controls: model!(Studi
                     effect_button (controls.clone(), item.0 as u8, *item.1)
                 }
                 View (grow: 1.0)
-                Text ("TRANSITION", width: 88, height: 24, font_size: 11, text_color: MUTED)
-                walk ["Smooth", "Snappy", "Bouncy"].iter().enumerate() with item {
-                    preset_button (controls.clone(), item.0 as u8, *item.1)
+                Text ("MOTION", width: 68, height: 24, font_size: 11, text_color: MUTED)
+                walk [(MotionKind::Tween, "Tween"), (MotionKind::Spring, "Spring")].iter() with item {
+                    motion_button (controls.clone(), item.0, item.1)
+                }
+            }
+            Row (height: 34, column_gap: 8, align: AlignItems::Center) {
+                Text ("PRESET", width: 68, height: 24, font_size: 11, text_color: MUTED)
+                if ${ controls.motion() == MotionKind::Tween } {
+                    Row (grow: 1.0, column_gap: 8, align: AlignItems::Center) {
+                        walk ["Linear", "Ease out", "Ease in-out"].iter().enumerate() with item {
+                            preset_button (controls.clone(), item.0 as u8, *item.1)
+                        }
+                        View (grow: 1.0)
+                        Text ("300 MS", width: 72, height: 24, font_size: 11, text_color: MUTED)
+                    }
+                } else {
+                    Row (grow: 1.0, column_gap: 8) {
+                        walk ["Smooth", "Snappy", "Bouncy", "Interactive"].iter().enumerate() with item {
+                            preset_button (controls.clone(), item.0 as u8, *item.1)
+                        }
+                    }
                 }
             }
             Row (grow: 1.0, column_gap: 20) {
@@ -85,7 +103,7 @@ pub fn build_widgets(path: model!(NavigationPath<Route>), controls: model!(Studi
                         bg_color: CARD,
                         border_radius: 20,
                         clip_children: true,
-                        transition: ${ transition(controls.effect(), controls.preset()) }
+                        transition: ${ transition(controls.effect(), controls.motion(), controls.preset()) }
                     ) {
                         home (path)
                     } on CreatePage(create_page::callback(path))
@@ -119,7 +137,7 @@ pub fn build_widgets(path: model!(NavigationPath<Route>), controls: model!(Studi
                         bg_color: CARD,
                         border_radius: 20,
                         clip_children: true,
-                        transition: ${ transition(controls.effect(), controls.preset()) }
+                        transition: ${ transition(controls.effect(), controls.motion(), controls.preset()) }
                     ) on CreatePage(create_scene::callback())
                     bounds_panel (controls)
                 }
@@ -169,7 +187,7 @@ fn effect_button(controls: model!(Studio), index: u8, label: &'static str) -> En
 fn preset_button(controls: model!(Studio), index: u8, label: &'static str) -> Entity {
     ui! {
         Button (
-            width: 78,
+            width: 100,
             height: 34,
             border_radius: 10,
             font_size: 12,
@@ -179,6 +197,23 @@ fn preset_button(controls: model!(Studio), index: u8, label: &'static str) -> En
         ) [
             Text::label(label),
         ] on Tap { controls.set_preset(index); }
+    }
+}
+
+#[compose]
+fn motion_button(controls: model!(Studio), motion: MotionKind, label: &'static str) -> Entity {
+    ui! {
+        Button (
+            width: 86,
+            height: 34,
+            border_radius: 10,
+            font_size: 12,
+            normal_color: ${ if controls.motion() == motion { INK } else { CARD } },
+            text_color: ${ if controls.motion() == motion { CARD } else { INK } },
+            pressed_color: MUTED
+        ) [
+            Text::label(label),
+        ] on Tap { controls.set_motion(motion); }
     }
 }
 

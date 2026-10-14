@@ -1,4 +1,4 @@
-use crate::anim::{BOUNCY, SMOOTH, SNAPPY, Transition};
+use crate::anim::{BOUNCY, INTERACTIVE, SMOOTH, SNAPPY, Transition, TweenConfig, ease};
 use crate::ui::widgets::navigation::PageTransition;
 
 #[derive(Clone, Copy)]
@@ -15,8 +15,16 @@ pub enum Scene {
     Night,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum MotionKind {
+    Tween,
+    Spring,
+}
+
 #[crate::model]
 pub struct Studio {
+    #[observe]
+    pub(super) motion: MotionKind,
     #[observe]
     pub(super) effect: u8,
     #[observe]
@@ -28,6 +36,7 @@ pub struct Studio {
 impl Default for Studio {
     fn default() -> Self {
         Self {
+            motion: MotionKind::Spring,
             effect: 1,
             preset: 1,
             scene: Scene::Garden,
@@ -37,6 +46,12 @@ impl Default for Studio {
 
 #[crate::model]
 impl Studio {
+    pub(super) fn set_motion(&mut self, value: MotionKind) {
+        if self.motion != value {
+            self.motion = value;
+            self.preset = 1;
+        }
+    }
     pub(super) fn set_effect(&mut self, value: u8) {
         self.effect = value;
     }
@@ -55,17 +70,29 @@ impl Studio {
     }
 }
 
-pub(super) fn transition_config(preset: u8) -> Transition {
-    match preset {
-        0 => SMOOTH,
-        1 => SNAPPY,
-        _ => BOUNCY,
+pub(super) fn transition_config(motion: MotionKind, preset: u8) -> Transition {
+    match motion {
+        MotionKind::Tween => TweenConfig::new(
+            300,
+            match preset {
+                0 => &ease::LINEAR,
+                1 => &ease::OUT_CUBIC,
+                _ => &ease::IN_OUT_CUBIC,
+            },
+        )
+        .into(),
+        MotionKind::Spring => match preset {
+            0 => SMOOTH,
+            1 => SNAPPY,
+            2 => BOUNCY,
+            _ => INTERACTIVE,
+        }
+        .into(),
     }
-    .into()
 }
 
-pub(super) fn transition(effect: u8, preset: u8) -> PageTransition {
-    let config = transition_config(preset);
+pub(super) fn transition(effect: u8, motion: MotionKind, preset: u8) -> PageTransition {
+    let config = transition_config(motion, preset);
     match effect {
         0 => PageTransition::None,
         1 => PageTransition::slide(config),

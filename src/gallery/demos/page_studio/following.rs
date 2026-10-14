@@ -12,7 +12,7 @@ fn select(
 ) {
     if let Some(bounds) = frames.get(frame) {
         bounds.target = target;
-        bounds.transition = Some(transition_config(controls.preset()));
+        bounds.transition = Some(transition_config(controls.motion(), controls.preset()));
     }
 }
 
@@ -37,7 +37,7 @@ pub(super) fn bounds_panel(controls: model!(Studio)) -> Entity {
             ) [
                 FollowBounds::new(id("pages_follow_a"))
                     .with_outset(4)
-                    .with_transition(transition_config(controls.preset())),
+                    .with_transition(transition_config(controls.motion(), controls.preset())),
             ]
         }
     }

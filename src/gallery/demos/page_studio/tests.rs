@@ -103,35 +103,92 @@ fn finish(app: &mut TestApp) {
 
 #[test]
 fn following_selection_reuses_the_frame_and_applies_transition_presets() {
-    let (mut app, _, controls) = fixture();
-    let frame = app.world.find_by_id("pages_follow_frame").unwrap();
-    for (preset, id) in [
-        (0, "pages_follow_b"),
-        (1, "pages_follow_c"),
-        (2, "pages_follow_a"),
-    ] {
-        controls.set_preset(preset);
-        let before = app.world.get::<ComputedRect>(frame).unwrap().0;
-        click_id(&mut app, id);
-        let target = app.world.find_by_id(id).unwrap();
-        let bounds = app.world.get::<FollowBounds>(frame).unwrap();
-        assert_eq!(bounds.target, target);
-        assert!(bounds.transition == Some(model::transition_config(preset)));
-        let target_rect = app.world.get::<ComputedRect>(target).unwrap().0;
-        let expected = Rect::new(
-            target_rect.x - Fixed::from_int(4),
-            target_rect.y - Fixed::from_int(4),
-            target_rect.w + Fixed::from_int(8),
-            target_rect.h + Fixed::from_int(8),
-        );
-        assert_ne!(before, expected);
-        assert_ne!(app.world.get::<ComputedRect>(frame).unwrap().0, expected);
-        for _ in 0..160 {
-            assert!(!app.tick());
+    for motion in [model::MotionKind::Spring, model::MotionKind::Tween] {
+        let (mut app, _, controls) = fixture();
+        controls.set_motion(motion);
+        let frame = app.world.find_by_id("pages_follow_frame").unwrap();
+        for (preset, id) in [
+            (0, "pages_follow_b"),
+            (1, "pages_follow_c"),
+            (2, "pages_follow_a"),
+        ] {
+            controls.set_preset(preset);
+            let before = app.world.get::<ComputedRect>(frame).unwrap().0;
+            click_id(&mut app, id);
+            let target = app.world.find_by_id(id).unwrap();
+            let bounds = app.world.get::<FollowBounds>(frame).unwrap();
+            assert_eq!(bounds.target, target);
+            assert!(bounds.transition == Some(model::transition_config(controls.motion(), preset)));
+            let target_rect = app.world.get::<ComputedRect>(target).unwrap().0;
+            let expected = Rect::new(
+                target_rect.x - Fixed::from_int(4),
+                target_rect.y - Fixed::from_int(4),
+                target_rect.w + Fixed::from_int(8),
+                target_rect.h + Fixed::from_int(8),
+            );
+            assert_ne!(before, expected);
+            assert_ne!(app.world.get::<ComputedRect>(frame).unwrap().0, expected);
+            for _ in 0..160 {
+                assert!(!app.tick());
+            }
+            assert_eq!(app.world.get::<ComputedRect>(frame).unwrap().0, expected);
+            assert_eq!(app.world.find_by_id("pages_follow_frame"), Some(frame));
         }
-        assert_eq!(app.world.get::<ComputedRect>(frame).unwrap().0, expected);
-        assert_eq!(app.world.find_by_id("pages_follow_frame"), Some(frame));
     }
+}
+
+#[test]
+fn algorithm_and_preset_buttons_drive_pages_and_following_without_replacing_active_pages() {
+    use crate::anim::{Motion, MotionComponent};
+    let (mut app, path, controls) = fixture();
+    let stack = app.world.find_by_id("pages_stack").unwrap();
+    let page = app.world.find_by_id("pages_scene").unwrap();
+    let caption = text_entity(&app, "A MOMENT, NOT A DESTINATION.");
+    let caption_rect = app.world.get::<ComputedRect>(caption).unwrap().0;
+    let page_rect = app.world.get::<ComputedRect>(page).unwrap().0;
+    assert!(caption_rect.y + caption_rect.h <= page_rect.y + page_rect.h);
+    let tween_button = text_entity(&app, "Tween");
+    click(&mut app, tween_button);
+    assert!(controls.motion() == model::MotionKind::Tween);
+    let ease_button = text_entity(&app, "Ease in-out");
+    click(&mut app, ease_button);
+    let config = model::transition_config(model::MotionKind::Tween, 2);
+    assert!(
+        app.world
+            .get::<NavigationStack<Route>>(stack)
+            .unwrap()
+            .transition
+            == PageTransition::slide(config)
+    );
+    assert!(
+        app.world.get::<PageView<Scene>>(page).unwrap().transition == PageTransition::slide(config)
+    );
+    click_id(&mut app, "pages_follow_b");
+    let frame = app.world.find_by_id("pages_follow_frame").unwrap();
+    assert!(app.world.get::<FollowBounds>(frame).unwrap().transition == Some(config));
+    path.push(Route::Library).unwrap();
+    app.render().unwrap();
+    let before = transition::running(&app.world, stack).unwrap();
+    assert!(matches!(before.motion(), Motion::Tween(_)));
+    let spring_button = text_entity(&app, "Spring");
+    click(&mut app, spring_button);
+    let interactive_button = text_entity(&app, "Interactive");
+    click(&mut app, interactive_button);
+    let pair = transition::running(&app.world, stack).unwrap();
+    assert_eq!((before.from, before.to), (pair.from, pair.to));
+    assert!(matches!(pair.motion(), Motion::Tween(_)));
+    assert!(
+        app.world.get::<PageView<Scene>>(page).unwrap().transition
+            == PageTransition::slide(crate::anim::INTERACTIVE)
+    );
+    finish(&mut app);
+    controls.next();
+    app.render().unwrap();
+    assert!(matches!(
+        transition::running(&app.world, page).unwrap().motion(),
+        Motion::Spring(_)
+    ));
+    finish(&mut app);
 }
 
 #[test]

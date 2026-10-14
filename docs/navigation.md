@@ -31,11 +31,11 @@ app.render().unwrap();
 
 The follower respects its own ancestor clips and the target's ancestor clip. Hidden, deleted, detached, cyclic, or unmappable targets make the follower unavailable for drawing, input, and output reads until the relation becomes valid. Self-targets and targets inside the follower subtree are cyclic. Removing `FollowBounds` restores the authored `Style`; the component never overwrites that style. Use `follow_bounds::view()` for selective widget registration, or `with_default_widgets()` to include it automatically.
 
-Bounds update immediately by default. Add `.with_transition(mirui::anim::SNAPPY)` to animate position and size changes. The first valid placement and recovery from an unavailable target are immediate. Retargeting preserves each axis's current position and velocity; rendering and hit testing use the displayed bounds, clipped to the current source viewport. `transition: None` or a zero duration hint switches immediately. Only animated followers allocate motion component storage, prepared when animation is enabled; advancing and retargeting reuse it.
+Bounds update immediately by default. Add `.with_transition(mirui::anim::SNAPPY)` or pass a `TweenConfig` to animate position and size changes. The first valid placement and recovery from an unavailable target are immediate. Retargeting preserves each axis's displayed position; springs also retain velocity. Rendering and hit testing use the displayed bounds, clipped to the current source viewport. `transition: None` or zero duration switches immediately. Only animated followers allocate motion component storage, prepared when animation is enabled; advancing and retargeting reuse it.
 
 ## Interactive example
 
-Page Studio is available in the Gallery's Showcase section as `page_studio`. Its collection, place details and note editor demonstrate stack navigation and retained controls; the scene panel demonstrates `PageView`. The toolbar selects no animation, slide or group fade, with Smooth, Snappy and Bouncy transition presets. The Follow Bounds panel moves an independent outline between three differently sized buttons using `FollowBounds`; each selection uses the toolbar's current transition preset.
+Page Studio is available in the Gallery's Showcase section as `page_studio`. Its collection, place details and note editor demonstrate stack navigation and retained controls; the scene panel demonstrates `PageView`. The toolbar separates None/Slide/Fade effects from Tween/Spring motion. Tween offers Linear, Ease out and Ease in-out at 300 ms; Spring offers Smooth, Snappy, Bouncy and Interactive. The Follow Bounds panel moves an independent outline between three differently sized buttons using `FollowBounds`; each selection uses the toolbar's current motion and preset.
 
 ```sh
 cargo run -p gallery --example page_studio_demo
@@ -223,6 +223,23 @@ fn main() {
 `PageView::new(page)` supports non-macro composition. Its `page` field stores `Option<R>`; `None` selects no page, and ordinary DSL field conversion accepts an `R` directly. Routes need `Clone + PartialEq`, not `Default`. Page construction can allocate; an unchanged selection does not clone its route or rebuild its widgets. The factory also accepts the ordinary inline closure and `on CreatePage { ... }` forms.
 
 ## Page transitions
+
+```rust
+use mirui::anim::{BOUNCY, Easing, Transition, TweenConfig, ease};
+use mirui::types::Fixed;
+use mirui::ui::widgets::navigation::PageTransition;
+
+const MOVE: TweenConfig = TweenConfig::new(300, &ease::OUT_CUBIC);
+let slide = PageTransition::slide(MOVE);
+let fade = PageTransition::fade(BOUNCY);
+
+fn custom_progress(t: Fixed) -> Fixed { t * t }
+static CUSTOM: Easing = Easing::new(custom_progress);
+let config: Transition = TweenConfig::new(240, &CUSTOM).into();
+let mut motion = config.motion(Fixed::ZERO, Fixed::ONE);
+motion.tick(16);
+config.retarget(&mut motion, Fixed::from_int(2));
+```
 
 `transition: ${ expression }` binds the transition configuration reactively on either container. Changes apply to subsequent transitions; active motion keeps its current configuration and velocity.
 

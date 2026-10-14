@@ -244,10 +244,10 @@ pub(super) fn create_scene(event: event!(page_view::CreatePage<Scene>)) -> Entit
         Scene::Night => (2, "Stay a little.", "NIGHT / 23:16"),
     };
     ui! {
-        Column (grow: 1.0, padding: Padding::all(20), row_gap: 10) {
-            artwork (index, 100)
-            Text (subtitle, height: 20, font_size: 11, text_color: MUTED)
-            Text (title, height: 44, font_size: 28, text_color: INK)
+        Column (grow: 1.0, padding: Padding::all(16), row_gap: 6) {
+            artwork (index, 80)
+            Text (subtitle, height: 18, font_size: 11, text_color: MUTED)
+            Text (title, height: 36, font_size: 28, text_color: INK)
             View (grow: 1.0)
             Text ("A MOMENT, NOT A DESTINATION.", height: 22, font_size: 10, text_color: MUTED)
         }
