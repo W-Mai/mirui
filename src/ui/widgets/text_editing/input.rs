@@ -634,7 +634,10 @@ pub(super) fn cursor_blink(
                 Ok(())
             });
         } else if now && phase_changed {
-            commands.insert(entity, crate::ui::dirty::VisualDirty::New);
+            commands.apply(entity, (), |world, entity, ()| {
+                world.invalidate_visual(entity);
+                Ok(())
+            });
         }
     }
 }

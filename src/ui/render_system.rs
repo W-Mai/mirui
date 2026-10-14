@@ -34,6 +34,8 @@ mod coverage_tests;
 mod overflow_tests;
 #[cfg(test)]
 mod paint_request_tests;
+#[cfg(test)]
+mod transform_cache_tests;
 
 /// Stage at which a text widget failed to prepare its layout.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -2950,6 +2952,7 @@ fn collect_dirty_walk(
     scroll_clip: Option<Rect>,
     parent_scroll: Option<Entity>,
     carrier: Option<Point>,
+    ancestor_transformed: bool,
     bounds: &mut DirtyBounds,
     plan: &mut DirtyRegions,
     painted_damage: &mut alloc::vec::Vec<Entity>,
@@ -2968,17 +2971,18 @@ fn collect_dirty_walk(
     let (tf, tf_3d) = render_transforms(*parent_transform, *parent_3d, world, entity, shifted_rect);
 
     let pending = VisualDirty::prepare(world, entity);
+    let transformed = ancestor_transformed || pending.is_some_and(VisualDirty::transforms_subtree);
     let is_offscreen = crate::ui::offscreen::config(world, entity).is_some();
     if is_offscreen {
         let mut sub_idx = *idx + 1;
-        let mut pending = pending;
+        let mut pending = pending.map(VisualDirty::content_pending);
         for child in &node.children {
             pending = merge_pending(
                 pending,
                 scan_subtree_dirty(child, world, entities, &mut sub_idx),
             );
         }
-        if pending.is_some() {
+        if pending.is_some() || transformed {
             push_entity_dirty(
                 world,
                 entity,
@@ -3028,7 +3032,7 @@ fn collect_dirty_walk(
         (None, _, _) => carrier,
     };
 
-    if pending.is_some() && my_scroll_op.is_none() {
+    if (pending.is_some() || transformed) && my_scroll_op.is_none() {
         push_entity_dirty(
             world,
             entity,
@@ -3080,6 +3084,7 @@ fn collect_dirty_walk(
                 parent_scroll
             },
             child_carrier.filter(|_| scroll::children_are_transferable(world, entity)),
+            transformed,
             bounds,
             plan,
             painted_damage,
@@ -3229,7 +3234,8 @@ fn scan_subtree_dirty(
         return None;
     }
     let entity = entities[*idx];
-    let mut pending = VisualDirty::prepare(world, entity);
+    let own_pending = VisualDirty::prepare(world, entity);
+    let mut pending = own_pending.map(VisualDirty::content_pending);
     *idx += 1;
     for child in &node.children {
         pending = merge_pending(pending, scan_subtree_dirty(child, world, entities, idx));
@@ -3243,7 +3249,7 @@ fn scan_subtree_dirty(
             outputs.invalidate(entity);
         }
     }
-    pending
+    merge_pending(pending, own_pending.map(VisualDirty::parent_pending))
 }
 
 /// Prepare the bounding rect of pending damage in logical pixels. Damage remains pending until `seed_prev_rects` confirms successful drawing. Returns `Ok(None)` when there is no damage, or a layout failure before drawing.
@@ -3439,6 +3445,7 @@ pub(crate) fn try_collect_dirty_regions_into(
             Some(Rect::new(0, 0, logical_w, logical_h)),
             None,
             Some(Point::new(0, 0)),
+            false,
             &mut bounds,
             plan,
             &mut snapshot.painted_damage,

@@ -43,7 +43,9 @@ impl Binding {
     fn invalidate(&self, world: &mut World) -> bool {
         match self.invalidation {
             ViewInvalidation::Visual
-                if world.get::<VisualDirty>(self.consumer) != Some(&VisualDirty::New) =>
+                if !world
+                    .get::<VisualDirty>(self.consumer)
+                    .is_some_and(|dirty| dirty.content_pending() == VisualDirty::New) =>
             {
                 world.invalidate_visual(self.consumer);
             }
@@ -319,7 +321,11 @@ fn source_is_dirty(world: &World, source: Entity) -> bool {
     contains::<Dirty>(world, source)
         || world.storage::<VisualDirty>().is_some_and(|storage| {
             storage.iter().any(|(entity, state)| {
-                *state == VisualDirty::New
+                (if entity == source {
+                    state.content_pending()
+                } else {
+                    state.parent_pending()
+                }) == VisualDirty::New
                     && crate::ui::branch::is_in_subtree(world, source, entity)
                     && !crate::ui::branch::is_hidden_in_tree(world, entity)
             })
@@ -329,6 +335,28 @@ fn source_is_dirty(world: &World, source: Entity) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_content_excludes_own_motion_but_includes_descendant_motion() {
+        let mut world = World::new();
+        let source = world.spawn_empty();
+        let child = world.spawn_empty();
+        world.insert(child, crate::ui::Parent(source));
+        world.invalidate_transform(source);
+        assert!(!source_is_dirty(&world, source));
+        world.invalidate_transform(child);
+        assert!(source_is_dirty(&world, source));
+        VisualDirty::prepare(&mut world, child);
+        assert!(!source_is_dirty(&world, source));
+        world.invalidate_visual(source);
+        assert!(source_is_dirty(&world, source));
+        assert!(
+            world
+                .get::<VisualDirty>(source)
+                .unwrap()
+                .transforms_subtree()
+        );
+    }
 
     const CURRENT: OutputDependency = OutputDependency {
         descriptor: OutputDescriptor {

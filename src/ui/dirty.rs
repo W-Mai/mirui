@@ -1,7 +1,8 @@
 //! Dirty tracking — per-entity, no parent→child propagation. A parent's
 //! `Dirty` only contributes its own rect; descendants are unaffected
 //! unless they're marked too. Use `World::mark_subtree_dirty` when a global
-//! change (theme swap, viewport resize) needs every entity flagged.
+//! change (theme swap, viewport resize) needs every entity flagged. Transform
+//! damage follows descendants during collection without invalidating their content.
 
 use crate::ecs::{Entity, World};
 use crate::types::{Fixed, Rect};
@@ -27,25 +28,77 @@ pub(crate) enum VisualDirty {
     #[default]
     New,
     Prepared,
+    Transform,
+    NewTransform,
+    PreparedTransform,
 }
 
 impl crate::ecs::Component for VisualDirty {}
 
 impl VisualDirty {
-    pub(crate) fn prepare(world: &mut World, entity: Entity) -> Option<Self> {
-        let state = if world.remove::<Dirty>(entity).is_some() {
-            Some(Self::New)
+    pub(crate) fn transforms_subtree(self) -> bool {
+        matches!(
+            self,
+            Self::Transform | Self::NewTransform | Self::PreparedTransform
+        )
+    }
+
+    fn with_content(self) -> Self {
+        if self.transforms_subtree() {
+            Self::NewTransform
         } else {
-            world.get::<Self>(entity).copied()
+            Self::New
+        }
+    }
+
+    fn with_transform(self) -> Self {
+        if matches!(self, Self::New | Self::NewTransform) {
+            Self::NewTransform
+        } else {
+            Self::Transform
+        }
+    }
+
+    // A capture excludes its own transform; its containing capture includes it.
+    pub(crate) fn content_pending(self) -> Self {
+        match self {
+            Self::New | Self::NewTransform => Self::New,
+            _ => Self::Prepared,
+        }
+    }
+
+    pub(crate) fn parent_pending(self) -> Self {
+        match self {
+            Self::New | Self::NewTransform | Self::Transform => Self::New,
+            _ => Self::Prepared,
+        }
+    }
+
+    pub(crate) fn prepare(world: &mut World, entity: Entity) -> Option<Self> {
+        let previous = world.get::<Self>(entity).copied();
+        let state = if world.remove::<Dirty>(entity).is_some() {
+            Some(previous.unwrap_or(Self::New).with_content())
+        } else {
+            previous
         };
-        if state == Some(Self::New) {
-            world.insert(entity, Self::Prepared);
+        if let Some(state) = state {
+            let prepared = if state.transforms_subtree() {
+                Self::PreparedTransform
+            } else {
+                Self::Prepared
+            };
+            if state != prepared {
+                world.insert(entity, prepared);
+            }
         }
         state
     }
 
     pub(crate) fn acknowledge(world: &mut World, entity: Entity) {
-        if world.get::<Self>(entity) == Some(&Self::Prepared) {
+        if matches!(
+            world.get::<Self>(entity),
+            Some(Self::Prepared | Self::PreparedTransform)
+        ) {
             world.remove::<Self>(entity);
         }
     }
@@ -181,10 +234,6 @@ impl World {
         DirtyTraversal::new(self, root).visit(Self::invalidate_painted_coverage);
     }
 
-    pub(crate) fn mark_subtree_visual_dirty(&mut self, root: Entity) {
-        DirtyTraversal::new(self, root).visit(Self::invalidate_visual);
-    }
-
     pub(crate) fn clear_subtree_paint(&mut self, root: Entity) {
         DirtyTraversal::new(self, root).visit(|world, entity| {
             if let Some(painted) = world.get_mut::<PaintedCoverage>(entity) {
@@ -239,7 +288,19 @@ impl World {
 
     /// Invalidates an entity's visual output while preserving its layout.
     pub fn invalidate_visual(&mut self, entity: Entity) {
-        self.insert(entity, VisualDirty::New);
+        let pending = self
+            .get::<VisualDirty>(entity)
+            .copied()
+            .unwrap_or(VisualDirty::New);
+        self.insert(entity, pending.with_content());
+    }
+
+    pub(crate) fn invalidate_transform(&mut self, entity: Entity) {
+        let pending = self
+            .get::<VisualDirty>(entity)
+            .copied()
+            .unwrap_or(VisualDirty::Transform);
+        self.insert(entity, pending.with_transform());
     }
 
     /// Invalidates a logical rectangle without invalidating layout.

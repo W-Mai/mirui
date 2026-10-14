@@ -23,6 +23,8 @@ pub trait Property: 'static {
 pub enum PropertyChange {
     Unchanged,
     Visual,
+    /// Moves the subtree's painted output without changing its local content.
+    Transform,
     Layout,
 }
 
@@ -135,6 +137,7 @@ pub(crate) fn invalidate_for_change(world: &mut World, entity: Entity, change: P
     match change {
         PropertyChange::Unchanged => {}
         PropertyChange::Visual => world.invalidate_visual(entity),
+        PropertyChange::Transform => world.invalidate_transform(entity),
         PropertyChange::Layout => {
             if world.has::<crate::ui::Hidden>(entity) {
                 if let Some(parent) = world
@@ -403,8 +406,7 @@ pub mod prop {
                 return PropertyChange::Unchanged;
             }
             world.insert(entity, crate::ui::widgets::WidgetTransform(value));
-            world.mark_subtree_visual_dirty(entity);
-            PropertyChange::Visual
+            PropertyChange::Transform
         }
     }
 
@@ -571,7 +573,7 @@ mod tests {
     use crate::ui::{Children, Parent, Widget};
 
     #[test]
-    fn transform_property_invalidates_subtree_visuals_only_for_changed_values() {
+    fn transform_property_records_subtree_motion_without_invalidating_local_content() {
         let mut world = World::new();
         let entity = world.spawn_empty();
         world.insert(entity, Widget);
@@ -582,7 +584,7 @@ mod tests {
 
         assert_eq!(
             apply_to_world::<prop::Transform>(&mut world, entity, transform),
-            PropertyChange::Visual
+            PropertyChange::Transform
         );
         assert_eq!(
             world
@@ -590,7 +592,12 @@ mod tests {
                 .map(|value| value.0),
             Some(transform)
         );
-        assert!(world.has::<VisualDirty>(child));
+        assert!(
+            world
+                .get::<VisualDirty>(entity)
+                .is_some_and(|dirty| dirty.transforms_subtree())
+        );
+        assert!(!world.has::<VisualDirty>(child));
         assert!(!world.has::<Dirty>(entity));
         assert!(!world.has::<Dirty>(child));
         world.remove::<VisualDirty>(entity);
@@ -608,7 +615,7 @@ mod tests {
             }),
             0
         );
-        assert!(world.has::<VisualDirty>(child));
+        assert!(!world.has::<VisualDirty>(child));
         assert!(!world.has::<Dirty>(child));
     }
 
