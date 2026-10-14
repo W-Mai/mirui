@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `DirtyRegions::affected_regions()` iterates redraw and scroll-transfer coverage without allocating or consuming the plan.
+
 - `TweenConfig` separates duration and easing from running animation state. Static `Easing` descriptors provide stable curve identity for built-in and custom tweens.
 
 - `anim::Transition` configures shared tween or spring motion for page effects and `FollowBounds::with_transition`, accepting `TweenConfig` and spring presets directly. Unchanged tween targets retain progress; redirected springs retain velocity.

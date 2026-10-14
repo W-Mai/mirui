@@ -372,49 +372,19 @@ impl DirtyRegions {
         self
     }
 
-    /// Bounding rect over `rects` and `shifts`'s areas, or `None`
-    /// when the plan is empty.
+    /// Iterate nonempty redraw and scroll-transfer areas in logical pixels without allocating or consuming the plan. Areas may overlap.
+    pub fn affected_regions(&self) -> impl Iterator<Item = Rect> + '_ {
+        self.rects
+            .iter()
+            .copied()
+            .chain(self.shifts.iter().map(|shift| shift.area))
+            .filter(|rect| rect.w > Fixed::ZERO && rect.h > Fixed::ZERO)
+    }
+
+    /// Bounding rect over redraw and scroll-transfer areas, or `None` when no nonempty area remains.
     pub fn bounding_rect(&self) -> Option<Rect> {
-        let mut min_x = Fixed::MAX;
-        let mut min_y = Fixed::MAX;
-        let mut max_x = Fixed::MIN;
-        let mut max_y = Fixed::MIN;
-        let mut any = false;
-        let mut absorb = |r: &Rect| {
-            if r.w <= Fixed::ZERO || r.h <= Fixed::ZERO {
-                return;
-            }
-            any = true;
-            if r.x < min_x {
-                min_x = r.x;
-            }
-            if r.y < min_y {
-                min_y = r.y;
-            }
-            let rx2 = r.x + r.w;
-            let ry2 = r.y + r.h;
-            if rx2 > max_x {
-                max_x = rx2;
-            }
-            if ry2 > max_y {
-                max_y = ry2;
-            }
-        };
-        for r in &self.rects {
-            absorb(r);
-        }
-        for s in &self.shifts {
-            absorb(&s.area);
-        }
-        if !any {
-            return None;
-        }
-        Some(Rect {
-            x: min_x,
-            y: min_y,
-            w: max_x - min_x,
-            h: max_y - min_y,
-        })
+        self.affected_regions()
+            .reduce(|left, right| left.union(&right))
     }
 }
 
@@ -603,5 +573,45 @@ mod tests {
         assert_eq!(rects.len(), 4);
         assert_eq!(rects[3], Rect::new(30, 0, 12, 2));
         assert!(regions.is_empty());
+    }
+
+    #[test]
+    fn affected_regions_share_summary_coverage_without_consuming_or_allocating() {
+        let redraw = Rect::new(-4, 3, 8, 5);
+        let shifted = Rect::new(20, 12, 30, 40);
+        let plan = DirtyRegions {
+            rects: alloc::vec![Rect::ZERO, redraw, Rect::new(1, 2, -1, 8)],
+            shifts: alloc::vec![
+                RegionShift {
+                    area: shifted,
+                    dx: Fixed::ZERO,
+                    dy: Fixed::from_int(3)
+                },
+                RegionShift {
+                    area: Rect::ZERO,
+                    dx: Fixed::ONE,
+                    dy: Fixed::ZERO
+                },
+            ],
+        };
+        let before = (plan.rects.as_ptr(), plan.shifts.as_ptr());
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for _ in 0..3 {
+                    assert!(plan.affected_regions().eq([redraw, shifted]));
+                    assert_eq!(plan.bounding_rect(), Some(redraw.union(&shifted)));
+                }
+            }),
+            0
+        );
+        assert_eq!((plan.rects.as_ptr(), plan.shifts.as_ptr()), before);
+        assert_eq!((plan.rects.len(), plan.shifts.len()), (3, 2));
+
+        let empty = DirtyRegions {
+            rects: alloc::vec![Rect::ZERO],
+            shifts: Vec::new(),
+        };
+        assert_eq!(empty.affected_regions().next(), None);
+        assert_eq!(empty.bounding_rect(), None);
     }
 }
