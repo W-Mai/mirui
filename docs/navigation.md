@@ -42,6 +42,13 @@ cargo run -p gallery --example page_studio_demo
 cargo run -p gallery --example page_studio_demo --no-default-features --features wgpu
 ```
 
+Nearby demonstrates application-selected pages with explicit forward and backward slide directions. Its native launcher starts at 640×480 and reflows when resized. The default backend is SDL; the same UI also runs with WGPU.
+
+```sh
+cargo run -p gallery --example nearby_demo
+cargo run -p gallery --example nearby_demo --no-default-features --features wgpu
+```
+
 ## Navigation state
 
 `NavigationPath<R>` is an observable Model containing pushed destinations. The root page is not part of the path. Register an instance with `App::add_model` or store it in an owned Model field.

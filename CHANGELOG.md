@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Nearby provides menu and in-game entry, explicit local confirmation and simulated peer progress, recoverable failure cases, and game/system exit outcomes.
 - Nearby animates page changes and keeps session progress on the mounted page, with page-local selection outlines and keyboard actions.
 - Nearby uses independently resizable flex dimensions and consistent typography across initial canvas sizes.
+- Nearby distinguishes forward navigation from returns and provides a resizable 640×480 native launcher with SDL and WGPU backends.
 
 - `App::dirty_regions()` borrows pending redraw and scroll-transfer coverage. Single-region and multi-region queries preserve pending drawing, including changes made between queries and rendering.
 

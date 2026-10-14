@@ -1,5 +1,6 @@
 use super::{copy, data::*, style::*};
 use crate::prelude::*;
+use crate::ui::widgets::navigation::{PageDirection, PageTransition};
 use alloc::{string::ToString, vec};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,6 +32,7 @@ pub struct DisplayState {
     scenario: Scenario,
     fault_delivered: bool,
     leave_to: Page,
+    direction: PageDirection,
 }
 
 impl Default for DisplayState {
@@ -84,6 +86,7 @@ impl Default for DisplayState {
             scenario: Scenario::Normal,
             fault_delivered: false,
             leave_to: Page::Choice,
+            direction: PageDirection::Forward,
         }
     }
 }
@@ -102,9 +105,14 @@ impl DisplayState {
         PageKey {
             page: self.view.page,
             source: self.view.source,
-            network_only: self.view.network_only,
+            network_only: !matches!(self.view.page, Page::Mode | Page::Games | Page::Unavailable)
+                && self.view.network_only,
             session: self.session,
         }
+    }
+    #[observe]
+    pub fn transition(&self) -> PageTransition {
+        PageTransition::slide(crate::anim::SNAPPY).with_direction(self.direction)
     }
     #[observe]
     pub fn selected(&self) -> usize {
@@ -183,11 +191,12 @@ impl DisplayState {
         match self.view.page {
             Page::Mode => {
                 self.view.network_only = self.view.selected == 0;
-                self.view.page = if self.view.network_only {
+                let page = if self.view.network_only {
                     Page::Choice
                 } else {
                     Page::Games
                 };
+                self.navigate(page, PageDirection::Forward);
             }
             Page::Games => {
                 if self.scenario == Scenario::EmptyGames {
@@ -197,25 +206,27 @@ impl DisplayState {
                     return;
                 };
                 self.view.title.clone_from(&game.name);
-                self.view.page =
-                    if self.view.selected == 2 || self.scenario == Scenario::UnsupportedGame {
-                        Page::Unavailable
-                    } else {
-                        Page::Choice
-                    };
+                let page = if self.view.selected == 2 || self.scenario == Scenario::UnsupportedGame
+                {
+                    Page::Unavailable
+                } else {
+                    Page::Choice
+                };
+                self.navigate(page, PageDirection::Forward);
             }
             Page::Choice => {
                 if self.take_fault(Scenario::ExistingRoom) {
                     self.leave_to = Page::Choice;
-                    self.view.page = Page::Leaving;
+                    self.navigate(Page::Leaving, PageDirection::Forward);
                     self.set_phase(Phase::RoomActive);
                     return;
                 }
-                self.view.page = if self.view.selected == 0 {
+                let page = if self.view.selected == 0 {
                     Page::Host
                 } else {
                     Page::Rooms
                 };
+                self.navigate(page, PageDirection::Forward);
                 self.set_phase(if self.view.selected == 0 {
                     Phase::Creating
                 } else {
@@ -238,7 +249,7 @@ impl DisplayState {
                     return;
                 };
                 self.view.room_name.clone_from(&room.name);
-                self.view.page = Page::Joined;
+                self.navigate(Page::Joined, PageDirection::Forward);
                 self.set_phase(Phase::Connecting);
             }
             Page::Host | Page::Joined => {
@@ -249,7 +260,9 @@ impl DisplayState {
                         Phase::HostReady
                     }),
                     Phase::HostReady => self.set_phase(Phase::Starting),
-                    Phase::NetworkConnected => self.exit(Outcome::KeepNetwork),
+                    Phase::NetworkConnected => {
+                        self.exit(Outcome::KeepNetwork, PageDirection::Forward)
+                    }
                     Phase::Closed | Phase::Failed => self.back_page(),
                     _ => {}
                 }
@@ -297,12 +310,12 @@ impl DisplayState {
             }
             Phase::WaitingStart => Phase::Starting,
             Phase::Starting => {
-                self.exit(Outcome::Multiplayer);
+                self.exit(Outcome::Multiplayer, PageDirection::Forward);
                 return;
             }
             Phase::Leaving if self.take_fault(Scenario::RestoreFailure) => Phase::RestoreFailed,
             Phase::Leaving => {
-                self.view.page = self.leave_to;
+                self.navigate(self.leave_to, PageDirection::Backward);
                 self.set_phase(Phase::Idle);
                 self.clear_connection();
                 self.view.selected = 0;
@@ -322,11 +335,11 @@ impl DisplayState {
         if matches!(self.view.page, Page::Choice | Page::Unavailable)
             && self.view.source == LaunchSource::Game
         {
-            self.exit(Outcome::SinglePlayer);
+            self.exit(Outcome::SinglePlayer, PageDirection::Backward);
             return;
         }
         if self.view.page == Page::Mode {
-            self.exit(Outcome::System);
+            self.exit(Outcome::System, PageDirection::Backward);
             return;
         }
         if matches!(self.view.page, Page::Host | Page::Joined) {
@@ -335,11 +348,11 @@ impl DisplayState {
             } else {
                 Page::Choice
             };
-            self.view.page = Page::Leaving;
+            self.navigate(Page::Leaving, PageDirection::Backward);
             self.set_phase(Phase::Leaving);
             return;
         }
-        self.view.page = match self.view.page {
+        let page = match self.view.page {
             Page::Outcome => {
                 self.restart();
                 return;
@@ -349,6 +362,7 @@ impl DisplayState {
             Page::Choice | Page::Unavailable => Page::Games,
             _ => Page::Choice,
         };
+        self.navigate(page, PageDirection::Backward);
         self.set_phase(Phase::Idle);
         self.view.selected = 0;
         self.clear_connection();
@@ -357,7 +371,7 @@ impl DisplayState {
         self.session = self.session.wrapping_add(1);
         self.clear_connection();
         self.view.network_only = false;
-        self.view.page = if self.view.source == LaunchSource::Game {
+        let page = if self.view.source == LaunchSource::Game {
             if self.scenario == Scenario::UnsupportedGame {
                 Page::Unavailable
             } else {
@@ -366,6 +380,7 @@ impl DisplayState {
         } else {
             Page::Mode
         };
+        self.navigate(page, PageDirection::Backward);
         self.view.selected = 0;
         self.view.refreshing = false;
         self.fault_delivered = false;
@@ -401,6 +416,10 @@ impl DisplayState {
 }
 
 impl DisplayState {
+    fn navigate(&mut self, page: Page, direction: PageDirection) {
+        self.view.page = page;
+        self.direction = direction;
+    }
     fn take_fault(&mut self, scenario: Scenario) -> bool {
         if self.scenario != scenario || self.fault_delivered {
             return false;
@@ -440,9 +459,9 @@ impl DisplayState {
             self.clear_connection();
         }
     }
-    fn exit(&mut self, outcome: Outcome) {
+    fn exit(&mut self, outcome: Outcome, direction: PageDirection) {
         self.view.outcome = outcome;
-        self.view.page = Page::Outcome;
+        self.navigate(Page::Outcome, direction);
         self.view.busy = false;
     }
 }

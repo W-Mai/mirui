@@ -82,6 +82,67 @@ fn frames(app: &TestApp) -> alloc::vec::Vec<Entity> {
 }
 
 #[test]
+fn page_intent_and_direction_are_published_together_and_reverse_without_jumping() {
+    use crate::ui::widgets::{
+        WidgetTransform,
+        navigation::{PageDirection, PageTransition},
+    };
+    let (mut app, state) = fixture();
+    let host = app.world.find_by_id("nearby_pages").unwrap();
+    let x = |app: &TestApp, entity| {
+        app.world
+            .get::<WidgetTransform>(entity)
+            .unwrap()
+            .0
+            .apply_point(crate::types::Point::ZERO)
+            .x
+    };
+    state.activate(0);
+    app.render_dirty().unwrap();
+    let pair = transition::running(&app.world, host).unwrap();
+    assert!(x(&app, pair.to) > Fixed::ZERO);
+    app.tick();
+    app.tick();
+    let position = x(&app, pair.to);
+    state.back_page();
+    app.render_dirty().unwrap();
+    assert_eq!(x(&app, pair.to), position);
+    assert_eq!(
+        transition::running(&app.world, host).unwrap().destination(),
+        pair.from
+    );
+    state.activate(1);
+    app.render_dirty().unwrap();
+    finish_transition(&mut app);
+    assert_eq!(state.snapshot().page, Page::Games);
+    state.back_page();
+    app.render_dirty().unwrap();
+    let returning = transition::running(&app.world, host).unwrap();
+    assert!(x(&app, returning.to) < Fixed::ZERO);
+    finish_transition(&mut app);
+    assert_eq!(state.snapshot().page, Page::Mode);
+    state.activate(0);
+    app.render_dirty().unwrap();
+    finish_transition(&mut app);
+    state.activate(0);
+    app.render_dirty().unwrap();
+    finish_transition(&mut app);
+    state.back_page();
+    app.render_dirty().unwrap();
+    finish_transition(&mut app);
+    state.advance();
+    app.render_dirty().unwrap();
+    let returning = transition::running(&app.world, host).unwrap();
+    assert!(x(&app, returning.to) < Fixed::ZERO);
+    assert!(
+        state.transition()
+            == PageTransition::slide(crate::anim::SNAPPY).with_direction(PageDirection::Backward)
+    );
+    finish_transition(&mut app);
+    assert_eq!(state.snapshot().page, Page::Choice);
+}
+
+#[test]
 fn page_transitions_animate_but_session_progress_retains_the_mounted_page() {
     let (mut app, state) = fixture();
     let initial_frame = frames(&app)[0];

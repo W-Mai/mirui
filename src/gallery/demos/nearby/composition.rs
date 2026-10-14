@@ -4,7 +4,6 @@ use super::{
     style::*,
 };
 use crate::prelude::*;
-use crate::ui::widgets::navigation::PageTransition;
 use crate::ui::widgets::{
     Button, Text,
     page_view::{CreatePage, PageView},
@@ -166,7 +165,7 @@ fn page_host(state: model!(DisplayState), metrics: Metrics) -> Entity {
             min_height: 0,
             bg_color: BACKGROUND,
             clip_children: true,
-            transition: PageTransition::slide(crate::anim::SNAPPY)
+            transition: ${ state.transition() }
         ) on CreatePage(create_page::callback(state, metrics))
     }
 }
