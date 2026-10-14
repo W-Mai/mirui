@@ -26,6 +26,7 @@ struct Binding {
     invalidation: ViewInvalidation,
     active: bool,
     visible: bool,
+    // Propagated or painted source version; pending paint remains on the consumer.
     version: Cell<Option<u64>>,
 }
 
@@ -41,7 +42,9 @@ struct Demand {
 impl Binding {
     fn invalidate(&self, world: &mut World) -> bool {
         match self.invalidation {
-            ViewInvalidation::Visual if !world.has::<VisualDirty>(self.consumer) => {
+            ViewInvalidation::Visual
+                if world.get::<VisualDirty>(self.consumer) != Some(&VisualDirty::New) =>
+            {
                 world.invalidate_visual(self.consumer);
             }
             ViewInvalidation::Layout if !world.has::<Dirty>(self.consumer) => {
@@ -210,6 +213,7 @@ impl OutputRelations {
             binding.visible = visible;
             if changed {
                 binding.invalidate(world);
+                binding.version.set(version);
             }
         }
     }
@@ -293,6 +297,7 @@ impl OutputRelations {
                 binding.visible = visible;
                 if changed {
                     propagated |= binding.invalidate(world);
+                    binding.version.set(version);
                 }
             }
             if !propagated {
@@ -311,7 +316,14 @@ fn source_is_dirty(world: &World, source: Entity) -> bool {
             })
         })
     }
-    contains::<Dirty>(world, source) || contains::<VisualDirty>(world, source)
+    contains::<Dirty>(world, source)
+        || world.storage::<VisualDirty>().is_some_and(|storage| {
+            storage.iter().any(|(entity, state)| {
+                *state == VisualDirty::New
+                    && crate::ui::branch::is_in_subtree(world, source, entity)
+                    && !crate::ui::branch::is_hidden_in_tree(world, entity)
+            })
+        })
 }
 
 #[cfg(test)]
@@ -358,7 +370,7 @@ mod tests {
                 0 => relations.propagate_publications(&mut world),
                 1 => {
                     world.insert(source, 2_u64);
-                    world.insert(layout, VisualDirty);
+                    world.insert(layout, VisualDirty::New);
                     relations.propagate_publications(&mut world);
                 }
                 2 => {
@@ -396,7 +408,7 @@ mod tests {
             world.remove::<Dirty>(consumer);
             world.remove::<VisualDirty>(consumer);
         }
-        world.insert(source, VisualDirty);
+        world.insert(source, VisualDirty::New);
         assert_eq!(
             crate::test_support::tracked_allocations(|| {
                 relations.propagate_invalidations(&mut world);
@@ -409,7 +421,7 @@ mod tests {
     }
 
     #[test]
-    fn publication_versions_require_each_consumers_acknowledgement() {
+    fn publication_damage_requires_each_consumers_acknowledgement() {
         let mut world = World::default();
         let source = world.spawn_empty();
         let first = world.spawn_empty();
@@ -426,22 +438,30 @@ mod tests {
             relations
                 .bindings
                 .iter()
-                .all(|binding| binding.version.get().is_none())
+                .all(|binding| binding.version.get() == Some(7))
         );
-        world.remove::<VisualDirty>(first);
-        world.remove::<VisualDirty>(second);
+        VisualDirty::prepare(&mut world, first);
+        VisualDirty::prepare(&mut world, second);
 
         relations.acknowledge(&world, first);
+        VisualDirty::acknowledge(&mut world, first);
         relations.propagate_invalidations(&mut world);
         assert!(!world.has::<VisualDirty>(first));
-        assert!(world.has::<VisualDirty>(second));
+        assert!(matches!(
+            world.get::<VisualDirty>(second),
+            Some(VisualDirty::Prepared)
+        ));
         assert_eq!(relations.bindings[0].version.get(), Some(7));
-        assert_eq!(relations.bindings[1].version.get(), None);
+        assert_eq!(relations.bindings[1].version.get(), Some(7));
 
         world.insert(source, 8_u64);
         relations.propagate_invalidations(&mut world);
         assert!(world.has::<VisualDirty>(first));
-        assert_eq!(relations.bindings[0].version.get(), Some(7));
+        assert!(matches!(
+            world.get::<VisualDirty>(second),
+            Some(VisualDirty::New)
+        ));
+        assert_eq!(relations.bindings[0].version.get(), Some(8));
 
         world.insert(source, crate::ui::Hidden);
         relations.acknowledge(&world, first);
@@ -492,12 +512,9 @@ mod tests {
         assert!(world.has::<VisualDirty>(first));
         assert!(world.has::<VisualDirty>(second));
         assert!(!world.has::<VisualDirty>(retained));
-        assert!(
-            relations
-                .bindings
-                .iter()
-                .all(|binding| binding.version.get().is_none())
-        );
+        assert_eq!(relations.bindings[0].version.get(), Some(1));
+        assert_eq!(relations.bindings[1].version.get(), Some(1));
+        assert_eq!(relations.bindings[2].version.get(), None);
         for consumer in [first, second] {
             relations.acknowledge(&world, consumer);
             world.remove::<VisualDirty>(consumer);
@@ -514,8 +531,8 @@ mod tests {
             world.get::<Cell<Option<u64>>>(source).unwrap().get(),
             Some(2)
         );
-        assert_eq!(relations.bindings[0].version.get(), Some(1));
-        assert_eq!(relations.bindings[1].version.get(), Some(1));
+        assert_eq!(relations.bindings[0].version.get(), Some(2));
+        assert_eq!(relations.bindings[1].version.get(), Some(2));
         assert!(world.has::<VisualDirty>(first));
         assert!(world.has::<VisualDirty>(second));
         assert!(!world.has::<VisualDirty>(retained));

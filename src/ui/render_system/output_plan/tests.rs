@@ -104,6 +104,48 @@ fn inline_dependency_inside_capture() {
 }
 
 #[test]
+fn repeated_queries_do_not_republish_or_reinvalidate_prepared_textures() {
+    let mut app = app(8, 4);
+    let root = app.spawn_root().bg_color(Color::rgb(0, 0, 0)).id();
+    app.compose(root, inline_dependency_inside_capture());
+    app.render().unwrap();
+    let capture = app.world.find_by_id("capture").unwrap();
+    let source = app.world.find_by_id("external_source").unwrap();
+    let published = output_version(&app.world, "capture");
+    let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+    for color in [Color::rgb(220, 40, 80), Color::rgb(40, 80, 220)] {
+        app.world.get_mut::<Style>(source).unwrap().bg_color = Some(color.into());
+        app.dirty_regions().unwrap();
+        let generation = app
+            .world
+            .get::<crate::ui::OffscreenGeneration>(capture)
+            .unwrap()
+            .0;
+        for _ in 0..3 {
+            assert!(!app.dirty_regions().unwrap().is_empty());
+            assert_eq!(
+                app.world
+                    .get::<crate::ui::OffscreenGeneration>(capture)
+                    .unwrap()
+                    .0,
+                generation
+            );
+            assert_eq!(output_version(&app.world, "capture"), published);
+            assert_eq!(app.backend.framebuffer().buf.as_slice(), pixels);
+        }
+    }
+    app.render_dirty().unwrap();
+    let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+    assert_eq!(
+        app.backend.framebuffer().get_pixel(1, 1),
+        Color::rgb(40, 80, 220)
+    );
+    assert!(app.dirty_regions().unwrap().is_empty());
+    app.render().unwrap();
+    assert_eq!(app.backend.framebuffer().buf.as_slice(), dirty);
+}
+
+#[test]
 fn capture_inherits_its_inline_consumers_external_dependency() {
     let mut app = app(8, 4);
     let root = app.spawn_root().bg_color(Color::rgb(0, 0, 0)).id();
@@ -831,7 +873,7 @@ fn public_region_render_preserves_unpainted_inline_consumer_invalidation() {
             .iter()
             .any(|rect| rect.intersect(&consumer_clip).is_some())
     );
-    assert!(!app.world.has::<VisualDirty>(consumer));
+    assert!(app.world.has::<VisualDirty>(consumer));
     {
         let mut renderer = crate::render::sw::SwRenderer::new(app.backend.framebuffer());
         super::super::render_region(&app.world, root, &viewport, &source_clip, &mut renderer)

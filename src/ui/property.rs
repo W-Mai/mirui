@@ -711,7 +711,7 @@ mod tests {
         let child = world.spawn_empty();
         world.insert(child, Widget);
         world.insert(child, Dirty);
-        world.insert(child, VisualDirty);
+        world.insert(child, VisualDirty::New);
         world.insert(visible, Children(alloc::vec![child]));
         assert_eq!(
             apply_to_world::<prop::Visible>(&mut world, visible, false),

@@ -892,7 +892,7 @@ pub fn flush_signal_dirty(world: &mut World) {
             if let Some(entity) = entity {
                 marked_visual_widget = true;
                 if world.is_alive(entity) {
-                    world.insert(entity, VisualDirty);
+                    world.insert(entity, VisualDirty::New);
                 }
             }
         }

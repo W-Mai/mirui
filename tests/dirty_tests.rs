@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn fuzz_dirty_region_always_covers_old_and_new() {
         // Property: for ANY old position and ANY new position,
-        // the dirty region must fully contain both pixel footprints.
+        // the dirty region must contain both visible pixel footprints.
         let mut rng_state: u32 = 0xDEAD_BEEF;
         let mut rng = || -> i32 {
             rng_state ^= rng_state << 13;
@@ -225,36 +225,31 @@ mod tests {
                 mirui::ui::render_system::collect_dirty_region(&mut world, root, &transform)
                     .unwrap();
 
-            let Some(area) = dirty else { continue };
-            let (dx, dy, dr, db) = area.pixel_bounds();
-
             let old_rect = Rect {
                 x: old_x,
                 y: old_y,
                 w,
                 h,
             };
-            let (ox, oy, or, ob) = old_rect.pixel_bounds();
-
             let new_rect = Rect {
                 x: new_x,
                 y: new_y,
                 w,
                 h,
             };
-            let (nx, ny, nr, nb) = new_rect.pixel_bounds();
-
-            // Dirty must contain old footprint
-            assert!(dx <= ox, "dirty x={dx} > old x={ox}");
-            assert!(dy <= oy, "dirty y={dy} > old y={oy}");
-            assert!(dr >= or, "dirty right={dr} < old right={}", or);
-            assert!(db >= ob, "dirty bottom={db} < old bottom={}", ob);
-
-            // Dirty must contain new footprint
-            assert!(dx <= nx, "dirty x={dx} > new x={nx}");
-            assert!(dy <= ny, "dirty y={dy} > new y={ny}");
-            assert!(dr >= nr, "dirty right={dr} < new right={}", nr);
-            assert!(db >= nb, "dirty bottom={db} < new bottom={}", nb);
+            for footprint in [old_rect, new_rect] {
+                let Some(visible) = footprint.intersect(&Rect::new(0, 0, 128, 128)) else {
+                    continue;
+                };
+                let (dx, dy, dr, db) = dirty
+                    .expect("visible footprint needs repaint")
+                    .pixel_bounds();
+                let (x, y, right, bottom) = visible.pixel_bounds();
+                assert!(dx <= x, "dirty x={dx} > visible x={x}");
+                assert!(dy <= y, "dirty y={dy} > visible y={y}");
+                assert!(dr >= right, "dirty right={dr} < visible right={right}");
+                assert!(db >= bottom, "dirty bottom={db} < visible bottom={bottom}");
+            }
         }
     }
 

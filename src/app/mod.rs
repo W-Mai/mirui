@@ -1088,6 +1088,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         for plugin in &mut self.plugins {
             plugin.pre_render(&mut self.world);
         }
+        self.prepare_pending_paint();
+    }
+
+    fn prepare_pending_paint(&mut self) {
         self.flush_event_notifications();
         self.prepare_dirty_storage();
         ViewRegistry::reconcile_observations(&mut self.world);
@@ -1231,16 +1235,52 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             .insert_resource(crate::core::cache::CacheRegistry::from_snapshots(snapshots));
     }
 
-    /// Get the dirty region in **logical pixels** after event processing, clearing dirty flags on success. Use the backend's `viewport()` to obtain a clipped physical region.
+    /// Get the bounding rectangle of pending damage in logical pixels without acknowledging drawing.
     ///
-    /// Returns `Ok(None)` when there is no root or no damage. Layout failures return `RenderError::TextLayout`; details are available through `last_text_layout_failure()`.
+    /// Uses the same preparation and error handling as [`Self::dirty_regions`]. Returns `Ok(None)` when there is no root or no damage.
     pub fn dirty_region(&mut self) -> Result<Option<Rect>, crate::render::RenderError> {
+        Ok(self.dirty_regions()?.bounding_rect())
+    }
+
+    /// Borrow pending redraw rectangles and scroll transfers in logical pixels.
+    ///
+    /// Prepares reactive state, surface geometry and layout without advancing systems, polling input or calling render hooks. Queries do not consume damage or advance painted geometry. Subsequent changes are included when drawing prepares its plan again; this is not a promise of the next surface flush rectangles.
+    ///
+    /// Returns an empty plan when there is no root or no damage. Preparation, content and layout failures use the same `RenderError` variants as rendering; layout details are available through [`Self::last_text_layout_failure`].
+    pub fn dirty_regions(
+        &mut self,
+    ) -> Result<&crate::ui::dirty::DirtyRegions, crate::render::RenderError> {
+        let _owner_scope = crate::core::reactive::OwnerGuard::enter(&mut self.world);
         let Some(root) = self.root else {
-            return Ok(None);
+            self.dirty_plan.clear();
+            return Ok(&self.dirty_plan);
         };
+        self.prepare_text_layout()
+            .map_err(|_| crate::render::RenderError::TextPreparation)?;
         let transform = self.backend.viewport();
-        render_system::collect_dirty_region(&mut self.world, root, &transform)
-            .map_err(|_| crate::render::RenderError::TextLayout)
+        self.prepare_dirty_storage();
+        self.sync_surface_geometry(transform);
+        self.prepare_pending_paint();
+        if self.text_content_failure(true).is_some() {
+            self.world.mark_subtree_dirty(root);
+            return Err(crate::render::RenderError::TextContent);
+        }
+        self.text_layout_started = true;
+        render_system::try_collect_dirty_regions_into(
+            &mut self.world,
+            root,
+            &transform,
+            &mut self.dirty_plan,
+        )
+        .map_err(|_| crate::render::RenderError::TextLayout)?;
+        if self.needs_full_redraw
+            || self.backend.persistence() == crate::surface::BackbufferPersistence::Transient
+        {
+            self.dirty_plan.clear();
+            let (width, height) = transform.logical_size();
+            self.dirty_plan.rects.push(Rect::new(0, 0, width, height));
+        }
+        Ok(&self.dirty_plan)
     }
 
     /// Poll one event
@@ -1536,7 +1576,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             self.dirty_plan = plan;
             return Err(crate::render::RenderError::TextLayout);
         }
-        if self.needs_full_redraw {
+        if self.needs_full_redraw
+            || self.backend.persistence() == crate::surface::BackbufferPersistence::Transient
+        {
             plan.clear();
             let (lw, lh) = transform.logical_size();
             plan.rects.push(Rect::new(0, 0, lw, lh));
@@ -2212,6 +2254,82 @@ mod app_invariant_tests {
     #[derive(Default)]
     struct FailedFrame {
         enabled: core::cell::Cell<bool>,
+    }
+
+    #[test]
+    fn queries_preserve_pending_pixels_and_reuse_the_plan() {
+        let mut app = App::headless(48, 32);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.compose(root, painted_bounds_scene());
+        let marker = app.world.find_by_id("marker").unwrap();
+        for _ in 0..2 {
+            assert_eq!(app.dirty_region().unwrap(), Some(Rect::new(0, 0, 48, 32)));
+        }
+        app.render_dirty().unwrap();
+        let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+        crate::ui::set_position(&mut app.world, marker, 24, 16);
+        let first = app.dirty_regions().unwrap().bounding_rect();
+        let plan_ptr = app.dirty_regions().unwrap().rects.as_ptr();
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for _ in 0..16 {
+                assert_eq!(app.dirty_region().unwrap(), first);
+                assert_eq!(app.dirty_regions().unwrap().rects.as_ptr(), plan_ptr);
+            }
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(app.backend.framebuffer().buf.as_slice(), pixels);
+        crate::ui::set_position(&mut app.world, marker, 12, 16);
+        assert_eq!(app.dirty_region().unwrap(), Some(Rect::new(8, 16, 12, 8)));
+        app.render_dirty().unwrap();
+        assert!(app.dirty_regions().unwrap().is_empty());
+        let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+        app.render().unwrap();
+        assert_eq!(app.backend.framebuffer().buf.as_slice(), dirty);
+    }
+
+    #[test]
+    fn repeated_queries_preserve_nested_scroll_transfers() {
+        use crate::input::event::scroll::ScrollOffset;
+        let mut app = App::headless(64, 64);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.compose(root, nested_painted_scroll_scene());
+        let outer = app.world.find_by_id("outer").unwrap();
+        let inner = app.world.find_by_id("inner").unwrap();
+        app.render().unwrap();
+        for (outer_y, inner_y) in [(-2, 5), (1, 8), (4, 2)] {
+            app.world.get_mut::<ScrollOffset>(outer).unwrap().y = outer_y.into();
+            app.world.get_mut::<ScrollOffset>(inner).unwrap().y = inner_y.into();
+            app.world.invalidate_visual(outer);
+            app.world.invalidate_visual(inner);
+            let expected = app.dirty_regions().unwrap().shifts.clone();
+            assert_eq!(expected.len(), 2);
+            for _ in 0..3 {
+                let plan = app.dirty_regions().unwrap();
+                assert_eq!(plan.shifts.len(), expected.len());
+                for (actual, expected) in plan.shifts.iter().zip(&expected) {
+                    assert_eq!(
+                        (actual.area, actual.dx, actual.dy),
+                        (expected.area, expected.dx, expected.dy)
+                    );
+                }
+            }
+        }
+        app.render_dirty().unwrap();
+        assert_eq!(
+            app.world
+                .resource::<LastDirtyRegions>()
+                .unwrap()
+                .0
+                .shifts
+                .len(),
+            2
+        );
+        let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+        app.render().unwrap();
+        assert_eq!(app.backend.framebuffer().buf.as_slice(), dirty);
+        assert!(app.dirty_regions().unwrap().is_empty());
     }
 
     #[crate::view(component = FailedFrame)]
@@ -3159,6 +3277,9 @@ mod app_invariant_tests {
         assert!(app.dirty_region().unwrap().is_some());
         assert_eq!(app.last_text_layout_failure(), None);
         assert!(!app.world.has::<Dirty>(root));
+        assert!(app.dirty_region().unwrap().is_some());
+        assert_eq!(app.backend.framebuffer().buf.as_slice(), before);
+        app.render_dirty().unwrap();
         assert_eq!(app.dirty_region(), Ok(None));
         assert_eq!(
             render_system::collect_dirty_region(&mut app.world, root, &viewport),
@@ -4001,6 +4122,21 @@ mod lifecycle_tests {
         assert_eq!(app.world.live_entity_count(), initial + 1);
         assert!(prepared.0 >= slots);
         assert!(prepared.1 >= app.world.live_entity_count());
+    }
+
+    #[test]
+    fn dirty_queries_do_not_run_render_hooks() {
+        let mut app = App::headless(32, 32);
+        app.add_plugin(SpawnBeforeRender(false));
+        app.spawn_root().id();
+        let initial = app.world.live_entity_count();
+        for _ in 0..3 {
+            assert_eq!(app.dirty_region().unwrap(), Some(Rect::new(0, 0, 32, 32)));
+        }
+        assert_eq!(app.world.live_entity_count(), initial);
+        app.render_dirty().unwrap();
+        assert_eq!(app.world.live_entity_count(), initial + 1);
+        assert!(app.dirty_regions().unwrap().is_empty());
     }
 
     #[test]

@@ -12,10 +12,35 @@ pub struct Dirty;
 
 impl crate::ecs::Component for Dirty {}
 
-/// Marks paint geometry dirty while preserving the existing layout snapshot.
-pub(crate) struct VisualDirty;
+/// Pending paint work, independent of layout preparation.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) enum VisualDirty {
+    #[default]
+    New,
+    Prepared,
+}
 
 impl crate::ecs::Component for VisualDirty {}
+
+impl VisualDirty {
+    pub(crate) fn prepare(world: &mut World, entity: Entity) -> Option<Self> {
+        let state = if world.remove::<Dirty>(entity).is_some() {
+            Some(Self::New)
+        } else {
+            world.get::<Self>(entity).copied()
+        };
+        if state == Some(Self::New) {
+            world.insert(entity, Self::Prepared);
+        }
+        state
+    }
+
+    pub(crate) fn acknowledge(world: &mut World, entity: Entity) {
+        if world.get::<Self>(entity) == Some(&Self::Prepared) {
+            world.remove::<Self>(entity);
+        }
+    }
+}
 
 struct DirtyTraversalStack(Option<Vec<Entity>>);
 
@@ -91,6 +116,7 @@ pub(crate) const EXACT_DIRTY_REGION_CAPACITY: usize = 4;
 pub(crate) struct ExactDirtyRegions {
     rects: [Rect; EXACT_DIRTY_REGION_CAPACITY],
     len: u8,
+    prepared: bool,
 }
 
 impl Default for ExactDirtyRegions {
@@ -98,12 +124,14 @@ impl Default for ExactDirtyRegions {
         Self {
             rects: [Rect::ZERO; EXACT_DIRTY_REGION_CAPACITY],
             len: 0,
+            prepared: false,
         }
     }
 }
 
 impl ExactDirtyRegions {
     fn mark(&mut self, rect: Rect) {
+        self.prepared = false;
         let index = usize::from(self.len);
         if index < self.rects.len() {
             self.rects[index] = rect;
@@ -118,9 +146,16 @@ impl ExactDirtyRegions {
         self.len == 0
     }
 
-    pub(crate) fn drain_into(&mut self, target: &mut Vec<Rect>) {
+    pub(crate) fn prepare_into(&mut self, target: &mut Vec<Rect>) {
         target.extend_from_slice(&self.rects[..usize::from(self.len)]);
-        self.len = 0;
+        self.prepared = true;
+    }
+
+    pub(crate) fn acknowledge(&mut self) {
+        if self.prepared {
+            self.len = 0;
+            self.prepared = false;
+        }
     }
 }
 
@@ -171,7 +206,7 @@ impl World {
 
     /// Invalidates an entity's visual output while preserving its layout.
     pub fn invalidate_visual(&mut self, entity: Entity) {
-        self.insert(entity, VisualDirty);
+        self.insert(entity, VisualDirty::New);
     }
 
     /// Invalidates a logical rectangle without invalidating layout.
@@ -432,7 +467,7 @@ mod tests {
         world.insert(root, Children(alloc::vec![child]));
         world.insert(child, Hidden);
         world.insert(child, Dirty);
-        world.insert(child, VisualDirty);
+        world.insert(child, VisualDirty::New);
 
         world.mark_subtree_dirty(root);
         assert!(world.get::<Dirty>(root).is_some());
@@ -568,10 +603,46 @@ mod tests {
         }
         let mut rects = Vec::new();
 
-        regions.drain_into(&mut rects);
+        regions.prepare_into(&mut rects);
 
         assert_eq!(rects.len(), 4);
         assert_eq!(rects[3], Rect::new(30, 0, 12, 2));
+        assert!(!regions.is_empty());
+        regions.acknowledge();
+        assert!(regions.is_empty());
+    }
+
+    #[test]
+    fn acknowledgement_preserves_damage_received_after_preparation() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Dirty);
+        assert!(matches!(
+            VisualDirty::prepare(&mut world, entity),
+            Some(VisualDirty::New)
+        ));
+        assert!(matches!(
+            VisualDirty::prepare(&mut world, entity),
+            Some(VisualDirty::Prepared)
+        ));
+        world.invalidate_visual(entity);
+        VisualDirty::acknowledge(&mut world, entity);
+        assert!(world.has::<VisualDirty>(entity));
+        VisualDirty::prepare(&mut world, entity);
+        VisualDirty::acknowledge(&mut world, entity);
+        assert!(!world.has::<VisualDirty>(entity));
+
+        let mut regions = ExactDirtyRegions::default();
+        let mut rects = Vec::new();
+        regions.mark(Rect::new(0, 0, 2, 2));
+        regions.prepare_into(&mut rects);
+        regions.mark(Rect::new(10, 0, 2, 2));
+        regions.acknowledge();
+        assert!(!regions.is_empty());
+        rects.clear();
+        regions.prepare_into(&mut rects);
+        assert_eq!(rects.len(), 2);
+        regions.acknowledge();
         assert!(regions.is_empty());
     }
 

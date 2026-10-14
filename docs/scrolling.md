@@ -2,6 +2,25 @@
 
 Framebuffer transfers use the difference between the current scroll offset and the last successfully painted offset. Nested transfers use the painted source window; a changed clip or incompatible geometry repaints instead. Input handlers do not maintain a separate render delta.
 
+## Inspecting pending drawing
+
+`app.dirty_regions()?` borrows the pending redraw rectangles and scroll transfers in logical pixels. `affected_regions()` includes both kinds of coverage; `app.dirty_region()?` returns their bounding rectangle. Queries prepare reactive state and layout without advancing animation or consuming pending drawing. Changes made after a query are included when `render_dirty()` prepares its plan again.
+
+```rust
+use mirui::prelude::*;
+
+let mut app = App::headless(240, 120);
+app.with_default_widgets();
+app.spawn_root().id();
+let coverage = app.dirty_region()?;
+let pending = app.dirty_regions()?;
+assert_eq!(coverage, pending.bounding_rect());
+app.render_dirty()?;
+# Ok::<(), mirui::render::RenderError>(())
+```
+
+The query is not a frozen rendering command or a promise of exact surface flush rectangles. Render hooks, subsequent changes and backend capabilities can change the final plan. Successful drawing acknowledges prepared damage; preparation or drawing failures retain pending work. First frames, resized surfaces and transient backbuffers require full coverage.
+
 ## Input and viewport
 
 Scrolling does not snap to cell boundaries. Pointer and wheel input share elastic resistance and released motion; continued input controls the content without a concurrent rebound. Pointer-release inertia follows recent content movement and expires after the pointer stops. Within scroll bounds, wheel input applies its fractional deltas directly, retaining platform-provided momentum. Scroll offsets invalidate painting and hit geometry, while cell reassignment or size changes still update layout. Framebuffer reuse is restricted to whole physical-pixel shifts in untransformed rectangular viewports without borders or rounded corners; other movement repaints the affected viewport.

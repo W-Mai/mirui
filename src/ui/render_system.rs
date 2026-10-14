@@ -402,6 +402,7 @@ fn seed_prev_rect_walk(
             h: y1 - y0,
         }),
     );
+    super::dirty::VisualDirty::acknowledge(world, entity);
     let child_scroll =
         if let Some(scroll) = world.get::<crate::input::event::scroll::ScrollOffset>(entity) {
             (scroll_offset.0 + scroll.x, scroll_offset.1 + scroll.y)
@@ -442,9 +443,12 @@ fn seed_prev_rect_walk(
     }
 }
 
-/// Record paint bounds after a successful full or dirty render, including descendants moved by scroll transfers. Call before subsequent state changes; collecting damage does not advance these bounds.
+/// Record paint bounds and acknowledge prepared damage after successfully drawing the full pending plan, including descendants moved by scroll transfers. Call before subsequent state changes; collecting damage does not advance these bounds.
 pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
     scroll::PaintedScroll::invalidate_all(world);
+    if let Some(regions) = world.resource_mut::<super::dirty::ExactDirtyRegions>() {
+        regions.acknowledge();
+    }
     let (logical_w, logical_h) = transform.logical_size();
     if let Some(snapshot) = world.take_resource_box::<LayoutSnapshot>() {
         if snapshot.matches(root, logical_w, logical_h) {
@@ -2859,7 +2863,7 @@ fn collect_dirty_walk(
     out_of_scroll_prev: &mut alloc::vec::Vec<Rect>,
     output_plan: Option<&output_plan::TexturePlan>,
 ) {
-    use super::dirty::Dirty;
+    use super::dirty::VisualDirty;
     if *idx >= entities.len() {
         return;
     }
@@ -2871,17 +2875,18 @@ fn collect_dirty_walk(
     };
     let (tf, tf_3d) = render_transforms(*parent_transform, *parent_3d, world, entity, shifted_rect);
 
-    // Offscreen subtree containment: any Dirty under an OffscreenRender
-    // entity must promote to the entity itself (so its full
-    // paint bounds end up in the dirty union, since the buffer
-    // re-renders entirely) and bump the buffer generation so the next
-    // render misses the cache. Children's Dirty markers are cleared
-    // here so the outer dirty bounds doesn't double-count them.
+    let pending = VisualDirty::prepare(world, entity);
     let is_offscreen = crate::ui::offscreen::config(world, entity).is_some();
     if is_offscreen {
-        let self_was_dirty = world.get::<Dirty>(entity).is_some()
-            || world.get::<super::dirty::VisualDirty>(entity).is_some();
-        if self_was_dirty {
+        let mut sub_idx = *idx + 1;
+        let mut pending = pending;
+        for child in &node.children {
+            pending = merge_pending(
+                pending,
+                scan_subtree_dirty(child, world, entities, &mut sub_idx),
+            );
+        }
+        if pending.is_some() {
             push_entity_dirty(
                 world,
                 entity,
@@ -2898,35 +2903,7 @@ fn collect_dirty_walk(
             );
         }
 
-        let mut sub_idx = *idx + 1;
-        let mut had_subtree_dirty = false;
-        for child in &node.children {
-            scan_subtree_dirty(child, world, entities, &mut sub_idx, &mut had_subtree_dirty);
-        }
-
-        // Bump generation on either self-Dirty or subtree-Dirty (a
-        // single-widget marker like Switch has no children to feed
-        // subtree_dirty, so without the self branch theme rotation
-        // would never invalidate the buffer). Push the entity rect
-        // only once — skip the second push when self_was_dirty
-        // already did it, otherwise curr ∪ prev unions with itself.
-        if self_was_dirty || had_subtree_dirty {
-            if had_subtree_dirty && !self_was_dirty {
-                push_entity_dirty(
-                    world,
-                    entity,
-                    shifted_rect,
-                    &tf,
-                    &tf_3d,
-                    output_scale,
-                    inside_scroll,
-                    scroll_clip,
-                    bounds,
-                    out_of_scroll_prev,
-                    *idx,
-                    output_plan,
-                );
-            }
+        if pending == Some(VisualDirty::New) {
             let next_gen = world
                 .get::<super::OffscreenGeneration>(entity)
                 .map(|g| g.0.wrapping_add(1))
@@ -2961,32 +2938,21 @@ fn collect_dirty_walk(
         (None, _, _) => carrier,
     };
 
-    if world.get::<Dirty>(entity).is_some()
-        || world.get::<super::dirty::VisualDirty>(entity).is_some()
-    {
-        // Container's own Dirty is already expressed by the RegionShift;
-        // unioning its full rect would re-stretch bounds over the area
-        // self-blit handles. Non-integral physical movement is repainted
-        // immediately so content and hit geometry retain the same offset.
-        if my_scroll_op.is_some() {
-            world.remove::<Dirty>(entity);
-            world.remove::<super::dirty::VisualDirty>(entity);
-        } else {
-            push_entity_dirty(
-                world,
-                entity,
-                shifted_rect,
-                &tf,
-                &tf_3d,
-                output_scale,
-                inside_scroll,
-                scroll_clip,
-                bounds,
-                out_of_scroll_prev,
-                *idx,
-                output_plan,
-            );
-        }
+    if pending.is_some() && my_scroll_op.is_none() {
+        push_entity_dirty(
+            world,
+            entity,
+            shifted_rect,
+            &tf,
+            &tf_3d,
+            output_scale,
+            inside_scroll,
+            scroll_clip,
+            bounds,
+            out_of_scroll_prev,
+            *idx,
+            output_plan,
+        );
     }
 
     let child_scroll =
@@ -3108,7 +3074,6 @@ fn push_entity_dirty(
     position: usize,
     output_plan: Option<&output_plan::TexturePlan>,
 ) {
-    use super::dirty::Dirty;
     let mut curr = planned_visual_bounds(
         world,
         entity,
@@ -3142,8 +3107,6 @@ fn push_entity_dirty(
             None => curr,
         }
     };
-    world.remove::<Dirty>(entity);
-    world.remove::<super::dirty::VisualDirty>(entity);
     if let Some(clip) = scroll_clip {
         if let Some(inter) = union_rect.intersect(&clip) {
             union_rect = inter;
@@ -3183,34 +3146,34 @@ fn push_entity_dirty(
     }
 }
 
-/// Sweep the subtree rooted at `node` (children of an OffscreenRender
-/// entity) and clear any Dirty markers, recording whether at least one
-/// was set so the caller can bump the buffer generation.
+fn merge_pending(
+    left: Option<super::dirty::VisualDirty>,
+    right: Option<super::dirty::VisualDirty>,
+) -> Option<super::dirty::VisualDirty> {
+    use super::dirty::VisualDirty;
+    match (left, right) {
+        (Some(VisualDirty::New), _) | (_, Some(VisualDirty::New)) => Some(VisualDirty::New),
+        _ => left.or(right),
+    }
+}
+
 fn scan_subtree_dirty(
     node: &LayoutNode,
     world: &mut World,
     entities: &[Entity],
     idx: &mut usize,
-    had_dirty: &mut bool,
-) {
-    use super::dirty::Dirty;
+) -> Option<super::dirty::VisualDirty> {
+    use super::dirty::VisualDirty;
     if *idx >= entities.len() {
-        return;
+        return None;
     }
     let entity = entities[*idx];
-    let mut subtree_dirty = false;
-    if world.get::<Dirty>(entity).is_some()
-        || world.get::<super::dirty::VisualDirty>(entity).is_some()
-    {
-        subtree_dirty = true;
-        world.remove::<Dirty>(entity);
-        world.remove::<super::dirty::VisualDirty>(entity);
-    }
+    let mut pending = VisualDirty::prepare(world, entity);
     *idx += 1;
     for child in &node.children {
-        scan_subtree_dirty(child, world, entities, idx, &mut subtree_dirty);
+        pending = merge_pending(pending, scan_subtree_dirty(child, world, entities, idx));
     }
-    if subtree_dirty && crate::ui::offscreen::config(world, entity).is_some() {
+    if pending == Some(VisualDirty::New) && crate::ui::offscreen::config(world, entity).is_some() {
         let generation = world
             .get::<super::OffscreenGeneration>(entity)
             .map_or(1, |g| g.0.wrapping_add(1));
@@ -3219,10 +3182,10 @@ fn scan_subtree_dirty(
             outputs.invalidate(entity);
         }
     }
-    *had_dirty |= subtree_dirty;
+    pending
 }
 
-/// Collect the bounding rect of dirty regions in logical pixels, removing dirty flags on success. Returns `Ok(None)` when there is no damage, or a layout failure before drawing.
+/// Prepare the bounding rect of pending damage in logical pixels. Damage remains pending until `seed_prev_rects` confirms successful drawing. Returns `Ok(None)` when there is no damage, or a layout failure before drawing.
 pub fn collect_dirty_region(
     world: &mut World,
     root: Entity,
@@ -3231,7 +3194,7 @@ pub fn collect_dirty_region(
     Ok(collect_dirty_regions(world, root, transform)?.bounding_rect())
 }
 
-/// Collect redraw rects and framebuffer scroll operations, removing dirty flags on success. Layout failures are returned before any blit or draw.
+/// Prepare redraw rects and framebuffer scroll operations without acknowledging drawing. Layout failures are returned before any blit or draw.
 pub fn collect_dirty_regions(
     world: &mut World,
     root: Entity,
@@ -3265,7 +3228,10 @@ pub(crate) fn try_collect_dirty_regions_into(
         }
         crate::input::event::scroll::bounds::publish(world, &[]);
         super::view::ViewRegistry::invalidate_queries(world);
-        drain_dirty_rects(world, plan);
+        if had_snapshot {
+            world.invalidate_rect(Rect::new(0, 0, logical_w, logical_h));
+        }
+        prepare_dirty_rects(world, plan);
         if had_snapshot || !plan.rects.is_empty() {
             plan.rects.clear();
             plan.rects.push(Rect::new(0, 0, logical_w, logical_h));
@@ -3316,13 +3282,15 @@ pub(crate) fn try_collect_dirty_regions_into(
             .is_some_and(|snapshot| snapshot.matches(root, logical_w, logical_h))
         && hit_geometry_valid
     {
-        drain_dirty_rects(world, plan);
+        prepare_dirty_rects(world, plan);
         world.remove_resource::<TextLayoutFailure>();
         return Ok(());
     }
 
-    let visual_only =
-        !has_layout_dirty && !snapshot_stale && !super::widgets::follow_bounds::active(world);
+    let (_, visual_changed) = crate::input::event::hit_test::geometry_changes(world);
+    let visual_only = !has_layout_dirty
+        && !snapshot_stale
+        && !(visual_changed && super::widgets::follow_bounds::active(world));
     let existing = match world.take_resource_box::<LayoutSnapshot>() {
         Some(snapshot) if snapshot.matches(root, logical_w, logical_h) => Some(snapshot),
         Some(snapshot) => {
@@ -3498,7 +3466,7 @@ pub(crate) fn try_collect_dirty_regions_into(
         }
     }
 
-    drain_dirty_rects(world, plan);
+    prepare_dirty_rects(world, plan);
 
     crate::input::event::hit_test::update_hit_test_geometry(
         world,
@@ -3514,9 +3482,9 @@ pub(crate) fn try_collect_dirty_regions_into(
     Ok(())
 }
 
-fn drain_dirty_rects(world: &mut World, plan: &mut DirtyRegions) {
+fn prepare_dirty_rects(world: &mut World, plan: &mut DirtyRegions) {
     if let Some(regions) = world.resource_mut::<super::dirty::ExactDirtyRegions>() {
-        regions.drain_into(&mut plan.rects);
+        regions.prepare_into(&mut plan.rects);
     }
 }
 
@@ -4136,6 +4104,7 @@ mod layout_snapshot_reuse_check {
 
         world.insert(root, Dirty);
         try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
+        seed_prev_rects(&mut world, root, &viewport);
         world
             .resource_mut::<LayoutSnapshot>()
             .unwrap()
@@ -4143,7 +4112,7 @@ mod layout_snapshot_reuse_check {
             .rect
             .x = Fixed::from_int(123);
         world.insert(leaf, Dirty);
-        world.insert(leaf, super::super::dirty::VisualDirty);
+        world.insert(leaf, super::super::dirty::VisualDirty::New);
 
         for _ in 0..2 {
             try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
@@ -4175,6 +4144,8 @@ mod layout_snapshot_reuse_check {
         );
         assert!(!world.has::<Dirty>(panel));
         assert!(!world.has::<Dirty>(leaf));
+        assert!(world.has::<super::super::dirty::VisualDirty>(leaf));
+        seed_prev_rects(&mut world, root, &viewport);
         assert!(!world.has::<super::super::dirty::VisualDirty>(leaf));
     }
 
@@ -4290,6 +4261,10 @@ mod layout_snapshot_reuse_check {
         let rects_ptr = plan.rects.as_ptr();
 
         try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
+        assert_eq!(plan.rects.len(), 1);
+        assert_eq!(plan.rects.as_ptr(), rects_ptr);
+        seed_prev_rects(&mut world, root, &viewport);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         assert!(plan.is_empty());
         assert_eq!(plan.rects.as_ptr(), rects_ptr);
 
@@ -4312,6 +4287,7 @@ mod layout_snapshot_reuse_check {
         try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         let snapshot = world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot;
         let exact = Rect::new(7, 9, 11, 13);
+        seed_prev_rects(&mut world, root, &viewport);
         world.invalidate_rect(exact);
 
         try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
@@ -4320,12 +4296,17 @@ mod layout_snapshot_reuse_check {
         assert!(
             world
                 .resource::<super::super::dirty::ExactDirtyRegions>()
-                .is_some_and(|regions| regions.is_empty())
+                .is_some_and(|regions| !regions.is_empty())
         );
         assert_eq!(
             world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot,
             snapshot
         );
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
+        assert_eq!(plan.rects, [exact]);
+        seed_prev_rects(&mut world, root, &viewport);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
+        assert!(plan.is_empty());
     }
 
     #[test]
@@ -4435,6 +4416,7 @@ mod layout_snapshot_reuse_check {
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         let mut plan = DirtyRegions::default();
         try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
+        seed_prev_rects(&mut world, root, &viewport);
 
         world.insert(children[0], Dirty);
         world.insert(children[2], Dirty);
@@ -6257,6 +6239,7 @@ mod clip_children_check {
         collect_dirty_region(&mut world, root, &viewport)
             .unwrap()
             .expect("initial layout damage");
+        seed_prev_rects(&mut world, root, &viewport);
         assert!(!world.has::<Dirty>(root));
         world.insert(
             target,
@@ -6921,6 +6904,7 @@ mod offscreen_render_check {
         let mut renderer = SwRenderer::new(texture);
         let _ = super::collect_dirty_regions(&mut world, root, &viewport).unwrap();
         super::render(&world, root, &viewport, &mut renderer).unwrap();
+        super::seed_prev_rects(&mut world, root, &viewport);
         let revision = world
             .resource::<Outputs<WidgetTexture>>()
             .unwrap()
@@ -8799,11 +8783,17 @@ mod offscreen_render_check {
         assert!(
             super::collect_dirty_region(&mut world, panel, &viewport)
                 .unwrap()
-                .is_none()
+                .is_some()
         );
         assert_eq!(
             world.get::<OffscreenGeneration>(panel).unwrap().0,
             generation
+        );
+        super::seed_prev_rects(&mut world, panel, &viewport);
+        assert!(
+            super::collect_dirty_region(&mut world, panel, &viewport)
+                .unwrap()
+                .is_none()
         );
     }
 

@@ -211,7 +211,7 @@ mod tests {
         world
             .resource_mut::<ExactDirtyRegions>()
             .unwrap()
-            .drain_into(&mut rects);
+            .prepare_into(&mut rects);
         assert_eq!(rects, [Rect::new(0, 0, 30, 10)]);
     }
 
@@ -245,7 +245,7 @@ mod tests {
         world
             .resource_mut::<ExactDirtyRegions>()
             .unwrap()
-            .drain_into(&mut rects);
+            .prepare_into(&mut rects);
         assert_eq!(rects, [Rect::new(0, 0, 80, 40)]);
     }
 }

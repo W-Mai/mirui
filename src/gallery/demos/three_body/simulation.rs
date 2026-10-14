@@ -229,7 +229,7 @@ pub fn sync_layout_system(
             Transform::translate(body.x - half_w - origin.x, body.y - half_h - origin.y);
         if current.is_none_or(|current| current.0 != transform) {
             commands.insert(entity, WidgetTransform(transform));
-            commands.insert(entity, VisualDirty);
+            commands.insert(entity, VisualDirty::New);
         }
     }
 }

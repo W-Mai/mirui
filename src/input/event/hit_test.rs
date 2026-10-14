@@ -719,7 +719,7 @@ mod tests {
             target,
             WidgetTransform(Transform::translate(Fixed::from_int(40), Fixed::ZERO)),
         );
-        world.insert(target, crate::ui::dirty::VisualDirty);
+        world.insert(target, crate::ui::dirty::VisualDirty::New);
         let mut dirty = crate::ui::dirty::DirtyRegions::default();
         crate::ui::render_system::try_collect_dirty_regions_into(
             &mut world, root, &viewport, &mut dirty,
