@@ -19,6 +19,10 @@ impl<const N: usize> RegionSet<N> {
         &self.rects[..self.len]
     }
 
+    pub fn clear(&mut self) {
+        self.len = 0;
+    }
+
     pub fn insert(&mut self, rect: Rect) {
         if rect.w <= Fixed::ZERO || rect.h <= Fixed::ZERO {
             return;

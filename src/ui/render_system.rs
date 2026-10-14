@@ -2852,8 +2852,7 @@ fn render_region_with(
 }
 
 pub(crate) const DIRTY_REGION_CAPACITY: usize = 8;
-pub(crate) const DIRTY_PLAN_RECT_CAPACITY: usize =
-    DIRTY_REGION_CAPACITY + super::dirty::EXACT_DIRTY_REGION_CAPACITY;
+pub(crate) const DIRTY_PLAN_RECT_CAPACITY: usize = DIRTY_REGION_CAPACITY * 2;
 
 struct DirtyBounds {
     regions: super::dirty::RegionSet<DIRTY_REGION_CAPACITY>,
@@ -3425,7 +3424,7 @@ pub(crate) fn try_collect_dirty_regions_into(
     for entity in &snapshot.painted_damage {
         if let Some(painted) = world.get::<super::dirty::PaintedCoverage>(*entity) {
             for rect in painted.0.regions() {
-                if let Some(mapped) = scroll::map_painted_damage(rect, &plan.shifts) {
+                for &mapped in scroll::map_painted_damage(rect, &plan.shifts).as_slice() {
                     bounds.include(mapped);
                 }
             }
@@ -3441,9 +3440,9 @@ pub(crate) fn try_collect_dirty_regions_into(
                 .any(|shift| overlay.intersect(&shift.area).is_some())
             {
                 plan.rects.push(overlay);
-                if let Some(mapped) = scroll::map_painted_damage(overlay, &plan.shifts) {
-                    plan.rects.push(mapped);
-                }
+                plan.rects.extend_from_slice(
+                    scroll::map_painted_damage(overlay, &plan.shifts).as_slice(),
+                );
             }
         });
     }
@@ -3468,11 +3467,15 @@ fn prepare_dirty_rects(world: &mut World, plan: &mut DirtyRegions) {
     if let Some(regions) = world.resource_mut::<super::dirty::ExactDirtyRegions>() {
         let start = plan.rects.len();
         regions.prepare_into(&mut plan.rects);
-        for rect in &mut plan.rects[start..] {
-            if let Some(mapped) = scroll::map_painted_damage(*rect, &plan.shifts) {
-                *rect = rect.union(&mapped);
+        let mut exact = super::dirty::RegionSet::<DIRTY_REGION_CAPACITY>::new();
+        for &rect in &plan.rects[start..] {
+            exact.insert(rect);
+            for &mapped in scroll::map_painted_damage(rect, &plan.shifts).as_slice() {
+                exact.insert(mapped);
             }
         }
+        plan.rects.truncate(start);
+        plan.rects.extend_from_slice(exact.as_slice());
     }
     plan.coalesce_overlaps();
 }

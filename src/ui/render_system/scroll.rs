@@ -89,56 +89,39 @@ pub(super) fn children_are_transferable(world: &World, entity: Entity) -> bool {
             .is_none_or(|style| !style.clip_children || style.border_radius == Fixed::ZERO)
 }
 
-/// Project old damage through the actual framebuffer operations. Disconnected surviving pieces are conservatively bounded without allocating a fragment list.
-pub(super) fn map_painted_damage(mut rect: Rect, shifts: &[RegionShift]) -> Option<Rect> {
-    if rect.w <= Fixed::ZERO || rect.h <= Fixed::ZERO {
-        return None;
-    }
+/// Project painted fragments through framebuffer transfers in execution order.
+pub(super) fn map_painted_damage(
+    rect: Rect,
+    shifts: &[RegionShift],
+) -> crate::ui::dirty::RegionSet<{ super::DIRTY_REGION_CAPACITY }> {
+    use crate::ui::dirty::{PaintCoverage, RegionSet};
+    let mut current = RegionSet::new();
+    let mut next = RegionSet::new();
+    current.insert(rect);
     for shift in shifts {
-        let Some(inside) = rect.intersect(&shift.area) else {
-            continue;
-        };
-        let mut remaining: Option<Rect> = None;
-        let mut include = |piece: Rect| {
-            if piece.w > Fixed::ZERO && piece.h > Fixed::ZERO {
-                remaining = Some(remaining.map_or(piece, |old| old.union(&piece)));
+        next.clear();
+        for &rect in current.as_slice() {
+            let Some(inside) = rect.intersect(&shift.area) else {
+                next.insert(rect);
+                continue;
+            };
+            for outside in PaintCoverage::frame(rect, inside).regions() {
+                next.insert(outside);
             }
-        };
-        include(Rect {
-            h: inside.y - rect.y,
-            ..rect
-        });
-        include(Rect {
-            y: inside.y + inside.h,
-            h: rect.y + rect.h - inside.y - inside.h,
-            ..rect
-        });
-        include(Rect {
-            x: rect.x,
-            y: inside.y,
-            w: inside.x - rect.x,
-            h: inside.h,
-        });
-        include(Rect {
-            x: inside.x + inside.w,
-            y: inside.y,
-            w: rect.x + rect.w - inside.x - inside.w,
-            h: inside.h,
-        });
-        if let Some(moved) = (Rect {
-            x: inside.x + shift.dx,
-            y: inside.y + shift.dy,
-            ..inside
-        })
-        .intersect(&shift.area)
-        {
-            include(moved);
+            if let Some(moved) = (Rect {
+                x: inside.x + shift.dx,
+                y: inside.y + shift.dy,
+                ..inside
+            })
+            .intersect(&shift.area)
+            {
+                next.insert(moved);
+            }
         }
-        rect = remaining?;
+        core::mem::swap(&mut current, &mut next);
     }
-    Some(rect)
+    current
 }
-
 pub(crate) fn has_pending_scroll(world: &World) -> bool {
     world.storage::<ScrollOffset>().is_some_and(|offsets| {
         offsets.iter().any(|(entity, offset)| {
@@ -152,6 +135,46 @@ pub(crate) fn has_pending_scroll(world: &World) -> bool {
 #[cfg(test)]
 mod damage_tests {
     use super::*;
+
+    #[test]
+    fn ordered_transfers_keep_disconnected_survivors_and_reuse_stack_storage() {
+        let shifts = [
+            RegionShift {
+                area: Rect::new(5, 0, 10, 10),
+                dx: 0.into(),
+                dy: 3.into(),
+            },
+            RegionShift {
+                area: Rect::new(0, 0, 24, 24),
+                dx: 2.into(),
+                dy: 1.into(),
+            },
+        ];
+        let run = || {
+            let mapped = map_painted_damage(Rect::new(0, 0, 20, 10), &shifts);
+            assert_eq!(mapped.as_slice().len(), 3);
+            for y in 0..14 {
+                for x in 0..24 {
+                    let covered = mapped
+                        .as_slice()
+                        .iter()
+                        .any(|rect| rect.intersect(&Rect::new(x, y, 1, 1)).is_some());
+                    let expected = (2..22).contains(&x)
+                        && (1..11).contains(&y)
+                        && (!(7..17).contains(&x) || y >= 4);
+                    assert_eq!(covered, expected, "({x}, {y})");
+                }
+            }
+        };
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for _ in 0..16 {
+                    run();
+                }
+            }),
+            0
+        );
+    }
 
     #[test]
     fn mapped_damage_covers_surviving_pixels_through_ordered_transfers() {
@@ -188,9 +211,11 @@ mod damage_tests {
                             });
                         }
                         if let Some(pixel) = pixel {
-                            assert_eq!(
-                                mapped.and_then(|mapped| mapped.intersect(&pixel)),
-                                Some(pixel)
+                            assert!(
+                                mapped
+                                    .as_slice()
+                                    .iter()
+                                    .any(|mapped| mapped.intersect(&pixel) == Some(pixel))
                             );
                         }
                     }
