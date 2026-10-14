@@ -29,6 +29,8 @@ mod scroll;
 pub(crate) use scroll::has_pending_scroll;
 
 #[cfg(test)]
+mod coverage_tests;
+#[cfg(test)]
 mod overflow_tests;
 #[cfg(test)]
 mod paint_request_tests;
@@ -511,12 +513,22 @@ fn seed_prev_rect_walk(
 /// Record paint bounds and acknowledge prepared damage after successfully drawing the full pending plan, including descendants moved by scroll transfers. Call before subsequent state changes; collecting damage does not advance these bounds.
 pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
     scroll::PaintedScroll::invalidate_all(world);
+    let retired_paint = world
+        .resource::<super::dirty::ExactDirtyRegions>()
+        .is_some_and(|regions| !regions.is_empty());
     if let Some(regions) = world.resource_mut::<super::dirty::ExactDirtyRegions>() {
         regions.acknowledge();
     }
     let (logical_w, logical_h) = transform.logical_size();
     if let Some(snapshot) = world.take_resource_box::<LayoutSnapshot>() {
         if snapshot.matches(root, logical_w, logical_h) {
+            if retired_paint {
+                for node in &snapshot.parked {
+                    if let Some(entity) = node.entity {
+                        world.clear_subtree_paint(entity);
+                    }
+                }
+            }
             let output_plan = world
                 .resource::<Outputs<WidgetTexture>>()
                 .and_then(Outputs::take_texture_plan);
@@ -549,6 +561,9 @@ pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
         }
     };
     let Some(mut layout_tree) = layout_tree else {
+        if super::branch::is_authored_hidden(world, root) {
+            world.clear_subtree_paint(root);
+        }
         return;
     };
     compute_layout(
@@ -703,7 +718,10 @@ fn take_parked_layout_node(parked: &mut Vec<LayoutNode>, entity: Entity) -> Opti
         .map(|index| parked.swap_remove(index))
 }
 
-fn park_layout_node(parked: &mut Vec<LayoutNode>, node: LayoutNode) {
+fn park_layout_node(world: &mut World, parked: &mut Vec<LayoutNode>, node: LayoutNode) {
+    if let Some(entity) = node.entity {
+        world.invalidate_subtree_paint(entity);
+    }
     if let Some(index) = parked.iter().position(|other| other.entity == node.entity) {
         parked[index] = node;
     } else {
@@ -759,7 +777,7 @@ fn prune_parked_layout_nodes(
 }
 
 fn refresh_layout_tree(
-    world: &World,
+    world: &mut World,
     entity: Entity,
     node: &mut LayoutNode,
     parked: &mut Vec<LayoutNode>,
@@ -780,8 +798,12 @@ fn refresh_layout_tree(
     apply_static_glyph_intrinsic(world, entity, style, node);
 
     let mut used = 0;
-    if let Some(children) = world.get::<Children>(entity) {
-        for &child in &children.0 {
+    if let Some(count) = world
+        .get::<Children>(entity)
+        .map(|children| children.0.len())
+    {
+        for index in 0..count {
+            let child = world.get::<Children>(entity).unwrap().0[index];
             if world.get::<Widget>(child).is_none()
                 || world.get::<Style>(child).is_none()
                 || super::branch::is_authored_hidden(world, child)
@@ -803,7 +825,7 @@ fn refresh_layout_tree(
                 };
                 if used < node.children.len() {
                     let displaced = core::mem::replace(&mut node.children[used], replacement);
-                    park_layout_node(parked, displaced);
+                    park_layout_node(world, parked, displaced);
                 } else {
                     node.children.push(replacement);
                 }
@@ -814,7 +836,11 @@ fn refresh_layout_tree(
         }
     }
     while node.children.len() > used {
-        park_layout_node(parked, node.children.pop().expect("trailing layout child"));
+        park_layout_node(
+            world,
+            parked,
+            node.children.pop().expect("trailing layout child"),
+        );
     }
     Ok(true)
 }

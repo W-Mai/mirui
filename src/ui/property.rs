@@ -249,12 +249,7 @@ pub mod prop {
                 world.remove::<crate::ui::Hidden>(entity);
                 world.mark_subtree_dirty(entity);
             } else {
-                if let Some(rect) = world
-                    .get::<crate::ui::ComputedRect>(entity)
-                    .map(|rect| rect.0)
-                {
-                    world.invalidate_rect(rect);
-                }
+                world.invalidate_subtree_paint(entity);
                 world.insert(entity, crate::ui::Hidden);
                 world.clear_subtree_dirty(entity);
             }

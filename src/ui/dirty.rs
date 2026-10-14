@@ -108,6 +108,15 @@ impl<'a> DirtyTraversal<'a> {
         }
         (missing_computed, missing_prev, max_entity_id)
     }
+
+    fn visit(mut self, mut visit: impl FnMut(&mut World, Entity)) {
+        while let Some(entity) = self.stack.pop() {
+            visit(self.world, entity);
+            if let Some(children) = self.world.get::<super::Children>(entity) {
+                self.stack.extend(children.0.iter().copied());
+            }
+        }
+    }
 }
 
 impl Drop for DirtyTraversal<'_> {
@@ -120,19 +129,17 @@ impl Drop for DirtyTraversal<'_> {
     }
 }
 
-pub(crate) const EXACT_DIRTY_REGION_CAPACITY: usize = 4;
+pub(crate) const EXACT_DIRTY_REGION_CAPACITY: usize = 8;
 
 pub(crate) struct ExactDirtyRegions {
-    rects: [Rect; EXACT_DIRTY_REGION_CAPACITY],
-    len: u8,
+    regions: RegionSet<EXACT_DIRTY_REGION_CAPACITY>,
     prepared: bool,
 }
 
 impl Default for ExactDirtyRegions {
     fn default() -> Self {
         Self {
-            rects: [Rect::ZERO; EXACT_DIRTY_REGION_CAPACITY],
-            len: 0,
+            regions: RegionSet::new(),
             prepared: false,
         }
     }
@@ -141,34 +148,47 @@ impl Default for ExactDirtyRegions {
 impl ExactDirtyRegions {
     fn mark(&mut self, rect: Rect) {
         self.prepared = false;
-        let index = usize::from(self.len);
-        if index < self.rects.len() {
-            self.rects[index] = rect;
-            self.len += 1;
-        } else {
-            let last = self.rects.len() - 1;
-            self.rects[last] = self.rects[last].union(&rect);
-        }
+        self.regions.insert(rect);
     }
 
-    pub(crate) const fn is_empty(&self) -> bool {
-        self.len == 0
+    pub(crate) fn is_empty(&self) -> bool {
+        self.regions.as_slice().is_empty()
     }
 
     pub(crate) fn prepare_into(&mut self, target: &mut Vec<Rect>) {
-        target.extend_from_slice(&self.rects[..usize::from(self.len)]);
+        target.extend_from_slice(self.regions.as_slice());
         self.prepared = true;
     }
 
     pub(crate) fn acknowledge(&mut self) {
         if self.prepared {
-            self.len = 0;
+            self.regions.clear();
             self.prepared = false;
         }
     }
 }
 
 impl World {
+    pub(crate) fn invalidate_painted_coverage(&mut self, entity: Entity) {
+        if let Some(painted) = self.get::<PaintedCoverage>(entity).copied() {
+            for rect in painted.0.regions() {
+                self.invalidate_rect(rect);
+            }
+        }
+    }
+
+    pub(crate) fn invalidate_subtree_paint(&mut self, root: Entity) {
+        DirtyTraversal::new(self, root).visit(Self::invalidate_painted_coverage);
+    }
+
+    pub(crate) fn clear_subtree_paint(&mut self, root: Entity) {
+        DirtyTraversal::new(self, root).visit(|world, entity| {
+            if let Some(painted) = world.get_mut::<PaintedCoverage>(entity) {
+                painted.0 = PaintCoverage::EMPTY;
+            }
+        });
+    }
+
     pub(crate) fn reserve_dirty_traversal_stack(&mut self) {
         let required = self.live_entity_count();
         if self.resource::<DirtyTraversalStack>().is_none() {
@@ -618,17 +638,24 @@ mod tests {
     }
 
     #[test]
-    fn exact_regions_stay_inline_and_union_overflow() {
+    fn exact_regions_stay_inline_and_preserve_coverage_on_overflow() {
         let mut regions = ExactDirtyRegions::default();
-        for x in [0, 10, 20, 30, 40] {
+        for x in (0..=8).map(|i| i * 10) {
             regions.mark(Rect::new(x, 0, 2, 2));
         }
         let mut rects = Vec::new();
 
         regions.prepare_into(&mut rects);
 
-        assert_eq!(rects.len(), 4);
-        assert_eq!(rects[3], Rect::new(30, 0, 12, 2));
+        assert_eq!(rects.len(), EXACT_DIRTY_REGION_CAPACITY);
+        for x in (0..=8).map(|i| i * 10) {
+            let original = Rect::new(x, 0, 2, 2);
+            assert!(
+                rects
+                    .iter()
+                    .any(|rect| rect.intersect(&original) == Some(original))
+            );
+        }
         assert!(!regions.is_empty());
         regions.acknowledge();
         assert!(regions.is_empty());

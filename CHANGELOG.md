@@ -89,6 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Hiding and deleting subtrees retain individual painted regions, including border gaps and overflowing descendants. Successful erasure clears hidden paint baselines.
+
 - Scroll transfers preserve disconnected painted fragments instead of expanding them into a single bounding rectangle. Ordinary damage, retained invalidation and overlays share the same ordered mapping.
 
 - Border redraws preserve untouched centers, and transparent layout containers no longer enlarge damage to their entire layout bounds. Painted coverage is committed only after successful drawing.

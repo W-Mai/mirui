@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 
 use crate::ecs::{Entity, World};
 
-use super::{Children, Hidden, Parent, dirty::PaintedCoverage};
+use super::{Hidden, Parent};
 
 pub(crate) struct CachedBranchVisibility {
     pub selected: bool,
@@ -101,11 +101,7 @@ fn set_selected(world: &mut World, root: Entity, selected: bool) {
         return;
     }
     if !selected {
-        let mut old_bounds = None;
-        collect_old_bounds(world, root, &mut old_bounds);
-        if let Some(bounds) = old_bounds {
-            world.invalidate_rect(bounds);
-        }
+        world.invalidate_subtree_paint(root);
     }
     world
         .get_mut::<CachedBranchVisibility>(root)
@@ -122,20 +118,6 @@ fn set_selected(world: &mut World, root: Entity, selected: bool) {
     }
 }
 
-fn collect_old_bounds(world: &World, entity: Entity, bounds: &mut Option<crate::types::Rect>) {
-    if let Some(rect) = world
-        .get::<PaintedCoverage>(entity)
-        .map(|rect| rect.0.outer)
-    {
-        *bounds = Some(bounds.map_or(rect, |current| current.union(&rect)));
-    }
-    if let Some(children) = world.get::<Children>(entity) {
-        for &child in &children.0 {
-            collect_old_bounds(world, child, bounds);
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,7 +125,8 @@ mod tests {
     use crate::render::texture::ColorFormat;
     use crate::surface::DisplayInfo;
     use crate::types::{Fixed, Rect};
-    use crate::ui::dirty::ExactDirtyRegions;
+    use crate::ui::Children;
+    use crate::ui::dirty::{ExactDirtyRegions, PaintedCoverage};
 
     #[test]
     fn selection_does_not_remove_an_independent_hidden_gate() {
@@ -197,7 +180,7 @@ mod tests {
             .resource_mut::<ExactDirtyRegions>()
             .unwrap()
             .prepare_into(&mut rects);
-        assert_eq!(rects, [Rect::new(0, 0, 30, 10)]);
+        assert_eq!(rects, [Rect::new(0, 0, 10, 10), Rect::new(25, 3, 5, 4)]);
     }
 
     #[test]
