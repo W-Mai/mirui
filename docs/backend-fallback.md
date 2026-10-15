@@ -85,6 +85,8 @@ not inspect or carry this storage.
 
 `Surface::persistence()` describes whether partial drawing can reuse pixels; it does not request continuous drawing. `Surface::needs_redraw()` reports content loss without consuming the request. App redraws on damage or invalidation, expands a needed transient frame to full coverage, and acknowledges the request only after successful submission. Window exposure can re-present retained software-upload textures without rasterizing the scene again.
 
+`FrameRateCapPlugin` limits logical ticks after platform maintenance, including idle ticks and failed drawing attempts. It requires `MonoClock`; without the plugin or clock there is no implicit frame cap. Mobile hosts use its deadline for event-loop waits and run systems independently of window redraw requests. A platform redraw does not advance systems a second time. Web uses browser animation frames for scheduling.
+
 An `App` draw or submission failure leaves the last accepted widget bounds unchanged and requires a full redraw before framebuffer scroll transfers resume. Layout or surface acquisition failures before drawing preserve the existing framebuffer. Full and partial frames both use `RendererFactory::mirror_buffers` to synchronize writable rotating buffers after `Surface::end_flush` succeeds.
 
 `Renderer::flush()` explicitly submits pending drawing and returns `Result<(), RenderError>`. `Canvas::flush()` carries the same error contract through canvas adapters and composed backends. App calls it after drawing and any frame readback, before flushing the surface. A submission failure is returned without accepting the frame baseline. Dropping a renderer releases resources without submitting pending work.

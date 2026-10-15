@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Frame-rate caps apply to idle and failed ticks. Mobile event loops schedule logical updates independently of platform redraws.
 - Idle swapchain surfaces skip drawing and presentation; exposure and content-loss requests remain pending until successful submission. Software upload backends reuse retained pixels for presentation retries.
 - MIRX font rendering reuses the selected representation's validated atlas map instead of reopening and scanning it for each glyph.
 - SDL renderers enable command batching by default, including explicit OpenGL driver selection. Explicit SDL hint or environment settings retain priority.

@@ -1507,14 +1507,27 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// One frame. Returns `true` on `Quit` (after `on_quit` hooks).
     pub fn tick(&mut self) -> bool {
+        if self.update_tick() {
+            return true;
+        }
+        if !self.suspended {
+            self.draw_tick();
+        }
+        self.finish_tick(true);
+        #[cfg(feature = "std")]
+        if self.suspended {
+            std::thread::sleep(core::time::Duration::from_millis(50));
+        }
+        false
+    }
+
+    pub(crate) fn update_tick(&mut self) -> bool {
         let frame_start = self.clock_ns();
         if self.dispatch_pending_input() {
             return true;
         }
 
         if self.suspended {
-            #[cfg(feature = "std")]
-            std::thread::sleep(core::time::Duration::from_millis(50));
             return false;
         }
         let _owner_scope = crate::core::reactive::OwnerGuard::enter(&mut self.world);
@@ -1548,11 +1561,18 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             input_end,
             systems_end,
         });
+        false
+    }
+
+    pub(crate) fn draw_tick(&mut self) {
         if let Err(error) = self.render_dirty()
             && error != crate::render::RenderError::SurfaceUnavailable
         {
             crate::warn!("dirty frame render failed: {:?}", error);
         }
+    }
+
+    pub(crate) fn maintain_tick(&mut self) {
         self.flush_event_notifications();
         if let Err(error) = self.backend.frame_end()
             && error != crate::render::RenderError::SurfaceUnavailable
@@ -1561,8 +1581,16 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         }
 
         self.apply_suspend_request();
+    }
 
-        false
+    pub(crate) fn finish_tick(&mut self, blocking: bool) {
+        self.maintain_tick();
+        plugins::frame_rate::complete(&mut self.world, blocking);
+    }
+
+    #[cfg(any(target_os = "android", target_os = "ios", test))]
+    pub(crate) fn tick_wait_ns(&self) -> Option<u64> {
+        plugins::frame_rate::remaining(&self.world)
     }
 
     fn snapshot_system_perf(&mut self) {

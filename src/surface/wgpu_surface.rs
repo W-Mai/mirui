@@ -1424,25 +1424,47 @@ where
             if app.is_suspended() {
                 return;
             }
-            if app.tick() {
-                event_loop.exit();
-                return;
-            }
-        }
-        if let Some(window) = self.window.as_ref() {
-            window.request_redraw();
+            app.draw_tick();
+            app.maintain_tick();
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        if let Some(app) = self.app.as_mut() {
-            app.backend.finish_input_batch();
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(app) = self.app.as_mut() else {
+            event_loop.set_control_flow(ControlFlow::Wait);
+            return;
+        };
+        app.backend.finish_input_batch();
+        if app.is_suspended() {
+            event_loop.set_control_flow(ControlFlow::Wait);
+            return;
         }
-        if self.app.as_ref().is_some_and(|app| !app.is_suspended())
-            && let Some(window) = self.window.as_ref()
-        {
-            window.request_redraw();
+        if app.tick_wait_ns().unwrap_or(0) == 0 {
+            if app.update_tick() {
+                event_loop.exit();
+                return;
+            }
+            app.finish_tick(false);
         }
+        if app.is_suspended() {
+            event_loop.set_control_flow(ControlFlow::Wait);
+            return;
+        }
+        match app.dirty_regions() {
+            Ok(plan) if !plan.is_empty() => {
+                if let Some(window) = self.window.as_ref() {
+                    window.request_redraw();
+                }
+            }
+            Err(error) => crate::warn!("mobile drawing preparation failed: {:?}", error),
+            _ => {}
+        }
+        event_loop.set_control_flow(match app.tick_wait_ns() {
+            Some(wait) if wait > 0 => ControlFlow::WaitUntil(
+                std::time::Instant::now() + core::time::Duration::from_nanos(wait),
+            ),
+            _ => ControlFlow::Poll,
+        });
     }
 }
 

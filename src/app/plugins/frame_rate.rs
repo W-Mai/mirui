@@ -3,23 +3,53 @@ use crate::app::{App, RendererFactory};
 use crate::ecs::MonoClock;
 use crate::surface::Surface;
 
-/// Sleeps in `post_render` to cap `App::run` at a target FPS. Needed
-/// on every backend whose vsync runs inside `present`/`flush` —
-/// mirui's dirty-aware loop skips those calls on idle frames so the
-/// vsync wait never happens and the tick loop spins at 60 000+ fps.
-/// `requestAnimationFrame`-driven backends (web canvas) are the
-/// exception: rAF paces ticks externally and the cap is redundant.
+/// Caps logical ticks, including idle and failed drawing attempts. Blocking hosts sleep after surface maintenance; mobile hosts use the same deadline to schedule updates without blocking window events. Web animation frames already pace ticks externally.
 ///
 /// Time comes from the `MonoClock` resource, so a clock plugin must
 /// be installed first (e.g. `StdInstantClockPlugin` or an
 /// MCU-specific one); without it the cap is a no-op.
 ///
 /// **Inserts**
-/// - hooks: `post_render`
+/// - resource: private tick pacing state
 pub struct FrameRateCapPlugin {
     period_ns: u64,
-    last_frame_ns: Option<u64>,
     sleep_ns: fn(u64),
+}
+
+pub(crate) struct FramePacing {
+    period_ns: u64,
+    next_tick_ns: Option<u64>,
+    sleep_ns: fn(u64),
+}
+
+impl FramePacing {
+    fn remaining(&self, now_ns: u64) -> u64 {
+        self.next_tick_ns.unwrap_or(now_ns).saturating_sub(now_ns)
+    }
+
+    fn complete(&mut self, now_ns: u64, blocking: bool) {
+        let target = self.next_tick_ns.unwrap_or(now_ns);
+        let wait = self.remaining(now_ns);
+        if blocking && wait > 0 {
+            (self.sleep_ns)(wait);
+        }
+        self.next_tick_ns = Some(target.max(now_ns).saturating_add(self.period_ns));
+    }
+}
+
+#[cfg(any(target_os = "android", target_os = "ios", test))]
+pub(crate) fn remaining(world: &crate::ecs::World) -> Option<u64> {
+    let now = world.resource::<MonoClock>()?.now_ns();
+    Some(world.resource::<FramePacing>()?.remaining(now))
+}
+
+pub(crate) fn complete(world: &mut crate::ecs::World, blocking: bool) {
+    let Some(now) = world.resource::<MonoClock>().map(MonoClock::now_ns) else {
+        return;
+    };
+    if let Some(pacing) = world.resource_mut::<FramePacing>() {
+        pacing.complete(now, blocking);
+    }
 }
 
 impl FrameRateCapPlugin {
@@ -29,8 +59,7 @@ impl FrameRateCapPlugin {
     pub fn with_sleep_fn(target_fps: u32, sleep_ns: fn(u64)) -> Self {
         assert!(target_fps > 0, "FrameRateCapPlugin: target_fps must be > 0");
         Self {
-            period_ns: 1_000_000_000 / u64::from(target_fps),
-            last_frame_ns: None,
+            period_ns: (1_000_000_000 / u64::from(target_fps)).max(1),
             sleep_ns,
         }
     }
@@ -49,21 +78,39 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    fn build(&mut self, _app: &mut App<B, F>) {}
+    fn build(&mut self, app: &mut App<B, F>) {
+        app.world.insert_resource(FramePacing {
+            period_ns: self.period_ns,
+            next_tick_ns: None,
+            sleep_ns: self.sleep_ns,
+        });
+    }
+}
 
-    fn post_render(&mut self, world: &mut crate::ecs::World, _render_nanos: u64) {
-        let Some(now_ns) = world.resource::<MonoClock>().map(|c| c.now_ns()) else {
-            return;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::cell::Cell;
+    std::thread_local! { static SLEPT: Cell<u64> = const { Cell::new(0) }; }
+
+    #[test]
+    fn blocking_and_host_scheduling_share_deadlines_and_reanchor_after_stalls() {
+        let mut pacing = FramePacing {
+            period_ns: 10,
+            next_tick_ns: None,
+            sleep_ns: |ns| SLEPT.set(SLEPT.get() + ns),
         };
-        let target = self
-            .last_frame_ns
-            .map_or(now_ns, |prev| prev + self.period_ns);
-        if target > now_ns {
-            (self.sleep_ns)(target - now_ns);
-        }
-        // Re-anchor to `now_ns` if we missed the target — otherwise
-        // a long stall (backgrounded window, vsync hang) leaves a
-        // deficit that suppresses sleeps for hundreds of frames.
-        self.last_frame_ns = Some(target.max(now_ns));
+        assert_eq!(pacing.remaining(100), 0);
+        pacing.complete(100, true);
+        assert_eq!(SLEPT.get(), 0);
+        assert_eq!(pacing.remaining(104), 6);
+        pacing.complete(104, true);
+        assert_eq!(SLEPT.get(), 6);
+        assert_eq!(pacing.remaining(112), 8);
+        pacing.complete(500, false);
+        assert_eq!(pacing.remaining(500), 10);
+        assert_eq!(SLEPT.get(), 6);
+        pacing.complete(510, false);
+        assert_eq!(pacing.remaining(511), 9);
     }
 }

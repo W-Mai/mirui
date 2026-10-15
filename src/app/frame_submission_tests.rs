@@ -175,6 +175,79 @@ fn idle_and_failed_ticks_still_run_surface_maintenance() {
     assert_submission(&app.backend.trace, &["end", "abort", "maintain"]);
 }
 
+std::thread_local! {
+    static NOW: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    static SLEEPS: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
+}
+
+#[derive(Default)]
+struct TickCount(u32);
+
+#[crate::system]
+fn count_ticks(count: res!(mut TickCount)) {
+    count.0 += 1;
+}
+
+#[test]
+fn pacing_covers_idle_failed_and_successful_ticks_without_stopping_systems() {
+    let (mut app, node) = fixture();
+    NOW.set(0);
+    SLEEPS.set(0);
+    app.world
+        .insert_resource(crate::ecs::MonoClock::new(|| NOW.get()));
+    app.world.insert_resource(TickCount::default());
+    app.add_system(count_ticks::system());
+    app.add_plugin(plugins::FrameRateCapPlugin::with_sleep_fn(100, |ns| {
+        NOW.set(NOW.get() + ns);
+        SLEEPS.set(SLEEPS.get() + 1);
+    }));
+    app.tick();
+    assert_eq!(SLEEPS.get(), 0);
+    app.tick();
+    assert_eq!(SLEEPS.get(), 1);
+    crate::ui::set_position(&mut app.world, node, 16, 0);
+    app.backend.fail = Some("begin");
+    app.tick();
+    assert_eq!(SLEEPS.get(), 2);
+    app.backend.fail = None;
+    app.tick();
+    assert_eq!(SLEEPS.get(), 3);
+    assert_eq!(app.world.resource::<TickCount>().unwrap().0, 4);
+    assert!(app.dirty_regions().unwrap().is_empty());
+}
+
+#[test]
+fn host_updates_and_platform_redraws_do_not_advance_each_other() {
+    let (mut app, _) = fixture();
+    NOW.set(0);
+    app.world.insert_resource(TickCount::default());
+    app.add_system(count_ticks::system());
+    assert_eq!(app.tick_wait_ns(), None);
+    app.add_plugin(plugins::FrameRateCapPlugin::with_sleep_fn(100, |_| {
+        panic!("host must not sleep")
+    }));
+    assert_eq!(app.tick_wait_ns(), None);
+    app.world
+        .insert_resource(crate::ecs::MonoClock::new(|| NOW.get()));
+    assert_eq!(app.tick_wait_ns(), Some(0));
+    assert!(!app.update_tick());
+    app.finish_tick(false);
+    assert_eq!(app.tick_wait_ns(), Some(10_000_000));
+    for _ in 0..3 {
+        app.backend.invalid = true;
+        app.draw_tick();
+        app.maintain_tick();
+        assert_eq!(app.world.resource::<TickCount>().unwrap().0, 1);
+        assert_eq!(app.tick_wait_ns(), Some(10_000_000));
+    }
+    NOW.set(10_000_000);
+    assert_eq!(app.tick_wait_ns(), Some(0));
+    assert!(!app.update_tick());
+    app.finish_tick(false);
+    assert_eq!(app.world.resource::<TickCount>().unwrap().0, 2);
+    assert_eq!(app.tick_wait_ns(), Some(10_000_000));
+}
+
 #[test]
 fn redraw_queries_do_not_consume_requests_and_transient_frames_can_idle() {
     for transient in [false, true] {
