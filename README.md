@@ -34,7 +34,7 @@ A `no_std`, ECS-driven UI framework for embedded, mobile, desktop, Linux, and We
 
 ```toml
 [dependencies]
-mirui = { version = "0.49", features = ["sdl"] }
+mirui = { version = "0.50", features = ["sdl"] }
 ```
 
 ```rust
