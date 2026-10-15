@@ -94,7 +94,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 "sdl_gpu backend: composite {composite:?} requires SDL_ComposeCustomBlendMode; use SwRenderer"
             ),
         };
-        let sdl_fmt = Self::texture_format(src.format);
 
         let phys_dst = self.viewport.point_to_physical(dst);
         let phys_dst_size = self.viewport.point_to_physical(dst_size);
@@ -117,30 +116,21 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             return;
         };
 
-        let src_width = src.width as u32;
-        let src_height = src.height as u32;
-
         let canvas = &mut *self.canvas;
-        let mut uploaded = false;
-        self.label_cache.with_creator(|creator| {
-            let mut tex = match creator.create_texture_streaming(sdl_fmt, src_width, src_height) {
-                Ok(t) => t,
-                Err(_) => return,
-            };
-            if !Self::upload_texture(&mut tex, src) {
-                return;
-            }
+        let uploaded = self.texture_cache.with_texture(src, |tex| {
             tex.set_blend_mode(sdl_blend);
             // SDL2 modulates texture sample alpha by alpha_mod/255 in the
             // copy() path, so set_alpha_mod composes with src.a as the
             // group opacity multiplier.
             tex.set_alpha_mod(opa);
+            tex.set_color_mod(255, 255, 255);
 
             canvas.set_clip_rect(sdl_clip);
-            uploaded = canvas.copy(&tex, Some(src_sdl), Some(dst_sdl)).is_ok();
+            let copied = canvas.copy(tex, Some(src_sdl), Some(dst_sdl)).is_ok();
             canvas.set_clip_rect(None);
+            copied
         });
-        if !uploaded {
+        if !matches!(uploaded, Ok(true)) {
             self.draw_failed = true;
         }
     }

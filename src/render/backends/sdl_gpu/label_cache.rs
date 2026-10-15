@@ -494,7 +494,6 @@ impl LabelCache {
         rendered.then_some(()).ok_or(RenderError::BackendFailure)
     }
 
-    #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.cache.cache_mut().clear();
         self.scalar_cache.cache_mut().clear();
@@ -511,9 +510,7 @@ impl LabelCache {
         self.scalar_cache.cache()
     }
 
-    /// Expose the cache's `TextureCreator` so callers can allocate extra
-    /// textures tied to the same renderer (e.g. the blit fast-path
-    /// creating a per-frame streaming texture).
+    /// Borrows the renderer's creator for temporary target-edit uploads.
     pub fn with_creator<R>(&self, f: impl FnOnce(&TextureCreator<WindowContext>) -> R) -> R {
         f(&self.creator)
     }

@@ -1,8 +1,13 @@
 use crate::core::cache::HasSize;
+
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu"))]
+mod cache_key;
 use crate::types::{Color, Fixed};
 #[cfg(any(target_arch = "wasm32", test))]
 use alloc::borrow::Cow;
 use alloc::vec::Vec;
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu"))]
+pub(crate) use cache_key::TextureKey;
 
 /// Owned byte storage whose visible start satisfies a requested alignment.
 ///

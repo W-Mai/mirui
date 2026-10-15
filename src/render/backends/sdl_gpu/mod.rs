@@ -16,6 +16,7 @@ mod quad;
 mod rect_fill;
 mod rect_stroke;
 mod tessellation;
+mod texture_cache;
 
 use std::time::Instant;
 
@@ -27,6 +28,7 @@ use sdl2::video::Window;
 pub use self::config::{SdlGpuConfig, SdlGpuDriver, SdlGpuError, SdlWindowMode};
 use self::label_cache::LabelCache;
 use self::tessellation::TessellationCache;
+use self::texture_cache::TextureCache;
 use crate::render::PlaneRequirements;
 use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
@@ -88,6 +90,7 @@ pub struct SdlGpuSurface {
     text_input: crate::surface::sdl_events::NativeTextInput,
     tessellator: TessellationCache,
     viewport: Viewport,
+    renderer_generation: u64,
     last_mouse_x: i32,
     last_mouse_y: i32,
     multi: MultiGestureState,
@@ -175,6 +178,7 @@ impl SdlGpuSurface {
             text_input,
             tessellator: TessellationCache::new(),
             viewport,
+            renderer_generation: 0,
             last_mouse_x: 0,
             last_mouse_y: 0,
             multi: MultiGestureState::default(),
@@ -371,6 +375,10 @@ impl Surface for SdlGpuSurface {
         while let Some(event) = crate::surface::sdl_events::poll() {
             match event {
                 Event::Quit { .. } => self.pending.push_back(InputEvent::Quit),
+                Event::RenderTargetsReset { .. } | Event::RenderDeviceReset { .. } => {
+                    self.label_cache.clear();
+                    self.renderer_generation = self.renderer_generation.wrapping_add(1);
+                }
                 event @ (Event::KeyDown { .. } | Event::KeyUp { .. }) => {
                     if let Some(input) = crate::surface::sdl_events::keyboard_input(&event) {
                         self.pending.push_back(input);
@@ -498,6 +506,8 @@ impl InspectCaches for SdlGpuSurface {
 pub struct SdlGpuFactory<S = Box<[u8]>> {
     projective_fallback: Option<ProjectiveFallback<S>>,
     stroke_scratch: StrokeScratch,
+    texture_cache: Option<TextureCache>,
+    texture_cache_budget: usize,
 }
 
 impl SdlGpuFactory<Box<[u8]>> {
@@ -505,6 +515,8 @@ impl SdlGpuFactory<Box<[u8]>> {
         Self {
             projective_fallback: None,
             stroke_scratch: StrokeScratch::new(),
+            texture_cache: None,
+            texture_cache_budget: texture_cache::DEFAULT_BUDGET,
         }
     }
 
@@ -512,7 +524,27 @@ impl SdlGpuFactory<Box<[u8]>> {
         SdlGpuFactory {
             projective_fallback: Some(fallback),
             stroke_scratch: self.stroke_scratch,
+            texture_cache: self.texture_cache,
+            texture_cache_budget: self.texture_cache_budget,
         }
+    }
+}
+
+impl<S> SdlGpuFactory<S> {
+    /// Limits retained image uploads in estimated pixel bytes. Zero disables retention.
+    /// Defaults to 16 MiB; entries are allocated only when used.
+    pub fn with_texture_cache_budget(mut self, bytes: usize) -> Self {
+        self.texture_cache = None;
+        self.texture_cache_budget = bytes;
+        self
+    }
+}
+
+impl<S> InspectCaches for SdlGpuFactory<S> {
+    fn inspect_caches(&self) -> impl Iterator<Item = (&'static str, &dyn CacheInspect)> + '_ {
+        self.texture_cache
+            .iter()
+            .map(|cache| ("sdl_gpu/texture", cache.inspect()))
     }
 }
 
@@ -534,16 +566,33 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFact
         transform: &Viewport,
     ) -> SdlGpuRenderer<'a, S> {
         let viewport = *transform;
+        if self
+            .texture_cache
+            .as_ref()
+            .is_none_or(|cache| !cache.matches(&backend.canvas, backend.renderer_generation))
+        {
+            self.texture_cache = Some(TextureCache::new(
+                &backend.canvas,
+                backend.renderer_generation,
+                self.texture_cache_budget,
+            ));
+        }
         let (canvas, label_cache, tessellator) = backend.parts_mut();
         SdlGpuRenderer {
             canvas,
             label_cache,
             tessellator,
+            texture_cache: self.texture_cache.as_mut().expect("prepared texture cache"),
             projective_fallback: self.projective_fallback.as_mut(),
             stroke_scratch: &mut self.stroke_scratch,
             viewport,
             draw_failed: false,
         }
+    }
+
+    fn trim_memory(&mut self) {
+        self.texture_cache = None;
+        self.stroke_scratch = StrokeScratch::new();
     }
 }
 
@@ -551,6 +600,7 @@ pub struct SdlGpuRenderer<'a, S = Box<[u8]>> {
     canvas: &'a mut SdlCanvas<Window>,
     label_cache: &'a mut LabelCache,
     tessellator: &'a mut TessellationCache,
+    texture_cache: &'a mut TextureCache,
     projective_fallback: Option<&'a mut ProjectiveFallback<S>>,
     stroke_scratch: &'a mut StrokeScratch,
     viewport: Viewport,

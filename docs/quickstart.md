@@ -65,6 +65,8 @@ println!("Renderer: {}", surface.renderer_name());
 
 `SdlGpuSurface::new(title, width, height)` uses windowed OpenGL with 4× MSAA and vsync. Both constructors return `Result`. Explicit `OpenGl` and `OpenGles2` selections do not fall back to another renderer; `Auto` lets SDL select an accelerated driver without a GL multisampling request. GL `samples: 0` disables MSAA, `1` is invalid, and larger values request at least that sample count. Unsupported settings return an error rather than silently reducing quality. `FullscreenDesktop` uses the desktop display mode; requested window dimensions do not override its actual size. Window geometry and pointer coordinates follow the current logical size, including resize and display changes.
 
+`SdlGpuFactory::new().with_texture_cache_budget(bytes)` and `WgpuRendererFactory::new().with_texture_cache_budget(bytes)` configure retained image uploads, separately from glyph caches and target-edit buffers. Both default to 16 MiB, allocated on demand; zero disables retention and oversized textures still draw without being cached. The SDL budget estimates four pixel bytes per texel, including formats that the driver may expand; driver allocation overhead is not included. Static textures and explicitly revised contents can be reused. Borrowed or mutable textures remain transient unless the producer supplies a content revision; reusing a buffer with changed pixels requires a new revision.
+
 Create a fresh project:
 
 ```bash

@@ -87,7 +87,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         if opa == 0 {
             return;
         }
-        let sdl_fmt = Self::texture_format(src.format);
         let phys_clip = self.viewport.rect_to_physical(*clip);
         let phys_q = [
             self.viewport.point_to_physical(q[0]),
@@ -98,9 +97,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let Some(sdl_clip) = sdl_pixel_rect(&phys_clip, &phys_clip) else {
             return;
         };
-
-        let src_width = src.width as u32;
-        let src_height = src.height as u32;
 
         // SDL_RenderGeometry modulates the texture sample by per-vertex
         // color, so packing opa into vertex.a applies group opacity over
@@ -148,18 +144,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let indices: [i32; 6] = [0, 1, 2, 0, 2, 3];
 
         let canvas = &mut *self.canvas;
-        let mut uploaded = false;
-        self.label_cache.with_creator(|creator| {
-            let mut tex = match creator.create_texture_streaming(sdl_fmt, src_width, src_height) {
-                Ok(t) => t,
-                Err(_) => return,
-            };
-            if !Self::upload_texture(&mut tex, src) {
-                return;
-            }
+        let uploaded = self.texture_cache.with_texture(src, |tex| {
             tex.set_blend_mode(sdl2::render::BlendMode::Blend);
+            tex.set_alpha_mod(255);
+            tex.set_color_mod(255, 255, 255);
             canvas.set_clip_rect(sdl_clip);
-            uploaded = unsafe {
+            let rendered = unsafe {
                 sdl2_sys::SDL_RenderGeometry(
                     canvas.raw(),
                     tex.raw(),
@@ -170,8 +160,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 ) == 0
             };
             canvas.set_clip_rect(None);
+            rendered
         });
-        if !uploaded {
+        if !matches!(uploaded, Ok(true)) {
             self.draw_failed = true;
         }
     }

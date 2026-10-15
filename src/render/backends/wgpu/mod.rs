@@ -311,6 +311,7 @@ pub struct WgpuRendererFactory {
     stroke_tessellator: StrokeTessellator,
     stroke_scratch: StrokeScratch,
     texture_pool: TexturePool,
+    texture_cache_budget: usize,
     scalar_surface_pool: ScalarSurfacePool,
     scalar_samples: alloc::vec::Vec<u8>,
     glyph_instances: alloc::vec::Vec<GlyphInstance>,
@@ -328,7 +329,8 @@ impl WgpuRendererFactory {
             tessellator: FillTessellator::new(),
             stroke_tessellator: StrokeTessellator::new(),
             stroke_scratch: StrokeScratch::new(),
-            texture_pool: new_pool(),
+            texture_pool: new_pool(texture_pool::TEXTURE_BUDGET),
+            texture_cache_budget: texture_pool::TEXTURE_BUDGET,
             scalar_surface_pool: new_scalar_surface_pool(),
             scalar_samples: alloc::vec::Vec::new(),
             glyph_instances: alloc::vec::Vec::new(),
@@ -341,6 +343,14 @@ impl WgpuRendererFactory {
     /// Limit checked target edits to this many physical RGBA bytes.
     pub fn with_target_edit_budget(mut self, bytes: usize) -> Self {
         self.target_edit_budget_bytes = Some(bytes);
+        self
+    }
+
+    /// Limits retained RGBA image uploads in bytes. Zero disables retention.
+    /// Defaults to 16 MiB; glyph surfaces have a separate budget.
+    pub fn with_texture_cache_budget(mut self, bytes: usize) -> Self {
+        self.texture_pool = new_pool(bytes);
+        self.texture_cache_budget = bytes;
         self
     }
 }
@@ -399,7 +409,7 @@ impl<B: WgpuTarget> RendererFactory<B> for WgpuRendererFactory {
         self.tessellator = FillTessellator::new();
         self.stroke_tessellator = StrokeTessellator::new();
         self.stroke_scratch = StrokeScratch::new();
-        self.texture_pool = new_pool();
+        self.texture_pool = new_pool(self.texture_cache_budget);
         self.scalar_surface_pool = new_scalar_surface_pool();
         self.scalar_samples = alloc::vec::Vec::new();
         self.glyph_instances = alloc::vec::Vec::new();
@@ -1212,7 +1222,11 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
 
     fn blit_source_view_checked(&mut self, src: &Texture) -> Option<wgpu::TextureView> {
         let state = self.surface.state()?;
-        let Some(key) = TextureKey::cacheable(src) else {
+        let key = TextureKey::cacheable(src).filter(|_| {
+            usize::from(src.width) * usize::from(src.height) * 4
+                <= self.factory.texture_cache_budget
+        });
+        let Some(key) = key else {
             let rgba = src.rgba8_pixels()?;
             let texture = upload_blit_source(&state.device, &state.queue, src, &rgba);
             return Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
