@@ -6,6 +6,67 @@ use crate::ui::widgets::follow_bounds::tests::{fixture, rect};
 use crate::ui::{Hidden, Style};
 
 #[test]
+fn position_motion_reuses_layout_without_losing_children_or_painted_damage() {
+    for config in [
+        Transition::from(BOUNCY),
+        crate::anim::TweenConfig::new(160, &crate::anim::ease::OUT_CUBIC).into(),
+    ] {
+        let (mut app, root, source, follower) = fixture();
+        app.world
+            .get_mut::<FollowBounds>(follower)
+            .unwrap()
+            .transition = Some(config);
+        app.render().unwrap();
+        app.world.get_mut::<Style>(source).unwrap().layout.left = Dimension::px(24);
+        app.world.invalidate(source);
+        app.render_dirty().unwrap();
+        let child = app.world.find_by_id("fill").unwrap();
+        let revision = app.world.component_revision::<crate::ui::dirty::Dirty>();
+        let viewport = crate::types::Viewport::new(128, 96, Fixed::ONE);
+        let start = rect(&app, follower);
+        for _ in 0..120 {
+            advance(&mut app.world).unwrap();
+            for _ in 0..2 {
+                crate::ui::render_system::prepare_input_geometry(&mut app.world, root, &viewport)
+                    .unwrap();
+                app.dirty_regions().unwrap();
+            }
+            assert_eq!(
+                app.world.component_revision::<crate::ui::dirty::Dirty>(),
+                revision
+            );
+            assert_eq!(rect(&app, child), rect(&app, follower));
+            app.render_dirty().unwrap();
+            let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+            app.render().unwrap();
+            assert_eq!(pixels, app.backend.framebuffer().buf.as_slice());
+        }
+        assert_ne!(rect(&app, follower), start);
+        assert_eq!(rect(&app, follower), rect(&app, source));
+    }
+}
+
+#[test]
+fn size_motion_keeps_layout_invalidation_and_resolves_percentage_children() {
+    let (mut app, root, source, follower) = fixture();
+    app.world
+        .get_mut::<FollowBounds>(follower)
+        .unwrap()
+        .transition = Some(SMOOTH.into());
+    app.render().unwrap();
+    app.world.get_mut::<Style>(source).unwrap().layout.width = Dimension::px(12);
+    app.world.invalidate(source);
+    app.render_dirty().unwrap();
+    advance(&mut app.world).unwrap();
+    assert!(app.world.has::<crate::ui::dirty::Dirty>(follower));
+    let viewport = crate::types::Viewport::new(128, 96, Fixed::ONE);
+    crate::ui::render_system::prepare_input_geometry(&mut app.world, root, &viewport).unwrap();
+    let child = app.world.find_by_id("fill").unwrap();
+    assert_eq!(rect(&app, child), rect(&app, follower));
+    assert!(rect(&app, follower).w < Fixed::from_int(30));
+}
+
+#[test]
 fn tween_following_preserves_progress_across_layout_preparations_and_reconfiguration() {
     use crate::anim::{Tween, TweenConfig, ease};
     let (mut app, root, source, follower) = fixture();

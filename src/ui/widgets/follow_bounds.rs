@@ -240,7 +240,8 @@ fn assign(world: &mut World, entity: Entity, geometry: Option<Resolved>) -> bool
     if state.geometry == geometry {
         return false;
     }
-    let layout_changed = state.geometry.map(|value| value.rect) != geometry.map(|value| value.rect);
+    let layout_changed = state.geometry.map(|value| (value.rect.w, value.rect.h))
+        != geometry.map(|value| (value.rect.w, value.rect.h));
     state.geometry = geometry;
     if layout_changed {
         world.mark_subtree_dirty(entity);

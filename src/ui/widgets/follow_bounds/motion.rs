@@ -94,8 +94,13 @@ pub(super) fn advance(world: &mut World) -> Result<(), crate::ecs::CommandError>
             return;
         };
         if geometry.rect != rect {
+            let resized = geometry.rect.w != rect.w || geometry.rect.h != rect.h;
             geometry.rect = rect;
-            world.mark_subtree_dirty(entity);
+            if resized {
+                world.mark_subtree_dirty(entity);
+            } else {
+                world.invalidate_subtree_visual(entity);
+            }
         }
     });
     Ok(())

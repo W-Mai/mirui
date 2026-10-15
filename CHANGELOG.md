@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MIRX font rendering reuses the selected representation's validated atlas map instead of reopening and scanning it for each glyph.
 - SDL renderers enable command batching by default, including explicit OpenGL driver selection. Explicit SDL hint or environment settings retain priority.
 - SDL GPU reuses image uploads across rectangle and quad draws using the shared texture revision policy. SDL and WGPU factories expose bounded image-upload cache budgets.
+- FollowBounds position animations reuse prepared layout trees; size changes retain normal layout invalidation.
 
 ## [0.49.1] - 2026-10-15
 

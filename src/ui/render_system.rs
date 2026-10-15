@@ -2638,6 +2638,15 @@ pub fn try_update_layout(
     root: Entity,
     transform: &Viewport,
 ) -> Result<(), TextLayoutFailure> {
+    update_layout(world, root, transform, false)
+}
+
+fn update_layout(
+    world: &mut World,
+    root: Entity,
+    transform: &Viewport,
+    reuse_visual_layout: bool,
+) -> Result<(), TextLayoutFailure> {
     super::view::ViewRegistry::invalidate_queries(world);
     let (logical_w, logical_h) = transform.logical_size();
 
@@ -2645,13 +2654,14 @@ pub fn try_update_layout(
         cache.storage_mut().paths.begin_layout();
     }
 
-    let snapshot = match reconcile_layout_snapshot(world, root, logical_w, logical_h, false) {
-        Ok(snapshot) => snapshot,
-        Err(failure) => {
-            record_text_layout_failure(world, root, failure);
-            return Err(failure);
-        }
-    };
+    let snapshot =
+        match reconcile_layout_snapshot(world, root, logical_w, logical_h, reuse_visual_layout) {
+            Ok(snapshot) => snapshot,
+            Err(failure) => {
+                record_text_layout_failure(world, root, failure);
+                return Err(failure);
+            }
+        };
     let Some(mut snapshot) = snapshot else {
         if let Some(outputs) = world.resource::<Outputs<super::LayoutGeometry>>() {
             outputs.reset_all();
@@ -2724,7 +2734,7 @@ pub(crate) fn prepare_input_geometry(
         || !layout_current
         || (visual_changed && super::widgets::follow_bounds::active(world))
     {
-        return try_update_layout(world, root, viewport);
+        return update_layout(world, root, viewport, true);
     }
     if visual_changed || !hit_test::geometry_matches(world, root, width, height) {
         world.with_resource_box::<LayoutSnapshot, _>(|snapshot, world| {
