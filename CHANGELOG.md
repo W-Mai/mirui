@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.49.1] - 2026-10-15
+
 ### Fixed
 
 - SDL GPU text caches preserve glyph coverage and color at transparent edges, avoiding dark fringes when composited or filtered.
