@@ -329,6 +329,8 @@ Mixed-direction selections are split at visual-run and line boundaries. Exhauste
 | Posed SDF | derivative-aware | derivative-aware | exact coverage route | exact coverage route |
 | Projective glyphs | inverse sampled | projective atlas | bounded software target | bounded software target |
 
+SDL GPU run textures store straight RGB and glyph coverage separately. Transparent texels retain the text color so linear filtering does not introduce a dark fringe; text color alpha and draw opacity are applied during composition.
+
 `render::PosedGlyphs` pairs borrowed positioned glyphs and placement frames for
 render commands, Canvas calls, and scene replay. Construction rejects mismatched
 slice lengths without allocating.

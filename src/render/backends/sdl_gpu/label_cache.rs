@@ -27,7 +27,7 @@ use crate::render::font::{
     Font, FontFaceId, FontSurfaceId, GlyphSurface, RasterRunBounds, RasterRunKey,
 };
 use crate::render::renderer::RenderError;
-use crate::render::texture::{ColorFormat, Texture as MiruiTexture};
+use crate::render::texture::{AlphaMode, ColorFormat, Texture as MiruiTexture};
 use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
 
 /// SdlTexture wrapper carrying the rasterised byte count so the cache
@@ -554,25 +554,14 @@ fn rasterize_label(_key: &RasterRunKey, ctx: RasterCtx<'_>) -> Result<SizedSdlTe
     let height = ctx.bounds.height;
     let byte_stride = usize::from(width) * 4;
     let byte_len = byte_stride * usize::from(height);
-    ctx.raster_buf.clear();
-    ctx.raster_buf.resize(byte_len, 0);
-    {
-        let tex = MiruiTexture::new(ctx.raster_buf, width, height, ColorFormat::RGBA8888);
-        let mut sw = SwRenderer::new(tex);
-        sw.viewport = crate::types::Viewport::new(width, height, ctx.scale);
-        let area = Rect {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            w: ctx.bounds.size.x,
-            h: ctx.bounds.size.y,
-        };
-        let RasterContent::Positioned { glyphs, origin } = ctx.content;
-        let raster_color = Color {
-            a: 255,
-            ..*ctx.color
-        };
-        sw.draw_glyph_run(&origin, glyphs, ctx.font, &area, &raster_color, 255);
-    }
+    rasterize_run_pixels(
+        ctx.content,
+        ctx.font,
+        *ctx.color,
+        ctx.bounds,
+        ctx.scale,
+        ctx.raster_buf,
+    );
 
     let mut new_tex = ctx
         .creator
@@ -589,10 +578,7 @@ fn rasterize_label(_key: &RasterRunKey, ctx: RasterCtx<'_>) -> Result<SizedSdlTe
         return Err(());
     }
 
-    // Erase the creator's borrow so the texture can sit inside `LruCache`.
-    // Soundness: every texture is dropped before its creator because
-    // `LabelCache` lists `cache` before `creator` and Rust drops fields
-    // in declaration order.
+    // The cache drops each texture before its creator.
     let new_tex_static: SdlTexture<'static> = unsafe { core::mem::transmute(new_tex) };
     Ok(SizedSdlTexture {
         tex: new_tex_static,
@@ -600,9 +586,85 @@ fn rasterize_label(_key: &RasterRunKey, ctx: RasterCtx<'_>) -> Result<SizedSdlTe
     })
 }
 
+fn rasterize_run_pixels(
+    content: RasterContent<'_>,
+    font: &Font,
+    color: Color,
+    bounds: RasterRunBounds,
+    scale: Fixed,
+    pixels: &mut Vec<u8>,
+) {
+    pixels.resize(
+        usize::from(bounds.width) * usize::from(bounds.height) * 4,
+        0,
+    );
+    for pixel in pixels.chunks_exact_mut(4) {
+        pixel.copy_from_slice(&[color.r, color.g, color.b, 0]);
+    }
+    {
+        let tex = MiruiTexture::new(pixels, bounds.width, bounds.height, ColorFormat::RGBA8888);
+        let mut sw = SwRenderer::new(tex).with_alpha_mode(AlphaMode::Blend);
+        sw.viewport = Viewport::new(bounds.width, bounds.height, scale);
+        let area = Rect {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: bounds.size.x,
+            h: bounds.size.y,
+        };
+        let RasterContent::Positioned { glyphs, origin } = content;
+        let raster_color = Color { a: 255, ..color };
+        sw.draw_glyph_run(&origin, glyphs, font, &area, &raster_color, 255);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cached_runs_preserve_coverage_and_filterable_rgb() {
+        let mut pixels = Vec::new();
+        for size in [14, 48] {
+            let font = Font::from_mirx(
+                "UI",
+                size,
+                include_bytes!("../../../gallery/demos/assets/misans_ui.mirx"),
+                &mirx::reader::PayloadLimits::HOST,
+            )
+            .unwrap();
+            let glyphs = [textflow::shaping::PositionedGlyph::new(
+                font.map_char('A').unwrap(),
+                textflow::shaping::FlowPoint { x: 0, y: 0 },
+            )];
+            let scale = Fixed::from_int(2);
+            let bounds = font.raster_run_bounds(&glyphs, size * 2, scale).unwrap();
+            let origin = Point {
+                x: -bounds.offset.x,
+                y: -bounds.offset.y,
+            };
+            let color = Color::rgba(146, 204, 255, 128);
+            rasterize_run_pixels(
+                RasterContent::Positioned {
+                    glyphs: &glyphs,
+                    origin,
+                },
+                &font,
+                color,
+                bounds,
+                scale,
+                &mut pixels,
+            );
+            assert!(
+                pixels
+                    .chunks_exact(4)
+                    .any(|pixel| pixel[3] > 0 && pixel[3] < 255)
+            );
+            assert!(pixels.chunks_exact(4).any(|pixel| pixel[3] == 0));
+            for pixel in pixels.chunks_exact(4) {
+                assert_eq!(&pixel[..3], &[color.r, color.g, color.b]);
+            }
+        }
+    }
 
     #[test]
     fn scalar_geometry_keeps_pose_region_tint_and_display_scale() {
