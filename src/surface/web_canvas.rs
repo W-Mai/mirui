@@ -146,8 +146,17 @@ impl Surface for WebCanvasSurface {
     }
 
     fn persistence(&self) -> BackbufferPersistence {
+        BackbufferPersistence::Persistent
+    }
+
+    fn needs_redraw(&self) -> bool {
         self.display_info();
-        self.backbuffer.take_persistence()
+        self.backbuffer.needs_redraw()
+    }
+
+    fn end_flush(&mut self) -> Result<(), crate::render::RenderError> {
+        self.backbuffer.acknowledge();
+        Ok(())
     }
 
     fn physical_size(&self) -> (u32, u32) {

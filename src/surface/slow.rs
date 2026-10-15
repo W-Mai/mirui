@@ -104,6 +104,10 @@ impl<S: Surface> Surface for SlowSurface<S> {
     fn persistence(&self) -> BackbufferPersistence {
         self.inner.persistence()
     }
+
+    fn needs_redraw(&self) -> bool {
+        self.inner.needs_redraw()
+    }
 }
 
 impl<S: FramebufferAccess> FramebufferAccess for SlowSurface<S> {

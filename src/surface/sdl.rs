@@ -51,8 +51,11 @@ pub struct SdlSurface {
     /// must be destroyed before the renderer that created them, and
     /// Rust drops struct fields in declaration order.
     tex: SdlTexture<'static>,
+    texture_creator: &'static TextureCreator<WindowContext>,
+    texture_lost: bool,
     canvas: Canvas<Window>,
     pending_present: bool,
+    needs_redraw: bool,
     _event_pump: EventPump,
     text_input: super::sdl_events::NativeTextInput,
     buf: Vec<u8>,
@@ -115,8 +118,11 @@ impl SdlSurface {
 
         Self {
             tex,
+            texture_creator,
+            texture_lost: false,
             canvas,
             pending_present: false,
+            needs_redraw: true,
             _event_pump: event_pump,
             text_input,
             buf,
@@ -256,8 +262,23 @@ impl Surface for SdlSurface {
     }
 
     fn begin_flush(&mut self) -> Result<(), crate::render::RenderError> {
+        if self.texture_lost {
+            self.tex = self
+                .texture_creator
+                .create_texture_streaming(
+                    PixelFormatEnum::RGBA32,
+                    u32::from(self.width),
+                    u32::from(self.height),
+                )
+                .map_err(|_| crate::render::RenderError::BackendFailure)?;
+            self.texture_lost = false;
+        }
         self.pending_present = false;
         Ok(())
+    }
+
+    fn needs_redraw(&self) -> bool {
+        self.needs_redraw
     }
 
     fn flush(
@@ -298,7 +319,12 @@ impl Surface for SdlSurface {
             .map_err(|_| crate::render::RenderError::BackendFailure)?;
         self.canvas.present();
         self.pending_present = false;
+        self.needs_redraw = false;
         Ok(())
+    }
+
+    fn frame_end(&mut self) -> Result<(), crate::render::RenderError> {
+        self.end_flush()
     }
 
     fn abort_flush(&mut self) {
@@ -339,6 +365,11 @@ impl Surface for SdlSurface {
         while let Some(event) = super::sdl_events::poll() {
             match event {
                 Event::Quit { .. } => self.pending.push_back(InputEvent::Quit),
+                Event::RenderDeviceReset { .. } => {
+                    self.texture_lost = true;
+                    self.needs_redraw = true;
+                    self.pending_present = false;
+                }
                 event @ (Event::KeyDown { .. } | Event::KeyUp { .. }) => {
                     if let Some(input) = super::sdl_events::keyboard_input(&event) {
                         self.pending.push_back(input);
@@ -411,6 +442,15 @@ impl Surface for SdlSurface {
                     }
                 }
                 Event::Window { win_event, .. } => {
+                    if matches!(
+                        win_event,
+                        sdl2::event::WindowEvent::Exposed
+                            | sdl2::event::WindowEvent::Restored
+                            | sdl2::event::WindowEvent::Shown
+                    ) && !self.needs_redraw
+                    {
+                        self.pending_present = true;
+                    }
                     if let Some(input) = super::sdl_events::pointer_window_input(win_event)
                         .or_else(|| super::sdl_events::host_window_input(win_event))
                     {

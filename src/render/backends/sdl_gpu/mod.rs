@@ -91,6 +91,7 @@ pub struct SdlGpuSurface {
     tessellator: TessellationCache,
     viewport: Viewport,
     renderer_generation: u64,
+    needs_redraw: bool,
     last_mouse_x: i32,
     last_mouse_y: i32,
     multi: MultiGestureState,
@@ -179,6 +180,7 @@ impl SdlGpuSurface {
             tessellator: TessellationCache::new(),
             viewport,
             renderer_generation: 0,
+            needs_redraw: true,
             last_mouse_x: 0,
             last_mouse_y: 0,
             multi: MultiGestureState::default(),
@@ -342,6 +344,22 @@ impl Surface for SdlGpuSurface {
 
     fn end_flush(&mut self) -> Result<(), crate::render::RenderError> {
         self.canvas.present();
+        self.needs_redraw = false;
+        Ok(())
+    }
+
+    fn needs_redraw(&self) -> bool {
+        self.needs_redraw
+    }
+
+    fn begin_flush(&mut self) -> Result<(), crate::render::RenderError> {
+        let (width, height) = self
+            .canvas
+            .output_size()
+            .map_err(|_| crate::render::RenderError::BackendFailure)?;
+        if self.canvas.window().is_minimized() || width == 0 || height == 0 {
+            return Err(crate::render::RenderError::SurfaceUnavailable);
+        }
         Ok(())
     }
 
@@ -379,6 +397,7 @@ impl Surface for SdlGpuSurface {
             match event {
                 Event::Quit { .. } => self.pending.push_back(InputEvent::Quit),
                 Event::RenderTargetsReset { .. } | Event::RenderDeviceReset { .. } => {
+                    self.needs_redraw = true;
                     self.label_cache.clear();
                     self.renderer_generation = self.renderer_generation.wrapping_add(1);
                 }
@@ -457,6 +476,17 @@ impl Surface for SdlGpuSurface {
                 }
                 Event::Window { win_event, .. } => {
                     use sdl2::event::WindowEvent;
+                    if matches!(
+                        win_event,
+                        WindowEvent::Exposed
+                            | WindowEvent::Restored
+                            | WindowEvent::Shown
+                            | WindowEvent::SizeChanged(..)
+                            | WindowEvent::Resized(..)
+                            | WindowEvent::DisplayChanged(..)
+                    ) {
+                        self.needs_redraw = true;
+                    }
                     if matches!(
                         win_event,
                         WindowEvent::SizeChanged(..)

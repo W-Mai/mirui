@@ -10,6 +10,8 @@ struct CheckedSurface {
     pixels: Pixels,
     fail: Option<&'static str>,
     trace: Vec<&'static str>,
+    invalid: bool,
+    transient: bool,
 }
 
 impl CheckedSurface {
@@ -43,7 +45,19 @@ impl Surface for CheckedSurface {
         self.step("flush")
     }
     fn end_flush(&mut self) -> Result<(), RenderError> {
-        self.step("end")
+        self.step("end")?;
+        self.invalid = false;
+        Ok(())
+    }
+    fn needs_redraw(&self) -> bool {
+        self.invalid
+    }
+    fn persistence(&self) -> crate::surface::BackbufferPersistence {
+        if self.transient {
+            crate::surface::BackbufferPersistence::Transient
+        } else {
+            crate::surface::BackbufferPersistence::Persistent
+        }
     }
     fn abort_flush(&mut self) {
         self.trace.push("abort");
@@ -80,6 +94,8 @@ fn fixture() -> (App<CheckedSurface>, Entity) {
         pixels: FramebufSurface::new(40, 30, |_, _| {}),
         fail: None,
         trace: Vec::new(),
+        invalid: true,
+        transient: false,
     });
     app.with_default_widgets();
     let root = app.spawn_root().id();
@@ -157,4 +173,44 @@ fn idle_and_failed_ticks_still_run_surface_maintenance() {
     crate::ui::set_position(&mut app.world, node, 16, 0);
     assert!(!app.tick());
     assert_submission(&app.backend.trace, &["end", "abort", "maintain"]);
+}
+
+#[test]
+fn redraw_queries_do_not_consume_requests_and_transient_frames_can_idle() {
+    for transient in [false, true] {
+        let (mut app, node) = fixture();
+        app.backend.transient = transient;
+        for _ in 0..3 {
+            assert!(app.dirty_regions().unwrap().is_empty());
+            app.tick();
+        }
+        assert_eq!(&app.backend.trace, &["maintain"; 3]);
+        app.backend.trace.clear();
+        app.backend.invalid = true;
+        for _ in 0..3 {
+            assert_eq!(
+                app.dirty_regions().unwrap().rects.as_slice(),
+                &[Rect::new(0, 0, 40, 30)]
+            );
+            assert!(app.backend.invalid);
+        }
+        assert!(app.backend.trace.is_empty());
+        app.backend.fail = Some("end");
+        assert!(app.render_dirty().is_err());
+        assert!(app.backend.invalid);
+        app.backend.fail = None;
+        crate::ui::set_position(&mut app.world, node, 20, 0);
+        app.render_dirty().unwrap();
+        assert!(!app.backend.invalid);
+        assert!(app.dirty_regions().unwrap().is_empty());
+        crate::ui::set_position(&mut app.world, node, 24, 0);
+        if transient {
+            assert_eq!(
+                app.dirty_regions().unwrap().rects.as_slice(),
+                &[Rect::new(0, 0, 40, 30)]
+            );
+        }
+        app.render_dirty().unwrap();
+        assert!(app.dirty_regions().unwrap().is_empty());
+    }
 }

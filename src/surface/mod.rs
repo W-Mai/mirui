@@ -86,9 +86,7 @@ pub use crate::input::event::input::{InputEvent, KEY_HW_BUTTON_0, KEY_ROTARY_PRE
 
 /// Does the backbuffer survive `flush()`?
 ///
-/// CPU raster and Web Canvas backends are [`Persistent`] while their backing
-/// stores remain valid; swap-chain GPU backends are [`Transient`]. `App::run`
-/// picks dirty-only vs. full-frame rendering based on this.
+/// CPU raster and Web Canvas backends are [`Persistent`]; swap-chain GPU backends are [`Transient`]. Transient surfaces redraw the entire frame when there is damage, but can remain idle otherwise. Content loss is reported separately by [`Surface::needs_redraw`].
 ///
 /// [`Persistent`]: Self::Persistent
 /// [`Transient`]: Self::Transient
@@ -192,6 +190,11 @@ pub trait Surface: crate::core::cache::InspectCaches {
     /// GPU backends override to [`BackbufferPersistence::Transient`].
     fn persistence(&self) -> BackbufferPersistence {
         BackbufferPersistence::Persistent
+    }
+
+    /// Whether the surface needs newly drawn pixels. Queries do not consume this request; successful `end_flush` acknowledges it. Retained pixels awaiting presentation are maintained by `frame_end` instead.
+    fn needs_redraw(&self) -> bool {
+        false
     }
 
     /// Called at the end of every `App::tick`, even on empty frames.

@@ -207,6 +207,7 @@ pub struct SoftwareUploadSurface {
     render_scale: Fixed,
     presenter: Option<Presenter>,
     pending_present: bool,
+    needs_redraw: bool,
 }
 
 impl SoftwareUploadSurface {
@@ -225,6 +226,7 @@ impl SoftwareUploadSurface {
             render_scale: Fixed::ONE,
             presenter: None,
             pending_present: false,
+            needs_redraw: true,
         };
         surface.resize_storage()?;
         Ok(surface)
@@ -279,7 +281,8 @@ impl SoftwareUploadSurface {
             self.height = height;
             self.render_scale = render_scale;
             self.presenter = Some(presenter);
-            self.pending_present = true;
+            self.pending_present = false;
+            self.needs_redraw = true;
         }
         Ok(())
     }
@@ -401,6 +404,14 @@ impl MobileSurface for SoftwareUploadSurface {
             event,
             WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. }
         );
+        if !self.needs_redraw
+            && matches!(
+                event,
+                WindowEvent::RedrawRequested | WindowEvent::Occluded(false)
+            )
+        {
+            self.pending_present = true;
+        }
         let exit = self.runtime.window_event(event);
         if resized {
             self.resize_storage()?;
@@ -414,6 +425,10 @@ impl MobileSurface for SoftwareUploadSurface {
 }
 
 impl Surface for SoftwareUploadSurface {
+    fn needs_redraw(&self) -> bool {
+        self.needs_redraw
+    }
+
     fn set_text_input(&mut self, state: Option<crate::ui::text_input::TextInputState>) {
         self.runtime.set_text_input(state);
     }
@@ -454,7 +469,9 @@ impl Surface for SoftwareUploadSurface {
     }
 
     fn end_flush(&mut self) -> Result<(), crate::render::RenderError> {
-        self.present()
+        self.present()?;
+        self.needs_redraw = false;
+        Ok(())
     }
 
     fn abort_flush(&mut self) {

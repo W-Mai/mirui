@@ -250,6 +250,7 @@ pub(crate) struct WgpuRuntime {
     text_input: NativeTextInput,
     reconfigure_before_acquire: bool,
     frame_texture: Option<wgpu::SurfaceTexture>,
+    needs_redraw: bool,
 }
 
 impl WgpuRuntime {
@@ -354,6 +355,7 @@ impl WgpuRuntime {
             text_input: NativeTextInput::default(),
             reconfigure_before_acquire: false,
             frame_texture: None,
+            needs_redraw: true,
         }
     }
 
@@ -367,6 +369,7 @@ impl WgpuRuntime {
         };
         self.context = Some(state.context.clone());
         self.state = Some(state);
+        self.needs_redraw = true;
     }
 
     pub(crate) fn suspend(&mut self) {
@@ -471,6 +474,7 @@ impl WgpuRuntime {
             .take()
             .ok_or(crate::render::RenderError::SurfaceUnavailable)?;
         frame.present();
+        self.needs_redraw = false;
         Ok(())
     }
 
@@ -490,6 +494,10 @@ impl WgpuRuntime {
             self.flush_pointer_move();
         }
         match event {
+            WindowEvent::RedrawRequested => {
+                self.needs_redraw = true;
+                false
+            }
             WindowEvent::Focused(focused) => {
                 if !focused {
                     self.modifiers = None;
@@ -500,6 +508,9 @@ impl WgpuRuntime {
                 false
             }
             WindowEvent::Occluded(occluded) => {
+                if !occluded {
+                    self.needs_redraw = true;
+                }
                 if occluded {
                     self.native_touches.clear();
                 }
@@ -512,6 +523,7 @@ impl WgpuRuntime {
                 true
             }
             WindowEvent::Resized(new_size) => {
+                self.needs_redraw = true;
                 if let Some(state) = self.state.as_mut() {
                     state.config.width = new_size.width.max(1);
                     state.config.height = new_size.height.max(1);
@@ -522,6 +534,7 @@ impl WgpuRuntime {
                 false
             }
             WindowEvent::ScaleFactorChanged { .. } => {
+                self.needs_redraw = true;
                 if let Some(state) = self.state.as_mut() {
                     let new_size = mobile_window_drawable_size(&state.window);
                     state.config.width = new_size.width.max(1);
@@ -855,6 +868,9 @@ impl WgpuTarget for WgpuSurface {
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl Surface for WgpuSurface {
+    fn needs_redraw(&self) -> bool {
+        self.handler.runtime.needs_redraw
+    }
     fn display_info(&self) -> DisplayInfo {
         let state = self
             .handler
@@ -1166,6 +1182,9 @@ impl MobileSurface for MobileWgpuSurface {
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 impl Surface for MobileWgpuSurface {
+    fn needs_redraw(&self) -> bool {
+        self.runtime.needs_redraw
+    }
     fn begin_flush(&mut self) -> Result<(), crate::render::RenderError> {
         self.runtime.begin_frame()
     }
@@ -1388,26 +1407,26 @@ where
         let Some(app) = self.app.as_mut() else {
             return;
         };
-        if matches!(event, WindowEvent::RedrawRequested) {
+        let redraw = matches!(event, WindowEvent::RedrawRequested);
+        match app.backend.handle_window_event(event) {
+            Ok(MobileEventFlow::Continue) => {}
+            Ok(MobileEventFlow::Exit) => {
+                event_loop.exit();
+                return;
+            }
+            Err(error) => {
+                crate::warn!("mobile surface event failed: {:?}", error);
+                event_loop.exit();
+                return;
+            }
+        }
+        if redraw {
             if app.is_suspended() {
                 return;
             }
             if app.tick() {
                 event_loop.exit();
                 return;
-            }
-        } else {
-            match app.backend.handle_window_event(event) {
-                Ok(MobileEventFlow::Continue) => {}
-                Ok(MobileEventFlow::Exit) => {
-                    event_loop.exit();
-                    return;
-                }
-                Err(error) => {
-                    crate::warn!("mobile surface event failed: {:?}", error);
-                    event_loop.exit();
-                    return;
-                }
             }
         }
         if let Some(window) = self.window.as_ref() {
@@ -1436,6 +1455,23 @@ fn window_event_is_current<T: Eq>(active: Option<&T>, incoming: &T) -> bool {
 mod tests {
     use super::*;
     use crate::{app::App, ecs::Entity, input::event::focus::FocusState, ui::widgets::TextInput};
+
+    #[test]
+    fn platform_redraw_and_restore_remain_pending_until_acceptance() {
+        let mut runtime = WgpuRuntime::new();
+        for event in [WindowEvent::RedrawRequested, WindowEvent::Occluded(false)] {
+            runtime.needs_redraw = false;
+            assert!(!runtime.window_event(event));
+            assert!(runtime.needs_redraw);
+            runtime.finish_input_batch();
+            assert!(runtime.needs_redraw);
+            assert_eq!(
+                runtime.begin_frame(),
+                Err(crate::render::RenderError::SurfaceUnavailable)
+            );
+            assert!(runtime.needs_redraw);
+        }
+    }
 
     type TestApp =
         App<crate::surface::framebuf::FramebufSurface<fn(&[u8], crate::types::PhysicalRect)>>;

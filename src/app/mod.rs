@@ -1341,7 +1341,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         )
         .map_err(|_| crate::render::RenderError::TextLayout)?;
         if self.needs_full_redraw
-            || self.backend.persistence() == crate::surface::BackbufferPersistence::Transient
+            || self.backend.needs_redraw()
+            || (!self.dirty_plan.is_empty()
+                && self.backend.persistence() == crate::surface::BackbufferPersistence::Transient)
         {
             self.dirty_plan.clear();
             let (width, height) = transform.logical_size();
@@ -1381,8 +1383,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         }
     }
 
-    /// Systems + render + poll until quit. Persistent backends take the
-    /// `render_dirty` fast path; Transient backends render every frame.
+    /// Run input, systems, and demand-driven drawing until quit. Transient backends redraw the full frame whenever drawing is needed.
     pub fn run(&mut self) {
         self.ensure_started();
         if let Err(error) = self.render() {
@@ -1530,9 +1531,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         }
         self.flush_event_notifications();
 
-        let transient =
-            self.backend.persistence() == crate::surface::BackbufferPersistence::Transient;
-
         let input_end = self.clock_ns();
 
         {
@@ -1550,18 +1548,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             input_end,
             systems_end,
         });
-        if transient {
-            if let Err(error) = self.render()
-                && error != crate::render::RenderError::SurfaceUnavailable
-            {
-                crate::warn!("frame render failed: {:?}", error);
-            }
-        } else {
-            if let Err(error) = self.render_dirty()
-                && error != crate::render::RenderError::SurfaceUnavailable
-            {
-                crate::warn!("dirty frame render failed: {:?}", error);
-            }
+        if let Err(error) = self.render_dirty()
+            && error != crate::render::RenderError::SurfaceUnavailable
+        {
+            crate::warn!("dirty frame render failed: {:?}", error);
         }
         self.flush_event_notifications();
         if let Err(error) = self.backend.frame_end()
@@ -1652,7 +1642,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             return Err(crate::render::RenderError::TextLayout);
         }
         if self.needs_full_redraw
-            || self.backend.persistence() == crate::surface::BackbufferPersistence::Transient
+            || self.backend.needs_redraw()
+            || (!plan.is_empty()
+                && self.backend.persistence() == crate::surface::BackbufferPersistence::Transient)
         {
             plan.clear();
             let (lw, lh) = transform.logical_size();
@@ -2730,7 +2722,9 @@ mod app_invariant_tests {
         app.render().unwrap();
         let painted = app.backend.pixels[0];
         for frame in 1..=3 {
+            assert!(app.dirty_regions().unwrap().is_empty());
             app.backend.pixels[app.backend.active].fill(0);
+            app.world.invalidate_visual(root);
             for _ in 0..3 {
                 let plan = app.dirty_regions().unwrap();
                 assert_eq!(plan.rects, [Rect::new(0, 0, 48, 32)]);
