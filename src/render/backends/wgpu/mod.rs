@@ -4367,13 +4367,11 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         Ok(())
     }
 
-    fn flush(&mut self) {
-        if self.frame.is_none() {
-            return;
+    fn flush(&mut self) -> Result<(), RenderError> {
+        if self.draw_failed {
+            return Err(RenderError::BackendFailure);
         }
-        if self.flush_ops_to_swapchain(true).is_err() {
-            self.draw_failed = true;
-        }
+        self.flush_ops_to_swapchain(true)
     }
 
     fn supports_offscreen(&self) -> bool {
@@ -4546,7 +4544,7 @@ impl<B: WgpuTarget> Renderer for WgpuRenderer<'_, B> {
         WgpuRenderer::submit_with_route(self, request, route)
     }
 
-    fn flush(&mut self) {
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
         WgpuRenderer::flush(self)
     }
 
@@ -4588,16 +4586,6 @@ impl<B: WgpuTarget> Renderer for WgpuRenderer<'_, B> {
         f: &mut dyn FnMut(&mut Texture) -> Result<(), RenderError>,
     ) -> Result<bool, RenderError> {
         WgpuRenderer::modify_target_region(self, src, f)
-    }
-}
-
-impl<B: WgpuTarget> Drop for WgpuRenderer<'_, B> {
-    // App drops the renderer without explicitly calling flush; submit
-    // + present here so the frame reaches the screen.
-    fn drop(&mut self) {
-        if self.frame.is_some() {
-            Renderer::flush(self);
-        }
     }
 }
 
@@ -4707,7 +4695,7 @@ impl<B: WgpuTarget> Canvas for WgpuRenderer<'_, B> {
         });
     }
 
-    fn flush(&mut self) {
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
         Renderer::flush(self)
     }
 }

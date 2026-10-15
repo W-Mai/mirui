@@ -49,7 +49,9 @@ impl Renderer for Sink {
         Ok(())
     }
 
-    fn flush(&mut self) {}
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        Ok(())
+    }
 }
 
 fn paint(world: &World, entity: Entity, name: &str) {

@@ -449,7 +449,9 @@ mod tests {
             Ok(())
         }
 
-        fn flush(&mut self) {}
+        fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+            Ok(())
+        }
     }
 
     fn input_fixture(
@@ -755,7 +757,9 @@ mod tests {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         for stage in 0..3 {
@@ -873,7 +877,9 @@ mod tests {
                 self.0 += 1;
                 Ok(())
             }
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
         let mut world = World::new();
         world.insert_resource(Theme::default());
@@ -1001,7 +1007,9 @@ mod tests {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         for (text, placeholder, caret_x) in [

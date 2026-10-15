@@ -577,7 +577,9 @@ impl<'a> Canvas for SwRenderer<'a> {
         });
     }
 
-    fn flush(&mut self) {}
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        Ok(())
+    }
 }
 
 impl SwRenderer<'_> {
@@ -1556,8 +1558,8 @@ impl SwRenderer<'_> {
         Ok(())
     }
 
-    fn flush(&mut self) {
-        Canvas::flush(self);
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        Canvas::flush(self)
     }
 
     fn supports_offscreen(&self) -> bool {
@@ -1724,7 +1726,7 @@ impl Renderer for SwRenderer<'_> {
         SwRenderer::submit(self, request)
     }
 
-    fn flush(&mut self) {
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
         SwRenderer::flush(self)
     }
 

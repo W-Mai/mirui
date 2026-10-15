@@ -196,8 +196,8 @@ impl Renderer for ProjectiveRenderer<'_> {
         )
     }
 
-    fn flush(&mut self) {
-        self.inner.flush();
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        self.inner.flush()
     }
 
     fn output_scale(&self) -> Fixed {
@@ -1943,7 +1943,9 @@ mod projective_transform_tests {
             Ok(())
         }
 
-        fn flush(&mut self) {}
+        fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+            Ok(())
+        }
     }
 
     impl Renderer for ProjectiveLeafCapture {
@@ -1963,7 +1965,9 @@ mod projective_transform_tests {
             Ok(())
         }
 
-        fn flush(&mut self) {}
+        fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+            Ok(())
+        }
     }
 
     #[test]
@@ -2061,7 +2065,9 @@ mod projective_transform_tests {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let identity = crate::render::TextRunIdentity {
@@ -2348,7 +2354,7 @@ fn prepare_offscreen(
                 Ok(())
             },
         )?;
-        Canvas::flush(&mut inner);
+        Canvas::flush(&mut inner)?;
     }
 
     let changed = requests.has_change_requests() && write.differs_from_previous();
@@ -3853,7 +3859,9 @@ mod layout_snapshot_reuse_check {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let mut app = crate::app::App::headless(64, 64);
@@ -4765,7 +4773,9 @@ mod text_layout_check {
                 self.submit(request)
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let mut app = crate::app::App::headless(64, 64);
@@ -4857,7 +4867,9 @@ mod text_layout_check {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let mut app = crate::app::App::headless(64, 64);
@@ -4926,7 +4938,9 @@ mod text_layout_check {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let mut app = crate::app::App::headless(64, 64);
@@ -5707,7 +5721,9 @@ mod text_layout_check {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let mut app = crate::app::App::headless(96, 96);
@@ -5957,7 +5973,9 @@ mod text_layout_check {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let mut app = crate::app::App::headless(96, 96);
@@ -7039,7 +7057,9 @@ mod offscreen_render_check {
                 panic!("source preparation must not write to the parent target");
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
 
             fn offscreen_format(&self) -> Option<ColorFormat> {
                 Some(ColorFormat::RGBA8888)
@@ -7112,7 +7132,9 @@ mod offscreen_render_check {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
 
             fn supports_offscreen(&self) -> bool {
                 true
@@ -9817,7 +9839,9 @@ mod scroll_plan_check {
                 self.0.push(core::mem::discriminant(static_cmd));
                 Ok(())
             }
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let styled = |w, h| Style {

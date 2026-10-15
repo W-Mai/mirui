@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- `Renderer::flush` and `Canvas::flush` return `Result<(), RenderError>`. Drawing submission is explicit; dropping a WGPU renderer no longer submits or presents a frame.
+
 ### Added
 
 - `App::snapshot()` captures a complete rendered frame through the active renderer's readback interface, preserving pixel format and stride without adding an offscreen widget or a capture queue.

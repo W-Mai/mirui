@@ -127,7 +127,9 @@ impl Renderer for FillColors {
         Ok(())
     }
 
-    fn flush(&mut self) {}
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        Ok(())
+    }
 }
 
 fn rendered_fills_and_hit(world: &mut World, root: Entity) -> (Vec<Color>, Option<Entity>) {

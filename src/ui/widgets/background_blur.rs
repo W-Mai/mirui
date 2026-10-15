@@ -85,7 +85,9 @@ mod tests {
             panic!("readback preparation failure must stop the draw")
         }
 
-        fn flush(&mut self) {}
+        fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+            Ok(())
+        }
 
         fn prepare_readback(&mut self, _: &Rect) -> Result<(), RenderError> {
             Err(RenderError::BackendFailure)
@@ -172,7 +174,9 @@ mod tests {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let descriptor = view();

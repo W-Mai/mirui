@@ -467,10 +467,16 @@ fn color_page(event: event!(CreatePage<Route>)) -> Entity {
         Color::rgb(0, 0, 255)
     };
     ui! {
-        View(grow: 1.0, bg_color: color) {
+        View (grow: 1.0, bg_color: color) {
             if *event.route() != Route::Home {
-                View(position: crate::ui::layout::Position::Absolute, left: 4, top: 4,
-                    width: 20, height: 20, bg_color: Color::rgb(0, 255, 0))
+                View (
+                    position: crate::ui::layout::Position::Absolute,
+                    left: 4,
+                    top: 4,
+                    width: 20,
+                    height: 20,
+                    bg_color: Color::rgb(0, 255, 0)
+                )
             }
         }
     }
@@ -479,8 +485,7 @@ fn color_page(event: event!(CreatePage<Route>)) -> Entity {
 #[crate::compose]
 fn color_panel(selection: model!(SelectionModel), transition: PageTransition) -> Entity {
     ui! {
-        PageView(page: ${ selection.selected() }, width: 80, height: 60, transition: transition)
-        on CreatePage(color_page::callback())
+        PageView (page: ${ selection.selected() }, width: 80, height: 60, transition: transition) on CreatePage(color_page::callback())
     }
 }
 
@@ -627,8 +632,8 @@ fn a_renderer_without_offscreen_support_draws_the_destination_inline() {
             ) -> Result<(), crate::render::RenderError> {
                 self.0.submit(request)
             }
-            fn flush(&mut self) {
-                self.0.flush();
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                self.0.flush()
             }
         }
         let (mut app, container, selection) = colors(80 * 60 * 8, PageTransition::fade(config));

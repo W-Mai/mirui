@@ -356,7 +356,9 @@ fn caret_overlay_places_source_local_segments_in_the_current_paint_space() {
             Ok(())
         }
 
-        fn flush(&mut self) {}
+        fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+            Ok(())
+        }
     }
 
     let mut world = fixture();

@@ -149,8 +149,10 @@ fn gen_forwarder(method: &str, params_src: &str, target: &Ident) -> TokenStream 
     };
 
     if params_src.is_empty() {
+        let output =
+            (method == "flush").then(|| quote! { -> Result<(), ::mirui::render::RenderError> });
         quote! {
-            fn #method_ident(&mut self) {
+            fn #method_ident(&mut self) #output {
                 ::mirui::render::canvas::Canvas::#method_ident(&mut self.#target)
             }
         }
@@ -464,8 +466,8 @@ impl ComposeInput {
                     }
                 }
 
-                fn flush(&mut self) {
-                    ::mirui::render::renderer::Renderer::flush(&mut self.#default_field);
+                fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                    ::mirui::render::renderer::Renderer::flush(&mut self.#default_field)
                 }
 
                 fn output_scale(&self) -> ::mirui::types::Fixed {

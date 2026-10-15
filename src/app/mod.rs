@@ -1182,7 +1182,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             } else {
                 render_system::render(&self.world, root, &transform, &mut renderer)
             };
-            result.map(|()| finish(&mut renderer, &transform))
+            result.and_then(|()| {
+                let output = finish(&mut renderer, &transform);
+                Renderer::flush(&mut renderer)?;
+                Ok(output)
+            })
         };
         let frame_output = match render_result {
             Ok(output) => output,
@@ -1719,6 +1723,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                     Ok(())
                 };
                 result?;
+                Renderer::flush(&mut renderer)?;
                 requests.commit();
                 Ok(())
             })();

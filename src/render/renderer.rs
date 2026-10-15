@@ -382,8 +382,8 @@ impl Renderer for RegionRenderer<'_> {
         self.inner.submit_with_route(&self.request(request), route)
     }
 
-    fn flush(&mut self) {
-        self.inner.flush();
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        self.inner.flush()
     }
 
     fn output_scale(&self) -> Fixed {
@@ -604,7 +604,8 @@ pub trait Renderer {
         self.submit(request)
     }
 
-    fn flush(&mut self);
+    /// Submit pending drawing work and report any submission failure. Dropping a renderer does not submit its pending work.
+    fn flush(&mut self) -> Result<(), RenderError>;
 
     fn output_scale(&self) -> Fixed {
         Fixed::ONE
@@ -889,7 +890,9 @@ mod tests {
                 self.route(request).map(|_| ())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let mut renderer = NoScroll;
@@ -908,7 +911,9 @@ mod tests {
                 self.route(request).map(|_| ())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let mut renderer = NoTargetEdit;
@@ -1023,7 +1028,9 @@ mod tests {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let identity = TextRunIdentity {
@@ -1082,7 +1089,9 @@ mod tests {
         fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
             self.route(request).map(|_| ())
         }
-        fn flush(&mut self) {}
+        fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+            Ok(())
+        }
     }
 
     #[test]
@@ -1130,7 +1139,9 @@ mod tests {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let clip = Rect::new(0, 0, 1, 1);

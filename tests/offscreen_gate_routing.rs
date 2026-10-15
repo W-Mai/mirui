@@ -39,7 +39,9 @@ impl Renderer for MockOuter {
         }
         Ok(())
     }
-    fn flush(&mut self) {}
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        Ok(())
+    }
     fn supports_offscreen(&self) -> bool {
         self.supports_offscreen
     }

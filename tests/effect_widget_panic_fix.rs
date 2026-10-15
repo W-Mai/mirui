@@ -19,7 +19,9 @@ impl Renderer for GracefulSkipRenderer {
         self.draws += 1;
         Ok(())
     }
-    fn flush(&mut self) {}
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        Ok(())
+    }
     fn sample_target_region(&self, _src: &Rect) -> Result<Option<Texture<'static>>, RenderError> {
         Ok(None)
     }
@@ -79,7 +81,9 @@ fn background_blur_reports_unsupported_readback() {
             Ok(())
         }
 
-        fn flush(&mut self) {}
+        fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+            Ok(())
+        }
     }
 
     let mut app = mirui::app::App::headless(64, 64);

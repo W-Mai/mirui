@@ -1365,7 +1365,9 @@ mod tests {
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
             }
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
         let mut world = World::new();
         world.insert_resource(crate::ui::Theme::default());
@@ -1533,7 +1535,9 @@ mod tests {
                 self.calls += 1;
                 Ok(())
             }
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let mut world = World::new();
@@ -2159,7 +2163,9 @@ mod tests {
                 self.0 += 1;
                 Ok(())
             }
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         fn check<T: crate::ecs::Component>(
@@ -3069,7 +3075,9 @@ mod tests {
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
             }
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let mut app = crate::app::App::headless(32, 32);
@@ -3110,7 +3118,9 @@ mod tests {
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
             }
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let mut app = crate::app::App::headless(32, 32);
@@ -3158,7 +3168,9 @@ mod tests {
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
             }
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let mut app = crate::app::App::headless(32, 32);
@@ -3307,7 +3319,9 @@ mod tests {
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
             }
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let mut app = crate::app::App::headless(32, 32);
@@ -3403,7 +3417,9 @@ mod tests {
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
             }
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         fn flip_bg_when_styled(world: &World, entity: Entity, ctx: &mut PaintCtx<'_>) {
@@ -3470,7 +3486,9 @@ mod tests {
                 }
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let style = Style::default();
@@ -3519,7 +3537,9 @@ mod tests {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let style = Style::default();
@@ -3568,7 +3588,9 @@ mod tests {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
 
             fn prepare_readback(&mut self, _: &Rect) -> Result<(), RenderError> {
                 match self.outcome {
@@ -3645,7 +3667,9 @@ mod tests {
                 Err(RenderError::TextLayout)
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let style = Style::default();
@@ -3694,7 +3718,9 @@ mod tests {
                 self.route(request).map(|_| ())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let style = Style::default();
@@ -3749,7 +3775,9 @@ mod tests {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let style = Style::default();

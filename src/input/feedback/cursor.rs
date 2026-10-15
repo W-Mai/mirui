@@ -235,7 +235,9 @@ mod tests {
                 Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let mut world = World::new();

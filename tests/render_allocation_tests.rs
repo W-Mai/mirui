@@ -71,7 +71,7 @@ fn render_frame<F: FnMut(&[u8], PhysicalRect)>(
         255,
     );
     renderer.pop_clip();
-    renderer.flush();
+    renderer.flush().unwrap();
 }
 
 #[test]

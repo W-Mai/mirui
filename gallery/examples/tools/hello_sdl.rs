@@ -118,7 +118,7 @@ fn main() {
         &clip,
     );
 
-    renderer.flush();
+    renderer.flush().expect("submit drawing");
 
     // Blit to SDL
     texture.update(None, &buf, (W * 4) as usize).unwrap();

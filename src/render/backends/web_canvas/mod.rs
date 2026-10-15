@@ -535,7 +535,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
         WebCanvasRenderer::submit_with_route(self, request, route)
     }
 
-    fn flush(&mut self) {
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
         WebCanvasRenderer::flush(self)
     }
 
@@ -1573,7 +1573,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         self.known_transform = previous_transform;
     }
 
-    fn flush(&mut self) {
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
         Canvas::flush(self)
     }
 }
@@ -2087,7 +2087,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
         self.ctx().restore();
     }
 
-    fn flush(&mut self) {}
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        if self.draw_failed {
+            return Err(RenderError::BackendFailure);
+        }
+        Ok(())
+    }
 }
 
 fn css_color(c: &Color) -> String {

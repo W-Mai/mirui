@@ -297,7 +297,9 @@ impl Renderer for ScopeProbe<'_> {
         Err(RenderError::BackendFailure)
     }
 
-    fn flush(&mut self) {}
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        Ok(())
+    }
 
     fn output_scale(&self) -> Fixed {
         self.renderer.output_scale()
@@ -1777,7 +1779,9 @@ mod tests {
             Ok(())
         }
 
-        fn flush(&mut self) {}
+        fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+            Ok(())
+        }
 
         fn output_scale(&self) -> Fixed {
             self.target.output_scale()
@@ -1923,7 +1927,9 @@ mod tests {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let ops = [SceneOp::FillRect {
@@ -2241,7 +2247,9 @@ mod tests {
                 )
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let ops = [
@@ -2308,7 +2316,9 @@ mod tests {
                 )
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let ops = [
@@ -2380,7 +2390,9 @@ mod tests {
                 )
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let ops = [
@@ -2496,7 +2508,9 @@ mod tests {
             }
             Ok(())
         }
-        fn flush(&mut self) {}
+        fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+            Ok(())
+        }
     }
 
     #[derive(Default)]
@@ -2517,7 +2531,9 @@ mod tests {
             Ok(())
         }
 
-        fn flush(&mut self) {}
+        fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+            Ok(())
+        }
     }
 
     struct FillOnlyProjectiveRenderer {
@@ -2550,7 +2566,9 @@ mod tests {
             Ok(())
         }
 
-        fn flush(&mut self) {}
+        fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+            Ok(())
+        }
     }
 
     struct NoResolver;
@@ -2803,7 +2821,9 @@ mod tests {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         let ops = [
@@ -2840,7 +2860,9 @@ mod tests {
                 Err(RenderError::ResourceLimit(RenderResource::Uniforms))
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         assert_eq!(
@@ -3024,7 +3046,9 @@ mod tests {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         struct FontResolver(Font);
@@ -3086,7 +3110,9 @@ mod tests {
                 Ok(())
             }
 
-            fn flush(&mut self) {}
+            fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+                Ok(())
+            }
         }
 
         struct FontResolver(Font);

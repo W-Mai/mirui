@@ -61,7 +61,8 @@ pub trait Canvas {
         color: &Color,
         opa: u8,
     );
-    fn flush(&mut self);
+    /// Submit pending drawing work, propagating backend failures to the caller.
+    fn flush(&mut self) -> Result<(), crate::render::RenderError>;
 
     fn push_clip(&mut self, _path: &Path, _transform: &Transform, _fill_rule: FillRule) {}
 

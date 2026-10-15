@@ -21,6 +21,7 @@ struct Counts {
     draw_glyph_run: Cell<u32>,
     draw_posed_glyph_run: Cell<u32>,
     flush: Cell<u32>,
+    flush_error: Cell<Option<RenderError>>,
     fill_rect: Cell<u32>,
     stroke_rect: Cell<u32>,
     draw_line: Cell<u32>,
@@ -109,8 +110,9 @@ impl Canvas for Dummy {
             .draw_posed_glyph_run
             .set(self.counts.draw_posed_glyph_run.get() + 1);
     }
-    fn flush(&mut self) {
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
         self.counts.flush.set(self.counts.flush.get() + 1);
+        self.counts.flush_error.get().map_or(Ok(()), Err)
     }
     // Override default impls so the counter actually gets hit without going
     // through fill_path / stroke_path.
@@ -198,8 +200,8 @@ impl Renderer for Dummy {
         Ok(())
     }
 
-    fn flush(&mut self) {
-        Canvas::flush(self);
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        Canvas::flush(self)
     }
 }
 
@@ -254,6 +256,25 @@ compose_backend! {
 
 fn fresh_hybrid() -> Hybrid<Dummy, CountingEngine> {
     Hybrid::new(Dummy::new(), CountingEngine::default())
+}
+
+#[test]
+fn composed_canvas_and_renderer_propagate_target_submission_errors() {
+    let mut hybrid = fresh_hybrid();
+    hybrid
+        .sw
+        .counts
+        .flush_error
+        .set(Some(RenderError::BackendFailure));
+    assert_eq!(Canvas::flush(&mut hybrid), Err(RenderError::BackendFailure));
+    assert_eq!(
+        Renderer::flush(&mut hybrid),
+        Err(RenderError::BackendFailure)
+    );
+    assert_eq!(hybrid.sw.counts.flush.get(), 2);
+    hybrid.sw.counts.flush_error.set(None);
+    Renderer::flush(&mut hybrid).unwrap();
+    assert_eq!(hybrid.sw.counts.flush.get(), 3);
 }
 
 #[test]
@@ -383,7 +404,7 @@ fn default_methods_route_to_sw() {
         &color,
         255,
     );
-    Canvas::flush(&mut h);
+    Canvas::flush(&mut h).unwrap();
 
     assert_eq!(h.sw.counts.fill_path.get(), 1);
     assert_eq!(h.sw.counts.stroke_path.get(), 1);
@@ -525,7 +546,9 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
         _: u8,
     ) {
     }
-    fn flush(&mut self) {}
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        Ok(())
+    }
 }
 
 impl Renderer for BorrowedDummy<'_> {
@@ -549,8 +572,8 @@ impl Renderer for BorrowedDummy<'_> {
         Ok(())
     }
 
-    fn flush(&mut self) {
-        Canvas::flush(self);
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        Canvas::flush(self)
     }
 }
 
@@ -611,7 +634,9 @@ impl Canvas for PlainDummy {
         _: u8,
     ) {
     }
-    fn flush(&mut self) {}
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        Ok(())
+    }
 }
 
 impl<'a> RenderEngine<BorrowedDummy<'a>> for PlainDummy {

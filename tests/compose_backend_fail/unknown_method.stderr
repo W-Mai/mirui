@@ -1,5 +1,5 @@
 error: unknown render route `fil_path` — did you mean `fill_path`?
-  --> tests/compose_backend_fail/unknown_method.rs:26:9
+  --> tests/compose_backend_fail/unknown_method.rs:28:9
    |
-26 |         fil_path => sw,
+28 |         fil_path => sw,
    |         ^^^^^^^^

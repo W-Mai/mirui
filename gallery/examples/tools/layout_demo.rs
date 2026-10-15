@@ -152,7 +152,7 @@ fn main() {
         .unwrap();
 
     draw_node(&mut renderer, &root, &clip, 0);
-    renderer.flush();
+    renderer.flush().expect("submit drawing");
 
     // SDL window
     let sdl = sdl2::init().unwrap();

@@ -48,7 +48,9 @@ impl Renderer for FillColors {
         Ok(())
     }
 
-    fn flush(&mut self) {}
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        Ok(())
+    }
 }
 
 fn visible_children(world: &World, parent: Entity) -> Vec<Entity> {

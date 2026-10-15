@@ -53,7 +53,9 @@ impl Renderer for SceneRenderer<'_> {
         }
     }
 
-    fn flush(&mut self) {}
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        Ok(())
+    }
 }
 
 impl Scene {
@@ -146,7 +148,7 @@ mod tests {
                 opa: 200,
             };
             r.submit(&DrawRequest::new(&fill, *clip)).unwrap();
-            r.flush();
+            r.flush().unwrap();
         }
 
         let mut scene = Scene::new();

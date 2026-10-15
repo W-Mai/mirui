@@ -1152,7 +1152,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         }
     }
 
-    fn flush(&mut self) {}
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        if self.draw_failed {
+            return Err(RenderError::BackendFailure);
+        }
+        Ok(())
+    }
 
     fn supports_offscreen(&self) -> bool {
         true
@@ -1269,7 +1274,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
         SdlGpuRenderer::submit_with_route(self, request, route)
     }
 
-    fn flush(&mut self) {
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
         SdlGpuRenderer::flush(self)
     }
 
@@ -1495,5 +1500,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for SdlGpuRenderer<'_, S> {
         });
     }
 
-    fn flush(&mut self) {}
+    fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        SdlGpuRenderer::flush(self)
+    }
 }

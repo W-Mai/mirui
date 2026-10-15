@@ -177,3 +177,182 @@ fn hidden_root_snapshot_contains_the_same_clear_as_render() {
         app.backend.framebuffer().buf.as_slice()
     );
 }
+
+struct SubmissionFactory {
+    trace: Trace,
+    fail: Rc<Cell<bool>>,
+}
+
+struct SubmissionRenderer {
+    trace: Trace,
+    fail: Rc<Cell<bool>>,
+}
+
+impl RendererFactory<TestSurface> for SubmissionFactory {
+    type Renderer<'a> = SubmissionRenderer;
+
+    fn make<'a>(
+        &'a mut self,
+        _: &'a mut TestSurface,
+        _: &crate::types::Viewport,
+    ) -> Self::Renderer<'a> {
+        SubmissionRenderer {
+            trace: self.trace.clone(),
+            fail: self.fail.clone(),
+        }
+    }
+}
+
+impl Renderer for SubmissionRenderer {
+    fn route(
+        &self,
+        _: &crate::render::DrawRequest<'_, '_>,
+    ) -> Result<crate::render::RenderRoute, RenderError> {
+        Ok(crate::render::RenderRoute::Native)
+    }
+
+    fn submit(&mut self, _: &crate::render::DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        Ok(())
+    }
+
+    fn flush(&mut self) -> Result<(), RenderError> {
+        self.trace.borrow_mut().push("submit");
+        if self.fail.get() {
+            Err(RenderError::BackendFailure)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl crate::render::canvas::Canvas for SubmissionRenderer {
+    fn fill_path(
+        &mut self,
+        _: &crate::render::path::Path,
+        _: &Rect,
+        _: &crate::render::canvas::Paint,
+        _: u8,
+        _: crate::render::raster::FillRule,
+    ) {
+    }
+
+    fn stroke_path(
+        &mut self,
+        _: &crate::render::path::Path,
+        _: &Rect,
+        _: Fixed,
+        _: &crate::render::canvas::Paint,
+        _: u8,
+        _: crate::render::raster::LineCap,
+        _: crate::render::raster::LineJoin,
+        _: Fixed,
+        _: &[Fixed],
+    ) {
+    }
+
+    fn draw_glyph_run(
+        &mut self,
+        _: &crate::types::Point,
+        _: &[textflow::shaping::PositionedGlyph],
+        _: &crate::render::font::Font,
+        _: &Rect,
+        _: &Color,
+        _: u8,
+    ) {
+    }
+
+    fn draw_posed_glyph_run(
+        &mut self,
+        _: &crate::types::Point,
+        _: crate::render::PosedGlyphs<'_>,
+        _: &crate::render::font::Font,
+        _: &Rect,
+        _: &Color,
+        _: u8,
+    ) {
+    }
+
+    fn blit(
+        &mut self,
+        _: &crate::render::texture::Texture<'_>,
+        _: &Rect,
+        _: crate::types::Point,
+        _: crate::types::Point,
+        _: &Rect,
+        _: u8,
+        _: Fixed,
+        _: crate::render::command::CompositeMode,
+    ) {
+    }
+
+    fn clear(&mut self, _: &Rect, _: &Color) {}
+
+    fn flush(&mut self) -> Result<(), RenderError> {
+        Renderer::flush(self)
+    }
+}
+
+#[test]
+fn frame_submission_failure_never_presents_or_accepts_full_dirty_or_snapshot_frames() {
+    let trace = Trace::default();
+    let fail = Rc::new(Cell::new(false));
+    let output = trace.clone();
+    let flush: Flush = Box::new(move |_, _| output.borrow_mut().push("present"));
+    let mut app = App::with_factory(
+        FramebufSurface::new(24, 18, flush),
+        SubmissionFactory {
+            trace: trace.clone(),
+            fail: fail.clone(),
+        },
+    );
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    app.render().unwrap();
+    assert_eq!(&*trace.borrow(), &["submit", "present"]);
+
+    for mode in 0..3 {
+        trace.borrow_mut().clear();
+        fail.set(true);
+        app.world
+            .get_mut::<Style>(root)
+            .unwrap()
+            .set_bg_color(Color::rgb(80, mode, 0));
+        let result = match mode {
+            0 => app.render(),
+            1 => app.render_dirty(),
+            _ => app
+                .render_frame(|_, _| {
+                    trace.borrow_mut().push("read");
+                    Ok(())
+                })
+                .map(|_| ()),
+        };
+        assert_eq!(result, Err(RenderError::BackendFailure));
+        assert!(app.needs_full_redraw);
+        assert_eq!(
+            trace
+                .borrow()
+                .iter()
+                .filter(|&&step| step == "submit")
+                .count(),
+            1
+        );
+        assert!(!trace.borrow().contains(&"present"));
+        assert_eq!(
+            app.dirty_regions().unwrap().rects,
+            [Rect::new(0, 0, 24, 18)]
+        );
+        trace.borrow_mut().clear();
+        fail.set(false);
+        app.render_dirty().unwrap();
+        assert_eq!(&*trace.borrow(), &["submit", "present"]);
+        assert!(!app.needs_full_redraw);
+        assert!(app.dirty_regions().unwrap().is_empty());
+    }
+
+    trace.borrow_mut().clear();
+    app.with_widget(failing_paint::view());
+    app.world.insert(root, FailingPaint);
+    assert_eq!(app.render(), Err(RenderError::BackendFailure));
+    assert!(trace.borrow().is_empty());
+}

@@ -165,7 +165,9 @@ mod paint_contract_tests {
             assert_eq!(request.projective, crate::types::Transform3D::IDENTITY);
             Ok(())
         }
-        fn flush(&mut self) {}
+        fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+            Ok(())
+        }
     }
 
     fn assert_resource_contract(render: crate::ui::view::ViewRender) {
