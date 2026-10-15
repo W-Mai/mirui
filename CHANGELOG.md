@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Performance
 
 - MIRX font rendering reuses the selected representation's validated atlas map instead of reopening and scanning it for each glyph.
+- SDL renderers enable command batching by default, including explicit OpenGL driver selection. Explicit SDL hint or environment settings retain priority.
 
 ## [0.49.1] - 2026-10-15
 

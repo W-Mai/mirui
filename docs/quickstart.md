@@ -47,6 +47,8 @@ apt-get install libsdl2-dev   # Debian / Ubuntu
 
 On macOS, use sdl2-compat with SDL 3.4.14 or newer for high-resolution trackpad scrolling. Mirui enables native momentum on this runtime; the original SDL2 runtime does not support that setting. The Rust `sdl2` crate version is independent of the native library version. After upgrading the native libraries, restart the application.
 
+Both SDL backends enable renderer command batching by default. An explicit `SDL_RENDER_BATCHING` environment variable or SDL hint overrides this default. Readback synchronizes queued rendering; exclude snapshots from normal frame-time measurements.
+
 Create a fresh project:
 
 ```bash

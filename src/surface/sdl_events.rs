@@ -89,6 +89,7 @@ pub(crate) fn keyboard_input(event: &Event) -> Option<InputEvent> {
 }
 
 pub(crate) fn init() -> Result<sdl2::Sdl, String> {
+    sdl2::hint::set_with_priority("SDL_RENDER_BATCHING", "1", &sdl2::hint::Hint::Default);
     #[cfg(target_os = "macos")]
     sdl2::hint::set("SDL_MAC_SCROLL_MOMENTUM", "1");
     sdl2::init()
