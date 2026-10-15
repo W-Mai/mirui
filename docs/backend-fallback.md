@@ -87,6 +87,12 @@ not inspect or carry this storage.
 
 `FrameRateCapPlugin` limits logical ticks after platform maintenance, including idle ticks and failed drawing attempts. It requires `MonoClock`; without the plugin or clock there is no implicit frame cap. Mobile hosts use its deadline for event-loop waits and run systems independently of window redraw requests. A platform redraw does not advance systems a second time. Web uses browser animation frames for scheduling.
 
+SDL and WGPU device, presentation, multisampling, and upload-cache options are described in the [quick start](quickstart.md#desktop-sdl). Software-upload hosts configure raster resolution through `SoftwareUploadConfig::render_scale` and bound CPU pixel storage with `framebuffer_budget_bytes`. These are separate from GPU presentation latency and upload caches.
+
+Linux DRM uses `LinuxDrmConfig::mode` to select a connector mode and `buffer_count` to allocate scanout buffers; the default is 2 buffers. A single buffer writes into the scanned framebuffer and can tear. Additional buffers consume pixel storage and do not raise the panel refresh rate. Gallery exposes the existing configuration through `MIRUI_DRM_MODE=640x480` and `MIRUI_DRM_BUFFERS=2`. Framebuffer and embedded surfaces retain their platform transfer and synchronization behavior; a logical tick cap does not change a display bus clock.
+
+Compare processing times using the same scene, physical dimensions, build profile, presentation settings, and cache warm-up. Report average and tail frame times separately from presentation cadence. Readback, tracing, and synchronous logging add work to the measured path; exclude diagnostic captures when measuring ordinary interaction.
+
 An `App` draw or submission failure leaves the last accepted widget bounds unchanged and requires a full redraw before framebuffer scroll transfers resume. Layout or surface acquisition failures before drawing preserve the existing framebuffer. Full and partial frames both use `RendererFactory::mirror_buffers` to synchronize writable rotating buffers after `Surface::end_flush` succeeds.
 
 `Renderer::flush()` explicitly submits pending drawing and returns `Result<(), RenderError>`. `Canvas::flush()` carries the same error contract through canvas adapters and composed backends. App calls it after drawing and any frame readback, before flushing the surface. A submission failure is returned without accepting the frame baseline. Dropping a renderer releases resources without submitting pending work.
