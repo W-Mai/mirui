@@ -9,11 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- WGPU surface constructors return initialization errors; render pipelines use the configured attachment sample count instead of a global constant.
 - Surface frame hooks return `Result<(), RenderError>`; `begin_flush` runs before drawing and `abort_flush` releases unfinished frames. Buffer mirroring uses `RendererFactory::mirror_buffers`; surface presentation owns buffer rotation.
 - `Renderer::flush` and `Canvas::flush` return `Result<(), RenderError>`. Drawing submission is explicit; dropping a WGPU renderer no longer submits or presents a frame.
 
 ### Added
 
+- `WgpuConfig` selects presentation mode, power preference, frame latency, and MSAA for desktop and mobile surfaces. Software-upload hosts expose device and presentation settings through their GPU configuration.
 - `App::snapshot()` captures a complete rendered frame through the active renderer's readback interface, preserving pixel format and stride without adding an offscreen widget or a capture queue.
 - `SdlGpuConfig` selects accelerated drivers, GL multisampling, vsync, resizable windows, or desktop fullscreen. SDL GPU construction returns errors for unsupported requests and reports the selected renderer.
 

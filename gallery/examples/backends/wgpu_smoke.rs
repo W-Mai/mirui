@@ -10,7 +10,8 @@ use mirui::ui::widgets::assets::IMG_THUMBS_UP;
 use mirui::ui::widgets::{Button, Image, Text};
 
 fn main() {
-    let backend = WgpuSurface::new("mirui wgpu smoke", 480, 320);
+    let backend =
+        WgpuSurface::new("mirui wgpu smoke", 480, 320).expect("WGPU surface initialization");
     let factory = WgpuRendererFactory::new();
     let mut app = App::with_factory(backend, factory);
     app.with_default_widgets().with_default_systems();

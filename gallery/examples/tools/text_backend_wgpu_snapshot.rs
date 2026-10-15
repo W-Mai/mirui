@@ -16,7 +16,8 @@ fn main() {
         .nth(1)
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(".local/screenshots/text-parity-wgpu.png"));
-    let backend = WgpuSurface::new("mirui text parity", WIDTH, HEIGHT);
+    let backend =
+        WgpuSurface::new("mirui text parity", WIDTH, HEIGHT).expect("WGPU surface initialization");
     let mut app = App::with_factory(backend, WgpuRendererFactory::new());
     build(&mut app);
     let mut texture = None;

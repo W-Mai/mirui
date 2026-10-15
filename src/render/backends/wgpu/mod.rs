@@ -32,7 +32,8 @@ use self::texture_pool::{
 };
 use crate::render::backends::tessellation::{FillTessellator, StrokeTessellator};
 
-pub use self::pipeline::MSAA_SAMPLES;
+#[cfg(test)]
+const TEST_SAMPLES: u32 = 4;
 
 fn paint_color(paint: &Paint) -> Color {
     match paint {
@@ -305,6 +306,7 @@ fn glyph_uniform(color: Color, opacity: u8, spread: u16, transform: Transform3D)
 }
 
 pub struct WgpuRendererFactory {
+    device: Option<wgpu::Device>,
     target_edit_budget_bytes: Option<usize>,
     cache: Option<PipelineCache>,
     tessellator: FillTessellator,
@@ -324,6 +326,7 @@ pub struct WgpuRendererFactory {
 impl WgpuRendererFactory {
     pub fn new() -> Self {
         Self {
+            device: None,
             target_edit_budget_bytes: None,
             cache: None,
             tessellator: FillTessellator::new(),
@@ -369,6 +372,14 @@ impl<B: WgpuTarget> RendererFactory<B> for WgpuRendererFactory {
         B: 'a;
 
     fn make<'a>(&'a mut self, backend: &'a mut B, transform: &Viewport) -> WgpuRenderer<'a, B> {
+        let device = &backend
+            .state()
+            .expect("WgpuSurface must be initialised before make()")
+            .device;
+        if self.device.as_ref() != Some(device) {
+            <Self as RendererFactory<B>>::trim_memory(self);
+            self.device = Some(device.clone());
+        }
         self.glyph_buffers.reset();
         if self.cache.is_none() || self.linear_sampler.is_none() || self.nearest_sampler.is_none() {
             let state = backend
@@ -405,6 +416,7 @@ impl<B: WgpuTarget> RendererFactory<B> for WgpuRendererFactory {
     }
 
     fn trim_memory(&mut self) {
+        self.device = None;
         self.cache = None;
         self.tessellator = FillTessellator::new();
         self.stroke_tessellator = StrokeTessellator::new();
@@ -1188,6 +1200,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             PipelineKey {
                 shader: ShaderKind::Fill,
                 format: state.config.format,
+                samples: state.samples(),
                 composite: CompositeMode::SourceOver,
             },
         );
@@ -1369,6 +1382,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             PipelineKey {
                 shader,
                 format: state.config.format,
+                samples: state.samples(),
                 composite,
             },
         );
@@ -1761,6 +1775,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             PipelineKey {
                 shader: ShaderKind::Path,
                 format: state.config.format,
+                samples: state.samples(),
                 composite: CompositeMode::SourceOver,
             },
         );
@@ -1932,6 +1947,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             PipelineKey {
                 shader: ShaderKind::QuadSdf,
                 format: state.config.format,
+                samples: state.samples(),
                 composite: CompositeMode::SourceOver,
             },
         );
@@ -2073,6 +2089,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             PipelineKey {
                 shader: ShaderKind::BlitQuad,
                 format: state.config.format,
+                samples: state.samples(),
                 composite,
             },
         );
@@ -2423,6 +2440,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             PipelineKey {
                 shader: batch.key.shader,
                 format: state.config.format,
+                samples: state.samples(),
                 composite: CompositeMode::SourceOver,
             },
         );
@@ -2521,7 +2539,7 @@ mod route_tests {
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
-            sample_count: MSAA_SAMPLES,
+            sample_count: TEST_SAMPLES,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -2602,6 +2620,7 @@ mod route_tests {
             PipelineKey {
                 shader: ShaderKind::Path,
                 format: wgpu::TextureFormat::Rgba8Unorm,
+                samples: TEST_SAMPLES,
                 composite: CompositeMode::SourceOver,
             },
         );
@@ -3064,7 +3083,7 @@ mod blit_tests {
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
-            sample_count: MSAA_SAMPLES,
+            sample_count: TEST_SAMPLES,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -3119,6 +3138,7 @@ mod blit_tests {
             PipelineKey {
                 shader: ShaderKind::Blit,
                 format: wgpu::TextureFormat::Rgba8Unorm,
+                samples: TEST_SAMPLES,
                 composite: CompositeMode::SourceOver,
             },
         );
@@ -3172,6 +3192,7 @@ mod blit_tests {
             PipelineKey {
                 shader: ShaderKind::BlitReplace,
                 format: wgpu::TextureFormat::Rgba8Unorm,
+                samples: TEST_SAMPLES,
                 composite: CompositeMode::SourceOver,
             },
         );
@@ -3273,6 +3294,7 @@ mod blit_tests {
             PipelineKey {
                 shader: ShaderKind::BlitQuad,
                 format: wgpu::TextureFormat::Rgba8Unorm,
+                samples: TEST_SAMPLES,
                 composite: CompositeMode::SourceOver,
             },
         );
@@ -3418,7 +3440,7 @@ mod glyph_tests {
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
-            sample_count: MSAA_SAMPLES,
+            sample_count: TEST_SAMPLES,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -3495,6 +3517,7 @@ mod glyph_tests {
             PipelineKey {
                 shader,
                 format: wgpu::TextureFormat::Rgba8Unorm,
+                samples: TEST_SAMPLES,
                 composite: CompositeMode::SourceOver,
             },
         );
@@ -3591,7 +3614,7 @@ mod glyph_tests {
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
-            sample_count: MSAA_SAMPLES,
+            sample_count: TEST_SAMPLES,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -3666,6 +3689,7 @@ mod glyph_tests {
             PipelineKey {
                 shader: ShaderKind::QuadSdf,
                 format: wgpu::TextureFormat::Rgba8Unorm,
+                samples: TEST_SAMPLES,
                 composite: CompositeMode::SourceOver,
             },
         );

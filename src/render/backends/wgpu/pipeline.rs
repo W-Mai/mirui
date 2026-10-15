@@ -1,5 +1,5 @@
 //! Render pipelines and bind-group layouts. One pipeline per
-//! `(shader_kind, surface_format)` pair, lazily built and cached.
+//! shader, format, sample count, and compositing configuration, lazily built and cached.
 
 #![allow(dead_code)]
 
@@ -23,6 +23,7 @@ pub enum ShaderKind {
 pub struct PipelineKey {
     pub shader: ShaderKind,
     pub format: wgpu::TextureFormat,
+    pub samples: u32,
     /// Only meaningful for `ShaderKind::Blit` / `BlitQuad`; other shader
     /// kinds always fold `CompositeMode::SourceOver` in so they share a
     /// single pipeline regardless of what the caller passes.
@@ -447,7 +448,7 @@ fn build_pipeline(
         },
         depth_stencil: None,
         multisample: wgpu::MultisampleState {
-            count: MSAA_SAMPLES,
+            count: key.samples,
             mask: !0,
             alpha_to_coverage_enabled: false,
         },
@@ -455,14 +456,6 @@ fn build_pipeline(
         cache: None,
     })
 }
-
-/// Mobile targets avoid the extra full-resolution multisample attachment;
-/// desktop keeps 4× coverage for transformed geometry.
-pub const MSAA_SAMPLES: u32 = if cfg!(any(target_os = "android", target_os = "ios")) {
-    1
-} else {
-    4
-};
 
 /// Pick a `BlendState` for a given shader + composite mode. Blit-family
 /// shaders honour every supported mode; everything else stays on

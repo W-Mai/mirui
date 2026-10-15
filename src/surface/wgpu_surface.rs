@@ -2,7 +2,8 @@
 
 use alloc::collections::VecDeque;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-use alloc::string::{String, ToString};
+use alloc::string::String;
+use alloc::string::ToString;
 use core::ops::Deref;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 use core::time::Duration;
@@ -27,6 +28,8 @@ use crate::types::Fixed;
 
 mod text_input;
 use text_input::NativeTextInput;
+mod config;
+pub use config::{PowerPreference, PresentMode, WgpuConfig, WgpuSurfaceError};
 
 const MAX_NATIVE_TOUCHES: usize = 16;
 
@@ -214,6 +217,13 @@ impl Deref for WgpuState {
     }
 }
 
+impl WgpuState {
+    /// Actual color attachment sample count shared with render pipelines.
+    pub fn samples(&self) -> u32 {
+        self.msaa.as_ref().map_or(1, wgpu::Texture::sample_count)
+    }
+}
+
 /// Surface capability required by the WGPU renderer.
 ///
 /// Event-loop ownership is intentionally outside this trait so desktop and
@@ -232,9 +242,11 @@ struct WgpuHandler {
     title: String,
     requested_size: (u32, u32),
     runtime: WgpuRuntime,
+    error: Option<WgpuSurfaceError>,
 }
 
 pub(crate) struct WgpuRuntime {
+    config: WgpuConfig,
     context: Option<Arc<WgpuDeviceContext>>,
     pub(crate) state: Option<WgpuState>,
     event_queue: VecDeque<InputEvent>,
@@ -343,8 +355,9 @@ impl WgpuRuntime {
         false
     }
 
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(config: WgpuConfig) -> Self {
         Self {
+            config,
             context: None,
             state: None,
             event_queue: VecDeque::new(),
@@ -359,17 +372,18 @@ impl WgpuRuntime {
         }
     }
 
-    pub(crate) fn resume(&mut self, window: Arc<Window>) {
+    pub(crate) fn resume(&mut self, window: Arc<Window>) -> Result<(), WgpuSurfaceError> {
         if self.state.is_some() {
-            return;
+            return Ok(());
         }
         let state = match self.context.as_ref() {
-            Some(context) => create_wgpu_state_with_context(context.clone(), window),
-            None => create_wgpu_state(window),
-        };
+            Some(context) => create_wgpu_state_with_context(context.clone(), window, self.config),
+            None => create_wgpu_state(window, self.config),
+        }?;
         self.context = Some(state.context.clone());
         self.state = Some(state);
         self.needs_redraw = true;
+        Ok(())
     }
 
     pub(crate) fn suspend(&mut self) {
@@ -391,21 +405,22 @@ impl WgpuRuntime {
         state.config.width = size.width.max(1);
         state.config.height = size.height.max(1);
         state.surface.configure(&state.device, &state.config);
-        state.msaa = create_msaa(&state.device, &state.config);
+        state.msaa = create_msaa(&state.device, &state.config, self.config.samples);
         self.reconfigure_before_acquire = false;
         true
     }
 
-    fn recreate_surface(&mut self) -> bool {
-        let Some(previous) = self.state.take() else {
-            return false;
+    fn recreate_surface(&mut self) -> Result<(), crate::render::RenderError> {
+        let Some(previous) = self.state.as_ref() else {
+            return Err(crate::render::RenderError::SurfaceUnavailable);
         };
         let context = previous.context.clone();
         let window = previous.window.clone();
-        drop(previous);
-        self.state = Some(create_wgpu_state_with_context(context, window));
+        let state = create_wgpu_state_with_context(context, window, self.config)
+            .map_err(|_| crate::render::RenderError::BackendFailure)?;
+        self.state = Some(state);
         self.reconfigure_before_acquire = false;
-        true
+        Ok(())
     }
 
     pub(crate) fn acquire_surface_texture(
@@ -422,7 +437,10 @@ impl WgpuRuntime {
         if size.width == 0 || size.height == 0 {
             return Err(RenderError::SurfaceUnavailable);
         }
-        if self.reconfigure_before_acquire && !self.reconfigure_surface() {
+        let size_changed = self.state.as_ref().is_some_and(|state| {
+            state.config.width != size.width || state.config.height != size.height
+        });
+        if (self.reconfigure_before_acquire || size_changed) && !self.reconfigure_surface() {
             return Err(RenderError::SurfaceUnavailable);
         }
         let mut retried = false;
@@ -450,9 +468,7 @@ impl WgpuRuntime {
                 }
                 wgpu::CurrentSurfaceTexture::Lost if !retried => {
                     retried = true;
-                    if !self.recreate_surface() {
-                        return Err(RenderError::SurfaceUnavailable);
-                    }
+                    self.recreate_surface()?;
                 }
                 wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
                     return Err(RenderError::SurfaceUnavailable);
@@ -528,7 +544,7 @@ impl WgpuRuntime {
                     state.config.width = new_size.width.max(1);
                     state.config.height = new_size.height.max(1);
                     state.surface.configure(&state.device, &state.config);
-                    state.msaa = create_msaa(&state.device, &state.config);
+                    state.msaa = create_msaa(&state.device, &state.config, self.config.samples);
                 }
                 self.reconfigure_before_acquire = false;
                 false
@@ -540,7 +556,7 @@ impl WgpuRuntime {
                     state.config.width = new_size.width.max(1);
                     state.config.height = new_size.height.max(1);
                     state.surface.configure(&state.device, &state.config);
-                    state.msaa = create_msaa(&state.device, &state.config);
+                    state.msaa = create_msaa(&state.device, &state.config, self.config.samples);
                 }
                 self.reconfigure_before_acquire = false;
                 false
@@ -654,13 +670,14 @@ impl ApplicationHandler for WgpuHandler {
                 self.requested_size.0,
                 self.requested_size.1,
             ));
-        let window = Arc::new(
-            event_loop
-                .create_window(attrs)
-                .expect("winit create_window failed"),
-        );
-
-        self.runtime.resume(window);
+        let result = event_loop
+            .create_window(attrs)
+            .map_err(|error| WgpuSurfaceError::Backend(error.to_string()))
+            .and_then(|window| self.runtime.resume(Arc::new(window)));
+        if let Err(error) = result {
+            self.error = Some(error);
+            event_loop.exit();
+        }
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
@@ -679,51 +696,59 @@ impl ApplicationHandler for WgpuHandler {
     }
 }
 
-pub(crate) fn create_wgpu_state(window: Arc<Window>) -> WgpuState {
+fn create_wgpu_state(
+    window: Arc<Window>,
+    options: WgpuConfig,
+) -> Result<WgpuState, WgpuSurfaceError> {
+    options.validate()?;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let surface = instance
         .create_surface(window.clone())
-        .expect("wgpu create_surface failed");
+        .map_err(|error| WgpuSurfaceError::Backend(error.to_string()))?;
     let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-        power_preference: wgpu::PowerPreference::default(),
+        power_preference: options.power_preference,
         compatible_surface: Some(&surface),
         force_fallback_adapter: false,
     }))
-    .expect("wgpu request_adapter failed");
+    .map_err(|error| WgpuSurfaceError::Backend(error.to_string()))?;
     let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
         label: Some("mirui-wgpu-device"),
-        required_features: wgpu::Features::empty(),
+        required_features: adapter.features()
+            & wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
         required_limits: wgpu::Limits::downlevel_defaults().using_resolution(adapter.limits()),
         memory_hints: wgpu::MemoryHints::Performance,
         trace: wgpu::Trace::Off,
         ..Default::default()
     }))
-    .expect("wgpu request_device failed");
+    .map_err(|error| WgpuSurfaceError::Backend(error.to_string()))?;
     let context = Arc::new(WgpuDeviceContext {
         instance,
         adapter,
         device,
         queue,
     });
-    configure_wgpu_state(context, window, surface)
+    configure_wgpu_state(context, window, surface, options)
 }
 
 fn create_wgpu_state_with_context(
     context: Arc<WgpuDeviceContext>,
     window: Arc<Window>,
-) -> WgpuState {
+    options: WgpuConfig,
+) -> Result<WgpuState, WgpuSurfaceError> {
     let surface = context
         .instance
         .create_surface(window.clone())
-        .expect("wgpu create_surface failed");
-    configure_wgpu_state(context, window, surface)
+        .map_err(|error| WgpuSurfaceError::Backend(error.to_string()))?;
+    configure_wgpu_state(context, window, surface, options)
 }
 
 fn configure_wgpu_state(
     context: Arc<WgpuDeviceContext>,
     window: Arc<Window>,
     surface: wgpu::Surface<'static>,
-) -> WgpuState {
+    options: WgpuConfig,
+) -> Result<WgpuState, WgpuSurfaceError> {
+    options.validate()?;
     let size = mobile_window_drawable_size(&window);
     let surface_caps = surface.get_capabilities(&context.adapter);
     let surface_format = surface_caps
@@ -731,40 +756,55 @@ fn configure_wgpu_state(
         .iter()
         .copied()
         .find(|format| !format.is_srgb())
-        .unwrap_or(surface_caps.formats[0]);
+        .or_else(|| surface_caps.formats.first().copied())
+        .ok_or(WgpuSurfaceError::UnsupportedSurface)?;
+    let usage = wgpu::TextureUsages::RENDER_ATTACHMENT
+        | wgpu::TextureUsages::COPY_SRC
+        | wgpu::TextureUsages::COPY_DST;
+    if !surface_caps.usages.contains(usage) {
+        return Err(WgpuSurfaceError::UnsupportedSurface);
+    }
+    let format_features = if context
+        .device
+        .features()
+        .contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES)
+    {
+        context.adapter.get_texture_format_features(surface_format)
+    } else {
+        surface_format.guaranteed_format_features(context.device.features())
+    };
+    if !format_features
+        .flags
+        .sample_count_supported(options.samples)
+        || (options.samples > 1
+            && !format_features
+                .flags
+                .contains(wgpu::TextureFormatFeatureFlags::MULTISAMPLE_RESOLVE))
+    {
+        return Err(WgpuSurfaceError::UnsupportedSamples(options.samples));
+    }
     let config = wgpu::SurfaceConfiguration {
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-            | wgpu::TextureUsages::COPY_SRC
-            | wgpu::TextureUsages::COPY_DST,
+        usage,
         format: surface_format,
         width: size.width.max(1),
         height: size.height.max(1),
-        present_mode: if surface_caps
-            .present_modes
-            .contains(&wgpu::PresentMode::Mailbox)
-        {
-            wgpu::PresentMode::Mailbox
-        } else if surface_caps
-            .present_modes
-            .contains(&wgpu::PresentMode::Immediate)
-        {
-            wgpu::PresentMode::Immediate
-        } else {
-            wgpu::PresentMode::Fifo
-        },
-        alpha_mode: surface_caps.alpha_modes[0],
+        present_mode: options.select_present_mode(&surface_caps.present_modes)?,
+        alpha_mode: *surface_caps
+            .alpha_modes
+            .first()
+            .ok_or(WgpuSurfaceError::UnsupportedSurface)?,
         view_formats: alloc::vec![],
-        desired_maximum_frame_latency: 2,
+        desired_maximum_frame_latency: options.maximum_frame_latency,
     };
     surface.configure(&context.device, &config);
-    let msaa = create_msaa(&context.device, &config);
-    WgpuState {
+    let msaa = create_msaa(&context.device, &config, options.samples);
+    Ok(WgpuState {
         context,
         window,
         surface,
         config,
         msaa,
-    }
+    })
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -781,8 +821,7 @@ pub struct WgpuSurface {
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 impl WgpuSurface {
-    /// `None` only between `WgpuSurface::new` constructing the struct
-    /// and `resumed` populating the wgpu device.
+    /// Current device and window state, absent while the surface is suspended.
     pub fn state(&self) -> Option<&WgpuState> {
         self.handler.runtime.state.as_ref()
     }
@@ -793,8 +832,19 @@ impl WgpuSurface {
 
     /// Open a window of the given logical size and stand up the wgpu
     /// device that backs it.
-    pub fn new(title: &str, width: u16, height: u16) -> Self {
-        let event_loop = EventLoop::new().expect("winit EventLoop::new failed");
+    pub fn new(title: &str, width: u16, height: u16) -> Result<Self, WgpuSurfaceError> {
+        Self::with_config(title, width, height, WgpuConfig::default())
+    }
+
+    pub fn with_config(
+        title: &str,
+        width: u16,
+        height: u16,
+        config: WgpuConfig,
+    ) -> Result<Self, WgpuSurfaceError> {
+        config.validate()?;
+        let event_loop =
+            EventLoop::new().map_err(|error| WgpuSurfaceError::Backend(error.to_string()))?;
         event_loop.set_control_flow(ControlFlow::Poll);
 
         let mut this = Self {
@@ -802,22 +852,27 @@ impl WgpuSurface {
             handler: WgpuHandler {
                 title: title.to_string(),
                 requested_size: (width as u32, height as u32),
-                runtime: WgpuRuntime::new(),
+                runtime: WgpuRuntime::new(config),
+                error: None,
             },
             pumped_this_frame: false,
         };
 
         // winit creates windows from `resumed` only.
         let mut spins = 0;
-        while this.handler.runtime.state.is_none() && spins < 100 {
+        while this.handler.runtime.state.is_none() && this.handler.error.is_none() && spins < 100 {
             this.pump_once();
             spins += 1;
         }
-        if this.handler.runtime.state.is_none() {
-            panic!("WgpuSurface: winit failed to deliver resumed within {spins} pumps");
+        if let Some(error) = this.handler.error.take() {
+            return Err(error);
         }
-
-        this
+        if this.handler.runtime.state.is_none() {
+            return Err(WgpuSurfaceError::Backend(
+                "winit did not initialize the surface".into(),
+            ));
+        }
+        Ok(this)
     }
 
     fn pump_once(&mut self) -> winit::platform::pump_events::PumpStatus {
@@ -829,8 +884,9 @@ impl WgpuSurface {
 fn create_msaa(
     device: &wgpu::Device,
     config: &wgpu::SurfaceConfiguration,
+    samples: u32,
 ) -> Option<wgpu::Texture> {
-    (crate::render::wgpu::MSAA_SAMPLES > 1).then(|| {
+    (samples > 1).then(|| {
         device.create_texture(&wgpu::TextureDescriptor {
             label: Some("mirui-wgpu-msaa"),
             size: wgpu::Extent3d {
@@ -839,7 +895,7 @@ fn create_msaa(
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
-            sample_count: crate::render::wgpu::MSAA_SAMPLES,
+            sample_count: samples,
             dimension: wgpu::TextureDimension::D2,
             format: config.format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -980,12 +1036,19 @@ pub enum MobileEventFlow {
     Exit,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum MobileSurfaceError {
     Allocation,
     BufferSizeOverflow,
     InvalidRenderScale,
     FramebufferBudget { required: usize, budget: usize },
+    Gpu(WgpuSurfaceError),
+}
+
+impl From<WgpuSurfaceError> for MobileSurfaceError {
+    fn from(error: WgpuSurfaceError) -> Self {
+        Self::Gpu(error)
+    }
 }
 
 /// Resolution policy for the software framebuffer uploaded to a mobile WGPU surface.
@@ -1128,10 +1191,17 @@ pub struct MobileWgpuSurface {
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 impl MobileWgpuSurface {
-    pub fn new(window: Arc<Window>) -> Self {
-        let mut runtime = WgpuRuntime::new();
-        runtime.resume(window);
-        Self { runtime }
+    pub fn new(window: Arc<Window>) -> Result<Self, MobileSurfaceError> {
+        Self::with_config(window, WgpuConfig::default())
+    }
+
+    pub fn with_config(
+        window: Arc<Window>,
+        config: WgpuConfig,
+    ) -> Result<Self, MobileSurfaceError> {
+        let mut runtime = WgpuRuntime::new(config);
+        runtime.resume(window)?;
+        Ok(Self { runtime })
     }
 }
 
@@ -1160,7 +1230,7 @@ impl MobileSurface for MobileWgpuSurface {
     }
 
     fn resume_window(&mut self, window: Arc<Window>) -> Result<(), MobileSurfaceError> {
-        self.runtime.resume(window);
+        self.runtime.resume(window)?;
         Ok(())
     }
 
@@ -1268,7 +1338,7 @@ where
     F: crate::render::factory::RendererFactory<MobileWgpuSurface> + 'static,
     Build: FnOnce(MobileWgpuSurface) -> crate::app::App<MobileWgpuSurface, F> + 'static,
 {
-    MobileHost::new(title, |window| Ok(MobileWgpuSurface::new(window)), build)
+    MobileHost::new(title, MobileWgpuSurface::new, build)
 }
 
 /// Owns a mirui app inside the platform event loop.
@@ -1480,7 +1550,7 @@ mod tests {
 
     #[test]
     fn platform_redraw_and_restore_remain_pending_until_acceptance() {
-        let mut runtime = WgpuRuntime::new();
+        let mut runtime = WgpuRuntime::new(WgpuConfig::default());
         for event in [WindowEvent::RedrawRequested, WindowEvent::Occluded(false)] {
             runtime.needs_redraw = false;
             assert!(!runtime.window_event(event));
@@ -1510,7 +1580,7 @@ mod tests {
         let root = app.spawn_root().id();
         let editor = app.compose(root, editor());
         app.world.resource_mut::<FocusState>().unwrap().focused = Some(editor);
-        let mut runtime = WgpuRuntime::new();
+        let mut runtime = WgpuRuntime::new(WgpuConfig::default());
         runtime.set_text_input(crate::ui::text_input::native_state(&mut app.world, 0));
         (app, editor, runtime)
     }
@@ -1530,7 +1600,7 @@ mod tests {
 
     #[test]
     fn host_state_preserves_input_order_without_requesting_suspend() {
-        let mut runtime = WgpuRuntime::new();
+        let mut runtime = WgpuRuntime::new(WgpuConfig::default());
         runtime.pending_move = Some((Fixed::ONE, Fixed::ZERO));
         for event in [
             WindowEvent::Focused(false),
@@ -1565,7 +1635,7 @@ mod tests {
 
     #[test]
     fn pointer_moves_only_coalesce_between_ordered_input_boundaries() {
-        let mut runtime = WgpuRuntime::new();
+        let mut runtime = WgpuRuntime::new(WgpuConfig::default());
         let device_id = winit::event::DeviceId::dummy();
         let moved = |x| WindowEvent::CursorMoved {
             device_id,
@@ -1606,7 +1676,7 @@ mod tests {
 
     #[test]
     fn polling_retains_trailing_moves_and_reuses_queue_storage() {
-        let mut runtime = WgpuRuntime::new();
+        let mut runtime = WgpuRuntime::new(WgpuConfig::default());
         runtime.event_queue.reserve(2);
         let allocations = crate::test_support::tracked_allocations(|| {
             for x in 0..8 {
@@ -1631,7 +1701,7 @@ mod tests {
 
     #[test]
     fn cursor_boundaries_preserve_position_and_native_input_order() {
-        let mut runtime = WgpuRuntime::new();
+        let mut runtime = WgpuRuntime::new(WgpuConfig::default());
         let device_id = winit::event::DeviceId::dummy();
         runtime.event_queue.reserve(4);
         assert_eq!(
@@ -1683,7 +1753,7 @@ mod tests {
             KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RETURN, KEY_RIGHT,
         };
 
-        let mut runtime = WgpuRuntime::new();
+        let mut runtime = WgpuRuntime::new(WgpuConfig::default());
         for (key, expected) in [
             (NamedKey::Backspace, KEY_BACKSPACE),
             (NamedKey::Delete, KEY_DELETE),
@@ -1728,7 +1798,7 @@ mod tests {
     fn keyboard_metadata_is_captured_in_event_order_and_cleared_on_focus_loss() {
         use crate::input::event::input::KeyModifiers;
         use winit::keyboard::ModifiersState;
-        let mut runtime = WgpuRuntime::new();
+        let mut runtime = WgpuRuntime::new(WgpuConfig::default());
         let key = Key::Named(NamedKey::ArrowLeft);
         runtime.keyboard_input(&key, ElementState::Pressed, None, false);
         runtime.window_event(WindowEvent::ModifiersChanged(
@@ -1769,7 +1839,7 @@ mod tests {
 
     #[test]
     fn suspend_discards_input_bound_to_the_old_native_window() {
-        let mut runtime = WgpuRuntime::new();
+        let mut runtime = WgpuRuntime::new(WgpuConfig::default());
         runtime.event_queue.push_back(InputEvent::PointerDown {
             kind: crate::input::event::input::PointerKind::Mouse,
             id: 0,
@@ -1835,7 +1905,7 @@ mod tests {
 
     #[test]
     fn native_touch_and_mouse_slots_stay_distinct_until_host_cancellation() {
-        let mut runtime = WgpuRuntime::new();
+        let mut runtime = WgpuRuntime::new(WgpuConfig::default());
         let device_id = winit::event::DeviceId::dummy();
         let touch = |phase| {
             WindowEvent::Touch(winit::event::Touch {
@@ -1929,7 +1999,7 @@ mod tests {
     #[test]
     fn selection_shortcuts_do_not_duplicate_reported_keyboard_text() {
         use crate::input::event::input::{KEY_A, KEY_C, KEY_V, KEY_X, KeyModifiers};
-        let mut runtime = WgpuRuntime::new();
+        let mut runtime = WgpuRuntime::new(WgpuConfig::default());
         for modifiers in [
             KeyModifiers {
                 control: true,

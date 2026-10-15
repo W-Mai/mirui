@@ -349,7 +349,7 @@ mod backend {
     pub type ActiveFactory = WgpuRendererFactory;
 
     pub fn build_app(title: &str, w: u16, h: u16) -> App<ActiveSurface, ActiveFactory> {
-        let backend = WgpuSurface::new(title, w, h);
+        let backend = WgpuSurface::new(title, w, h).expect("WGPU surface initialization");
         let factory = WgpuRendererFactory::new().with_target_edit_budget(DEMO_TARGET_EDIT_BYTES);
         let mut app = App::with_factory(backend, factory);
         app.with_default_widgets().with_default_systems();

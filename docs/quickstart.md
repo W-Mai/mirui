@@ -317,6 +317,27 @@ Build it with `cargo build -p esp32s3`. Workspace membership is
 automatic — the glob picks the new directory up on the next `cargo`
 invocation.
 
+## WGPU configuration
+
+`WgpuSurface::new` and `MobileWgpuSurface::new` return initialization errors. Their `with_config` constructors accept the same device and presentation settings:
+
+```rust
+use mirui::surface::wgpu_surface::{WgpuConfig, WgpuSurface, PresentMode, PowerPreference};
+
+let surface = WgpuSurface::with_config("Demo", 640, 480, WgpuConfig {
+    present_mode: Some(PresentMode::Fifo),
+    power_preference: PowerPreference::LowPower,
+    maximum_frame_latency: 2,
+    samples: 4,
+})?;
+```
+
+The default presentation preference is Mailbox, Immediate, then Fifo; explicit modes must be supported, while `AutoVsync` and `AutoNoVsync` retain WGPU's fallback behavior. Frame latency must be nonzero and is a platform-clamped hint, not a guaranteed queue depth. MSAA defaults to 4 samples on desktop and 1 on mobile; 1 disables it, and unsupported counts return an error. Window restoration reuses the selected device and configuration. Render pipelines use the actual attachment sample count.
+
+For a configured mobile host, use `MobileHost::new(title, move |window| MobileWgpuSurface::with_config(window, config), build_app)`. The existing `wgpu_mobile_host(title, build_app)` uses defaults. `SoftwareUploadConfig::gpu` exposes the same device and presentation configuration for software-upload hosts; it requires one sample because the uploaded image has already been rasterized. Its existing `render_scale` and `framebuffer_budget_bytes` control CPU pixels independently.
+
+Presentation pacing is separate from logical updates: install `FrameRateCapPlugin` with a clock plugin to cap ticks, including idle or failed frames. Without it, native hosts remain uncapped. SDL uses `SdlGpuConfig::vsync` or `SdlSurface::new_with_vsync`; Web uses browser animation frames. Neither presentation mode nor a frame cap reduces rendering resolution. `with_texture_cache_budget` on either GPU factory limits retained image uploads, not the window target or glyph cache. Capture and readback can synchronize GPU work and should be excluded from ordinary frame-time measurements.
+
 ## Android and iOS
 
 The `android` and `ios` generator templates ask for a rendering path. `wgpu` submits mirui draw commands directly to the platform WGPU surface. `sw` retains one caller-budgeted RGBA framebuffer, rasterizes with the software backend, uploads dirty regions, and uses WGPU only for presentation. Both paths keep the `App`, ECS world, and reactive state alive across native suspend and resume while recreating the platform surface.

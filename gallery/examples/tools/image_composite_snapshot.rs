@@ -202,7 +202,8 @@ fn main() {
         }
         #[cfg(feature = "wgpu")]
         "wgpu" => {
-            let mut surface = WgpuSurface::new("mirui image composite parity", WIDTH, HEIGHT);
+            let mut surface = WgpuSurface::new("mirui image composite parity", WIDTH, HEIGHT)
+                .expect("WGPU surface initialization");
             let mut factory = WgpuRendererFactory::new().with_target_edit_budget(512 * 1024);
             let mut image = None;
             for _ in 0..16 {

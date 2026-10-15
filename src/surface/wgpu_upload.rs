@@ -8,7 +8,8 @@ use winit::window::Window;
 
 pub use super::wgpu_surface::SoftwareRenderScale;
 use super::wgpu_surface::{
-    MobileEventFlow, MobileHost, MobileSurface, MobileSurfaceError, WgpuRuntime, WgpuState,
+    MobileEventFlow, MobileHost, MobileSurface, MobileSurfaceError, WgpuConfig, WgpuRuntime,
+    WgpuState, WgpuSurfaceError,
 };
 use super::{
     BackbufferPersistence, DisplayInfo, FramebufferAccess, InputEvent, SafeAreaInsets, Surface,
@@ -59,6 +60,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SoftwareUploadConfig {
+    /// Device and presentation settings. Software uploads require `samples: 1`.
+    pub gpu: WgpuConfig,
     /// Resolution policy for the retained software framebuffer.
     pub render_scale: SoftwareRenderScale,
     /// Maximum RGBA framebuffer storage admitted by this surface.
@@ -68,6 +71,10 @@ pub struct SoftwareUploadConfig {
 impl Default for SoftwareUploadConfig {
     fn default() -> Self {
         Self {
+            gpu: WgpuConfig {
+                samples: 1,
+                ..Default::default()
+            },
             render_scale: SoftwareRenderScale::Device,
             framebuffer_budget_bytes: 32 * 1024 * 1024,
         }
@@ -215,8 +222,11 @@ impl SoftwareUploadSurface {
         window: Arc<Window>,
         config: SoftwareUploadConfig,
     ) -> Result<Self, MobileSurfaceError> {
-        let mut runtime = WgpuRuntime::new();
-        runtime.resume(window);
+        if config.gpu.samples != 1 {
+            return Err(WgpuSurfaceError::UnsupportedSamples(config.gpu.samples).into());
+        }
+        let mut runtime = WgpuRuntime::new(config.gpu);
+        runtime.resume(window)?;
         let mut surface = Self {
             runtime,
             config,
@@ -385,7 +395,7 @@ impl MobileSurface for SoftwareUploadSurface {
     }
 
     fn resume_window(&mut self, window: Arc<Window>) -> Result<(), MobileSurfaceError> {
-        self.runtime.resume(window);
+        self.runtime.resume(window)?;
         self.presenter = None;
         self.resize_storage()
     }
