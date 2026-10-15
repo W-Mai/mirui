@@ -81,8 +81,9 @@ impl<F: FnMut(&[u8], PhysicalRect)> Surface for FramebufSurface<F> {
         (self.width as u32, self.height as u32)
     }
 
-    fn flush(&mut self, area: PhysicalRect) {
+    fn flush(&mut self, area: PhysicalRect) -> Result<(), crate::render::RenderError> {
         (self.flush_cb)(&self.buf, area);
+        Ok(())
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {

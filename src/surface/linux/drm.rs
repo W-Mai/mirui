@@ -11,12 +11,11 @@ use drm::Device;
 use drm::buffer::{Buffer, DrmFourcc};
 use drm::control::Device as ControlDevice;
 use drm::control::{ClipRect, Mode, connector, crtc, framebuffer};
-use drm_ffi::drm_sys::drm_vblank_seq_type::_DRM_VBLANK_RELATIVE;
-use drm_ffi::wait_vblank;
 
 use super::input::{EvdevInput, detect_keyboard_device, detect_pointer_device};
 use crate::core::cache::InspectCaches;
 use crate::input::event::input::InputEvent;
+use crate::render::RenderError;
 use crate::render::texture::{ColorFormat, Texture};
 use crate::surface::scale::{ScaleMode, compute_scale};
 use crate::surface::{BackbufferPersistence, DisplayInfo, FramebufferAccess, Surface};
@@ -72,25 +71,7 @@ pub struct LinuxDrmSurface {
     format: ColorFormat,
     scale: Fixed,
     buffers: alloc::vec::Vec<DrmBuffer>,
-    /// Index of the current active slot in `buffers`. mirui paints
-    /// here; `advance()` rotates it forward and re-points scanout.
-    front_idx: usize,
-    /// Set by `advance()` after a successful `page_flip`; cleared by
-    /// `frame_end()` once the page-flip event has been drained from
-    /// the drm fd. mirui's tick discipline guarantees at most one
-    /// flip in flight (advance can only run after the prior
-    /// frame_end). The async commit path replaces set_crtc's
-    /// implicit sync with an explicit "wait for vblank ack" so host
-    /// scanout has actually swapped before mirui starts touching the
-    /// (now-)inactive slot.
-    flip_pending: bool,
-    /// Probed at `open()` by issuing one page_flip and draining the
-    /// resulting event. Real hardware (vc4 / iMX / mali / amdgpu)
-    /// and modern paravirtual drivers (virtio_gpu / vmwgfx) all
-    /// support legacy page_flip; older simpledrm-style drivers
-    /// don't, in which case advance falls back to set_crtc and
-    /// frame_end falls back to wait_vblank — same behaviour as
-    /// before this spec.
+    rotation: crate::surface::buffer_rotation::BufferRotation,
     page_flip_supported: bool,
     inputs: alloc::vec::Vec<EvdevInput>,
     queue: VecDeque<InputEvent>,
@@ -239,36 +220,6 @@ impl LinuxDrmSurface {
         let (mm_w, mm_h) = connector_info.size().unwrap_or((0, 0));
         let scale = compute_scale(scale_mode, mode_w, mode_h, mm_w, mm_h);
 
-        // Probe page_flip via flip-to-self; broken drivers return -EINVAL/-ENOSYS.
-        let page_flip_supported = if buffers.len() > 1 {
-            match card.page_flip(
-                crtc_handle,
-                buffers[0].fb_id,
-                drm::control::PageFlipFlags::EVENT,
-                None,
-            ) {
-                Ok(()) => {
-                    // POLLIN gate: drivers that ack page_flip but drop the event
-                    // would otherwise hang `receive_events` here.
-                    let mut pfd = libc::pollfd {
-                        fd: card.as_fd().as_raw_fd(),
-                        events: libc::POLLIN,
-                        revents: 0,
-                    };
-                    let r = unsafe { libc::poll(&mut pfd, 1, 200) };
-                    if r > 0 && pfd.revents & libc::POLLIN != 0 {
-                        let _ = card.receive_events();
-                        true
-                    } else {
-                        false
-                    }
-                }
-                Err(_) => false,
-            }
-        } else {
-            false
-        };
-
         Ok(Self {
             card,
             crtc: crtc_handle,
@@ -279,13 +230,45 @@ impl LinuxDrmSurface {
             format,
             scale,
             buffers,
-            front_idx: 0,
-            flip_pending: false,
-            page_flip_supported,
+            rotation: Default::default(),
+            page_flip_supported: buffer_count > 1,
             inputs,
             queue: VecDeque::new(),
             quit_flag,
         })
+    }
+
+    fn finish_flip(&mut self, timeout_ms: i32) -> Result<(), RenderError> {
+        if !self.rotation.pending {
+            return Ok(());
+        }
+        let mut pfd = libc::pollfd {
+            fd: self.card.as_fd().as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        // SAFETY: poll receives one valid descriptor for the duration of the call.
+        let ready = unsafe { libc::poll(&mut pfd, 1, timeout_ms) };
+        if ready < 0 || pfd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+            return Err(RenderError::BackendFailure);
+        }
+        if pfd.revents & libc::POLLIN != 0 {
+            let events = self
+                .card
+                .receive_events()
+                .map_err(|_| RenderError::BackendFailure)?;
+            for event in events {
+                if matches!(event, drm::control::Event::PageFlip(ref event) if event.crtc == self.crtc)
+                {
+                    self.rotation.complete();
+                }
+            }
+        }
+        if self.rotation.pending {
+            Err(RenderError::SurfaceUnavailable)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -358,6 +341,48 @@ fn pick_crtc(
 impl InspectCaches for LinuxDrmSurface {}
 
 impl Surface for LinuxDrmSurface {
+    fn begin_flush(&mut self) -> Result<(), RenderError> {
+        self.finish_flip(0)?;
+        self.rotation.prepare(self.buffers.len())
+    }
+
+    fn end_flush(&mut self) -> Result<(), RenderError> {
+        if self.buffers.len() <= 1 {
+            return Ok(());
+        }
+        let painted = self.buffers[self.rotation.drawing].fb_id;
+        if self.page_flip_supported {
+            match self
+                .card
+                .page_flip(self.crtc, painted, drm::control::PageFlipFlags::EVENT, None)
+            {
+                Ok(()) => {
+                    self.rotation.pending = true;
+                    return self.finish_flip(100);
+                }
+                Err(error)
+                    if matches!(
+                        error.raw_os_error(),
+                        Some(libc::EINVAL | libc::ENOSYS | libc::EOPNOTSUPP)
+                    ) =>
+                {
+                    self.page_flip_supported = false;
+                }
+                Err(_) => return Err(RenderError::BackendFailure),
+            }
+        }
+        self.card
+            .set_crtc(
+                self.crtc,
+                Some(painted),
+                (0, 0),
+                &[self.connector],
+                Some(self.mode),
+            )
+            .map_err(|_| RenderError::BackendFailure)?;
+        self.rotation.complete();
+        Ok(())
+    }
     fn display_info(&self) -> DisplayInfo {
         DisplayInfo {
             width: self.width,
@@ -367,12 +392,15 @@ impl Surface for LinuxDrmSurface {
         }
     }
 
-    fn flush(&mut self, area: crate::types::PhysicalRect) {
-        // N>1: page-flip in `advance` is the sync path; skip dirty_framebuffer.
+    fn flush(
+        &mut self,
+        area: crate::types::PhysicalRect,
+    ) -> Result<(), crate::render::RenderError> {
+        // Multi-buffer presentation is performed once by end_flush.
         // N=1: dirty_framebuffer is paravirtual's only RESOURCE_FLUSH path.
         if self.buffers.len() > 1 {
             let _ = area;
-            return;
+            return Ok(());
         }
         let clip = ClipRect::new(
             area.x().min(self.width),
@@ -380,27 +408,14 @@ impl Surface for LinuxDrmSurface {
             area.right().min(self.width),
             area.bottom().min(self.height),
         );
-        let _ = self
-            .card
-            .dirty_framebuffer(self.buffers[self.front_idx].fb_id, &[clip]);
+        self.card
+            .dirty_framebuffer(self.buffers[self.rotation.drawing].fb_id, &[clip])
+            .map_err(|_| RenderError::BackendFailure)?;
+        Ok(())
     }
 
-    fn frame_end(&mut self) {
-        if self.flip_pending {
-            // POLLIN gate prevents hang if driver drops the event; 100ms cap.
-            let mut pfd = libc::pollfd {
-                fd: self.card.as_fd().as_raw_fd(),
-                events: libc::POLLIN,
-                revents: 0,
-            };
-            let _ = unsafe { libc::poll(&mut pfd, 1, 100) };
-            if pfd.revents & libc::POLLIN != 0 {
-                let _ = self.card.receive_events();
-            }
-            self.flip_pending = false;
-        } else {
-            let _ = wait_vblank(self.card.as_fd(), _DRM_VBLANK_RELATIVE, 1, 0);
-        }
+    fn frame_end(&mut self) -> Result<(), crate::render::RenderError> {
+        self.finish_flip(0)
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
@@ -428,7 +443,7 @@ impl Surface for LinuxDrmSurface {
 
 impl FramebufferAccess for LinuxDrmSurface {
     fn framebuffer(&mut self) -> Texture<'_> {
-        let buf = &self.buffers[self.front_idx];
+        let buf = &self.buffers[self.rotation.drawing];
         let stride = buf.dumb.pitch() as usize;
         // SAFETY: `mmap_ptr/len` valid until self's Drop; `&mut self` excludes aliasing.
         let slice: &mut [u8] =
@@ -445,7 +460,7 @@ impl FramebufferAccess for LinuxDrmSurface {
         let f = self.format;
         let mut out = alloc::vec::Vec::with_capacity(n);
         for i in 0..n {
-            let idx = (self.front_idx + i) % n;
+            let idx = (self.rotation.drawing + i) % n;
             let buf = &self.buffers[idx];
             let stride = buf.dumb.pitch() as usize;
             // SAFETY: N mmaps are disjoint allocations; `&mut self` excludes aliasing.
@@ -456,46 +471,6 @@ impl FramebufferAccess for LinuxDrmSurface {
             out.push(tex);
         }
         out
-    }
-
-    fn advance(&mut self) {
-        let n = self.buffers.len();
-        if n <= 1 {
-            return;
-        }
-        debug_assert!(
-            !self.flip_pending,
-            "advance called while a page-flip is still in flight; \
-             frame_end must drain the previous flip before the next \
-             advance"
-        );
-        // `front_idx` is the slot mirui *just* painted; rotate before flip.
-        let just_painted = self.buffers[self.front_idx].fb_id;
-        self.front_idx = (self.front_idx + 1) % n;
-
-        if self.page_flip_supported
-            && self
-                .card
-                .page_flip(
-                    self.crtc,
-                    just_painted,
-                    drm::control::PageFlipFlags::EVENT,
-                    None,
-                )
-                .is_ok()
-        {
-            // EBUSY / driver hiccup → fall through to sync set_crtc.
-            self.flip_pending = true;
-            return;
-        }
-        // set_crtc triggers RESOURCE_FLUSH for paravirtual drivers.
-        let _ = self.card.set_crtc(
-            self.crtc,
-            Some(just_painted),
-            (0, 0),
-            &[self.connector],
-            Some(self.mode),
-        );
     }
 }
 

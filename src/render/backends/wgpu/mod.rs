@@ -428,7 +428,7 @@ pub struct WgpuRenderer<'a, B: WgpuTarget> {
 }
 
 struct Frame {
-    surface_texture: wgpu::SurfaceTexture,
+    texture: wgpu::Texture,
     swapchain_view: wgpu::TextureView,
     msaa_view: Option<wgpu::TextureView>,
     encoder: wgpu::CommandEncoder,
@@ -798,7 +798,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         let mut pixels = wgpu_readback_rgba8(
             &state.device,
             &state.queue,
-            &frame.surface_texture.texture,
+            &frame.texture,
             state.config.format,
             u32::from(plan.x()),
             u32::from(plan.y()),
@@ -946,13 +946,12 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         Ok(RenderRoute::Native)
     }
 
-    /// `false` on swapchain Outdated/Lost/Validation; caller drops the
-    /// frame, next tick retries (Resized triggers a reconfigure).
+    /// Start recording against the drawable prepared by the surface.
     fn begin_frame(&mut self) -> bool {
         if self.frame.is_some() {
             return true;
         }
-        let Some(surface_texture) = self.surface.acquire_surface_texture() else {
+        let Some(surface_texture) = self.surface.frame_texture() else {
             return false;
         };
         let state = self
@@ -994,7 +993,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             mapped_at_creation: false,
         });
         self.frame = Some(Frame {
-            surface_texture,
+            texture: surface_texture.texture.clone(),
             swapchain_view,
             msaa_view,
             encoder,
@@ -1009,14 +1008,12 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         true
     }
 
-    /// `present=false` submits the recorded ops but keeps the swapchain
-    /// texture so a follow-up `copy_texture_to_buffer` can read this
-    /// frame's pixels mid-walk.
-    fn flush_ops_to_swapchain(&mut self, present: bool) -> Result<(), RenderError> {
+    /// Submit recorded operations without presenting the surface-owned drawable.
+    fn flush_ops_to_swapchain(&mut self) -> Result<(), RenderError> {
         let Some(frame) = self.frame.as_mut() else {
             return Ok(());
         };
-        if frame.ops.is_empty() && !present && frame.has_committed_pass {
+        if frame.ops.is_empty() && frame.has_committed_pass {
             return Ok(());
         }
         let state = self.surface.state().ok_or(RenderError::BackendFailure)?;
@@ -1101,10 +1098,6 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         frame.ops.clear();
         frame.has_committed_pass = true;
 
-        if present {
-            let frame = self.frame.take().expect("frame present taken");
-            frame.surface_texture.present();
-        }
         Ok(())
     }
 
@@ -1112,7 +1105,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     /// before their offsets are reused by a later pass.
     fn push_uniform<T: bytemuck::Pod>(&mut self, value: &T) -> Option<u32> {
         if uniform_arena_full(self.frame.as_ref()?.uniform_cursor) {
-            if !self.frame.as_ref()?.ops.is_empty() && self.flush_ops_to_swapchain(false).is_err() {
+            if !self.frame.as_ref()?.ops.is_empty() && self.flush_ops_to_swapchain().is_err() {
                 self.draw_failed = true;
                 return None;
             }
@@ -2300,7 +2293,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         }
         let glyph_count = self.factory.glyph_instances.len();
         if !self.factory.glyph_buffers.can_fit(glyph_count) {
-            if self.flush_ops_to_swapchain(false).is_err() {
+            if self.flush_ops_to_swapchain().is_err() {
                 self.factory.glyph_instances.clear();
                 self.draw_failed = true;
                 return;
@@ -4371,7 +4364,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         if self.draw_failed {
             return Err(RenderError::BackendFailure);
         }
-        self.flush_ops_to_swapchain(true)
+        self.flush_ops_to_swapchain()
     }
 
     fn supports_offscreen(&self) -> bool {
@@ -4384,7 +4377,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
 
     fn prepare_readback(&mut self, _src: &Rect) -> Result<(), RenderError> {
         if self.frame.is_some() {
-            self.flush_ops_to_swapchain(false)?;
+            self.flush_ops_to_swapchain()?;
         }
         Ok(())
     }
@@ -4404,7 +4397,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         let bytes = wgpu_readback_rgba8(
             &state.device,
             &state.queue,
-            &frame.surface_texture.texture,
+            &frame.texture,
             state.config.format,
             u32::from(phys.x()),
             u32::from(phys.y()),
@@ -4450,7 +4443,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         let bytes = wgpu_readback_rgba8(
             &state.device,
             &state.queue,
-            &frame.surface_texture.texture,
+            &frame.texture,
             state.config.format,
             u32::from(phys.x()),
             u32::from(phys.y()),

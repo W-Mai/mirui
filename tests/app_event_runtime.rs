@@ -63,8 +63,8 @@ impl Surface for QueuedSurface {
         self.safe_area
     }
 
-    fn flush(&mut self, area: PhysicalRect) {
-        self.framebuffer.flush(area);
+    fn flush(&mut self, area: PhysicalRect) -> Result<(), mirui::render::RenderError> {
+        self.framebuffer.flush(area)
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {

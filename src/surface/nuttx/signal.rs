@@ -1,6 +1,6 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use libc::{SIGINT, SIGTERM, c_int, sigaction, sigset_t};
+use libc::{SIGINT, SIGTERM, c_int, sigaction};
 
 pub(super) static QUIT_FLAG: AtomicBool = AtomicBool::new(false);
 

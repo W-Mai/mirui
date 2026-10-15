@@ -17,8 +17,8 @@ impl Surface for QueuedSurface {
     fn display_info(&self) -> DisplayInfo {
         self.pixels.display_info()
     }
-    fn flush(&mut self, area: PhysicalRect) {
-        self.pixels.flush(area);
+    fn flush(&mut self, area: PhysicalRect) -> Result<(), mirui::render::RenderError> {
+        self.pixels.flush(area)
     }
     fn poll_event(&mut self) -> Option<InputEvent> {
         self.events.pop_front()

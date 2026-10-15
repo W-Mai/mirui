@@ -31,8 +31,8 @@ impl Surface for ClipboardSurface {
         self.pixels.display_info()
     }
 
-    fn flush(&mut self, area: PhysicalRect) {
-        self.pixels.flush(area);
+    fn flush(&mut self, area: PhysicalRect) -> Result<(), mirui::render::RenderError> {
+        self.pixels.flush(area)
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {

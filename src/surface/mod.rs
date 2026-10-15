@@ -1,5 +1,7 @@
 #[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
 pub(crate) mod backbuffer_invalidation;
+#[cfg(any(test, all(feature = "linux-drm", target_os = "linux")))]
+mod buffer_rotation;
 pub mod framebuf;
 #[cfg(any(
     test,
@@ -127,15 +129,22 @@ pub trait Surface: crate::core::cache::InspectCaches {
     /// `App` is responsible for converting a logical dirty rect to physical
     /// before calling this; driver-side code treats `area` as raw device
     /// coordinates / buffer offsets.
-    fn flush(&mut self, area: PhysicalRect);
+    fn flush(&mut self, area: PhysicalRect) -> Result<(), crate::render::RenderError>;
 
-    /// Called before the frame's first `flush`. Default no-op.
-    fn begin_flush(&mut self) {}
+    /// Prepare a writable target before drawing. Failure leaves the frame unaccepted.
+    fn begin_flush(&mut self) -> Result<(), crate::render::RenderError> {
+        Ok(())
+    }
 
     /// Called after the frame's last `flush`. Backends with a swap
     /// chain (e.g. SDL `canvas.present()`) commit here so vsync waits
     /// once per frame, not once per `flush(area)`.
-    fn end_flush(&mut self) {}
+    fn end_flush(&mut self) -> Result<(), crate::render::RenderError> {
+        Ok(())
+    }
+
+    /// Release an unfinished frame without presenting it. Already written pixels are not rolled back.
+    fn abort_flush(&mut self) {}
 
     fn poll_event(&mut self) -> Option<InputEvent>;
 
@@ -186,7 +195,9 @@ pub trait Surface: crate::core::cache::InspectCaches {
     }
 
     /// Called at the end of every `App::tick`, even on empty frames.
-    fn frame_end(&mut self) {}
+    fn frame_end(&mut self) -> Result<(), crate::render::RenderError> {
+        Ok(())
+    }
 
     /// Default 1 skips dirty mirroring.
     fn buffer_count(&self) -> usize {
@@ -290,12 +301,10 @@ pub(crate) fn canvas_axis_coordinate(
 pub trait FramebufferAccess: Surface {
     fn framebuffer(&mut self) -> Texture<'_>;
 
-    /// Index 0 is active; rest are inactives in rotation order.
+    /// The completed drawing buffer comes first, followed by writable mirror targets. Called after `end_flush`; a surface must not expose a pending or scanned buffer as a mirror destination.
     fn all_buffers(&mut self) -> alloc::vec::Vec<Texture<'_>> {
         alloc::vec![self.framebuffer()]
     }
-
-    fn advance(&mut self) {}
 }
 
 #[cfg(test)]
@@ -313,7 +322,9 @@ mod tests {
                 format: crate::render::texture::ColorFormat::RGBA8888,
             }
         }
-        fn flush(&mut self, _area: PhysicalRect) {}
+        fn flush(&mut self, _area: PhysicalRect) -> Result<(), crate::render::RenderError> {
+            Ok(())
+        }
         fn poll_event(&mut self) -> Option<InputEvent> {
             None
         }
@@ -337,7 +348,9 @@ mod tests {
             (self.0.physical_width, self.0.physical_height)
         }
 
-        fn flush(&mut self, _area: PhysicalRect) {}
+        fn flush(&mut self, _area: PhysicalRect) -> Result<(), crate::render::RenderError> {
+            Ok(())
+        }
 
         fn poll_event(&mut self) -> Option<InputEvent> {
             None

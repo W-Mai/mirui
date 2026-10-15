@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- Surface frame hooks return `Result<(), RenderError>`; `begin_flush` runs before drawing and `abort_flush` releases unfinished frames. Buffer mirroring uses `RendererFactory::mirror_buffers`; surface presentation owns buffer rotation.
 - `Renderer::flush` and `Canvas::flush` return `Result<(), RenderError>`. Drawing submission is explicit; dropping a WGPU renderer no longer submits or presents a frame.
 
 ### Added

@@ -475,6 +475,8 @@ pub enum RenderError {
         capacity_bytes: usize,
     },
     ResourceLimit(RenderResource),
+    /// No drawable is currently available. A later frame may retry without losing pending changes.
+    SurfaceUnavailable,
     BackendFailure,
 }
 

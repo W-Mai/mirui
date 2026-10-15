@@ -223,13 +223,8 @@ pub trait WgpuTarget: Surface {
 
     fn state_mut(&mut self) -> Option<&mut WgpuState>;
 
-    fn acquire_surface_texture(&mut self) -> Option<wgpu::SurfaceTexture> {
-        match self.state()?.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(texture)
-            | wgpu::CurrentSurfaceTexture::Suboptimal(texture) => Some(texture),
-            _ => None,
-        }
-    }
+    /// Drawable prepared by `Surface::begin_flush` and owned until acceptance or abort.
+    fn frame_texture(&self) -> Option<&wgpu::SurfaceTexture>;
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -254,6 +249,7 @@ pub(crate) struct WgpuRuntime {
     modifiers: Option<crate::input::event::input::KeyModifiers>,
     text_input: NativeTextInput,
     reconfigure_before_acquire: bool,
+    frame_texture: Option<wgpu::SurfaceTexture>,
 }
 
 impl WgpuRuntime {
@@ -357,6 +353,7 @@ impl WgpuRuntime {
             modifiers: None,
             text_input: NativeTextInput::default(),
             reconfigure_before_acquire: false,
+            frame_texture: None,
         }
     }
 
@@ -373,6 +370,7 @@ impl WgpuRuntime {
     }
 
     pub(crate) fn suspend(&mut self) {
+        self.frame_texture = None;
         self.set_text_input(None);
         self.modifiers = None;
         self.state = None;
@@ -407,39 +405,73 @@ impl WgpuRuntime {
         true
     }
 
-    pub(crate) fn acquire_surface_texture(&mut self) -> Option<wgpu::SurfaceTexture> {
+    pub(crate) fn acquire_surface_texture(
+        &mut self,
+    ) -> Result<wgpu::SurfaceTexture, crate::render::RenderError> {
+        use crate::render::RenderError;
+        let size = mobile_window_drawable_size(
+            &self
+                .state
+                .as_ref()
+                .ok_or(RenderError::SurfaceUnavailable)?
+                .window,
+        );
+        if size.width == 0 || size.height == 0 {
+            return Err(RenderError::SurfaceUnavailable);
+        }
         if self.reconfigure_before_acquire && !self.reconfigure_surface() {
-            return None;
+            return Err(RenderError::SurfaceUnavailable);
         }
         let mut retried = false;
         loop {
-            let acquired = self.state.as_ref()?.surface.get_current_texture();
+            let acquired = self
+                .state
+                .as_ref()
+                .ok_or(RenderError::SurfaceUnavailable)?
+                .surface
+                .get_current_texture();
             match acquired {
-                wgpu::CurrentSurfaceTexture::Success(texture) => return Some(texture),
+                wgpu::CurrentSurfaceTexture::Success(texture) => return Ok(texture),
                 wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
                     self.reconfigure_before_acquire = true;
-                    return Some(texture);
+                    return Ok(texture);
                 }
                 wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
-                    return None;
+                    return Err(RenderError::SurfaceUnavailable);
                 }
                 wgpu::CurrentSurfaceTexture::Outdated if !retried => {
                     retried = true;
                     if !self.reconfigure_surface() {
-                        return None;
+                        return Err(RenderError::SurfaceUnavailable);
                     }
                 }
                 wgpu::CurrentSurfaceTexture::Lost if !retried => {
                     retried = true;
                     if !self.recreate_surface() {
-                        return None;
+                        return Err(RenderError::SurfaceUnavailable);
                     }
                 }
-                wgpu::CurrentSurfaceTexture::Outdated
-                | wgpu::CurrentSurfaceTexture::Lost
-                | wgpu::CurrentSurfaceTexture::Validation => return None,
+                wgpu::CurrentSurfaceTexture::Outdated | wgpu::CurrentSurfaceTexture::Lost => {
+                    return Err(RenderError::SurfaceUnavailable);
+                }
+                wgpu::CurrentSurfaceTexture::Validation => return Err(RenderError::BackendFailure),
             }
         }
+    }
+
+    fn begin_frame(&mut self) -> Result<(), crate::render::RenderError> {
+        self.frame_texture = None;
+        self.frame_texture = Some(self.acquire_surface_texture()?);
+        Ok(())
+    }
+
+    fn present_frame(&mut self) -> Result<(), crate::render::RenderError> {
+        let frame = self
+            .frame_texture
+            .take()
+            .ok_or(crate::render::RenderError::SurfaceUnavailable)?;
+        frame.present();
+        Ok(())
     }
 
     /// winit hands every coordinate as `PhysicalPosition` (device
@@ -816,8 +848,8 @@ impl WgpuTarget for WgpuSurface {
         self.state_mut()
     }
 
-    fn acquire_surface_texture(&mut self) -> Option<wgpu::SurfaceTexture> {
-        self.handler.runtime.acquire_surface_texture()
+    fn frame_texture(&self) -> Option<&wgpu::SurfaceTexture> {
+        self.handler.runtime.frame_texture.as_ref()
     }
 }
 
@@ -848,17 +880,33 @@ impl Surface for WgpuSurface {
         }
     }
 
-    fn flush(&mut self, _area: crate::types::PhysicalRect) {
-        // wgpu present itself happens inside `WgpuRenderer::flush`
-        // (the SurfaceTexture lives on the renderer's frame state)
-        // — this method only re-arms direct `App::render` callers.
+    fn flush(
+        &mut self,
+        _area: crate::types::PhysicalRect,
+    ) -> Result<(), crate::render::RenderError> {
+        Ok(())
+    }
+
+    fn begin_flush(&mut self) -> Result<(), crate::render::RenderError> {
+        self.handler.runtime.begin_frame()
+    }
+
+    fn end_flush(&mut self) -> Result<(), crate::render::RenderError> {
+        self.handler.runtime.present_frame()?;
+        self.pumped_this_frame = false;
+        Ok(())
+    }
+
+    fn abort_flush(&mut self) {
+        self.handler.runtime.frame_texture = None;
         self.pumped_this_frame = false;
     }
 
-    fn frame_end(&mut self) {
+    fn frame_end(&mut self) -> Result<(), crate::render::RenderError> {
         // Failed draws do not reach `flush`, but the next tick must still
         // pump winit so a temporarily unavailable drawable can recover.
         self.pumped_this_frame = false;
+        Ok(())
     }
 
     fn physical_size(&self) -> (u32, u32) {
@@ -1084,8 +1132,8 @@ impl WgpuTarget for MobileWgpuSurface {
         self.runtime.state.as_mut()
     }
 
-    fn acquire_surface_texture(&mut self) -> Option<wgpu::SurfaceTexture> {
-        self.runtime.acquire_surface_texture()
+    fn frame_texture(&self) -> Option<&wgpu::SurfaceTexture> {
+        self.runtime.frame_texture.as_ref()
     }
 }
 
@@ -1118,6 +1166,17 @@ impl MobileSurface for MobileWgpuSurface {
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 impl Surface for MobileWgpuSurface {
+    fn begin_flush(&mut self) -> Result<(), crate::render::RenderError> {
+        self.runtime.begin_frame()
+    }
+
+    fn end_flush(&mut self) -> Result<(), crate::render::RenderError> {
+        self.runtime.present_frame()
+    }
+
+    fn abort_flush(&mut self) {
+        self.runtime.frame_texture = None;
+    }
     fn set_text_input(&mut self, state: Option<crate::ui::text_input::TextInputState>) {
         self.runtime.set_text_input(state);
     }
@@ -1141,7 +1200,12 @@ impl Surface for MobileWgpuSurface {
         }
     }
 
-    fn flush(&mut self, _area: crate::types::PhysicalRect) {}
+    fn flush(
+        &mut self,
+        _area: crate::types::PhysicalRect,
+    ) -> Result<(), crate::render::RenderError> {
+        Ok(())
+    }
 
     fn safe_area_insets(&self) -> SafeAreaInsets {
         self.runtime

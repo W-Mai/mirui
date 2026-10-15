@@ -116,7 +116,12 @@ impl Surface for WebCanvasSurface {
         }
     }
 
-    fn flush(&mut self, _area: crate::types::PhysicalRect) {}
+    fn flush(
+        &mut self,
+        _area: crate::types::PhysicalRect,
+    ) -> Result<(), crate::render::RenderError> {
+        Ok(())
+    }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
         self.event_queue.borrow_mut().pop_front()

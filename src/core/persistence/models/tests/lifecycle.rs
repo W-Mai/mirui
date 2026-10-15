@@ -18,8 +18,8 @@ impl Surface for LifecycleSurface {
     fn display_info(&self) -> DisplayInfo {
         self.frame.display_info()
     }
-    fn flush(&mut self, area: PhysicalRect) {
-        self.frame.flush(area);
+    fn flush(&mut self, area: PhysicalRect) -> Result<(), crate::render::RenderError> {
+        self.frame.flush(area)
     }
     fn poll_event(&mut self) -> Option<InputEvent> {
         self.events.borrow_mut().pop_front()

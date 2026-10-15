@@ -34,8 +34,8 @@ fn main() {
                 texture = Some(frame);
                 break;
             }
-            Err(RenderError::BackendFailure) => {
-                app.backend.frame_end();
+            Err(RenderError::SurfaceUnavailable) => {
+                app.backend.frame_end().expect("maintain surface");
                 std::thread::sleep(Duration::from_millis(16));
             }
             Ok(None) => panic!("WGPU framebuffer readback was empty"),

@@ -173,8 +173,12 @@ impl Surface for LinuxFbSurface {
         (self.width as u32, self.height as u32)
     }
 
-    fn flush(&mut self, _area: crate::types::PhysicalRect) {
+    fn flush(
+        &mut self,
+        _area: crate::types::PhysicalRect,
+    ) -> Result<(), crate::render::RenderError> {
         // Direct mmap; no staging copy / present here.
+        Ok(())
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {

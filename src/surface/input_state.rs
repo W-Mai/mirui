@@ -12,10 +12,15 @@ pub(crate) enum InputAxis {
     TrackingId(i32),
     AbsX(i32),
     AbsY(i32),
+    #[cfg(any(test, target_os = "linux"))]
     RelX(i32),
+    #[cfg(any(test, target_os = "linux"))]
     RelY(i32),
+    #[cfg(any(test, target_os = "linux"))]
     RelWheel(i32),
+    #[cfg(any(test, target_os = "linux"))]
     RelHWheel(i32),
+    #[cfg(any(test, target_os = "linux"))]
     Button(bool),
     Sync,
 }
@@ -104,6 +109,7 @@ impl PointerState {
                     map_axis(value, self.abs_min_y, self.abs_max_y, self.height as i32);
                 self.dirty |= 1 << i;
             }
+            #[cfg(any(test, target_os = "linux"))]
             InputAxis::RelX(delta) => {
                 let nx = (self.last_xy[0].0 + Fixed::from_int(delta))
                     .max(Fixed::ZERO)
@@ -111,6 +117,7 @@ impl PointerState {
                 self.last_xy[0].0 = nx;
                 self.dirty |= 1;
             }
+            #[cfg(any(test, target_os = "linux"))]
             InputAxis::RelY(delta) => {
                 let ny = (self.last_xy[0].1 + Fixed::from_int(delta))
                     .max(Fixed::ZERO)
@@ -118,8 +125,11 @@ impl PointerState {
                 self.last_xy[0].1 = ny;
                 self.dirty |= 1;
             }
+            #[cfg(any(test, target_os = "linux"))]
             InputAxis::RelWheel(delta) => self.wheel_dy = self.wheel_dy.saturating_add(delta),
+            #[cfg(any(test, target_os = "linux"))]
             InputAxis::RelHWheel(delta) => self.wheel_dx = self.wheel_dx.saturating_add(delta),
+            #[cfg(any(test, target_os = "linux"))]
             InputAxis::Button(true) => {
                 let i = self.slot as usize;
                 if !self.last_down[i] {
@@ -133,6 +143,7 @@ impl PointerState {
                     self.last_down[i] = true;
                 }
             }
+            #[cfg(any(test, target_os = "linux"))]
             InputAxis::Button(false) => {
                 let i = self.slot as usize;
                 if self.last_down[i] {

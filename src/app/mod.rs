@@ -5,6 +5,8 @@ pub mod plugins;
 pub use model::ModelBuilder;
 
 #[cfg(test)]
+mod frame_submission_tests;
+#[cfg(test)]
 mod snapshot_tests;
 
 use alloc::boxed::Box;
@@ -1168,6 +1170,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let layout_end = self.clock_ns();
         self.last_layout_ns = layout_end.saturating_sub(layout_start);
 
+        let requests = render_system::prepare_paint_requests(&self.world)?;
+        if let Err(error) = self.backend.begin_flush() {
+            self.backend.abort_flush();
+            return Err(error);
+        }
         self.needs_full_redraw = true;
         let render_result = {
             crate::trace_span!("frame.render");
@@ -1180,7 +1187,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 clear_hidden_root(&self.world, &transform, &mut renderer);
                 Ok(())
             } else {
-                render_system::render(&self.world, root, &transform, &mut renderer)
+                let (width, height) = transform.logical_size();
+                render_system::render_region_in_batch(
+                    &self.world,
+                    root,
+                    &transform,
+                    &Rect::new(0, 0, width, height),
+                    &mut renderer,
+                    &requests,
+                )
             };
             result.and_then(|()| {
                 let output = finish(&mut renderer, &transform);
@@ -1191,6 +1206,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let frame_output = match render_result {
             Ok(output) => output,
             Err(error) => {
+                self.backend.abort_flush();
                 self.world.mark_subtree_dirty(root);
                 return Err(error);
             }
@@ -1203,14 +1219,20 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let render_ns = render_end.saturating_sub(layout_start);
 
         let (pw, ph) = transform.physical_size();
-        {
+        let submitted = (|| {
             crate::trace_span!("frame.flush");
-            self.backend.begin_flush();
-            self.backend.flush(PhysicalRect::from_size(pw, ph));
-            self.backend.end_flush();
+            self.backend.flush(PhysicalRect::from_size(pw, ph))?;
+            self.backend.end_flush()?;
+            self.factory
+                .mirror_buffers(&mut self.backend, &self.dirty_plan, &transform)
+        })();
+        if let Err(error) = submitted {
+            self.backend.abort_flush();
+            self.world.mark_subtree_dirty(root);
+            return Err(error);
         }
-        self.factory
-            .mirror_and_advance(&mut self.backend, &self.dirty_plan, &transform);
+        requests.commit();
+        render_system::acknowledge_rendered_outputs(&self.world);
         let flush_end = self.clock_ns();
         self.last_flush_ns = flush_end.saturating_sub(render_end);
 
@@ -1529,16 +1551,24 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             systems_end,
         });
         if transient {
-            if let Err(error) = self.render() {
+            if let Err(error) = self.render()
+                && error != crate::render::RenderError::SurfaceUnavailable
+            {
                 crate::warn!("frame render failed: {:?}", error);
             }
         } else {
-            if let Err(error) = self.render_dirty() {
+            if let Err(error) = self.render_dirty()
+                && error != crate::render::RenderError::SurfaceUnavailable
+            {
                 crate::warn!("dirty frame render failed: {:?}", error);
             }
         }
         self.flush_event_notifications();
-        self.backend.frame_end();
+        if let Err(error) = self.backend.frame_end()
+            && error != crate::render::RenderError::SurfaceUnavailable
+        {
+            crate::warn!("surface maintenance failed: {:?}", error);
+        }
 
         self.apply_suspend_request();
 
@@ -1633,6 +1663,18 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
         if !plan.is_empty() {
             crate::trace_span!("frame.render_region");
+            let requests = match render_system::prepare_paint_requests(&self.world) {
+                Ok(requests) => requests,
+                Err(error) => {
+                    self.dirty_plan = plan;
+                    return Err(error);
+                }
+            };
+            if let Err(error) = self.backend.begin_flush() {
+                self.backend.abort_flush();
+                self.dirty_plan = plan;
+                return Err(error);
+            }
             self.needs_full_redraw = true;
             let mut renderer = self.factory.make(&mut self.backend, &transform);
 
@@ -1654,7 +1696,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                     .insert_resource(crate::ui::render_system::LastDirtyRegions(plan.clone()));
             }
             let render_result = (|| {
-                let requests = render_system::prepare_paint_requests(&self.world)?;
                 let _outputs_batch = self
                     .world
                     .resource::<Outputs<WidgetTexture>>()
@@ -1724,39 +1765,44 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 };
                 result?;
                 Renderer::flush(&mut renderer)?;
-                requests.commit();
                 Ok(())
             })();
 
             drop(renderer);
             if let Err(error) = render_result {
+                self.backend.abort_flush();
                 self.world.mark_subtree_dirty(root);
                 self.dirty_plan = plan;
                 return Err(error);
             }
 
-            render_system::acknowledge_rendered_outputs(&self.world);
-
             let render_end = self.clock_ns();
             self.last_render_ns = render_end.saturating_sub(layout_end);
             let render_ns = render_end.saturating_sub(layout_start);
-            {
+            let submitted = (|| {
                 crate::trace_span!("frame.flush");
-                self.backend.begin_flush();
                 for rect in &plan.rects {
                     if let Some(physical) = transform.physical_rect(*rect) {
-                        self.backend.flush(physical);
+                        self.backend.flush(physical)?;
                     }
                 }
                 for sop in &plan.shifts {
                     if let Some(physical) = transform.physical_rect(sop.area) {
-                        self.backend.flush(physical);
+                        self.backend.flush(physical)?;
                     }
                 }
-                self.backend.end_flush();
+                self.backend.end_flush()?;
+                self.factory
+                    .mirror_buffers(&mut self.backend, &plan, &transform)
+            })();
+            if let Err(error) = submitted {
+                self.backend.abort_flush();
+                self.world.mark_subtree_dirty(root);
+                self.dirty_plan = plan;
+                return Err(error);
             }
-            self.factory
-                .mirror_and_advance(&mut self.backend, &plan, &transform);
+            requests.commit();
+            render_system::acknowledge_rendered_outputs(&self.world);
             self.last_flush_ns = self.clock_ns().saturating_sub(render_end);
             let seed_start = self.clock_ns();
             render_system::seed_prev_rects(&mut self.world, root, &transform);
@@ -2568,6 +2614,11 @@ mod app_invariant_tests {
     impl crate::core::cache::InspectCaches for RotatingBuffers {}
 
     impl Surface for RotatingBuffers {
+        fn begin_flush(&mut self) -> Result<(), crate::render::RenderError> {
+            self.active ^= 1;
+            self.advances += 1;
+            Ok(())
+        }
         fn display_info(&self) -> crate::surface::DisplayInfo {
             crate::surface::DisplayInfo {
                 width: 48,
@@ -2577,7 +2628,9 @@ mod app_invariant_tests {
             }
         }
 
-        fn flush(&mut self, _: PhysicalRect) {}
+        fn flush(&mut self, _: PhysicalRect) -> Result<(), crate::render::RenderError> {
+            Ok(())
+        }
 
         fn poll_event(&mut self) -> Option<InputEvent> {
             None
@@ -2617,11 +2670,6 @@ mod app_invariant_tests {
                 .collect();
             textures.rotate_left(self.active);
             textures
-        }
-
-        fn advance(&mut self) {
-            self.active ^= 1;
-            self.advances += 1;
         }
     }
 
@@ -3806,8 +3854,8 @@ mod queued_surface {
             self.framebuffer.physical_size()
         }
 
-        fn flush(&mut self, area: PhysicalRect) {
-            self.framebuffer.flush(area);
+        fn flush(&mut self, area: PhysicalRect) -> Result<(), crate::render::RenderError> {
+            self.framebuffer.flush(area)
         }
 
         fn poll_event(&mut self) -> Option<InputEvent> {

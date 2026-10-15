@@ -82,12 +82,7 @@ pub(super) const FBIOGET_VIDEOINFO: c_int = FBIOC_BASE | 0x01;
 pub(super) const FBIOGET_PLANEINFO: c_int = FBIOC_BASE | 0x02;
 pub(super) const FBIO_UPDATE: c_int = FBIOC_BASE | 0x07;
 pub(super) const FBIO_WAITFORVSYNC: c_int = FBIOC_BASE | 0x08;
-pub(super) const FBIOSET_POWER: c_int = FBIOC_BASE | 0x14;
-pub(super) const FBIOGET_POWER: c_int = FBIOC_BASE | 0x15;
 pub(super) const FBIOPAN_DISPLAY: c_int = FBIOC_BASE | 0x18;
-
-pub(super) const TSIOC_BASE: c_int = 0x0900;
-pub(super) const TSIOC_GRAB: c_int = TSIOC_BASE | 0x0e;
 
 pub(super) const FB_FMT_RGB16_565: u8 = 11;
 pub(super) const FB_FMT_RGB24: u8 = 12;
@@ -95,13 +90,11 @@ pub(super) const FB_FMT_RGB32: u8 = 13;
 pub(super) const FB_FMT_RGBA32: u8 = 21;
 
 pub(super) const TOUCH_DOWN: u8 = 1;
-pub(super) const TOUCH_MOVE: u8 = 2;
 pub(super) const TOUCH_UP: u8 = 4;
 pub(super) const TOUCH_ID_VALID: u8 = 8;
 pub(super) const TOUCH_POS_VALID: u8 = 16;
 
 pub(super) const KEYBOARD_PRESS: u32 = 0;
-pub(super) const KEYBOARD_RELEASE: u32 = 1;
 
 // 5 contacts = pinch + rotate; bigger boards rarely need more.
 pub(super) const MAX_TOUCH_POINTS: usize = 5;

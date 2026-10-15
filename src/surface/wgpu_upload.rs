@@ -284,17 +284,17 @@ impl SoftwareUploadSurface {
         Ok(())
     }
 
-    fn upload(&mut self, area: PhysicalRect) {
+    fn upload(&mut self, area: PhysicalRect) -> Result<(), crate::render::RenderError> {
         let Some(region) =
             super::wgpu_surface::software_upload_region(self.width, self.height, area)
         else {
-            return;
+            return Ok(());
         };
         let Some(state) = self.runtime.state.as_ref() else {
-            return;
+            return Err(crate::render::RenderError::SurfaceUnavailable);
         };
         let Some(presenter) = self.presenter.as_ref() else {
-            return;
+            return Err(crate::render::RenderError::SurfaceUnavailable);
         };
         state.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -320,20 +320,23 @@ impl SoftwareUploadSurface {
             },
         );
         self.pending_present = true;
+        Ok(())
     }
 
-    fn present(&mut self) {
+    fn present(&mut self) -> Result<(), crate::render::RenderError> {
         if !self.pending_present {
-            return;
+            return Ok(());
         }
-        let Some(surface_texture) = self.runtime.acquire_surface_texture() else {
-            return;
+        let surface_texture = match self.runtime.acquire_surface_texture() {
+            Ok(texture) => texture,
+            Err(crate::render::RenderError::SurfaceUnavailable) => return Ok(()),
+            Err(error) => return Err(error),
         };
         let Some(state) = self.runtime.state.as_ref() else {
-            return;
+            return Err(crate::render::RenderError::SurfaceUnavailable);
         };
         let Some(presenter) = self.presenter.as_ref() else {
-            return;
+            return Err(crate::render::RenderError::SurfaceUnavailable);
         };
         let view = surface_texture
             .texture
@@ -367,6 +370,7 @@ impl SoftwareUploadSurface {
         state.queue.submit(Some(encoder.finish()));
         surface_texture.present();
         self.pending_present = false;
+        Ok(())
     }
 }
 
@@ -438,16 +442,27 @@ impl Surface for SoftwareUploadSurface {
             })
     }
 
-    fn flush(&mut self, area: PhysicalRect) {
-        self.upload(area);
+    fn begin_flush(&mut self) -> Result<(), crate::render::RenderError> {
+        if self.runtime.state.is_none() || self.presenter.is_none() {
+            return Err(crate::render::RenderError::SurfaceUnavailable);
+        }
+        Ok(())
     }
 
-    fn end_flush(&mut self) {
-        self.present();
+    fn flush(&mut self, area: PhysicalRect) -> Result<(), crate::render::RenderError> {
+        self.upload(area)
     }
 
-    fn frame_end(&mut self) {
-        self.present();
+    fn end_flush(&mut self) -> Result<(), crate::render::RenderError> {
+        self.present()
+    }
+
+    fn abort_flush(&mut self) {
+        self.pending_present = false;
+    }
+
+    fn frame_end(&mut self) -> Result<(), crate::render::RenderError> {
+        self.present()
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {

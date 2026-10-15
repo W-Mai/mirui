@@ -33,14 +33,15 @@ pub trait RendererFactory<B: Surface> {
         Ok(())
     }
 
-    /// Mirror the frame's dirty rects into inactive slots and rotate.
+    /// Mirror the accepted frame's dirty rects into writable inactive slots.
     /// Default no-op — only multi-buffer CPU backends override.
-    fn mirror_and_advance(
+    fn mirror_buffers(
         &mut self,
         _backend: &mut B,
         _plan: &crate::ui::dirty::DirtyRegions,
         _transform: &Viewport,
-    ) {
+    ) -> Result<(), RenderError> {
+        Ok(())
     }
 
     /// Releases reconstructible renderer caches after a platform memory warning.
@@ -82,14 +83,14 @@ impl<B: FramebufferAccess> RendererFactory<B> for SwRendererFactory {
         r
     }
 
-    fn mirror_and_advance(
+    fn mirror_buffers(
         &mut self,
         backend: &mut B,
         plan: &crate::ui::dirty::DirtyRegions,
         transform: &Viewport,
-    ) {
+    ) -> Result<(), RenderError> {
         if backend.buffer_count() <= 1 {
-            return;
+            return Ok(());
         }
         {
             let mut bufs = backend.all_buffers();
@@ -118,7 +119,7 @@ impl<B: FramebufferAccess> RendererFactory<B> for SwRendererFactory {
                 }
             }
         }
-        backend.advance();
+        Ok(())
     }
 
     fn trim_memory(&mut self) {

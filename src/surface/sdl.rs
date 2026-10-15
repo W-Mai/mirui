@@ -255,11 +255,15 @@ impl Surface for SdlSurface {
         (self.width as u32, self.height as u32)
     }
 
-    fn begin_flush(&mut self) {
+    fn begin_flush(&mut self) -> Result<(), crate::render::RenderError> {
         self.pending_present = false;
+        Ok(())
     }
 
-    fn flush(&mut self, area: crate::types::PhysicalRect) {
+    fn flush(
+        &mut self,
+        area: crate::types::PhysicalRect,
+    ) -> Result<(), crate::render::RenderError> {
         // SDL `Texture::update` requires the rect to be inside the
         // texture, so clip first.
         let fx0 = i32::from(area.x());
@@ -267,7 +271,7 @@ impl Surface for SdlSurface {
         let fx1 = i32::from(area.right().min(self.width));
         let fy1 = i32::from(area.bottom().min(self.height));
         if fx1 <= fx0 || fy1 <= fy0 {
-            return;
+            return Ok(());
         }
         let stride = self.width as usize * 4;
         let row_off = fy0 as usize * stride + fx0 as usize * 4;
@@ -280,18 +284,24 @@ impl Surface for SdlSurface {
         let sdl_rect = SdlRect::new(fx0, fy0, (fx1 - fx0) as u32, (fy1 - fy0) as u32);
         self.tex
             .update(sdl_rect, &self.buf[row_off..row_off + band_len], stride)
-            .expect("texture update failed");
+            .map_err(|_| crate::render::RenderError::BackendFailure)?;
         self.pending_present = true;
+        Ok(())
     }
 
-    fn end_flush(&mut self) {
+    fn end_flush(&mut self) -> Result<(), crate::render::RenderError> {
         if !self.pending_present {
-            return;
+            return Ok(());
         }
         self.canvas
             .copy(&self.tex, None, None)
-            .expect("copy failed");
+            .map_err(|_| crate::render::RenderError::BackendFailure)?;
         self.canvas.present();
+        self.pending_present = false;
+        Ok(())
+    }
+
+    fn abort_flush(&mut self) {
         self.pending_present = false;
     }
 

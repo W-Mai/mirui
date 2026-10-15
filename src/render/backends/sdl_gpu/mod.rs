@@ -336,10 +336,13 @@ impl Surface for SdlGpuSurface {
         self.viewport
     }
 
-    fn flush(&mut self, _area: PhysicalRect) {}
+    fn flush(&mut self, _area: PhysicalRect) -> Result<(), crate::render::RenderError> {
+        Ok(())
+    }
 
-    fn end_flush(&mut self) {
+    fn end_flush(&mut self) -> Result<(), crate::render::RenderError> {
         self.canvas.present();
+        Ok(())
     }
 
     fn set_text_input(&mut self, state: Option<crate::ui::text_input::TextInputState>) {

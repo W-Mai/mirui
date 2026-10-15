@@ -111,42 +111,47 @@ impl FbDevice {
         })
     }
 
-    pub(super) fn flush(&mut self, x: u16, y: u16, w: u16, h: u16) {
+    pub(super) fn flush(&mut self, x: u16, y: u16, w: u16, h: u16) -> io::Result<()> {
         if self.supports_update {
             let area = FbArea { x, y, w, h };
             // SAFETY: `area` is a caller-allocated struct of the layout the
             // kernel expects; ioctl reads through the const pointer.
-            unsafe {
-                ioctl(self.fd, FBIO_UPDATE as _, &area as *const _);
+            if unsafe { ioctl(self.fd, FBIO_UPDATE as _, &area as *const _) } < 0 {
+                return Err(io::Error::last_os_error());
             }
         }
+        Ok(())
     }
 
-    pub(super) fn pan(&mut self) {
+    pub(super) fn pan(&mut self) -> io::Result<()> {
         if !self.use_paninfo {
-            return;
+            return Ok(());
         }
         self.pan_template.yoffset = 0;
         // SAFETY: `pan_template` is a caller-allocated `fb_planeinfo_s`;
         // the kernel reads from the const pointer.
-        unsafe {
+        let result = unsafe {
             ioctl(
                 self.fd,
                 FBIOPAN_DISPLAY as _,
                 &self.pan_template as *const _,
-            );
+            )
+        };
+        if result < 0 {
+            return Err(io::Error::last_os_error());
         }
+        Ok(())
     }
 
-    pub(super) fn wait_vsync(&self) {
+    pub(super) fn wait_vsync(&self) -> io::Result<()> {
         if !self.supports_vsync {
-            return;
+            return Ok(());
         }
-        // SAFETY: ioctl with no arg. Return value ignored — vsync wait
-        // failure on a one-frame slip is preferable to deadlock.
-        unsafe {
-            ioctl(self.fd, FBIO_WAITFORVSYNC as _);
+        // SAFETY: this ioctl takes no argument.
+        if unsafe { ioctl(self.fd, FBIO_WAITFORVSYNC as _) } < 0 {
+            return Err(io::Error::last_os_error());
         }
+        Ok(())
     }
 }
 

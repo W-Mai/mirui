@@ -29,6 +29,34 @@ const WIDTH: u16 = 320;
 const HEIGHT: u16 = 240;
 const SCALE: u16 = 2;
 
+fn capture<B: Surface>(
+    surface: &mut B,
+    factory: &mut impl RendererFactory<B>,
+    projected: bool,
+    blurred: bool,
+    composite: CompositeMode,
+    gradient: bool,
+) -> Result<Texture<'static>, RenderError> {
+    let viewport = surface.display_info().viewport();
+    let result = (|| {
+        surface.begin_flush()?;
+        let image = {
+            let mut renderer = factory.make(surface, &viewport);
+            let image = draw_fixture(&mut renderer, projected, blurred, composite, gradient)?;
+            Renderer::flush(&mut renderer)?;
+            image
+        };
+        let (width, height) = viewport.physical_size();
+        surface.flush(PhysicalRect::from_size(width, height))?;
+        surface.end_flush()?;
+        Ok(image)
+    })();
+    if result.is_err() {
+        surface.abort_flush();
+    }
+    result
+}
+
 fn draw_fixture(
     renderer: &mut impl Renderer,
     projected: bool,
@@ -147,9 +175,9 @@ fn main() {
                 |_, _| {},
             );
             let mut factory = SwRendererFactory::new();
-            let viewport = surface.display_info().viewport();
-            draw_fixture(
-                &mut factory.make(&mut surface, &viewport),
+            capture(
+                &mut surface,
+                &mut factory,
                 projected,
                 blurred,
                 composite,
@@ -162,9 +190,9 @@ fn main() {
                 .expect("SDL GPU surface");
             let mut factory = SdlGpuFactory::new()
                 .with_projective_fallback(ProjectiveFallback::new(vec![0; 512 * 1024]));
-            let viewport = surface.display_info().viewport();
-            draw_fixture(
-                &mut factory.make(&mut surface, &viewport),
+            capture(
+                &mut surface,
+                &mut factory,
                 projected,
                 blurred,
                 composite,
@@ -179,18 +207,21 @@ fn main() {
             let mut image = None;
             for _ in 0..16 {
                 while surface.poll_event().is_some() {}
-                let viewport = surface.display_info().viewport();
-                let result = {
-                    let mut renderer = factory.make(&mut surface, &viewport);
-                    draw_fixture(&mut renderer, projected, blurred, composite, gradient)
-                };
+                let result = capture(
+                    &mut surface,
+                    &mut factory,
+                    projected,
+                    blurred,
+                    composite,
+                    gradient,
+                );
                 match result {
                     Ok(frame) => {
                         image = Some(frame);
                         break;
                     }
-                    Err(RenderError::BackendFailure) => {
-                        surface.flush(PhysicalRect::from_size(WIDTH, HEIGHT));
+                    Err(RenderError::SurfaceUnavailable) => {
+                        surface.frame_end().expect("surface maintenance");
                         std::thread::sleep(Duration::from_millis(16));
                     }
                     Err(error) => panic!("WGPU composite draw failed: {error:?}"),

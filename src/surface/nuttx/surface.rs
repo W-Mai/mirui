@@ -11,7 +11,7 @@ use crate::input::event::input::InputEvent;
 use crate::render::texture::Texture;
 use crate::surface::scale::{ScaleMode, compute_scale};
 use crate::surface::{DisplayInfo, FramebufferAccess, Surface};
-use crate::types::{Fixed, Rect};
+use crate::types::Fixed;
 
 #[derive(Debug, Clone)]
 pub struct NuttxConfig<'a> {
@@ -146,7 +146,10 @@ impl Surface for NuttxFbSurface {
         (self.width as u32, self.height as u32)
     }
 
-    fn flush(&mut self, area: crate::types::PhysicalRect) {
+    fn flush(
+        &mut self,
+        area: crate::types::PhysicalRect,
+    ) -> Result<(), crate::render::RenderError> {
         let x = area.x().min(self.width);
         let y = area.y().min(self.height);
         let xe = area.right().min(self.width);
@@ -154,14 +157,20 @@ impl Surface for NuttxFbSurface {
         let w = xe.saturating_sub(x);
         let h = ye.saturating_sub(y);
         if w == 0 || h == 0 {
-            return;
+            return Ok(());
         }
-        self.fb.flush(x, y, w, h);
+        self.fb
+            .flush(x, y, w, h)
+            .map_err(|_| crate::render::RenderError::BackendFailure)
     }
 
-    fn frame_end(&mut self) {
-        self.fb.pan();
-        self.fb.wait_vsync();
+    fn end_flush(&mut self) -> Result<(), crate::render::RenderError> {
+        self.fb
+            .pan()
+            .map_err(|_| crate::render::RenderError::BackendFailure)?;
+        self.fb
+            .wait_vsync()
+            .map_err(|_| crate::render::RenderError::BackendFailure)
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {

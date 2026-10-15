@@ -55,7 +55,7 @@ impl<S: Surface> Surface for SlowSurface<S> {
         self.inner.display_info()
     }
 
-    fn flush(&mut self, area: PhysicalRect) {
+    fn flush(&mut self, area: PhysicalRect) -> Result<(), crate::render::RenderError> {
         // `area` is in physical pixels (`App::render_dirty` did the
         // logical→physical conversion), so w*h matches the byte
         // stream size the real backend would push.
@@ -66,15 +66,27 @@ impl<S: Surface> Surface for SlowSurface<S> {
         if sleep_ns > 0 {
             std::thread::sleep(Duration::from_nanos(sleep_ns));
         }
-        self.inner.flush(area);
+        self.inner.flush(area)
     }
 
-    fn begin_flush(&mut self) {
-        self.inner.begin_flush();
+    fn begin_flush(&mut self) -> Result<(), crate::render::RenderError> {
+        self.inner.begin_flush()
     }
 
-    fn end_flush(&mut self) {
-        self.inner.end_flush();
+    fn end_flush(&mut self) -> Result<(), crate::render::RenderError> {
+        self.inner.end_flush()
+    }
+
+    fn abort_flush(&mut self) {
+        self.inner.abort_flush();
+    }
+
+    fn frame_end(&mut self) -> Result<(), crate::render::RenderError> {
+        self.inner.frame_end()
+    }
+
+    fn buffer_count(&self) -> usize {
+        self.inner.buffer_count()
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
@@ -97,5 +109,9 @@ impl<S: Surface> Surface for SlowSurface<S> {
 impl<S: FramebufferAccess> FramebufferAccess for SlowSurface<S> {
     fn framebuffer(&mut self) -> Texture<'_> {
         self.inner.framebuffer()
+    }
+
+    fn all_buffers(&mut self) -> alloc::vec::Vec<Texture<'_>> {
+        self.inner.all_buffers()
     }
 }
