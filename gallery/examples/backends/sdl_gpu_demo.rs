@@ -51,7 +51,7 @@ fn sized(width: i32, height: i32) -> Style {
 }
 
 fn main() {
-    let backend = SdlGpuSurface::new("mirui SDL GPU — drag me", 640, 480);
+    let backend = SdlGpuSurface::new("mirui SDL GPU — drag me", 640, 480).expect("SDL GPU surface");
     let mut app = App::with_factory(backend, SdlGpuFactory::new());
     app.with_default_widgets()
         .add_plugin(StdInstantClockPlugin)

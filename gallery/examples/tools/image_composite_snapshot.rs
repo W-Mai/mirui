@@ -158,7 +158,8 @@ fn main() {
             .expect("software composite draw")
         }
         "sdl" => {
-            let mut surface = SdlGpuSurface::new("mirui image composite parity", WIDTH, HEIGHT);
+            let mut surface = SdlGpuSurface::new("mirui image composite parity", WIDTH, HEIGHT)
+                .expect("SDL GPU surface");
             let mut factory = SdlGpuFactory::new()
                 .with_projective_fallback(ProjectiveFallback::new(vec![0; 512 * 1024]));
             let viewport = surface.display_info().viewport();

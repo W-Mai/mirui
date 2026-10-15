@@ -1,0 +1,219 @@
+use super::*;
+
+#[test]
+fn axis_blit_fallback_preserves_rounded_and_composite_requests() {
+    let pixels = [255u8; 4 * 4 * 4];
+    let texture = Texture::from_ref(&pixels, 4, 4, ColorFormat::RGBA8888);
+    for radius in [Fixed::ZERO, Fixed::from_int(3)] {
+        let command = DrawCommand::Blit {
+            pos: Point::new(2, 2),
+            size: Point::new(12, 12),
+            transform: Transform::IDENTITY,
+            quad: None,
+            texture: &texture,
+            opa: 200,
+            radius,
+            composite: CompositeMode::Screen,
+        };
+        let request = DrawRequest::new(&command, Rect::new(0, 0, 20, 20));
+        assert!(SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(&request));
+        assert_eq!(
+            SdlGpuRenderer::<Box<[u8]>>::classify_request(&request),
+            Ok(())
+        );
+    }
+    let ordinary = DrawCommand::Blit {
+        pos: Point::new(2, 2),
+        size: Point::new(12, 12),
+        transform: Transform::IDENTITY,
+        quad: None,
+        texture: &texture,
+        opa: 255,
+        radius: Fixed::ZERO,
+        composite: CompositeMode::SourceOver,
+    };
+    assert!(!SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(
+        &DrawRequest::new(&ordinary, Rect::new(0, 0, 20, 20))
+    ));
+    let rotated = DrawCommand::Blit {
+        pos: Point::new(2, 2),
+        size: Point::new(12, 12),
+        transform: Transform::rotate_deg(Fixed::from_int(20)),
+        quad: None,
+        texture: &texture,
+        opa: 255,
+        radius: Fixed::ZERO,
+        composite: CompositeMode::SourceOver,
+    };
+    assert!(SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(
+        &DrawRequest::new(&rotated, Rect::new(0, 0, 20, 20))
+    ));
+}
+
+#[test]
+fn non_affine_explicit_quad_uses_exact_fallback() {
+    let pixels = [255u8; 4 * 4 * 4];
+    let texture = Texture::from_ref(&pixels, 4, 4, ColorFormat::RGBA8888);
+    let quad = [
+        Point::new(2, 2),
+        Point::new(18, 2),
+        Point::new(15, 18),
+        Point::new(4, 18),
+    ];
+    let command = DrawCommand::Blit {
+        pos: Point::new(2, 2),
+        size: Point::new(16, 16),
+        transform: Transform::IDENTITY,
+        quad: Some(quad),
+        texture: &texture,
+        opa: 255,
+        radius: Fixed::ZERO,
+        composite: CompositeMode::SourceOver,
+    };
+    let request = DrawRequest::new(&command, Rect::new(0, 0, 20, 20));
+    assert!(SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(&request));
+    assert_eq!(
+        SdlGpuRenderer::<Box<[u8]>>::classify_request(&request),
+        Ok(())
+    );
+}
+
+#[test]
+fn solid_stroke_with_full_style_has_a_native_route() {
+    let path = Path::rect(
+        Fixed::ZERO,
+        Fixed::ZERO,
+        Fixed::from_int(16),
+        Fixed::from_int(12),
+    );
+    let paint = Paint::Color(Color::rgb(20, 30, 40).into());
+    let dash = [Fixed::from_int(3), Fixed::from_int(2)];
+    let stroke = DrawCommand::StrokePath {
+        path: &path,
+        transform: Transform::rotate_deg(Fixed::from_int(20)),
+        paint: &paint,
+        width: Fixed::from_int(2),
+        opa: 255,
+        line_cap: crate::render::raster::LineCap::Round,
+        line_join: crate::render::raster::LineJoin::Bevel,
+        miter_limit: Fixed::from_int(4),
+        dash: &dash,
+    };
+    assert_eq!(
+        SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(
+            &stroke,
+            Rect::new(0, 0, 32, 32),
+        )),
+        Ok(())
+    );
+}
+
+#[test]
+fn borrowed_fallback_factory_keeps_the_caller_budget() {
+    let mut bytes = [0u8; 256];
+    let factory =
+        SdlGpuFactory::new().with_projective_fallback(ProjectiveFallback::borrowed(&mut bytes));
+    assert_eq!(factory.projective_fallback.unwrap().capacity(), 256);
+}
+
+#[test]
+fn classifies_sdl_gpu_commands_and_texture_storage() {
+    let clip = Rect::new(0, 0, 16, 16);
+    let path = Path::new();
+    let push = DrawCommand::PushClip {
+        path: &path,
+        transform: Transform::IDENTITY,
+        fill_rule: crate::render::raster::FillRule::EvenOdd,
+    };
+    assert_eq!(
+        SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&push, clip)),
+        Err(RenderError::Unsupported(RenderFeature::PathClip))
+    );
+
+    let paint = Paint::Color(Color::rgb(20, 30, 40).into());
+    let fill = DrawCommand::FillPath {
+        path: &path,
+        transform: Transform::IDENTITY,
+        paint: &paint,
+        opa: 255,
+        fill_rule: crate::render::raster::FillRule::NonZero,
+    };
+    assert_eq!(
+        SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&fill, clip)),
+        Ok(())
+    );
+
+    let texture = Texture::owned(2, 2, ColorFormat::RGB565Swapped);
+    let blit = DrawCommand::Blit {
+        pos: Point::ZERO,
+        size: Point::new(2, 2),
+        transform: Transform::IDENTITY,
+        quad: None,
+        texture: &texture,
+        opa: 255,
+        radius: Fixed::ZERO,
+        composite: CompositeMode::SourceOver,
+    };
+    assert_eq!(
+        SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&blit, clip)),
+        Ok(())
+    );
+
+    let short = Texture::from_ref(&[0u8; 1], 2, 2, ColorFormat::RGBA8888);
+    let invalid = DrawCommand::Blit {
+        pos: Point::ZERO,
+        size: Point::new(2, 2),
+        transform: Transform::IDENTITY,
+        quad: None,
+        texture: &short,
+        opa: 255,
+        radius: Fixed::ZERO,
+        composite: CompositeMode::SourceOver,
+    };
+    assert_eq!(
+        SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&invalid, clip)),
+        Err(RenderError::InvalidTexture)
+    );
+}
+
+#[test]
+fn distinguishes_sdl_gpu_quad_composite_and_affine_support() {
+    let clip = Rect::new(0, 0, 16, 16);
+    let texture = Texture::owned(2, 2, ColorFormat::RGBA8888);
+    let quad = [
+        Point::ZERO,
+        Point::new(2, 0),
+        Point::new(2, 2),
+        Point::new(0, 2),
+    ];
+    let blit = DrawCommand::Blit {
+        pos: Point::ZERO,
+        size: Point::new(2, 2),
+        transform: Transform::IDENTITY,
+        quad: Some(quad),
+        texture: &texture,
+        opa: 255,
+        radius: Fixed::ZERO,
+        composite: CompositeMode::Add,
+    };
+    assert_eq!(
+        SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&blit, clip)),
+        Ok(())
+    );
+    assert!(SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(
+        &DrawRequest::new(&blit, clip)
+    ));
+
+    let line = DrawCommand::Line {
+        p1: Point::ZERO,
+        p2: Point::new(10, 10),
+        transform: Transform::rotate_deg(Fixed::from_int(20)),
+        color: Color::rgb(20, 30, 40),
+        width: Fixed::ONE,
+        opa: 255,
+    };
+    assert_eq!(
+        SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&line, clip)),
+        Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
+    );
+}

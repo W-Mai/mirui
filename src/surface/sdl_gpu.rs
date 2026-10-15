@@ -4,4 +4,6 @@
 //! in [`crate::render::sdl_gpu`] because they share an `sdl2::Canvas`
 //! handle. This file re-exports the platform side so user code can still
 //! write `use mirui::surface::sdl_gpu::SdlGpuSurface`.
-pub use crate::render::sdl_gpu::{SdlGpuFactory, SdlGpuSurface};
+pub use crate::render::sdl_gpu::{
+    SdlGpuConfig, SdlGpuDriver, SdlGpuError, SdlGpuFactory, SdlGpuSurface, SdlWindowMode,
+};

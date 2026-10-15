@@ -7,6 +7,7 @@
 //! framebuffer, no `FramebufferAccess` impl.
 
 mod blit;
+mod config;
 mod label;
 mod label_cache;
 mod line;
@@ -23,6 +24,7 @@ use sdl2::event::Event;
 use sdl2::render::Canvas as SdlCanvas;
 use sdl2::video::Window;
 
+pub use self::config::{SdlGpuConfig, SdlGpuDriver, SdlGpuError, SdlWindowMode};
 use self::label_cache::LabelCache;
 use self::tessellation::TessellationCache;
 use crate::render::PlaneRequirements;
@@ -42,7 +44,7 @@ use crate::types::{
 };
 
 use crate::core::cache::{CacheInspect, InspectCaches};
-use crate::surface::{DisplayInfo, InputEvent, Surface, logical_from_physical};
+use crate::surface::{DisplayInfo, InputEvent, Surface};
 
 fn paint_color(paint: &Paint) -> Color {
     match paint {
@@ -85,9 +87,7 @@ pub struct SdlGpuSurface {
     _event_pump: EventPump,
     text_input: crate::surface::sdl_events::NativeTextInput,
     tessellator: TessellationCache,
-    width: u16,
-    height: u16,
-    scale: Fixed,
+    viewport: Viewport,
     last_mouse_x: i32,
     last_mouse_y: i32,
     multi: MultiGestureState,
@@ -95,70 +95,109 @@ pub struct SdlGpuSurface {
 }
 
 impl SdlGpuSurface {
-    pub fn new(title: &str, width: u16, height: u16) -> Self {
-        Self::new_with_vsync(title, width, height, true)
+    /// Creates a windowed OpenGL surface with 4× MSAA and vsync.
+    pub fn new(title: &str, width: u16, height: u16) -> Result<Self, SdlGpuError> {
+        Self::with_config(title, width, height, SdlGpuConfig::default())
     }
 
-    pub fn new_with_vsync(title: &str, width: u16, height: u16, vsync: bool) -> Self {
-        sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "0");
-        // Ask SDL's renderer driver to use OpenGL so GL MSAA attributes
-        // take effect; on macOS the default would be Metal, which
-        // ignores those attributes and leaves triangle edges aliased.
-        sdl2::hint::set("SDL_RENDER_DRIVER", "opengl");
-
-        let sdl = crate::surface::sdl_events::init().expect("SDL2 init failed");
-        let video = sdl.video().expect("SDL2 video init failed");
-
-        // Request 4× MSAA on the GL context before the window is built;
-        // the renderer's SDL_RenderGeometry calls then antialias triangle
-        // edges natively, matching the SW backend's SDF coverage.
-        {
-            let gl = video.gl_attr();
-            gl.set_multisample_buffers(1);
-            gl.set_multisample_samples(4);
+    /// Creates a surface using the requested accelerated driver and actual window geometry.
+    pub fn with_config(
+        title: &str,
+        width: u16,
+        height: u16,
+        config: SdlGpuConfig,
+    ) -> Result<Self, SdlGpuError> {
+        use self::config::backend_error;
+        if width == 0 || height == 0 {
+            return Err(SdlGpuError::InvalidConfig(
+                "window dimensions must be nonzero",
+            ));
         }
-
-        let window = video
-            .window(title, width as u32, height as u32)
-            .position_centered()
-            .allow_highdpi()
-            .opengl()
-            .build()
-            .expect("SDL2 window creation failed");
+        config.driver.validate()?;
+        sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "0");
+        let sdl = crate::surface::sdl_events::init().map_err(|e| backend_error("SDL init", e))?;
+        let video = sdl.video().map_err(|e| backend_error("SDL video", e))?;
+        let driver = config
+            .driver
+            .select(sdl2::render::drivers().map(|driver| driver.name))?;
+        config.driver.configure_gl()?;
+        let mut window = video.window(title, u32::from(width), u32::from(height));
+        window.position_centered().allow_highdpi();
+        if driver.is_some() {
+            window.opengl();
+        }
+        match config.window {
+            SdlWindowMode::Windowed { resizable: true } => {
+                window.resizable();
+            }
+            SdlWindowMode::Windowed { resizable: false } => {}
+            SdlWindowMode::FullscreenDesktop => {
+                window.fullscreen_desktop();
+            }
+        }
+        let window = window.build().map_err(|e| backend_error("SDL window", e))?;
         let mut canvas_builder = window.into_canvas().accelerated();
-        if vsync {
+        if let Some(index) = driver {
+            canvas_builder = canvas_builder.index(index);
+        }
+        if config.vsync {
             canvas_builder = canvas_builder.present_vsync();
         }
-        let canvas = canvas_builder.build().expect("SDL2 canvas failed");
+        let canvas = canvas_builder
+            .build()
+            .map_err(|e| backend_error("SDL renderer", e))?;
+        if config
+            .driver
+            .name()
+            .is_some_and(|name| canvas.info().name != name)
+        {
+            return Err(SdlGpuError::UnsupportedDriver(config.driver));
+        }
+        config.driver.verify_gl()?;
+        let viewport = self::config::viewport(
+            canvas.window().size(),
+            canvas
+                .output_size()
+                .map_err(|e| backend_error("SDL output size", e))?,
+        )?;
         let texture_creator = canvas.texture_creator();
-        let event_pump = sdl.event_pump().expect("SDL2 event pump failed");
+        let event_pump = sdl
+            .event_pump()
+            .map_err(|e| backend_error("SDL event pump", e))?;
         let text_input = crate::surface::sdl_events::NativeTextInput::new(
             &video,
-            sdl.event().expect("SDL2 event subsystem failed"),
+            sdl.event().map_err(|e| backend_error("SDL events", e))?,
         );
-
-        let (draw_w, _) = canvas.output_size().unwrap();
-        let scale_int = (draw_w as u16) / width;
-        let scale_int = if scale_int == 0 { 1 } else { scale_int };
-        let scale = Fixed::from(scale_int);
-
-        let phys_w = width * scale_int;
-        let phys_h = height * scale_int;
-
-        Self {
+        Ok(Self {
             canvas,
             label_cache: LabelCache::new(texture_creator),
             _event_pump: event_pump,
             text_input,
             tessellator: TessellationCache::new(),
-            width: phys_w,
-            height: phys_h,
-            scale,
+            viewport,
             last_mouse_x: 0,
             last_mouse_y: 0,
             multi: MultiGestureState::default(),
             pending: alloc::collections::VecDeque::new(),
+        })
+    }
+
+    /// The accelerated renderer selected by SDL.
+    pub fn renderer_name(&self) -> &'static str {
+        self.canvas.info().name
+    }
+
+    fn refresh_viewport(&mut self) -> Result<(), SdlGpuError> {
+        let logical = self.canvas.window().size();
+        let physical = self
+            .canvas
+            .output_size()
+            .map_err(|e| config::backend_error("SDL output size", e))?;
+        if logical.0 == 0 || logical.1 == 0 || physical.0 == 0 || physical.1 == 0 {
+            return Ok(());
         }
+        self.viewport = config::viewport(logical, physical)?;
+        Ok(())
     }
 
     fn handle_multi_gesture(
@@ -275,20 +314,27 @@ fn rotate_scale_around(p: &mut (f32, f32), cx: f32, cy: f32, theta: f32, scale: 
 
 impl Surface for SdlGpuSurface {
     fn display_info(&self) -> DisplayInfo {
-        let (lw, lh) = logical_from_physical(self.width, self.height, self.scale);
+        let (lw, lh) = self.viewport.logical_size();
         DisplayInfo {
             width: lw,
             height: lh,
-            scale: self.scale,
+            scale: self.viewport.scale(),
             format: ColorFormat::RGBA8888,
         }
     }
 
     fn physical_size(&self) -> (u32, u32) {
-        (self.width as u32, self.height as u32)
+        let (width, height) = self.viewport.physical_size();
+        (u32::from(width), u32::from(height))
     }
 
-    fn flush(&mut self, _area: PhysicalRect) {
+    fn viewport(&self) -> Viewport {
+        self.viewport
+    }
+
+    fn flush(&mut self, _area: PhysicalRect) {}
+
+    fn end_flush(&mut self) {
         self.canvas.present();
     }
 
@@ -376,8 +422,9 @@ impl Surface for SdlGpuSurface {
                     y,
                     ..
                 } => {
-                    let win_w = self.width as f32 / self.scale.to_f32();
-                    let win_h = self.height as f32 / self.scale.to_f32();
+                    let (width, height) = self.viewport.logical_size();
+                    let win_w = f32::from(width);
+                    let win_h = f32::from(height);
                     let cx = x * win_w;
                     let cy = y * win_h;
                     self.handle_multi_gesture(cx, cy, d_theta, d_dist, win_w, win_h);
@@ -398,6 +445,19 @@ impl Surface for SdlGpuSurface {
                     }
                 }
                 Event::Window { win_event, .. } => {
+                    use sdl2::event::WindowEvent;
+                    if matches!(
+                        win_event,
+                        WindowEvent::SizeChanged(..)
+                            | WindowEvent::Resized(..)
+                            | WindowEvent::DisplayChanged(..)
+                            | WindowEvent::Restored
+                            | WindowEvent::Shown
+                    ) && let Err(error) = self.refresh_viewport()
+                    {
+                        crate::warn!("SDL GPU geometry update failed: {error}");
+                        return Some(InputEvent::Quit);
+                    }
                     if let Some(input) = crate::surface::sdl_events::pointer_window_input(win_event)
                         .or_else(|| crate::surface::sdl_events::host_window_input(win_event))
                     {
@@ -695,227 +755,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
 }
 
 #[cfg(test)]
-mod route_tests {
-    use super::*;
-
-    #[test]
-    fn axis_blit_fallback_preserves_rounded_and_composite_requests() {
-        let pixels = [255u8; 4 * 4 * 4];
-        let texture = Texture::from_ref(&pixels, 4, 4, ColorFormat::RGBA8888);
-        for radius in [Fixed::ZERO, Fixed::from_int(3)] {
-            let command = DrawCommand::Blit {
-                pos: Point::new(2, 2),
-                size: Point::new(12, 12),
-                transform: Transform::IDENTITY,
-                quad: None,
-                texture: &texture,
-                opa: 200,
-                radius,
-                composite: CompositeMode::Screen,
-            };
-            let request = DrawRequest::new(&command, Rect::new(0, 0, 20, 20));
-            assert!(SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(&request));
-            assert_eq!(
-                SdlGpuRenderer::<Box<[u8]>>::classify_request(&request),
-                Ok(())
-            );
-        }
-        let ordinary = DrawCommand::Blit {
-            pos: Point::new(2, 2),
-            size: Point::new(12, 12),
-            transform: Transform::IDENTITY,
-            quad: None,
-            texture: &texture,
-            opa: 255,
-            radius: Fixed::ZERO,
-            composite: CompositeMode::SourceOver,
-        };
-        assert!(!SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(
-            &DrawRequest::new(&ordinary, Rect::new(0, 0, 20, 20))
-        ));
-        let rotated = DrawCommand::Blit {
-            pos: Point::new(2, 2),
-            size: Point::new(12, 12),
-            transform: Transform::rotate_deg(Fixed::from_int(20)),
-            quad: None,
-            texture: &texture,
-            opa: 255,
-            radius: Fixed::ZERO,
-            composite: CompositeMode::SourceOver,
-        };
-        assert!(SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(
-            &DrawRequest::new(&rotated, Rect::new(0, 0, 20, 20))
-        ));
-    }
-
-    #[test]
-    fn non_affine_explicit_quad_uses_exact_fallback() {
-        let pixels = [255u8; 4 * 4 * 4];
-        let texture = Texture::from_ref(&pixels, 4, 4, ColorFormat::RGBA8888);
-        let quad = [
-            Point::new(2, 2),
-            Point::new(18, 2),
-            Point::new(15, 18),
-            Point::new(4, 18),
-        ];
-        let command = DrawCommand::Blit {
-            pos: Point::new(2, 2),
-            size: Point::new(16, 16),
-            transform: Transform::IDENTITY,
-            quad: Some(quad),
-            texture: &texture,
-            opa: 255,
-            radius: Fixed::ZERO,
-            composite: CompositeMode::SourceOver,
-        };
-        let request = DrawRequest::new(&command, Rect::new(0, 0, 20, 20));
-        assert!(SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(&request));
-        assert_eq!(
-            SdlGpuRenderer::<Box<[u8]>>::classify_request(&request),
-            Ok(())
-        );
-    }
-
-    #[test]
-    fn solid_stroke_with_full_style_has_a_native_route() {
-        let path = Path::rect(
-            Fixed::ZERO,
-            Fixed::ZERO,
-            Fixed::from_int(16),
-            Fixed::from_int(12),
-        );
-        let paint = Paint::Color(Color::rgb(20, 30, 40).into());
-        let dash = [Fixed::from_int(3), Fixed::from_int(2)];
-        let stroke = DrawCommand::StrokePath {
-            path: &path,
-            transform: Transform::rotate_deg(Fixed::from_int(20)),
-            paint: &paint,
-            width: Fixed::from_int(2),
-            opa: 255,
-            line_cap: crate::render::raster::LineCap::Round,
-            line_join: crate::render::raster::LineJoin::Bevel,
-            miter_limit: Fixed::from_int(4),
-            dash: &dash,
-        };
-        assert_eq!(
-            SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(
-                &stroke,
-                Rect::new(0, 0, 32, 32),
-            )),
-            Ok(())
-        );
-    }
-
-    #[test]
-    fn borrowed_fallback_factory_keeps_the_caller_budget() {
-        let mut bytes = [0u8; 256];
-        let factory =
-            SdlGpuFactory::new().with_projective_fallback(ProjectiveFallback::borrowed(&mut bytes));
-        assert_eq!(factory.projective_fallback.unwrap().capacity(), 256);
-    }
-
-    #[test]
-    fn classifies_sdl_gpu_commands_and_texture_storage() {
-        let clip = Rect::new(0, 0, 16, 16);
-        let path = Path::new();
-        let push = DrawCommand::PushClip {
-            path: &path,
-            transform: Transform::IDENTITY,
-            fill_rule: crate::render::raster::FillRule::EvenOdd,
-        };
-        assert_eq!(
-            SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&push, clip)),
-            Err(RenderError::Unsupported(RenderFeature::PathClip))
-        );
-
-        let paint = Paint::Color(Color::rgb(20, 30, 40).into());
-        let fill = DrawCommand::FillPath {
-            path: &path,
-            transform: Transform::IDENTITY,
-            paint: &paint,
-            opa: 255,
-            fill_rule: crate::render::raster::FillRule::NonZero,
-        };
-        assert_eq!(
-            SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&fill, clip)),
-            Ok(())
-        );
-
-        let texture = Texture::owned(2, 2, ColorFormat::RGB565Swapped);
-        let blit = DrawCommand::Blit {
-            pos: Point::ZERO,
-            size: Point::new(2, 2),
-            transform: Transform::IDENTITY,
-            quad: None,
-            texture: &texture,
-            opa: 255,
-            radius: Fixed::ZERO,
-            composite: CompositeMode::SourceOver,
-        };
-        assert_eq!(
-            SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&blit, clip)),
-            Ok(())
-        );
-
-        let short = Texture::from_ref(&[0u8; 1], 2, 2, ColorFormat::RGBA8888);
-        let invalid = DrawCommand::Blit {
-            pos: Point::ZERO,
-            size: Point::new(2, 2),
-            transform: Transform::IDENTITY,
-            quad: None,
-            texture: &short,
-            opa: 255,
-            radius: Fixed::ZERO,
-            composite: CompositeMode::SourceOver,
-        };
-        assert_eq!(
-            SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&invalid, clip)),
-            Err(RenderError::InvalidTexture)
-        );
-    }
-
-    #[test]
-    fn distinguishes_sdl_gpu_quad_composite_and_affine_support() {
-        let clip = Rect::new(0, 0, 16, 16);
-        let texture = Texture::owned(2, 2, ColorFormat::RGBA8888);
-        let quad = [
-            Point::ZERO,
-            Point::new(2, 0),
-            Point::new(2, 2),
-            Point::new(0, 2),
-        ];
-        let blit = DrawCommand::Blit {
-            pos: Point::ZERO,
-            size: Point::new(2, 2),
-            transform: Transform::IDENTITY,
-            quad: Some(quad),
-            texture: &texture,
-            opa: 255,
-            radius: Fixed::ZERO,
-            composite: CompositeMode::Add,
-        };
-        assert_eq!(
-            SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&blit, clip)),
-            Ok(())
-        );
-        assert!(SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(
-            &DrawRequest::new(&blit, clip)
-        ));
-
-        let line = DrawCommand::Line {
-            p1: Point::ZERO,
-            p2: Point::new(10, 10),
-            transform: Transform::rotate_deg(Fixed::from_int(20)),
-            color: Color::rgb(20, 30, 40),
-            width: Fixed::ONE,
-            opa: 255,
-        };
-        assert_eq!(
-            SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&line, clip)),
-            Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
-        );
-    }
-}
+mod route_tests;
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {

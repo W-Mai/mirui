@@ -22,7 +22,8 @@ fn main() {
         .nth(2)
         .map_or(45, |s| s.parse().expect("frame count"));
     let demo = Demo::parse(&env::args().nth(3).unwrap_or_else(|| "flip_card".into()));
-    let backend = SdlGpuSurface::new("mirui projective parity", WIDTH, HEIGHT);
+    let backend =
+        SdlGpuSurface::new("mirui projective parity", WIDTH, HEIGHT).expect("SDL GPU surface");
     let factory = SdlGpuFactory::new()
         .with_projective_fallback(ProjectiveFallback::new(vec![0; 2 * 1024 * 1024]));
     let mut app = App::with_factory(backend, factory);

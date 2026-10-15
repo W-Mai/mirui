@@ -374,7 +374,7 @@ mod backend {
     pub type ActiveFactory = SdlGpuFactory;
 
     pub fn build_app(title: &str, w: u16, h: u16) -> App<ActiveSurface, ActiveFactory> {
-        let backend = SdlGpuSurface::new(title, w, h);
+        let backend = SdlGpuSurface::new(title, w, h).expect("SDL GPU surface");
         let factory = SdlGpuFactory::new()
             .with_projective_fallback(ProjectiveFallback::new(vec![0; DEMO_PROJECTIVE_RGBA_BYTES]));
         let mut app = App::with_factory(backend, factory);

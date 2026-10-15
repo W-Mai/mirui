@@ -49,6 +49,22 @@ On macOS, use sdl2-compat with SDL 3.4.14 or newer for high-resolution trackpad 
 
 Both SDL backends enable renderer command batching by default. An explicit `SDL_RENDER_BATCHING` environment variable or SDL hint overrides this default. Readback synchronizes queued rendering; exclude snapshots from normal frame-time measurements.
 
+The `sdl-gpu` backend exposes driver, multisampling, presentation and window options:
+
+```rust,no_run
+use mirui::surface::sdl_gpu::{SdlGpuConfig, SdlGpuDriver, SdlGpuSurface, SdlWindowMode};
+
+let surface = SdlGpuSurface::with_config("Demo", 640, 480, SdlGpuConfig {
+    driver: SdlGpuDriver::OpenGl { samples: 4 },
+    window: SdlWindowMode::Windowed { resizable: true },
+    vsync: true,
+})?;
+println!("Renderer: {}", surface.renderer_name());
+# Ok::<(), mirui::surface::sdl_gpu::SdlGpuError>(())
+```
+
+`SdlGpuSurface::new(title, width, height)` uses windowed OpenGL with 4× MSAA and vsync. Both constructors return `Result`. Explicit `OpenGl` and `OpenGles2` selections do not fall back to another renderer; `Auto` lets SDL select an accelerated driver without a GL multisampling request. GL `samples: 0` disables MSAA, `1` is invalid, and larger values request at least that sample count. Unsupported settings return an error rather than silently reducing quality. `FullscreenDesktop` uses the desktop display mode; requested window dimensions do not override its actual size. Window geometry and pointer coordinates follow the current logical size, including resize and display changes.
+
 Create a fresh project:
 
 ```bash

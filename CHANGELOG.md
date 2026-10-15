@@ -10,6 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `App::snapshot()` captures a complete rendered frame through the active renderer's readback interface, preserving pixel format and stride without adding an offscreen widget or a capture queue.
+- `SdlGpuConfig` selects accelerated drivers, GL multisampling, vsync, resizable windows, or desktop fullscreen. SDL GPU construction returns errors for unsupported requests and reports the selected renderer.
+
+### Fixed
+
+- SDL GPU uses actual logical and physical window dimensions, updates geometry before resized-window input, and presents once at the end of each frame.
 
 ### Performance
 
