@@ -1,0 +1,179 @@
+use super::*;
+use alloc::rc::Rc;
+use core::cell::{Cell, RefCell};
+
+use crate::render::RenderError;
+use crate::render::texture::ColorFormat;
+use crate::surface::framebuf::FramebufSurface;
+use crate::types::{Color, Fixed};
+use crate::ui::Style;
+
+type Trace = Rc<RefCell<Vec<&'static str>>>;
+type Flush = Box<dyn FnMut(&[u8], PhysicalRect)>;
+type TestSurface = FramebufSurface<Flush>;
+
+struct Hooks {
+    trace: Trace,
+    root: Entity,
+}
+
+impl Plugin<TestSurface, SwRendererFactory> for Hooks {
+    fn build(&mut self, _: &mut App<TestSurface>) {}
+
+    fn pre_render(&mut self, world: &mut World) {
+        self.trace.borrow_mut().push("prepare");
+        world.get_mut::<Style>(self.root).unwrap().bg_color = Some(Color::rgb(255, 0, 0).into());
+    }
+
+    fn post_render(&mut self, _: &mut World, _: u64) {
+        self.trace.borrow_mut().push("complete");
+    }
+}
+
+fn app(format: ColorFormat, scale: Fixed, trace: Trace) -> App<TestSurface> {
+    let flush: Flush = Box::new(move |_, _| {
+        trace.borrow_mut().push("present");
+    });
+    let mut app = App::new(FramebufSurface::with_scale_and_format(
+        24, 18, scale, format, flush,
+    ));
+    app.with_default_widgets();
+    app
+}
+
+#[test]
+fn snapshot_preserves_target_pixels_format_and_scale_without_offscreen_request() {
+    for format in [
+        ColorFormat::RGBA8888,
+        ColorFormat::RGB565,
+        ColorFormat::BGRA8888,
+    ] {
+        for scale in [Fixed::ONE, Fixed::from_ratio(3, 2), Fixed::from_int(2)] {
+            let trace = Trace::default();
+            let mut app = app(format, scale, trace.clone());
+            let root = app.spawn_root().bg_color(Color::rgb(0, 0, 255)).id();
+            app.add_plugin(Hooks {
+                trace: trace.clone(),
+                root,
+            });
+            let image = app.snapshot().unwrap().unwrap();
+            assert_eq!(image.format, format);
+            assert_eq!((image.width, image.height), (24, 18));
+            assert_eq!(image.get_pixel(23, 17), Color::rgb(255, 0, 0));
+            assert_eq!(
+                image.buf.as_slice(),
+                app.backend.framebuffer().buf.as_slice()
+            );
+            assert_eq!(&*trace.borrow(), &["prepare", "present", "complete"]);
+            assert!(app.world.get::<crate::ui::OffscreenRender>(root).is_none());
+            assert!(
+                app.world
+                    .resource::<Outputs<WidgetTexture>>()
+                    .unwrap()
+                    .get(root)
+                    .is_none()
+            );
+            assert!(app.dirty_regions().unwrap().is_empty());
+        }
+    }
+}
+
+#[test]
+fn frame_readback_runs_before_presentation_and_errors_do_not_discard_painted_baseline() {
+    let trace = Trace::default();
+    let mut app = app(ColorFormat::RGBA8888, Fixed::ONE, trace.clone());
+    let root = app.spawn_root().id();
+    app.add_plugin(Hooks {
+        trace: trace.clone(),
+        root,
+    });
+    for error in [
+        RenderError::BackendFailure,
+        RenderError::Unsupported(crate::render::RenderFeature::Readback),
+    ] {
+        trace.borrow_mut().clear();
+        let result = app.render_frame(|renderer, viewport| {
+            trace.borrow_mut().push("read");
+            let (width, height) = viewport.logical_size();
+            let area = Rect::new(0, 0, width, height);
+            renderer.prepare_readback(&area)?;
+            let image = renderer.sample_target_region(&area)?.unwrap();
+            assert_eq!(image.get_pixel(0, 0), Color::rgb(255, 0, 0));
+            Err::<(), _>(error)
+        });
+        assert_eq!(result, Err(error));
+        assert_eq!(
+            &*trace.borrow(),
+            &["prepare", "read", "present", "complete"]
+        );
+        assert!(!app.needs_full_redraw);
+        assert!(app.dirty_regions().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn snapshot_without_root_does_not_run_frame_hooks_or_present() {
+    let trace = Trace::default();
+    let mut app = app(ColorFormat::RGBA8888, Fixed::ONE, trace.clone());
+    assert!(app.snapshot().unwrap().is_none());
+    assert!(trace.borrow().is_empty());
+}
+
+#[crate::component]
+struct FailingPaint;
+
+#[crate::view(component = FailingPaint)]
+fn failing_paint(paint: paint!()) {
+    paint.fail(RenderError::BackendFailure);
+}
+
+#[test]
+fn failed_drawing_skips_readback_and_surface_submission() {
+    let trace = Trace::default();
+    let mut app = app(ColorFormat::RGBA8888, Fixed::ONE, trace.clone());
+    app.with_widget(failing_paint::view());
+    let root = app.spawn_root().id();
+    app.world.insert(root, FailingPaint);
+    let called = Cell::new(false);
+    let result = app.render_frame(|_, _| {
+        called.set(true);
+        Ok(())
+    });
+    assert_eq!(result, Err(RenderError::BackendFailure));
+    assert!(!called.get());
+    assert!(trace.borrow().is_empty());
+    assert!(app.needs_full_redraw);
+}
+
+#[test]
+fn snapshot_baseline_supports_subsequent_dirty_rendering() {
+    let mut app = App::headless(24, 18);
+    app.with_default_widgets();
+    let root = app.spawn_root().bg_color(Color::rgb(255, 0, 0)).id();
+    let captured = app.snapshot().unwrap().unwrap();
+    app.world.get_mut::<Style>(root).unwrap().bg_color = Some(Color::rgb(0, 0, 255).into());
+    app.render_dirty().unwrap();
+    let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+    let full = app.snapshot().unwrap().unwrap();
+    assert_eq!(full.buf.as_slice(), dirty);
+    assert_eq!(captured.get_pixel(0, 0), Color::rgb(255, 0, 0));
+    assert_eq!(full.get_pixel(0, 0), Color::rgb(0, 0, 255));
+}
+
+#[test]
+fn hidden_root_snapshot_contains_the_same_clear_as_render() {
+    let mut app = App::headless(24, 18);
+    app.with_default_widgets();
+    let root = app.spawn_root().bg_color(Color::rgb(255, 0, 0)).id();
+    app.render().unwrap();
+    app.world.insert(root, crate::ui::Hidden);
+    let image = app.snapshot().unwrap().unwrap();
+    let expected = app.theme().resolve(crate::ui::ColorToken::Surface);
+    assert_eq!(image.get_pixel(0, 0), expected);
+    assert_eq!(image.get_pixel(23, 17), expected);
+    app.render().unwrap();
+    assert_eq!(
+        image.buf.as_slice(),
+        app.backend.framebuffer().buf.as_slice()
+    );
+}

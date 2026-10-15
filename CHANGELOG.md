@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `App::snapshot()` captures a complete rendered frame through the active renderer's readback interface, preserving pixel format and stride without adding an offscreen widget or a capture queue.
+
 ## [0.49.1] - 2026-10-15
 
 ### Fixed

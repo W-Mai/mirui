@@ -4,6 +4,9 @@ pub mod plugin;
 pub mod plugins;
 pub use model::ModelBuilder;
 
+#[cfg(test)]
+mod snapshot_tests;
+
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
@@ -1102,8 +1105,42 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// Render one frame
     #[mirui::trace_fn("frame.full")]
     pub fn render(&mut self) -> Result<(), crate::render::RenderError> {
+        self.render_frame(|_, _| Ok(())).map(|_| ())
+    }
+
+    /// Render and present one frame, returning its pixels before the renderer releases the target. The texture retains the backend's pixel format and stride. No root returns `Ok(None)`; unsupported readback returns `RenderError::Unsupported` without substituting another renderer.
+    ///
+    /// Runs the same preparation and hooks as [`Self::render`], without advancing systems or polling input. A readback failure still completes presentation and records the successfully drawn frame. Unlike [`Self::snapshot_widget`], this reads the frame target instead of requesting a component's offscreen output.
+    pub fn snapshot(
+        &mut self,
+    ) -> Result<Option<crate::render::texture::Texture<'static>>, crate::render::RenderError> {
+        self.render_frame(|renderer, viewport| {
+            let (width, height) = viewport.logical_size();
+            let area = Rect::new(0, 0, width, height);
+            renderer.prepare_readback(&area)?;
+            let texture = renderer
+                .sample_target_region(&area)?
+                .ok_or(crate::render::RenderError::BackendFailure)?;
+            if (texture.width, texture.height) != viewport.physical_size()
+                || !texture.valid_storage()
+            {
+                return Err(crate::render::RenderError::BackendFailure);
+            }
+            Ok(texture)
+        })
+    }
+
+    fn render_frame<R>(
+        &mut self,
+        finish: impl FnOnce(
+            &mut dyn Renderer,
+            &crate::types::Viewport,
+        ) -> Result<R, crate::render::RenderError>,
+    ) -> Result<Option<R>, crate::render::RenderError> {
         let _owner_scope = crate::core::reactive::OwnerGuard::enter(&mut self.world);
-        let Some(root) = self.root else { return Ok(()) };
+        let Some(root) = self.root else {
+            return Ok(None);
+        };
         self.prepare_text_layout()
             .map_err(|_| crate::render::RenderError::TextPreparation)?;
         let transform = self.backend.viewport();
@@ -1139,17 +1176,21 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 .resource::<Outputs<WidgetTexture>>()
                 .map(Outputs::begin_batch);
             let mut renderer = self.factory.make(&mut self.backend, &transform);
-            if root_hidden {
+            let result = if root_hidden {
                 clear_hidden_root(&self.world, &transform, &mut renderer);
                 Ok(())
             } else {
                 render_system::render(&self.world, root, &transform, &mut renderer)
+            };
+            result.map(|()| finish(&mut renderer, &transform))
+        };
+        let frame_output = match render_result {
+            Ok(output) => output,
+            Err(error) => {
+                self.world.mark_subtree_dirty(root);
+                return Err(error);
             }
         };
-        if let Err(error) = render_result {
-            self.world.mark_subtree_dirty(root);
-            return Err(error);
-        }
         self.dirty_plan.clear();
         let (lw, lh) = transform.logical_size();
         self.dirty_plan.rects.push(Rect::new(0, 0, lw, lh));
@@ -1192,7 +1233,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             }
         }
         self.sync_platform_input();
-        Ok(())
+        frame_output.map(Some)
     }
 
     fn finalize_frame_stats(&mut self) {
