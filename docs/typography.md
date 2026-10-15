@@ -331,6 +331,8 @@ Mixed-direction selections are split at visual-run and line boundaries. Exhauste
 
 SDL GPU run textures store straight RGB and glyph coverage separately. Transparent texels retain the text color so linear filtering does not introduce a dark fringe; text color alpha and draw opacity are applied during composition.
 
+SDL GPU posed coverage batches split geometry at the region's outer texel centers, preserving the source sampling scale while clamping interpolation to each glyph. Empty clips do not submit text geometry.
+
 `render::PosedGlyphs` pairs borrowed positioned glyphs and placement frames for
 render commands, Canvas calls, and scene replay. Construction rejects mismatched
 slice lengths without allocating.

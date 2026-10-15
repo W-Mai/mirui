@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - SDL GPU text caches preserve glyph coverage and color at transparent edges, avoiding dark fringes when composited or filtered.
 
+- SDL GPU posed glyphs retain their texel scale with region-clamped filtering. Empty text clips skip drawing instead of disabling clipping.
+
 ## [0.49.0] - 2026-10-14
 
 ### Added

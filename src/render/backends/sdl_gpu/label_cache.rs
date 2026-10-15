@@ -20,6 +20,8 @@ use sdl2::render::{Canvas as SdlCanvas, Texture as SdlTexture, TextureCreator};
 use sdl2::video::{Window, WindowContext};
 use sdl2_sys::{SDL_Color, SDL_FPoint, SDL_ScaleMode, SDL_Vertex};
 
+use super::sdl_pixel_rect;
+
 use crate::core::cache::{HasSize, LruCache, MaxSize, WithFactory};
 use crate::render::SwRenderer;
 use crate::render::canvas::Canvas as _;
@@ -195,7 +197,7 @@ impl LabelCache {
         opa: u8,
         viewport: Viewport,
     ) -> Result<(), RenderError> {
-        const GLYPHS_PER_BATCH: usize = 2_048;
+        const MAX_BATCH_INDICES: usize = 12_288;
 
         let requested_size = font.size.max(1);
         let raster_scale = viewport.scale() * transform.raster_scale();
@@ -259,7 +261,7 @@ impl LabelCache {
 
             let key = ScalarSurfaceKey::new(font, raster.surface);
             if active.map(|(active, _)| active) != Some(key)
-                || self.glyph_indices.len() / 6 >= GLYPHS_PER_BATCH
+                || self.glyph_indices.len() + 54 > MAX_BATCH_INDICES
             {
                 if let Some((key, surface)) = active.take() {
                     self.flush_scalar_batch(canvas, key, surface, clip, viewport)?;
@@ -307,14 +309,14 @@ impl LabelCache {
         color: Color,
         opa: u8,
         viewport: Viewport,
-    ) -> Option<([SDL_Vertex; 4], [i32; 6])> {
+    ) -> Option<([SDL_Vertex; 16], [i32; 54])> {
         let points = quad
             .transform
             .apply_rect(quad.rect)
             .map(|point| viewport.point_to_physical(point));
         let width = surface.width() as f32;
         let height = surface.height() as f32;
-        if width <= 0.0 || height <= 0.0 {
+        if width <= 0.0 || height <= 0.0 || region.width() == 0 || region.height() == 0 {
             return None;
         }
         let x0 = (region.x() as f32 + 0.5) / width;
@@ -327,23 +329,47 @@ impl LabelCache {
             b: color.b,
             a: ((u16::from(color.a) * u16::from(opa) + 127) / 255) as u8,
         };
-        let vertex = |point: Point, uv: [f32; 2]| SDL_Vertex {
-            position: SDL_FPoint {
-                x: point.x.to_f32(),
-                y: point.y.to_f32(),
-            },
-            color: tint,
-            tex_coord: SDL_FPoint { x: uv[0], y: uv[1] },
-        };
-        Some((
-            [
-                vertex(points[0], [x0, y0]),
-                vertex(points[1], [x1, y0]),
-                vertex(points[2], [x1, y1]),
-                vertex(points[3], [x0, y1]),
-            ],
-            [base, base + 1, base + 2, base, base + 2, base + 3],
-        ))
+        // Split at texel centers: interpolate at the original scale, then clamp the edge strips.
+        let columns = [
+            0.0,
+            0.5 / region.width() as f32,
+            1.0 - 0.5 / region.width() as f32,
+            1.0,
+        ];
+        let rows = [
+            0.0,
+            0.5 / region.height() as f32,
+            1.0 - 0.5 / region.height() as f32,
+            1.0,
+        ];
+        let us = [x0, x0, x1, x1];
+        let vs = [y0, y0, y1, y1];
+        let vertices = core::array::from_fn(|index| {
+            let column = index % 4;
+            let row = index / 4;
+            let position = |axis: fn(Point) -> Fixed| {
+                axis(points[0]).to_f32()
+                    + (axis(points[1]) - axis(points[0])).to_f32() * columns[column]
+                    + (axis(points[3]) - axis(points[0])).to_f32() * rows[row]
+            };
+            SDL_Vertex {
+                position: SDL_FPoint {
+                    x: position(|point| point.x),
+                    y: position(|point| point.y),
+                },
+                color: tint,
+                tex_coord: SDL_FPoint {
+                    x: us[column],
+                    y: vs[row],
+                },
+            }
+        });
+        let indices = core::array::from_fn(|index| {
+            let cell = index / 6;
+            let origin = base + (cell / 3 * 4 + cell % 3) as i32;
+            origin + [0, 1, 5, 0, 5, 4][index % 6]
+        });
+        Some((vertices, indices))
     }
 
     fn flush_scalar_batch(
@@ -357,6 +383,12 @@ impl LabelCache {
         if self.glyph_indices.is_empty() {
             return Ok(());
         }
+        let physical_clip = viewport.rect_to_physical(clip);
+        let Some(clip) = sdl_pixel_rect(&physical_clip, &physical_clip) else {
+            self.glyph_vertices.clear();
+            self.glyph_indices.clear();
+            return Ok(());
+        };
         let creator = &self.creator;
         let raster_buf = &mut self.scalar_buf;
         let Ok(handle) = self.scalar_cache.entry(key).or_insert_with(|ctor, key| {
@@ -373,11 +405,7 @@ impl LabelCache {
             self.glyph_indices.clear();
             return Err(RenderError::BackendFailure);
         };
-        let (x0, y0, x1, y1) = viewport.rect_to_physical(clip).pixel_bounds();
-        canvas.set_clip_rect(
-            (x1 > x0 && y1 > y0)
-                .then(|| sdl2::rect::Rect::new(x0, y0, (x1 - x0) as u32, (y1 - y0) as u32)),
-        );
+        canvas.set_clip_rect(clip);
         let rendered = unsafe {
             sdl2_sys::SDL_RenderGeometry(
                 canvas.raw(),
@@ -408,16 +436,8 @@ impl LabelCache {
         color: &Color,
         opa: u8,
     ) -> Result<(), RenderError> {
-        let (cx0, cy0, cx1, cy1) = clip.pixel_bounds();
-        let clip_rect = if cx1 > cx0 && cy1 > cy0 {
-            Some(sdl2::rect::Rect::new(
-                cx0,
-                cy0,
-                (cx1 - cx0) as u32,
-                (cy1 - cy0) as u32,
-            ))
-        } else {
-            None
+        let Some(clip_rect) = sdl_pixel_rect(clip, clip) else {
+            return Ok(());
         };
         let a = ((color.a as u16) * (opa as u16) / 255) as u8;
 
@@ -438,11 +458,7 @@ impl LabelCache {
             return Err(RenderError::BackendFailure);
         };
 
-        if let Some(sdl_clip) = clip_rect {
-            canvas.set_clip_rect(sdl_clip);
-        } else {
-            canvas.set_clip_rect(None);
-        }
+        canvas.set_clip_rect(clip_rect);
         let tint = SDL_Color {
             r: 255,
             g: 255,
@@ -667,6 +683,80 @@ mod tests {
     }
 
     #[test]
+    fn scalar_sampling_preserves_texel_scale_and_clamps_each_region() {
+        let surface = GlyphSurface::new(
+            &[0; 64],
+            8,
+            8,
+            8,
+            mirx::image::SampleLayout::A8,
+            mirx::types::ByteAlignment::ONE,
+            FontSurfaceId::new(1),
+        )
+        .unwrap();
+        for width in [1, 2, 4] {
+            let quad = crate::render::font::RasterQuad {
+                rect: Rect::new(0, 0, width, width),
+                transform: Transform::IDENTITY,
+            };
+            let region = mirx::image::Region::new(2, 2, width as u32, width as u32).unwrap();
+            let (vertices, _) = LabelCache::scalar_glyph_geometry(
+                0,
+                quad,
+                region,
+                surface,
+                Color::rgb(255, 255, 255),
+                255,
+                Viewport::new(20, 20, Fixed::ONE),
+            )
+            .unwrap();
+            for step in 0..=32 {
+                let position = width as f32 * step as f32 / 32.0;
+                let expected = (2.0 + position.clamp(0.5, width as f32 - 0.5)) / 8.0;
+                for vertical in [false, true] {
+                    let axis = |index: usize| {
+                        if vertical {
+                            (
+                                vertices[index * 4].position.y,
+                                vertices[index * 4].tex_coord.y,
+                            )
+                        } else {
+                            (vertices[index].position.x, vertices[index].tex_coord.x)
+                        }
+                    };
+                    let (left, right) = (0..3)
+                        .map(|index| (axis(index), axis(index + 1)))
+                        .find(|(left, right)| {
+                            right.0 > left.0 && position >= left.0 && position <= right.0
+                        })
+                        .unwrap();
+                    let actual =
+                        left.1 + (right.1 - left.1) * (position - left.0) / (right.0 - left.0);
+                    assert!(
+                        (actual - expected).abs() < 1e-6,
+                        "width={width}, position={position}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn empty_clips_do_not_become_unrestricted_sdl_clips() {
+        for rect in [
+            Rect::new(1, 2, 0, 3),
+            Rect::new(1, 2, 3, 0),
+            Rect::new(1, 2, -1, 3),
+        ] {
+            assert!(sdl_pixel_rect(&rect, &rect).is_none());
+        }
+        assert_eq!(
+            sdl_pixel_rect(&Rect::new(-1, 2, 3, 4), &Rect::new(-1, 2, 3, 4)).unwrap(),
+            sdl2::rect::Rect::new(-1, 2, 3, 4)
+        );
+    }
+
+    #[test]
     fn scalar_geometry_keeps_pose_region_tint_and_display_scale() {
         let surface = GlyphSurface::new(
             &[0; 64],
@@ -695,13 +785,14 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(indices, [4, 5, 6, 4, 6, 7]);
+        assert_eq!(&indices[..6], &[4, 5, 9, 4, 9, 8]);
+        assert!(indices.into_iter().all(|index| (4..20).contains(&index)));
         assert_eq!(
             (vertices[0].position.x, vertices[0].position.y),
             (12.0, 18.0)
         );
         assert_eq!(
-            (vertices[2].position.x, vertices[2].position.y),
+            (vertices[15].position.x, vertices[15].position.y),
             (20.0, 24.0)
         );
         assert_eq!(
@@ -709,7 +800,7 @@ mod tests {
             (0.3125, 0.1875)
         );
         assert_eq!(
-            (vertices[2].tex_coord.x, vertices[2].tex_coord.y),
+            (vertices[15].tex_coord.x, vertices[15].tex_coord.y),
             (0.6875, 0.4375)
         );
         assert_eq!(
