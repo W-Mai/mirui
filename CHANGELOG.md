@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - SDL GPU posed glyphs retain their texel scale with region-clamped filtering. Empty text clips skip drawing instead of disabling clipping.
 
+- Standard-error logging writes directly to the output stream without allocating a test capture buffer.
+
 ## [0.49.0] - 2026-10-14
 
 ### Added

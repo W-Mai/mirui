@@ -292,7 +292,56 @@ mod tests {
     use alloc::string::{String, ToString};
     use alloc::sync::Arc;
     use core::fmt::Write;
-    use std::sync::Mutex;
+    use std::sync::{Mutex, MutexGuard};
+
+    struct TestScope {
+        _lock: MutexGuard<'static, ()>,
+        level: Level,
+    }
+
+    impl TestScope {
+        fn new() -> Self {
+            Self {
+                _lock: TEST_MUTEX.lock().unwrap(),
+                level: max_level(),
+            }
+        }
+    }
+
+    impl Drop for TestScope {
+        fn drop(&mut self) {
+            clear_sinks();
+            set_max_level(self.level);
+        }
+    }
+
+    struct ThreadSink<S> {
+        owner: std::thread::ThreadId,
+        sink: S,
+    }
+
+    impl<S: Sink> Sink for ThreadSink<S> {
+        fn enabled(&self, level: Level, target: &'static str) -> bool {
+            std::thread::current().id() == self.owner && self.sink.enabled(level, target)
+        }
+
+        fn emit(&self, event: &Event<'_>) {
+            self.sink.emit(event);
+        }
+
+        fn emit_span(&self, span: &SpanRecord) {
+            if std::thread::current().id() == self.owner {
+                self.sink.emit_span(span);
+            }
+        }
+    }
+
+    fn install_test_sink(sink: impl Sink + 'static) {
+        install_sink(Box::new(ThreadSink {
+            owner: std::thread::current().id(),
+            sink,
+        }));
+    }
 
     struct CaptureSink {
         rows: Arc<Mutex<Vec<String>>>,
@@ -314,8 +363,24 @@ mod tests {
     fn install_capture() -> Arc<Mutex<Vec<String>>> {
         clear_sinks();
         let rows: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-        install_sink(Box::new(CaptureSink { rows: rows.clone() }));
+        install_test_sink(CaptureSink { rows: rows.clone() });
         rows
+    }
+
+    #[test]
+    fn capture_does_not_observe_or_allocate_on_other_test_threads() {
+        let _scope = TestScope::new();
+        set_max_level(Level::Info);
+        let rows = install_capture();
+        let allocations = std::thread::spawn(|| {
+            crate::test_support::tracked_allocations(|| {
+                crate::warn!("unrelated test warning");
+            })
+        })
+        .join()
+        .unwrap();
+        assert!(rows.lock().unwrap().is_empty());
+        assert_eq!(allocations, 0);
     }
 
     #[test]
@@ -333,7 +398,7 @@ mod tests {
 
     #[test]
     fn info_reaches_sink() {
-        let _lock = TEST_MUTEX.lock().unwrap();
+        let _scope = TestScope::new();
         set_max_level(Level::Info);
         let rows = install_capture();
         crate::info!("hello {}", 42);
@@ -345,7 +410,7 @@ mod tests {
 
     #[test]
     fn debug_gated_by_max_level() {
-        let _lock = TEST_MUTEX.lock().unwrap();
+        let _scope = TestScope::new();
         set_max_level(Level::Info);
         let rows = install_capture();
         crate::debug!("shhh {}", 7);
@@ -357,7 +422,7 @@ mod tests {
 
     #[test]
     fn filter_miss_short_circuits_args() {
-        let _lock = TEST_MUTEX.lock().unwrap();
+        let _scope = TestScope::new();
         set_max_level(Level::Error);
         install_capture();
         let mut side_effect = 0;
@@ -370,7 +435,7 @@ mod tests {
 
     #[test]
     fn debug_format_works() {
-        let _lock = TEST_MUTEX.lock().unwrap();
+        let _scope = TestScope::new();
         set_max_level(Level::Info);
         let rows = install_capture();
         let v = alloc::vec![1u32, 2, 3];
@@ -381,7 +446,7 @@ mod tests {
 
     #[test]
     fn custom_target() {
-        let _lock = TEST_MUTEX.lock().unwrap();
+        let _scope = TestScope::new();
         set_max_level(Level::Info);
         let rows = install_capture();
         crate::warn!(target: "mirui::custom", "x");
@@ -395,13 +460,13 @@ mod tests {
 
     #[test]
     fn dispatch_fans_out_to_all_sinks() {
-        let _lock = TEST_MUTEX.lock().unwrap();
+        let _scope = TestScope::new();
         set_max_level(Level::Info);
         clear_sinks();
         let a: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let b: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-        install_sink(Box::new(CaptureSink { rows: a.clone() }));
-        install_sink(Box::new(CaptureSink { rows: b.clone() }));
+        install_test_sink(CaptureSink { rows: a.clone() });
+        install_test_sink(CaptureSink { rows: b.clone() });
         crate::info!("fan-out {}", 1);
         assert_eq!(a.lock().unwrap().len(), 1);
         assert_eq!(b.lock().unwrap().len(), 1);
@@ -409,7 +474,7 @@ mod tests {
 
     #[test]
     fn span_dispatch_reaches_sinks() {
-        let _lock = TEST_MUTEX.lock().unwrap();
+        let _scope = TestScope::new();
         set_max_level(Level::Info);
 
         struct SpanCapture(Arc<Mutex<Vec<(&'static str, u64)>>>);
@@ -422,7 +487,7 @@ mod tests {
 
         clear_sinks();
         let rows: Arc<Mutex<Vec<(&'static str, u64)>>> = Arc::new(Mutex::new(Vec::new()));
-        install_sink(Box::new(SpanCapture(rows.clone())));
+        install_test_sink(SpanCapture(rows.clone()));
 
         crate::core::perf::set_enabled(true);
         {
@@ -438,7 +503,7 @@ mod tests {
 
     #[test]
     fn sink_enabled_gate_skips_emit() {
-        let _lock = TEST_MUTEX.lock().unwrap();
+        let _scope = TestScope::new();
         set_max_level(Level::Trace);
 
         struct MinInfo(Arc<Mutex<Vec<String>>>);
@@ -456,7 +521,7 @@ mod tests {
 
         clear_sinks();
         let rows: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-        install_sink(Box::new(MinInfo(rows.clone())));
+        install_test_sink(MinInfo(rows.clone()));
         crate::info!("keep");
         crate::debug!("drop");
         let captured = rows.lock().unwrap().clone();
