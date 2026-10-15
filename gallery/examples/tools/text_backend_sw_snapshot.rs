@@ -6,9 +6,8 @@ use std::path::PathBuf;
 use mirui::prelude::*;
 use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
-use mirui::types::Viewport;
 
-use backend_snapshot_support::{capture, write_png};
+use backend_snapshot_support::write_png;
 use gallery::backend_parity::{HEIGHT, WIDTH, build};
 
 const SCALE: u16 = 2;
@@ -20,16 +19,17 @@ fn main() {
         .unwrap_or_else(|| PathBuf::from(".local/screenshots/text-parity-sw.png"));
     let physical_width = WIDTH * SCALE;
     let physical_height = HEIGHT * SCALE;
-    let backend = FramebufSurface::with_format(
+    let backend = FramebufSurface::with_scale_and_format(
         physical_width,
         physical_height,
+        Fixed::from(SCALE),
         ColorFormat::RGBA8888,
         |_, _| {},
     );
     let mut app = App::new(backend);
-    let root = build(&mut app);
-    let viewport = Viewport::new(physical_width, physical_height, Fixed::from(SCALE));
-    let texture = capture(&mut app, root, viewport, Rect::new(0, 0, WIDTH, HEIGHT))
+    build(&mut app);
+    let texture = app
+        .snapshot()
         .expect("software draw")
         .expect("software framebuffer readback");
     write_png(&path, &texture);

@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use mirui::prelude::*;
 use mirui::surface::sdl_gpu::{SdlGpuFactory, SdlGpuSurface};
 
-use backend_snapshot_support::{capture, write_png};
+use backend_snapshot_support::write_png;
 use gallery::backend_parity::{HEIGHT, WIDTH, build};
 
 fn main() {
@@ -16,9 +16,9 @@ fn main() {
         .unwrap_or_else(|| PathBuf::from(".local/screenshots/text-parity-sdl.png"));
     let backend = SdlGpuSurface::new_with_vsync("mirui text parity", WIDTH, HEIGHT, false);
     let mut app = App::with_factory(backend, SdlGpuFactory::new());
-    let root = build(&mut app);
-    let viewport = app.backend.display_info().viewport();
-    let texture = capture(&mut app, root, viewport, Rect::new(0, 0, WIDTH, HEIGHT))
+    build(&mut app);
+    let texture = app
+        .snapshot()
         .expect("SDL draw")
         .expect("SDL framebuffer readback");
     write_png(&path, &texture);

@@ -9,7 +9,7 @@ use mirui::render::ProjectiveFallback;
 use mirui::render::sdl_gpu::SdlGpuFactory;
 use mirui::surface::sdl_gpu::SdlGpuSurface;
 
-use backend_snapshot_support::{capture, write_png};
+use backend_snapshot_support::write_png;
 use gallery::backend_parity::{HEIGHT, WIDTH};
 use projective_demo_fixture::{Demo, build};
 
@@ -26,10 +26,10 @@ fn main() {
     let factory = SdlGpuFactory::new()
         .with_projective_fallback(ProjectiveFallback::new(vec![0; 2 * 1024 * 1024]));
     let mut app = App::with_factory(backend, factory);
-    let root = build(&mut app, demo, frames);
-    let viewport = app.backend.display_info().viewport();
+    build(&mut app, demo, frames);
 
-    let texture = capture(&mut app, root, viewport, Rect::new(0, 0, WIDTH, HEIGHT))
+    let texture = app
+        .snapshot()
         .expect("SDL GPU draw")
         .expect("SDL GPU framebuffer readback");
     write_png(&path, &texture);

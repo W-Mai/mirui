@@ -8,7 +8,7 @@ use mirui::prelude::*;
 use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
 
-use backend_snapshot_support::{capture, write_png};
+use backend_snapshot_support::write_png;
 use gallery::backend_parity::{HEIGHT, WIDTH};
 use projective_demo_fixture::{Demo, build};
 
@@ -31,10 +31,10 @@ fn main() {
         |_, _| {},
     );
     let mut app = App::new(backend);
-    let root = build(&mut app, demo, frames);
-    let viewport = app.backend.display_info().viewport();
+    build(&mut app, demo, frames);
 
-    let texture = capture(&mut app, root, viewport, Rect::new(0, 0, WIDTH, HEIGHT))
+    let texture = app
+        .snapshot()
         .expect("software draw")
         .expect("software framebuffer readback");
     write_png(&path, &texture);

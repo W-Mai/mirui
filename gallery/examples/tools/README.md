@@ -22,7 +22,18 @@ For a regression check, capture before and after a change with identical argumen
 
 Scene construction belongs in `#[compose]` functions called through `App::compose`. Tools that inspect render internals keep those diagnostics outside the composition body.
 
-Tools that prepare layout directly use `try_update_layout` and stop on failure before drawing or writing an image. Shared backend capture reports this as `RenderError::TextLayout`.
+Tools that prepare layout directly use `try_update_layout` and stop on failure before drawing or writing an image. Text and projective backend snapshots use `App::snapshot()`, including normal frame preparation, presentation, and painted-state tracking. Readback occurs before presentation; unsupported readback returns an error instead of using another renderer.
+
+Capture the same text scene with the software, SDL-GPU, or native WGPU renderer:
+
+```sh
+cargo run -p gallery --release --example text_backend_sw_snapshot --no-default-features --features snapshot -- .local/screenshots/text-sw.png
+cargo run -p gallery --release --example text_backend_sdl_snapshot --no-default-features --features sdl-gpu -- .local/screenshots/text-sdl.png
+cargo run -p gallery --release --example text_backend_wgpu_snapshot --no-default-features --features wgpu -- .local/screenshots/text-wgpu.png
+cargo run -p gallery --release --example text_backend_compare --no-default-features --features snapshot -- .local/screenshots/text-sw.png .local/screenshots/text-sdl.png
+```
+
+GPU tools open native windows and require a working display server. Compare images at the same physical dimensions; the software fixture uses 2× scale. These PNG tools accept packed RGBA8888 textures, while the App API preserves the renderer's actual pixel format and stride.
 
 Projective snapshots advance the selected animation with a fixed 16 ms step per frame. The software capture accepts an output path, frame count, and demo name (`flip_card`, `image_flip`, `book_flip`, or `cover_flow`):
 
