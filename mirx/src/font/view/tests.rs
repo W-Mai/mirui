@@ -174,7 +174,7 @@ fn one_face_binds_multiple_representations_and_shared_raw_encoded_storage() {
             &[7; 4]
         );
     }
-    let FontGlyphs::Encoded(glyphs) = view.glyphs(2).unwrap() else {
+    let FontGlyphs::Encoded(glyphs) = chosen.glyphs() else {
         panic!("encoded");
     };
     let mut slots = [None];
@@ -188,6 +188,30 @@ fn one_face_binds_multiple_representations_and_shared_raw_encoded_storage() {
     plan.decode_into(&mut output, &mut [0; 8]).unwrap();
     assert_eq!(output, [42; 4]);
     assert!(view.glyphs(usize::MAX).is_none());
+}
+
+#[test]
+fn retained_representations_bind_their_own_storage() {
+    let first = Fixture::new().bytes();
+    let mut other = Fixture::new();
+    other.data.fill(19);
+    let second = other.bytes();
+    let a = FontView::open(&first, &PayloadLimits::EMBEDDED)
+        .unwrap()
+        .select(FontRepresentationRequest::new(12))
+        .unwrap();
+    let b = FontView::open(&second, &PayloadLimits::EMBEDDED)
+        .unwrap()
+        .select(FontRepresentationRequest::new(16))
+        .unwrap();
+    for (representation, expected) in [(a, 7), (b, 19), (a, 7)] {
+        let FontGlyphs::Raw(storage) = representation.glyphs() else {
+            panic!("RAW");
+        };
+        assert_eq!(storage.as_bytes(), &[expected; 8]);
+        assert_eq!(storage.map().len(), representation.map().len());
+        assert!(storage.get(2).is_none());
+    }
 }
 
 #[test]
@@ -268,6 +292,11 @@ fn referenced_raw_alignment_checks_file_position_not_slice_alignment() {
         .offset();
     let base = (64 - offset % 64) % 64;
     let view = FontView::open_at(&bytes, base, &PayloadLimits::EMBEDDED).unwrap();
+    let FontGlyphs::Raw(storage) = view.representation(0).unwrap().glyphs() else {
+        panic!("RAW");
+    };
+    assert!(storage.file_address_is_aligned(base + offset));
+    assert_eq!(storage.memory_layout().stride(), 64);
     assert_eq!(
         view.input_alignment().map(crate::ByteAlignment::get),
         Ok(64)

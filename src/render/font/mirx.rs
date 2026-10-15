@@ -357,7 +357,7 @@ impl FontProvider for MirxFontProvider {
         let mirx_glyph = mirx::font::GlyphId::new(glyph.value());
         let ordinal = self.face.raster_ordinal(mirx_glyph)?;
         let metric = selected.raster_metrics(mirx_glyph)?;
-        let (plane, region) = match self.face.glyphs(selected.index())? {
+        let (plane, region) = match selected.glyphs() {
             FontGlyphs::Raw(storage) => {
                 let raster = storage.get(ordinal)?;
                 (raster.storage().plane(0)?, raster.region())

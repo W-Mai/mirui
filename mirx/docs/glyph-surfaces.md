@@ -46,7 +46,9 @@ assert_eq!(surface.map().cell_extent(), Some((2, 2)));
 
 Complete `FontView` validation checks direct directory ordinals, expected kinds and exact REQUIRED flags in constant space. It then establishes body validity, complete face cardinality and storage binding without conflating those checks with DATA integrity. Referenced immutable sections may be shared by several records. RAW binding requires one exact 24-byte PLANES record when present; implicit encoded storage requires exactly one coding record when groups are absent.
 
-`FontView::glyphs` binds matching scalar maps to the referenced RAW PLANES and DATA through `RawGlyphs`. It requires identical packing and cell/atlas dimensions, parses the exact physical record and checks the complete DATA span, including shared cell-alignment gaps. Encoded storage and unsupported scalar layouts are rejected. The returned storage borrows the original DATA and reuses existing glyph lookup and crop transfer.
+`FontView::glyphs` resolves a representation by index and binds its sample storage. Repeated reads can retain `FontView::select`'s result and call `FontRepresentationView::glyphs` to reuse its validated atlas map without scanning the map again. Both paths return borrowed RAW or encoded storage tied to that representation's source media; neither copies sample bytes or allocates a metadata array.
+
+RAW binding requires identical packing and cell/atlas dimensions, parses the exact physical record and checks the complete DATA span, including shared cell-alignment gaps. Unsupported scalar layouts are rejected. The returned `RawGlyphs` borrows the original DATA and reuses existing glyph lookup and crop transfer.
 
 This low-level binding does not checksum samples. Verify the complete face or selected DATA range before trusted consumption; repeated glyph binding must not silently rescan all representations. Source-address and file-address checks remain explicit on `RawGlyphs`. Unknown physical flags remain inspectable, while row access and sample copying reject unsupported storage interpretation.
 

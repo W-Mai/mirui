@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `App::snapshot()` captures a complete rendered frame through the active renderer's readback interface, preserving pixel format and stride without adding an offscreen widget or a capture queue.
 
+### Performance
+
+- MIRX font rendering reuses the selected representation's validated atlas map instead of reopening and scanning it for each glyph.
+
 ## [0.49.1] - 2026-10-15
 
 ### Fixed

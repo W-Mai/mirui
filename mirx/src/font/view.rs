@@ -148,7 +148,7 @@ impl<'a> FontView<'a> {
                     ))
                     .map_err(FontError::Work)?;
             }
-            let storage = view.bind(representation)?;
+            let storage = representation.bind()?;
             view.check_file(index, record, storage)?;
         }
         for (index, section) in media.sections().enumerate() {
@@ -215,7 +215,7 @@ impl<'a> FontView<'a> {
     /// Encoded sample requests verify their declared integrity through decode plans.
     pub fn glyphs(self, representation: usize) -> Option<FontGlyphs<'a>> {
         self.representation(representation)
-            .map(|value| self.bind(value).expect("admitted immutable storage"))
+            .map(FontRepresentationView::glyphs)
     }
 
     /// Verifies complete DATA coverage without decoding samples.
@@ -258,7 +258,7 @@ impl<'a> FontView<'a> {
             let representation = self
                 .surface_representation(index)
                 .expect("referenced surface");
-            if let FontGlyphs::Encoded(glyphs) = self.bind(representation)? {
+            if let FontGlyphs::Encoded(glyphs) = representation.bind()? {
                 glyphs
                     .preflight_in(preflight)
                     .map_err(|error| FontError::EncodedSurface { index, error })?;
@@ -273,10 +273,10 @@ impl<'a> FontView<'a> {
     pub fn input_alignment(self) -> Result<ByteAlignment, FontError> {
         let mut alignment = ByteAlignment::ONE;
         for index in 0..self.surface_count() {
-            let value = self.bind(
-                self.surface_representation(index)
-                    .expect("referenced surface"),
-            )?;
+            let value = self
+                .surface_representation(index)
+                .expect("referenced surface")
+                .bind()?;
             alignment = alignment.max(match value {
                 FontGlyphs::Raw(glyphs) => glyphs.memory_layout().required_alignment(),
                 FontGlyphs::Encoded(glyphs) => glyphs
@@ -336,10 +336,9 @@ impl<'a> FontView<'a> {
             placed.check_file(
                 index,
                 self.surface_record(index),
-                self.bind(
-                    self.surface_representation(index)
-                        .expect("referenced surface"),
-                )?,
+                self.surface_representation(index)
+                    .expect("referenced surface")
+                    .bind()?,
             )?;
         }
         Ok(offset)
@@ -347,10 +346,10 @@ impl<'a> FontView<'a> {
 
     fn alignment_constraint(self, index: usize) -> Result<Option<(ByteAlignment, u32)>, FontError> {
         let record = self.surface_record(index);
-        let glyphs = self.bind(
-            self.surface_representation(index)
-                .expect("referenced surface"),
-        )?;
+        let glyphs = self
+            .surface_representation(index)
+            .expect("referenced surface")
+            .bind()?;
         let data = self
             .media
             .get(usize::from(record.data_section()))
@@ -462,6 +461,8 @@ impl<'a> FontView<'a> {
             surface,
             map,
             metadata: self.metadata,
+            media: self.media,
+            file_offset: self.file_offset,
         }))
     }
 
@@ -487,25 +488,6 @@ impl<'a> FontView<'a> {
             .iter()
             .position(|record| usize::from(record.surface_index()) == index)
             .and_then(|index| self.representation(index))
-    }
-
-    fn bind(self, representation: FontRepresentationView<'a>) -> Result<FontGlyphs<'a>, FontError> {
-        let surface = representation.surface();
-        let index = usize::from(representation.record().surface_index());
-        if surface.codings_section().is_some() {
-            let mut glyphs = surface
-                .encoded_glyphs(self.media, representation.map())
-                .map_err(|error| FontError::Encoded { index, error })?;
-            if let Some(offset) = self.file_offset {
-                glyphs = glyphs.with_file_offset(offset);
-            }
-            Ok(FontGlyphs::Encoded(glyphs))
-        } else {
-            surface
-                .raw_glyphs(self.media, representation.map())
-                .map(FontGlyphs::Raw)
-                .map_err(|error| FontError::Surface { index, error })
-        }
     }
 
     fn check_file(
@@ -553,6 +535,8 @@ pub struct FontRepresentationView<'a> {
     surface: GlyphSurfaceRecord,
     map: GlyphMap<'a>,
     metadata: FontMetadata<'a>,
+    media: MediaPayload<'a>,
+    file_offset: Option<u32>,
 }
 
 impl<'a> FontRepresentationView<'a> {
@@ -570,6 +554,30 @@ impl<'a> FontRepresentationView<'a> {
     }
     pub const fn map(self) -> GlyphMap<'a> {
         self.map
+    }
+
+    /// Binds sample storage using this representation's admitted map without reopening the atlas.
+    pub fn glyphs(self) -> FontGlyphs<'a> {
+        self.bind().expect("admitted immutable storage")
+    }
+
+    fn bind(self) -> Result<FontGlyphs<'a>, FontError> {
+        let index = usize::from(self.record.surface_index());
+        if self.surface.codings_section().is_some() {
+            let mut glyphs = self
+                .surface
+                .encoded_glyphs(self.media, self.map)
+                .map_err(|error| FontError::Encoded { index, error })?;
+            if let Some(offset) = self.file_offset {
+                glyphs = glyphs.with_file_offset(offset);
+            }
+            Ok(FontGlyphs::Encoded(glyphs))
+        } else {
+            self.surface
+                .raw_glyphs(self.media, self.map)
+                .map(FontGlyphs::Raw)
+                .map_err(|error| FontError::Surface { index, error })
+        }
     }
     pub fn advance(self, glyph_id: GlyphId) -> Option<crate::types::Fixed> {
         self.metadata.advance(glyph_id)
