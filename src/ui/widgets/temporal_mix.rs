@@ -7,7 +7,7 @@
 use crate::ecs::{Entity, World};
 use crate::render::PlaneLayout;
 use crate::render::command::{CompositeMode, DrawCommand};
-use crate::render::texture::{AlphaMode, ColorFormat, Texture};
+use crate::render::texture::{AlphaMode, ColorFormat, TexturePixels, TexturePixelsMut};
 use crate::types::{Fixed, Point, Rect};
 use crate::ui::offscreen::WidgetTexture;
 use crate::ui::outputs::Outputs;
@@ -50,12 +50,38 @@ fn temporal_mix_render(
         return;
     };
     let previous = outputs.previous(entity);
-    let previous = previous.as_ref().map(|output| output.texture());
+    let previous = previous
+        .as_ref()
+        .map(|output| output.texture())
+        .filter(|previous| {
+            temporal.mix != 0
+                && previous.width() == curr.width()
+                && previous.height() == curr.height()
+                && previous.format() == curr.format()
+        });
     let rect = paint.rect();
     paint.with_workspace(layout, |texture, paint| {
         texture.alpha_mode = AlphaMode::Blend;
         texture.transient = true;
-        let unfinished = mix_into(texture, curr, previous, temporal.mix);
+        let Some(source) = paint.read_pixels(curr) else {
+            return;
+        };
+        let previous = match previous {
+            Some(texture) => {
+                let Some(pixels) = paint.read_pixels(texture) else {
+                    return;
+                };
+                Some(pixels)
+            }
+            None => None,
+        };
+        let unfinished = match texture.pixels_mut() {
+            Ok(mut pixels) => mix_into(&mut pixels, &source, previous.as_ref(), temporal.mix),
+            Err(error) => {
+                paint.fail(error);
+                return;
+            }
+        };
         paint.draw(&DrawCommand::Blit {
             pos: Point::new(rect.x, rect.y),
             size: Point::new(rect.w, rect.h),
@@ -86,23 +112,23 @@ fn temporal_measurement(
     })
 }
 
-fn mix_into(dst: &mut Texture, source: &Texture, previous: Option<&Texture>, mix: u8) -> bool {
-    let previous = previous.filter(|previous| {
-        previous.width == source.width
-            && previous.height == source.height
-            && previous.format == source.format
-    });
-    let row_bytes = usize::from(source.width) * 4;
-    let dst_stride = dst.stride;
-    let dst = dst.buf.as_mut_slice();
-    let source_buf = source.buf.as_slice();
+fn mix_into(
+    dst: &mut TexturePixelsMut<'_>,
+    source: &TexturePixels<'_>,
+    previous: Option<&TexturePixels<'_>>,
+    mix: u8,
+) -> bool {
+    let row_bytes = usize::from(source.width()) * 4;
+    let dst_stride = dst.stride();
+    let dst = dst.bytes_mut();
+    let source_buf = source.bytes();
     let mut unfinished = false;
-    for y in 0..usize::from(source.height) {
-        let target = &source_buf[y * source.stride..][..row_bytes];
+    for y in 0..usize::from(source.height()) {
+        let target = &source_buf[y * source.stride()..][..row_bytes];
         let row = &mut dst[y * dst_stride..][..row_bytes];
         match previous {
             Some(previous) if mix != 0 => {
-                let old = &previous.buf.as_slice()[y * previous.stride..][..row_bytes];
+                let old = &previous.bytes()[y * previous.stride()..][..row_bytes];
                 if mix == 255 {
                     row.copy_from_slice(old);
                     continue;
@@ -132,6 +158,7 @@ pub fn view() -> View {
 mod tests {
     use super::*;
     use crate::prelude::*;
+    use crate::render::texture::Texture;
     use crate::surface::FramebufferAccess;
 
     type TestApp =
@@ -684,7 +711,12 @@ mod tests {
                 Texture::new(&mut bytes, 2, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
             dst.stride = 20;
             assert_eq!(
-                mix_into(&mut dst, &source, Some(&previous), mix),
+                mix_into(
+                    &mut dst.pixels_mut().unwrap(),
+                    &source.read_pixels().unwrap(),
+                    Some(&previous.read_pixels().unwrap()),
+                    mix
+                ),
                 unfinished
             );
             let pixels = dst.buf.as_slice();

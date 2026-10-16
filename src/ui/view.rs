@@ -13,7 +13,7 @@ use crate::render::path::Path;
 use crate::render::raster::FillRule;
 use crate::render::renderer::{DrawRequest, RenderError, Renderer, TextRunIdentity};
 use crate::render::scratch::PlaneLayout;
-use crate::render::texture::Texture;
+use crate::render::texture::{Texture, TexturePixels};
 use crate::types::{Point, Rect, Transform};
 use crate::ui::Style;
 use crate::ui::outputs::workspace::PaintWorkspace;
@@ -119,6 +119,23 @@ impl<'frame> PaintCtx<'frame> {
             return false;
         };
         workspace.with_texture(layout, |texture| body(texture, self))
+    }
+
+    /// Borrow source pixels and retain any read failure for the render walker. The pixels borrow the texture, not this paint context.
+    pub fn read_pixels<'texture>(
+        &mut self,
+        texture: &'texture Texture<'_>,
+    ) -> Option<TexturePixels<'texture>> {
+        if self.error.is_some() {
+            return None;
+        }
+        match texture.read_pixels() {
+            Ok(pixels) => Some(pixels),
+            Err(error) => {
+                self.fail(error);
+                None
+            }
+        }
     }
 
     pub fn rect(&self) -> Rect {
@@ -3567,6 +3584,62 @@ mod tests {
             assert_eq!(paint.error(), Some(RenderError::InvalidScope));
             assert_eq!(renderer.submissions, 0);
         }
+    }
+
+    #[test]
+    fn source_pixels_borrow_texture_and_latch_errors_before_draw() {
+        struct DrawCounter(usize);
+        impl Renderer for DrawCounter {
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                self.0 += 1;
+                Ok(())
+            }
+            fn flush(&mut self) -> Result<(), RenderError> {
+                Ok(())
+            }
+        }
+        let bytes = [0u8; 16];
+        let source =
+            Texture::from_ref(&bytes, 2, 2, crate::render::texture::ColorFormat::RGBA8888).unwrap();
+        let mut invalid =
+            Texture::from_ref(&bytes, 2, 2, crate::render::texture::ColorFormat::RGBA8888).unwrap();
+        invalid.stride = 32;
+        let style = Style::default();
+        let rect = Rect::new(0, 0, 2, 2);
+        let command = DrawCommand::Fill {
+            area: rect,
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: crate::types::Color::rgb(10, 20, 30),
+            radius: Fixed::ZERO,
+            opa: 255,
+        };
+        let mut renderer = DrawCounter(0);
+        let mut paint = PaintCtx::new(
+            &mut renderer,
+            &style,
+            &rect,
+            &rect,
+            Transform::IDENTITY,
+            None,
+            WidgetState::Enabled,
+        );
+        assert_eq!(
+            tracked_allocations(|| {
+                let pixels = paint.read_pixels(&source).unwrap();
+                paint.draw(&command);
+                assert_eq!(pixels.bytes().as_ptr(), bytes.as_ptr());
+                assert_eq!(paint.error(), None);
+                assert!(paint.read_pixels(&invalid).is_none());
+                assert_eq!(paint.error(), Some(RenderError::InvalidTexture));
+                paint.fail(RenderError::BackendFailure);
+                assert!(paint.read_pixels(&source).is_none());
+                paint.draw(&command);
+                assert_eq!(paint.error(), Some(RenderError::InvalidTexture));
+            }),
+            0
+        );
+        assert_eq!(renderer.0, 1);
     }
 
     #[test]

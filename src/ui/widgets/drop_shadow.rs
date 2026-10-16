@@ -2,7 +2,7 @@ use crate::ecs::{Entity, World};
 use crate::render::PlaneLayout;
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::sw::blur::{alpha_for_radius, iir_blur_inplace};
-use crate::render::texture::{AlphaMode, ColorFormat, Texture};
+use crate::render::texture::{AlphaMode, ColorFormat, TexturePixelsMut};
 use crate::types::{Color, Fixed, Fixed64, Point, Rect};
 use crate::ui::offscreen::{WidgetTexture, WidgetTextureRead};
 use crate::ui::outputs::Outputs;
@@ -201,25 +201,20 @@ fn effect_geometry(
     Some((plane, bounds))
 }
 
-fn blur_effect(
-    texture: &mut Texture<'_>,
-    alpha: (Fixed, Fixed),
-) -> Result<(), crate::render::RenderError> {
-    let width = texture.width;
-    let height = texture.height;
-    let mut pixels = texture.pixels_mut()?;
+fn blur_effect(pixels: &mut TexturePixelsMut<'_>, alpha: (Fixed, Fixed)) {
+    let width = pixels.width();
+    let height = pixels.height();
     if alpha.0 == alpha.1 {
         let bounds = Rect::new(0, 0, width, height);
-        iir_blur_inplace(&mut pixels, alpha.0, bounds);
+        iir_blur_inplace(pixels, alpha.0, bounds);
     } else {
         for y in 0..height {
-            iir_blur_inplace(&mut pixels, alpha.0, Rect::new(0, y, width, 1));
+            iir_blur_inplace(pixels, alpha.0, Rect::new(0, y, width, 1));
         }
         for x in 0..width {
-            iir_blur_inplace(&mut pixels, alpha.1, Rect::new(x, 0, 1, height));
+            iir_blur_inplace(pixels, alpha.1, Rect::new(x, 0, 1, height));
         }
     }
-    Ok(())
 }
 
 fn render_drop_effect(
@@ -247,24 +242,33 @@ fn render_drop_effect(
     paint.with_workspace(plane.layout, |work, paint| {
         work.alpha_mode = AlphaMode::Blend;
         work.transient = true;
-        let dst_stride = work.stride;
-        let src_stride = src.stride;
-        let buf = work.buf.as_mut_slice();
+        let Some(source) = paint.read_pixels(src) else {
+            return;
+        };
+        let mut pixels = match work.pixels_mut() {
+            Ok(pixels) => pixels,
+            Err(error) => {
+                paint.fail(error);
+                return;
+            }
+        };
+        let width = pixels.width();
+        let height = pixels.height();
+        let dst_stride = pixels.stride();
+        let src_stride = source.stride();
+        let buf = pixels.bytes_mut();
         buf.fill(0);
-        for y in 0..usize::from(src.height) {
+        for y in 0..usize::from(source.height()) {
             let si = y * src_stride;
             let di =
                 (y + usize::from(plane.padding.1)) * dst_stride + usize::from(plane.padding.0) * 4;
-            let copy_len = usize::from(src.width) * 4;
-            buf[di..di + copy_len].copy_from_slice(&src.buf.as_slice()[si..si + copy_len]);
+            let copy_len = usize::from(source.width()) * 4;
+            buf[di..di + copy_len].copy_from_slice(&source.bytes()[si..si + copy_len]);
         }
-        if let Err(error) = blur_effect(work, plane.alpha) {
-            paint.fail(error);
-            return;
-        }
-        let buf = work.buf.as_mut_slice();
-        for y in 0..usize::from(work.height) {
-            for x in 0..usize::from(work.width) {
+        blur_effect(&mut pixels, plane.alpha);
+        let buf = pixels.bytes_mut();
+        for y in 0..usize::from(height) {
+            for x in 0..usize::from(width) {
                 let i = y * dst_stride + x * 4;
                 let a = buf[i + 3] as u32;
                 let tinted_a = (a * opacity as u32 / 255).min(255) as u8;

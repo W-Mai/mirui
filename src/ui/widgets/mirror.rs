@@ -4,7 +4,7 @@
 
 use crate::ecs::{Entity, World};
 use crate::render::PlaneLayout;
-use crate::render::texture::{AlphaMode, ColorFormat, Texture};
+use crate::render::texture::{AlphaMode, ColorFormat, Texture, TexturePixels};
 use crate::types::{Fixed, Point, Rect};
 use crate::ui::offscreen::WidgetTexture;
 use crate::ui::outputs::Outputs;
@@ -69,12 +69,22 @@ fn flip_into(src: &Texture, rect: Rect, fade: u8, paint: &mut PaintCtx<'_>) {
     paint.with_workspace(layout, |texture, paint| {
         texture.alpha_mode = AlphaMode::Blend;
         texture.transient = true;
-        let dst_stride = texture.stride;
-        let dst_buf = texture.buf.as_mut_slice();
-        match src.format {
-            ColorFormat::RGBA8888 => flip_rgba8888(src, dst_buf, dst_stride, fade),
-            ColorFormat::RGB565 => flip_rgb565(src, dst_buf, dst_stride, fade, false),
-            ColorFormat::RGB565Swapped => flip_rgb565(src, dst_buf, dst_stride, fade, true),
+        let Some(source) = paint.read_pixels(src) else {
+            return;
+        };
+        let mut destination = match texture.pixels_mut() {
+            Ok(pixels) => pixels,
+            Err(error) => {
+                paint.fail(error);
+                return;
+            }
+        };
+        let dst_stride = destination.stride();
+        let dst_buf = destination.bytes_mut();
+        match source.format() {
+            ColorFormat::RGBA8888 => flip_rgba8888(&source, dst_buf, dst_stride, fade),
+            ColorFormat::RGB565 => flip_rgb565(&source, dst_buf, dst_stride, fade, false),
+            ColorFormat::RGB565Swapped => flip_rgb565(&source, dst_buf, dst_stride, fade, true),
             ColorFormat::RGB888 | ColorFormat::BGRA8888 => return,
         }
 
@@ -91,11 +101,11 @@ fn flip_into(src: &Texture, rect: Rect, fade: u8, paint: &mut PaintCtx<'_>) {
     });
 }
 
-fn flip_rgba8888(src: &Texture, dst_buf: &mut [u8], dst_stride: usize, fade: u8) {
-    let w = src.width as usize;
-    let h = src.height as usize;
-    let src_buf = src.buf.as_slice();
-    let src_stride = src.stride;
+fn flip_rgba8888(src: &TexturePixels<'_>, dst_buf: &mut [u8], dst_stride: usize, fade: u8) {
+    let w = src.width() as usize;
+    let h = src.height() as usize;
+    let src_buf = src.bytes();
+    let src_stride = src.stride();
     for y in 0..h {
         let src_row = (h - 1 - y) * src_stride;
         let dst_row = y * dst_stride;
@@ -113,11 +123,17 @@ fn flip_rgba8888(src: &Texture, dst_buf: &mut [u8], dst_stride: usize, fade: u8)
     }
 }
 
-fn flip_rgb565(src: &Texture, dst_buf: &mut [u8], dst_stride: usize, fade: u8, swapped: bool) {
-    let w = src.width as usize;
-    let h = src.height as usize;
-    let src_buf = src.buf.as_slice();
-    let src_stride = src.stride;
+fn flip_rgb565(
+    src: &TexturePixels<'_>,
+    dst_buf: &mut [u8],
+    dst_stride: usize,
+    fade: u8,
+    swapped: bool,
+) {
+    let w = src.width() as usize;
+    let h = src.height() as usize;
+    let src_buf = src.bytes();
+    let src_stride = src.stride();
     for y in 0..h {
         let src_row = (h - 1 - y) * src_stride;
         let dst_row = y * dst_stride;

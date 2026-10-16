@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `PaintCtx::read_pixels` retains source-read failures and borrows pixels independently of the paint context. Temporal, reflection, shadow and glow effects read sources before modifying their reusable workspace.
 - Software raster batches use exclusive pixel borrows for fills, paths, glyphs, blits and blur. Write failures propagate through submission or `Canvas::flush`; blending retains the existing pixel arithmetic.
 - Framebuffer region edits, readback, mirroring and scroll transfers use checked pixel borrows and advance destination upload revisions. Read-only targets are rejected without copying storage.
 - Software Blit sampling borrows validated source pixels before rasterization. Source-read failures propagate through renderer submission and software fallback without accepting the frame.
