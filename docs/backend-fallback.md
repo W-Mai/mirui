@@ -120,6 +120,8 @@ or glyph count.
 
 Pixel constructors (`Texture::new`, `from_ref`, `from_static`, `owned`, and `from_vec`) return `Result<Texture, RenderError>`. Empty dimensions, layout overflow, and short buffers return `InvalidTexture`; `owned` reports allocation failure as `ResourceLimit(Texture)`. `from_vec` takes ownership without copying, and `from_static` supports checked constant construction. Renderers propagate construction failures instead of exposing incomplete readback textures.
 
+`Texture` does not implement `Clone`. Clone a cache handle to share its existing resource, borrow an output for immediate use, or request a frame/widget snapshot when an independent owned copy is required.
+
 Software, SDL GPU, native WGPU, and Web Canvas provide target readback. Browser WGPU does not provide synchronous readback. Frame snapshots read the actual render target; they do not include host window decorations or desktop composition. Explicit readback can allocate and synchronize with the GPU, so snapshot timing is not ordinary rendering performance.
 
 `OffscreenRender` renders a widget subtree into a CPU texture and composites the completed result through the outer backend. Configure `app.with_offscreen_pool_budget(bytes)` before constructing output consumers; zero disables output storage and explicit offscreen nodes render inline. `OffscreenRender::with_scale(scale)` controls output resolution, and `with_opacity(alpha)` controls subtree composition. Subtree production uses the software renderer even when the outer backend uses a GPU.

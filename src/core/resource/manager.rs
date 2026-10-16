@@ -23,12 +23,13 @@ struct ProbeSidecar<T: HasProbe + 'static> {
     failed_probes: HashSet<Cow<'static, str>>,
 }
 
-pub struct ResourceManager<T: HasSize + Clone + 'static> {
+/// Token-indexed resources shared through reference-counted values. Resource values do not need to implement `Clone`.
+pub struct ResourceManager<T: HasSize + 'static> {
     inner: Rc<RefCell<ManagerInner<T>>>,
     probe_sidecar: RefCell<Option<Box<dyn Any>>>,
 }
 
-impl<T: HasSize + Clone + 'static> ResourceManager<T> {
+impl<T: HasSize + 'static> ResourceManager<T> {
     pub fn new(values_budget: MaxSize, fallback: T) -> Self {
         Self {
             inner: Rc::new(RefCell::new(ManagerInner::new(values_budget, fallback))),
@@ -144,7 +145,7 @@ impl<T: HasSize + Clone + 'static> ResourceManager<T> {
 /// initialised by [`ResourceManager::enable_probes`] (or
 /// [`ResourceManager::with_probes`]) — until that's called, `probe()`
 /// returns `None` for every token.
-impl<T: HasSize + HasProbe + Clone + 'static> ResourceManager<T> {
+impl<T: HasSize + HasProbe + 'static> ResourceManager<T> {
     /// Chain-style alias for `enable_probes` (init-time variant). See the
     /// `with_fallback` doc on the generic impl for the lifecycle convention.
     pub fn with_probes(self, probes_budget: MaxSize, fallback_meta: T::Meta) -> Self {

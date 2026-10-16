@@ -54,7 +54,7 @@ impl<T: 'static> Entry<T> {
     }
 }
 
-pub struct ManagerInner<T: HasSize + Clone + 'static> {
+pub struct ManagerInner<T: HasSize + 'static> {
     values: LruCache<Cow<'static, str>, Rc<T>>,
     by_token: HashMap<Cow<'static, str>, Entry<T>, FxBuildHasher>,
     loaders: Vec<Box<dyn Loader<T>>>,
@@ -65,7 +65,7 @@ pub struct ManagerInner<T: HasSize + Clone + 'static> {
     revision: Rc<Cell<u64>>,
 }
 
-impl<T: HasSize + Clone + 'static> ManagerInner<T> {
+impl<T: HasSize + 'static> ManagerInner<T> {
     pub(crate) fn new(values_budget: MaxSize, fallback: T) -> Self {
         Self {
             values: LruCache::new(values_budget),
@@ -208,7 +208,7 @@ pub(crate) enum ResolveOutcome<T> {
     Fallback(Rc<T>),
 }
 
-pub(crate) fn resolve<T: HasSize + Clone + 'static>(
+pub(crate) fn resolve<T: HasSize + 'static>(
     rc: &Rc<RefCell<ManagerInner<T>>>,
     token: &str,
 ) -> ResolveOutcome<T> {
@@ -259,7 +259,7 @@ enum ChainOutcome<T> {
     AllNotMine,
 }
 
-fn walk_load_chain<T: HasSize + Clone + 'static>(
+fn walk_load_chain<T: HasSize + 'static>(
     rc: &Rc<RefCell<ManagerInner<T>>>,
     token: &str,
 ) -> ChainOutcome<T> {
@@ -281,7 +281,7 @@ fn walk_load_chain<T: HasSize + Clone + 'static>(
     ChainOutcome::AllNotMine
 }
 
-fn finish<T: HasSize + Clone + 'static>(
+fn finish<T: HasSize + 'static>(
     rc: &Rc<RefCell<ManagerInner<T>>>,
     token: &str,
     value: Option<T>,
@@ -305,7 +305,7 @@ fn finish<T: HasSize + Clone + 'static>(
 /// here next to [`ManagerInner`] so it can iterate `loaders` without exposing
 /// the field, and requires `T: HasProbe` so it only exists for probe-capable
 /// resources.
-pub(crate) fn walk_probe_chain<T: HasSize + HasProbe + Clone + 'static>(
+pub(crate) fn walk_probe_chain<T: HasSize + HasProbe + 'static>(
     rc: &Rc<RefCell<ManagerInner<T>>>,
     token: &str,
 ) -> Option<Result<T::Meta, &'static str>> {

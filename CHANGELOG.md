@@ -9,10 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- `Texture` no longer implements `Clone`. Cache handles share resources without copying pixels; frame and widget snapshots return independent owned copies.
 - `Texture::new`, `from_ref`, `from_static`, `owned`, and `from_vec` return `Result<Texture, RenderError>`, rejecting empty dimensions and insufficient pixel storage before use. Owned allocations report capacity failures through the same error path.
 
 ### Changed
 
+- Resource managers and handles accept non-`Clone` values and share their existing reference-counted storage.
 - Render plane layouts reject empty dimensions and support checked construction in constant expressions. Texture storage validation shares the plane layout calculation and accepts omitted padding after the last pixel.
 
 ## [0.50.0] - 2026-10-15

@@ -11,7 +11,7 @@ use crate::core::resource::probe::HasProbe;
 /// decrements it. Use [`ResourceHandle::get`] for programmatic access — it
 /// returns an [`Rc<T>`] that survives the manager being dropped (handle
 /// keeps a fallback ref so `get` is always answerable).
-pub struct ResourceHandle<T: HasSize + Clone + 'static> {
+pub struct ResourceHandle<T: HasSize + 'static> {
     token: Cow<'static, str>,
     manager: Weak<RefCell<ManagerInner<T>>>,
     /// Held outside the manager so `get()` can answer with a stable value
@@ -21,7 +21,7 @@ pub struct ResourceHandle<T: HasSize + Clone + 'static> {
     cached: RefCell<Option<(u64, Rc<T>)>>,
 }
 
-impl<T: HasSize + Clone + 'static> ResourceHandle<T> {
+impl<T: HasSize + 'static> ResourceHandle<T> {
     pub(super) fn new(
         token: Cow<'static, str>,
         manager: Weak<RefCell<ManagerInner<T>>>,
@@ -68,7 +68,7 @@ impl<T: HasSize + Clone + 'static> ResourceHandle<T> {
     }
 }
 
-impl<T: HasSize + HasProbe + Clone + 'static> ResourceHandle<T> {
+impl<T: HasSize + HasProbe + 'static> ResourceHandle<T> {
     pub fn probe_via_manager(
         &self,
         manager: &crate::core::resource::manager::ResourceManager<T>,
@@ -77,7 +77,7 @@ impl<T: HasSize + HasProbe + Clone + 'static> ResourceHandle<T> {
     }
 }
 
-impl<T: HasSize + Clone + 'static> Clone for ResourceHandle<T> {
+impl<T: HasSize + 'static> Clone for ResourceHandle<T> {
     fn clone(&self) -> Self {
         if let Some(rc) = self.manager.upgrade() {
             rc.borrow_mut().bump_refcount(&self.token);
@@ -92,7 +92,7 @@ impl<T: HasSize + Clone + 'static> Clone for ResourceHandle<T> {
     }
 }
 
-impl<T: HasSize + Clone + 'static> Drop for ResourceHandle<T> {
+impl<T: HasSize + 'static> Drop for ResourceHandle<T> {
     fn drop(&mut self) {
         if let Some(rc) = self.manager.upgrade() {
             rc.borrow_mut().drop_refcount(&self.token);

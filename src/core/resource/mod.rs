@@ -22,7 +22,7 @@ mod tests {
     use alloc::rc::Rc;
     use alloc::string::{String, ToString};
 
-    #[derive(Clone, Debug, PartialEq)]
+    #[derive(Debug, PartialEq)]
     struct Note(String);
 
     impl HasSize for Note {
@@ -35,7 +35,7 @@ mod tests {
         Note("FALLBACK".into())
     }
 
-    #[derive(Clone, Debug, PartialEq)]
+    #[derive(Debug, PartialEq)]
     struct Img {
         bytes: String,
         w: u16,
@@ -188,6 +188,35 @@ mod tests {
         let v: Rc<Note> = h.get();
         assert_eq!(*v, Note("hi".into()));
         assert_eq!(h.token(), "greeting");
+    }
+
+    #[test]
+    fn cloned_handles_share_non_clone_values_across_replacement_and_removal() {
+        let manager = ResourceManager::new(MaxSize::Bytes(1024), fb_note());
+        manager.add_static("item", Note("first".into()));
+        let first = manager.load("item");
+        let original = first.get();
+        let second = first.clone();
+        assert!(Rc::ptr_eq(&original, &second.get()));
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for _ in 0..16 {
+                assert!(Rc::ptr_eq(&original, &first.get()));
+                assert!(Rc::ptr_eq(&original, &second.get()));
+            }
+        });
+        assert_eq!(allocations, 0);
+
+        manager.add_static("item", Note("replacement".into()));
+        let replaced = first.get();
+        assert!(Rc::ptr_eq(&replaced, &second.get()));
+        assert!(!Rc::ptr_eq(&original, &replaced));
+        manager.remove_token("item");
+        assert_eq!(first.get().0, "FALLBACK");
+        assert_eq!(second.get().0, "FALLBACK");
+        drop(manager);
+        assert_eq!(first.get().0, "FALLBACK");
+        assert_eq!(original.0, "first");
+        assert_eq!(replaced.0, "replacement");
     }
 
     #[test]

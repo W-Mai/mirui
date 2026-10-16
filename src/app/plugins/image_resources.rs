@@ -42,7 +42,7 @@ const fn checkerboard_pixels() -> [u8; 16 * 16 * 4] {
     buf
 }
 
-static FALLBACK_TEXTURE: Texture<'static> = Texture {
+const FALLBACK_TEXTURE: Texture<'static> = Texture {
     buf: crate::render::texture::TexBuf::Ref(&CHECKERBOARD_PIXELS),
     width: 16,
     height: 16,
@@ -152,11 +152,11 @@ where
 {
     fn build(&mut self, app: &mut App<B, F>) {
         let manager =
-            ResourceManager::<Texture<'static>>::new(self.values_budget, FALLBACK_TEXTURE.clone())
+            ResourceManager::<Texture<'static>>::new(self.values_budget, FALLBACK_TEXTURE)
                 .with_probes(self.probes_budget, FALLBACK_META);
 
         if self.bundle_thumbs_up {
-            manager.add_static("thumbs_up", IMG_THUMBS_UP.clone());
+            manager.add_static("thumbs_up", IMG_THUMBS_UP);
         }
 
         for (token, tex) in self.statics.drain(..) {
@@ -191,13 +191,11 @@ mod tests {
         plugin: &mut ImageResourcesPlugin,
     ) -> ResourceManager<Texture<'static>> {
         // Bypass App::add_plugin to test plugin construction in isolation.
-        let manager = ResourceManager::<Texture<'static>>::new(
-            plugin.values_budget,
-            FALLBACK_TEXTURE.clone(),
-        )
-        .with_probes(plugin.probes_budget, FALLBACK_META);
+        let manager =
+            ResourceManager::<Texture<'static>>::new(plugin.values_budget, FALLBACK_TEXTURE)
+                .with_probes(plugin.probes_budget, FALLBACK_META);
         if plugin.bundle_thumbs_up {
-            manager.add_static("thumbs_up", IMG_THUMBS_UP.clone());
+            manager.add_static("thumbs_up", IMG_THUMBS_UP);
         }
         for (token, tex) in plugin.statics.drain(..) {
             manager.add_static(token, tex);
@@ -253,7 +251,7 @@ mod tests {
 
     #[test]
     fn with_static_adds_token() {
-        let extra = IMG_THUMBS_UP.clone();
+        let extra = IMG_THUMBS_UP;
         let mut plugin = ImageResourcesPlugin::default().with_static("alt_logo", extra);
         let manager = rebuild_into_manager(&mut plugin);
         let tex = manager.resolve("alt_logo");

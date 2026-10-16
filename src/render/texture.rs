@@ -54,15 +54,6 @@ impl AlignedBytes {
     }
 }
 
-impl Clone for AlignedBytes {
-    fn clone(&self) -> Self {
-        let mut cloned = Self::zeroed(self.len, self.alignment)
-            .expect("an existing aligned allocation has valid dimensions");
-        cloned.as_mut_slice().copy_from_slice(self.as_slice());
-        cloned
-    }
-}
-
 impl AsRef<[u8]> for AlignedBytes {
     fn as_ref(&self) -> &[u8] {
         self.as_slice()
@@ -204,6 +195,14 @@ pub(crate) fn blend_straight_source_over(source: &Color, destination: &Color, al
 /// Glyph coverage and SDF atlases use their own interpolating samplers.
 ///
 /// Pixel constructors return [`RenderError::InvalidTexture`] for empty dimensions, overflowing layouts, or insufficient storage. [`Texture::owned`] reports allocation failure as [`RenderError::ResourceLimit`].
+///
+/// A texture is not implicitly duplicated. Cache handles can share an existing resource; a snapshot owns an explicit pixel copy.
+///
+/// ```compile_fail,E0277
+/// use mirui::render::texture::Texture;
+/// fn requires_clone<T: Clone>() {}
+/// requires_clone::<Texture<'static>>();
+/// ```
 pub struct Texture<'a> {
     pub buf: TexBuf<'a>,
     pub width: u16,
@@ -221,29 +220,6 @@ pub struct Texture<'a> {
 impl HasSize for Texture<'_> {
     fn cache_size(&self) -> usize {
         self.buf.as_slice().len()
-    }
-}
-
-impl Clone for Texture<'static> {
-    fn clone(&self) -> Self {
-        let buf = match &self.buf {
-            TexBuf::Ref(s) => TexBuf::Ref(s),
-            TexBuf::Owned(v) => TexBuf::Owned(v.clone()),
-            TexBuf::Aligned(v) => TexBuf::Aligned(v.clone()),
-            TexBuf::Mut(_) => {
-                unreachable!("Texture<'static> with TexBuf::Mut is not constructible")
-            }
-        };
-        Self {
-            buf,
-            width: self.width,
-            height: self.height,
-            format: self.format,
-            stride: self.stride,
-            alpha_mode: self.alpha_mode,
-            cache_revision: self.cache_revision,
-            transient: self.transient,
-        }
     }
 }
 
