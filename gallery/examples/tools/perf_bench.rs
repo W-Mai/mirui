@@ -119,8 +119,8 @@ fn build_tiles<B: Surface + FramebufferAccess>(
             ..Default::default()
         })
         .id();
-    let iw = IMG_THUMBS_UP.width as i32;
-    let ih = IMG_THUMBS_UP.height as i32;
+    let iw = IMG_THUMBS_UP.width() as i32;
+    let ih = IMG_THUMBS_UP.height() as i32;
     let cols = (W as i32) / (iw + 2);
     app.compose(root, |tree| {
         for n in 0..(count as i32) {
@@ -241,8 +241,8 @@ fn run_micro_blit() {
     let info = backend.display_info();
     let viewport = Viewport::new(info.width, info.height, Fixed::ONE);
     let n_blits = 1000u32;
-    let iw = IMG_THUMBS_UP.width as i32;
-    let ih = IMG_THUMBS_UP.height as i32;
+    let iw = IMG_THUMBS_UP.width() as i32;
+    let ih = IMG_THUMBS_UP.height() as i32;
     let cols = (W as i32) / (iw + 2);
     let clip = Rect::new(0, 0, W, H);
 

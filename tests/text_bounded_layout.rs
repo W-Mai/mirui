@@ -76,7 +76,13 @@ fn bounded_text_match_switches_without_layout_allocations_and_reports_overflow()
     });
 
     app.render().unwrap();
-    let initial = app.backend.framebuffer().buf.as_slice().to_vec();
+    let initial = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .expect("read pixels")
+        .bytes()
+        .to_vec();
     assert_eq!(
         tracked_allocations(|| {
             mode.select(1);
@@ -85,7 +91,13 @@ fn bounded_text_match_switches_without_layout_allocations_and_reports_overflow()
         }),
         0
     );
-    let switched = app.backend.framebuffer().buf.as_slice().to_vec();
+    let switched = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .expect("read pixels")
+        .bytes()
+        .to_vec();
     assert_ne!(switched, initial);
 
     assert_eq!(
@@ -96,7 +108,14 @@ fn bounded_text_match_switches_without_layout_allocations_and_reports_overflow()
         }),
         0
     );
-    assert_eq!(app.backend.framebuffer().buf.as_slice(), initial);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .expect("read pixels")
+            .bytes(),
+        initial
+    );
 
     let second = app.world.find_by_id("second").unwrap();
     mode.select(1);
@@ -115,7 +134,14 @@ fn bounded_text_match_switches_without_layout_allocations_and_reports_overflow()
             capacity: 32,
         })
     );
-    assert_eq!(app.backend.framebuffer().buf.as_slice(), initial);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .expect("read pixels")
+            .bytes(),
+        initial
+    );
 
     app.world
         .get_mut::<Text>(second)
@@ -123,7 +149,14 @@ fn bounded_text_match_switches_without_layout_allocations_and_reports_overflow()
         .set_content("TWO");
     app.render_dirty().unwrap();
     assert_eq!(app.last_text_layout_failure(), None);
-    assert_eq!(app.backend.framebuffer().buf.as_slice(), switched);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .expect("read pixels")
+            .bytes(),
+        switched
+    );
 
     assert_eq!(
         app.with_text_layout_capacity(capacity()).err(),
@@ -137,7 +170,14 @@ fn bounded_text_match_switches_without_layout_allocations_and_reports_overflow()
     mode.select(0);
     flush_signal_dirty(&mut app.world);
     app.render_dirty().unwrap();
-    assert_eq!(app.backend.framebuffer().buf.as_slice(), initial);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .expect("read pixels")
+            .bytes(),
+        initial
+    );
 }
 
 #[test]

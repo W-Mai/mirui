@@ -137,17 +137,18 @@ fn main() {
             .expect("present selected tick")
             .expect("tick is inside finite timeline");
         assert_eq!(position.frame(), sample as u32);
-        let address = texture.buf.as_slice().as_ptr() as usize;
+        let pixels = texture.read_pixels().expect("read frame pixels");
+        let address = pixels.bytes().as_ptr() as usize;
         assert_eq!(address % 64, 0);
         assert!(canvas_address.is_none_or(|previous| previous == address));
         canvas_address = Some(address);
 
         for row in 0..HEIGHT {
-            let source_start = row * texture.stride;
+            let source_start = row * pixels.stride();
             let source_end = source_start + WIDTH * 3;
             let target_start = row * sheet_stride + sample * WIDTH * 3;
             sheet[target_start..target_start + WIDTH * 3]
-                .copy_from_slice(&texture.buf.as_slice()[source_start..source_end]);
+                .copy_from_slice(&pixels.bytes()[source_start..source_end]);
         }
     }
 

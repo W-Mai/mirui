@@ -97,7 +97,13 @@ fn retained_text_branch_switch_reuses_prepared_handle_storage() {
     let shallow = app.world.find_by_id("shallow_hit").unwrap();
     let deep = app.world.find_by_id("deep_hit").unwrap();
     app.render().unwrap();
-    let shallow_frame = app.backend.framebuffer().buf.as_slice().to_vec();
+    let shallow_frame = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .expect("read pixels")
+        .bytes()
+        .to_vec();
     assert_eq!(
         hit_test(&app.world, root, 8.into(), 8.into(), 128, 128),
         Some(shallow)
@@ -112,7 +118,13 @@ fn retained_text_branch_switch_reuses_prepared_handle_storage() {
         0,
         "first retained text branch switch allocated"
     );
-    let deep_frame = app.backend.framebuffer().buf.as_slice().to_vec();
+    let deep_frame = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .expect("read pixels")
+        .bytes()
+        .to_vec();
     assert_ne!(deep_frame, shallow_frame);
     assert_eq!(
         hit_test(&app.world, root, 8.into(), 8.into(), 128, 128),
@@ -128,7 +140,14 @@ fn retained_text_branch_switch_reuses_prepared_handle_storage() {
         0,
         "retained text branch return allocated"
     );
-    assert_eq!(app.backend.framebuffer().buf.as_slice(), shallow_frame);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .expect("read pixels")
+            .bytes(),
+        shallow_frame
+    );
     assert_eq!(
         hit_test(&app.world, root, 8.into(), 8.into(), 128, 128),
         Some(shallow)

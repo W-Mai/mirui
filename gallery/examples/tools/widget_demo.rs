@@ -59,7 +59,11 @@ fn main() {
         .unwrap();
     let frame = app.backend.framebuffer();
     texture
-        .update(None, frame.buf.as_slice(), frame.stride)
+        .update(
+            None,
+            frame.read_pixels().expect("read pixels").bytes(),
+            frame.read_pixels().expect("read pixels").stride(),
+        )
         .unwrap();
     canvas.copy(&texture, None, None).unwrap();
     canvas.present();

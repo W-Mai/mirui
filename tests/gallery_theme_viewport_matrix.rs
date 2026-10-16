@@ -20,12 +20,13 @@ fn frame_signature<B: FramebufferAccess>(
     height: u16,
 ) -> FrameSignature {
     let texture = backend.framebuffer();
-    let pixels = texture.buf.as_slice();
+    let pixel_view = texture.read_pixels().expect("read pixels");
+    let pixels = pixel_view.bytes();
     let mut hash = 0xcbf2_9ce4_8422_2325_u64;
     let mut colour_bins = [false; 4096];
     for y in 0..usize::from(height) {
         for x in 0..usize::from(width) {
-            let index = y * texture.stride + x * 4;
+            let index = y * pixel_view.stride() + x * 4;
             let pixel = &pixels[index..index + 4];
             for byte in pixel {
                 hash ^= u64::from(*byte);

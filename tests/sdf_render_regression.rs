@@ -76,7 +76,7 @@ fn render_text(text: &str, font_token: FontToken, size: Option<u16>) -> Vec<u8> 
     }
 
     let tex = app.backend.framebuffer();
-    tex.buf.as_slice().to_vec()
+    tex.read_pixels().expect("read pixels").bytes().to_vec()
 }
 
 #[test]

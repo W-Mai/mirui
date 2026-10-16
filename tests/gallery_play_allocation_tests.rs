@@ -450,7 +450,13 @@ fn first_marble_inspector_open_reuses_input_layout_and_render_storage() {
             hash.wrapping_mul(16_777_619) ^ u64::from(*byte)
         })
     };
-    let mut previous_pixels = frame_hash(app.backend.framebuffer().buf.as_slice());
+    let mut previous_pixels = frame_hash(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .expect("read pixels")
+            .bytes(),
+    );
     let mut allocation_counts = [(0, 0, 0); 4];
     let mut close_point = None;
 
@@ -525,7 +531,13 @@ fn first_marble_inspector_open_reuses_input_layout_and_render_storage() {
         assert_eq!(is_hidden_in_tree(&app.world, inspector), !open);
         assert!(!is_hidden_in_tree(&app.world, properties));
 
-        let pixels = frame_hash(app.backend.framebuffer().buf.as_slice());
+        let pixels = frame_hash(
+            app.backend
+                .framebuffer()
+                .read_pixels()
+                .expect("read pixels")
+                .bytes(),
+        );
         assert_ne!(
             pixels, previous_pixels,
             "step {index} did not change pixels"
@@ -618,7 +630,13 @@ fn first_marble_bpm_updates_fit_bounded_text_without_allocations() {
             hash.wrapping_mul(16_777_619) ^ u64::from(*byte)
         })
     };
-    let mut previous_pixels = frame_hash(app.backend.framebuffer().buf.as_slice());
+    let mut previous_pixels = frame_hash(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .expect("read pixels")
+            .bytes(),
+    );
     let mut allocation_counts = [(0, 0, 0); 2];
 
     for (index, (value, x, expected)) in [
@@ -668,7 +686,13 @@ fn first_marble_bpm_updates_fit_bounded_text_without_allocations() {
             Fixed::from_int(value)
         );
         assert!(!is_hidden_in_tree(&app.world, label));
-        let pixels = frame_hash(app.backend.framebuffer().buf.as_slice());
+        let pixels = frame_hash(
+            app.backend
+                .framebuffer()
+                .read_pixels()
+                .expect("read pixels")
+                .bytes(),
+        );
         assert_ne!(pixels, previous_pixels, "BPM {value} did not change pixels");
         previous_pixels = pixels;
         allocation_counts[index] = (
@@ -760,7 +784,13 @@ fn first_marble_inspector_pitch_and_timbre_actions_do_not_allocate() {
             hash.wrapping_mul(16_777_619) ^ u64::from(*byte)
         })
     };
-    let mut previous_pixels = frame_hash(app.backend.framebuffer().buf.as_slice());
+    let mut previous_pixels = frame_hash(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .expect("read pixels")
+            .bytes(),
+    );
     let mut allocation_counts = [(0, 0, 0); 2];
     for (index, (target, expected_pitch, expected_timbre)) in
         [(pitch_up, "D5", "MALLET"), (timbre, "D5", "SYNTH")]
@@ -847,7 +877,13 @@ fn first_marble_inspector_pitch_and_timbre_actions_do_not_allocate() {
         );
         #[cfg(feature = "audio")]
         assert_eq!(tone_count.get(), (index + 1) * 2);
-        let pixels = frame_hash(app.backend.framebuffer().buf.as_slice());
+        let pixels = frame_hash(
+            app.backend
+                .framebuffer()
+                .read_pixels()
+                .expect("read pixels")
+                .bytes(),
+        );
         assert_ne!(
             pixels, previous_pixels,
             "Inspector action {index} did not repaint"

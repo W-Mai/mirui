@@ -286,7 +286,7 @@ pub mod prelude {
     pub mod backend {
         pub use crate::app::RendererFactory;
         pub use crate::render::SwRendererFactory;
-        pub use crate::render::texture::{ColorFormat, Texture};
+        pub use crate::render::texture::{ColorFormat, Texture, TexturePixels, TexturePixelsMut};
         pub use crate::surface::{FramebufferAccess, InputEvent, Surface};
     }
 

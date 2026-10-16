@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- Texture pixel storage and geometry fields are private. Read through `TexturePixels`, write through `TexturePixelsMut`, and use metadata getters and checked `with_stride` for padded CPU data.
 - `Texture` no longer implements `Clone`. Cache handles share resources without copying pixels; frame and widget snapshots return independent owned copies.
 - `Texture::new`, `from_ref`, `from_static`, `owned`, and `from_vec` return `Result<Texture, RenderError>`, rejecting empty dimensions and insufficient pixel storage before use. Owned allocations report capacity failures through the same error path.
 

@@ -105,7 +105,7 @@ fn main() {
     encoder.set_depth(png::BitDepth::Eight);
     let mut writer = encoder.write_header().expect("write PNG header");
     writer
-        .write_image_data(texture.buf.as_slice())
+        .write_image_data(texture.read_pixels().expect("read pixels").bytes())
         .expect("write PNG pixels");
     eprintln!("saved {}", out_path.display());
 }

@@ -64,8 +64,8 @@ fn smoke_scene() {
                 )
             }
             View (
-                width: IMG_THUMBS_UP.width as i32 * 4,
-                height: IMG_THUMBS_UP.height as i32 * 4
+                width: IMG_THUMBS_UP.width() as i32 * 4,
+                height: IMG_THUMBS_UP.height() as i32 * 4
             ) [
                 Image::new("thumbs_up"),
             ]

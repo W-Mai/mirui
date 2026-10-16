@@ -132,8 +132,8 @@ fn main() {
 
 #[compose]
 fn drifting_scene() {
-    let iw = IMG_THUMBS_UP.width as i32;
-    let ih = IMG_THUMBS_UP.height as i32;
+    let iw = IMG_THUMBS_UP.width() as i32;
+    let ih = IMG_THUMBS_UP.height() as i32;
     let drifters: [(i32, i32, f32); 8] = [
         (40, 80, 0.80),
         (140, 80, 1.05),

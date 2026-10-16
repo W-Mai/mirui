@@ -80,8 +80,9 @@ mod tests {
         }
 
         let tex = app.backend.framebuffer();
-        let pixels = tex.buf.as_slice();
-        let stride = tex.stride;
+        let pixel_view = tex.read_pixels().expect("read pixels");
+        let pixels = pixel_view.bytes();
+        let stride = pixel_view.stride();
         let non_bg = count_non_bg_pixels(pixels, stride, width as usize, height as usize, bg);
 
         assert!(
@@ -151,8 +152,9 @@ mod tests {
         }
 
         let tex = app.backend.framebuffer();
-        let pixels = tex.buf.as_slice();
-        let stride = tex.stride;
+        let pixel_view = tex.read_pixels().expect("read pixels");
+        let pixels = pixel_view.bytes();
+        let stride = pixel_view.stride();
 
         let mid_y = (height / 2) as usize;
         let left_q = (width / 4) as usize;
@@ -214,8 +216,9 @@ mod tests {
         }
 
         let tex = app.backend.framebuffer();
-        let pixels = tex.buf.as_slice();
-        let stride = tex.stride;
+        let pixel_view = tex.read_pixels().expect("read pixels");
+        let pixels = pixel_view.bytes();
+        let stride = pixel_view.stride();
 
         let mid_x = (width / 2) as usize;
         let top_q = (height / 4) as usize;

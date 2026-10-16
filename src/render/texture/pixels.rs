@@ -1,6 +1,21 @@
 use super::ColorFormat;
 use crate::types::Color;
 
+#[inline(always)]
+pub(super) fn pixel_offset(
+    width: u16,
+    height: u16,
+    stride: usize,
+    format: ColorFormat,
+    x: i32,
+    y: i32,
+) -> Option<usize> {
+    if x < 0 || y < 0 || x >= i32::from(width) || y >= i32::from(height) {
+        return None;
+    }
+    Some(y as usize * stride + x as usize * format.bytes_per_pixel())
+}
+
 impl ColorFormat {
     #[inline(always)]
     pub(super) fn read_pixel(self, bytes: &[u8], offset: usize) -> Color {

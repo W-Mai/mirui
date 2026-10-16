@@ -122,6 +122,25 @@ Pixel constructors (`Texture::new`, `from_ref`, `from_static`, `owned`, and `fro
 
 `Texture` does not implement `Clone`. Clone a cache handle to share its existing resource, borrow an output for immediate use, or request a frame/widget snapshot when an independent owned copy is required.
 
+Use `texture.width()`, `height()`, and `format()` for resource metadata. `texture.pixels()` returns `Result<Option<TexturePixels>, RenderError>` without performing device work; `read_pixels()` returns a readable pixel borrow. The borrow exposes `bytes()`, `stride()`, and `get_pixel()`. Writable CPU storage uses `pixels_mut()` and its `bytes_mut()` / `set_pixel()` methods. `pixels_mut()` rejects read-only storage without allocating a copy. Each writable borrow advances the upload revision once; revision exhaustion disables caching. Padded CPU sources use checked `with_stride(stride)` construction.
+
+```rust
+use mirui::render::renderer::RenderError;
+use mirui::render::texture::{ColorFormat, Texture};
+use mirui::types::Color;
+
+fn marker() -> Result<Texture<'static>, RenderError> {
+    let mut texture = Texture::owned(16, 16, ColorFormat::RGBA8888)?;
+    {
+        let mut pixels = texture.pixels_mut()?;
+        for y in 0..16 {
+            pixels.set_pixel(8, y, &Color::rgb(32, 160, 224));
+        }
+    }
+    Ok(texture)
+}
+```
+
 Software, SDL GPU, native WGPU, and Web Canvas provide target readback. Browser WGPU does not provide synchronous readback. Frame snapshots read the actual render target; they do not include host window decorations or desktop composition. Explicit readback can allocate and synchronize with the GPU, so snapshot timing is not ordinary rendering performance.
 
 `OffscreenRender` renders a widget subtree into a CPU texture and composites the completed result through the outer backend. Configure `app.with_offscreen_pool_budget(bytes)` before constructing output consumers; zero disables output storage and explicit offscreen nodes render inline. `OffscreenRender::with_scale(scale)` controls output resolution, and `with_opacity(alpha)` controls subtree composition. Subtree production uses the software renderer even when the outer backend uses a GPU.

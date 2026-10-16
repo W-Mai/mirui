@@ -29,12 +29,12 @@ struct TextureParity;
 fn sample_textures() -> [Texture<'static>; 3] {
     let rgba =
         Texture::from_static(&RGBA, 3, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
-    let mut rgb565 =
-        Texture::from_static(&RGB565, 3, 2, ColorFormat::RGB565).expect("valid pixel storage");
-    let mut swapped = Texture::from_static(&RGB565_SWAPPED, 3, 2, ColorFormat::RGB565Swapped)
-        .expect("valid pixel storage");
-    rgb565.stride = 8;
-    swapped.stride = 8;
+    let rgb565 = Texture::from_static(&RGB565, 3, 2, ColorFormat::RGB565)
+        .and_then(|texture| texture.with_stride(8))
+        .expect("valid padded pixel storage");
+    let swapped = Texture::from_static(&RGB565_SWAPPED, 3, 2, ColorFormat::RGB565Swapped)
+        .and_then(|texture| texture.with_stride(8))
+        .expect("valid padded pixel storage");
     [rgba, rgb565, swapped]
 }
 
@@ -146,6 +146,9 @@ mod tests {
     #[test]
     fn padded_rgb565_samples_match_rgba_reference() {
         let [reference, normal, swapped] = sample_textures();
+        let reference = reference.read_pixels().unwrap();
+        let normal = normal.read_pixels().unwrap();
+        let swapped = swapped.read_pixels().unwrap();
         for y in 0..2 {
             for x in 0..3 {
                 let expected = reference.get_pixel(x, y);

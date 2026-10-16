@@ -47,11 +47,9 @@ pub fn render(
     }
 
     let texture = app.backend.framebuffer();
-    assert_eq!(texture.stride, usize::from(width) * 4);
-    assert_eq!(
-        texture.buf.as_slice().len(),
-        texture.stride * usize::from(height)
-    );
-    write_png(output, width, height, texture.buf.as_slice());
+    let pixels = texture.read_pixels().expect("read snapshot pixels");
+    assert_eq!(pixels.stride(), usize::from(width) * 4);
+    assert_eq!(pixels.bytes().len(), pixels.stride() * usize::from(height));
+    write_png(output, width, height, pixels.bytes());
     println!("wrote {}", output.display());
 }

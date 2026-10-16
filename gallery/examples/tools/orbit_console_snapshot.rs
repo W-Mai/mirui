@@ -144,8 +144,9 @@ fn main() {
     app.render().unwrap();
 
     let texture = app.backend.framebuffer();
-    let stride = texture.stride;
-    let pixels = texture.buf.as_slice();
+    let pixel_view = texture.read_pixels().expect("read pixels");
+    let stride = pixel_view.stride();
+    let pixels = pixel_view.bytes();
     validate(pixels, stride, width, height);
     write_png(&output, width, height, pixels);
     println!("wrote {}", output.display());

@@ -121,10 +121,22 @@ fn render_border_sequence(radius: f32, scale: f32, follow: bool) {
         }
         app.dirty_regions().unwrap();
         app.render_dirty().unwrap();
-        let partial = app.backend.framebuffer().buf.as_slice().to_vec();
+        let partial = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .expect("read pixels")
+            .bytes()
+            .to_vec();
         app.render().unwrap();
         assert!(
-            partial == app.backend.framebuffer().buf.as_slice(),
+            partial
+                == app
+                    .backend
+                    .framebuffer()
+                    .read_pixels()
+                    .expect("read pixels")
+                    .bytes(),
             "x={x} y={y} stroke={stroke} radius={radius} scale={scale} follow={follow}"
         );
     }
@@ -132,9 +144,23 @@ fn render_border_sequence(radius: f32, scale: f32, follow: bool) {
     app.dirty_regions().unwrap();
     frame.change(10.into(), 10.into(), 0.into());
     app.render_dirty().unwrap();
-    let partial = app.backend.framebuffer().buf.as_slice().to_vec();
+    let partial = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .expect("read pixels")
+        .bytes()
+        .to_vec();
     app.render().unwrap();
-    assert!(partial == app.backend.framebuffer().buf.as_slice());
+    assert!(
+        partial
+            == app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .expect("read pixels")
+                .bytes()
+    );
 }
 
 #[test]

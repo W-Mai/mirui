@@ -214,7 +214,8 @@ fn later_input_hits_layout_changed_by_an_earlier_callback_in_the_same_burst() {
             "simulated={simulated}"
         );
         app.render_dirty().unwrap();
-        let pixels = app.backend.framebuffer();
+        let texture = app.backend.framebuffer();
+        let pixels = texture.read_pixels().expect("read pixels");
         assert_eq!(pixels.get_pixel(1, 3), mirui::types::Color::rgb(0, 0, 255));
         assert_eq!(pixels.get_pixel(1, 5), mirui::types::Color::rgb(0, 255, 0));
     }

@@ -1,8 +1,10 @@
 use super::renderer::{RenderError, RenderResource};
-use super::scratch::{PlaneLayout, PlaneRequirements};
+use super::scratch::PlaneLayout;
 use crate::core::cache::HasSize;
 
+mod access;
 mod pixels;
+pub use access::{TexturePixels, TexturePixelsMut};
 
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu"))]
 mod cache_key;
@@ -204,11 +206,11 @@ pub(crate) fn blend_straight_source_over(source: &Color, destination: &Color, al
 /// requires_clone::<Texture<'static>>();
 /// ```
 pub struct Texture<'a> {
-    pub buf: TexBuf<'a>,
-    pub width: u16,
-    pub height: u16,
-    pub format: ColorFormat,
-    pub stride: usize,
+    pub(crate) buf: TexBuf<'a>,
+    pub(crate) width: u16,
+    pub(crate) height: u16,
+    pub(crate) format: ColorFormat,
+    pub(crate) stride: usize,
     pub alpha_mode: AlphaMode,
     /// Increment when reusing a buffer with new pixels and retaining GPU upload caching.
     /// Borrowed and mutable constructors bypass the cache until a revision is supplied.
@@ -330,16 +332,7 @@ impl<'a> Texture<'a> {
     }
 
     pub(crate) fn valid_storage(&self) -> bool {
-        let Ok(layout) = PlaneLayout::new(
-            self.width,
-            self.height,
-            self.format,
-            self.stride,
-            PlaneRequirements::CPU,
-        ) else {
-            return false;
-        };
-        layout.minimum_bytes() <= self.buf.as_slice().len()
+        self.pixel_layout().is_ok()
     }
 
     #[cfg(any(target_arch = "wasm32", test))]
@@ -404,14 +397,11 @@ impl<'a> Texture<'a> {
 
     #[inline(always)]
     fn offset(&self, x: i32, y: i32) -> Option<usize> {
-        if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
-            return None;
-        }
-        Some(y as usize * self.stride + x as usize * self.format.bytes_per_pixel())
+        pixels::pixel_offset(self.width, self.height, self.stride, self.format, x, y)
     }
 
     #[inline(always)]
-    pub fn get_pixel(&self, x: i32, y: i32) -> Color {
+    pub(crate) fn get_pixel(&self, x: i32, y: i32) -> Color {
         let Some(i) = self.offset(x, y) else {
             return Color::rgb(0, 0, 0);
         };
@@ -419,13 +409,13 @@ impl<'a> Texture<'a> {
     }
 
     #[inline(always)]
-    pub fn set_pixel(&mut self, x: i32, y: i32, color: &Color) {
+    pub(crate) fn set_pixel(&mut self, x: i32, y: i32, color: &Color) {
         let Some(i) = self.offset(x, y) else { return };
         self.format.write_pixel(self.buf.as_mut_slice(), i, color);
     }
 
     #[inline(always)]
-    pub fn blend_pixel(&mut self, x: Fixed, y: Fixed, color: &Color, opa: u8) {
+    pub(crate) fn blend_pixel(&mut self, x: Fixed, y: Fixed, color: &Color, opa: u8) {
         if opa == 0 {
             return;
         }
@@ -461,7 +451,7 @@ impl<'a> Texture<'a> {
     }
 
     #[inline(always)]
-    pub fn blend_pixel_int(&mut self, x: i32, y: i32, color: &Color, a: u8) {
+    pub(crate) fn blend_pixel_int(&mut self, x: i32, y: i32, color: &Color, a: u8) {
         if a == 0 {
             return;
         }
@@ -497,7 +487,7 @@ impl<'a> Texture<'a> {
     /// Falls back to `blend_pixel_int` for SourceOver so the existing
     /// fast path stays bit-exact.
     #[inline(always)]
-    pub fn composite_pixel_int(
+    pub(crate) fn composite_pixel_int(
         &mut self,
         x: i32,
         y: i32,

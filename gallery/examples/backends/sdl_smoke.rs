@@ -52,8 +52,8 @@ fn smoke_scene() {
             }
             Image (
                 src: "thumbs_up",
-                width: IMG_THUMBS_UP.width as i32 * 4,
-                height: IMG_THUMBS_UP.height as i32 * 4
+                width: IMG_THUMBS_UP.width() as i32 * 4,
+                height: IMG_THUMBS_UP.height() as i32 * 4
             )
             View (
                 bg_color: Color::rgb(50, 50, 70),

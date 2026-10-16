@@ -187,7 +187,7 @@ impl Renderer for Dummy {
                 ..
             } => self.blit(
                 texture,
-                &Rect::new(0, 0, texture.width, texture.height),
+                &Rect::new(0, 0, texture.width(), texture.height()),
                 *pos,
                 *size,
                 &request.clip,

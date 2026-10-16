@@ -312,7 +312,13 @@ fn first_nested_bounded_text_branch_switch_reuses_full_frame_storage() {
     let deep = app.world.find_by_id("deep_text").unwrap();
     let tail = app.world.find_by_id("tail_text").unwrap();
     app.render().unwrap();
-    let shallow_frame = app.backend.framebuffer().buf.as_slice().to_vec();
+    let shallow_frame = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .expect("read pixels")
+        .bytes()
+        .to_vec();
     assert_eq!(
         app.world.get::<ComputedRect>(tail).unwrap().0.y,
         Fixed::from_int(16)
@@ -341,7 +347,13 @@ fn first_nested_bounded_text_branch_switch_reuses_full_frame_storage() {
         (0, 0, 0, 0),
         "first nested bounded text branch switch allocated"
     );
-    let deep_frame = app.backend.framebuffer().buf.as_slice().to_vec();
+    let deep_frame = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .expect("read pixels")
+        .bytes()
+        .to_vec();
     assert_ne!(deep_frame, shallow_frame);
     let text = app.world.get::<Text>(deep).unwrap();
     assert_eq!(text.capacity(), Some(8));
@@ -372,7 +384,14 @@ fn first_nested_bounded_text_branch_switch_reuses_full_frame_storage() {
         (0, 0, 0, 0),
         "nested bounded text branch return allocated"
     );
-    assert_eq!(app.backend.framebuffer().buf.as_slice(), shallow_frame);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .expect("read pixels")
+            .bytes(),
+        shallow_frame
+    );
     assert_eq!(
         app.world.get::<ComputedRect>(tail).unwrap().0.y,
         Fixed::from_int(16)

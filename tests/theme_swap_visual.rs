@@ -136,8 +136,9 @@ mod tests {
         }
 
         let tex = app.backend.framebuffer();
-        let pixels = tex.buf.as_slice();
-        let stride = tex.stride;
+        let pixel_view = tex.read_pixels().expect("read pixels");
+        let pixels = pixel_view.bytes();
+        let stride = pixel_view.stride();
 
         let mut non_bg_count = 0usize;
         let mut found_dark_btn = false;

@@ -93,8 +93,8 @@ fn main() {
             ..sized(200, 20)
         }));
         tree.spawn(Image::build("thumbs_up").style(sized(
-            IMG_THUMBS_UP.width as i32,
-            IMG_THUMBS_UP.height as i32,
+            IMG_THUMBS_UP.width() as i32,
+            IMG_THUMBS_UP.height() as i32,
         )));
 
         let horizontal = position.clone();

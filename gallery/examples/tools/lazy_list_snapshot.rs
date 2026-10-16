@@ -126,6 +126,10 @@ fn main() {
     }
 
     let tex = app.backend.framebuffer();
-    write_png(&out, tex.buf.as_slice(), tex.stride);
+    write_png(
+        &out,
+        tex.read_pixels().expect("read pixels").bytes(),
+        tex.read_pixels().expect("read pixels").stride(),
+    );
     eprintln!("saved {}", out.display());
 }

@@ -122,8 +122,9 @@ fn main() {
     }
 
     let tex = app.backend.framebuffer();
-    let pixels = tex.buf.as_slice();
-    let stride = tex.stride;
+    let pixel_view = tex.read_pixels().expect("read pixels");
+    let pixels = pixel_view.bytes();
+    let stride = pixel_view.stride();
     write_png(&out_path, pixels, width, height, stride);
     eprintln!("saved {}", out_path.display());
 }

@@ -96,8 +96,9 @@ fn main() {
 
     use mirui::surface::FramebufferAccess;
     let tex = app.backend.framebuffer();
-    let pixels = tex.buf.as_slice();
-    let stride = tex.stride;
+    let pixel_view = tex.read_pixels().expect("read pixels");
+    let pixels = pixel_view.bytes();
+    let stride = pixel_view.stride();
 
     let ppm_path = out_path.with_extension("ppm");
     {

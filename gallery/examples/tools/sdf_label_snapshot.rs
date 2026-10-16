@@ -116,8 +116,12 @@ fn main() {
 
     use mirui::surface::FramebufferAccess;
     let tex = app.backend.framebuffer();
-    let pixels = tex.buf.as_slice();
-    assert_eq!(tex.stride, usize::from(width) * 4);
+    let pixel_view = tex.read_pixels().expect("read pixels");
+    let pixels = pixel_view.bytes();
+    assert_eq!(
+        tex.read_pixels().expect("read pixels").stride(),
+        usize::from(width) * 4
+    );
     if let Some(parent) = out_path.parent() {
         std::fs::create_dir_all(parent).expect("create output directory");
     }

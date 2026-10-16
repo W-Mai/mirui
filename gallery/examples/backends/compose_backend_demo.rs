@@ -149,8 +149,8 @@ fn main() {
                     y: Fixed::from_int(260),
                 },
                 Point {
-                    x: Fixed::from(sprite.width),
-                    y: Fixed::from(sprite.height),
+                    x: Fixed::from(sprite.width()),
+                    y: Fixed::from(sprite.height()),
                 },
                 &clip,
                 255,
@@ -160,7 +160,11 @@ fn main() {
         }
 
         sdl_texture
-            .update(None, hybrid.sw.target.buf.as_slice(), (W * 4) as usize)
+            .update(
+                None,
+                hybrid.sw.target.read_pixels().expect("read pixels").bytes(),
+                (W * 4) as usize,
+            )
             .unwrap();
         canvas.copy(&sdl_texture, None, None).unwrap();
         canvas.present();

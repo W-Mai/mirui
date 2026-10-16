@@ -52,19 +52,45 @@ fn render_sequence(queries: usize) -> Vec<u8> {
         .finish();
     app.compose(root, panel(scene.clone()));
     app.render().unwrap();
-    let painted = app.backend.framebuffer().buf.as_slice().to_vec();
+    let painted = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .expect("read pixels")
+        .bytes()
+        .to_vec();
     for (left, width, visible) in [(28, 10, true), (4, 6, false), (24, 8, true), (18, 14, true)] {
         scene.change(left, width, visible);
         for _ in 0..queries {
             let union = app.dirty_region().unwrap();
             assert_eq!(app.dirty_regions().unwrap().bounding_rect(), union);
-            assert!(app.backend.framebuffer().buf.as_slice() == painted);
+            assert!(
+                app.backend
+                    .framebuffer()
+                    .read_pixels()
+                    .expect("read pixels")
+                    .bytes()
+                    == painted
+            );
         }
     }
     app.render_dirty().unwrap();
-    let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+    let pixels = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .expect("read pixels")
+        .bytes()
+        .to_vec();
     app.render().unwrap();
-    assert!(app.backend.framebuffer().buf.as_slice() == pixels);
+    assert!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .expect("read pixels")
+            .bytes()
+            == pixels
+    );
     assert!(app.dirty_regions().unwrap().is_empty());
     pixels
 }
@@ -106,10 +132,27 @@ fn retained_query_is_a_snapshot_while_model_changes_remain_pending() {
     assert_eq!(allocations, 0);
     app.render_dirty().unwrap();
     assert_eq!(
-        app.backend.framebuffer().get_pixel(45, 12),
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .expect("read pixels")
+            .get_pixel(45, 12),
         Color::rgb(20, 200, 80)
     );
-    let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+    let pixels = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .expect("read pixels")
+        .bytes()
+        .to_vec();
     app.render().unwrap();
-    assert!(app.backend.framebuffer().buf.as_slice() == pixels);
+    assert!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .expect("read pixels")
+            .bytes()
+            == pixels
+    );
 }

@@ -80,7 +80,7 @@ fn render_coverage_text(text: &str) -> Vec<u8> {
     }
 
     let tex = app.backend.framebuffer();
-    tex.buf.as_slice().to_vec()
+    tex.read_pixels().expect("read pixels").bytes().to_vec()
 }
 
 /// Coverage rendering is the small-text path. Its bytes must not drift

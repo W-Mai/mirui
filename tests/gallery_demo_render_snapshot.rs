@@ -54,8 +54,9 @@ fn finish_snapshot(
     render_system::render(&app.world, parent, &viewport, &mut renderer).unwrap();
 
     let tex = app.backend.framebuffer();
-    let pixels = tex.buf.as_slice();
-    let stride = tex.stride;
+    let pixel_view = tex.read_pixels().expect("read pixels");
+    let pixels = pixel_view.bytes();
+    let stride = pixel_view.stride();
     let mut colours = alloc::collections::BTreeSet::new();
     for y in 0..(height as usize) {
         for x in 0..(width as usize) {
@@ -300,8 +301,9 @@ fn custom_view_renders() {
     render_system::render(&app.world, parent, &viewport, &mut renderer).unwrap();
 
     let tex = app.backend.framebuffer();
-    let pixels = tex.buf.as_slice();
-    let stride = tex.stride;
+    let pixel_view = tex.read_pixels().expect("read pixels");
+    let pixels = pixel_view.bytes();
+    let stride = pixel_view.stride();
     let mut colours = alloc::collections::BTreeSet::new();
     for y in 0..200usize {
         for x in 0..480usize {
