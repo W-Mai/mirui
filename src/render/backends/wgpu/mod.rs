@@ -817,8 +817,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             u32::from(plan.y()),
             u32::from(plan.width()),
             u32::from(plan.height()),
-        )
-        .ok_or(RenderError::BackendFailure)?;
+        )?;
         if pixels.len() != plan.required_bytes() {
             return Err(RenderError::BackendFailure);
         }
@@ -1543,14 +1542,50 @@ fn wgpu_readback_rgba8(
     y: u32,
     w: u32,
     h: u32,
-) -> Option<alloc::vec::Vec<u8>> {
-    if w == 0 || h == 0 {
-        return None;
+) -> Result<alloc::vec::Vec<u8>, RenderError> {
+    use crate::render::texture::ColorFormat;
+    use crate::render::{PlaneLayout, RenderResource};
+
+    if texture.format() != format
+        || texture.dimension() != wgpu::TextureDimension::D2
+        || texture.sample_count() != 1
+        || !texture.usage().contains(wgpu::TextureUsages::COPY_SRC)
+    {
+        return Err(RenderError::InvalidTexture);
     }
-    const ALIGN: u32 = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-    let unpadded = w * 4;
-    let padded = unpadded.div_ceil(ALIGN) * ALIGN;
-    let buf_size = (padded as u64) * (h as u64);
+    if !matches!(
+        format,
+        wgpu::TextureFormat::Rgba8Unorm
+            | wgpu::TextureFormat::Rgba8UnormSrgb
+            | wgpu::TextureFormat::Bgra8Unorm
+            | wgpu::TextureFormat::Bgra8UnormSrgb
+    ) {
+        return Err(RenderError::Unsupported(RenderFeature::Readback));
+    }
+    let size = texture.size();
+    if w == 0
+        || h == 0
+        || x.checked_add(w).is_none_or(|end| end > size.width)
+        || y.checked_add(h).is_none_or(|end| end > size.height)
+    {
+        return Err(RenderError::InvalidGeometry);
+    }
+    let width = u16::try_from(w).map_err(|_| RenderError::InvalidTexture)?;
+    let height = u16::try_from(h).map_err(|_| RenderError::InvalidTexture)?;
+    let packed = PlaneLayout::packed(width, height, ColorFormat::RGBA8888)
+        .map_err(|_| RenderError::InvalidTexture)?;
+    let requirements = PlaneRequirements::new(1, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize)
+        .map_err(|_| RenderError::InvalidTexture)?;
+    let aligned = PlaneLayout::aligned(width, height, ColorFormat::RGBA8888, requirements)
+        .map_err(|_| RenderError::InvalidTexture)?;
+    let buf_size = aligned.required_bytes() as u64;
+    if buf_size > device.limits().max_buffer_size {
+        return Err(RenderError::ResourceLimit(RenderResource::Target));
+    }
+    let padded = u32::try_from(aligned.stride_bytes()).map_err(|_| RenderError::InvalidTexture)?;
+    let mut out = alloc::vec::Vec::new();
+    out.try_reserve_exact(packed.required_bytes())
+        .map_err(|_| RenderError::ResourceLimit(RenderResource::Texture))?;
 
     let staging = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("mirui-wgpu-readback"),
@@ -1582,25 +1617,30 @@ fn wgpu_readback_rgba8(
             depth_or_array_layers: 1,
         },
     );
-    queue.submit(Some(encoder.finish()));
+    let submission = queue.submit(Some(encoder.finish()));
 
     let slice = staging.slice(..);
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     slice.map_async(wgpu::MapMode::Read, move |r| {
         let _ = sender.send(r);
     });
-    let _ = device.poll(wgpu::PollType::Wait {
-        timeout: None,
-        submission_index: None,
-    });
-    receiver.recv().ok()?.ok()?;
+    device
+        .poll(wgpu::PollType::Wait {
+            timeout: None,
+            submission_index: Some(submission),
+        })
+        .map_err(|_| RenderError::BackendFailure)?;
+    // Native polling completes mapping callbacks before returning.
+    receiver
+        .try_recv()
+        .map_err(|_| RenderError::BackendFailure)?
+        .map_err(|_| RenderError::BackendFailure)?;
 
     let data = slice.get_mapped_range();
-    let mut out = alloc::vec::Vec::with_capacity((unpadded as usize) * (h as usize));
     let swap_rb = swapchain_is_bgra(format);
-    for row in 0..h {
-        let start = (row * padded) as usize;
-        let end = start + unpadded as usize;
+    for row in 0..usize::from(height) {
+        let start = row * aligned.stride_bytes();
+        let end = start + packed.stride_bytes();
         if swap_rb {
             let src = &data[start..end];
             for px in src.chunks_exact(4) {
@@ -1614,7 +1654,7 @@ fn wgpu_readback_rgba8(
     }
     drop(data);
     staging.unmap();
-    Some(out)
+    Ok(out)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -2724,15 +2764,18 @@ mod route_tests {
             pass.draw_indexed(0..6, 0, 0..1);
         }
         queue.submit(Some(encoder.finish()));
-        wgpu_readback_rgba8(
-            &device,
-            &queue,
-            &target,
-            wgpu::TextureFormat::Rgba8Unorm,
-            0,
-            0,
-            SIZE,
-            SIZE,
+        Some(
+            wgpu_readback_rgba8(
+                &device,
+                &queue,
+                &target,
+                wgpu::TextureFormat::Rgba8Unorm,
+                0,
+                0,
+                SIZE,
+                SIZE,
+            )
+            .expect("path target readback must succeed after rendering"),
         )
     }
 
@@ -2744,6 +2787,117 @@ mod route_tests {
         let sample = |x: usize, y: usize| pixels[(y * 64 + x) * 4];
         assert!(sample(32, 32) > 240);
         assert!(sample(4, 32) < 64);
+    }
+
+    #[test]
+    fn readback_checks_sources_and_returns_tightly_packed_straight_pixels() {
+        let _gpu = GPU.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let Ok(adapter) =
+            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::LowPower,
+                compatible_surface: None,
+                force_fallback_adapter: false,
+            }))
+        else {
+            std::eprintln!("SKIP readback device checks: no GPU adapter");
+            return;
+        };
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("mirui-readback-contract"),
+            ..Default::default()
+        }))
+        .expect("readback device");
+        for format in [
+            wgpu::TextureFormat::Rgba8Unorm,
+            wgpu::TextureFormat::Bgra8Unorm,
+        ] {
+            let mut source = [0u8; 24];
+            for (index, pixel) in source.chunks_exact_mut(4).enumerate() {
+                let mut value = [index as u8 * 8, 32, 64, 128];
+                if swapchain_is_bgra(format) {
+                    value.swap(0, 2);
+                }
+                pixel.copy_from_slice(&value);
+            }
+            let target = device.create_texture_with_data(
+                &queue,
+                &wgpu::TextureDescriptor {
+                    label: Some("mirui-readback-source"),
+                    size: wgpu::Extent3d {
+                        width: 3,
+                        height: 2,
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::COPY_SRC,
+                    view_formats: &[],
+                },
+                wgpu::util::TextureDataOrder::LayerMajor,
+                &source,
+            );
+            for (x, y, w, h) in [
+                (0, 0, 0, 1),
+                (0, 0, 1, 0),
+                (2, 0, 2, 1),
+                (0, 2, 1, 1),
+                (u32::MAX, 0, 2, 1),
+            ] {
+                assert_eq!(
+                    wgpu_readback_rgba8(&device, &queue, &target, format, x, y, w, h),
+                    Err(RenderError::InvalidGeometry),
+                );
+            }
+            let other_format = if format == wgpu::TextureFormat::Rgba8Unorm {
+                wgpu::TextureFormat::Bgra8Unorm
+            } else {
+                wgpu::TextureFormat::Rgba8Unorm
+            };
+            assert_eq!(
+                wgpu_readback_rgba8(&device, &queue, &target, other_format, 0, 0, 1, 1),
+                Err(RenderError::InvalidTexture),
+            );
+            for _ in 0..2 {
+                let pixels =
+                    wgpu_readback_rgba8(&device, &queue, &target, format, 1, 0, 2, 2).unwrap();
+                assert_eq!(
+                    pixels,
+                    [
+                        16, 64, 128, 128, 32, 64, 128, 128, 64, 64, 128, 128, 80, 64, 128, 128
+                    ]
+                );
+            }
+        }
+        let mut descriptor = wgpu::TextureDescriptor {
+            label: Some("mirui-unreadable-source"),
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        };
+        let target = device.create_texture(&descriptor);
+        assert_eq!(
+            wgpu_readback_rgba8(&device, &queue, &target, descriptor.format, 0, 0, 1, 1),
+            Err(RenderError::InvalidTexture),
+        );
+        descriptor.format = wgpu::TextureFormat::Rgba16Float;
+        descriptor.usage = wgpu::TextureUsages::COPY_SRC;
+        let target = device.create_texture(&descriptor);
+        assert_eq!(
+            wgpu_readback_rgba8(&device, &queue, &target, descriptor.format, 0, 0, 1, 1),
+            Err(RenderError::Unsupported(RenderFeature::Readback)),
+        );
+        std::eprintln!("readback device checks completed");
     }
 
     #[test]
@@ -3243,7 +3397,7 @@ mod blit_tests {
             pass.draw(0..4, 0..1);
         }
         queue.submit(Some(encoder.finish()));
-        let Some(bytes) = wgpu_readback_rgba8(
+        let bytes = wgpu_readback_rgba8(
             &device,
             &queue,
             &target,
@@ -3252,9 +3406,8 @@ mod blit_tests {
             0,
             SIZE,
             SIZE,
-        ) else {
-            panic!("rounded blit target could not be read");
-        };
+        )
+        .expect("rounded blit target could not be read");
         let alpha = |x: usize, y: usize| bytes[(y * SIZE as usize + x) * 4 + 3];
         assert_eq!(alpha(0, 0), 0);
         assert!(alpha(16, 0) > 120);
@@ -3623,15 +3776,18 @@ mod glyph_tests {
             pass.draw(0..6, 0..1);
         }
         queue.submit(Some(encoder.finish()));
-        wgpu_readback_rgba8(
-            &device,
-            &queue,
-            &target,
-            wgpu::TextureFormat::Rgba8Unorm,
-            0,
-            0,
-            WIDTH,
-            HEIGHT,
+        Some(
+            wgpu_readback_rgba8(
+                &device,
+                &queue,
+                &target,
+                wgpu::TextureFormat::Rgba8Unorm,
+                0,
+                0,
+                WIDTH,
+                HEIGHT,
+            )
+            .expect("glyph target readback must succeed after rendering"),
         )
     }
 
@@ -4510,8 +4666,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             u32::from(phys.y()),
             u32::from(w),
             u32::from(h),
-        )
-        .ok_or(RenderError::BackendFailure)?;
+        )?;
         crate::render::texture::Texture::from_vec(
             bytes,
             w,
@@ -4555,8 +4710,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             u32::from(phys.y()),
             w,
             h,
-        )
-        .ok_or(RenderError::BackendFailure)?;
+        )?;
         let (x, y, _, _) = self.viewport.rect_to_physical_pixel_bounds(*src);
         crate::render::renderer::copy_packed_rgba8(&bytes, phys, (x, y), dst)
     }
