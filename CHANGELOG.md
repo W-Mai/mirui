@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- SDL-GPU and native WGPU route transformed lines and arcs through bounded software fallback, preserving affine rasterization and projected stroke geometry.
+
 - WGPU fallback writeback preserves specific texture-source errors.
 
 - View path clips use bounded software scopes when native clipping is unavailable. Region translation preserves affine drawing and clip transforms without replaying View callbacks.

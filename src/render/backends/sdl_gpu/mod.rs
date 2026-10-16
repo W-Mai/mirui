@@ -805,6 +805,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         };
         if !supports_affine
             && !Self::needs_blit_fallback(request, false)
+            && !crate::render::projective_fallback::transformed_stroke(request)
             && !matches!(
                 request.command.transform().classify(),
                 TransformClass::Identity | TransformClass::Translate
@@ -845,6 +846,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         if request.projective.is_identity()
             && !Self::needs_blit_fallback(request, self.native_target)
             && !paint_fallback
+            && !crate::render::projective_fallback::transformed_stroke(request)
         {
             return Ok(RenderRoute::Native);
         }
@@ -889,7 +891,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         }
         let needs_fallback = !request.projective.is_identity()
             || Self::needs_blit_fallback(request, self.native_target)
-            || paint_fallback;
+            || paint_fallback
+            || crate::render::projective_fallback::transformed_stroke(request);
         if !needs_fallback {
             if route != RenderRoute::Native {
                 return Err(RenderError::InvalidGeometry);

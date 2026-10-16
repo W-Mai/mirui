@@ -261,8 +261,11 @@ fn distinguishes_sdl_gpu_quad_composite_and_affine_support() {
     };
     assert_eq!(
         SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&line, clip)),
-        Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
+        Ok(())
     );
+    assert!(crate::render::projective_fallback::transformed_stroke(
+        &DrawRequest::new(&line, clip)
+    ));
 }
 
 #[test]

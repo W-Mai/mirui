@@ -58,6 +58,18 @@ fn affine_from_homography(value: Transform3D) -> Option<crate::types::Transform>
     })
 }
 
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu"))]
+pub(crate) fn transformed_stroke(request: &crate::render::renderer::DrawRequest<'_, '_>) -> bool {
+    matches!(
+        request.command,
+        DrawCommand::Line { .. } | DrawCommand::Arc { .. }
+    ) && (!request.projective.is_identity()
+        || !matches!(
+            request.command.transform().classify(),
+            crate::types::TransformClass::Identity | crate::types::TransformClass::Translate
+        ))
+}
+
 /// Fixed-capacity target for software-rendered projective commands.
 /// The backing storage is supplied once and never grows.
 pub struct ProjectiveFallback<S = Box<[u8]>> {
@@ -360,6 +372,36 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
                     .map(|quad| Rect::bounding_quad(&quad))
                     .ok_or(ProjectiveDrawError::InvalidProjection)?
             }
+            DrawCommand::Line { p1, p2, width, .. } => {
+                let bounds = Rect::new(
+                    p1.x.min(p2.x),
+                    p1.y.min(p2.y),
+                    (p2.x - p1.x).abs(),
+                    (p2.y - p1.y).abs(),
+                )
+                .inflate((*width).max(Fixed::ZERO));
+                logical
+                    .apply_rect(bounds)
+                    .map(|quad| Rect::bounding_quad(&quad))
+                    .ok_or(ProjectiveDrawError::InvalidProjection)?
+            }
+            DrawCommand::Arc {
+                center,
+                radius,
+                width,
+                ..
+            } => {
+                let extent = (*radius).max(Fixed::ZERO) + (*width).max(Fixed::ZERO);
+                logical
+                    .apply_rect(Rect::new(
+                        center.x - extent,
+                        center.y - extent,
+                        extent * 2,
+                        extent * 2,
+                    ))
+                    .map(|quad| Rect::bounding_quad(&quad))
+                    .ok_or(ProjectiveDrawError::InvalidProjection)?
+            }
             _ => return Err(ProjectiveDrawError::Unsupported),
         };
         let draw_bounds = clip
@@ -501,6 +543,35 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
         texture.alpha_mode = crate::render::texture::AlphaMode::Blend;
         let mut renderer = SwRenderer::new(texture);
         renderer.viewport = Viewport::new(plan.width(), plan.height(), scale);
+        if matches!(command, DrawCommand::Line { .. } | DrawCommand::Arc { .. }) {
+            if projective.is_identity() {
+                let mut local = crate::render::renderer::RegionRenderer::new(
+                    &mut renderer,
+                    plan.logical_origin.x,
+                    plan.logical_origin.y,
+                );
+                return local.submit(&crate::render::renderer::DrawRequest::new(
+                    command,
+                    Rect::new(
+                        plan.logical_origin.x,
+                        plan.logical_origin.y,
+                        local_clip.w,
+                        local_clip.h,
+                    ),
+                ));
+            }
+            let physical = Transform3D::translate(
+                -Fixed::from(plan.region.x()),
+                -Fixed::from(plan.region.y()),
+            )
+            .compose(&Transform3D::from_affine(viewport.as_transform()).compose(projective));
+            renderer.viewport = Viewport::new(plan.width(), plan.height(), Fixed::ONE);
+            return renderer.draw_projective(
+                command,
+                &Rect::new(0, 0, plan.width(), plan.height()),
+                &physical,
+            );
+        }
         if let DrawCommand::Blit {
             pos,
             size,
@@ -602,6 +673,119 @@ mod tests {
     use mirx::scene::{GradientStop, GradientUnits, LinearGradient, SpreadMode};
     use textflow::placement::GlyphFrame;
     use textflow::shaping::{FlowPoint, GlyphId, PositionedGlyph};
+
+    #[test]
+    fn stroke_fallback_preserves_affine_and_projective_raster_routes() {
+        use crate::render::renderer::DrawRequest;
+        const WIDTH: usize = 96;
+        const HEIGHT: usize = 96;
+        let transform =
+            Transform::translate(16.into(), 12.into()).compose(&Transform::rotate_deg(12.into()));
+        let commands = [
+            DrawCommand::Line {
+                p1: Point::new(4, 8),
+                p2: Point::new(26, 17),
+                transform,
+                color: Color::rgb(200, 70, 30),
+                width: 3.into(),
+                opa: 171,
+            },
+            DrawCommand::Arc {
+                center: Point::new(16, 16),
+                radius: 10.into(),
+                start_angle: 20.into(),
+                end_angle: 240.into(),
+                transform,
+                color: Color::rgb(30, 70, 200),
+                width: 3.into(),
+                opa: 171,
+            },
+        ];
+        for command in commands {
+            for scale in [Fixed::ONE, Fixed::from_int(2)] {
+                let viewport = Viewport::new(WIDTH as u16, HEIGHT as u16, scale);
+                for projective in [
+                    Transform3D::IDENTITY,
+                    Transform3D::rotate_y_perspective(12.into(), 400.into()),
+                ] {
+                    for clip in [Rect::new(0, 0, 48, 48), Rect::new(19, 17, 14, 15)] {
+                        let mut expected = alloc::vec![19; WIDTH * HEIGHT * 4];
+                        let mut actual = expected.clone();
+                        let mut texture = Texture::new(
+                            &mut expected,
+                            WIDTH as u16,
+                            HEIGHT as u16,
+                            ColorFormat::RGBA8888,
+                        )
+                        .unwrap();
+                        texture.alpha_mode = crate::render::texture::AlphaMode::Blend;
+                        let mut direct = SwRenderer::new(texture);
+                        direct.viewport = viewport;
+                        direct
+                            .submit(&DrawRequest::new(&command, clip).with_projective(projective))
+                            .unwrap();
+                        direct.flush().unwrap();
+                        drop(direct);
+
+                        let mut fallback =
+                            ProjectiveFallback::new(alloc::vec![0; WIDTH * HEIGHT * 4]);
+                        let plan = fallback
+                            .plan(&command, &clip, &projective, viewport)
+                            .unwrap();
+                        assert!(plan.x() > 0 && plan.y() > 0);
+                        let width = usize::from(plan.width());
+                        let height = usize::from(plan.height());
+                        for row in 0..height {
+                            let start =
+                                ((usize::from(plan.y()) + row) * WIDTH + usize::from(plan.x())) * 4;
+                            fallback.target_mut(plan)[row * width * 4..(row + 1) * width * 4]
+                                .copy_from_slice(&actual[start..start + width * 4]);
+                        }
+                        fallback
+                            .render(plan, &command, &projective, viewport)
+                            .unwrap();
+                        for row in 0..height {
+                            let start =
+                                ((usize::from(plan.y()) + row) * WIDTH + usize::from(plan.x())) * 4;
+                            actual[start..start + width * 4].copy_from_slice(
+                                &fallback.target(plan)[row * width * 4..(row + 1) * width * 4],
+                            );
+                        }
+                        let mut max_composited = 0;
+                        for (index, (a, b)) in actual
+                            .chunks_exact(4)
+                            .zip(expected.chunks_exact(4))
+                            .enumerate()
+                        {
+                            let x = index % WIDTH;
+                            let y = index / WIDTH;
+                            let inside = x >= usize::from(plan.x())
+                                && x < usize::from(plan.x()) + width
+                                && y >= usize::from(plan.y())
+                                && y < usize::from(plan.y()) + height;
+                            if projective.is_identity() || !inside {
+                                assert_eq!(a, b, "pixel {index}, scale {scale:?}, clip {clip:?}");
+                            }
+                            for channel in 0..4 {
+                                let difference = if channel == 3 {
+                                    u16::from(a[3].abs_diff(b[3]))
+                                } else {
+                                    let a = (u16::from(a[channel]) * u16::from(a[3]) + 127) / 255;
+                                    let b = (u16::from(b[channel]) * u16::from(b[3]) + 127) / 255;
+                                    a.abs_diff(b)
+                                };
+                                max_composited = max_composited.max(difference);
+                            }
+                        }
+                        assert!(
+                            max_composited <= 1,
+                            "composited difference {max_composited}, scale {scale:?}, clip {clip:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn source_read_errors_survive_software_fallback_execution() {

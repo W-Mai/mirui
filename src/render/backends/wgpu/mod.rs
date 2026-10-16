@@ -902,6 +902,9 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         &self,
         request: &DrawRequest<'_, '_>,
     ) -> Result<bool, RenderError> {
+        if crate::render::projective_fallback::transformed_stroke(request) {
+            return Ok(true);
+        }
         let needs_fallback = match request.command {
             DrawCommand::Blit { composite, .. } => {
                 (self
@@ -2527,6 +2530,65 @@ mod route_tests {
     use mirx::scene::{GradientStop, GradientUnits, LinearGradient, RadialGradient, SpreadMode};
 
     static GPU: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn transformed_strokes_plan_fallback_before_device_access() {
+        let mut surface = crate::surface::framebuf::FramebufSurface::new(
+            64,
+            64,
+            (|_, _| {}) as fn(&[u8], PhysicalRect),
+        );
+        let mut factory = WgpuRendererFactory::new();
+        let renderer = WgpuRenderer {
+            factory: &mut factory,
+            surface: &mut surface,
+            viewport: Viewport::new(64, 64, Fixed::ONE),
+            frame: None,
+            failure: None,
+        };
+        let line = DrawCommand::Line {
+            p1: Point::new(8, 8),
+            p2: Point::new(24, 16),
+            transform: Transform::rotate_deg(8.into()),
+            color: Color::rgb(20, 30, 40),
+            width: 2.into(),
+            opa: 200,
+        };
+        let arc = DrawCommand::Arc {
+            center: Point::new(24, 24),
+            radius: 8.into(),
+            start_angle: 0.into(),
+            end_angle: 270.into(),
+            transform: Transform::scale(2.into(), Fixed::ONE),
+            color: Color::rgb(20, 30, 40),
+            width: 2.into(),
+            opa: 200,
+        };
+        for command in [line, arc] {
+            for projection in [
+                Transform3D::IDENTITY,
+                Transform3D::rotate_y_perspective(12.into(), 400.into()),
+            ] {
+                let request =
+                    DrawRequest::new(&command, Rect::new(0, 0, 64, 64)).with_projective(projection);
+                renderer.factory.target_edit_budget_bytes = None;
+                assert_eq!(renderer.route(&request), Err(RenderError::MissingWorkspace));
+                renderer.factory.target_edit_budget_bytes = Some(1);
+                assert!(matches!(
+                    renderer.route(&request),
+                    Err(RenderError::InsufficientWorkspace { .. })
+                ));
+                renderer.factory.target_edit_budget_bytes = Some(64 * 64 * 4);
+                assert!(matches!(
+                    renderer.route(&request),
+                    Ok(RenderRoute::ExactFallback(_))
+                ));
+                assert!(renderer.factory.target_edit_bytes.is_empty());
+                assert!(renderer.frame.is_none());
+            }
+        }
+    }
 
     #[test]
     #[cfg(not(target_arch = "wasm32"))]
