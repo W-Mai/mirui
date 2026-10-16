@@ -62,6 +62,10 @@ fn reuse_checks_storage_without_binding_or_accepting_invalid_contents() {
     assert!(!can_reuse(&first, &*image, &changed).unwrap());
     let binding = Binding::begin(&first, &*image, TargetUpdate::Rebuild).unwrap();
     assert_eq!(
+        can_reuse(&first, &*image, &changed),
+        Err(RenderError::InvalidScope)
+    );
+    assert_eq!(
         can_reuse(&first, &*image, &requested),
         Err(RenderError::InvalidScope)
     );

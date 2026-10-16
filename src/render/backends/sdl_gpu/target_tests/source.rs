@@ -19,6 +19,13 @@ impl Renderer for Producer {
     fn create_target(&mut self, plan: &TargetPlan) -> Result<Box<dyn BackendTarget>, RenderError> {
         create(&self.device, plan)
     }
+    fn can_reuse_target(
+        &self,
+        target: &dyn BackendTarget,
+        plan: &TargetPlan,
+    ) -> Result<bool, RenderError> {
+        can_reuse(&self.device, target, plan)
+    }
     fn bind_target(
         &mut self,
         target: &mut dyn BackendTarget,

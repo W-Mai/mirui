@@ -81,6 +81,7 @@ struct Fixture {
     active: Option<Rc<Contents>>,
     workspace_bytes: usize,
     bindings: usize,
+    reject_storage: bool,
 }
 
 impl Renderer for Fixture {
@@ -104,6 +105,35 @@ impl Renderer for Fixture {
             descriptor: plan.descriptor,
         }))
     }
+    fn can_reuse_target(
+        &self,
+        target: &dyn BackendTarget,
+        plan: &TargetPlan,
+    ) -> Result<bool, RenderError> {
+        if self.device.lost.get() {
+            return Err(RenderError::BackendFailure);
+        }
+        if self.device.access_failure.get() {
+            return Err(RenderError::InvalidScope);
+        }
+        let Some(target) = target.as_any().downcast_ref::<Target>() else {
+            return Ok(false);
+        };
+        if !Rc::ptr_eq(&self.device, &target.device)
+            || self.reject_storage
+            || target.descriptor != plan.descriptor
+        {
+            return Ok(false);
+        }
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|active| Rc::ptr_eq(active, &target.contents))
+        {
+            return Err(RenderError::InvalidScope);
+        }
+        Ok(self.plan_target(plan.descriptor.layout)? == Some(*plan))
+    }
     fn bind_target(
         &mut self,
         target: &mut dyn BackendTarget,
@@ -111,6 +141,10 @@ impl Renderer for Fixture {
         update: TargetUpdate,
         workspace: &mut [u8],
     ) -> Result<Self::TargetState, RenderError> {
+        let plan = self.plan_target(target.descriptor().layout)?.unwrap();
+        if !self.can_reuse_target(target, &plan)? {
+            return Err(RenderError::InvalidTexture);
+        }
         let target = target
             .as_any()
             .downcast_ref::<Target>()
@@ -406,6 +440,199 @@ fn failed_reads_and_writes_never_expose_partial_or_previous_pixels() {
         texture.read_pixels(),
         Err(RenderError::BackendFailure)
     ));
+}
+
+#[test]
+fn incompatible_fresh_target_releases_all_reservations() {
+    let mut renderer = Fixture {
+        reject_storage: true,
+        ..Fixture::default()
+    };
+    let requested = plan(&renderer);
+    let budget = MemoryBudget::new(192);
+    assert!(matches!(
+        Texture::native(&mut renderer, requested, &budget),
+        Err(RenderError::InvalidTexture)
+    ));
+    assert_eq!(budget.available(), 192);
+    assert_eq!(renderer.device.creates.get(), 1);
+    assert_eq!(renderer.bindings, 0);
+}
+
+#[test]
+fn cached_sources_remain_readable_across_consumers_but_invalid_sources_are_not_ready() {
+    let outputs = Outputs::<WidgetTexture>::with_budget(192);
+    let key = super::tests::key(1, 1);
+    let mut producer = Fixture::default();
+    let mut consumer = Fixture::default();
+    let requested = plan(&producer);
+    outputs
+        .reserve_texture(key, Some((&mut producer, requested)))
+        .unwrap();
+    let mut write = outputs.prepare_texture(key).unwrap();
+    draw(
+        write.texture_mut(),
+        &mut producer,
+        Color::rgb(1, 2, 3),
+        false,
+    )
+    .unwrap();
+    assert!(write.publish());
+    assert!(
+        outputs
+            .reserve_texture(key, Some((&mut consumer, requested)))
+            .unwrap()
+    );
+    assert_eq!(consumer.device.creates.get(), 0);
+    assert_eq!(producer.device.reads.get(), 0);
+    producer.device.lost.set(true);
+    assert_eq!(
+        outputs.texture_matches(key),
+        Err(RenderError::BackendFailure)
+    );
+    producer.device.lost.set(false);
+    outputs
+        .get(key.entity)
+        .unwrap()
+        .texture()
+        .read_pixels()
+        .unwrap();
+    producer.device.lost.set(true);
+    assert!(outputs.texture_matches(key).unwrap());
+    assert!(
+        outputs
+            .reserve_texture(key, Some((&mut consumer, requested)))
+            .unwrap()
+    );
+    assert_eq!(consumer.device.creates.get(), 0);
+}
+
+#[test]
+fn native_write_slot_replacement_preserves_frozen_history_and_reuses_warm_storage() {
+    let outputs = Outputs::<WidgetTexture>::with_budget(384);
+    let key = super::tests::key(1, 1);
+    outputs.reserve(1).unwrap();
+    outputs.set_retained(key.entity, true).unwrap();
+    let mut first = Fixture::default();
+    let mut second = Fixture::default();
+    for generation in 1..=5 {
+        let _batch = outputs.begin_batch();
+        let key = BufferKey { generation, ..key };
+        let renderer = if generation < 3 {
+            &mut first
+        } else {
+            &mut second
+        };
+        let requested = plan(renderer);
+        if generation == 5 {
+            assert_eq!(
+                tracked_allocations(|| {
+                    assert!(
+                        outputs
+                            .reserve_texture(key, Some((renderer, requested)))
+                            .unwrap()
+                    );
+                }),
+                0
+            );
+        } else {
+            assert!(
+                outputs
+                    .reserve_texture(key, Some((renderer, requested)))
+                    .unwrap()
+            );
+        }
+        if generation > 1 {
+            assert_eq!(
+                outputs
+                    .previous(key.entity)
+                    .unwrap()
+                    .texture()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(0, 0),
+                Color::rgb((generation - 1) as u8, 0, 0)
+            );
+        }
+        let mut write = outputs.prepare_texture(key).unwrap();
+        draw(
+            write.texture_mut(),
+            renderer,
+            Color::rgb(generation as u8, 0, 0),
+            false,
+        )
+        .unwrap();
+        assert!(write.publish());
+    }
+    assert_eq!(first.device.creates.get(), 2);
+    assert_eq!(second.device.creates.get(), 2);
+    assert_eq!(
+        outputs
+            .get(key.entity)
+            .unwrap()
+            .texture()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(0, 0),
+        Color::rgb(5, 0, 0)
+    );
+}
+
+#[test]
+fn failed_reuse_check_does_not_replace_storage_and_budget_failure_preserves_history() {
+    let key = super::tests::key(1, 1);
+    let outputs = Outputs::<WidgetTexture>::with_budget(383);
+    let mut first = Fixture::default();
+    let requested = plan(&first);
+    outputs.reserve(1).unwrap();
+    outputs.set_retained(key.entity, true).unwrap();
+    {
+        let _batch = outputs.begin_batch();
+        outputs
+            .reserve_texture(key, Some((&mut first, requested)))
+            .unwrap();
+        first.device.access_failure.set(true);
+        assert_eq!(
+            outputs.reserve_texture(key, Some((&mut first, requested))),
+            Err(RenderError::InvalidScope)
+        );
+        assert_eq!(first.device.creates.get(), 1);
+        first.device.access_failure.set(false);
+        outputs
+            .reserve_texture(key, Some((&mut first, requested)))
+            .unwrap();
+        assert_eq!(first.device.creates.get(), 1);
+        let mut write = outputs.prepare_texture(key).unwrap();
+        draw(
+            write.texture_mut(),
+            &mut first,
+            Color::rgb(20, 30, 40),
+            false,
+        )
+        .unwrap();
+        assert!(write.publish());
+    }
+    let _batch = outputs.begin_batch();
+    let mut second = Fixture::default();
+    let changed = BufferKey {
+        generation: 2,
+        ..key
+    };
+    assert!(matches!(
+        outputs.reserve_texture(changed, Some((&mut second, requested))),
+        Err(RenderError::ResourceLimit(_))
+    ));
+    assert_eq!(second.device.creates.get(), 0);
+    assert_eq!(
+        outputs
+            .previous(key.entity)
+            .unwrap()
+            .texture()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(0, 0),
+        Color::rgb(20, 30, 40)
+    );
 }
 
 #[test]

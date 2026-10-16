@@ -2289,7 +2289,7 @@ fn prepare_offscreen(
 
     crate::trace_span!("draw.offscreen");
 
-    if outputs.texture_matches(key) {
+    if outputs.texture_matches(key)? {
         *idx += count_nodes(node);
         return Ok(true);
     }

@@ -74,7 +74,7 @@ impl NativeTexture {
             .reserve(plan.readback_bytes)
             .ok_or_else(capacity_error)?;
         let target = renderer.create_target(&plan)?;
-        if target.descriptor() != plan.descriptor {
+        if target.descriptor() != plan.descriptor || !renderer.can_reuse_target(&*target, &plan)? {
             return Err(RenderError::InvalidTexture);
         }
         target.validate()?;
@@ -233,6 +233,19 @@ impl Texture<'_> {
     }
     pub(crate) fn is_native(&self) -> bool {
         matches!(self.buf, TexBuf::Native(_))
+    }
+
+    pub(crate) fn can_reuse_native(
+        &self,
+        renderer: &dyn Renderer,
+        plan: &TargetPlan,
+    ) -> Result<bool, RenderError> {
+        let TexBuf::Native(native) = &self.buf else {
+            return Ok(false);
+        };
+        Ok(renderer.can_reuse_target(&*native.target, plan)?
+            && native.workspace_bytes == plan.workspace_bytes
+            && native.readback.bytes() == plan.readback_bytes)
     }
 
     pub(crate) fn target_workspace_bytes(&self) -> usize {

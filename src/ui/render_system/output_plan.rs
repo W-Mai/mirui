@@ -647,7 +647,7 @@ pub(super) fn prepare<'a>(
         } else if missing {
             outputs.invalidate(capture.entity);
             CaptureState::Missing
-        } else if outputs.texture_matches(capture.key) {
+        } else if outputs.texture_matches(capture.key)? {
             CaptureState::Ready
         } else if outputs.reserve_texture(capture.key, None)? {
             CaptureState::Pending

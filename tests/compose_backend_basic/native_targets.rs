@@ -348,16 +348,25 @@ fn foreign_target_rejection_keeps_the_composed_parent_usable() {
     let mut target = other.create_target(&plan).unwrap();
     assert!(!renderer.can_reuse_target(&*target, &plan).unwrap());
     assert!(other.can_reuse_target(&*target, &plan).unwrap());
-    assert_eq!(
-        renderer.with_target(
+    let viewport = Viewport::new(1, 1, Fixed::ONE);
+    other
+        .with_target(
             &mut *target,
-            Viewport::new(1, 1, Fixed::ONE),
+            viewport,
             TargetUpdate::Rebuild,
             &mut [],
-            &mut |_| panic!("foreign target")
-        ),
-        Err(RenderError::InvalidTexture)
-    );
+            &mut draw,
+        )
+        .unwrap();
+    for update in [TargetUpdate::Rebuild, TargetUpdate::Incremental] {
+        assert_eq!(
+            renderer.with_target(&mut *target, viewport, update, &mut [], &mut |_| panic!(
+                "foreign target"
+            )),
+            Err(RenderError::InvalidTexture)
+        );
+        assert_eq!(read(&*target), Ok(1));
+    }
     draw(&mut renderer).unwrap();
     assert_eq!(count.get(), 1);
     assert!(renderer.target.active.is_none());

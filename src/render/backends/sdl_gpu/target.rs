@@ -166,11 +166,7 @@ fn matching_target<'a, T: RenderTarget + 'static>(
         return Ok(None);
     };
     let child = &target.storage;
-    if !Rc::ptr_eq(device, &child.device)
-        || child.generation != device.generation()
-        || child.descriptor != requested.descriptor
-        || plan(device, requested.descriptor.layout)? != Some(*requested)
-    {
+    if !Rc::ptr_eq(device, &child.device) || child.generation != device.generation() {
         return Ok(None);
     }
     if child.active.get() {
@@ -181,6 +177,11 @@ fn matching_target<'a, T: RenderTarget + 'static>(
         .try_borrow()
         .map_err(|_| RenderError::InvalidScope)?;
     let _canvas = device.canvas()?;
+    if child.descriptor != requested.descriptor
+        || plan(device, requested.descriptor.layout)? != Some(*requested)
+    {
+        return Ok(None);
+    }
     Ok(Some(target))
 }
 

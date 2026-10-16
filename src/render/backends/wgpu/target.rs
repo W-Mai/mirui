@@ -149,21 +149,23 @@ fn matching_target<'a>(
         return Ok(None);
     };
     let child = &target.storage;
+    if !Arc::ptr_eq(context, &child.context) {
+        return Ok(None);
+    }
+    if child.active.get() {
+        return Err(RenderError::InvalidScope);
+    }
     let actual_samples = child
         .frame
         .msaa_view
         .as_ref()
         .map_or(1, |view| view.texture().sample_count());
-    if !Arc::ptr_eq(context, &child.context)
-        || child.descriptor != requested.descriptor
+    if child.descriptor != requested.descriptor
         || actual_samples != samples
         || child.bytes != requested.storage_bytes
         || plan(context, samples, requested.descriptor.layout)? != Some(*requested)
     {
         return Ok(None);
-    }
-    if child.active.get() {
-        return Err(RenderError::InvalidScope);
     }
     Ok(Some(target))
 }

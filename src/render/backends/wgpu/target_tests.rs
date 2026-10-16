@@ -64,6 +64,10 @@ fn reuse_checks_device_and_attachments_without_changing_contents() {
     assert!(!can_reuse(&first, 1, &*image, &changed).unwrap());
     storage.active.set(true);
     assert_eq!(
+        can_reuse(&first, 1, &*image, &changed),
+        Err(RenderError::InvalidScope)
+    );
+    assert_eq!(
         can_reuse(&first, 1, &*image, &requested),
         Err(RenderError::InvalidScope)
     );

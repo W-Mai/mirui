@@ -70,6 +70,63 @@ pub struct WidgetTextureStorage {
     deferred_workspace_trim: bool,
 }
 
+impl WidgetTextureStorage {
+    fn reserve_plane(
+        &mut self,
+        entity: Entity,
+        slot: usize,
+        layout: crate::render::PlaneLayout,
+        native: Option<(&mut dyn crate::render::Renderer, crate::render::TargetPlan)>,
+    ) -> Result<bool, RenderError> {
+        if let Some(plane) = self
+            .textures
+            .get(&entity)
+            .and_then(|slots| slots.planes[slot].as_ref())
+        {
+            let reusable = match &native {
+                Some((renderer, plan)) => plane.texture.can_reuse_native(&**renderer, plan)?,
+                None => true,
+            };
+            if reusable {
+                return Ok(true);
+            }
+            self.textures
+                .get_mut(&entity)
+                .expect("existing write slot")
+                .planes[slot] = None;
+        }
+        let plane = if let Some((renderer, plan)) = native {
+            OutputPlane {
+                texture: Texture::native(renderer, plan, &self.budget)?,
+                _allocation: None,
+            }
+        } else {
+            let Some(reservation) = self.budget.reserve(layout.required_bytes()) else {
+                return Ok(false);
+            };
+            let texture = Texture::owned(layout.width(), layout.height(), layout.format())?;
+            let Ok(allocation) = reservation.commit(texture.cache_size()) else {
+                return Ok(false);
+            };
+            OutputPlane {
+                texture,
+                _allocation: Some(allocation),
+            }
+        };
+        if !self.textures.contains_key(&entity) && self.textures.try_reserve(1).is_err() {
+            return Ok(false);
+        }
+        let slots = self.textures.entry(entity).or_insert_with(|| TextureSlots {
+            planes: [None, None],
+            shape: (layout.width(), layout.height(), layout.format()),
+            writing: false,
+            discard: false,
+        });
+        slots.planes[slot] = Some(plane);
+        Ok(true)
+    }
+}
+
 impl OutputKind for WidgetTexture {
     fn install(world: &mut crate::ecs::World) {
         if world.resource::<Outputs<Self>>().is_none() {
@@ -166,14 +223,27 @@ impl Outputs<WidgetTexture> {
         workspace.allocate(required_bytes, &storage.budget)
     }
 
-    pub(crate) fn texture_matches(&self, key: BufferKey) -> bool {
-        self.state(key.entity).is_some_and(|state| {
-            state.current_available
-                && state.current.is_some_and(|current| {
-                    current.record.key == key && current.input_version == key.generation as u64
-                })
-                && self.storage().textures.contains_key(&key.entity)
-        })
+    pub(crate) fn texture_matches(&self, key: BufferKey) -> Result<bool, RenderError> {
+        let Some(current) = self
+            .state(key.entity)
+            .filter(|state| state.current_available)
+            .and_then(|state| state.current)
+            .filter(|current| {
+                current.record.key == key && current.input_version == key.generation as u64
+            })
+        else {
+            return Ok(false);
+        };
+        let storage = self.storage();
+        let Some(plane) = storage
+            .textures
+            .get(&key.entity)
+            .and_then(|slots| slots.planes[current.record.slot].as_ref())
+        else {
+            return Ok(false);
+        };
+        plane.texture.pixels()?;
+        Ok(true)
     }
 
     pub(crate) fn reserve_texture(
@@ -181,7 +251,7 @@ impl Outputs<WidgetTexture> {
         key: BufferKey,
         native: Option<(&mut dyn crate::render::Renderer, crate::render::TargetPlan)>,
     ) -> Result<bool, RenderError> {
-        if self.texture_matches(key) {
+        if self.texture_matches(key)? {
             return Ok(true);
         }
         self.reserve_texture_slot(key, native)
@@ -203,6 +273,13 @@ impl Outputs<WidgetTexture> {
         key: BufferKey,
         native: Option<(&mut dyn crate::render::Renderer, crate::render::TargetPlan)>,
     ) -> Result<bool, RenderError> {
+        if let Some((_, plan)) = &native
+            && (plan.descriptor.layout.width() != key.w
+                || plan.descriptor.layout.height() != key.h
+                || plan.descriptor.layout.format() != key.format)
+        {
+            return Err(RenderError::InvalidTexture);
+        }
         if key.w == 0 || key.h == 0 {
             self.reset_texture(key.entity);
             return Ok(false);
@@ -214,9 +291,8 @@ impl Outputs<WidgetTexture> {
             return Ok(false);
         }
         let shape = (key.w, key.h, key.format);
-        let bytes = crate::render::PlaneLayout::packed(key.w, key.h, key.format)
-            .map_err(|_| RenderError::InvalidTexture)?
-            .required_bytes();
+        let layout = crate::render::PlaneLayout::packed(key.w, key.h, key.format)
+            .map_err(|_| RenderError::InvalidTexture)?;
         if self.state(key.entity).is_none() && self.reserve(1).is_err() {
             return Ok(false);
         }
@@ -262,51 +338,7 @@ impl Outputs<WidgetTexture> {
         } else {
             state.current.map_or(0, |current| current.record.slot)
         };
-        let reserved = storage
-            .textures
-            .get(&key.entity)
-            .is_some_and(|slots| slots.planes[slot].is_some());
-        if reserved {
-            return Ok(true);
-        }
-        let plane = if let Some((renderer, plan)) = native {
-            if plan.descriptor.layout.width() != key.w
-                || plan.descriptor.layout.height() != key.h
-                || plan.descriptor.layout.format() != key.format
-            {
-                return Err(RenderError::InvalidTexture);
-            }
-            OutputPlane {
-                texture: Texture::native(renderer, plan, &storage.budget)?,
-                _allocation: None,
-            }
-        } else {
-            let Some(reservation) = storage.budget.reserve(bytes) else {
-                return Ok(false);
-            };
-            let texture = Texture::owned(key.w, key.h, key.format)?;
-            let Ok(allocation) = reservation.commit(texture.cache_size()) else {
-                return Ok(false);
-            };
-            OutputPlane {
-                texture,
-                _allocation: Some(allocation),
-            }
-        };
-        if !storage.textures.contains_key(&key.entity) && storage.textures.try_reserve(1).is_err() {
-            return Ok(false);
-        }
-        let slots = storage
-            .textures
-            .entry(key.entity)
-            .or_insert_with(|| TextureSlots {
-                planes: [None, None],
-                shape,
-                writing: false,
-                discard: false,
-            });
-        slots.planes[slot] = Some(plane);
-        Ok(true)
+        storage.reserve_plane(key.entity, slot, layout, native)
     }
 
     pub(crate) fn prepare_texture(&self, key: BufferKey) -> Option<TextureWrite<'_>> {
@@ -694,8 +726,8 @@ mod tests {
             assert_eq!((read.texture().width, read.texture().height), (5, 5));
         }
         let _batch = outputs.begin_batch();
-        assert!(outputs.texture_matches(original));
-        assert!(!outputs.texture_matches(moved));
+        assert!(outputs.texture_matches(original).unwrap());
+        assert!(!outputs.texture_matches(moved).unwrap());
         assert!(outputs.reserve_texture(moved, None).unwrap());
         assert!(outputs.get(entity).is_none());
         {
@@ -728,8 +760,8 @@ mod tests {
             .unwrap()
             .set_pixel(0, 0, &moved_color);
         assert!(write.publish());
-        assert!(outputs.texture_matches(moved));
-        assert!(!outputs.texture_matches(original));
+        assert!(outputs.texture_matches(moved).unwrap());
+        assert!(!outputs.texture_matches(original).unwrap());
         let read = outputs.get(entity).unwrap();
         assert_eq!(read.layout_rect(), moved.layout_rect);
         assert_eq!(read.local_bounds(), local_bounds);
@@ -803,7 +835,7 @@ mod tests {
             assert_eq!((resized.w, resized.h), (original.w, original.h));
             let _batch = outputs.begin_batch();
             assert!(outputs.previous(entity).is_some());
-            assert!(!outputs.texture_matches(resized));
+            assert!(!outputs.texture_matches(resized).unwrap());
 
             let allocations = tracked_allocations(|| {
                 assert!(outputs.reserve_texture(resized, None).unwrap());
@@ -865,7 +897,7 @@ mod tests {
             assert!(outputs.previous(entity).is_some());
 
             let allocations = tracked_allocations(|| {
-                assert!(!outputs.texture_matches(changed));
+                assert!(!outputs.texture_matches(changed).unwrap());
                 assert!(outputs.reserve_texture(changed, None).unwrap());
                 assert!(outputs.get(entity).is_none());
                 assert!(outputs.previous(entity).is_none());
@@ -930,7 +962,7 @@ mod tests {
         let _batch = outputs.begin_batch();
         assert!(outputs.previous(entity).is_some());
         let allocations = tracked_allocations(|| {
-            assert!(!outputs.texture_matches(changed));
+            assert!(!outputs.texture_matches(changed).unwrap());
             assert!(outputs.reserve_texture(changed, None).unwrap());
             assert!(outputs.get(entity).is_none());
             assert!(outputs.previous(entity).is_none());
@@ -1090,7 +1122,7 @@ mod tests {
                 outputs.trim_memory();
                 assert_eq!(pixels.get_pixel(0, 0), expected);
                 assert_eq!(outputs.storage().budget.allocated(), TEXTURE_BYTES);
-                assert!(outputs.texture_matches(input));
+                assert!(outputs.texture_matches(input).unwrap());
             }
         });
         assert_eq!(allocations, 0);
@@ -1117,7 +1149,7 @@ mod tests {
         let allocations =
             tracked_allocations(|| assert!(outputs.reserve_texture(first, None).unwrap()));
         assert_eq!(allocations, 0);
-        assert!(outputs.texture_matches(first));
+        assert!(outputs.texture_matches(first).unwrap());
         assert_eq!(
             outputs
                 .get(first.entity)
@@ -1243,7 +1275,7 @@ mod tests {
         assert!(outputs.reserve_texture(input, None).unwrap());
         assert!(!outputs.reserve_texture(key(1, 2), None).unwrap());
         assert!(outputs.prepare_texture(input).is_none());
-        assert!(outputs.texture_matches(input));
+        assert!(outputs.texture_matches(input).unwrap());
     }
 
     #[test]
@@ -1395,7 +1427,7 @@ mod tests {
         assert!(outputs.prepare_texture(key(1, 2)).is_none());
         assert!(outputs.get(first_key.entity).is_none());
         assert!(first.publish());
-        assert!(outputs.texture_matches(first_key));
+        assert!(outputs.texture_matches(first_key).unwrap());
         assert_eq!(
             outputs
                 .get(first_key.entity)
