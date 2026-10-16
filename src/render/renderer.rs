@@ -338,6 +338,27 @@ impl RegionRenderer<'_> {
 impl Renderer for RegionRenderer<'_> {
     type TargetState = ();
 
+    fn plan_target(&self, layout: PlaneLayout) -> Result<Option<TargetPlan>, RenderError> {
+        self.inner.plan_target(layout)
+    }
+
+    fn create_target(
+        &mut self,
+        plan: &TargetPlan,
+    ) -> Result<alloc::boxed::Box<dyn BackendTarget>, RenderError> {
+        self.inner.create_target(plan)
+    }
+
+    fn with_target(
+        &mut self,
+        target: &mut dyn BackendTarget,
+        viewport: Viewport,
+        workspace: &mut [u8],
+        body: &mut dyn FnMut(&mut dyn Renderer) -> Result<(), RenderError>,
+    ) -> Result<(), RenderError> {
+        self.inner.with_target(target, viewport, workspace, body)
+    }
+
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         if let Some(command) = self.explicit_quad(request.command) {
             return self.inner.route(
@@ -619,6 +640,8 @@ pub trait Renderer: super::target::__private::TargetScopeDispatch {
     }
 
     /// Execute one callback on an independent target while preserving this renderer's complete routing.
+    ///
+    /// Drawing uses the supplied target-local viewport. Parent region offsets and projective wrappers apply only to parent drawing, not to production of an independent image.
     ///
     /// Flush the parent, bind, execute once, flush successful child work and restore. Restoration runs on callback errors and unwinding; the earliest error is returned. Initialization and output publication belong to the caller. Abort does not guarantee cleanup.
     fn with_target(

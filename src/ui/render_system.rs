@@ -3,6 +3,7 @@ use crate::ecs::{Entity, World};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::renderer::{DrawRequest, FallbackRegion, RenderError, RenderRoute, Renderer};
 use crate::render::texture::Texture;
+use crate::render::{BackendTarget, PlaneLayout, TargetPlan};
 use crate::text::TextGeometry;
 use crate::types::{Dimension, Fixed, Point, Rect, Transform, Transform3D, Viewport};
 use crate::ui::layout::{LayoutNode, LayoutStyle, compute_layout};
@@ -30,6 +31,8 @@ pub(crate) use scroll::has_pending_scroll;
 
 #[cfg(test)]
 mod coverage_tests;
+#[cfg(test)]
+mod native_target_tests;
 #[cfg(test)]
 mod overflow_tests;
 #[cfg(test)]
@@ -154,11 +157,28 @@ mod text_layout_failure_tests {
 struct ProjectiveRenderer<'a> {
     inner: &'a mut dyn Renderer,
     transform: Transform3D,
-    error: Option<RenderError>,
 }
 
 impl Renderer for ProjectiveRenderer<'_> {
     type TargetState = ();
+
+    fn plan_target(&self, layout: PlaneLayout) -> Result<Option<TargetPlan>, RenderError> {
+        self.inner.plan_target(layout)
+    }
+
+    fn create_target(&mut self, plan: &TargetPlan) -> Result<Box<dyn BackendTarget>, RenderError> {
+        self.inner.create_target(plan)
+    }
+
+    fn with_target(
+        &mut self,
+        target: &mut dyn BackendTarget,
+        viewport: Viewport,
+        workspace: &mut [u8],
+        body: &mut dyn FnMut(&mut dyn Renderer) -> Result<(), RenderError>,
+    ) -> Result<(), RenderError> {
+        self.inner.with_target(target, viewport, workspace, body)
+    }
 
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         self.inner.route(
@@ -220,7 +240,6 @@ impl Renderer for ProjectiveRenderer<'_> {
             let mut projected = ProjectiveRenderer {
                 inner: local,
                 transform,
-                error: None,
             };
             draw(&mut projected)
         })
@@ -1763,7 +1782,6 @@ fn draw_tree_content(
             let mut scoped = ProjectiveRenderer {
                 inner: renderer,
                 transform: tf_3d,
-                error: None,
             };
             draw_prepared_output(
                 node,
@@ -1833,7 +1851,6 @@ fn draw_tree_content(
                 let mut scoped = ProjectiveRenderer {
                     inner: renderer,
                     transform: tf_3d,
-                    error: None,
                 };
                 let result = {
                     let mut ctx = PaintCtx::new(
@@ -1851,9 +1868,6 @@ fn draw_tree_content(
                     ctx.set_layout_offset(Point::new(offset_x, offset_y));
                     render_views(world, entity, &mut ctx, requests)
                 };
-                if let Some(error) = scoped.error {
-                    return Err(error);
-                }
                 result?;
             } else {
                 let mut ctx =
@@ -2027,7 +2041,6 @@ mod projective_transform_tests {
         let mut scoped = ProjectiveRenderer {
             inner: &mut renderer,
             transform: Transform3D::translate(Fixed::from_int(4), Fixed::ZERO),
-            error: None,
         };
         let command = DrawCommand::Fill {
             area: Rect::new(0, 0, 8, 8),
@@ -2037,13 +2050,9 @@ mod projective_transform_tests {
             radius: Fixed::ZERO,
             opa: u8::MAX,
         };
-        scoped.error = scoped
-            .submit(&DrawRequest::new(&command, Rect::new(0, 0, 16, 16)))
-            .err();
-
         assert_eq!(
-            scoped.error,
-            Some(RenderError::Unsupported(
+            scoped.submit(&DrawRequest::new(&command, Rect::new(0, 0, 16, 16))),
+            Err(RenderError::Unsupported(
                 crate::render::RenderFeature::ProjectiveGeometry
             ))
         );
@@ -2095,7 +2104,6 @@ mod projective_transform_tests {
         ProjectiveRenderer {
             inner: &mut recorder,
             transform: projection,
-            error: None,
         }
         .submit_text_run(&DrawRequest::new(&command, clip), identity)
         .unwrap();

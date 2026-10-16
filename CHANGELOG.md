@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Native output storage has a backend extension contract with checked plane geometry, explicit alpha encoding, allocation requirements and source-owned pixel readback.
+- Independent target scopes use target-local coordinates through region and projective wrappers, preserving parent transforms after restoration.
 
 - Widget output pixels and paint workspaces share reserved and allocated memory accounting. Live write and workspace leases retain their charge until storage is released; owned textures report their full backing capacity to caches.
 - Output clearing, history comparisons and owned snapshots use checked pixel borrows. Failed output preparation returns its reserved slot without publishing pixels; snapshots preserve the source alpha mode.

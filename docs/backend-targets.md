@@ -26,4 +26,6 @@ The default `with_target` implementation flushes parent work, validates and bind
 
 `compose_backend!` forwards target planning, creation, binding and restoration to its `default` field. It uses the default scope executor, preserving every original engine and concrete renderer type, including nested compositions and borrowed engines. No additional DSL, projection type or callback adapter is required from the backend author.
 
+An independent target uses its own viewport and local coordinates. Region offsets and projective transforms on the parent renderer do not transform the new image during production; they apply when drawing into the parent again, including when compositing the finished image. Coordinate wrappers forward target scopes without reapplying parent transforms. Software `render_scope` keeps its existing parent-region coordinate mapping.
+
 The external implementation in [the composed-target contract tests](../tests/compose_backend_basic/native_targets.rs) exercises target planning, allocation, two nested concrete engines, independent target contents, failed production, foreign-device rejection and source reading after renderer destruction. The fixture models a native device in memory; it does not require GPU hardware.
