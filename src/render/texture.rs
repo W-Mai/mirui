@@ -1,6 +1,8 @@
 use super::scratch::{PlaneLayout, PlaneRequirements};
 use crate::core::cache::HasSize;
 
+mod pixels;
+
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu"))]
 mod cache_key;
 use crate::types::{Color, Fixed};
@@ -421,67 +423,13 @@ impl<'a> Texture<'a> {
         let Some(i) = self.offset(x, y) else {
             return Color::rgb(0, 0, 0);
         };
-        let buf = self.buf.as_slice();
-        match self.format {
-            ColorFormat::RGBA8888 => Color::rgba(buf[i], buf[i + 1], buf[i + 2], buf[i + 3]),
-            ColorFormat::BGRA8888 => Color::rgba(buf[i + 2], buf[i + 1], buf[i], buf[i + 3]),
-            ColorFormat::RGB888 => Color::rgb(buf[i], buf[i + 1], buf[i + 2]),
-            ColorFormat::RGB565 | ColorFormat::RGB565Swapped => {
-                let (lo, hi) = if self.format == ColorFormat::RGB565 {
-                    (buf[i], buf[i + 1])
-                } else {
-                    (buf[i + 1], buf[i])
-                };
-                let lo = lo as u16;
-                let hi = hi as u16;
-                let px = lo | (hi << 8);
-                let r = (px >> 11) as u8;
-                let g = ((px >> 5) & 0x3f) as u8;
-                let b = (px & 0x1f) as u8;
-                Color::rgb(
-                    (r << 3) | (r >> 2),
-                    (g << 2) | (g >> 4),
-                    (b << 3) | (b >> 2),
-                )
-            }
-        }
+        self.format.read_pixel(self.buf.as_slice(), i)
     }
 
     #[inline(always)]
     pub fn set_pixel(&mut self, x: i32, y: i32, color: &Color) {
         let Some(i) = self.offset(x, y) else { return };
-        let buf = self.buf.as_mut_slice();
-        match self.format {
-            ColorFormat::RGBA8888 => {
-                buf[i] = color.r;
-                buf[i + 1] = color.g;
-                buf[i + 2] = color.b;
-                buf[i + 3] = color.a;
-            }
-            ColorFormat::BGRA8888 => {
-                buf[i] = color.b;
-                buf[i + 1] = color.g;
-                buf[i + 2] = color.r;
-                buf[i + 3] = color.a;
-            }
-            ColorFormat::RGB888 => {
-                buf[i] = color.r;
-                buf[i + 1] = color.g;
-                buf[i + 2] = color.b;
-            }
-            ColorFormat::RGB565 | ColorFormat::RGB565Swapped => {
-                let px = ((color.r as u16 >> 3) << 11)
-                    | ((color.g as u16 >> 2) << 5)
-                    | (color.b as u16 >> 3);
-                let (b0, b1) = if self.format == ColorFormat::RGB565 {
-                    (px as u8, (px >> 8) as u8)
-                } else {
-                    ((px >> 8) as u8, px as u8)
-                };
-                buf[i] = b0;
-                buf[i + 1] = b1;
-            }
-        }
+        self.format.write_pixel(self.buf.as_mut_slice(), i, color);
     }
 
     #[inline(always)]
