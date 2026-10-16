@@ -833,7 +833,8 @@ mod tests {
                     for cropped in [false, true] {
                         let mut source_bytes = [0u8; 3 * 16];
                         let mut source =
-                            Texture::new(&mut source_bytes, 3, 3, ColorFormat::RGBA8888);
+                            Texture::new(&mut source_bytes, 3, 3, ColorFormat::RGBA8888)
+                                .expect("valid pixel storage");
                         source.stride = 16;
                         for y in 0..3 {
                             for x in 0..3 {
@@ -852,7 +853,8 @@ mod tests {
                         let mut reference_bytes = [0xa5u8; 6 * 28];
                         {
                             let mut initial =
-                                Texture::new(&mut reference_bytes, 6, 6, ColorFormat::RGBA8888);
+                                Texture::new(&mut reference_bytes, 6, 6, ColorFormat::RGBA8888)
+                                    .expect("valid pixel storage");
                             initial.stride = 28;
                             for y in 0..6 {
                                 for x in 0..6 {
@@ -871,11 +873,13 @@ mod tests {
                         }
                         let mut actual_bytes = reference_bytes;
                         let mut reference =
-                            Texture::new(&mut reference_bytes, 6, 6, ColorFormat::RGBA8888);
+                            Texture::new(&mut reference_bytes, 6, 6, ColorFormat::RGBA8888)
+                                .expect("valid pixel storage");
                         reference.stride = 28;
                         reference.alpha_mode = AlphaMode::Blend;
                         let mut actual =
-                            Texture::new(&mut actual_bytes, 6, 6, ColorFormat::RGBA8888);
+                            Texture::new(&mut actual_bytes, 6, 6, ColorFormat::RGBA8888)
+                                .expect("valid pixel storage");
                         actual.stride = 28;
                         actual.alpha_mode = AlphaMode::Blend;
                         let clip_start = if cropped { 1 + scale } else { 0 };
@@ -934,11 +938,13 @@ mod tests {
                 let source_color = Color::rgba(201, 37, 9, source_alpha);
                 let destination_color = Color::rgba(17, 101, 233, 96);
                 let mut source_bytes = [0u8; 4];
-                let mut source = Texture::new(&mut source_bytes, 1, 1, ColorFormat::RGBA8888);
+                let mut source = Texture::new(&mut source_bytes, 1, 1, ColorFormat::RGBA8888)
+                    .expect("valid pixel storage");
                 source.set_pixel(0, 0, &source_color);
                 let mut destination_bytes = [0u8; 16];
                 let mut destination =
-                    Texture::new(&mut destination_bytes, 2, 2, ColorFormat::RGBA8888);
+                    Texture::new(&mut destination_bytes, 2, 2, ColorFormat::RGBA8888)
+                        .expect("valid pixel storage");
                 for y in 0..2 {
                     for x in 0..2 {
                         destination.set_pixel(x, y, &destination_color);

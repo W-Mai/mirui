@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn blit_inside_pixel_opaque_outside_blank() {
         let mut buf = vec![0u8; 8 * 8 * 4];
-        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
         let atlas = build_inside_outside_atlas();
@@ -237,7 +237,7 @@ mod tests {
         let spread = 2u16;
         let atlas = build_thin_stem_atlas(spread);
         let mut buf = vec![0u8; 8 * 8 * 4];
-        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let color = Color::rgba(255, 255, 255, 255);
 
@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn blit_respects_clip_bounds() {
         let mut buf = vec![0u8; 8 * 8 * 4];
-        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
         let atlas = build_inside_outside_atlas();
@@ -277,7 +277,8 @@ mod tests {
         // The inside region (source 1..3) maps to roughly target
         // 2.5..7.5, so the centre is solid and it paints a 10px box.
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let atlas = build_inside_outside_atlas();
         let color = Color::rgba(255, 255, 255, 255);

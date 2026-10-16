@@ -1277,7 +1277,8 @@ mod tests {
         let color = Color::rgba(255, 255, 255, 255);
 
         let mut actual = vec![0u8; 24 * 8 * 4];
-        let texture = Texture::new(&mut actual, 24, 8, ColorFormat::RGBA8888);
+        let texture =
+            Texture::new(&mut actual, 24, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         SwRenderer::new(texture).draw_glyph_run_inner(
             &Point::ZERO,
             &glyphs,
@@ -1288,7 +1289,8 @@ mod tests {
         );
 
         let mut expected = vec![0u8; 24 * 8 * 4];
-        let texture = Texture::new(&mut expected, 24, 8, ColorFormat::RGBA8888);
+        let texture =
+            Texture::new(&mut expected, 24, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(texture);
         let a = [textflow::shaping::PositionedGlyph::new(
             GlyphId::new(65),
@@ -1324,7 +1326,8 @@ mod tests {
         let transform = Transform::translate(Fixed::from_int(12), Fixed::from_int(1))
             .compose(&Transform::rotate_deg(Fixed::from_int(90)));
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let texture = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
+        let texture =
+            Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(texture);
 
         renderer.draw_glyph_run_transformed_inner(TransformedRun {
@@ -1365,7 +1368,8 @@ mod tests {
             unit_tangent: textflow::shaping::FlowPoint { x: 0, y: 1 << 8 },
         }];
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let texture = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
+        let texture =
+            Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(texture);
 
         renderer.draw_posed_glyph_run_inner(PosedRun {
@@ -1411,7 +1415,8 @@ mod tests {
             unit_tangent: textflow::shaping::FlowPoint { x: 1 << 8, y: 0 },
         }];
         let mut buf = vec![0u8; 8 * 8 * 4];
-        let texture = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888);
+        let texture =
+            Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(texture);
 
         renderer.draw_posed_glyph_run_inner(PosedRun {
@@ -1433,7 +1438,7 @@ mod tests {
     fn coverage_full_value_is_opaque_and_zero_is_blank() {
         let coverage = [0xF0_u8];
         let mut buf = vec![0u8; 4 * 4 * 4];
-        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let color = Color::rgba(255, 255, 255, 255);
 
@@ -1447,7 +1452,7 @@ mod tests {
     fn coverage_mid_value_scales_to_alpha() {
         let coverage = [0x80_u8];
         let mut buf = vec![0u8; 4 * 4 * 4];
-        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let color = Color::rgba(255, 255, 255, 255);
 
@@ -1461,7 +1466,7 @@ mod tests {
     fn coverage_respects_clip_bounds() {
         let coverage = [0xFF_u8, 0xFF];
         let mut buf = vec![0u8; 4 * 4 * 4];
-        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let color = Color::rgba(255, 255, 255, 255);
 
@@ -1476,7 +1481,7 @@ mod tests {
     fn coverage_rows_use_minimum_byte_stride() {
         let coverage = [0xF0_u8, 0xF0, 0x0F, 0x00];
         let mut buf = vec![0u8; 4 * 4 * 4];
-        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let color = Color::rgba(255, 255, 255, 255);
 
@@ -1495,7 +1500,7 @@ mod tests {
         let coverage = [0x80_u8];
         let region = mirx::image::Region::new(0, 0, 1, 1).unwrap();
         let mut buf = vec![0u8; 4 * 4 * 4];
-        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let color = Color::rgba(255, 255, 255, 255);
 
@@ -1527,7 +1532,7 @@ mod tests {
         let coverage = [0_u8, 255];
         let region = mirx::image::Region::new(0, 0, 2, 1).unwrap();
         let mut buf = vec![0u8; 4 * 4];
-        let tex = Texture::new(&mut buf, 4, 1, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 4, 1, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
         backend.blit_coverage_region(
@@ -1666,7 +1671,8 @@ mod tests {
             backend: FontBackend::Custom(Rc::new(provider)),
         };
         let mut buf = vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         backend.viewport = Viewport::new(64, 64, Fixed::from_int(2));
 
@@ -1747,7 +1753,8 @@ mod tests {
             backend: FontBackend::Custom(Rc::new(SizedRasterProvider)),
         };
         let mut buf = vec![0u8; 12 * 2 * 4];
-        let tex = Texture::new(&mut buf, 12, 2, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 12, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
         let glyphs = [

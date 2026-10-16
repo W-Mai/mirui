@@ -766,7 +766,8 @@ fn preflight_software_scope(
     preflight: ScopePreflight<'_>,
 ) -> Result<usize, ReplayError> {
     let mut pixel = [0u8; 4];
-    let texture = Texture::new(&mut pixel, 1, 1, ColorFormat::RGBA8888);
+    let texture =
+        Texture::new(&mut pixel, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage");
     let mut software = crate::render::backends::sw::SwRenderer::new(texture);
     software.viewport = crate::types::Viewport::new(
         preflight.region.width(),
@@ -968,7 +969,8 @@ fn draw_isolated_scope(
         255,
     );
     {
-        let texture = Texture::new(target, local_w, local_h, ColorFormat::RGBA8888);
+        let texture = Texture::new(target, local_w, local_h, ColorFormat::RGBA8888)
+            .map_err(ReplayError::Render)?;
         let mut software =
             crate::render::backends::sw::SwRenderer::new(texture).with_alpha_mode(AlphaMode::Blend);
         software.viewport = crate::types::Viewport::new(local_w, local_h, scale);
@@ -1029,7 +1031,8 @@ fn draw_isolated_scope(
         }
     }
 
-    let source = Texture::from_ref(target, local_w, local_h, ColorFormat::RGBA8888);
+    let source = Texture::from_ref(target, local_w, local_h, ColorFormat::RGBA8888)
+        .map_err(ReplayError::Render)?;
     draw.renderer
         .submit(&DrawRequest::new(
             &DrawCommand::Blit {
@@ -1992,7 +1995,8 @@ mod tests {
     fn projective_clip_group_uses_one_bounded_scope() {
         let ops = clipped_projective_group();
         let mut pixels = [0u8; 40 * 30 * 4];
-        let target = Texture::new(&mut pixels, 40, 30, ColorFormat::RGBA8888);
+        let target =
+            Texture::new(&mut pixels, 40, 30, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = ScopeFallback {
             target: crate::render::backends::sw::SwRenderer::new(target),
             outer_submits: 0,
@@ -2016,7 +2020,8 @@ mod tests {
     fn unsupported_affine_clip_group_uses_one_bounded_scope() {
         let ops = clipped_affine_group();
         let mut pixels = [0u8; 40 * 30 * 4];
-        let target = Texture::new(&mut pixels, 40, 30, ColorFormat::RGBA8888);
+        let target =
+            Texture::new(&mut pixels, 40, 30, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = ScopeFallback {
             target: crate::render::backends::sw::SwRenderer::new(target),
             outer_submits: 0,
@@ -2069,7 +2074,8 @@ mod tests {
             SceneOp::GroupEnd,
         ];
         let mut pixels = [0u8; 40 * 30 * 4];
-        let target = Texture::new(&mut pixels, 40, 30, ColorFormat::RGBA8888);
+        let target =
+            Texture::new(&mut pixels, 40, 30, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = ScopeFallback {
             target: crate::render::backends::sw::SwRenderer::new(target),
             outer_submits: 0,
@@ -2101,7 +2107,8 @@ mod tests {
     fn native_outer_clip_absorbs_a_nested_fallback_scope() {
         let ops = nested_clip_group();
         let mut pixels = [0u8; 40 * 30 * 4];
-        let target = Texture::new(&mut pixels, 40, 30, ColorFormat::RGBA8888);
+        let target =
+            Texture::new(&mut pixels, 40, 30, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = ScopeFallback {
             target: crate::render::backends::sw::SwRenderer::new(target),
             outer_submits: 0,
@@ -2125,7 +2132,8 @@ mod tests {
     fn projective_clip_group_requires_scope_plan_before_drawing() {
         let ops = clipped_projective_group();
         let mut pixels = [0u8; 40 * 30 * 4];
-        let target = Texture::new(&mut pixels, 40, 30, ColorFormat::RGBA8888);
+        let target =
+            Texture::new(&mut pixels, 40, 30, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = ScopeFallback {
             target: crate::render::backends::sw::SwRenderer::new(target),
             outer_submits: 0,
@@ -2182,7 +2190,8 @@ mod tests {
         let ops = nested_isolated_groups(10);
         let mut output = [0u8; 8 * 8 * 4];
         let mut rgba = [0u8; 8 * 8 * 4 * 10];
-        let target = Texture::new(&mut output, 8, 8, ColorFormat::RGBA8888);
+        let target =
+            Texture::new(&mut output, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = crate::render::backends::sw::SwRenderer::new(target);
         let mut frames = [ReplayFrame::EMPTY; 12];
         let mut routes = [ReplayPlan::EMPTY; 0];
@@ -2204,7 +2213,8 @@ mod tests {
         );
         assert!(output.iter().all(|byte| *byte == 0));
 
-        let target = Texture::new(&mut output, 8, 8, ColorFormat::RGBA8888);
+        let target =
+            Texture::new(&mut output, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = crate::render::backends::sw::SwRenderer::new(target);
         let mut scopes = [ReplayScopePlan::EMPTY; 10];
         replay_scene_with_scratch(
@@ -2454,7 +2464,8 @@ mod tests {
         for pixel in output.chunks_exact_mut(4) {
             pixel.copy_from_slice(&[0, 0, 255, 255]);
         }
-        let texture = Texture::new(&mut output, 32, 32, ColorFormat::RGBA8888);
+        let texture =
+            Texture::new(&mut output, 32, 32, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = crate::render::backends::sw::SwRenderer::new(texture);
         let mut frames = [ReplayFrame::EMPTY; 8];
         let mut routes = [ReplayPlan::EMPTY; 8];
@@ -3278,7 +3289,8 @@ mod tests {
         }
         let ops = vec![group(Some(128), false), first, second, SceneOp::GroupEnd];
         let mut output = [0u8; 8 * 8 * 4];
-        let texture = Texture::new(&mut output, 8, 8, ColorFormat::RGBA8888);
+        let texture =
+            Texture::new(&mut output, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = crate::render::backends::sw::SwRenderer::new(texture);
         let mut frames = [ReplayFrame::EMPTY; 8];
         let mut routes = [ReplayPlan::EMPTY; 8];
@@ -3319,7 +3331,8 @@ mod tests {
         ];
         let mut output = [17u8; 8 * 8 * 4];
         let before = output;
-        let texture = Texture::new(&mut output, 8, 8, ColorFormat::RGBA8888);
+        let texture =
+            Texture::new(&mut output, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = crate::render::backends::sw::SwRenderer::new(texture);
         let mut frames = [ReplayFrame::EMPTY; 8];
         let mut routes = [ReplayPlan::EMPTY; 8];

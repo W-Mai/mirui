@@ -90,7 +90,8 @@ fn warmed_software_frame_reuses_all_render_storage() {
         Fixed::from_int(58),
         Fixed::from_int(8),
     );
-    let texture = Texture::from_static(&PIXELS, 2, 2, ColorFormat::RGBA8888);
+    let texture =
+        Texture::from_static(&PIXELS, 2, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
     let glyphs = [PositionedGlyph::new(
         GlyphId::new(u16::from(b'A')),
         FlowPoint { x: 0, y: 0 },

@@ -138,8 +138,10 @@ mod tests {
 
     #[test]
     fn index_and_token_modes_resolve_distinct_textures() {
-        let tex_a = Texture::from_static(&PIXELS_A, 1, 1, ColorFormat::RGBA8888);
-        let tex_b = Texture::from_static(&PIXELS_B, 2, 1, ColorFormat::RGBA8888);
+        let tex_a = Texture::from_static(&PIXELS_A, 1, 1, ColorFormat::RGBA8888)
+            .expect("valid pixel storage");
+        let tex_b = Texture::from_static(&PIXELS_B, 2, 1, ColorFormat::RGBA8888)
+            .expect("valid pixel storage");
         let textures: [(&str, &Texture); 2] = [("a", &tex_a), ("b", &tex_b)];
         let fonts: [(&str, &Font); 0] = [];
         let resolver = SliceResolver::new(&fonts, &textures);

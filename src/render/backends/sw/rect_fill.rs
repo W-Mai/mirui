@@ -555,7 +555,8 @@ mod corner_check {
 
     fn render_circle(w: i32, h: i32, r: i32) -> Vec<Vec<u8>> {
         let mut buf = std::vec![0u8; (w as usize) * (h as usize) * 4];
-        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::RGBA8888)
+            .expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let rect = Rect::new(0, 0, w, h);
         let clip = Rect::new(0, 0, w, h);
@@ -625,7 +626,8 @@ mod corner_check {
         // every pixel; healthy is ~50 µs/frame on a desktop release build.
         use std::time::Instant;
         let mut buf = std::vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let rect = Rect::new(0, 0, 64, 64);
         let clip = Rect::new(0, 0, 64, 64);
@@ -684,7 +686,8 @@ mod corner_check {
         r: Fixed,
     ) -> Vec<Vec<u8>> {
         let mut buf = std::vec![0u8; (w as usize) * (h as usize) * 4];
-        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::RGBA8888)
+            .expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let rect = Rect {
             x: ox,
@@ -833,7 +836,8 @@ mod corner_check {
 
     fn render_with_color(w: i32, h: i32, r: Fixed, color: Color, opa: u8) -> Vec<Vec<Color>> {
         let mut buf = std::vec![0u8; (w as usize) * (h as usize) * 4];
-        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::RGBA8888)
+            .expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let rect = Rect::new(0, 0, w, h);
         let clip = Rect::new(0, 0, w, h);
@@ -863,7 +867,8 @@ mod corner_check {
         opa: u8,
     ) -> Vec<Vec<Color>> {
         let mut buf = std::vec![0u8; (w as usize) * (h as usize) * 4];
-        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::RGBA8888)
+            .expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let rect = Rect {
             x: ox,
@@ -963,7 +968,8 @@ mod corner_check {
         // collapse to negative-width sub-rects; the entry guard must
         // catch that before the usize cast underflows.
         let mut buf = std::vec![0u8; 40 * 24 * 4];
-        let tex = Texture::new(&mut buf, 40, 24, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 40, 24, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let rect = Rect::new(0, 0, 40, 24);
         let clip = Rect::new(0, 0, 3, 24);
@@ -1001,7 +1007,8 @@ mod corner_check {
     #[test]
     fn fill_axis_aligned_blend_mode_honours_caller_folded_opa() {
         let mut buf = std::vec![0u8; 4 * 4 * 4];
-        let mut tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+        let mut tex =
+            Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         tex.alpha_mode = crate::render::texture::AlphaMode::Blend;
         let folded = ((128u16 * 128) / 255) as u8;
         super::fill_axis_aligned(&mut tex, 0, 0, 4, 4, &Color::rgba(255, 0, 0, 128), folded);
@@ -1100,7 +1107,8 @@ mod clip_mask_check {
         let w = 32;
         let h = 32;
         let mut buf = std::vec![0u8; (w * h * 4) as usize];
-        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::RGBA8888)
+            .expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let clip = Rect::new(0, 0, w, h);
 
@@ -1143,7 +1151,8 @@ mod clip_mask_check {
         let w = 8;
         let h = 8;
         let mut buf = std::vec![0u8; (w * h * 4) as usize];
-        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::RGBA8888)
+            .expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let clip = Rect::new(0, 0, w, h);
 

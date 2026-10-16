@@ -202,7 +202,8 @@ impl FramebufferAccess for LinuxFbSurface {
             self.width,
             self.height,
             self.format,
-        );
+        )
+        .expect("valid pixel storage");
         // line_length covers both driver scanline padding and the
         // overscan border the renderer must skip.
         tex.stride = self.line_length;

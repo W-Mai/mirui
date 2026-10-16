@@ -1,3 +1,4 @@
+use super::renderer::{RenderError, RenderResource};
 use super::scratch::{PlaneLayout, PlaneRequirements};
 use crate::core::cache::HasSize;
 
@@ -201,6 +202,8 @@ pub(crate) fn blend_straight_source_over(source: &Color, destination: &Color, al
 
 /// Pixel storage sampled with nearest-neighbor filtering when blitted.
 /// Glyph coverage and SDF atlases use their own interpolating samplers.
+///
+/// Pixel constructors return [`RenderError::InvalidTexture`] for empty dimensions, overflowing layouts, or insufficient storage. [`Texture::owned`] reports allocation failure as [`RenderError::ResourceLimit`].
 pub struct Texture<'a> {
     pub buf: TexBuf<'a>,
     pub width: u16,
@@ -244,85 +247,98 @@ impl Clone for Texture<'static> {
     }
 }
 
-impl<'a> Texture<'a> {
+impl Texture<'static> {
     /// Cacheable pixels with static storage.
     pub const fn from_static(
         buf: &'static [u8],
         width: u16,
         height: u16,
         format: ColorFormat,
-    ) -> Self {
-        let stride = width as usize * format.bytes_per_pixel();
-        Self {
-            buf: TexBuf::Ref(buf),
-            width,
-            height,
-            format,
-            stride,
-            alpha_mode: AlphaMode::Opaque,
-            cache_revision: 0,
-            transient: false,
-        }
+    ) -> Result<Self, RenderError> {
+        let layout = match Self::checked_layout(buf.len(), width, height, format) {
+            Ok(layout) => layout,
+            Err(error) => return Err(error),
+        };
+        Ok(Self::from_layout(TexBuf::Ref(buf), layout, false))
     }
+}
 
+impl<'a> Texture<'a> {
     /// Mutable pixels; GPU uploads bypass pointer-keyed caches by default.
-    pub fn new(buf: &'a mut [u8], width: u16, height: u16, format: ColorFormat) -> Self {
-        let stride = width as usize * format.bytes_per_pixel();
-        Self {
-            buf: TexBuf::Mut(buf),
-            width,
-            height,
-            format,
-            stride,
-            alpha_mode: AlphaMode::Opaque,
-            cache_revision: 0,
-            transient: true,
-        }
+    pub fn new(
+        buf: &'a mut [u8],
+        width: u16,
+        height: u16,
+        format: ColorFormat,
+    ) -> Result<Self, RenderError> {
+        let layout = Self::checked_layout(buf.len(), width, height, format)?;
+        Ok(Self::from_layout(TexBuf::Mut(buf), layout, true))
     }
 
     /// Borrowed pixels; GPU uploads bypass pointer-keyed caches by default.
-    pub fn from_ref(buf: &'a [u8], width: u16, height: u16, format: ColorFormat) -> Self {
-        let stride = width as usize * format.bytes_per_pixel();
-        Self {
-            buf: TexBuf::Ref(buf),
-            width,
-            height,
-            format,
-            stride,
-            alpha_mode: AlphaMode::Opaque,
-            cache_revision: 0,
-            transient: true,
-        }
+    pub fn from_ref(
+        buf: &'a [u8],
+        width: u16,
+        height: u16,
+        format: ColorFormat,
+    ) -> Result<Self, RenderError> {
+        let layout = Self::checked_layout(buf.len(), width, height, format)?;
+        Ok(Self::from_layout(TexBuf::Ref(buf), layout, true))
     }
+}
 
+impl Texture<'static> {
     /// Owned mutable pixels; GPU uploads bypass pointer-keyed caches by default.
-    pub fn owned(width: u16, height: u16, format: ColorFormat) -> Self {
-        let stride = width as usize * format.bytes_per_pixel();
-        let buf = alloc::vec![0u8; stride * height as usize];
-        Self {
-            buf: TexBuf::Owned(buf),
-            width,
-            height,
-            format,
-            stride,
-            alpha_mode: AlphaMode::Opaque,
-            cache_revision: 0,
-            transient: true,
-        }
+    pub fn owned(width: u16, height: u16, format: ColorFormat) -> Result<Self, RenderError> {
+        let layout =
+            PlaneLayout::packed(width, height, format).map_err(|_| RenderError::InvalidTexture)?;
+        let mut buf = Vec::new();
+        buf.try_reserve_exact(layout.required_bytes())
+            .map_err(|_| RenderError::ResourceLimit(RenderResource::Texture))?;
+        buf.resize(layout.required_bytes(), 0);
+        Ok(Self::from_layout(TexBuf::Owned(buf), layout, true))
     }
 
-    pub fn from_vec(buf: Vec<u8>, width: u16, height: u16, format: ColorFormat) -> Option<Self> {
-        let texture = Self {
-            buf: TexBuf::Owned(buf),
-            width,
-            height,
-            format,
-            stride: usize::from(width) * format.bytes_per_pixel(),
+    /// Take ownership of packed pixel bytes without copying them.
+    pub fn from_vec(
+        buf: Vec<u8>,
+        width: u16,
+        height: u16,
+        format: ColorFormat,
+    ) -> Result<Self, RenderError> {
+        let layout = Self::checked_layout(buf.len(), width, height, format)?;
+        Ok(Self::from_layout(TexBuf::Owned(buf), layout, true))
+    }
+}
+
+impl<'a> Texture<'a> {
+    const fn checked_layout(
+        len: usize,
+        width: u16,
+        height: u16,
+        format: ColorFormat,
+    ) -> Result<PlaneLayout, RenderError> {
+        let layout = match PlaneLayout::packed(width, height, format) {
+            Ok(layout) => layout,
+            Err(_) => return Err(RenderError::InvalidTexture),
+        };
+        if len < layout.minimum_bytes() {
+            return Err(RenderError::InvalidTexture);
+        }
+        Ok(layout)
+    }
+
+    const fn from_layout(buf: TexBuf<'a>, layout: PlaneLayout, transient: bool) -> Self {
+        Self {
+            buf,
+            width: layout.width(),
+            height: layout.height(),
+            format: layout.format(),
+            stride: layout.stride_bytes(),
             alpha_mode: AlphaMode::Opaque,
             cache_revision: 0,
-            transient: true,
-        };
-        texture.valid_storage().then_some(texture)
+            transient,
+        }
     }
 
     pub fn with_transient(mut self, transient: bool) -> Self {
@@ -1112,13 +1128,61 @@ mod tests {
     use super::*;
 
     #[test]
+    fn constructors_reject_invalid_storage_before_exposing_pixels() {
+        const SHORT: Result<Texture<'static>, RenderError> =
+            Texture::from_static(&[0; 3], 1, 1, ColorFormat::RGBA8888);
+        const VALID: Result<Texture<'static>, RenderError> =
+            Texture::from_static(&[10, 20, 30, 40], 1, 1, ColorFormat::RGBA8888);
+        assert!(matches!(SHORT, Err(RenderError::InvalidTexture)));
+        assert_eq!(VALID.unwrap().get_pixel(0, 0), Color::rgba(10, 20, 30, 40));
+        for format in [
+            ColorFormat::RGB565,
+            ColorFormat::RGB565Swapped,
+            ColorFormat::RGB888,
+            ColorFormat::RGBA8888,
+            ColorFormat::BGRA8888,
+        ] {
+            let mut bytes = [0; 4];
+            let short = format.bytes_per_pixel() - 1;
+            assert!(matches!(
+                Texture::new(&mut bytes[..short], 1, 1, format),
+                Err(RenderError::InvalidTexture)
+            ));
+            assert!(matches!(
+                Texture::from_ref(&bytes[..short], 1, 1, format),
+                Err(RenderError::InvalidTexture)
+            ));
+            assert!(matches!(
+                Texture::from_vec(bytes[..short].to_vec(), 1, 1, format),
+                Err(RenderError::InvalidTexture)
+            ));
+            assert!(matches!(
+                Texture::owned(0, 1, format),
+                Err(RenderError::InvalidTexture)
+            ));
+            assert!(matches!(
+                Texture::owned(1, 0, format),
+                Err(RenderError::InvalidTexture)
+            ));
+            let owned = Texture::owned(1, 1, format).unwrap();
+            assert!(owned.buf.as_slice().iter().all(|byte| *byte == 0));
+            let borrowed = Texture::from_ref(&bytes, 1, 1, format).unwrap();
+            assert_eq!(borrowed.buf.as_slice().as_ptr(), bytes.as_ptr());
+        }
+    }
+
+    #[test]
     fn storage_validation_uses_the_last_pixel_of_padded_rows() {
-        let mut texture = Texture::from_ref(&[0u8; 12], 2, 2, ColorFormat::RGB565);
+        let mut texture =
+            Texture::from_ref(&[0u8; 12], 2, 2, ColorFormat::RGB565).expect("valid pixel storage");
         texture.stride = 8;
         assert!(texture.valid_storage());
         texture.stride = 9;
         assert!(!texture.valid_storage());
-        assert!(!Texture::from_ref(&[], 0, 0, ColorFormat::RGBA8888).valid_storage());
+        assert!(matches!(
+            Texture::from_ref(&[], 0, 0, ColorFormat::RGBA8888),
+            Err(RenderError::InvalidTexture)
+        ));
     }
 
     #[test]
@@ -1129,13 +1193,14 @@ mod tests {
         assert_eq!(texture.buf.as_slice().as_ptr(), address);
         assert_eq!(texture.stride, 8);
         assert!(texture.transient);
-        assert!(Texture::from_vec(alloc::vec![0u8; 15], 2, 2, ColorFormat::RGBA8888).is_none());
+        assert!(Texture::from_vec(alloc::vec![0u8; 15], 2, 2, ColorFormat::RGBA8888).is_err());
     }
 
     #[test]
     fn argb8888_roundtrip() {
         let mut buf = [0u8; 4];
-        let mut tex = Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888);
+        let mut tex =
+            Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage");
         let c = Color::rgba(100, 200, 50, 255);
         tex.set_pixel(0, 0, &c);
         assert_eq!(tex.get_pixel(0, 0), c);
@@ -1144,7 +1209,8 @@ mod tests {
     #[test]
     fn bgra8888_roundtrip() {
         let mut buf = [0u8; 4];
-        let mut tex = Texture::new(&mut buf, 1, 1, ColorFormat::BGRA8888);
+        let mut tex =
+            Texture::new(&mut buf, 1, 1, ColorFormat::BGRA8888).expect("valid pixel storage");
         let c = Color::rgba(100, 200, 50, 255);
         tex.set_pixel(0, 0, &c);
         assert_eq!(tex.get_pixel(0, 0), c);
@@ -1165,7 +1231,8 @@ mod tests {
     #[test]
     fn rgb565_roundtrip() {
         let mut buf = [0u8; 2];
-        let mut tex = Texture::new(&mut buf, 1, 1, ColorFormat::RGB565);
+        let mut tex =
+            Texture::new(&mut buf, 1, 1, ColorFormat::RGB565).expect("valid pixel storage");
         let c = Color::rgb(255, 255, 255);
         tex.set_pixel(0, 0, &c);
         let got = tex.get_pixel(0, 0);
@@ -1177,7 +1244,8 @@ mod tests {
     #[test]
     fn blend_50_percent() {
         let mut buf = [0u8; 4];
-        let mut tex = Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888);
+        let mut tex =
+            Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage");
         tex.set_pixel(0, 0, &Color::rgb(0, 0, 0));
         tex.blend_pixel(Fixed::ZERO, Fixed::ZERO, &Color::rgb(200, 100, 50), 128);
         let got = tex.get_pixel(0, 0);
@@ -1189,7 +1257,8 @@ mod tests {
     #[test]
     fn blend_mode_keeps_straight_rgb_over_a_transparent_target() {
         let mut buf = [0u8; 4];
-        let mut tex = Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888);
+        let mut tex =
+            Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage");
         tex.alpha_mode = AlphaMode::Blend;
         tex.blend_pixel_int(0, 0, &Color::rgba(0, 0, 255, 128), 128);
         assert_eq!(tex.get_pixel(0, 0), Color::rgba(0, 0, 255, 128));
@@ -1208,7 +1277,8 @@ mod tests {
             1,
             2,
             ColorFormat::RGBA8888,
-        );
+        )
+        .expect("valid pixel storage");
         rgba.stride = 8;
         assert_eq!(
             rgba.rgba8_pixels(),
@@ -1220,11 +1290,13 @@ mod tests {
             1,
             2,
             ColorFormat::BGRA8888,
-        );
+        )
+        .expect("valid pixel storage");
         bgra.stride = 8;
         assert_eq!(bgra.rgba8_pixels(), rgba.rgba8_pixels());
 
-        let mut rgb = Texture::from_ref(&[1, 2, 3, 99, 5, 6, 7], 1, 2, ColorFormat::RGB888);
+        let mut rgb = Texture::from_ref(&[1, 2, 3, 99, 5, 6, 7], 1, 2, ColorFormat::RGB888)
+            .expect("valid pixel storage");
         rgb.stride = 4;
         assert_eq!(
             rgb.rgba8_pixels(),
@@ -1238,7 +1310,8 @@ mod tests {
     #[test]
     fn rgba8_upload_borrows_packed_pixels_and_converts_padded_rows() {
         let pixels = [1, 2, 3, 4, 5, 6, 7, 8];
-        let packed = Texture::from_ref(&pixels, 1, 2, ColorFormat::RGBA8888);
+        let packed =
+            Texture::from_ref(&pixels, 1, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
         assert!(matches!(
             packed.rgba8_upload_pixels(),
             Some(Cow::Borrowed(bytes)) if bytes.as_ptr() == pixels.as_ptr()
@@ -1249,7 +1322,8 @@ mod tests {
             1,
             2,
             ColorFormat::RGBA8888,
-        );
+        )
+        .expect("valid pixel storage");
         padded.stride = 8;
         assert!(matches!(
             padded.rgba8_upload_pixels(),
@@ -1270,7 +1344,8 @@ mod tests {
             CompositeMode::Difference,
         ] {
             let mut buf = [0u8; 4];
-            let mut tex = Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888);
+            let mut tex =
+                Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage");
             tex.alpha_mode = AlphaMode::Blend;
             tex.composite_pixel_int(0, 0, &Color::rgba(200, 80, 40, 128), 128, mode);
             assert_eq!(
@@ -1286,7 +1361,8 @@ mod tests {
         use crate::render::command::CompositeMode;
 
         let mut buf = [0u8; 4];
-        let mut tex = Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888);
+        let mut tex =
+            Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage");
         tex.alpha_mode = AlphaMode::Blend;
         tex.set_pixel(0, 0, &Color::rgba(255, 0, 0, 128));
         tex.composite_pixel_int(
@@ -1306,7 +1382,8 @@ mod tests {
     #[test]
     fn blend_rgb565() {
         let mut buf = [0u8; 2];
-        let mut tex = Texture::new(&mut buf, 1, 1, ColorFormat::RGB565);
+        let mut tex =
+            Texture::new(&mut buf, 1, 1, ColorFormat::RGB565).expect("valid pixel storage");
         tex.set_pixel(0, 0, &Color::rgb(0, 0, 0));
         tex.blend_pixel(Fixed::ZERO, Fixed::ZERO, &Color::rgb(255, 255, 255), 255);
         let got = tex.get_pixel(0, 0);
@@ -1319,7 +1396,8 @@ mod tests {
     fn blend_subpixel_spreads_to_neighbors() {
         // A point at (0.5, 0.5) should spread to all 4 pixels
         let mut buf = [0u8; 4 * 4]; // 2x2 RGBA8888
-        let mut tex = Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888);
+        let mut tex =
+            Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
         tex.set_pixel(0, 0, &Color::rgb(0, 0, 0));
         tex.set_pixel(1, 0, &Color::rgb(0, 0, 0));
         tex.set_pixel(0, 1, &Color::rgb(0, 0, 0));

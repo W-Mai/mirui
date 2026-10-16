@@ -145,7 +145,8 @@ mod tests {
         let bytes = [
             0xf8, 0x00, 0x07, 0xe0, 0x00, 0x1f, 0xaa, 0xbb, 0xff, 0xe0, 0x07, 0xff, 0xf8, 0x1f,
         ];
-        let mut src = Texture::from_ref(&bytes, 3, 2, ColorFormat::RGB565Swapped);
+        let mut src = Texture::from_ref(&bytes, 3, 2, ColorFormat::RGB565Swapped)
+            .expect("valid pixel storage");
         src.stride = 8;
         let mut dst = [0xcc; 20];
         assert!(SdlGpuRenderer::<Box<[u8]>>::write_rows(

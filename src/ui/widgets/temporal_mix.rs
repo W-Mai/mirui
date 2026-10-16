@@ -588,9 +588,11 @@ mod tests {
                 previous_bytes[y * 16 + x * 4..][..4].copy_from_slice(&[1, 240, 8, 31]);
             }
         }
-        let mut source = Texture::from_ref(&source_bytes, 2, 2, ColorFormat::RGBA8888);
+        let mut source = Texture::from_ref(&source_bytes, 2, 2, ColorFormat::RGBA8888)
+            .expect("valid pixel storage");
         source.stride = 12;
-        let mut previous = Texture::from_ref(&previous_bytes, 2, 2, ColorFormat::RGBA8888);
+        let mut previous = Texture::from_ref(&previous_bytes, 2, 2, ColorFormat::RGBA8888)
+            .expect("valid pixel storage");
         previous.stride = 16;
         for (mix, expected, unfinished) in [
             (0, [2, 1, 8, 32], false),
@@ -598,7 +600,8 @@ mod tests {
             (255, [1, 240, 8, 31], false),
         ] {
             let mut bytes = [0xcc; 40];
-            let mut dst = Texture::new(&mut bytes, 2, 2, ColorFormat::RGBA8888);
+            let mut dst =
+                Texture::new(&mut bytes, 2, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
             dst.stride = 20;
             assert_eq!(
                 mix_into(&mut dst, &source, Some(&previous), mix),

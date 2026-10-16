@@ -2277,7 +2277,7 @@ fn prepare_offscreen(
     let texture = write.texture_mut();
 
     {
-        let inner_tex = Texture::new(texture.buf.as_mut_slice(), buf_w, buf_h, key.format);
+        let inner_tex = Texture::new(texture.buf.as_mut_slice(), buf_w, buf_h, key.format)?;
         let mut inner = SwRenderer::with_scratch(inner_tex, scratch)
             .with_alpha_mode(crate::render::sw::AlphaMode::Blend);
         inner.viewport = Viewport::new(buf_w, buf_h, scale);
@@ -6152,7 +6152,8 @@ mod clip_children_check {
         );
 
         let mut buf = std::vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         let viewport = vp();
         super::render(&world, root, &viewport, &mut renderer).unwrap();
@@ -6222,7 +6223,8 @@ mod clip_children_check {
         );
 
         let mut buf = std::vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         let viewport = vp();
         super::render(&world, root, &viewport, &mut renderer).unwrap();
@@ -6282,7 +6284,8 @@ mod clip_children_check {
         );
 
         let mut buf = std::vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         let viewport = vp();
         super::render(&world, root, &viewport, &mut renderer).unwrap();
@@ -6588,7 +6591,8 @@ mod clip_children_check {
         );
         let mut buf = std::vec![0u8; 64 * 64 * 4];
         {
-            let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+            let tex =
+                Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             super::render(&world, root, &viewport, &mut renderer).unwrap();
             assert_eq!(renderer.target.get_pixel(16, 16).b, 255);
@@ -6607,7 +6611,8 @@ mod clip_children_check {
             .unwrap()
             .expect("dirty region");
         {
-            let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+            let tex =
+                Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             super::render_region(&world, root, &viewport, &dirty, &mut renderer).unwrap();
             assert_eq!(renderer.target.get_pixel(16, 16).b, 0);
@@ -6660,7 +6665,8 @@ mod clip_children_check {
         let viewport = vp();
         let mut full = std::vec![0u8; 64 * 64 * 4];
         {
-            let tex = Texture::new(&mut full, 64, 64, ColorFormat::RGBA8888);
+            let tex = Texture::new(&mut full, 64, 64, ColorFormat::RGBA8888)
+                .expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             super::render(&world, root, &viewport, &mut renderer).unwrap();
         }
@@ -6670,13 +6676,16 @@ mod clip_children_check {
             .expect("dirty region");
         let mut region = std::vec![0u8; 64 * 64 * 4];
         {
-            let tex = Texture::new(&mut region, 64, 64, ColorFormat::RGBA8888);
+            let tex = Texture::new(&mut region, 64, 64, ColorFormat::RGBA8888)
+                .expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             super::render_region(&world, root, &viewport, &dirty, &mut renderer).unwrap();
         }
 
-        let full_tex = Texture::new(&mut full, 64, 64, ColorFormat::RGBA8888);
-        let region_tex = Texture::new(&mut region, 64, 64, ColorFormat::RGBA8888);
+        let full_tex =
+            Texture::new(&mut full, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
+        let region_tex =
+            Texture::new(&mut region, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         for y in 0..64 {
             for x in 0..64 {
                 let full_blue = full_tex.get_pixel(x, y).b == 255;
@@ -6756,7 +6765,8 @@ mod hidden_check {
         world.insert(child, Hidden);
 
         let mut buf = std::vec![0u8; 32 * 32 * 4];
-        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(32, 32, Fixed::ONE);
         super::render(&world, root, &viewport, &mut renderer).unwrap();
@@ -6830,7 +6840,8 @@ mod disabled_state_check {
         world.insert(root, UserState::Disabled);
 
         let mut buf = std::vec![0u8; 32 * 32 * 4];
-        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(32, 32, Fixed::ONE);
         super::render(&world, root, &viewport, &mut renderer).unwrap();
@@ -6973,7 +6984,8 @@ mod offscreen_render_check {
         let (mut world, root, _, consumer) = offscreen_read_probe_world(false);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         let mut pixels = [0; 64 * 64 * 4];
-        let texture = Texture::new(&mut pixels, 64, 64, ColorFormat::RGBA8888);
+        let texture =
+            Texture::new(&mut pixels, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(texture);
         let _ = super::collect_dirty_regions(&mut world, root, &viewport).unwrap();
         super::render(&world, root, &viewport, &mut renderer).unwrap();
@@ -7002,7 +7014,8 @@ mod offscreen_render_check {
         let (mut world, root, source, consumer) = offscreen_read_probe_world(false);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         let mut pixels = [0; 64 * 64 * 4];
-        let texture = Texture::new(&mut pixels, 64, 64, ColorFormat::RGBA8888);
+        let texture =
+            Texture::new(&mut pixels, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(texture);
         let _ = super::collect_dirty_regions(&mut world, root, &viewport).unwrap();
         super::render(&world, root, &viewport, &mut renderer).unwrap();
@@ -7112,7 +7125,8 @@ mod offscreen_render_check {
         world.insert(panel, OffscreenRender::default());
 
         let mut buf = std::vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
@@ -7174,7 +7188,8 @@ mod offscreen_render_check {
         assert!(outputs.get(panel).is_some());
 
         let mut pixels = std::vec![0; 64 * 64 * 4];
-        let texture = Texture::new(&mut pixels, 64, 64, ColorFormat::RGBA8888);
+        let texture =
+            Texture::new(&mut pixels, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(texture);
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
         assert!(outputs.get(panel).is_some());
@@ -7204,7 +7219,8 @@ mod offscreen_render_check {
                     ..Default::default()
                 },
             );
-            let tex = Texture::new(&mut buf_inline, 64, 64, ColorFormat::RGBA8888);
+            let tex = Texture::new(&mut buf_inline, 64, 64, ColorFormat::RGBA8888)
+                .expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             let viewport = Viewport::new(64, 64, Fixed::ONE);
             super::render(&world, panel, &viewport, &mut renderer).unwrap();
@@ -7228,7 +7244,8 @@ mod offscreen_render_check {
                 },
             );
             world.insert(panel, OffscreenRender::default());
-            let tex = Texture::new(&mut buf_off, 64, 64, ColorFormat::RGBA8888);
+            let tex = Texture::new(&mut buf_off, 64, 64, ColorFormat::RGBA8888)
+                .expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             let viewport = Viewport::new(64, 64, Fixed::ONE);
             super::render(&world, panel, &viewport, &mut renderer).unwrap();
@@ -7267,7 +7284,8 @@ mod offscreen_render_check {
         world.insert(panel, OffscreenRender::with_scale(Fixed::ONE / 2));
 
         let mut buf = std::vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
@@ -7320,7 +7338,8 @@ mod offscreen_render_check {
         );
 
         let mut buf = std::vec![0u8; 128 * 128 * 4];
-        let tex = Texture::new(&mut buf, 128, 128, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 128, 128, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
@@ -7365,7 +7384,8 @@ mod offscreen_render_check {
         world.insert(panel, OffscreenRender::with_scale(Fixed::ONE / 2));
 
         let mut buf = std::vec![0u8; 128 * 128 * 2];
-        let tex = Texture::new(&mut buf, 128, 128, ColorFormat::RGB565Swapped);
+        let tex = Texture::new(&mut buf, 128, 128, ColorFormat::RGB565Swapped)
+            .expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
@@ -7453,7 +7473,8 @@ mod offscreen_render_check {
         let viewport = Viewport::new(FB_W, FB_H, Fixed::ONE);
         let render_into = |world: &World, panel: Entity| -> alloc::vec::Vec<u8> {
             let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 2];
-            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGB565Swapped);
+            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGB565Swapped)
+                .expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             super::render(world, panel, &viewport, &mut renderer).unwrap();
             fb
@@ -7547,7 +7568,8 @@ mod offscreen_render_check {
         let viewport = Viewport::new(FB_W, FB_H, Fixed::ONE);
         let render_into = |world: &World, panel: Entity| -> alloc::vec::Vec<u8> {
             let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 4];
-            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888);
+            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888)
+                .expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             super::render(world, panel, &viewport, &mut renderer).unwrap();
             fb
@@ -7792,7 +7814,8 @@ mod offscreen_render_check {
         // when the subtree mutates between frames.
         let render_into = |world: &mut World, root: Entity| -> alloc::vec::Vec<u8> {
             let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 2];
-            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGB565Swapped);
+            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGB565Swapped)
+                .expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             let dirty = super::collect_dirty_region(world, root, &viewport)
                 .unwrap()
@@ -7898,7 +7921,8 @@ mod offscreen_render_check {
                 },
             );
             world.insert(switch, Switch::new());
-            let tex = Texture::new(&mut buf_inline, 128, 128, ColorFormat::RGB565Swapped);
+            let tex = Texture::new(&mut buf_inline, 128, 128, ColorFormat::RGB565Swapped)
+                .expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             let viewport = Viewport::new(128, 128, Fixed::ONE);
             super::render(&world, switch, &viewport, &mut renderer).unwrap();
@@ -7921,7 +7945,8 @@ mod offscreen_render_check {
             );
             world.insert(switch, Switch::new());
             world.insert(switch, OffscreenRender::default());
-            let tex = Texture::new(&mut buf_off, 128, 128, ColorFormat::RGB565Swapped);
+            let tex = Texture::new(&mut buf_off, 128, 128, ColorFormat::RGB565Swapped)
+                .expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             let viewport = Viewport::new(128, 128, Fixed::ONE);
             super::render(&world, switch, &viewport, &mut renderer).unwrap();
@@ -7967,7 +7992,8 @@ mod offscreen_render_check {
                 },
             );
             world.insert(switch, Switch::new());
-            let tex = Texture::new(&mut buf_inline, 64, 64, ColorFormat::RGBA8888);
+            let tex = Texture::new(&mut buf_inline, 64, 64, ColorFormat::RGBA8888)
+                .expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             let viewport = Viewport::new(64, 64, Fixed::ONE);
             super::render(&world, switch, &viewport, &mut renderer).unwrap();
@@ -7991,7 +8017,8 @@ mod offscreen_render_check {
             );
             world.insert(switch, Switch::new());
             world.insert(switch, OffscreenRender::default());
-            let tex = Texture::new(&mut buf_off, 64, 64, ColorFormat::RGBA8888);
+            let tex = Texture::new(&mut buf_off, 64, 64, ColorFormat::RGBA8888)
+                .expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             let viewport = Viewport::new(64, 64, Fixed::ONE);
             super::render(&world, switch, &viewport, &mut renderer).unwrap();
@@ -8036,7 +8063,8 @@ mod offscreen_render_check {
         world.insert(panel, OffscreenRender::with_scale(Fixed::ONE / 2));
 
         let mut buf = std::vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
@@ -8090,7 +8118,8 @@ mod offscreen_render_check {
         world.insert(panel, OffscreenRender::new().with_opacity(128));
 
         let mut buf = std::vec![0u8; 32 * 32 * 4];
-        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(32, 32, Fixed::ONE);
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
@@ -8131,7 +8160,8 @@ mod offscreen_render_check {
 
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         let mut buf = std::vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
 
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
@@ -8146,7 +8176,8 @@ mod offscreen_render_check {
             .version;
 
         let mut buf2 = std::vec![0u8; 64 * 64 * 4];
-        let tex2 = Texture::new(&mut buf2, 64, 64, ColorFormat::RGBA8888);
+        let tex2 =
+            Texture::new(&mut buf2, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer2 = SwRenderer::new(tex2);
         super::render(&world, panel, &viewport, &mut renderer2).unwrap();
 
@@ -8211,7 +8242,8 @@ mod offscreen_render_check {
         let viewport = Viewport::new(FB_W, FB_H, Fixed::ONE);
         let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 4];
         {
-            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888);
+            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888)
+                .expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             super::render(&world, panel, &viewport, &mut renderer).unwrap();
         }
@@ -8231,7 +8263,8 @@ mod offscreen_render_check {
             .expect("dirty region");
         let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 4];
         {
-            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888);
+            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888)
+                .expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             super::render_region(&world, panel, &viewport, &dirty, &mut renderer).unwrap();
         }
@@ -8280,7 +8313,8 @@ mod offscreen_render_check {
         let viewport = Viewport::new(FB_W, FB_H, Fixed::ONE);
         let render_full = |world: &World| -> alloc::vec::Vec<u8> {
             let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 4];
-            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888);
+            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888)
+                .expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             super::render(world, panel, &viewport, &mut renderer).unwrap();
             fb
@@ -8295,7 +8329,8 @@ mod offscreen_render_check {
                     w: Fixed::from_int(FB_W as i32),
                     h: Fixed::from_int(FB_H as i32),
                 });
-            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888);
+            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888)
+                .expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             super::render_region(world, panel, &viewport, &dirty, &mut renderer).unwrap();
             fb
@@ -8358,7 +8393,8 @@ mod offscreen_render_check {
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         let render = |world: &World, root: Entity| -> alloc::vec::Vec<u8> {
             let mut fb = std::vec![0u8; 64 * 64 * 4];
-            let tex = Texture::new(&mut fb, 64, 64, ColorFormat::RGBA8888);
+            let tex =
+                Texture::new(&mut fb, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             super::render(world, root, &viewport, &mut renderer).unwrap();
             fb
@@ -8390,7 +8426,8 @@ mod offscreen_render_check {
         world.insert(panel, OffscreenRender::default());
 
         let mut buf = std::vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
 
@@ -8517,7 +8554,8 @@ mod offscreen_render_check {
             }
             let viewport = Viewport::new(8, 8, Fixed::ONE);
             let mut target = [0_u8; 8 * 8 * 4];
-            let texture = Texture::new(&mut target, 8, 8, backend_format);
+            let texture =
+                Texture::new(&mut target, 8, 8, backend_format).expect("valid pixel storage");
             let mut renderer = SwRenderer::new(texture);
             for generation in 0..2 {
                 for entity in order {
@@ -8618,7 +8656,8 @@ mod offscreen_render_check {
                     w: Fixed::from_int(64),
                     h: Fixed::from_int(64),
                 });
-            let tex = Texture::new(buf, 64, 64, ColorFormat::RGBA8888);
+            let tex =
+                Texture::new(buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             super::render_region(world, panel, &viewport, &dirty, &mut renderer).unwrap();
         };
@@ -8928,7 +8967,8 @@ mod offscreen_render_check {
         world.insert(panel, WidgetTransform3D(Transform3D::IDENTITY));
 
         let mut buf = std::vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
@@ -8967,7 +9007,8 @@ mod offscreen_render_check {
         world.insert(inner, OffscreenRender::default());
 
         let mut buf = std::vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         super::render(&world, outer, &viewport, &mut renderer).unwrap();
@@ -9025,7 +9066,8 @@ mod offscreen_render_check {
         world.insert(panel, OffscreenRender::with_scale(Fixed::ONE * 7 / 10));
 
         let mut buf = std::vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(64, 64, Fixed::ONE);
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
@@ -9059,7 +9101,8 @@ mod offscreen_render_check {
         world.insert(panel, Hidden);
 
         let mut buf = std::vec![0u8; 32 * 32 * 4];
-        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(32, 32, Fixed::ONE);
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
@@ -9156,7 +9199,8 @@ mod offscreen_render_check {
         ));
 
         let mut buf = std::vec![0xFFu8; 12 * 12 * 4];
-        let tex = Texture::new(&mut buf, 12, 12, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 12, 12, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         let viewport = Viewport::new(12, 12, Fixed::ONE);
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
@@ -9925,7 +9969,8 @@ mod scroll_blit_visual_check {
         }
 
         {
-            let tex = Texture::new(&mut blit_buf, 32, 32, ColorFormat::RGBA8888);
+            let tex = Texture::new(&mut blit_buf, 32, 32, ColorFormat::RGBA8888)
+                .expect("valid pixel storage");
             let mut backend = SwRenderer::new(tex);
             let area = Rect::new(
                 Fixed::ZERO,
@@ -9994,7 +10039,8 @@ mod scroll_blit_visual_check {
         // — inner content moves in its own frame), then outer shift
         // pulls the already-shifted inner along with everything.
         {
-            let tex = Texture::new(&mut blit_buf, 32, 32, ColorFormat::RGBA8888);
+            let tex = Texture::new(&mut blit_buf, 32, 32, ColorFormat::RGBA8888)
+                .expect("valid pixel storage");
             let mut backend = SwRenderer::new(tex);
             let inner_area = Rect::new(
                 Fixed::ZERO,

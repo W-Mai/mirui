@@ -64,12 +64,10 @@ fn main() {
 
     let mut fb = vec![0u8; (W * H * 4) as usize];
 
-    let sw = SwRenderer::new(Texture::new(
-        &mut fb,
-        W as u16,
-        H as u16,
-        ColorFormat::RGBA8888,
-    ));
+    let sw = SwRenderer::new(
+        Texture::new(&mut fb, W as u16, H as u16, ColorFormat::RGBA8888)
+            .expect("valid pixel storage"),
+    );
     let gpu = Logging::new();
     let mut hybrid = Hybrid::new(sw, gpu);
 
@@ -84,7 +82,8 @@ fn main() {
         px[2] = 80;
         px[3] = 255;
     }
-    let sprite = Texture::from_ref(&sprite_buf, 16, 16, ColorFormat::RGBA8888);
+    let sprite =
+        Texture::from_ref(&sprite_buf, 16, 16, ColorFormat::RGBA8888).expect("valid pixel storage");
     let sprite_rect = Rect::new(0, 0, 16, 16);
 
     let mut event_pump = sdl.event_pump().unwrap();

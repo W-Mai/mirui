@@ -118,7 +118,8 @@ fn draw_fixture(
         ))?;
     } else {
         let pixels = [200u8, 62, 112, 190].repeat(12 * 12);
-        let texture = Texture::from_ref(&pixels, 12, 12, ColorFormat::RGBA8888);
+        let texture =
+            Texture::from_ref(&pixels, 12, 12, ColorFormat::RGBA8888).expect("valid pixel storage");
         let quad = [
             Point::new(76, 42),
             Point::new(242, 53),

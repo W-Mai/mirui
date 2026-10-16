@@ -50,7 +50,9 @@ mod clip_tests {
 
     #[test]
     fn transformed_stroke_uses_physical_clip_once_at_hidpi_scale() {
-        let mut renderer = SwRenderer::new(Texture::owned(64, 64, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::owned(64, 64, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         renderer.viewport = Viewport::new(64, 64, Fixed::from_int(2));
         let mut path = Path::new();
         path.move_to(Point::new(0, 20)).line_to(Point::new(40, 20));
@@ -84,7 +86,9 @@ mod linear_transform_tests {
 
     #[test]
     fn transformed_linear_fill_tracks_path_and_paint_transforms() {
-        let mut renderer = SwRenderer::new(Texture::owned(220, 44, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::owned(220, 44, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let path = Path::rect(0.into(), 0.into(), 100.into(), 20.into());
         let gradient = LinearGradient {
             start: mirx::types::Point::new(mirx::types::Fixed::ZERO, mirx::types::Fixed::ZERO),
@@ -123,7 +127,9 @@ mod linear_transform_tests {
 
     #[test]
     fn checked_linear_fill_rejects_empty_stops_before_drawing() {
-        let mut renderer = SwRenderer::new(Texture::owned(32, 32, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::owned(32, 32, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let path = Path::rect(0.into(), 0.into(), 20.into(), 20.into());
         let paint = Paint::LinearGradient(LinearGradient {
             start: mirx::types::Point::new(mirx::types::Fixed::ZERO, mirx::types::Fixed::ZERO),
@@ -150,7 +156,9 @@ mod linear_transform_tests {
 
     #[test]
     fn linear_stop_alpha_modulates_path_coverage() {
-        let mut renderer = SwRenderer::new(Texture::owned(16, 16, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::owned(16, 16, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let path = Path::rect(0.into(), 0.into(), 16.into(), 16.into());
         let stop = mirx::types::Color::rgba(255, 0, 0, 128);
         let paint = Paint::LinearGradient(LinearGradient {
@@ -186,7 +194,9 @@ mod linear_transform_tests {
 
     #[test]
     fn object_bbox_linear_stroke_uses_outline_bounds_for_flat_path() {
-        let mut renderer = SwRenderer::new(Texture::owned(48, 24, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::owned(48, 24, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let mut path = Path::new();
         path.move_to(crate::types::Point::new(4, 12))
             .line_to(crate::types::Point::new(44, 12));
@@ -225,7 +235,9 @@ mod linear_transform_tests {
 
     #[test]
     fn checked_radial_fill_renders_the_focal_circle() {
-        let mut renderer = SwRenderer::new(Texture::owned(104, 54, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::owned(104, 54, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let path = Path::rect(0.into(), 0.into(), 100.into(), 50.into());
         let paint = Paint::RadialGradient(RadialGradient {
             center: mirx::types::Point::new(
@@ -921,7 +933,8 @@ mod gradient_tests {
     #[test]
     fn linear_object_bounding_box_maps_to_path_bbox() {
         let mut buf = std::vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let clip = Rect::new(0, 0, 64, 64);
 

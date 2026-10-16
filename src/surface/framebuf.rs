@@ -94,5 +94,6 @@ impl<F: FnMut(&[u8], PhysicalRect)> Surface for FramebufSurface<F> {
 impl<F: FnMut(&[u8], PhysicalRect)> FramebufferAccess for FramebufSurface<F> {
     fn framebuffer(&mut self) -> Texture<'_> {
         Texture::new(&mut self.buf, self.width, self.height, self.format)
+            .expect("valid pixel storage")
     }
 }

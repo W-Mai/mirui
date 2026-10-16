@@ -259,7 +259,8 @@ fn published_capture_requests_survive_parent_capture_and_main_target_failure() {
         super::try_update_layout(&mut app.world, root, &viewport).unwrap();
         app.world.clear_subtree_dirty(root);
         let mut pixels = [0; 8 * 4 * 4];
-        let texture = Texture::new(&mut pixels, 8, 4, ColorFormat::RGBA8888);
+        let texture =
+            Texture::new(&mut pixels, 8, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(texture);
         assert_eq!(
             super::render(&app.world, root, &viewport, &mut renderer),

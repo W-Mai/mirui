@@ -200,7 +200,9 @@ mod tests {
         for _ in 0..2 {
             let mut renderer = PreparedReadback {
                 bounds: Rect::new(11, 21, 38, 38),
-                texture: RefCell::new(Some(Texture::owned(38, 38, ColorFormat::RGBA8888))),
+                texture: RefCell::new(Some(
+                    Texture::owned(38, 38, ColorFormat::RGBA8888).expect("valid pixel storage"),
+                )),
                 prepared: Cell::new(false),
                 draws: 0,
             };

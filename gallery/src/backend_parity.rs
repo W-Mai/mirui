@@ -27,9 +27,12 @@ const RGB565_SWAPPED: [u8; 14] = [
 struct TextureParity;
 
 fn sample_textures() -> [Texture<'static>; 3] {
-    let rgba = Texture::from_static(&RGBA, 3, 2, ColorFormat::RGBA8888);
-    let mut rgb565 = Texture::from_static(&RGB565, 3, 2, ColorFormat::RGB565);
-    let mut swapped = Texture::from_static(&RGB565_SWAPPED, 3, 2, ColorFormat::RGB565Swapped);
+    let rgba =
+        Texture::from_static(&RGBA, 3, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
+    let mut rgb565 =
+        Texture::from_static(&RGB565, 3, 2, ColorFormat::RGB565).expect("valid pixel storage");
+    let mut swapped = Texture::from_static(&RGB565_SWAPPED, 3, 2, ColorFormat::RGB565Swapped)
+        .expect("valid pixel storage");
     rgb565.stride = 8;
     swapped.stride = 8;
     [rgba, rgb565, swapped]

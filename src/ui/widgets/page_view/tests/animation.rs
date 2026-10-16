@@ -643,10 +643,12 @@ fn a_renderer_without_offscreen_support_draws_the_destination_inline() {
         let viewport = crate::types::Viewport::new(100, 80, Fixed::ONE);
         crate::ui::render_system::try_update_layout(&mut app.world, root, &viewport).unwrap();
         let mut pixels = [0; 100 * 80 * 4];
-        let texture = Texture::new(&mut pixels, 100, 80, ColorFormat::RGBA8888);
+        let texture =
+            Texture::new(&mut pixels, 100, 80, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = InlineOnly(SwRenderer::new(texture));
         crate::ui::render_system::render(&app.world, root, &viewport, &mut renderer).unwrap();
-        let texture = Texture::new(&mut pixels, 100, 80, ColorFormat::RGBA8888);
+        let texture =
+            Texture::new(&mut pixels, 100, 80, ColorFormat::RGBA8888).expect("valid pixel storage");
         assert_eq!(texture.get_pixel(20, 20), Color::rgb(0, 255, 0));
         advance(&mut app, 16);
         assert!(transition::running(&app.world, container).is_none());

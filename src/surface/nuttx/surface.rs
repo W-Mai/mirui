@@ -202,7 +202,8 @@ impl FramebufferAccess for NuttxFbSurface {
                 self.fb.fblen - self.view_byte_offset,
             )
         };
-        let mut tex = Texture::new(slice, self.width, self.height, self.fb.format);
+        let mut tex = Texture::new(slice, self.width, self.height, self.fb.format)
+            .expect("valid pixel storage");
         tex.stride = self.line_length;
         tex
     }

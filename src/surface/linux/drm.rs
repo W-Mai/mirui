@@ -448,7 +448,8 @@ impl FramebufferAccess for LinuxDrmSurface {
         // SAFETY: `mmap_ptr/len` valid until self's Drop; `&mut self` excludes aliasing.
         let slice: &mut [u8] =
             unsafe { core::slice::from_raw_parts_mut(buf.mmap_ptr, buf.mmap_len) };
-        let mut tex = Texture::new(slice, self.width, self.height, self.format);
+        let mut tex =
+            Texture::new(slice, self.width, self.height, self.format).expect("valid pixel storage");
         tex.stride = stride;
         tex
     }
@@ -466,7 +467,7 @@ impl FramebufferAccess for LinuxDrmSurface {
             // SAFETY: N mmaps are disjoint allocations; `&mut self` excludes aliasing.
             let slice: &mut [u8] =
                 unsafe { core::slice::from_raw_parts_mut(buf.mmap_ptr, buf.mmap_len) };
-            let mut tex = Texture::new(slice, w, h, f);
+            let mut tex = Texture::new(slice, w, h, f).expect("valid pixel storage");
             tex.stride = stride;
             out.push(tex);
         }

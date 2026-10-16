@@ -852,7 +852,8 @@ mod tests {
     #[test]
     fn clipped_readback_preserves_pixel_rows_and_destination_offset() {
         let mut pixels = [0u8; 4 * 3 * 4];
-        let mut dst = Texture::new(&mut pixels, 4, 3, ColorFormat::RGBA8888);
+        let mut dst =
+            Texture::new(&mut pixels, 4, 3, ColorFormat::RGBA8888).expect("valid pixel storage");
         let source = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
         copy_packed_rgba8(
             &source,
@@ -870,7 +871,8 @@ mod tests {
     #[test]
     fn short_readback_fails_before_modifying_destination() {
         let mut pixels = [23u8; 16];
-        let mut dst = Texture::new(&mut pixels, 2, 2, ColorFormat::RGBA8888);
+        let mut dst =
+            Texture::new(&mut pixels, 2, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
         assert_eq!(
             copy_packed_rgba8(
                 &[1, 2, 3, 4],
@@ -930,7 +932,8 @@ mod tests {
     #[test]
     fn scope_replay_preserves_global_coordinates() {
         let mut pixels = [0u8; 12 * 10 * 4];
-        let texture = Texture::new(&mut pixels, 12, 10, ColorFormat::RGBA8888);
+        let texture =
+            Texture::new(&mut pixels, 12, 10, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = crate::render::backends::sw::SwRenderer::new(texture);
         let region = FallbackRegion::from_parts(4, 3, 4, 3, 16);
         let command = DrawCommand::Fill {
@@ -964,7 +967,8 @@ mod tests {
     #[test]
     fn scope_replay_rebases_explicit_quads_once() {
         let mut pixels = [0u8; 12 * 10 * 4];
-        let texture = Texture::new(&mut pixels, 12, 10, ColorFormat::RGBA8888);
+        let texture =
+            Texture::new(&mut pixels, 12, 10, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = crate::render::backends::sw::SwRenderer::new(texture);
         let region = FallbackRegion::from_parts(4, 3, 4, 3, 16);
         let command = DrawCommand::Fill {

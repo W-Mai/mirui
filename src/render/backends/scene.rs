@@ -98,7 +98,8 @@ mod tests {
             2,
             2,
             crate::render::texture::ColorFormat::RGBA8888,
-        );
+        )
+        .expect("valid pixel storage");
         let command = DrawCommand::Blit {
             pos: Point::ZERO,
             size: Point::new(2, 2),

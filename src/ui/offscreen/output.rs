@@ -270,7 +270,7 @@ impl Outputs<WidgetTexture> {
                 writing: false,
                 discard: false,
             });
-        slots.planes[slot] = Some(Texture::owned(key.w, key.h, key.format));
+        slots.planes[slot] = Some(Texture::owned(key.w, key.h, key.format).ok()?);
         storage.allocated = total;
         Some(())
     }

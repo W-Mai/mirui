@@ -1584,7 +1584,8 @@ impl SwRenderer<'_> {
         }
         let w = u16::try_from((sx1 - sx0).max(1)).map_err(|_| RenderError::InvalidGeometry)?;
         let h = u16::try_from((sy1 - sy0).max(1)).map_err(|_| RenderError::InvalidGeometry)?;
-        let mut tex = crate::render::texture::Texture::owned(w, h, self.target.format);
+        let mut tex = crate::render::texture::Texture::owned(w, h, self.target.format)
+            .expect("valid pixel storage");
         self.read_target_region(src, &mut tex)?;
         Ok(Some(tex))
     }
@@ -1785,27 +1786,10 @@ mod tests {
     use alloc::vec;
 
     #[test]
-    fn checked_plain_blit_rejects_short_texture_before_fast_path() {
-        let mut renderer = SwRenderer::new(Texture::owned(4, 4, ColorFormat::RGBA8888));
-        let short = Texture::from_ref(&[0u8; 1], 2, 2, ColorFormat::RGBA8888);
-        let command = DrawCommand::Blit {
-            pos: Point::ZERO,
-            size: Point::new(2, 2),
-            transform: Transform::IDENTITY,
-            quad: None,
-            texture: &short,
-            opa: 255,
-            radius: Fixed::ZERO,
-            composite: CompositeMode::SourceOver,
-        };
-        let request = DrawRequest::new(&command, Rect::new(0, 0, 4, 4));
-        assert_eq!(renderer.route(&request), Err(RenderError::InvalidTexture));
-        assert_eq!(renderer.submit(&request), Err(RenderError::InvalidTexture));
-    }
-
-    #[test]
     fn route_rejects_software_draws_that_drop_requested_semantics() {
-        let mut renderer = SwRenderer::new(Texture::owned(16, 16, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::owned(16, 16, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let clip = Rect::new(0, 0, 16, 16);
         let affine = Transform::rotate_deg(Fixed::from_int(20));
         let fill = DrawCommand::Fill {
@@ -1821,7 +1805,7 @@ mod tests {
             Err(RenderError::Unsupported(RenderFeature::RoundedFill))
         );
 
-        let texture = Texture::owned(2, 2, ColorFormat::RGBA8888);
+        let texture = Texture::owned(2, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
         let blit = DrawCommand::Blit {
             pos: Point::ZERO,
             size: Point::new(2, 2),
@@ -1855,7 +1839,9 @@ mod tests {
 
     #[test]
     fn submit_draws_plain_commands_and_checks_exceptional_semantics() {
-        let mut renderer = SwRenderer::new(Texture::owned(16, 16, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::owned(16, 16, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let clip = Rect::new(0, 0, 16, 16);
         let fill = DrawCommand::Fill {
             area: Rect::new(2, 3, 4, 5),
@@ -1893,7 +1879,8 @@ mod tests {
     #[test]
     fn blit_at_negative_x_does_not_wrap_into_wrong_rows() {
         let mut tgt_buf = vec![0u8; 64 * 64 * 4];
-        let tgt_tex = Texture::new(&mut tgt_buf, 64, 64, ColorFormat::RGBA8888);
+        let tgt_tex =
+            Texture::new(&mut tgt_buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tgt_tex);
 
         let mut src_buf = vec![0u8; 32 * 32 * 4];
@@ -1903,7 +1890,8 @@ mod tests {
             px[2] = 50;
             px[3] = 255;
         }
-        let src_tex = Texture::new(&mut src_buf, 32, 32, ColorFormat::RGBA8888);
+        let src_tex =
+            Texture::new(&mut src_buf, 32, 32, ColorFormat::RGBA8888).expect("valid pixel storage");
         let src_rect = Rect::new(0, 0, 32, 32);
 
         let dst = Point::new(Fixed::from_int(-24), Fixed::from_int(8));
@@ -1964,7 +1952,8 @@ mod tests {
     #[test]
     fn blit_at_negative_x_rgb565_swapped_does_not_wrap() {
         let mut tgt_buf = vec![0u8; 64 * 64 * 2];
-        let tgt_tex = Texture::new(&mut tgt_buf, 64, 64, ColorFormat::RGB565Swapped);
+        let tgt_tex = Texture::new(&mut tgt_buf, 64, 64, ColorFormat::RGB565Swapped)
+            .expect("valid pixel storage");
         let mut backend = SwRenderer::new(tgt_tex);
 
         let mut src_buf = vec![0u8; 32 * 32 * 2];
@@ -1974,7 +1963,8 @@ mod tests {
             px[0] = 0xF8;
             px[1] = 0x00;
         }
-        let src_tex = Texture::new(&mut src_buf, 32, 32, ColorFormat::RGB565Swapped);
+        let src_tex = Texture::new(&mut src_buf, 32, 32, ColorFormat::RGB565Swapped)
+            .expect("valid pixel storage");
         let src_rect = Rect::new(0, 0, 32, 32);
 
         let dst = Point::new(Fixed::from_int(-24), Fixed::from_int(8));
@@ -2026,7 +2016,8 @@ mod tests {
     #[test]
     fn fill_rect_basic() {
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
         let rect = Rect::new(2, 2, 4, 4);
@@ -2045,7 +2036,7 @@ mod tests {
     #[test]
     fn clear_fills_area() {
         let mut buf = vec![0u8; 8 * 8 * 4];
-        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
         backend.clear(&Rect::new(0, 0, 8, 8), &Color::rgb(50, 100, 150));
@@ -2060,7 +2051,8 @@ mod tests {
     fn fill_path_rect_matches_fill_rect() {
         // A rectangular Path should produce the same interior pixels as fill_rect.
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
         let path = crate::render::path::Path::rect(
@@ -2089,7 +2081,7 @@ mod tests {
     #[test]
     fn fill_path_empty_is_noop() {
         let mut buf = vec![0u8; 4 * 4 * 4];
-        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
         let path = crate::render::path::Path::new();
@@ -2113,7 +2105,7 @@ mod tests {
     #[test]
     fn fill_path_zero_opa_is_noop() {
         let mut buf = vec![0u8; 4 * 4 * 4];
-        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
         let path = crate::render::path::Path::rect(
@@ -2140,7 +2132,8 @@ mod tests {
         // Right triangle with vertices (0,0), (10,0), (0,10). Probe interior
         // point (2,2) vs exterior point (8,8).
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
         let mut path = crate::render::path::Path::new();
@@ -2175,7 +2168,8 @@ mod tests {
     #[test]
     fn draw_glyph_run_is_reachable_via_trait() {
         let mut buf = vec![0u8; 32 * 16 * 4];
-        let tex = Texture::new(&mut buf, 32, 16, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 32, 16, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
         let pos = Point {
@@ -2213,7 +2207,8 @@ mod tests {
     #[test]
     fn renderer_routes_affine_glyph_runs() {
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         let font = crate::render::font::Font::bitmap_8x8();
         let glyphs = [textflow::shaping::PositionedGlyph::new(
@@ -2243,7 +2238,8 @@ mod tests {
         // Horizontal line from (2,8) to (14,8), width=2. Interior pixels
         // around y=8 should be colored; pixels several rows away must not.
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
         let mut path = crate::render::path::Path::new();
@@ -2278,7 +2274,8 @@ mod tests {
     #[test]
     fn renderer_dispatches_line_command() {
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
         let cmd = DrawCommand::Line {
@@ -2304,7 +2301,8 @@ mod tests {
     #[test]
     fn renderer_dispatches_arc_command() {
         let mut buf = vec![0u8; 32 * 32 * 4];
-        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
         let cmd = DrawCommand::Arc {
@@ -2343,8 +2341,12 @@ mod tests {
             ),
         ];
         for (p1, p2, clip) in cases {
-            let mut line = SwRenderer::new(Texture::owned(24, 24, ColorFormat::RGBA8888));
-            let mut path_renderer = SwRenderer::new(Texture::owned(24, 24, ColorFormat::RGBA8888));
+            let mut line = SwRenderer::new(
+                Texture::owned(24, 24, ColorFormat::RGBA8888).expect("valid pixel storage"),
+            );
+            let mut path_renderer = SwRenderer::new(
+                Texture::owned(24, 24, ColorFormat::RGBA8888).expect("valid pixel storage"),
+            );
             let color = Color::rgb(255, 0, 0);
             let width = Fixed::from_int(2);
             line.draw_line(p1, p2, &clip, width, &color, 180);
@@ -2372,7 +2374,9 @@ mod tests {
 
     #[test]
     fn repeated_draw_line_keeps_stroke_scratch_capacity() {
-        let mut renderer = SwRenderer::new(Texture::owned(24, 24, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::owned(24, 24, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let clip = Rect::new(0, 0, 24, 24);
         let color = Color::rgb(255, 0, 0);
         let draw = |renderer: &mut SwRenderer<'_>| {
@@ -2410,7 +2414,8 @@ mod tests {
     #[test]
     fn draw_arc_strokes_pixels() {
         let mut buf = vec![0u8; 32 * 32 * 4];
-        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
         let center = Point {
@@ -2450,8 +2455,12 @@ mod tests {
             let start = Fixed::from_int(start);
             let end = Fixed::from_int(end);
             let width = Fixed::from_int(width);
-            let mut actual = SwRenderer::new(Texture::owned(64, 64, ColorFormat::RGBA8888));
-            let mut expected = SwRenderer::new(Texture::owned(64, 64, ColorFormat::RGBA8888));
+            let mut actual = SwRenderer::new(
+                Texture::owned(64, 64, ColorFormat::RGBA8888).expect("valid pixel storage"),
+            );
+            let mut expected = SwRenderer::new(
+                Texture::owned(64, 64, ColorFormat::RGBA8888).expect("valid pixel storage"),
+            );
             let viewport = Viewport::new(64, 64, Fixed::from_int(scale));
             actual.viewport = viewport;
             expected.viewport = viewport;
@@ -2476,8 +2485,12 @@ mod tests {
 
     #[test]
     fn affine_arc_matches_explicit_path_and_retains_path_storage() {
-        let mut actual = SwRenderer::new(Texture::owned(64, 64, ColorFormat::RGBA8888));
-        let mut expected = SwRenderer::new(Texture::owned(64, 64, ColorFormat::RGBA8888));
+        let mut actual = SwRenderer::new(
+            Texture::owned(64, 64, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
+        let mut expected = SwRenderer::new(
+            Texture::owned(64, 64, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let center = Point::new(24, 16);
         let radius = Fixed::from_int(12);
         let start = Fixed::from_int(30);
@@ -2525,7 +2538,7 @@ mod tests {
     #[test]
     fn stroke_path_zero_width_is_noop() {
         let mut buf = vec![0u8; 8 * 8 * 4];
-        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
         let mut path = crate::render::path::Path::new();
@@ -2564,7 +2577,8 @@ mod tests {
         use crate::render::painter::Painter;
 
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
         {
@@ -2586,7 +2600,8 @@ mod tests {
         use crate::render::path::Path;
 
         let mut buf = vec![0u8; 32 * 32 * 4];
-        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let clip = Rect::new(0, 0, 32, 32);
 
@@ -2651,7 +2666,8 @@ mod tests {
         use crate::render::painter::Painter;
 
         let mut buf = vec![0u8; 32 * 16 * 4];
-        let tex = Texture::new(&mut buf, 32, 16, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 32, 16, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let clip = Rect::new(0, 0, 32, 16);
 
@@ -2702,18 +2718,21 @@ mod tests {
                 src_buf[i + 3] = 255;
             }
         }
-        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
+        let src =
+            Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
 
         // Dst: 8×6, draw 7×5 blit at (0,0). Two identical dst buffers.
         let mut dst_a = vec![0u8; 8 * 6 * 4];
         let mut dst_b = vec![0u8; 8 * 6 * 4];
 
         {
-            let mut tex_a = Texture::new(&mut dst_a, 8, 6, ColorFormat::RGBA8888);
+            let mut tex_a =
+                Texture::new(&mut dst_a, 8, 6, ColorFormat::RGBA8888).expect("valid pixel storage");
             blit_generic_slow(&mut tex_a, &src, 0, 0, 4, 4, 0, 0, 7, 5, 0, 0, 8, 6, 255);
         }
         {
-            let mut tex_b = Texture::new(&mut dst_b, 8, 6, ColorFormat::RGBA8888);
+            let mut tex_b =
+                Texture::new(&mut dst_b, 8, 6, ColorFormat::RGBA8888).expect("valid pixel storage");
             blit_dda(
                 &mut tex_b, &src, 0, 0, 4, 4, 0, 0, 7, 5, 0, 0, 8, 6, 255, None,
             );
@@ -2740,7 +2759,8 @@ mod tests {
                 _ => 255,
             };
         }
-        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
+        let src =
+            Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
 
         let mut dst_a = vec![0u8; 6 * 6 * 4];
         for (i, byte) in dst_a.iter_mut().enumerate() {
@@ -2749,11 +2769,13 @@ mod tests {
         let mut dst_b = dst_a.clone();
 
         {
-            let mut tex = Texture::new(&mut dst_a, 6, 6, ColorFormat::RGBA8888);
+            let mut tex =
+                Texture::new(&mut dst_a, 6, 6, ColorFormat::RGBA8888).expect("valid pixel storage");
             blit_generic_slow(&mut tex, &src, 0, 0, 4, 4, 1, 1, 4, 4, 0, 0, 6, 6, 255);
         }
         {
-            let mut tex = Texture::new(&mut dst_b, 6, 6, ColorFormat::RGBA8888);
+            let mut tex =
+                Texture::new(&mut dst_b, 6, 6, ColorFormat::RGBA8888).expect("valid pixel storage");
             blit_1to1_fast(&mut tex, &src, 0, 0, 4, 4, 1, 1, 0, 0, 6, 6);
         }
         for (i, (&a, &b)) in dst_a.iter().zip(dst_b.iter()).enumerate() {
@@ -2776,7 +2798,8 @@ mod tests {
             src_buf[i * 4 + 2] = 50 + i as u8 * 7;
             src_buf[i * 4 + 3] = if i == 0 { 0 } else { 255 };
         }
-        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
+        let src =
+            Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
 
         let mut dst_a = vec![0u8; 6 * 6 * 2];
         for (i, byte) in dst_a.iter_mut().enumerate() {
@@ -2785,11 +2808,13 @@ mod tests {
         let mut dst_b = dst_a.clone();
 
         {
-            let mut tex = Texture::new(&mut dst_a, 6, 6, ColorFormat::RGB565Swapped);
+            let mut tex = Texture::new(&mut dst_a, 6, 6, ColorFormat::RGB565Swapped)
+                .expect("valid pixel storage");
             blit_generic_slow(&mut tex, &src, 0, 0, 4, 4, 1, 1, 4, 4, 0, 0, 6, 6, 255);
         }
         {
-            let mut tex = Texture::new(&mut dst_b, 6, 6, ColorFormat::RGB565Swapped);
+            let mut tex = Texture::new(&mut dst_b, 6, 6, ColorFormat::RGB565Swapped)
+                .expect("valid pixel storage");
             blit_1to1_fast(&mut tex, &src, 0, 0, 4, 4, 1, 1, 0, 0, 6, 6);
         }
         assert_eq!(dst_a, dst_b);
@@ -2805,18 +2830,21 @@ mod tests {
             src_buf[i * 2] = 0x12 + i as u8;
             src_buf[i * 2 + 1] = 0x34 + i as u8;
         }
-        let src = Texture::new(&mut src_buf, 3, 3, ColorFormat::RGB565Swapped);
+        let src = Texture::new(&mut src_buf, 3, 3, ColorFormat::RGB565Swapped)
+            .expect("valid pixel storage");
 
         let mut dst_a = vec![0u8; 10 * 10 * 2];
         let mut dst_b = vec![0u8; 10 * 10 * 2];
         {
-            let mut tex = Texture::new(&mut dst_a, 10, 10, ColorFormat::RGB565Swapped);
+            let mut tex = Texture::new(&mut dst_a, 10, 10, ColorFormat::RGB565Swapped)
+                .expect("valid pixel storage");
             blit_dda(
                 &mut tex, &src, 0, 0, 3, 3, 1, 1, 6, 6, 0, 0, 10, 10, 255, None,
             );
         }
         {
-            let mut tex = Texture::new(&mut dst_b, 10, 10, ColorFormat::RGB565Swapped);
+            let mut tex = Texture::new(&mut dst_b, 10, 10, ColorFormat::RGB565Swapped)
+                .expect("valid pixel storage");
             blit_2to2_fast(&mut tex, &src, 0, 0, 3, 3, 1, 1, 0, 0, 10, 10);
         }
         assert_eq!(dst_a, dst_b);
@@ -2829,10 +2857,12 @@ mod tests {
         let mut src_buf = vec![0u8; 2 * 2 * 2];
         src_buf[0] = 0xAA;
         src_buf[1] = 0xBB;
-        let src = Texture::new(&mut src_buf, 2, 2, ColorFormat::RGB565Swapped);
+        let src = Texture::new(&mut src_buf, 2, 2, ColorFormat::RGB565Swapped)
+            .expect("valid pixel storage");
 
         let mut dst = vec![0u8; 6 * 6 * 2];
-        let mut tex = Texture::new(&mut dst, 6, 6, ColorFormat::RGB565Swapped);
+        let mut tex =
+            Texture::new(&mut dst, 6, 6, ColorFormat::RGB565Swapped).expect("valid pixel storage");
         // Clip starts at odd x=1: fast path 2×2 alignment broken → DDA fallback.
         blit_2to2_fast(&mut tex, &src, 0, 0, 2, 2, 0, 0, 1, 0, 6, 6);
         // Should not panic; column 0 stays zero, column 1+ has pixels.
@@ -2844,7 +2874,8 @@ mod tests {
     #[test]
     fn fill_rect_transformed_90deg_rotation() {
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let mut dst = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
+        let mut dst =
+            Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888).expect("valid pixel storage");
         let rect = Rect::new(6, 6, 4, 4);
         let cx = rect.x + rect.w / Fixed::from_int(2);
         let cy = rect.y + rect.h / Fixed::from_int(2);
@@ -2872,7 +2903,8 @@ mod tests {
     #[test]
     fn renderer_transformed_fill_uses_logical_area_under_hidpi() {
         let mut buf = vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
         renderer.viewport = Viewport::new(32, 32, Fixed::from_int(2));
 
@@ -2900,18 +2932,21 @@ mod tests {
             src_buf[i * 4] = 100 + i as u8;
             src_buf[i * 4 + 3] = 255;
         }
-        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
+        let src =
+            Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
 
         let mut dst_a = vec![0u8; 8 * 8 * 4];
         let mut dst_b = vec![0u8; 8 * 8 * 4];
 
         // Clip covers only the right half of the blit rect.
         {
-            let mut tex = Texture::new(&mut dst_a, 8, 8, ColorFormat::RGBA8888);
+            let mut tex =
+                Texture::new(&mut dst_a, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
             blit_generic_slow(&mut tex, &src, 0, 0, 4, 4, 1, 1, 4, 4, 3, 0, 8, 8, 255);
         }
         {
-            let mut tex = Texture::new(&mut dst_b, 8, 8, ColorFormat::RGBA8888);
+            let mut tex =
+                Texture::new(&mut dst_b, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
             blit_1to1_fast(&mut tex, &src, 0, 0, 4, 4, 1, 1, 3, 0, 8, 8);
         }
         assert_eq!(dst_a, dst_b);
@@ -2927,17 +2962,20 @@ mod tests {
             src_buf[i * 4] = (i * 16 + 1) as u8;
             src_buf[i * 4 + 3] = 255;
         }
-        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
+        let src =
+            Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
 
         let mut dst_a = vec![0u8; 10 * 10 * 4];
         let mut dst_b = vec![0u8; 10 * 10 * 4];
         // Clip covers columns 2..7 only.
         {
-            let mut tex_a = Texture::new(&mut dst_a, 10, 10, ColorFormat::RGBA8888);
+            let mut tex_a = Texture::new(&mut dst_a, 10, 10, ColorFormat::RGBA8888)
+                .expect("valid pixel storage");
             blit_generic_slow(&mut tex_a, &src, 0, 0, 4, 4, 1, 1, 8, 8, 2, 0, 7, 10, 255);
         }
         {
-            let mut tex_b = Texture::new(&mut dst_b, 10, 10, ColorFormat::RGBA8888);
+            let mut tex_b = Texture::new(&mut dst_b, 10, 10, ColorFormat::RGBA8888)
+                .expect("valid pixel storage");
             blit_dda(
                 &mut tex_b, &src, 0, 0, 4, 4, 1, 1, 8, 8, 2, 0, 7, 10, 255, None,
             );
@@ -2948,7 +2986,7 @@ mod tests {
     #[test]
     fn sw_renderer_supports_offscreen() {
         let mut buf = vec![0u8; 4 * 4 * 4];
-        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let backend = SwRenderer::new(tex);
         assert!(Renderer::supports_offscreen(&backend));
     }
@@ -2959,7 +2997,8 @@ mod tests {
     #[test]
     fn modify_target_region_writes_exact_rect() {
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let rect = Rect::new(
             Fixed::from_int(4),
@@ -2996,7 +3035,9 @@ mod tests {
 
     #[test]
     fn modify_target_region_propagates_callback_failure() {
-        let mut backend = SwRenderer::new(Texture::owned(8, 8, ColorFormat::RGBA8888));
+        let mut backend = SwRenderer::new(
+            Texture::owned(8, 8, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let result = backend.modify_target_region(&Rect::new(0, 0, 4, 4), &mut |_| {
             Err(RenderError::ResourceLimit(RenderResource::Geometry))
         });
@@ -3017,7 +3058,7 @@ mod tests {
                 buf[off + 3] = 255;
             }
         }
-        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let area = Rect::new(
             Fixed::ZERO,
@@ -3053,7 +3094,7 @@ mod tests {
                 buf[off + 3] = 255;
             }
         }
-        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let area = Rect::new(
             Fixed::ZERO,
@@ -3081,7 +3122,7 @@ mod tests {
     #[test]
     fn scroll_target_region_sub_pixel_dy_is_noop() {
         let mut buf = vec![1u8; 4 * 4 * 4];
-        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let area = Rect::new(
             Fixed::ZERO,
@@ -3111,7 +3152,7 @@ mod tests {
             }
         }
         let snapshot = buf.clone();
-        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let area = Rect::new(
             Fixed::ZERO,
@@ -3140,7 +3181,7 @@ mod tests {
                 buf[off + 3] = 255;
             }
         }
-        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let area = Rect::new(
             Fixed::ZERO,
@@ -3173,7 +3214,7 @@ mod tests {
                 buf[off + 3] = 255;
             }
         }
-        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888);
+        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
         let area = Rect::new(
             Fixed::ZERO,
@@ -3202,7 +3243,8 @@ mod tests {
         // dst.a = 255 regardless of source alpha. Regression guard
         // for the framebuffer path post-AlphaMode introduction.
         let mut buf = std::vec![0u8; 4 * 4];
-        let mut tex = Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888);
+        let mut tex =
+            Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
         tex.blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 100), 100);
         tex.blend_pixel_int(1, 0, &Color::rgba(0, 255, 0, 200), 200);
         assert_eq!(tex.get_pixel(0, 0).a, 255, "opaque mode: dst.a always 255");
@@ -3214,7 +3256,8 @@ mod tests {
         // Blend mode + transparent dst (a=0): a single fill of partial
         // alpha must leave dst.a = src.a, not 255.
         let mut buf = std::vec![0u8; 4 * 4];
-        let mut tex = Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888);
+        let mut tex =
+            Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
         tex.alpha_mode = AlphaMode::Blend;
         tex.blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 128), 128);
         let p = tex.get_pixel(0, 0);
@@ -3232,7 +3275,8 @@ mod tests {
         // First fill leaves dst.a = 100; second fill src.a = 100 over
         // that should give roughly 100 + 100 × 155 / 255 = 161.
         let mut buf = std::vec![0u8; 4 * 4];
-        let mut tex = Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888);
+        let mut tex =
+            Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
         tex.alpha_mode = AlphaMode::Blend;
         tex.blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 100), 100);
         tex.blend_pixel_int(0, 0, &Color::rgba(0, 0, 255, 100), 100);
@@ -3252,7 +3296,8 @@ mod tests {
         // dst, so dst.a = 255 even in Blend mode. Pins the
         // short-circuit behaviour for the common case.
         let mut buf = std::vec![0u8; 4 * 4];
-        let mut tex = Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888);
+        let mut tex =
+            Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
         tex.alpha_mode = AlphaMode::Blend;
         tex.blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 255), 255);
         assert_eq!(tex.get_pixel(0, 0).a, 255);
@@ -3264,7 +3309,8 @@ mod tests {
     #[test]
     fn blit_opa_128_midgray_red_source() {
         let mut tgt_buf = std::vec![0u8; 4 * 4 * 4];
-        let tgt_tex = Texture::new(&mut tgt_buf, 4, 4, ColorFormat::RGBA8888);
+        let tgt_tex =
+            Texture::new(&mut tgt_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tgt_tex);
 
         let mut src_buf = std::vec![0u8; 4 * 4 * 4];
@@ -3274,7 +3320,8 @@ mod tests {
             px[2] = 0;
             px[3] = 255;
         }
-        let src_tex = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
+        let src_tex =
+            Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let src_rect = Rect::new(0, 0, 4, 4);
         let dst = Point::new(Fixed::ZERO, Fixed::ZERO);
         let dst_size = Point::new(Fixed::from_int(4), Fixed::from_int(4));
@@ -3316,11 +3363,13 @@ mod tests {
     #[test]
     fn blit_opa_zero_skips_writes() {
         let mut tgt_buf = std::vec![0u8; 4 * 4 * 4];
-        let tgt_tex = Texture::new(&mut tgt_buf, 4, 4, ColorFormat::RGBA8888);
+        let tgt_tex =
+            Texture::new(&mut tgt_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tgt_tex);
 
         let mut src_buf = std::vec![255u8; 4 * 4 * 4];
-        let src_tex = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
+        let src_tex =
+            Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let src_rect = Rect::new(0, 0, 4, 4);
         let dst = Point::new(Fixed::ZERO, Fixed::ZERO);
         let dst_size = Point::new(Fixed::from_int(4), Fixed::from_int(4));
@@ -3371,9 +3420,11 @@ mod tests {
         }
 
         for (tgt, opa) in [(&mut tgt_buf_a, 255), (&mut tgt_buf_b, 255)] {
-            let tgt_tex = Texture::new(tgt, 4, 4, ColorFormat::RGBA8888);
+            let tgt_tex =
+                Texture::new(tgt, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
             let mut backend = SwRenderer::new(tgt_tex);
-            let src_tex = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
+            let src_tex = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888)
+                .expect("valid pixel storage");
             let src_rect = Rect::new(0, 0, 4, 4);
             let dst = Point::new(Fixed::ZERO, Fixed::ZERO);
             let dst_size = Point::new(Fixed::from_int(4), Fixed::from_int(4));
@@ -3408,7 +3459,8 @@ mod tests {
         use crate::types::Transform;
 
         let mut buf = vec![0u8; 32 * 32 * 4];
-        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
+        let tex =
+            Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
         // 4×4 unit square; scale(4,4) should fill a 16×16 region at origin.
@@ -3442,10 +3494,13 @@ mod tests {
         opa: u8,
     ) -> Color {
         let mut src_buf = std::vec![src_rgba[0], src_rgba[1], src_rgba[2], src_rgba[3]];
-        let src_tex = Texture::new(&mut src_buf, 1, 1, ColorFormat::RGBA8888);
+        let src_tex =
+            Texture::new(&mut src_buf, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage");
 
         let mut dst_buf = std::vec![dst_rgba[0], dst_rgba[1], dst_rgba[2], dst_rgba[3]];
-        let mut backend = SwRenderer::new(Texture::new(&mut dst_buf, 1, 1, ColorFormat::RGBA8888));
+        let mut backend = SwRenderer::new(
+            Texture::new(&mut dst_buf, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         backend.viewport = Viewport::new(1, 1, Fixed::ONE);
 
         let cmd = DrawCommand::Blit {
@@ -3566,10 +3621,13 @@ mod tests {
     #[test]
     fn blit_radius_mask_clips_corner_pixels() {
         let mut src_buf = vec![255u8; 8 * 8 * 4];
-        let src_tex = Texture::new(&mut src_buf, 8, 8, ColorFormat::RGBA8888);
+        let src_tex =
+            Texture::new(&mut src_buf, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
 
         let mut dst_buf = vec![0u8; 8 * 8 * 4];
-        let mut backend = SwRenderer::new(Texture::new(&mut dst_buf, 8, 8, ColorFormat::RGBA8888));
+        let mut backend = SwRenderer::new(
+            Texture::new(&mut dst_buf, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         backend.viewport = Viewport::new(8, 8, Fixed::ONE);
 
         let cmd = DrawCommand::Blit {
@@ -3596,7 +3654,8 @@ mod tests {
     #[test]
     fn blit_zero_radius_matches_unmasked_path() {
         let mut src_buf = vec![200u8; 4 * 4 * 4];
-        let src_tex = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
+        let src_tex =
+            Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
 
         let mut dst_no_radius = vec![0u8; 4 * 4 * 4];
         let mut dst_zero_radius = vec![0u8; 4 * 4 * 4];
@@ -3605,7 +3664,9 @@ mod tests {
             (&mut dst_no_radius, Fixed::ZERO),
             (&mut dst_zero_radius, Fixed::ZERO),
         ] {
-            let mut backend = SwRenderer::new(Texture::new(buf, 4, 4, ColorFormat::RGBA8888));
+            let mut backend = SwRenderer::new(
+                Texture::new(buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage"),
+            );
             backend.viewport = Viewport::new(4, 4, Fixed::ONE);
             let cmd = DrawCommand::Blit {
                 pos: Point::ZERO,
@@ -3629,7 +3690,8 @@ mod tests {
     #[test]
     fn fractional_quad_blit_preserves_coverage_under_quarter_turns_and_reflections() {
         let source = [240u8, 80, 20, 255];
-        let texture = Texture::from_ref(&source, 1, 1, ColorFormat::RGBA8888);
+        let texture =
+            Texture::from_ref(&source, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage");
         // The same quarter-pixel footprint is sampled under either axis edge order.
         let corners = [
             Point::new(Fixed::from_ratio(11, 8), Fixed::ONE),
@@ -3648,7 +3710,8 @@ mod tests {
                             corners[(turn + offset) % 4]
                         });
                         let mut pixels = [0u8; 3 * 3 * 4];
-                        let mut target = Texture::new(&mut pixels, 3, 3, ColorFormat::RGBA8888);
+                        let mut target = Texture::new(&mut pixels, 3, 3, ColorFormat::RGBA8888)
+                            .expect("valid pixel storage");
                         target.alpha_mode = AlphaMode::Blend;
                         let mut renderer = SwRenderer::new(target);
                         let command = DrawCommand::Blit {
@@ -3697,10 +3760,12 @@ mod tests {
     #[test]
     fn projected_quad_blit_preserves_radius_opacity_and_composite() {
         let src = [255u8, 0, 0, 255].repeat(16);
-        let texture = Texture::from_ref(&src, 4, 4, ColorFormat::RGBA8888);
+        let texture =
+            Texture::from_ref(&src, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut pixels = [0u8, 0, 255, 255].repeat(12 * 12);
-        let mut renderer =
-            SwRenderer::new(Texture::new(&mut pixels, 12, 12, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::new(&mut pixels, 12, 12, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let command = DrawCommand::Blit {
             pos: Point::new(2, 2),
             size: Point::new(8, 8),
@@ -3729,10 +3794,12 @@ mod tests {
     #[test]
     fn projective_blit_accepts_effects_without_intermediate_storage() {
         let src = [255u8, 0, 0, 255].repeat(16);
-        let texture = Texture::from_ref(&src, 4, 4, ColorFormat::RGBA8888);
+        let texture =
+            Texture::from_ref(&src, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut pixels = [0u8, 0, 255, 255].repeat(12 * 12);
-        let mut renderer =
-            SwRenderer::new(Texture::new(&mut pixels, 12, 12, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::new(&mut pixels, 12, 12, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let command = DrawCommand::Blit {
             pos: Point::new(2, 2),
             size: Point::new(8, 8),
@@ -3758,7 +3825,8 @@ mod tests {
     #[test]
     fn projected_blit_corner_radius_tracks_local_geometry() {
         let source = [255u8, 0, 0, 255].repeat(16);
-        let texture = Texture::from_ref(&source, 4, 4, ColorFormat::RGBA8888);
+        let texture =
+            Texture::from_ref(&source, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let quad = [
             Point::new(2, 2),
             Point::new(22, 2),
@@ -3771,7 +3839,8 @@ mod tests {
             (&mut first, Point::new(20, 20), Fixed::from_int(4)),
             (&mut second, Point::new(40, 40), Fixed::from_int(8)),
         ] {
-            let mut target = Texture::new(pixels, 24, 24, ColorFormat::RGBA8888);
+            let mut target =
+                Texture::new(pixels, 24, 24, ColorFormat::RGBA8888).expect("valid pixel storage");
             target.alpha_mode = AlphaMode::Blend;
             blit_quad(
                 &mut target,
@@ -3816,7 +3885,8 @@ mod tests {
             WIDTH as u16,
             HEIGHT as u16,
             ColorFormat::RGBA8888,
-        );
+        )
+        .expect("valid pixel storage");
         fill_rect_quad(
             &mut fill_target,
             &quad,
@@ -3837,14 +3907,16 @@ mod tests {
             WIDTH as u16,
             HEIGHT as u16,
             ColorFormat::RGBA8888,
-        );
+        )
+        .expect("valid pixel storage");
         let mut blit_pixels = [0u8; WIDTH * HEIGHT * 4];
         let mut blit_target = Texture::new(
             &mut blit_pixels,
             WIDTH as u16,
             HEIGHT as u16,
             ColorFormat::RGBA8888,
-        );
+        )
+        .expect("valid pixel storage");
         blit_quad(
             &mut blit_target,
             &source,
@@ -3865,7 +3937,8 @@ mod tests {
             WIDTH as u16,
             HEIGHT as u16,
             ColorFormat::RGBA8888,
-        );
+        )
+        .expect("valid pixel storage");
         stroke_rect_quad(
             &mut stroke_target,
             &quad,
@@ -3883,8 +3956,9 @@ mod tests {
     #[test]
     fn projective_glyph_run_renders_without_an_intermediate_surface() {
         let mut pixels = vec![0u8; 32 * 16 * 4];
-        let mut renderer =
-            SwRenderer::new(Texture::new(&mut pixels, 32, 16, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::new(&mut pixels, 32, 16, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let font = crate::render::font::Font::bitmap_8x8();
         let glyphs = [textflow::shaping::PositionedGlyph::new(
             crate::render::font::GlyphId::new(65),
@@ -3912,8 +3986,9 @@ mod tests {
     fn projective_glyph_run_rejects_ink_behind_near_plane() {
         let mut pixels = vec![0u8; 16 * 16 * 4];
         let before = pixels.clone();
-        let mut renderer =
-            SwRenderer::new(Texture::new(&mut pixels, 16, 16, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::new(&mut pixels, 16, 16, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let font = crate::render::font::Font::bitmap_8x8();
         let glyphs = [textflow::shaping::PositionedGlyph::new(
             crate::render::font::GlyphId::new(65),
@@ -3944,7 +4019,9 @@ mod tests {
     fn projective_fill_rejects_singular_geometry_before_writing() {
         let mut pixels = vec![0u8; 8 * 8 * 4];
         let before = pixels.clone();
-        let mut renderer = SwRenderer::new(Texture::new(&mut pixels, 8, 8, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::new(&mut pixels, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let command = DrawCommand::Fill {
             area: Rect::new(0, 0, 8, 8),
             transform: Transform::IDENTITY,
@@ -3968,7 +4045,9 @@ mod tests {
     #[test]
     fn projective_solid_path_flattens_into_the_software_target() {
         let mut pixels = vec![0u8; 8 * 8 * 4];
-        let mut renderer = SwRenderer::new(Texture::new(&mut pixels, 8, 8, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::new(&mut pixels, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let path = Path::rect(
             Fixed::ZERO,
             Fixed::ZERO,
@@ -4002,7 +4081,9 @@ mod tests {
         use mirx::scene::{GradientStop, GradientUnits, LinearGradient, SpreadMode};
 
         let mut pixels = vec![0u8; 16 * 8 * 4];
-        let mut renderer = SwRenderer::new(Texture::new(&mut pixels, 16, 8, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::new(&mut pixels, 16, 8, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let path = Path::rect(
             Fixed::ZERO,
             Fixed::ZERO,
@@ -4053,7 +4134,9 @@ mod tests {
     #[test]
     fn projective_solid_stroke_uses_the_retained_outline() {
         let mut pixels = vec![0u8; 12 * 8 * 4];
-        let mut renderer = SwRenderer::new(Texture::new(&mut pixels, 12, 8, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::new(&mut pixels, 12, 8, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let mut path = Path::new();
         path.move_to(Point::new(1, 2)).line_to(Point::new(7, 2));
         let paint = Paint::Color(Color::rgb(240, 120, 40).into());
@@ -4084,7 +4167,9 @@ mod tests {
         use mirx::scene::{GradientStop, GradientUnits, LinearGradient, SpreadMode};
 
         let mut pixels = vec![0u8; 16 * 8 * 4];
-        let mut renderer = SwRenderer::new(Texture::new(&mut pixels, 16, 8, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::new(&mut pixels, 16, 8, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let mut path = Path::new();
         path.move_to(Point::new(1, 3)).line_to(Point::new(9, 3));
         let paint = Paint::LinearGradient(LinearGradient {
@@ -4130,7 +4215,9 @@ mod tests {
     #[test]
     fn projective_line_uses_stroke_geometry_without_a_path_allocation() {
         let mut pixels = vec![0u8; 12 * 8 * 4];
-        let mut renderer = SwRenderer::new(Texture::new(&mut pixels, 12, 8, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::new(&mut pixels, 12, 8, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let command = DrawCommand::Line {
             p1: Point::new(1, 2),
             p2: Point::new(7, 2),
@@ -4157,8 +4244,9 @@ mod tests {
     #[test]
     fn projective_arc_reuses_primitive_path_storage() {
         let mut pixels = vec![0u8; 16 * 16 * 4];
-        let mut renderer =
-            SwRenderer::new(Texture::new(&mut pixels, 16, 16, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::new(&mut pixels, 16, 16, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let command = DrawCommand::Arc {
             center: Point::new(6, 6),
             transform: Transform::IDENTITY,
@@ -4198,7 +4286,9 @@ mod tests {
     #[test]
     fn projective_clip_masks_following_draws() {
         let mut pixels = vec![0u8; 8 * 8 * 4];
-        let mut renderer = SwRenderer::new(Texture::new(&mut pixels, 8, 8, ColorFormat::RGBA8888));
+        let mut renderer = SwRenderer::new(
+            Texture::new(&mut pixels, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage"),
+        );
         let path = Path::rect(
             Fixed::ZERO,
             Fixed::ZERO,

@@ -318,8 +318,10 @@ mod tests {
             let mut buf = vec![0u8; BUF_SIZE];
             let transform = Viewport::new(W, H, Fixed::ONE);
             {
-                let mut renderer =
-                    SwRenderer::new(Texture::new(&mut buf, W, H, ColorFormat::RGBA8888));
+                let mut renderer = SwRenderer::new(
+                    Texture::new(&mut buf, W, H, ColorFormat::RGBA8888)
+                        .expect("valid pixel storage"),
+                );
                 render_system::render(&world, root, &transform, &mut renderer).unwrap();
             }
 
@@ -348,8 +350,10 @@ mod tests {
                 let dirty =
                     render_system::collect_dirty_region(&mut world, root, &transform).unwrap();
                 if let Some(area) = dirty {
-                    let mut renderer =
-                        SwRenderer::new(Texture::new(&mut buf, W, H, ColorFormat::RGBA8888));
+                    let mut renderer = SwRenderer::new(
+                        Texture::new(&mut buf, W, H, ColorFormat::RGBA8888)
+                            .expect("valid pixel storage"),
+                    );
                     render_system::render_region(&world, root, &transform, &area, &mut renderer)
                         .unwrap();
                     render_system::seed_prev_rects(&mut world, root, &transform);
@@ -359,8 +363,10 @@ mod tests {
             // Full re-render (reference)
             let mut buf_ref = vec![0u8; BUF_SIZE];
             {
-                let mut renderer =
-                    SwRenderer::new(Texture::new(&mut buf_ref, W, H, ColorFormat::RGBA8888));
+                let mut renderer = SwRenderer::new(
+                    Texture::new(&mut buf_ref, W, H, ColorFormat::RGBA8888)
+                        .expect("valid pixel storage"),
+                );
                 render_system::render(&world, root, &transform, &mut renderer).unwrap();
             }
 
@@ -460,8 +466,10 @@ mod tests {
             let transform = Viewport::new(W, H, Fixed::ONE);
             let mut buf = vec![0u8; BUF_SIZE];
             {
-                let mut renderer =
-                    SwRenderer::new(Texture::new(&mut buf, W, H, ColorFormat::RGBA8888));
+                let mut renderer = SwRenderer::new(
+                    Texture::new(&mut buf, W, H, ColorFormat::RGBA8888)
+                        .expect("valid pixel storage"),
+                );
                 render_system::render(&world, root, &transform, &mut renderer).unwrap();
             }
 
@@ -484,8 +492,10 @@ mod tests {
                 let dirty =
                     render_system::collect_dirty_region(&mut world, root, &transform).unwrap();
                 if let Some(area) = dirty {
-                    let mut renderer =
-                        SwRenderer::new(Texture::new(&mut buf, W, H, ColorFormat::RGBA8888));
+                    let mut renderer = SwRenderer::new(
+                        Texture::new(&mut buf, W, H, ColorFormat::RGBA8888)
+                            .expect("valid pixel storage"),
+                    );
                     render_system::render_region(&world, root, &transform, &area, &mut renderer)
                         .unwrap();
                     render_system::seed_prev_rects(&mut world, root, &transform);
@@ -494,8 +504,10 @@ mod tests {
 
             let mut buf_ref = vec![0u8; BUF_SIZE];
             {
-                let mut renderer =
-                    SwRenderer::new(Texture::new(&mut buf_ref, W, H, ColorFormat::RGBA8888));
+                let mut renderer = SwRenderer::new(
+                    Texture::new(&mut buf_ref, W, H, ColorFormat::RGBA8888)
+                        .expect("valid pixel storage"),
+                );
                 render_system::render(&world, root, &transform, &mut renderer).unwrap();
             }
 

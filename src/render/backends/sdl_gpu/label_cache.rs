@@ -574,7 +574,8 @@ fn rasterize_label(_key: &RasterRunKey, ctx: RasterCtx<'_>) -> Result<SizedSdlTe
         ctx.bounds,
         ctx.scale,
         ctx.raster_buf,
-    );
+    )
+    .map_err(|_| ())?;
 
     let mut new_tex = ctx
         .creator
@@ -606,7 +607,7 @@ fn rasterize_run_pixels(
     bounds: RasterRunBounds,
     scale: Fixed,
     pixels: &mut Vec<u8>,
-) {
+) -> Result<(), crate::render::RenderError> {
     pixels.resize(
         usize::from(bounds.width) * usize::from(bounds.height) * 4,
         0,
@@ -615,7 +616,7 @@ fn rasterize_run_pixels(
         pixel.copy_from_slice(&[color.r, color.g, color.b, 0]);
     }
     {
-        let tex = MiruiTexture::new(pixels, bounds.width, bounds.height, ColorFormat::RGBA8888);
+        let tex = MiruiTexture::new(pixels, bounds.width, bounds.height, ColorFormat::RGBA8888)?;
         let mut sw = SwRenderer::new(tex).with_alpha_mode(AlphaMode::Blend);
         sw.viewport = Viewport::new(bounds.width, bounds.height, scale);
         let area = Rect {
@@ -628,6 +629,7 @@ fn rasterize_run_pixels(
         let raster_color = Color { a: 255, ..color };
         sw.draw_glyph_run(&origin, glyphs, font, &area, &raster_color, 255);
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -666,7 +668,8 @@ mod tests {
                 bounds,
                 scale,
                 &mut pixels,
-            );
+            )
+            .unwrap();
             assert!(
                 pixels
                     .chunks_exact(4)

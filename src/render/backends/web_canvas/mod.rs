@@ -1281,7 +1281,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         let h = phys.height();
         crate::render::texture::Texture::from_vec(img.data().0, w, h, ColorFormat::RGBA8888)
             .map(Some)
-            .ok_or(RenderError::BackendFailure)
     }
 
     fn read_target_region(
@@ -1760,7 +1759,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
             buf.try_reserve_exact(raster_bytes).map_err(|_| ())?;
             buf.resize(raster_bytes, 0);
             {
-                let mut texture = Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888);
+                let mut texture =
+                    Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888).map_err(|_| ())?;
                 texture.alpha_mode = AlphaMode::Blend;
                 let mut sw = SwRenderer::new(texture);
                 sw.viewport = Viewport::new(pw, ph, scale);
@@ -1777,7 +1777,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 let raster_color = Color { a: 255, ..*color };
                 sw.draw_glyph_run(&origin, glyphs, font, &full, &raster_color, 255);
             }
-            let texture = Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888);
+            let texture = Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888).map_err(|_| ())?;
             texture_pool::upload(&texture).ok_or(())
         }) {
             Ok(handle) => handle,

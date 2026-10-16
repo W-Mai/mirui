@@ -3,7 +3,7 @@ use alloc::rc::Rc;
 use core::cell::{Cell, RefCell};
 
 use crate::render::RenderError;
-use crate::render::texture::ColorFormat;
+use crate::render::texture::{ColorFormat, Texture};
 use crate::surface::framebuf::FramebufSurface;
 use crate::types::{Color, Fixed};
 use crate::ui::Style;
@@ -11,6 +11,27 @@ use crate::ui::Style;
 type Trace = Rc<RefCell<Vec<&'static str>>>;
 type Flush = Box<dyn FnMut(&[u8], PhysicalRect)>;
 type TestSurface = FramebufSurface<Flush>;
+
+#[test]
+fn snapshot_copy_owns_packed_rows_without_source_padding() {
+    for format in [ColorFormat::RGB565, ColorFormat::RGBA8888] {
+        let packed = crate::render::scratch::PlaneLayout::packed(2, 2, format)
+            .unwrap()
+            .stride_bytes();
+        let stride = packed + 3;
+        let mut source = Texture::from_vec(alloc::vec![0; stride + packed], 2, 2, format).unwrap();
+        source.stride = stride;
+        source.set_pixel(0, 0, &Color::rgb(255, 0, 0));
+        source.set_pixel(1, 1, &Color::rgb(0, 255, 0));
+        let copy = clone_texture_owned(&source).unwrap();
+        assert_eq!(copy.stride, packed);
+        assert_eq!(copy.buf.as_slice().len(), packed * 2);
+        assert_ne!(copy.buf.as_slice().as_ptr(), source.buf.as_slice().as_ptr());
+        source.set_pixel(1, 1, &Color::rgb(0, 0, 255));
+        assert_eq!(copy.get_pixel(0, 0), Color::rgb(255, 0, 0));
+        assert_eq!(copy.get_pixel(1, 1), Color::rgb(0, 255, 0));
+    }
+}
 
 struct Hooks {
     trace: Trace,

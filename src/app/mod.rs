@@ -656,7 +656,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             .resource::<Outputs<WidgetTexture>>()
             .and_then(|outputs| outputs.get(entity))
         {
-            return Ok(Some(clone_texture_owned(output.texture())));
+            return clone_texture_owned(output.texture()).map(Some);
         }
 
         let already_requested = crate::ui::offscreen::config(&self.world, entity).is_some();
@@ -670,14 +670,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             .world
             .resource::<Outputs<WidgetTexture>>()
             .and_then(|outputs| outputs.get(entity))
-            .map(|output| clone_texture_owned(output.texture()));
+            .map(|output| clone_texture_owned(output.texture()))
+            .transpose();
 
         if !already_requested {
             self.world.remove::<OffscreenRender>(entity);
             crate::ui::offscreen::reconcile_texture_outputs(&self.world);
         }
 
-        render_result.map(|_| result)
+        render_result.and(result)
     }
 
     /// Register one widget kind (built-in or user-defined).
@@ -2034,13 +2035,19 @@ mod web_runner;
 
 fn clone_texture_owned(
     src: &crate::render::texture::Texture<'static>,
-) -> crate::render::texture::Texture<'static> {
+) -> Result<crate::render::texture::Texture<'static>, crate::render::RenderError> {
     use crate::render::texture::{TexBuf, Texture};
-    let mut owned = Texture::owned(src.width, src.height, src.format);
-    if let TexBuf::Owned(ref mut dst) = owned.buf {
-        dst.copy_from_slice(src.buf.as_slice());
+    if !src.valid_storage() {
+        return Err(crate::render::RenderError::InvalidTexture);
     }
-    owned
+    let mut owned = Texture::owned(src.width, src.height, src.format)?;
+    if let TexBuf::Owned(ref mut dst) = owned.buf {
+        for (row, destination) in dst.chunks_exact_mut(owned.stride).enumerate() {
+            let start = row * src.stride;
+            destination.copy_from_slice(&src.buf.as_slice()[start..start + owned.stride]);
+        }
+    }
+    Ok(owned)
 }
 
 #[cfg(test)]
@@ -2673,6 +2680,7 @@ mod app_invariant_tests {
                 32,
                 crate::render::texture::ColorFormat::RGBA8888,
             )
+            .expect("valid pixel storage")
         }
 
         fn all_buffers(&mut self) -> Vec<crate::render::texture::Texture<'_>> {
@@ -2686,6 +2694,7 @@ mod app_invariant_tests {
                         32,
                         crate::render::texture::ColorFormat::RGBA8888,
                     )
+                    .expect("valid pixel storage")
                 })
                 .collect();
             textures.rotate_left(self.active);

@@ -145,8 +145,9 @@ mod tests {
         let mut a_buf = make_rgba([100, 100, 100, 255]);
         let original = a_buf.clone();
         let mut b_buf = make_rgba([200, 0, 0, 255]);
-        let b = Texture::new(&mut b_buf, 4, 4, ColorFormat::RGBA8888);
-        let mut a = Texture::new(&mut a_buf, 4, 4, ColorFormat::RGBA8888);
+        let b = Texture::new(&mut b_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
+        let mut a =
+            Texture::new(&mut a_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         mix_inplace(&mut a, &b, 0);
         assert_eq!(a.buf.as_slice(), original.as_slice());
     }
@@ -155,8 +156,9 @@ mod tests {
     fn mix_full_replaces_a_with_b() {
         let mut a_buf = make_rgba([100, 100, 100, 255]);
         let mut b_buf = make_rgba([200, 50, 75, 255]);
-        let b = Texture::new(&mut b_buf, 4, 4, ColorFormat::RGBA8888);
-        let mut a = Texture::new(&mut a_buf, 4, 4, ColorFormat::RGBA8888);
+        let b = Texture::new(&mut b_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
+        let mut a =
+            Texture::new(&mut a_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         mix_inplace(&mut a, &b, 255);
         for px in a.buf.as_slice().chunks_exact(4) {
             assert_eq!(px, &[200, 50, 75, 255]);
@@ -167,8 +169,9 @@ mod tests {
     fn mix_half_lands_between() {
         let mut a_buf = make_rgba([100, 100, 100, 255]);
         let mut b_buf = make_rgba([200, 0, 0, 255]);
-        let b = Texture::new(&mut b_buf, 4, 4, ColorFormat::RGBA8888);
-        let mut a = Texture::new(&mut a_buf, 4, 4, ColorFormat::RGBA8888);
+        let b = Texture::new(&mut b_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
+        let mut a =
+            Texture::new(&mut a_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         mix_inplace(&mut a, &b, 128);
         for px in a.buf.as_slice().chunks_exact(4) {
             // Integer mix: (127 * a + 128 * b) / 255. Tolerance ±1 for
@@ -185,8 +188,9 @@ mod tests {
         let mut a_buf = make_rgba([10, 10, 10, 255]);
         let original = a_buf.clone();
         let mut b_buf = alloc::vec![99u8; 8 * 4];
-        let b = Texture::new(&mut b_buf, 2, 4, ColorFormat::RGBA8888);
-        let mut a = Texture::new(&mut a_buf, 4, 4, ColorFormat::RGBA8888);
+        let b = Texture::new(&mut b_buf, 2, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
+        let mut a =
+            Texture::new(&mut a_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         mix_inplace(&mut a, &b, 128);
         assert_eq!(a.buf.as_slice(), original.as_slice());
     }

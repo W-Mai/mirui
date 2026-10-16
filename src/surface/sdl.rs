@@ -475,5 +475,6 @@ impl FramebufferAccess for SdlSurface {
             self.height,
             ColorFormat::RGBA8888,
         )
+        .expect("valid pixel storage")
     }
 }

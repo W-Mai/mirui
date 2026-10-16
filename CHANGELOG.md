@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- `Texture::new`, `from_ref`, `from_static`, `owned`, and `from_vec` return `Result<Texture, RenderError>`, rejecting empty dimensions and insufficient pixel storage before use. Owned allocations report capacity failures through the same error path.
+
 ### Changed
 
 - Render plane layouts reject empty dimensions and support checked construction in constant expressions. Texture storage validation shares the plane layout calculation and accepts omitted padding after the last pixel.

@@ -509,6 +509,7 @@ impl FramebufferAccess for SoftwareUploadSurface {
             self.height,
             ColorFormat::RGBA8888,
         )
+        .expect("valid pixel storage")
     }
 }
 

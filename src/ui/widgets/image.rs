@@ -317,11 +317,11 @@ mod tests {
     fn image_manager() -> ResourceManager<Texture<'static>> {
         ResourceManager::new(
             MaxSize::Bytes(64),
-            Texture::from_static(&RED, 1, 1, ColorFormat::RGBA8888),
+            Texture::from_static(&RED, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage"),
         )
         .with_static(
             "blue",
-            Texture::from_static(&BLUE, 1, 1, ColorFormat::RGBA8888),
+            Texture::from_static(&BLUE, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage"),
         )
     }
 
@@ -460,15 +460,15 @@ mod tests {
         let original = image_manager();
         let replacement = ResourceManager::new(
             MaxSize::Bytes(64),
-            Texture::from_static(&BLUE, 1, 1, ColorFormat::RGBA8888),
+            Texture::from_static(&BLUE, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage"),
         )
         .with_static(
             "blue",
-            Texture::from_static(&RED, 1, 1, ColorFormat::RGBA8888),
+            Texture::from_static(&RED, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage"),
         )
         .with_static(
             "other",
-            Texture::from_static(&RED, 1, 1, ColorFormat::RGBA8888),
+            Texture::from_static(&RED, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage"),
         );
         let mut image = Image::new("blue");
         let cache = ImageResource(RefCell::new(Some(original.load("blue"))));
@@ -481,7 +481,7 @@ mod tests {
         ));
         original.add_static(
             "blue",
-            Texture::from_static(&BLUE, 1, 1, ColorFormat::RGBA8888),
+            Texture::from_static(&BLUE, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage"),
         );
         assert!(resolve_image(&image, Some(&cache), None).is_none());
         assert_eq!(
@@ -790,7 +790,7 @@ mod tests {
         app.with_widget(view());
         app.add_resource(image_manager().with_static(
             "red",
-            Texture::from_static(&RED, 1, 1, ColorFormat::RGBA8888),
+            Texture::from_static(&RED, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage"),
         ));
         let root = app.spawn_root().id();
         app.world.insert(root, Image::new("blue"));

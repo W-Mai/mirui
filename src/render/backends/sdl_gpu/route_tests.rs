@@ -3,7 +3,8 @@ use super::*;
 #[test]
 fn axis_blit_fallback_preserves_rounded_and_composite_requests() {
     let pixels = [255u8; 4 * 4 * 4];
-    let texture = Texture::from_ref(&pixels, 4, 4, ColorFormat::RGBA8888);
+    let texture =
+        Texture::from_ref(&pixels, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
     for radius in [Fixed::ZERO, Fixed::from_int(3)] {
         let command = DrawCommand::Blit {
             pos: Point::new(2, 2),
@@ -53,7 +54,8 @@ fn axis_blit_fallback_preserves_rounded_and_composite_requests() {
 #[test]
 fn non_affine_explicit_quad_uses_exact_fallback() {
     let pixels = [255u8; 4 * 4 * 4];
-    let texture = Texture::from_ref(&pixels, 4, 4, ColorFormat::RGBA8888);
+    let texture =
+        Texture::from_ref(&pixels, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
     let quad = [
         Point::new(2, 2),
         Point::new(18, 2),
@@ -143,7 +145,7 @@ fn classifies_sdl_gpu_commands_and_texture_storage() {
         Ok(())
     );
 
-    let texture = Texture::owned(2, 2, ColorFormat::RGB565Swapped);
+    let texture = Texture::owned(2, 2, ColorFormat::RGB565Swapped).expect("valid pixel storage");
     let blit = DrawCommand::Blit {
         pos: Point::ZERO,
         size: Point::new(2, 2),
@@ -159,27 +161,16 @@ fn classifies_sdl_gpu_commands_and_texture_storage() {
         Ok(())
     );
 
-    let short = Texture::from_ref(&[0u8; 1], 2, 2, ColorFormat::RGBA8888);
-    let invalid = DrawCommand::Blit {
-        pos: Point::ZERO,
-        size: Point::new(2, 2),
-        transform: Transform::IDENTITY,
-        quad: None,
-        texture: &short,
-        opa: 255,
-        radius: Fixed::ZERO,
-        composite: CompositeMode::SourceOver,
-    };
-    assert_eq!(
-        SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&invalid, clip)),
+    assert!(matches!(
+        Texture::from_ref(&[0u8; 1], 2, 2, ColorFormat::RGBA8888),
         Err(RenderError::InvalidTexture)
-    );
+    ));
 }
 
 #[test]
 fn distinguishes_sdl_gpu_quad_composite_and_affine_support() {
     let clip = Rect::new(0, 0, 16, 16);
-    let texture = Texture::owned(2, 2, ColorFormat::RGBA8888);
+    let texture = Texture::owned(2, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
     let quad = [
         Point::ZERO,
         Point::new(2, 0),

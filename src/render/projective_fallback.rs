@@ -245,8 +245,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
         viewport: Viewport,
         requirements: PlaneRequirements,
     ) -> Result<ProjectiveFallbackPlan, ProjectiveDrawError> {
-        let mut empty = [];
-        let mut validator = SwRenderer::new(Texture::new(&mut empty, 0, 0, ColorFormat::RGBA8888));
+        let mut pixel = [0; 4];
+        let mut validator = SwRenderer::new(
+            Texture::new(&mut pixel, 1, 1, ColorFormat::RGBA8888).expect("one RGBA pixel"),
+        );
         validator.viewport = viewport;
         validator.preflight_projective(command, clip, projective)?;
         if projective.is_identity()
@@ -683,7 +685,8 @@ mod tests {
     #[test]
     fn identity_rounded_blit_uses_bounded_local_target() {
         let source = [255u8, 0, 0, 255].repeat(16);
-        let texture = Texture::from_ref(&source, 4, 4, ColorFormat::RGBA8888);
+        let texture =
+            Texture::from_ref(&source, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let command = DrawCommand::Blit {
             pos: Point::new(2, 2),
             size: Point::new(8, 8),
@@ -721,7 +724,8 @@ mod tests {
     #[test]
     fn fallback_measure_rejects_insufficient_capacity_before_rendering() {
         let pixels = [200u8, 62, 112, 190].repeat(4 * 4);
-        let texture = Texture::from_ref(&pixels, 4, 4, ColorFormat::RGBA8888);
+        let texture =
+            Texture::from_ref(&pixels, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let command = DrawCommand::Blit {
             pos: Point::new(2, 2),
             size: Point::new(8, 8),
@@ -891,7 +895,8 @@ mod tests {
     #[test]
     fn explicit_quad_fallback_uses_its_projected_bounds_and_pixels() {
         let source = [255u8, 0, 0, 255].repeat(16);
-        let texture = Texture::from_ref(&source, 4, 4, ColorFormat::RGBA8888);
+        let texture =
+            Texture::from_ref(&source, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let quad = [
             Point::new(2, 2),
             Point::new(18, 2),
@@ -1098,7 +1103,8 @@ mod tests {
             WIDTH as u16,
             HEIGHT as u16,
             ColorFormat::RGBA8888,
-        );
+        )
+        .expect("valid pixel storage");
         expected_target.alpha_mode = crate::render::texture::AlphaMode::Blend;
         let mut direct = SwRenderer::new(expected_target);
         direct.viewport = viewport;
@@ -1147,7 +1153,8 @@ mod tests {
             WIDTH as u16,
             HEIGHT as u16,
             ColorFormat::RGBA8888,
-        );
+        )
+        .expect("valid pixel storage");
         expected_target.alpha_mode = crate::render::texture::AlphaMode::Blend;
         let mut direct = SwRenderer::new(expected_target);
         direct.viewport = viewport;
@@ -1231,7 +1238,8 @@ mod tests {
         matches_software_on_its_projected_region(&border, 0);
 
         let mut pixels = [160; 8 * 8 * 4];
-        let texture = Texture::new(&mut pixels, 8, 8, ColorFormat::RGBA8888);
+        let texture =
+            Texture::new(&mut pixels, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         let blit = DrawCommand::Blit {
             pos: Point::new(12, 12),
             size: Point::new(20, 18),
@@ -1314,7 +1322,8 @@ mod tests {
     #[test]
     fn projective_image_survives_a_full_y_rotation() {
         let mut pixels = alloc::vec![255; 16 * 16 * 4];
-        let texture = Texture::new(&mut pixels, 16, 16, ColorFormat::RGBA8888);
+        let texture =
+            Texture::new(&mut pixels, 16, 16, ColorFormat::RGBA8888).expect("valid pixel storage");
         let command = DrawCommand::Blit {
             pos: Point::new(180, 180),
             size: Point::new(120, 120),

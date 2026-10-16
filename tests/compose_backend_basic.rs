@@ -418,7 +418,7 @@ fn default_methods_route_to_sw() {
 fn direct_canvas_calls_stay_on_the_shared_target() {
     let mut h = fresh_hybrid();
     let mut buf = dummy_texture_buf();
-    let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+    let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
     let rect = zero_rect();
     let color = Color::rgb(0, 0, 0);
 
@@ -678,7 +678,7 @@ fn hybrid_is_a_renderer_and_dispatches_drawcommands() {
 
     let mut h = fresh_hybrid();
     let mut buf = dummy_texture_buf();
-    let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+    let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
     let rect = zero_rect();
 
     let command = DrawCommand::Blit {
@@ -704,7 +704,7 @@ fn engine_begin_failure_refuses_before_target_submission() {
     let mut h = fresh_hybrid();
     h.gpu.reject_begin = true;
     let mut buf = dummy_texture_buf();
-    let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+    let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
     let rect = zero_rect();
     let command = mirui::render::DrawCommand::Blit {
         pos: Point::ZERO,

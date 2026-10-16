@@ -1226,7 +1226,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             crate::render::texture::ColorFormat::RGBA8888,
         )
         .map(Some)
-        .ok_or(RenderError::BackendFailure)
     }
 
     fn read_target_region(

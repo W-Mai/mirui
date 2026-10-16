@@ -35,12 +35,10 @@ fn main() {
     };
 
     // Draw with mirui's SwRenderer
-    let mut renderer = SwRenderer::new(Texture::new(
-        &mut buf,
-        W as u16,
-        H as u16,
-        ColorFormat::RGBA8888,
-    ));
+    let mut renderer = SwRenderer::new(
+        Texture::new(&mut buf, W as u16, H as u16, ColorFormat::RGBA8888)
+            .expect("valid pixel storage"),
+    );
 
     // Background
     submit(

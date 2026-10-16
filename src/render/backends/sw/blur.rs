@@ -298,7 +298,8 @@ mod tests {
             *b = i as u8;
         }
         let original = buf.clone();
-        let mut tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+        let mut tex =
+            Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         {
             let r = Rect::new(
                 Fixed::ZERO,
@@ -322,7 +323,8 @@ mod tests {
             px[2] = 50;
             px[3] = 255;
         }
-        let mut tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888);
+        let mut tex =
+            Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         {
             let r = Rect::new(
                 Fixed::ZERO,
@@ -351,7 +353,8 @@ mod tests {
             .chunks_exact(4)
             .map(|p| p[0] as u64 + p[1] as u64 + p[2] as u64)
             .sum();
-        let mut tex = Texture::new(&mut buf, 9, 9, ColorFormat::RGBA8888);
+        let mut tex =
+            Texture::new(&mut buf, 9, 9, ColorFormat::RGBA8888).expect("valid pixel storage");
         {
             let r = Rect::new(
                 Fixed::ZERO,
@@ -382,7 +385,8 @@ mod tests {
             buf.push(0x00);
             buf.push(0xF8);
         }
-        let mut tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGB565);
+        let mut tex =
+            Texture::new(&mut buf, 8, 8, ColorFormat::RGB565).expect("valid pixel storage");
         {
             let r = Rect::new(
                 Fixed::ZERO,
@@ -412,7 +416,8 @@ mod tests {
         let i = (centre_y * 9 + centre_x) * 2;
         buf[i] = 0xFF;
         buf[i + 1] = 0xFF;
-        let mut tex = Texture::new(&mut buf, 9, 9, ColorFormat::RGB565);
+        let mut tex =
+            Texture::new(&mut buf, 9, 9, ColorFormat::RGB565).expect("valid pixel storage");
         {
             let r = Rect::new(
                 Fixed::ZERO,

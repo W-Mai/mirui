@@ -829,7 +829,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             plan.width(),
             plan.height(),
             crate::render::texture::ColorFormat::RGBA8888,
-        );
+        )?;
         let view = self
             .blit_source_view(&texture)
             .ok_or(RenderError::BackendFailure)?;
@@ -2690,34 +2690,22 @@ mod route_tests {
     #[test]
     fn texture_upload_accepts_both_rgb565_orders_and_row_padding() {
         let mut native =
-            Texture::from_ref(&[0x00, 0xf8, 0, 0, 0xe0, 0x07], 1, 2, ColorFormat::RGB565);
+            Texture::from_ref(&[0x00, 0xf8, 0, 0, 0xe0, 0x07], 1, 2, ColorFormat::RGB565)
+                .expect("valid pixel storage");
         native.stride = 4;
         assert_eq!(
             native.rgba8_pixels(),
             Some(alloc::vec![255, 0, 0, 255, 0, 255, 0, 255])
         );
 
-        let swapped = Texture::from_ref(&[0xf8, 0x00], 1, 1, ColorFormat::RGB565Swapped);
+        let swapped = Texture::from_ref(&[0xf8, 0x00], 1, 1, ColorFormat::RGB565Swapped)
+            .expect("valid pixel storage");
         assert_eq!(swapped.rgba8_pixels(), Some(alloc::vec![255, 0, 0, 255]));
 
-        let short = Texture::from_ref(&[0xf8], 1, 1, ColorFormat::RGB565Swapped);
-        assert!(short.rgba8_pixels().is_none());
-        let blit = DrawCommand::Blit {
-            pos: Point::ZERO,
-            size: Point::new(1, 1),
-            transform: Transform::IDENTITY,
-            quad: None,
-            texture: &short,
-            opa: 255,
-            radius: Fixed::ZERO,
-            composite: CompositeMode::SourceOver,
-        };
-        assert_eq!(
-            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
-                &DrawRequest::new(&blit, Rect::new(0, 0, 1, 1)),
-            ),
+        assert!(matches!(
+            Texture::from_ref(&[0xf8], 1, 1, ColorFormat::RGB565Swapped),
             Err(RenderError::InvalidTexture)
-        );
+        ));
     }
 
     #[test]
@@ -2910,7 +2898,7 @@ mod route_tests {
             Ok(RenderRoute::Native)
         );
 
-        let texture = Texture::owned(2, 2, ColorFormat::RGBA8888);
+        let texture = Texture::owned(2, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
         let blit = DrawCommand::Blit {
             pos: Point::ZERO,
             size: Point::new(2, 2),
@@ -4436,7 +4424,6 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             crate::render::texture::ColorFormat::RGBA8888,
         )
         .map(Some)
-        .ok_or(RenderError::BackendFailure)
     }
 
     #[cfg(target_arch = "wasm32")]

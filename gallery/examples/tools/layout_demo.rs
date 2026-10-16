@@ -131,12 +131,10 @@ fn main() {
         w: Fixed::from_int(W as i32),
         h: Fixed::from_int(H as i32),
     };
-    let mut renderer = SwRenderer::new(Texture::new(
-        &mut buf,
-        W as u16,
-        H as u16,
-        ColorFormat::RGBA8888,
-    ));
+    let mut renderer = SwRenderer::new(
+        Texture::new(&mut buf, W as u16, H as u16, ColorFormat::RGBA8888)
+            .expect("valid pixel storage"),
+    );
 
     // Background
     let background = DrawCommand::Fill {

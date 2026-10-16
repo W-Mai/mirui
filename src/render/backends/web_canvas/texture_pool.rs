@@ -301,7 +301,7 @@ impl BoundedGlyphScratch {
                 bounds.width,
                 bounds.height,
                 ColorFormat::RGBA8888,
-            );
+            )?;
             texture.stride = stride;
             texture.alpha_mode = AlphaMode::Blend;
             let mut sw = SwRenderer::with_scratch(texture, &mut self.sw_scratch);
