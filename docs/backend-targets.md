@@ -18,6 +18,8 @@ SDL source reads and region-edit callbacks expose straight-alpha pixels. Softwar
 
 WGPU frame attachments determine pipeline format, sample count, clipping bounds and readback format. The resolved view retains its backing texture; a multisample view retains the attachment loaded by subsequent passes. Command encoding, uniform storage and pipeline caching remain shared by the renderer.
 
+Native WGPU readback reuses a device-specific staging buffer and mapping completion state. Factory memory trimming releases that storage; growth replaces it, and failed mapping discards it before retrying. Source bytes are converted directly into checked pixel storage, preserving destination stride and padding. Explicit snapshots still allocate independent CPU pixels, and GPU command encoding and mapping retain their driver costs.
+
 ## Source reads
 
 `read_pixels_into` receives a prepared `TexturePixelsMut` with matching dimensions and format. It writes straight-alpha pixels using the destination stride, including when native storage is premultiplied. The source implementation completes necessary pending writes and restores any changed device state on both success and error. Device restoration failures must prevent further submission.
