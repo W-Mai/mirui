@@ -9,6 +9,8 @@ use crate::types::{Color, Fixed, Transform, Viewport};
 use alloc::{boxed::Box, rc::Rc};
 use core::{any::Any, cell::Cell};
 
+mod consumers;
+
 #[derive(Default)]
 struct Device {
     lost: Cell<bool>,
@@ -16,6 +18,7 @@ struct Device {
     read_failure: Cell<bool>,
     reads: Cell<usize>,
     creates: Cell<usize>,
+    samples: Cell<usize>,
 }
 
 struct Contents {
@@ -171,13 +174,27 @@ impl Renderer for Fixture {
         Ok(RenderRoute::Native)
     }
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-        if self.active.is_none() {
-            return Ok(());
-        }
-        let DrawCommand::Fill { color, .. } = request.command else {
-            return Err(RenderError::InvalidGeometry);
+        let color = match request.command {
+            DrawCommand::Fill { color, .. } => *color,
+            DrawCommand::Blit { texture, .. } => {
+                match texture
+                    .backend_target()?
+                    .and_then(|target| target.as_any().downcast_ref::<Target>())
+                {
+                    Some(target) if Rc::ptr_eq(&target.device, &self.device) => {
+                        assert!(target.contents.completed.get());
+                        self.device.samples.set(self.device.samples.get() + 1);
+                        target.contents.color.get()
+                    }
+                    _ => texture.read_pixels()?.get_pixel(0, 0),
+                }
+            }
+            _ if self.active.is_none() => return Ok(()),
+            _ => return Err(RenderError::InvalidGeometry),
         };
-        self.active.as_ref().unwrap().color.set(*color);
+        if let Some(active) = &self.active {
+            active.color.set(color);
+        }
         Ok(())
     }
     fn flush(&mut self) -> Result<(), RenderError> {
