@@ -4,6 +4,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use mirui::render::texture::{ColorFormat, TexturePixelsMut};
 use mirui::render::{
     BackendTarget, DrawRequest, PlaneLayout, RenderError, Renderer, TargetAlpha, TargetDescriptor,
+    TargetUpdate,
 };
 use mirui::types::{Fixed, Viewport};
 
@@ -73,6 +74,7 @@ impl Renderer for Recorder {
         &mut self,
         target: &mut dyn BackendTarget,
         _: Viewport,
+        _: TargetUpdate,
         _: &mut [u8],
     ) -> Result<u8, RenderError> {
         if self.fail_bind {
@@ -115,9 +117,21 @@ fn dynamic_scopes_restore_nested_targets_without_allocating() {
     let allocations = tracking_allocator::tracked_allocations(|| {
         let erased: &mut dyn Renderer = &mut renderer;
         erased
-            .with_target(&mut outer, viewport(), &mut [], &mut |r| {
-                r.with_target(&mut inner, viewport(), &mut [], &mut |_| Ok(()))
-            })
+            .with_target(
+                &mut outer,
+                viewport(),
+                TargetUpdate::Rebuild,
+                &mut [],
+                &mut |r| {
+                    r.with_target(
+                        &mut inner,
+                        viewport(),
+                        TargetUpdate::Rebuild,
+                        &mut [],
+                        &mut |_| Ok(()),
+                    )
+                },
+            )
             .unwrap();
     });
     assert_eq!(allocations, 0);
@@ -149,9 +163,13 @@ fn preparation_failures_never_execute_or_restore_an_unbound_target() {
             fail_bind,
             ..Default::default()
         };
-        let result = renderer.with_target(&mut Target(target_id), viewport(), &mut [], &mut |_| {
-            panic!("body must not execute")
-        });
+        let result = renderer.with_target(
+            &mut Target(target_id),
+            viewport(),
+            TargetUpdate::Rebuild,
+            &mut [],
+            &mut |_| panic!("body must not execute"),
+        );
         assert_eq!(result, Err(error));
         assert_eq!(renderer.active, 0);
         assert_eq!(renderer.events, [(0, 1)]);
@@ -164,7 +182,13 @@ fn child_flush_failure_restores_as_incomplete() {
         fail_flush: 2,
         ..Default::default()
     };
-    let result = renderer.with_target(&mut Target(1), viewport(), &mut [], &mut |_| Ok(()));
+    let result = renderer.with_target(
+        &mut Target(1),
+        viewport(),
+        TargetUpdate::Rebuild,
+        &mut [],
+        &mut |_| Ok(()),
+    );
     assert_eq!(result, Err(RenderError::BackendFailure));
     assert_eq!(renderer.active, 0);
     assert_eq!(renderer.events, [(0, 1), (1, 2), (1, 1), (1, 4)]);
@@ -176,9 +200,13 @@ fn body_failure_skips_child_flush_and_preserves_first_error() {
         fail_restore: true,
         ..Default::default()
     };
-    let result = renderer.with_target(&mut Target(1), viewport(), &mut [], &mut |_| {
-        Err(RenderError::InvalidGeometry)
-    });
+    let result = renderer.with_target(
+        &mut Target(1),
+        viewport(),
+        TargetUpdate::Rebuild,
+        &mut [],
+        &mut |_| Err(RenderError::InvalidGeometry),
+    );
     assert_eq!(result, Err(RenderError::InvalidGeometry));
     assert_eq!(renderer.events, [(0, 1), (1, 2), (1, 4)]);
     assert!(renderer.poisoned);
@@ -191,7 +219,13 @@ fn successful_body_reports_restore_failure() {
         fail_restore: true,
         ..Default::default()
     };
-    let result = renderer.with_target(&mut Target(1), viewport(), &mut [], &mut |_| Ok(()));
+    let result = renderer.with_target(
+        &mut Target(1),
+        viewport(),
+        TargetUpdate::Rebuild,
+        &mut [],
+        &mut |_| Ok(()),
+    );
     assert_eq!(result, Err(RenderError::InvalidScope));
     assert_eq!(renderer.events, [(0, 1), (1, 2), (1, 1), (1, 3)]);
     assert!(renderer.poisoned);
@@ -201,11 +235,21 @@ fn successful_body_reports_restore_failure() {
 fn unwind_restores_each_nested_target_once() {
     let mut renderer = Recorder::default();
     let result = catch_unwind(AssertUnwindSafe(|| {
-        renderer.with_target(&mut Target(1), viewport(), &mut [], &mut |r| {
-            r.with_target(&mut Target(2), viewport(), &mut [], &mut |_| {
-                panic!("draw failure")
-            })
-        })
+        renderer.with_target(
+            &mut Target(1),
+            viewport(),
+            TargetUpdate::Rebuild,
+            &mut [],
+            &mut |r| {
+                r.with_target(
+                    &mut Target(2),
+                    viewport(),
+                    TargetUpdate::Rebuild,
+                    &mut [],
+                    &mut |_| panic!("draw failure"),
+                )
+            },
+        )
     }));
     assert!(result.is_err());
     assert_eq!(renderer.active, 0);
@@ -219,15 +263,25 @@ fn unwind_restores_each_nested_target_once() {
 fn caught_inner_error_does_not_fail_the_outer_scope() {
     let mut renderer = Recorder::default();
     renderer
-        .with_target(&mut Target(1), viewport(), &mut [], &mut |r| {
-            assert_eq!(
-                r.with_target(&mut Target(2), viewport(), &mut [], &mut |_| Err(
-                    RenderError::InvalidGeometry
-                )),
-                Err(RenderError::InvalidGeometry)
-            );
-            Ok(())
-        })
+        .with_target(
+            &mut Target(1),
+            viewport(),
+            TargetUpdate::Rebuild,
+            &mut [],
+            &mut |r| {
+                assert_eq!(
+                    r.with_target(
+                        &mut Target(2),
+                        viewport(),
+                        TargetUpdate::Rebuild,
+                        &mut [],
+                        &mut |_| Err(RenderError::InvalidGeometry)
+                    ),
+                    Err(RenderError::InvalidGeometry)
+                );
+                Ok(())
+            },
+        )
         .unwrap();
     assert_eq!(renderer.active, 0);
     assert_eq!(

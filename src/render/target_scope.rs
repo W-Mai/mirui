@@ -1,7 +1,7 @@
 use crate::render::renderer::{RenderError, Renderer};
 use crate::types::Viewport;
 
-use super::BackendTarget;
+use super::{BackendTarget, TargetUpdate};
 
 pub use alloc::boxed::Box;
 
@@ -13,6 +13,7 @@ pub trait TargetScopeDispatch {
         &mut self,
         target: &mut dyn BackendTarget,
         viewport: Viewport,
+        update: TargetUpdate,
         workspace: &mut [u8],
         body: &mut dyn FnMut(&mut dyn Renderer) -> Result<(), RenderError>,
     ) -> Result<(), RenderError>;
@@ -38,12 +39,13 @@ impl<R: Renderer> TargetScopeDispatch for R {
         &mut self,
         target: &mut dyn BackendTarget,
         viewport: Viewport,
+        update: TargetUpdate,
         workspace: &mut [u8],
         body: &mut dyn FnMut(&mut dyn Renderer) -> Result<(), RenderError>,
     ) -> Result<(), RenderError> {
         self.flush()?;
         target.validate()?;
-        let state = self.bind_target(target, viewport, workspace)?;
+        let state = self.bind_target(target, viewport, update, workspace)?;
         let mut scope = TargetScope {
             renderer: self,
             state: Some(state),

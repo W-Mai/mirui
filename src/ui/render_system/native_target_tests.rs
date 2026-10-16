@@ -1,7 +1,7 @@
 use super::*;
 use crate::render::renderer::RegionRenderer;
 use crate::render::texture::{ColorFormat, TexturePixelsMut};
-use crate::render::{TargetAlpha, TargetDescriptor};
+use crate::render::{TargetAlpha, TargetDescriptor, TargetUpdate};
 use core::any::Any;
 
 struct Target(TargetDescriptor);
@@ -79,9 +79,10 @@ impl Renderer for Recorder {
         &mut self,
         target: &mut dyn BackendTarget,
         viewport: Viewport,
+        update: TargetUpdate,
         _: &mut [u8],
     ) -> Result<Viewport, RenderError> {
-        if !target.as_any().is::<Target>() {
+        if !target.as_any().is::<Target>() || update != TargetUpdate::Rebuild {
             return Err(RenderError::InvalidTexture);
         }
         Ok(core::mem::replace(&mut self.viewport, viewport))
@@ -168,20 +169,27 @@ fn independent_targets_drop_parent_coordinates_and_restore_them_after_nested_fai
         let quad = [Point::new(Fixed::ONE, Fixed::ONE); 4];
         draw(renderer, None).unwrap();
         renderer
-            .with_target(&mut *first, viewport, &mut [], &mut |local| {
-                draw(local, Some(quad))?;
-                let nested = local.with_target(
-                    &mut *second,
-                    Viewport::new(40, 30, Fixed::ONE),
-                    &mut [],
-                    &mut |nested| {
-                        draw(nested, None)?;
-                        Err(RenderError::InvalidGeometry)
-                    },
-                );
-                assert_eq!(nested, Err(RenderError::InvalidGeometry));
-                draw(local, None)
-            })
+            .with_target(
+                &mut *first,
+                viewport,
+                TargetUpdate::Rebuild,
+                &mut [],
+                &mut |local| {
+                    draw(local, Some(quad))?;
+                    let nested = local.with_target(
+                        &mut *second,
+                        Viewport::new(40, 30, Fixed::ONE),
+                        TargetUpdate::Rebuild,
+                        &mut [],
+                        &mut |nested| {
+                            draw(nested, None)?;
+                            Err(RenderError::InvalidGeometry)
+                        },
+                    );
+                    assert_eq!(nested, Err(RenderError::InvalidGeometry));
+                    draw(local, None)
+                },
+            )
             .unwrap();
         draw(renderer, None).unwrap();
         assert_eq!(recorder.restored, [false, true]);
@@ -219,6 +227,7 @@ fn wrapped_target_scope_preserves_parent_flush_failure() {
         region.with_target(
             &mut *target,
             Viewport::new(1, 1, Fixed::ONE),
+            TargetUpdate::Rebuild,
             &mut [],
             &mut |_| panic!("failed parent work must prevent target production"),
         ),

@@ -174,10 +174,12 @@ impl Renderer for ProjectiveRenderer<'_> {
         &mut self,
         target: &mut dyn BackendTarget,
         viewport: Viewport,
+        update: crate::render::TargetUpdate,
         workspace: &mut [u8],
         body: &mut dyn FnMut(&mut dyn Renderer) -> Result<(), RenderError>,
     ) -> Result<(), RenderError> {
-        self.inner.with_target(target, viewport, workspace, body)
+        self.inner
+            .with_target(target, viewport, update, workspace, body)
     }
 
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {

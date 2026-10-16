@@ -3,7 +3,9 @@ use std::rc::Rc;
 
 use mirui::app::RendererFactory;
 use mirui::render::texture::TexturePixelsMut;
-use mirui::render::{BackendTarget, PlaneLayout, TargetAlpha, TargetDescriptor, TargetPlan};
+use mirui::render::{
+    BackendTarget, PlaneLayout, TargetAlpha, TargetDescriptor, TargetPlan, TargetUpdate,
+};
 use mirui::surface::{DisplayInfo, InputEvent, Surface};
 use mirui::types::PhysicalRect;
 use mirui::types::Viewport;
@@ -82,6 +84,7 @@ pub(super) fn create(
 pub(super) fn bind(
     renderer: &mut BorrowedDummy<'_>,
     target: &dyn BackendTarget,
+    update: TargetUpdate,
 ) -> Result<Option<Rc<Slot>>, RenderError> {
     let target = target
         .as_any()
@@ -94,6 +97,13 @@ pub(super) fn bind(
             .is_some_and(|s| Rc::ptr_eq(s, &target.slot))
     {
         return Err(RenderError::InvalidTexture);
+    }
+    match update {
+        TargetUpdate::Rebuild => target.slot.value.set(0),
+        TargetUpdate::Incremental if !target.slot.completed.get() => {
+            return Err(RenderError::InvalidTexture);
+        }
+        TargetUpdate::Incremental => {}
     }
     target.slot.completed.set(false);
     Ok(renderer.active.replace(Rc::clone(&target.slot)))
@@ -184,21 +194,39 @@ fn external_nested_composition_preserves_concrete_borrowed_engines_and_sources()
 
     let erased: &mut dyn Renderer = &mut renderer;
     erased
-        .with_target(&mut *first, viewport, &mut [], &mut |outer| {
-            draw(outer)?;
-            outer.with_target(&mut *second, viewport, &mut [], &mut |inner| {
-                draw(inner)?;
-                draw(inner)
-            })?;
-            assert_eq!(
-                outer.with_target(&mut *failed, viewport, &mut [], &mut |inner| {
-                    draw(inner)?;
+        .with_target(
+            &mut *first,
+            viewport,
+            TargetUpdate::Rebuild,
+            &mut [],
+            &mut |outer| {
+                draw(outer)?;
+                outer.with_target(
+                    &mut *second,
+                    viewport,
+                    TargetUpdate::Rebuild,
+                    &mut [],
+                    &mut |inner| {
+                        draw(inner)?;
+                        draw(inner)
+                    },
+                )?;
+                assert_eq!(
+                    outer.with_target(
+                        &mut *failed,
+                        viewport,
+                        TargetUpdate::Rebuild,
+                        &mut [],
+                        &mut |inner| {
+                            draw(inner)?;
+                            Err(RenderError::InvalidGeometry)
+                        }
+                    ),
                     Err(RenderError::InvalidGeometry)
-                }),
-                Err(RenderError::InvalidGeometry)
-            );
-            draw(outer)
-        })
+                );
+                draw(outer)
+            },
+        )
         .unwrap();
     draw(erased).unwrap();
     assert!(renderer.target.target.active.is_none());
@@ -228,6 +256,7 @@ fn foreign_target_rejection_keeps_the_composed_parent_usable() {
         renderer.with_target(
             &mut *target,
             Viewport::new(1, 1, Fixed::ONE),
+            TargetUpdate::Rebuild,
             &mut [],
             &mut |_| panic!("foreign target")
         ),
@@ -237,6 +266,55 @@ fn foreign_target_rejection_keeps_the_composed_parent_usable() {
     assert_eq!(count.get(), 1);
     assert!(renderer.target.active.is_none());
     assert_eq!(screen[0], 1);
+}
+
+#[test]
+fn composed_target_updates_rebuild_or_preserve_completed_contents() {
+    let mut screen = [0; 4];
+    let inner_count = Cell::new(0);
+    let outer_count = Cell::new(0);
+    let mut renderer = NativeOuter::new(
+        NativeInner::new(BorrowedDummy::new(&mut screen), Inner(&inner_count)),
+        Outer(&outer_count),
+    );
+    let viewport = Viewport::new(1, 1, Fixed::ONE);
+    let plan = renderer
+        .plan_target(PlaneLayout::packed(1, 1, ColorFormat::RGBA8888).unwrap())
+        .unwrap()
+        .unwrap();
+    let mut target = renderer.create_target(&plan).unwrap();
+    assert_eq!(
+        renderer.with_target(
+            target.as_mut(),
+            viewport,
+            TargetUpdate::Incremental,
+            &mut [],
+            &mut |_| panic!("uninitialized target must not run the callback"),
+        ),
+        Err(RenderError::InvalidTexture),
+    );
+    for (update, expected) in [
+        (TargetUpdate::Rebuild, 1),
+        (TargetUpdate::Incremental, 2),
+        (TargetUpdate::Rebuild, 1),
+    ] {
+        renderer
+            .with_target(target.as_mut(), viewport, update, &mut [], &mut draw)
+            .unwrap();
+        assert_eq!(read(target.as_ref()), Ok(expected));
+    }
+    renderer
+        .with_target(
+            target.as_mut(),
+            viewport,
+            TargetUpdate::Rebuild,
+            &mut [],
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+    assert_eq!(read(target.as_ref()), Ok(0));
+    assert_eq!(inner_count.get(), 3);
+    assert_eq!(outer_count.get(), 3);
 }
 
 struct NativeSurface {
@@ -306,7 +384,13 @@ fn factory_frames_keep_concrete_engine_borrows_and_source_device_lifetime() {
                 .unwrap();
             let mut target = renderer.create_target(&plan).unwrap();
             renderer
-                .with_target(&mut *target, viewport, &mut [], &mut draw)
+                .with_target(
+                    &mut *target,
+                    viewport,
+                    TargetUpdate::Rebuild,
+                    &mut [],
+                    &mut draw,
+                )
                 .unwrap();
             draw(&mut renderer).unwrap();
             target
@@ -315,7 +399,13 @@ fn factory_frames_keep_concrete_engine_borrows_and_source_device_lifetime() {
         {
             let mut renderer = factory.make(&mut surface, &viewport);
             renderer
-                .with_target(&mut *target, viewport, &mut [], &mut draw)
+                .with_target(
+                    &mut *target,
+                    viewport,
+                    TargetUpdate::Incremental,
+                    &mut [],
+                    &mut draw,
+                )
                 .unwrap();
             draw(&mut renderer).unwrap();
         }

@@ -583,9 +583,10 @@ impl Renderer for BorrowedDummy<'_> {
         &mut self,
         target: &mut dyn mirui::render::BackendTarget,
         _: mirui::types::Viewport,
+        update: mirui::render::TargetUpdate,
         _: &mut [u8],
     ) -> Result<Self::TargetState, RenderError> {
-        native_targets::bind(self, target)
+        native_targets::bind(self, target, update)
     }
 
     fn restore_target(

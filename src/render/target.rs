@@ -10,6 +10,15 @@ use super::texture::TexturePixelsMut;
 #[path = "target_scope.rs"]
 pub mod __private;
 
+/// Content policy for one independent target drawing scope.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TargetUpdate {
+    /// Initialize the entire target to zero before drawing, regardless of parent clipping or transforms. Alpha formats start transparent; opaque formats start black.
+    Rebuild,
+    /// Continue drawing over successfully completed contents. Newly allocated targets and targets with failed writes must be rebuilt first.
+    Incremental,
+}
+
 /// Encoding of color channels relative to stored alpha.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TargetAlpha {

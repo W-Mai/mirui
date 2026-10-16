@@ -3,7 +3,7 @@ use crate::types::{Fixed, PhysicalRect, Rect, Transform3D, Viewport};
 
 use super::command::{CompositeMode, DrawCommand};
 use super::scratch::{PlaneLayout, PlaneRequirements};
-use super::target::{BackendTarget, TargetPlan};
+use super::target::{BackendTarget, TargetPlan, TargetUpdate};
 use super::texture::{ColorFormat, Texture};
 
 /// Stable identity of one run in a bounded `Text` widget.
@@ -353,10 +353,12 @@ impl Renderer for RegionRenderer<'_> {
         &mut self,
         target: &mut dyn BackendTarget,
         viewport: Viewport,
+        update: TargetUpdate,
         workspace: &mut [u8],
         body: &mut dyn FnMut(&mut dyn Renderer) -> Result<(), RenderError>,
     ) -> Result<(), RenderError> {
-        self.inner.with_target(target, viewport, workspace, body)
+        self.inner
+            .with_target(target, viewport, update, workspace, body)
     }
 
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
@@ -612,11 +614,12 @@ pub trait Renderer: super::target::__private::TargetScopeDispatch {
 
     /// Bind a native target and return owned restoration state, releasing device and workspace borrows before returning.
     ///
-    /// Reject foreign devices, stale resources and active-target feedback. A failed bind must restore the parent state or latch device failure. This operation does not clear the target.
+    /// Reject foreign devices, stale resources and active-target feedback before writing. `Rebuild` initializes the entire target to zero once; `Incremental` requires successfully completed contents. A failed bind must restore the parent state or latch device failure; any partially modified contents become invalid.
     fn bind_target(
         &mut self,
         _target: &mut dyn BackendTarget,
         _viewport: Viewport,
+        _update: TargetUpdate,
         _workspace: &mut [u8],
     ) -> Result<Self::TargetState, RenderError>
     where
@@ -627,7 +630,7 @@ pub trait Renderer: super::target::__private::TargetScopeDispatch {
 
     /// Restore parent state after drawing. `completed` means the callback and its flush succeeded, not that the output was published.
     ///
-    /// On failure, discard or safely finish pending child work before restoring the parent. Latch any restoration failure so later submissions cannot use unknown device state. This method must not panic during unwind cleanup.
+    /// On failure, discard or safely finish pending child work before restoring the parent. Accept child contents only when `completed` is true and restoration succeeds; otherwise invalidate them until rebuilt. Restore the parent without initializing it again. Latch any restoration failure so later submissions cannot use unknown device state. This method must not panic during unwind cleanup.
     fn restore_target(
         &mut self,
         _state: Self::TargetState,
@@ -643,15 +646,16 @@ pub trait Renderer: super::target::__private::TargetScopeDispatch {
     ///
     /// Drawing uses the supplied target-local viewport. Parent region offsets and projective wrappers apply only to parent drawing, not to production of an independent image.
     ///
-    /// Flush the parent, bind, execute once, flush successful child work and restore. Restoration runs on callback errors and unwinding; the earliest error is returned. Initialization and output publication belong to the caller. Abort does not guarantee cleanup.
+    /// Flush the parent, bind with the requested content policy, execute once, flush successful child work and restore. Rebuilding an empty body still clears the target; intermediate flushes and nested returns do not clear it again. Restoration runs on callback errors and unwinding; the earliest error is returned. Failed writes are not rolled back. Output publication belongs to the caller. Abort does not guarantee cleanup.
     fn with_target(
         &mut self,
         target: &mut dyn BackendTarget,
         viewport: Viewport,
+        update: TargetUpdate,
         workspace: &mut [u8],
         body: &mut dyn FnMut(&mut dyn Renderer) -> Result<(), RenderError>,
     ) -> Result<(), RenderError> {
-        self.dispatch_target_scope(target, viewport, workspace, body)
+        self.dispatch_target_scope(target, viewport, update, workspace, body)
     }
 
     /// Classify exact execution before changing the target. Unknown backends

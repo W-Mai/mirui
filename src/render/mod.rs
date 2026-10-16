@@ -43,4 +43,4 @@ pub use scratch::{AlignedPlane, PlaneError, PlaneLayout, PlaneRequirements};
 pub use sw::SwRenderer;
 #[cfg(feature = "perf")]
 pub use sw::{PerfCtx, quad_perf};
-pub use target::{BackendTarget, TargetAlpha, TargetDescriptor, TargetPlan};
+pub use target::{BackendTarget, TargetAlpha, TargetDescriptor, TargetPlan, TargetUpdate};

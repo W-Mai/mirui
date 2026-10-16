@@ -425,10 +425,11 @@ impl ComposeInput {
                     &mut self,
                     target: &mut dyn ::mirui::render::BackendTarget,
                     viewport: ::mirui::types::Viewport,
+                    update: ::mirui::render::TargetUpdate,
                     workspace: &mut [u8],
                 ) -> Result<Self::TargetState, ::mirui::render::RenderError> {
                     ::mirui::render::Renderer::bind_target(
-                        &mut self.#default_field, target, viewport, workspace,
+                        &mut self.#default_field, target, viewport, update, workspace,
                     )
                 }
 
