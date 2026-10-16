@@ -18,6 +18,7 @@ pub mod raster;
 pub mod renderer;
 pub mod scene;
 pub mod scratch;
+pub mod target;
 pub mod texture;
 
 #[cfg(feature = "sdl-gpu")]
@@ -42,3 +43,4 @@ pub use scratch::{AlignedPlane, PlaneError, PlaneLayout, PlaneRequirements};
 pub use sw::SwRenderer;
 #[cfg(feature = "perf")]
 pub use sw::{PerfCtx, quad_perf};
+pub use target::{BackendTarget, TargetAlpha, TargetDescriptor, TargetPlan};
