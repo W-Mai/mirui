@@ -210,6 +210,12 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         if viewport.physical_size() != (layout.width(), layout.height()) {
             return Err(RenderError::InvalidGeometry);
         }
+        self.factory.reserve_target_edit(layout.required_bytes())?;
+        self.factory.readback.get_mut().prepare(
+            &child.context.device,
+            layout.width(),
+            layout.height(),
+        )?;
         let mut attachment = child.frame.clone();
         attachment.has_committed_pass = update == TargetUpdate::Incremental;
         let parent = if let Some(frame) = self.frame.as_mut() {

@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- SDL-GPU and native WGPU check complete target fallback capacity before native production and prepare reusable WGPU edit storage before drawing.
+
 - SDL-GPU and native WGPU route transformed lines and arcs through bounded software fallback, preserving affine rasterization and projected stroke geometry.
 
 - WGPU fallback writeback preserves specific texture-source errors.

@@ -1243,6 +1243,24 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     }
 }
 
+fn check_target_workspace<S: AsRef<[u8]> + AsMut<[u8]>>(
+    fallback: Option<&ProjectiveFallback<S>>,
+    layout: crate::render::PlaneLayout,
+) -> Result<(), RenderError> {
+    let fallback = fallback.ok_or(RenderError::MissingWorkspace)?;
+    let region = FallbackRegion::rgba8(
+        PhysicalRect::from_size(layout.width(), layout.height()),
+        fallback.requirements(),
+    )?;
+    if region.required_bytes() > fallback.capacity() {
+        return Err(RenderError::InsufficientWorkspace {
+            required_bytes: region.required_bytes(),
+            capacity_bytes: fallback.capacity(),
+        });
+    }
+    Ok(())
+}
+
 impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
     type TargetState = target::TargetState;
 
@@ -1250,7 +1268,17 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
         &self,
         layout: crate::render::PlaneLayout,
     ) -> Result<Option<crate::render::TargetPlan>, RenderError> {
-        target::plan(self.device, layout)
+        if let Some(error) = self.failure {
+            return Err(error);
+        }
+        let plan = target::plan(self.device, layout)?;
+        match check_target_workspace(self.projective_fallback.as_deref(), layout) {
+            Ok(()) => Ok(plan),
+            Err(RenderError::MissingWorkspace | RenderError::InsufficientWorkspace { .. }) => {
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     fn can_reuse_target(
@@ -1278,6 +1306,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
         update: crate::render::TargetUpdate,
         _workspace: &mut [u8],
     ) -> Result<Self::TargetState, RenderError> {
+        check_target_workspace(
+            self.projective_fallback.as_deref(),
+            target.descriptor().layout,
+        )?;
         let state = target::bind(
             self.device,
             target,

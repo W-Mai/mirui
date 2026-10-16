@@ -367,7 +367,7 @@ impl WgpuRendererFactory {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn reserve_target_edit(&mut self, required: usize) -> Result<(), RenderError> {
+    fn check_target_edit(&self, required: usize) -> Result<usize, RenderError> {
         let capacity = self
             .target_edit_budget_bytes
             .ok_or(RenderError::MissingWorkspace)?;
@@ -377,6 +377,12 @@ impl WgpuRendererFactory {
                 capacity_bytes: capacity,
             });
         }
+        Ok(capacity)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn reserve_target_edit(&mut self, required: usize) -> Result<(), RenderError> {
+        let capacity = self.check_target_edit(required)?;
         if required > self.target_edit_bytes.len() {
             self.target_edit_bytes
                 .try_reserve_exact(required - self.target_edit_bytes.len())
@@ -2600,6 +2606,14 @@ mod route_tests {
         );
         let mut factory = factory.with_target_edit_budget(128);
         assert!(factory.target_edit_bytes.is_empty());
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                assert_eq!(factory.check_target_edit(128), Ok(128));
+                assert!(factory.check_target_edit(129).is_err());
+            }),
+            0
+        );
+        assert_eq!(factory.target_edit_bytes.capacity(), 0);
         factory.reserve_target_edit(64).unwrap();
         let address = factory.target_edit_bytes.as_ptr();
         assert_eq!(
@@ -4797,8 +4811,18 @@ impl<B: WgpuTarget> Renderer for WgpuRenderer<'_, B> {
         &self,
         layout: crate::render::PlaneLayout,
     ) -> Result<Option<crate::render::TargetPlan>, RenderError> {
+        if let Some(error) = self.failure {
+            return Err(error);
+        }
         let state = self.surface.state().ok_or(RenderError::BackendFailure)?;
-        target::plan(state, state.samples(), layout)
+        let plan = target::plan(state, state.samples(), layout)?;
+        match self.factory.check_target_edit(layout.required_bytes()) {
+            Ok(_) => Ok(plan),
+            Err(RenderError::MissingWorkspace | RenderError::InsufficientWorkspace { .. }) => {
+                Ok(None)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     #[cfg(not(target_arch = "wasm32"))]

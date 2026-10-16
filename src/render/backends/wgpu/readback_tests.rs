@@ -85,6 +85,14 @@ fn readback_reuses_mapping_storage_and_preserves_destination_layout() {
         assert_eq!(pixels.read_pixels().unwrap().bytes(), expected);
         let buffer = readback.staging.as_ref().unwrap().buffer.clone();
         let state = Arc::downgrade(&readback.staging.as_ref().unwrap().mapped);
+        for (width, height) in [(1, 1), (2, 2), (3, 2)] {
+            readback.prepare(&device, width, height).unwrap();
+            assert_eq!(readback.staging.as_ref().unwrap().buffer, buffer);
+            assert!(Arc::ptr_eq(
+                &readback.staging.as_ref().unwrap().mapped,
+                &state.upgrade().unwrap()
+            ));
+        }
         check_clipped_destination(&mut readback, &device, &queue, &target);
         assert_eq!(readback.staging.as_ref().unwrap().buffer, buffer);
         let mut bytes = [0xabu8; 20];

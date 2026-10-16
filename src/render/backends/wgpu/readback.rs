@@ -134,6 +134,33 @@ impl Staging {
 }
 
 impl Readback {
+    pub(super) fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        width: u16,
+        height: u16,
+    ) -> Result<(), RenderError> {
+        let size = Self::required_bytes(device, width, height)? as u64;
+        if self
+            .staging
+            .as_ref()
+            .is_some_and(|staging| staging.device == *device && staging.buffer.size() >= size)
+        {
+            return Ok(());
+        }
+        self.staging = Some(Staging {
+            device: device.clone(),
+            buffer: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("mirui-wgpu-readback"),
+                size,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            mapped: Arc::new(AtomicBool::new(false)),
+        });
+        Ok(())
+    }
+
     pub(super) fn required_bytes(
         device: &wgpu::Device,
         width: u16,
@@ -185,19 +212,8 @@ impl Readback {
             .map_err(|_| RenderError::InvalidTexture)?
             .stride_bytes();
         let size = aligned.required_bytes() as u64;
-        let staging = match self.staging.take() {
-            Some(staging) if staging.device == *device && staging.buffer.size() >= size => staging,
-            _ => Staging {
-                device: device.clone(),
-                buffer: device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("mirui-wgpu-readback"),
-                    size,
-                    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                }),
-                mapped: Arc::new(AtomicBool::new(false)),
-            },
-        };
+        self.prepare(device, rect.width(), rect.height())?;
+        let staging = self.staging.take().ok_or(RenderError::BackendFailure)?;
         let mapping = staging.map(queue, texture, rect, aligned)?;
         let slice = staging.buffer.slice(..size);
         let data = slice.get_mapped_range();

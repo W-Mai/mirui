@@ -2,6 +2,35 @@ use super::*;
 use crate::render::raster::FillRule;
 
 #[test]
+fn target_workspace_admission_accounts_for_full_plane_alignment_without_allocating() {
+    let layout = crate::render::PlaneLayout::packed(3, 2, ColorFormat::RGBA8888).unwrap();
+    assert_eq!(
+        check_target_workspace::<&mut [u8]>(None, layout),
+        Err(RenderError::MissingWorkspace)
+    );
+    let requirements = PlaneRequirements::new(1, 16).unwrap();
+    let mut short = [0u8; 31];
+    let fallback = ProjectiveFallback::borrowed_with(&mut short, requirements).unwrap();
+    assert_eq!(
+        check_target_workspace(Some(&fallback), layout),
+        Err(RenderError::InsufficientWorkspace {
+            required_bytes: 32,
+            capacity_bytes: 31
+        })
+    );
+    let mut bytes = [0u8; 32];
+    let fallback = ProjectiveFallback::borrowed_with(&mut bytes, requirements).unwrap();
+    assert_eq!(
+        crate::test_support::tracked_allocations(|| {
+            for _ in 0..16 {
+                assert_eq!(check_target_workspace(Some(&fallback), layout), Ok(()));
+            }
+        }),
+        0
+    );
+}
+
+#[test]
 fn axis_blit_fallback_preserves_rounded_and_composite_requests() {
     let pixels = [255u8; 4 * 4 * 4];
     let texture =
