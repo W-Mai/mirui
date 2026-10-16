@@ -949,9 +949,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                 self.viewport,
             )?;
         }
-        let view = self
-            .blit_source_view(&texture)
-            .ok_or(RenderError::BackendFailure)?;
+        let view = self.blit_source_view_checked(&texture)?;
         let scale = self.viewport.scale();
         self.blit_view_inner(
             view,
@@ -4581,9 +4579,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             u32::from(phys.width()),
             u32::from(phys.height()),
         ];
-        let view = self
-            .blit_source_view(&tex)
-            .ok_or(RenderError::BackendFailure)?;
+        let view = self.blit_source_view_checked(&tex)?;
         let scale = self.viewport.scale();
         self.blit_view_inner(
             view,
