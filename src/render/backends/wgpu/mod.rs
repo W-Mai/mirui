@@ -315,6 +315,8 @@ pub struct WgpuRendererFactory {
     #[cfg(not(target_arch = "wasm32"))]
     readback: core::cell::RefCell<readback::Readback>,
     target_edit_budget_bytes: Option<usize>,
+    #[cfg(not(target_arch = "wasm32"))]
+    target_edit_bytes: alloc::vec::Vec<u8>,
     cache: Option<PipelineCache>,
     tessellator: FillTessellator,
     stroke_tessellator: StrokeTessellator,
@@ -337,6 +339,8 @@ impl WgpuRendererFactory {
             #[cfg(not(target_arch = "wasm32"))]
             readback: Default::default(),
             target_edit_budget_bytes: None,
+            #[cfg(not(target_arch = "wasm32"))]
+            target_edit_bytes: alloc::vec::Vec::new(),
             cache: None,
             tessellator: FillTessellator::new(),
             stroke_tessellator: StrokeTessellator::new(),
@@ -355,7 +359,37 @@ impl WgpuRendererFactory {
     /// Limit checked target edits to this many physical RGBA bytes.
     pub fn with_target_edit_budget(mut self, bytes: usize) -> Self {
         self.target_edit_budget_bytes = Some(bytes);
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.target_edit_bytes.capacity() > bytes {
+            self.target_edit_bytes = alloc::vec::Vec::new();
+        }
         self
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn reserve_target_edit(&mut self, required: usize) -> Result<(), RenderError> {
+        let capacity = self
+            .target_edit_budget_bytes
+            .ok_or(RenderError::MissingWorkspace)?;
+        if required > capacity {
+            return Err(RenderError::InsufficientWorkspace {
+                required_bytes: required,
+                capacity_bytes: capacity,
+            });
+        }
+        if required > self.target_edit_bytes.len() {
+            self.target_edit_bytes
+                .try_reserve_exact(required - self.target_edit_bytes.len())
+                .map_err(|_| RenderError::ResourceLimit(crate::render::RenderResource::Target))?;
+            if self.target_edit_bytes.capacity() > capacity {
+                self.target_edit_bytes = alloc::vec::Vec::new();
+                return Err(RenderError::ResourceLimit(
+                    crate::render::RenderResource::Target,
+                ));
+            }
+            self.target_edit_bytes.resize(required, 0);
+        }
+        Ok(())
     }
 
     /// Limits retained RGBA image uploads in bytes. Zero disables retention.
@@ -438,6 +472,7 @@ impl<B: WgpuTarget> RendererFactory<B> for WgpuRendererFactory {
         #[cfg(not(target_arch = "wasm32"))]
         {
             self.readback = Default::default();
+            self.target_edit_bytes = alloc::vec::Vec::new();
         }
         self.cache = None;
         self.tessellator = FillTessellator::new();
@@ -922,54 +957,91 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         if plan.required_bytes() == 0 {
             return Ok(());
         }
-        self.prepare_readback(&request.clip)?;
-        let state = self.surface.state().ok_or(RenderError::BackendFailure)?;
-        let frame = self.frame.as_ref().ok_or(RenderError::BackendFailure)?;
-        let mut texture = self
-            .factory
-            .readback
-            .try_borrow_mut()
-            .map_err(|_| RenderError::InvalidScope)?
-            .read(
-                &state.device,
-                &state.queue,
-                frame.target().texture(),
-                PhysicalRect::new(plan.x(), plan.y(), plan.width(), plan.height())
-                    .ok_or(RenderError::InvalidGeometry)?,
-            )?;
-        {
+        let viewport = self.viewport;
+        self.edit_region(plan.region(), &mut |texture| {
             let mut pixels = texture.pixels_mut()?;
-            if pixels.bytes().len() != plan.required_bytes() {
-                return Err(RenderError::BackendFailure);
-            }
             ProjectiveFallback::borrowed(pixels.bytes_mut()).render(
                 plan,
                 request.command,
                 &request.projective,
-                self.viewport,
-            )?;
+                viewport,
+            )
+        })
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn edit_region(
+        &mut self,
+        region: FallbackRegion,
+        body: &mut dyn FnMut(&mut Texture<'_>) -> Result<(), RenderError>,
+    ) -> Result<(), RenderError> {
+        if let Some(error) = self.failure {
+            return Err(error);
         }
-        let view = self.blit_source_view_checked(&texture)?;
+        self.factory.reserve_target_edit(region.required_bytes())?;
+        self.flush()?;
+        let area = region.rect();
+        let state = self.surface.state().ok_or(RenderError::BackendFailure)?;
+        state.check()?;
+        let frame = self.frame.as_ref().ok_or(RenderError::BackendFailure)?;
+        let target = frame.target.as_ref().ok_or(RenderError::BackendFailure)?;
+        let view = {
+            let mut texture = Texture::new(
+                &mut self.factory.target_edit_bytes[..region.required_bytes()],
+                area.width(),
+                area.height(),
+                crate::render::texture::ColorFormat::RGBA8888,
+            )?
+            .with_stride(region.stride_bytes())?;
+            texture.alpha_mode = crate::render::texture::AlphaMode::Blend;
+            self.factory
+                .readback
+                .try_borrow_mut()
+                .map_err(|_| RenderError::InvalidScope)?
+                .read_into(
+                    &state.device,
+                    &state.queue,
+                    target.texture(),
+                    area,
+                    &mut texture.pixels_mut()?,
+                )?;
+            body(&mut texture)?;
+            if (texture.width(), texture.height(), texture.format())
+                != (
+                    area.width(),
+                    area.height(),
+                    crate::render::texture::ColorFormat::RGBA8888,
+                )
+            {
+                return Err(RenderError::InvalidTexture);
+            }
+            texture_pool::source_view(
+                &mut self.factory.texture_pool,
+                self.factory.texture_cache_budget,
+                state.context(),
+                &texture,
+            )?
+        };
         let scale = self.viewport.scale();
         self.blit_view_inner(
             view,
-            texture.width,
-            texture.height,
-            &Rect::new(0, 0, texture.width, texture.height),
-            Point::new(Fixed::from(plan.x()) / scale, Fixed::from(plan.y()) / scale),
+            area.width(),
+            area.height(),
+            &Rect::new(0, 0, area.width(), area.height()),
+            Point::new(Fixed::from(area.x()) / scale, Fixed::from(area.y()) / scale),
             Point::new(
-                Fixed::from(plan.width()) / scale,
-                Fixed::from(plan.height()) / scale,
+                Fixed::from(area.width()) / scale,
+                Fixed::from(area.height()) / scale,
             ),
             255,
             Fixed::ZERO,
             CompositeMode::SourceOver,
             ShaderKind::BlitReplace,
             [
-                u32::from(plan.x()),
-                u32::from(plan.y()),
-                u32::from(plan.width()),
-                u32::from(plan.height()),
+                u32::from(area.x()),
+                u32::from(area.y()),
+                u32::from(area.width()),
+                u32::from(area.height()),
             ],
         );
         if let Some(error) = self.failure {
@@ -2455,6 +2527,76 @@ mod route_tests {
     use mirx::scene::{GradientStop, GradientUnits, LinearGradient, RadialGradient, SpreadMode};
 
     static GPU: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn target_edit_storage_reuses_capacity_and_preserves_its_limit_after_trim() {
+        let mut factory = WgpuRendererFactory::new();
+        assert_eq!(
+            factory.reserve_target_edit(4),
+            Err(RenderError::MissingWorkspace)
+        );
+        let mut factory = factory.with_target_edit_budget(128);
+        assert!(factory.target_edit_bytes.is_empty());
+        factory.reserve_target_edit(64).unwrap();
+        let address = factory.target_edit_bytes.as_ptr();
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for size in [16, 64, 32, 0, 64] {
+                    factory.reserve_target_edit(size).unwrap();
+                }
+            }),
+            0
+        );
+        assert_eq!(factory.target_edit_bytes.as_ptr(), address);
+        assert_eq!(
+            factory.reserve_target_edit(129),
+            Err(RenderError::InsufficientWorkspace {
+                required_bytes: 129,
+                capacity_bytes: 128,
+            })
+        );
+        assert_eq!(factory.target_edit_bytes.as_ptr(), address);
+        factory.reserve_target_edit(128).unwrap();
+        let mut factory = factory.with_target_edit_budget(64);
+        assert_eq!(factory.target_edit_bytes.capacity(), 0);
+        factory.reserve_target_edit(64).unwrap();
+        <WgpuRendererFactory as RendererFactory<crate::surface::wgpu_surface::WgpuSurface>>::trim_memory(&mut factory);
+        assert_eq!(factory.target_edit_bytes.capacity(), 0);
+        assert_eq!(factory.target_edit_budget_bytes, Some(64));
+        factory.reserve_target_edit(64).unwrap();
+    }
+
+    #[test]
+    #[cfg(not(target_arch = "wasm32"))]
+    fn target_edits_reject_unprepared_capacity_before_accessing_the_device() {
+        let mut surface = crate::surface::framebuf::FramebufSurface::new(
+            2,
+            2,
+            (|_, _| {}) as fn(&[u8], PhysicalRect),
+        );
+        let mut factory = WgpuRendererFactory::new().with_target_edit_budget(15);
+        let mut renderer = WgpuRenderer {
+            factory: &mut factory,
+            surface: &mut surface,
+            viewport: Viewport::new(2, 2, Fixed::ONE),
+            frame: None,
+            failure: None,
+        };
+        assert_eq!(
+            renderer.edit_region(
+                FallbackRegion::rgba8(PhysicalRect::from_size(2, 2), PlaneRequirements::CPU)
+                    .unwrap(),
+                &mut |_| panic!("over budget"),
+            ),
+            Err(RenderError::InsufficientWorkspace {
+                required_bytes: 16,
+                capacity_bytes: 15,
+            })
+        );
+        assert_eq!(renderer.factory.target_edit_bytes.capacity(), 0);
+        assert!(renderer.frame.is_none());
+    }
 
     impl WgpuTarget for crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)> {
         fn state(&self) -> Option<&crate::surface::wgpu_surface::WgpuState> {
@@ -4565,41 +4707,10 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         src: &Rect,
         f: &mut dyn FnMut(&mut crate::render::texture::Texture) -> Result<(), RenderError>,
     ) -> Result<bool, RenderError> {
-        self.prepare_readback(src)?;
-        let Some(mut tex) = self.sample_target_region(src)? else {
+        let Some(phys) = self.physical_clip_rect(src) else {
             return Ok(false);
         };
-        f(&mut tex)?;
-        let phys = self
-            .physical_clip_rect(src)
-            .ok_or(RenderError::InvalidGeometry)?;
-        let scissor = [
-            u32::from(phys.x()),
-            u32::from(phys.y()),
-            u32::from(phys.width()),
-            u32::from(phys.height()),
-        ];
-        let view = self.blit_source_view_checked(&tex)?;
-        let scale = self.viewport.scale();
-        self.blit_view_inner(
-            view,
-            tex.width,
-            tex.height,
-            &Rect::new(0, 0, tex.width, tex.height),
-            Point {
-                x: Fixed::from(phys.x()) / scale,
-                y: Fixed::from(phys.y()) / scale,
-            },
-            Point {
-                x: Fixed::from(phys.width()) / scale,
-                y: Fixed::from(phys.height()) / scale,
-            },
-            255,
-            Fixed::ZERO,
-            CompositeMode::SourceOver,
-            ShaderKind::BlitReplace,
-            scissor,
-        );
+        self.edit_region(FallbackRegion::rgba8(phys, PlaneRequirements::CPU)?, f)?;
         Ok(true)
     }
 

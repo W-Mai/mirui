@@ -121,10 +121,12 @@ impl ProjectiveFallbackPlan {
         })
     }
 
+    #[cfg(any(target_arch = "wasm32", test))]
     pub(crate) const fn x(self) -> u16 {
         self.region.x()
     }
 
+    #[cfg(any(target_arch = "wasm32", test))]
     pub(crate) const fn y(self) -> u16 {
         self.region.y()
     }

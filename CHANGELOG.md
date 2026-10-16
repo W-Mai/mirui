@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- Native WGPU target edits require the configured edit budget and reuse a bounded CPU plane across region edits and composite fallbacks.
+
 - SDL GPU region edits use the configured projective fallback storage and reject insufficient capacity before callbacks. Region edits and projected draws share readback, alpha conversion and replacement.
 
 - Native renderers implement `can_reuse_target` to check writable storage compatibility without binding or modifying contents. Composed renderers forward the check to their target backend.
