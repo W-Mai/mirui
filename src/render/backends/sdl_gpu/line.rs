@@ -21,10 +21,16 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             let Some(clip_rect) = sdl_pixel_rect(&phys_clip, &phys_clip) else {
                 return;
             };
-            self.canvas.set_clip_rect(clip_rect);
-            apply_solid_color(self.canvas, color, opa);
-            if self
-                .canvas
+            let mut canvas = match self.device.canvas() {
+                Ok(canvas) => canvas,
+                Err(error) => {
+                    self.failure.get_or_insert(error);
+                    return;
+                }
+            };
+            canvas.set_clip_rect(clip_rect);
+            apply_solid_color(&mut canvas, color, opa);
+            if canvas
                 .draw_line(
                     sdl2::rect::Point::new(phys_p1.x.to_int(), phys_p1.y.to_int()),
                     sdl2::rect::Point::new(phys_p2.x.to_int(), phys_p2.y.to_int()),
@@ -33,7 +39,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             {
                 self.failure.get_or_insert(RenderError::BackendFailure);
             }
-            self.canvas.set_clip_rect(None);
+            canvas.set_clip_rect(None);
             return;
         }
         let mut path = Path::new();

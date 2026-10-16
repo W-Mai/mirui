@@ -8,6 +8,7 @@
 
 mod blit;
 mod config;
+mod device;
 mod label;
 mod label_cache;
 mod line;
@@ -19,6 +20,7 @@ mod rect_stroke;
 mod tessellation;
 mod texture_cache;
 
+use alloc::rc::Rc;
 use std::time::Instant;
 
 use sdl2::EventPump;
@@ -27,6 +29,7 @@ use sdl2::render::Canvas as SdlCanvas;
 use sdl2::video::Window;
 
 pub use self::config::{SdlGpuConfig, SdlGpuDriver, SdlGpuError, SdlWindowMode};
+use self::device::Device;
 use self::label_cache::LabelCache;
 use self::tessellation::TessellationCache;
 use self::texture_cache::TextureCache;
@@ -85,12 +88,12 @@ struct MultiGestureState {
 }
 
 pub struct SdlGpuSurface {
-    canvas: SdlCanvas<Window>,
+    device: Rc<Device>,
     label_cache: LabelCache,
+    video: sdl2::VideoSubsystem,
     _event_pump: EventPump,
     text_input: crate::surface::sdl_events::NativeTextInput,
     viewport: Viewport,
-    renderer_generation: u64,
     needs_redraw: bool,
     last_mouse_x: i32,
     last_mouse_y: i32,
@@ -172,13 +175,14 @@ impl SdlGpuSurface {
             &video,
             sdl.event().map_err(|e| backend_error("SDL events", e))?,
         );
+        let device = Rc::new(Device::new(canvas, texture_creator));
         Ok(Self {
-            canvas,
-            label_cache: LabelCache::new(texture_creator),
+            label_cache: LabelCache::new(Rc::clone(&device)),
+            device,
+            video,
             _event_pump: event_pump,
             text_input,
             viewport,
-            renderer_generation: 0,
             needs_redraw: true,
             last_mouse_x: 0,
             last_mouse_y: 0,
@@ -189,13 +193,16 @@ impl SdlGpuSurface {
 
     /// The accelerated renderer selected by SDL.
     pub fn renderer_name(&self) -> &'static str {
-        self.canvas.info().name
+        self.device.name()
     }
 
     fn refresh_viewport(&mut self) -> Result<(), SdlGpuError> {
-        let logical = self.canvas.window().size();
-        let physical = self
-            .canvas
+        let canvas = self
+            .device
+            .canvas()
+            .map_err(|_| config::backend_error("SDL access", "renderer is already borrowed"))?;
+        let logical = canvas.window().size();
+        let physical = canvas
             .output_size()
             .map_err(|e| config::backend_error("SDL output size", e))?;
         if logical.0 == 0 || logical.1 == 0 || physical.0 == 0 || physical.1 == 0 {
@@ -328,7 +335,7 @@ impl Surface for SdlGpuSurface {
     }
 
     fn end_flush(&mut self) -> Result<(), crate::render::RenderError> {
-        self.canvas.present();
+        self.device.canvas()?.present();
         self.needs_redraw = false;
         Ok(())
     }
@@ -338,11 +345,11 @@ impl Surface for SdlGpuSurface {
     }
 
     fn begin_flush(&mut self) -> Result<(), crate::render::RenderError> {
-        let (width, height) = self
-            .canvas
+        let canvas = self.device.canvas()?;
+        let (width, height) = canvas
             .output_size()
             .map_err(|_| crate::render::RenderError::BackendFailure)?;
-        if self.canvas.window().is_minimized() || width == 0 || height == 0 {
+        if canvas.window().is_minimized() || width == 0 || height == 0 {
             return Err(crate::render::RenderError::SurfaceUnavailable);
         }
         Ok(())
@@ -356,14 +363,14 @@ impl Surface for SdlGpuSurface {
         &mut self,
         request: crate::ui::clipboard::ClipboardWrite,
     ) -> crate::ui::clipboard::ClipboardDispatch {
-        crate::surface::sdl_events::write_clipboard(self.canvas.window().subsystem(), request)
+        crate::surface::sdl_events::write_clipboard(&self.video, request)
     }
 
     fn read_clipboard(
         &mut self,
         request: crate::ui::clipboard::ClipboardRead,
     ) -> crate::ui::clipboard::ClipboardDispatch {
-        crate::surface::sdl_events::read_clipboard(self.canvas.window().subsystem(), request)
+        crate::surface::sdl_events::read_clipboard(&self.video, request)
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
@@ -384,7 +391,7 @@ impl Surface for SdlGpuSurface {
                 Event::RenderTargetsReset { .. } | Event::RenderDeviceReset { .. } => {
                     self.needs_redraw = true;
                     self.label_cache.clear();
-                    self.renderer_generation = self.renderer_generation.wrapping_add(1);
+                    self.device.invalidate();
                 }
                 event @ (Event::KeyDown { .. } | Event::KeyUp { .. }) => {
                     if let Some(input) = crate::surface::sdl_events::keyboard_input(&event) {
@@ -590,16 +597,15 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFact
         if self
             .texture_cache
             .as_ref()
-            .is_none_or(|cache| !cache.matches(&backend.canvas, backend.renderer_generation))
+            .is_none_or(|cache| !cache.matches(&backend.device))
         {
             self.texture_cache = Some(TextureCache::new(
-                &backend.canvas,
-                backend.renderer_generation,
+                Rc::clone(&backend.device),
                 self.texture_cache_budget,
             ));
         }
         SdlGpuRenderer {
-            canvas: &mut backend.canvas,
+            device: &backend.device,
             label_cache: &mut backend.label_cache,
             tessellator: &mut self.tessellator,
             texture_cache: self.texture_cache.as_mut().expect("prepared texture cache"),
@@ -618,7 +624,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFact
 }
 
 pub struct SdlGpuRenderer<'a, S = Box<[u8]>> {
-    canvas: &'a mut SdlCanvas<Window>,
+    device: &'a Device,
     label_cache: &'a mut LabelCache,
     tessellator: &'a mut TessellationCache,
     texture_cache: &'a mut TextureCache,
@@ -642,8 +648,15 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let Some(clip_rect) = sdl_pixel_rect(phys_clip, phys_clip) else {
             return;
         };
-        self.canvas.set_clip_rect(clip_rect);
-        self.canvas.set_blend_mode(if needs_blend {
+        let mut canvas = match self.device.canvas() {
+            Ok(canvas) => canvas,
+            Err(error) => {
+                self.failure.get_or_insert(error);
+                return;
+            }
+        };
+        canvas.set_clip_rect(clip_rect);
+        canvas.set_blend_mode(if needs_blend {
             sdl2::render::BlendMode::Blend
         } else {
             sdl2::render::BlendMode::None
@@ -653,7 +666,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let indices = &self.tessellator.indices;
         let result = unsafe {
             sdl2_sys::SDL_RenderGeometry(
-                self.canvas.raw(),
+                canvas.raw(),
                 core::ptr::null_mut(),
                 verts.as_ptr(),
                 verts.len() as _,
@@ -664,7 +677,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         if result != 0 {
             self.failure.get_or_insert(RenderError::BackendFailure);
         }
-        self.canvas.set_clip_rect(None);
+        canvas.set_clip_rect(None);
     }
 
     fn draw_projective_plan(
@@ -682,7 +695,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
         let target = fallback.target_mut(plan);
         readback::rgba8(
-            self.canvas,
+            &*self.device.canvas()?,
             plan.region().rect(),
             target,
             plan.region().stride_bytes(),
@@ -690,36 +703,29 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
 
         fallback.render(plan, command, projective, self.viewport)?;
         let target = fallback.target(plan);
-        let canvas = &mut *self.canvas;
-        let mut uploaded = false;
-        self.label_cache.with_creator(|creator| {
-            let Ok(mut texture) = creator.create_texture_streaming(
+        let mut canvas = self.device.canvas()?;
+        let mut texture = self
+            .device
+            .creator
+            .create_texture_streaming(
                 sdl2::pixels::PixelFormatEnum::RGBA32,
                 u32::from(plan.width()),
                 u32::from(plan.height()),
-            ) else {
-                return;
-            };
-            if texture
-                .update(None, target, plan.region().stride_bytes())
-                .is_err()
-            {
-                return;
-            }
-            texture.set_blend_mode(sdl2::render::BlendMode::None);
-            let dst = sdl2::rect::Rect::new(
-                i32::from(plan.x()),
-                i32::from(plan.y()),
-                u32::from(plan.width()),
-                u32::from(plan.height()),
-            );
-            uploaded = canvas.copy(&texture, None, Some(dst)).is_ok();
-        });
-        if uploaded {
-            Ok(())
-        } else {
-            Err(RenderError::BackendFailure)
-        }
+            )
+            .map_err(|_| RenderError::BackendFailure)?;
+        texture
+            .update(None, target, plan.region().stride_bytes())
+            .map_err(|_| RenderError::BackendFailure)?;
+        texture.set_blend_mode(sdl2::render::BlendMode::None);
+        let dst = sdl2::rect::Rect::new(
+            i32::from(plan.x()),
+            i32::from(plan.y()),
+            u32::from(plan.width()),
+            u32::from(plan.height()),
+        );
+        canvas
+            .copy(&texture, None, Some(dst))
+            .map_err(|_| RenderError::BackendFailure)
     }
 }
 
@@ -1186,7 +1192,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let Some(phys) = self.physical_clip_rect(src) else {
             return Ok(None);
         };
-        readback::texture(self.canvas, phys).map(Some)
+        readback::texture(&*self.device.canvas()?, phys).map(Some)
     }
 
     fn read_target_region(
@@ -1197,7 +1203,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let Some(phys) = self.physical_clip_rect(src) else {
             return Ok(());
         };
-        let texture = readback::texture(self.canvas, phys)?;
+        let texture = readback::texture(&*self.device.canvas()?, phys)?;
         let pixels = texture.read_pixels()?;
         let (x, y, _, _) = self.viewport.rect_to_physical_pixel_bounds(*src);
         crate::render::renderer::copy_packed_rgba8(pixels.bytes(), phys, (x, y), dst)
@@ -1220,22 +1226,20 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let pixels = tex.read_pixels()?;
         let bytes = pixels.bytes();
         let stride = pixels.stride();
-        let canvas = &mut *self.canvas;
-        self.label_cache
-            .with_creator(|creator| -> Result<(), RenderError> {
-                let mut sdl_tex = creator
-                    .create_texture_streaming(sdl2::pixels::PixelFormatEnum::RGBA32, w, h)
-                    .map_err(|_| RenderError::BackendFailure)?;
-                sdl_tex
-                    .update(None, bytes, stride)
-                    .map_err(|_| RenderError::BackendFailure)?;
-                sdl_tex.set_blend_mode(sdl2::render::BlendMode::None);
-                let dst_rect =
-                    sdl2::rect::Rect::new(i32::from(phys.x()), i32::from(phys.y()), w, h);
-                canvas
-                    .copy(&sdl_tex, None, Some(dst_rect))
-                    .map_err(|_| RenderError::BackendFailure)
-            })?;
+        let mut canvas = self.device.canvas()?;
+        let mut sdl_tex = self
+            .device
+            .creator
+            .create_texture_streaming(sdl2::pixels::PixelFormatEnum::RGBA32, w, h)
+            .map_err(|_| RenderError::BackendFailure)?;
+        sdl_tex
+            .update(None, bytes, stride)
+            .map_err(|_| RenderError::BackendFailure)?;
+        sdl_tex.set_blend_mode(sdl2::render::BlendMode::None);
+        let dst_rect = sdl2::rect::Rect::new(i32::from(phys.x()), i32::from(phys.y()), w, h);
+        canvas
+            .copy(&sdl_tex, None, Some(dst_rect))
+            .map_err(|_| RenderError::BackendFailure)?;
         Ok(true)
     }
 }

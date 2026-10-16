@@ -10,6 +10,8 @@
 
 A target owns the device resources required to sample, read and release its storage. It must not borrow a temporary renderer or require a window frame to remain alive. Validate native handles against device identity and resource generation before using them; matching concrete payload types alone is insufficient.
 
+SDL-GPU surfaces and upload caches share one renderer/window owner and resource generation. Temporary renderers borrow driver state only during upload, drawing or readback. Source pixel preparation, CPU glyph rasterization, software fallback and region-edit callbacks run outside that borrow. A conflicting driver borrow returns `RenderError::InvalidScope`; retained caches keep the underlying renderer alive until their textures are released.
+
 ## Source reads
 
 `read_pixels_into` receives a prepared `TexturePixelsMut` with matching dimensions and format. It writes straight-alpha pixels using the destination stride, including when native storage is premultiplied. The source implementation completes necessary pending writes and restores any changed device state on both success and error. Device restoration failures must prevent further submission.

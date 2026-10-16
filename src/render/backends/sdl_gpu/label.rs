@@ -1,6 +1,5 @@
 use super::SdlGpuRenderer;
 use crate::render::font::Font;
-use crate::render::renderer::RenderError;
 use crate::types::{Color, Point, Rect, Transform};
 
 pub(super) struct GlyphRunDraw<'a> {
@@ -35,43 +34,33 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             color,
             opacity,
         } = draw;
-        if self
-            .label_cache
-            .draw_glyph_run(
-                self.canvas,
-                pos,
-                glyphs,
-                font,
-                transform,
-                clip,
-                color,
-                opacity,
-                self.viewport,
-            )
-            .is_err()
-        {
-            self.failure.get_or_insert(RenderError::BackendFailure);
+        if let Err(error) = self.label_cache.draw_glyph_run(
+            pos,
+            glyphs,
+            font,
+            transform,
+            clip,
+            color,
+            opacity,
+            self.viewport,
+        ) {
+            self.failure.get_or_insert(error);
         }
     }
 
     pub(super) fn draw_posed_glyph_run_inner(&mut self, draw: PosedGlyphRunDraw<'_>) {
-        if self
-            .label_cache
-            .draw_posed_glyph_run(
-                self.canvas,
-                *draw.pos,
-                draw.glyphs,
-                draw.frames,
-                draw.font,
-                *draw.transform,
-                *draw.clip,
-                *draw.color,
-                draw.opacity,
-                self.viewport,
-            )
-            .is_err()
-        {
-            self.failure.get_or_insert(RenderError::BackendFailure);
+        if let Err(error) = self.label_cache.draw_posed_glyph_run(
+            *draw.pos,
+            draw.glyphs,
+            draw.frames,
+            draw.font,
+            *draw.transform,
+            *draw.clip,
+            *draw.color,
+            draw.opacity,
+            self.viewport,
+        ) {
+            self.failure.get_or_insert(error);
         }
     }
 }

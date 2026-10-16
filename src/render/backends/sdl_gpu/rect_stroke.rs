@@ -18,8 +18,15 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             let phys_area = self.viewport.rect_to_physical(*area);
             let phys_clip = self.viewport.rect_to_physical(*clip);
             if let Some(sdl_rect) = sdl_pixel_rect(&phys_area, &phys_clip) {
-                apply_solid_color(self.canvas, color, opa);
-                if self.canvas.draw_rect(sdl_rect).is_err() {
+                let mut canvas = match self.device.canvas() {
+                    Ok(canvas) => canvas,
+                    Err(error) => {
+                        self.failure.get_or_insert(error);
+                        return;
+                    }
+                };
+                apply_solid_color(&mut canvas, color, opa);
+                if canvas.draw_rect(sdl_rect).is_err() {
                     self.failure.get_or_insert(RenderError::BackendFailure);
                 }
             }

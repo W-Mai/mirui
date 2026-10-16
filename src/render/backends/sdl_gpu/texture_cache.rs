@@ -1,9 +1,10 @@
+use alloc::rc::Rc;
 use core::cell::RefCell;
 
-use sdl2::render::{Canvas, Texture as SdlTexture, TextureCreator};
-use sdl2::video::{Window, WindowContext};
+use sdl2::render::Texture as SdlTexture;
 
 use super::SdlGpuRenderer;
+use super::device::Device;
 use crate::core::cache::{CacheInspect, HasSize, LruCache, MaxSize};
 use crate::render::renderer::RenderError;
 use crate::render::texture::{Texture, TextureKey};
@@ -24,24 +25,24 @@ impl HasSize for CachedTexture {
 pub(super) struct TextureCache {
     // Cached textures are private and dropped before their owning renderer context.
     pool: LruCache<TextureKey, RefCell<CachedTexture>>,
-    creator: TextureCreator<WindowContext>,
+    device: Rc<Device>,
     generation: u64,
 }
 
 impl TextureCache {
-    pub(super) fn new(canvas: &Canvas<Window>, generation: u64, budget: usize) -> Self {
+    pub(super) fn new(device: Rc<Device>, budget: usize) -> Self {
         Self {
             pool: LruCache::builder()
                 .max_size(MaxSize::Bytes(budget))
                 .name("sdl_gpu/texture")
                 .build(),
-            creator: canvas.texture_creator(),
-            generation,
+            generation: device.generation(),
+            device,
         }
     }
 
-    pub(super) fn matches(&self, canvas: &Canvas<Window>, generation: u64) -> bool {
-        self.creator.raw() == canvas.raw() && self.generation == generation
+    pub(super) fn matches(&self, device: &Rc<Device>) -> bool {
+        Rc::ptr_eq(&self.device, device) && self.generation == device.generation()
     }
 
     pub(super) fn inspect(&self) -> &dyn CacheInspect {
@@ -60,11 +61,11 @@ impl TextureCache {
         let key = TextureKey::cacheable(src)
             .filter(|_| matches!(self.pool.max_size(), MaxSize::Bytes(limit) if bytes <= *limit));
         let Some(key) = key else {
-            let mut texture = upload(&self.creator, src)?;
+            let mut texture = upload(&self.device, src)?;
             return Ok(draw(&mut texture));
         };
         let handle = self.pool.entry(key).or_try_insert_with(|| {
-            let texture = upload(&self.creator, src)?;
+            let texture = upload(&self.device, src)?;
             // Only this pool retains the erased lifetime; no handle escapes this module.
             // Its creator owns the renderer and is dropped after every cached texture.
             let texture =
@@ -75,12 +76,11 @@ impl TextureCache {
     }
 }
 
-fn upload<'a>(
-    creator: &'a TextureCreator<WindowContext>,
-    src: &Texture,
-) -> Result<SdlTexture<'a>, RenderError> {
+fn upload<'a>(device: &'a Device, src: &Texture) -> Result<SdlTexture<'a>, RenderError> {
     let pixels = src.read_pixels()?;
-    let mut texture = creator
+    let _lease = device.canvas()?;
+    let mut texture = device
+        .creator
         .create_texture_streaming(
             SdlGpuRenderer::<Box<[u8]>>::texture_format(pixels.format()),
             u32::from(pixels.width()),

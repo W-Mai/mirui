@@ -122,8 +122,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             return;
         };
 
-        let canvas = &mut *self.canvas;
         let uploaded = self.texture_cache.with_texture(src, |tex| {
+            let mut canvas = self.device.canvas()?;
             tex.set_blend_mode(sdl_blend);
             // SDL2 modulates texture sample alpha by alpha_mod/255 in the
             // copy() path, so set_alpha_mod composes with src.a as the
@@ -134,16 +134,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             canvas.set_clip_rect(sdl_clip);
             let copied = canvas.copy(tex, Some(src_sdl), Some(dst_sdl)).is_ok();
             canvas.set_clip_rect(None);
-            copied
+            copied.then_some(()).ok_or(RenderError::BackendFailure)
         });
-        match uploaded {
-            Ok(true) => {}
-            Ok(false) => {
-                self.failure.get_or_insert(RenderError::BackendFailure);
-            }
-            Err(error) => {
-                self.failure.get_or_insert(error);
-            }
+        if let Err(error) = uploaded.and_then(core::convert::identity) {
+            self.failure.get_or_insert(error);
         }
     }
 }

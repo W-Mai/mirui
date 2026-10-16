@@ -5,21 +5,15 @@
 //! the resulting `SDL_Texture` around so the next frame only needs a
 //! single textured quad. Entries are keyed by placement, font and color.
 //!
-//! Lifetime dance: `TextureCreator` and `Texture<'creator>` are tied
-//! together by a borrowed lifetime. We keep them in the same struct and
-//! erase the lifetime to `'static` at storage time, then hand textures
-//! out only while the creator is alive. Rust field-drop order (cache
-//! before creator, per the struct definition below) guarantees every
-//! texture is dropped before its creator, which is what matters for
-//! `SDL_DestroyTexture` to be safe.
+//! Cached SDL textures are private. Both pools drop before their shared device owner, which retains the renderer and texture creator.
 
-use alloc::vec::Vec;
+use alloc::{rc::Rc, vec::Vec};
 
 use sdl2::pixels::PixelFormatEnum;
-use sdl2::render::{Canvas as SdlCanvas, Texture as SdlTexture, TextureCreator};
-use sdl2::video::{Window, WindowContext};
+use sdl2::render::Texture as SdlTexture;
 use sdl2_sys::{SDL_Color, SDL_FPoint, SDL_ScaleMode, SDL_Vertex};
 
+use super::device::Device;
 use super::sdl_pixel_rect;
 
 use crate::core::cache::{HasSize, LruCache, MaxSize, WithFactory};
@@ -54,7 +48,7 @@ struct RasterCtx<'a> {
     color: &'a Color,
     bounds: RasterRunBounds,
     scale: Fixed,
-    creator: &'a TextureCreator<WindowContext>,
+    device: &'a Device,
     raster_buf: &'a mut Vec<u8>,
 }
 
@@ -68,20 +62,21 @@ enum RasterContent<'a> {
 
 struct ScalarRasterCtx<'a> {
     surface: GlyphSurface<'a>,
-    creator: &'a TextureCreator<WindowContext>,
+    device: &'a Device,
     raster_buf: &'a mut Vec<u8>,
 }
 
 const RUN_BUDGET: usize = 4 * 1024 * 1024;
 const SURFACE_BUDGET: usize = 4 * 1024 * 1024;
 
-type LabelCtor = fn(&RasterRunKey, RasterCtx<'_>) -> Result<SizedSdlTexture, ()>;
-type ScalarCtor = fn(&ScalarSurfaceKey, ScalarRasterCtx<'_>) -> Result<SizedSdlTexture, ()>;
+type LabelCtor = fn(&RasterRunKey, RasterCtx<'_>) -> Result<SizedSdlTexture, RenderError>;
+type ScalarCtor =
+    fn(&ScalarSurfaceKey, ScalarRasterCtx<'_>) -> Result<SizedSdlTexture, RenderError>;
 
 pub struct LabelCache {
     cache: WithFactory<LruCache<RasterRunKey, SizedSdlTexture>, LabelCtor>,
     scalar_cache: WithFactory<LruCache<ScalarSurfaceKey, SizedSdlTexture>, ScalarCtor>,
-    creator: TextureCreator<WindowContext>,
+    device: Rc<Device>,
     raster_buf: Vec<u8>,
     scalar_buf: Vec<u8>,
     glyph_vertices: Vec<SDL_Vertex>,
@@ -89,7 +84,7 @@ pub struct LabelCache {
 }
 
 impl LabelCache {
-    pub fn new(creator: TextureCreator<WindowContext>) -> Self {
+    pub(super) fn new(device: Rc<Device>) -> Self {
         let cache = LruCache::builder()
             .max_size(MaxSize::Bytes(RUN_BUDGET))
             .name("sdl_gpu/label")
@@ -101,7 +96,7 @@ impl LabelCache {
         Self {
             cache: WithFactory::new(cache, rasterize_label as LabelCtor),
             scalar_cache: WithFactory::new(scalar_cache, rasterize_scalar_surface as ScalarCtor),
-            creator,
+            device,
             raster_buf: Vec::new(),
             scalar_buf: Vec::new(),
             glyph_vertices: Vec::new(),
@@ -112,7 +107,6 @@ impl LabelCache {
     #[allow(clippy::too_many_arguments)]
     pub fn draw_glyph_run(
         &mut self,
-        canvas: &mut SdlCanvas<Window>,
         pos: &Point,
         glyphs: &[textflow::shaping::PositionedGlyph],
         font: &Font,
@@ -138,7 +132,6 @@ impl LabelCache {
         let quad = logical_quad.map(|point| viewport.point_to_physical(point));
         let phys_clip = viewport.rect_to_physical(*clip);
         self.draw_cached(
-            canvas,
             &quad,
             RasterContent::Positioned {
                 glyphs,
@@ -160,7 +153,6 @@ impl LabelCache {
     #[allow(clippy::too_many_arguments)]
     pub fn draw_posed_glyph_run(
         &mut self,
-        canvas: &mut SdlCanvas<Window>,
         pos: Point,
         glyphs: &[textflow::shaping::PositionedGlyph],
         frames: &[textflow::placement::GlyphFrame],
@@ -201,7 +193,7 @@ impl LabelCache {
             };
             if !coverage {
                 if let Some((key, surface)) = active.take() {
-                    self.flush_scalar_batch(canvas, key, surface, clip, viewport)?;
+                    self.flush_scalar_batch(key, surface, clip, viewport)?;
                 }
                 let tangent = Point {
                     x: crate::types::fixed::from_textflow(frame.unit_tangent.x),
@@ -220,7 +212,6 @@ impl LabelCache {
                     textflow::shaping::FlowPoint { x: 0, y: 0 },
                 )];
                 self.draw_glyph_run(
-                    canvas,
                     &font.line_origin_for_baseline(Point::ZERO),
                     &glyph,
                     font,
@@ -238,7 +229,7 @@ impl LabelCache {
                 || self.glyph_indices.len() + 54 > MAX_BATCH_INDICES
             {
                 if let Some((key, surface)) = active.take() {
-                    self.flush_scalar_batch(canvas, key, surface, clip, viewport)?;
+                    self.flush_scalar_batch(key, surface, clip, viewport)?;
                 }
                 active = Some((key, raster.surface));
             }
@@ -248,7 +239,7 @@ impl LabelCache {
             self.push_scalar_glyph(quad, region, raster.surface, color, opa, viewport);
         }
         if let Some((key, surface)) = active {
-            self.flush_scalar_batch(canvas, key, surface, clip, viewport)
+            self.flush_scalar_batch(key, surface, clip, viewport)
         } else {
             Ok(())
         }
@@ -348,7 +339,6 @@ impl LabelCache {
 
     fn flush_scalar_batch(
         &mut self,
-        canvas: &mut SdlCanvas<Window>,
         key: ScalarSurfaceKey,
         surface: GlyphSurface<'_>,
         clip: Rect,
@@ -363,22 +353,23 @@ impl LabelCache {
             self.glyph_indices.clear();
             return Ok(());
         };
-        let creator = &self.creator;
+        let device = &self.device;
         let raster_buf = &mut self.scalar_buf;
-        let Ok(handle) = self.scalar_cache.entry(key).or_insert_with(|ctor, key| {
-            ctor(
-                key,
-                ScalarRasterCtx {
-                    surface,
-                    creator,
-                    raster_buf,
-                },
-            )
-        }) else {
-            self.glyph_vertices.clear();
-            self.glyph_indices.clear();
-            return Err(RenderError::BackendFailure);
-        };
+        let handle = self
+            .scalar_cache
+            .entry(key)
+            .or_insert_with(|ctor, key| {
+                ctor(
+                    key,
+                    ScalarRasterCtx {
+                        surface,
+                        device,
+                        raster_buf,
+                    },
+                )
+            })
+            .map_err(cache_error)?;
+        let mut canvas = device.canvas()?;
         canvas.set_clip_rect(clip);
         let rendered = unsafe {
             sdl2_sys::SDL_RenderGeometry(
@@ -399,7 +390,6 @@ impl LabelCache {
     #[allow(clippy::too_many_arguments)]
     fn draw_cached(
         &mut self,
-        canvas: &mut SdlCanvas<Window>,
         quad: &[Point; 4],
         content: RasterContent<'_>,
         bounds: RasterRunBounds,
@@ -415,23 +405,26 @@ impl LabelCache {
         };
         let a = ((color.a as u16) * (opa as u16) / 255) as u8;
 
-        let creator = &self.creator;
+        let device = &self.device;
         let raster_buf = &mut self.raster_buf;
-        let Ok(handle) = self.cache.entry(key).or_insert_with(|ctor, k| {
-            let ctx = RasterCtx {
-                content,
-                font,
-                color,
-                bounds,
-                scale,
-                creator,
-                raster_buf,
-            };
-            ctor(k, ctx)
-        }) else {
-            return Err(RenderError::BackendFailure);
-        };
+        let handle = self
+            .cache
+            .entry(key)
+            .or_insert_with(|ctor, k| {
+                let ctx = RasterCtx {
+                    content,
+                    font,
+                    color,
+                    bounds,
+                    scale,
+                    device,
+                    raster_buf,
+                };
+                ctor(k, ctx)
+            })
+            .map_err(cache_error)?;
 
+        let mut canvas = device.canvas()?;
         canvas.set_clip_rect(clip_rect);
         let tint = SDL_Color {
             r: 255,
@@ -483,18 +476,23 @@ impl LabelCache {
     pub(super) fn scalar_inspect(&self) -> &dyn crate::core::cache::CacheInspect {
         self.scalar_cache.cache()
     }
+}
 
-    /// Borrows the renderer's creator for temporary target-edit uploads.
-    pub fn with_creator<R>(&self, f: impl FnOnce(&TextureCreator<WindowContext>) -> R) -> R {
-        f(&self.creator)
+fn cache_error(error: crate::core::cache::CacheError<RenderError>) -> RenderError {
+    match error {
+        crate::core::cache::CacheError::Factory(error) => error,
+        crate::core::cache::CacheError::Disabled | crate::core::cache::CacheError::TooLarge => {
+            RenderError::BackendFailure
+        }
     }
 }
 
 fn rasterize_scalar_surface(
     _key: &ScalarSurfaceKey,
     ctx: ScalarRasterCtx<'_>,
-) -> Result<SizedSdlTexture, ()> {
-    crate::render::font::scalar::unpack_surface(ctx.surface, ctx.raster_buf).ok_or(())?;
+) -> Result<SizedSdlTexture, RenderError> {
+    crate::render::font::scalar::unpack_surface(ctx.surface, ctx.raster_buf)
+        .ok_or(RenderError::InvalidTexture)?;
     let pixels = usize::try_from(ctx.surface.width())
         .ok()
         .and_then(|width| {
@@ -502,8 +500,9 @@ fn rasterize_scalar_surface(
                 .ok()
                 .and_then(|height| width.checked_mul(height))
         })
-        .ok_or(())?;
-    ctx.raster_buf.resize(pixels.checked_mul(4).ok_or(())?, 0);
+        .ok_or(RenderError::InvalidTexture)?;
+    ctx.raster_buf
+        .resize(pixels.checked_mul(4).ok_or(RenderError::InvalidTexture)?, 0);
     for index in (0..pixels).rev() {
         let alpha = ctx.raster_buf[index];
         let offset = index * 4;
@@ -512,22 +511,24 @@ fn rasterize_scalar_surface(
     let width = ctx.surface.width();
     let height = ctx.surface.height();
     let stride = usize::try_from(width)
-        .map_err(|_| ())?
+        .map_err(|_| RenderError::InvalidTexture)?
         .checked_mul(4)
-        .ok_or(())?;
+        .ok_or(RenderError::InvalidTexture)?;
+    let _lease = ctx.device.canvas()?;
     let mut texture = ctx
+        .device
         .creator
         .create_texture_streaming(PixelFormatEnum::RGBA32, width, height)
-        .map_err(|_| ())?;
+        .map_err(|_| RenderError::BackendFailure)?;
     texture
         .update(None, ctx.raster_buf, stride)
-        .map_err(|_| ())?;
+        .map_err(|_| RenderError::BackendFailure)?;
     texture.set_blend_mode(sdl2::render::BlendMode::Blend);
     if unsafe {
         sdl2_sys::SDL_SetTextureScaleMode(texture.raw(), SDL_ScaleMode::SDL_ScaleModeLinear)
     } != 0
     {
-        return Err(());
+        return Err(RenderError::BackendFailure);
     }
     let texture: SdlTexture<'static> = unsafe { core::mem::transmute(texture) };
     Ok(SizedSdlTexture {
@@ -536,7 +537,10 @@ fn rasterize_scalar_surface(
     })
 }
 
-fn rasterize_label(_key: &RasterRunKey, ctx: RasterCtx<'_>) -> Result<SizedSdlTexture, ()> {
+fn rasterize_label(
+    _key: &RasterRunKey,
+    ctx: RasterCtx<'_>,
+) -> Result<SizedSdlTexture, RenderError> {
     let width = ctx.bounds.width;
     let height = ctx.bounds.height;
     let byte_stride = usize::from(width) * 4;
@@ -548,22 +552,23 @@ fn rasterize_label(_key: &RasterRunKey, ctx: RasterCtx<'_>) -> Result<SizedSdlTe
         ctx.bounds,
         ctx.scale,
         ctx.raster_buf,
-    )
-    .map_err(|_| ())?;
+    )?;
 
+    let _lease = ctx.device.canvas()?;
     let mut new_tex = ctx
+        .device
         .creator
         .create_texture_streaming(PixelFormatEnum::RGBA32, width.into(), height.into())
-        .map_err(|_| ())?;
+        .map_err(|_| RenderError::BackendFailure)?;
     new_tex
         .update(None, ctx.raster_buf, byte_stride)
-        .map_err(|_| ())?;
+        .map_err(|_| RenderError::BackendFailure)?;
     new_tex.set_blend_mode(sdl2::render::BlendMode::Blend);
     if unsafe {
         sdl2_sys::SDL_SetTextureScaleMode(new_tex.raw(), SDL_ScaleMode::SDL_ScaleModeLinear)
     } != 0
     {
-        return Err(());
+        return Err(RenderError::BackendFailure);
     }
 
     // The cache drops each texture before its creator.
