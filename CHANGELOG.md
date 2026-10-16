@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `Texture::backend_target()` exposes checked read-only native storage to backend consumers without readback. Invalid native storage with a valid CPU copy remains usable through pixel uploads; incomplete contents and access conflicts are rejected.
+
 - Native texture storage retains its source, prepares CPU pixels on demand and reuses readback capacity. Output writes share existing publication and history slots; failed writes and reads do not expose incomplete pixels. Native upload identities remain distinct across resource replacement.
 
 - WGPU supports source-owned RGBA8 native targets, retained multisample attachments, incremental drawing and nested target restoration. Offscreen scopes reuse frame workspace without clearing the window; invalid device state blocks subsequent drawing and presentation.

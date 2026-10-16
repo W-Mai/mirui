@@ -69,6 +69,7 @@ fn external_target_owns_its_source_and_reads_checked_cpu_storage() {
         .unwrap()
         .with_stride(8)
         .unwrap();
+    assert!(dst.backend_target().unwrap().is_none());
     target
         .read_pixels_into(&mut dst.pixels_mut().unwrap())
         .unwrap();

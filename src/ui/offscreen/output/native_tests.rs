@@ -12,6 +12,7 @@ use core::{any::Any, cell::Cell};
 #[derive(Default)]
 struct Device {
     lost: Cell<bool>,
+    access_failure: Cell<bool>,
     read_failure: Cell<bool>,
     reads: Cell<usize>,
     creates: Cell<usize>,
@@ -45,7 +46,9 @@ impl BackendTarget for Target {
         self.descriptor.layout.required_bytes()
     }
     fn validate(&self) -> Result<(), RenderError> {
-        if self.device.lost.get() {
+        if self.device.access_failure.get() {
+            Err(RenderError::InvalidScope)
+        } else if self.device.lost.get() {
             Err(RenderError::BackendFailure)
         } else {
             Ok(())
@@ -191,10 +194,26 @@ fn source_pixels_are_lazy_borrowed_budgeted_and_survive_the_renderer() {
     assert_eq!(budget.available(), 0);
     assert_eq!(budget.allocated(), 64);
     assert!(matches!(texture.pixels(), Err(RenderError::InvalidTexture)));
+    assert!(matches!(
+        texture.backend_target(),
+        Err(RenderError::InvalidTexture)
+    ));
     let color = Color::rgba(20, 40, 60, 128);
     draw(&mut texture, &mut renderer, color, false).unwrap();
     assert!(texture.pixels().unwrap().is_none());
     assert_eq!(renderer.device.reads.get(), 0);
+    assert_eq!(
+        tracked_allocations(|| {
+            for _ in 0..8 {
+                let source = texture.backend_target().unwrap().unwrap();
+                assert!(source.as_any().is::<Target>());
+                assert_eq!(source.descriptor(), plan.descriptor);
+            }
+        }),
+        0
+    );
+    assert_eq!(renderer.device.reads.get(), 0);
+    assert_eq!(budget.allocated(), 64);
     assert!(texture.pixels_mut().is_err());
     {
         let first = texture.read_pixels().unwrap();
@@ -223,6 +242,7 @@ fn source_pixels_are_lazy_borrowed_budgeted_and_survive_the_renderer() {
     });
     assert_eq!(allocations, 0);
     drop(renderer);
+    assert!(texture.backend_target().unwrap().is_some());
     assert_eq!(device.upgrade().unwrap().reads.get(), 2);
     assert_eq!(texture.read_pixels().unwrap().get_pixel(0, 0), updated);
     drop(texture);
@@ -254,11 +274,26 @@ fn failed_reads_and_writes_never_expose_partial_or_previous_pixels() {
         texture.read_pixels(),
         Err(RenderError::InvalidTexture)
     ));
+    assert!(matches!(
+        texture.backend_target(),
+        Err(RenderError::InvalidTexture)
+    ));
     draw(&mut texture, &mut renderer, color, false).unwrap();
     texture.read_pixels().unwrap();
     renderer.device.lost.set(true);
+    assert!(texture.backend_target().unwrap().is_none());
     assert_eq!(texture.read_pixels().unwrap().get_pixel(0, 0), color);
+    renderer.device.access_failure.set(true);
+    assert!(matches!(
+        texture.backend_target(),
+        Err(RenderError::InvalidScope)
+    ));
+    renderer.device.access_failure.set(false);
     texture.cache_revision += 1;
+    assert!(matches!(
+        texture.backend_target(),
+        Err(RenderError::BackendFailure)
+    ));
     assert!(matches!(
         texture.read_pixels(),
         Err(RenderError::BackendFailure)

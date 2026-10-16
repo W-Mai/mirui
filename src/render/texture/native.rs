@@ -184,6 +184,34 @@ impl Texture<'static> {
 }
 
 impl Texture<'_> {
+    /// Inspect completed native storage without reading pixels, allocating or submitting work.
+    ///
+    /// CPU textures return `None`. Invalid native resources also return `None` when a current CPU copy remains readable; consumers can use the normal pixel upload path. Incomplete contents and access errors are rejected. Native consumers must check the concrete payload, destination device identity and active-target feedback before sampling. This borrow does not permit target writes.
+    pub fn backend_target(&self) -> Result<Option<&dyn BackendTarget>, RenderError> {
+        let TexBuf::Native(native) = &self.buf else {
+            self.pixel_layout()?;
+            return Ok(None);
+        };
+        if !native.completed {
+            return Err(RenderError::InvalidTexture);
+        }
+        match native.target.validate() {
+            Ok(()) => Ok(Some(&*native.target)),
+            Err(error @ (RenderError::InvalidTexture | RenderError::BackendFailure)) => {
+                let mirror = native
+                    .mirror
+                    .try_borrow()
+                    .map_err(|_| RenderError::InvalidScope)?;
+                if mirror.revision == Some(self.cache_revision) {
+                    Ok(None)
+                } else {
+                    Err(error)
+                }
+            }
+            Err(error) => Err(error),
+        }
+    }
+
     pub(crate) fn set_output_revision(&mut self, revision: u64) {
         if let TexBuf::Native(native) = &mut self.buf {
             let mirror = native.mirror.get_mut();
