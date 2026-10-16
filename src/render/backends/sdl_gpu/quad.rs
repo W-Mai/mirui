@@ -114,7 +114,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             b: 255,
             a: opa,
         };
-        let verts: [SDL_Vertex; 4] = [
+        let mut verts: [SDL_Vertex; 4] = [
             SDL_Vertex {
                 position: SDL_FPoint {
                     x: phys_q[0].x.to_f32(),
@@ -150,25 +150,37 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         ];
         let indices: [i32; 6] = [0, 1, 2, 0, 2, 3];
 
-        let uploaded = self.texture_cache.with_texture(src, |tex| {
-            let mut canvas = self.device.canvas()?;
-            tex.set_blend_mode(sdl2::render::BlendMode::Blend);
-            tex.set_alpha_mod(255);
-            tex.set_color_mod(255, 255, 255);
-            canvas.set_clip_rect(sdl_clip);
-            let rendered = unsafe {
-                sdl2_sys::SDL_RenderGeometry(
-                    canvas.raw(),
-                    tex.raw(),
-                    verts.as_ptr(),
-                    verts.len() as _,
-                    indices.as_ptr(),
-                    indices.len() as _,
-                ) == 0
-            };
-            canvas.set_clip_rect(None);
-            rendered.then_some(()).ok_or(RenderError::BackendFailure)
-        });
+        let uploaded = self.texture_cache.with_texture(
+            src,
+            crate::render::command::CompositeMode::SourceOver,
+            |tex, alpha| {
+                let mut canvas = self.device.canvas()?;
+                if alpha == crate::render::TargetAlpha::Straight {
+                    tex.set_blend_mode(sdl2::render::BlendMode::Blend);
+                } else {
+                    for vertex in &mut verts {
+                        vertex.color.r = opa;
+                        vertex.color.g = opa;
+                        vertex.color.b = opa;
+                    }
+                }
+                tex.set_alpha_mod(255);
+                tex.set_color_mod(255, 255, 255);
+                canvas.set_clip_rect(sdl_clip);
+                let rendered = unsafe {
+                    sdl2_sys::SDL_RenderGeometry(
+                        canvas.raw(),
+                        tex.raw(),
+                        verts.as_ptr(),
+                        verts.len() as _,
+                        indices.as_ptr(),
+                        indices.len() as _,
+                    ) == 0
+                };
+                canvas.set_clip_rect(None);
+                rendered.then_some(()).ok_or(RenderError::BackendFailure)
+            },
+        );
         if let Err(error) = uploaded.and_then(core::convert::identity) {
             self.failure.get_or_insert(error);
         }

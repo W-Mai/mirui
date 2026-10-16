@@ -122,20 +122,26 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             return;
         };
 
-        let uploaded = self.texture_cache.with_texture(src, |tex| {
-            let mut canvas = self.device.canvas()?;
-            tex.set_blend_mode(sdl_blend);
-            // SDL2 modulates texture sample alpha by alpha_mod/255 in the
-            // copy() path, so set_alpha_mod composes with src.a as the
-            // group opacity multiplier.
-            tex.set_alpha_mod(opa);
-            tex.set_color_mod(255, 255, 255);
+        let uploaded = self
+            .texture_cache
+            .with_texture(src, composite, |tex, alpha| {
+                let mut canvas = self.device.canvas()?;
+                if alpha == crate::render::TargetAlpha::Straight {
+                    tex.set_blend_mode(sdl_blend);
+                }
+                tex.set_alpha_mod(opa);
+                let rgb = if alpha == crate::render::TargetAlpha::Premultiplied {
+                    opa
+                } else {
+                    255
+                };
+                tex.set_color_mod(rgb, rgb, rgb);
 
-            canvas.set_clip_rect(sdl_clip);
-            let copied = canvas.copy(tex, Some(src_sdl), Some(dst_sdl)).is_ok();
-            canvas.set_clip_rect(None);
-            copied.then_some(()).ok_or(RenderError::BackendFailure)
-        });
+                canvas.set_clip_rect(sdl_clip);
+                let copied = canvas.copy(tex, Some(src_sdl), Some(dst_sdl)).is_ok();
+                canvas.set_clip_rect(None);
+                copied.then_some(()).ok_or(RenderError::BackendFailure)
+            });
         if let Err(error) = uploaded.and_then(core::convert::identity) {
             self.failure.get_or_insert(error);
         }

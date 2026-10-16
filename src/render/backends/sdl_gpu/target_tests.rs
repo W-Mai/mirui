@@ -4,6 +4,9 @@ use crate::test_support::tracked_allocations;
 
 type TestDevice = Device<sdl2::surface::Surface<'static>>;
 
+#[path = "target_tests/source.rs"]
+mod source;
+
 fn device() -> Rc<TestDevice> {
     let canvas = sdl2::surface::Surface::new(16, 16, sdl2::pixels::PixelFormatEnum::RGBA32)
         .unwrap()

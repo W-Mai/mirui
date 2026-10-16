@@ -1,5 +1,8 @@
 use alloc::{boxed::Box, rc::Rc};
-use core::{any::Any, cell::Cell};
+use core::{
+    any::Any,
+    cell::{Cell, RefCell, RefMut},
+};
 use sdl2::render::{RenderTarget, Texture as SdlTexture};
 use sdl2::video::Window;
 
@@ -20,7 +23,8 @@ use crate::types::{PhysicalRect, Viewport};
 mod tests;
 
 struct Storage<T: RenderTarget> {
-    texture: SdlTexture<'static>,
+    texture: RefCell<SdlTexture<'static>>,
+    sampleable: bool,
     device: Rc<Device<T>>,
     descriptor: TargetDescriptor,
     generation: u64,
@@ -30,6 +34,27 @@ struct Storage<T: RenderTarget> {
 
 pub(super) struct Target<T: RenderTarget = Window> {
     storage: Rc<Storage<T>>,
+}
+
+impl<T: RenderTarget + 'static> Target<T> {
+    pub(super) fn sample_texture(
+        &self,
+        device: &Rc<Device<T>>,
+        direct: bool,
+    ) -> Result<Option<RefMut<'_, SdlTexture<'static>>>, RenderError> {
+        self.validate()?;
+        if self.storage.active.get() || !self.storage.completed.get() {
+            return Err(RenderError::InvalidTexture);
+        }
+        if !direct || !self.storage.sampleable || !Rc::ptr_eq(device, &self.storage.device) {
+            return Ok(None);
+        }
+        self.storage
+            .texture
+            .try_borrow_mut()
+            .map(Some)
+            .map_err(|_| RenderError::InvalidScope)
+    }
 }
 
 pub struct TargetState {
@@ -73,9 +98,14 @@ impl<T: RenderTarget + 'static> BackendTarget for Target<T> {
             return Err(RenderError::InvalidTexture);
         }
         let device = &self.storage.device;
+        let texture = self
+            .storage
+            .texture
+            .try_borrow()
+            .map_err(|_| RenderError::InvalidScope)?;
         let canvas = device.canvas()?;
         let saved = DriverState::capture(&canvas)?;
-        let result = target_state::select(&canvas, &self.storage.texture).and_then(|()| {
+        let result = target_state::select(&canvas, &texture).and_then(|()| {
             let stride = dst.stride();
             readback::rgba8(
                 &canvas,
@@ -142,11 +172,14 @@ pub(super) fn create<T: RenderTarget + 'static>(
             u32::from(requested.descriptor.layout.height()),
         )
         .map_err(|_| RenderError::BackendFailure)?;
+    super::texture_cache::nearest(&texture)?;
+    let sampleable = premultiplied_sampling(&texture);
     // Storage drops the private texture before its retained creator/renderer owner.
     let texture = unsafe { core::mem::transmute::<SdlTexture<'_>, SdlTexture<'static>>(texture) };
     Ok(Box::new(Target {
         storage: Rc::new(Storage {
-            texture,
+            texture: RefCell::new(texture),
+            sampleable,
             device: Rc::clone(device),
             descriptor: requested.descriptor,
             generation: device.generation(),
@@ -154,6 +187,38 @@ pub(super) fn create<T: RenderTarget + 'static>(
             active: Cell::new(false),
         }),
     }))
+}
+
+fn premultiplied_sampling(texture: &SdlTexture<'_>) -> bool {
+    use sdl2_sys::{SDL_BlendFactor, SDL_BlendOperation};
+    // SDL custom modes are u32 bitfields, not valid variants of sdl2-sys's closed Rust enum.
+    unsafe extern "C" {
+        #[link_name = "SDL_ComposeCustomBlendMode"]
+        fn compose(
+            src_color: SDL_BlendFactor,
+            dst_color: SDL_BlendFactor,
+            color_op: SDL_BlendOperation,
+            src_alpha: SDL_BlendFactor,
+            dst_alpha: SDL_BlendFactor,
+            alpha_op: SDL_BlendOperation,
+        ) -> u32;
+        #[link_name = "SDL_SetTextureBlendMode"]
+        fn set(texture: *mut sdl2_sys::SDL_Texture, mode: u32) -> core::ffi::c_int;
+    }
+    // Both signatures retain SDL's C ABI; the live texture belongs to the borrowed device.
+    unsafe {
+        use SDL_BlendFactor::*;
+        use SDL_BlendOperation::*;
+        let mode = compose(
+            SDL_BLENDFACTOR_ONE,
+            SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+            SDL_BLENDOPERATION_ADD,
+            SDL_BLENDFACTOR_ONE,
+            SDL_BLENDFACTOR_ONE_MINUS_SRC_ALPHA,
+            SDL_BLENDOPERATION_ADD,
+        );
+        set(texture.raw(), mode) == 0
+    }
 }
 
 impl<T: RenderTarget + 'static> Binding<T> {
@@ -174,10 +239,14 @@ impl<T: RenderTarget + 'static> Binding<T> {
         {
             return Err(RenderError::InvalidTexture);
         }
+        let texture = child
+            .texture
+            .try_borrow()
+            .map_err(|_| RenderError::InvalidScope)?;
         let canvas = device.canvas()?;
         let driver = DriverState::capture(&canvas)?;
         child.completed.set(false);
-        let result = target_state::select(&canvas, &child.texture).and_then(|()| {
+        let result = target_state::select(&canvas, &texture).and_then(|()| {
             if update == TargetUpdate::Rebuild {
                 target_state::clear(&canvas)
             } else {
@@ -203,8 +272,13 @@ impl<T: RenderTarget + 'static> Binding<T> {
             return Err(RenderError::InvalidScope);
         }
         let result = device.canvas().and_then(|canvas| {
+            let texture = self
+                .child
+                .texture
+                .try_borrow()
+                .map_err(|_| RenderError::InvalidScope)?;
             if self.child.generation != device.generation()
-                || !target_state::is_current(&canvas, &self.child.texture)
+                || !target_state::is_current(&canvas, &texture)
             {
                 return Err(RenderError::InvalidScope);
             }

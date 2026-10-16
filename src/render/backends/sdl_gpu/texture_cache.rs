@@ -1,13 +1,15 @@
 use alloc::rc::Rc;
 use core::cell::RefCell;
 
-use sdl2::render::Texture as SdlTexture;
+use sdl2::render::{RenderTarget, Texture as SdlTexture};
+use sdl2::video::Window;
 
 use super::SdlGpuRenderer;
 use super::device::Device;
 use crate::core::cache::{CacheInspect, HasSize, LruCache, MaxSize};
 use crate::render::renderer::RenderError;
 use crate::render::texture::{Texture, TextureKey};
+use crate::render::{TargetAlpha, command::CompositeMode};
 
 pub(super) const DEFAULT_BUDGET: usize = 16 * 1024 * 1024;
 
@@ -22,15 +24,15 @@ impl HasSize for CachedTexture {
     }
 }
 
-pub(super) struct TextureCache {
+pub(super) struct TextureCache<T: RenderTarget = Window> {
     // Cached textures are private and dropped before their owning renderer context.
     pool: LruCache<TextureKey, RefCell<CachedTexture>>,
-    device: Rc<Device>,
+    device: Rc<Device<T>>,
     generation: u64,
 }
 
-impl TextureCache {
-    pub(super) fn new(device: Rc<Device>, budget: usize) -> Self {
+impl<T: RenderTarget + 'static> TextureCache<T> {
+    pub(super) fn new(device: Rc<Device<T>>, budget: usize) -> Self {
         Self {
             pool: LruCache::builder()
                 .max_size(MaxSize::Bytes(budget))
@@ -41,7 +43,7 @@ impl TextureCache {
         }
     }
 
-    pub(super) fn matches(&self, device: &Rc<Device>) -> bool {
+    pub(super) fn matches(&self, device: &Rc<Device<T>>) -> bool {
         Rc::ptr_eq(&self.device, device) && self.generation == device.generation()
     }
 
@@ -52,17 +54,23 @@ impl TextureCache {
     pub(super) fn with_texture<R>(
         &mut self,
         src: &Texture,
-        draw: impl FnOnce(&mut SdlTexture<'_>) -> R,
+        composite: CompositeMode,
+        draw: impl FnOnce(&mut SdlTexture<'_>, TargetAlpha) -> R,
     ) -> Result<R, RenderError> {
-        if !src.valid_storage() {
-            return Err(RenderError::InvalidTexture);
+        self.device.check()?;
+        if let Some(target) = src.backend_target()?
+            && let Some(target) = target.as_any().downcast_ref::<super::target::Target<T>>()
+            && let Some(mut texture) =
+                target.sample_texture(&self.device, composite == CompositeMode::SourceOver)?
+        {
+            return Ok(draw(&mut texture, TargetAlpha::Premultiplied));
         }
         let bytes = usize::from(src.width) * usize::from(src.height) * 4;
         let key = TextureKey::cacheable(src)
             .filter(|_| matches!(self.pool.max_size(), MaxSize::Bytes(limit) if bytes <= *limit));
         let Some(key) = key else {
             let mut texture = upload(&self.device, src)?;
-            return Ok(draw(&mut texture));
+            return Ok(draw(&mut texture, TargetAlpha::Straight));
         };
         let handle = self.pool.entry(key).or_try_insert_with(|| {
             let texture = upload(&self.device, src)?;
@@ -72,11 +80,17 @@ impl TextureCache {
                 unsafe { core::mem::transmute::<SdlTexture<'_>, SdlTexture<'static>>(texture) };
             Ok::<_, RenderError>(RefCell::new(CachedTexture { texture, bytes }))
         })?;
-        Ok(draw(&mut handle.borrow_mut().texture))
+        let mut cached = handle
+            .try_borrow_mut()
+            .map_err(|_| RenderError::InvalidScope)?;
+        Ok(draw(&mut cached.texture, TargetAlpha::Straight))
     }
 }
 
-fn upload<'a>(device: &'a Device, src: &Texture) -> Result<SdlTexture<'a>, RenderError> {
+fn upload<'a, T: RenderTarget>(
+    device: &'a Device<T>,
+    src: &Texture,
+) -> Result<SdlTexture<'a>, RenderError> {
     let pixels = src.read_pixels()?;
     let _lease = device.canvas()?;
     let mut texture = device
@@ -88,6 +102,11 @@ fn upload<'a>(device: &'a Device, src: &Texture) -> Result<SdlTexture<'a>, Rende
         )
         .map_err(|_| RenderError::BackendFailure)?;
     SdlGpuRenderer::<Box<[u8]>>::upload_texture(&mut texture, &pixels)?;
+    nearest(&texture)?;
+    Ok(texture)
+}
+
+pub(super) fn nearest(texture: &SdlTexture<'_>) -> Result<(), RenderError> {
     // SDL retains no Rust references; the texture is live for this call.
     if unsafe {
         sdl2_sys::SDL_SetTextureScaleMode(
@@ -98,5 +117,5 @@ fn upload<'a>(device: &'a Device, src: &Texture) -> Result<SdlTexture<'a>, Rende
     {
         return Err(RenderError::BackendFailure);
     }
-    Ok(texture)
+    Ok(())
 }
