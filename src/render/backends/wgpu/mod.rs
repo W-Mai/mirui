@@ -11,6 +11,7 @@ use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::font::Font;
+use crate::render::font::scalar::ScalarSurfaceKey;
 use crate::render::path::Path;
 use crate::render::projective_fallback::{ProjectiveFallback, ProjectiveFallbackPlan};
 use crate::render::raster::{FillRule, StrokeScratch, StrokeSpec};
@@ -27,8 +28,8 @@ use self::pipeline::{
     ShaderKind, ViewportUniform,
 };
 use self::texture_pool::{
-    CachedScalarSurface, CachedTexture, ScalarSurfaceKey, ScalarSurfacePool, TextureKey,
-    TexturePool, new_pool, new_scalar_surface_pool,
+    CachedScalarSurface, CachedTexture, ScalarSurfacePool, TextureKey, TexturePool, new_pool,
+    new_scalar_surface_pool,
 };
 use crate::render::backends::tessellation::{FillTessellator, StrokeTessellator};
 

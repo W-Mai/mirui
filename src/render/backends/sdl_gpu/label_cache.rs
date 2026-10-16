@@ -25,9 +25,8 @@ use super::sdl_pixel_rect;
 use crate::core::cache::{HasSize, LruCache, MaxSize, WithFactory};
 use crate::render::SwRenderer;
 use crate::render::canvas::Canvas as _;
-use crate::render::font::{
-    Font, FontFaceId, FontSurfaceId, GlyphSurface, RasterRunBounds, RasterRunKey,
-};
+use crate::render::font::scalar::ScalarSurfaceKey;
+use crate::render::font::{Font, GlyphSurface, RasterRunBounds, RasterRunKey};
 use crate::render::renderer::RenderError;
 use crate::render::texture::{AlphaMode, ColorFormat, Texture as MiruiTexture};
 use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
@@ -65,31 +64,6 @@ enum RasterContent<'a> {
         glyphs: &'a [textflow::shaping::PositionedGlyph],
         origin: Point,
     },
-}
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct ScalarSurfaceKey {
-    face_id: FontFaceId,
-    revision: u64,
-    surface_id: FontSurfaceId,
-    width: u32,
-    height: u32,
-    stride: u32,
-    layout: mirx::image::SampleLayout,
-}
-
-impl ScalarSurfaceKey {
-    fn new(font: &Font, surface: GlyphSurface<'_>) -> Self {
-        Self {
-            face_id: font.face_id(),
-            revision: font.revision(),
-            surface_id: surface.id(),
-            width: surface.width(),
-            height: surface.height(),
-            stride: surface.stride(),
-            layout: surface.sample_layout(),
-        }
-    }
 }
 
 struct ScalarRasterCtx<'a> {
@@ -259,7 +233,7 @@ impl LabelCache {
                 continue;
             }
 
-            let key = ScalarSurfaceKey::new(font, raster.surface);
+            let key = ScalarSurfaceKey::new(font.face_id(), font.revision(), raster.surface);
             if active.map(|(active, _)| active) != Some(key)
                 || self.glyph_indices.len() + 54 > MAX_BATCH_INDICES
             {
@@ -635,6 +609,7 @@ fn rasterize_run_pixels(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::font::FontSurfaceId;
 
     #[test]
     fn cached_runs_preserve_coverage_and_filterable_rgb() {

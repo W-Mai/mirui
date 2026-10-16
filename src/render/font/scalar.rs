@@ -2,7 +2,34 @@ use crate::types::Fixed;
 use mirx::image::Region;
 
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu", test))]
-use super::GlyphSurface;
+use super::{FontFaceId, FontSurfaceId, GlyphSurface};
+
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu", test))]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct ScalarSurfaceKey {
+    face_id: FontFaceId,
+    revision: u64,
+    surface_id: FontSurfaceId,
+    width: u32,
+    height: u32,
+    stride: u32,
+    layout: mirx::image::SampleLayout,
+}
+
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu", test))]
+impl ScalarSurfaceKey {
+    pub(crate) fn new(face_id: FontFaceId, revision: u64, surface: GlyphSurface<'_>) -> Self {
+        Self {
+            face_id,
+            revision,
+            surface_id: surface.id(),
+            width: surface.width(),
+            height: surface.height(),
+            stride: surface.stride(),
+            layout: surface.sample_layout(),
+        }
+    }
+}
 
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu", test))]
 pub(crate) const fn alpha_bits(layout: mirx::image::SampleLayout) -> Option<u8> {
@@ -145,6 +172,78 @@ impl<'a> ScalarField<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn surface_key(
+        face: u64,
+        revision: u64,
+        surface: u64,
+        width: u32,
+        height: u32,
+        stride: u32,
+        layout: mirx::image::SampleLayout,
+    ) -> ScalarSurfaceKey {
+        let surface = GlyphSurface::new(
+            &[0; 64],
+            width,
+            height,
+            stride,
+            layout,
+            mirx::types::ByteAlignment::ONE,
+            FontSurfaceId::new(surface),
+        )
+        .unwrap();
+        ScalarSurfaceKey::new(FontFaceId::new(face), revision, surface)
+    }
+
+    #[test]
+    fn surface_keys_separate_identity_revision_and_pixel_layout() {
+        use mirx::image::SampleLayout;
+
+        let key = surface_key(11, 2, 7, 4, 4, 4, SampleLayout::A8);
+        for other in [
+            surface_key(12, 2, 7, 4, 4, 4, SampleLayout::A8),
+            surface_key(11, 3, 7, 4, 4, 4, SampleLayout::A8),
+            surface_key(11, 2, 8, 4, 4, 4, SampleLayout::A8),
+            surface_key(11, 2, 7, 3, 4, 4, SampleLayout::A8),
+            surface_key(11, 2, 7, 4, 3, 4, SampleLayout::A8),
+            surface_key(11, 2, 7, 4, 4, 8, SampleLayout::A8),
+            surface_key(11, 2, 7, 4, 4, 4, SampleLayout::A4),
+        ] {
+            assert_ne!(key, other);
+        }
+    }
+
+    #[test]
+    fn surface_keys_follow_declared_identity_without_copying_pixels() {
+        use core::hash::{Hash, Hasher};
+
+        let samples = [0; 16];
+        let other_samples = [0; 16];
+        let make_key = |bytes| {
+            let surface = GlyphSurface::new(
+                bytes,
+                4,
+                4,
+                4,
+                mirx::image::SampleLayout::A8,
+                mirx::types::ByteAlignment::ONE,
+                FontSurfaceId::new(7),
+            )
+            .unwrap();
+            ScalarSurfaceKey::new(FontFaceId::new(11), 2, surface)
+        };
+        let allocations = crate::test_support::tracked_allocations(|| {
+            let key = make_key(&samples);
+            let other = make_key(&other_samples);
+            assert_eq!(key, other);
+            let mut first_hash = std::collections::hash_map::DefaultHasher::new();
+            let mut second_hash = std::collections::hash_map::DefaultHasher::new();
+            key.hash(&mut first_hash);
+            other.hash(&mut second_hash);
+            assert_eq!(first_hash.finish(), second_hash.finish());
+        });
+        assert_eq!(allocations, 0);
+    }
 
     #[test]
     fn reads_msb_first_packed_values_with_row_stride() {
