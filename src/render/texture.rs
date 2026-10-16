@@ -196,7 +196,7 @@ pub(crate) fn blend_straight_source_over(source: &Color, destination: &Color, al
 /// Pixel constructors return [`RenderError::InvalidTexture`] for empty dimensions, overflowing layouts, or insufficient storage. [`Texture::owned`] reports allocation failure as [`RenderError::ResourceLimit`].
 ///
 /// A texture is not implicitly duplicated. Cache handles can share an existing resource; a snapshot owns an explicit pixel copy.
-/// Native storage retains its source device and prepares CPU pixels through [`Texture::read_pixels`]. Textures and their pixel guards are thread-local; CPU constructors do not allocate native storage or readback caches.
+/// Native storage retains its source device and prepares CPU pixels through [`Texture::read_pixels`]. Textures and their read-only pixel guards are thread-local; CPU constructors do not allocate native storage or readback caches.
 ///
 /// ```compile_fail,E0277
 /// use mirui::render::texture::Texture;

@@ -170,6 +170,10 @@ impl<T: Output> Outputs<T> {
         self.storage.borrow_mut()
     }
 
+    pub(crate) fn try_storage_mut(&self) -> Option<RefMut<'_, T::Storage>> {
+        self.storage.try_borrow_mut().ok()
+    }
+
     pub(crate) fn state(&self, entity: Entity) -> Option<OutputState<T::Record>> {
         self.records.borrow().get(&entity).copied()
     }

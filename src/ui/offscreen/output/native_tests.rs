@@ -330,6 +330,14 @@ fn native_output_writes_share_publication_history_and_failed_slot_reuse() {
         assert!(write.publish());
     }
     assert_eq!(renderer.device.creates.get(), 2);
+    {
+        let read = outputs.get(source.entity).unwrap();
+        let pixels = read.texture().read_pixels().unwrap();
+        let allocated = outputs.storage().budget.allocated();
+        assert_eq!(tracked_allocations(|| outputs.trim_memory()), 0);
+        assert_eq!(outputs.storage().budget.allocated(), allocated);
+        assert_eq!(pixels.get_pixel(0, 0), Color::rgb(70, 80, 90));
+    }
     outputs.trim_memory();
     assert_eq!(outputs.storage().budget.available(), 384);
 }

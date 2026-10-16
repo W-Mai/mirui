@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
-- `Texture` and pixel guards are thread-local. Pixel guards borrow direct CPU storage or a source-owned readback cache.
+- `Texture` and read-only pixel guards are thread-local. Read-only guards borrow direct CPU storage or a source-owned readback cache.
 
 - `TargetPlan::readback_bytes` reports backend staging requirements separately from native storage and drawing workspace.
 
@@ -50,6 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Render plane layouts reject empty dimensions and support checked construction in constant expressions. Texture storage validation shares the plane layout calculation and accepts omitted padding after the last pixel.
 
 ### Fixed
+
+- Output memory trimming preserves borrowed pixels and their budget charge instead of conflicting with active readers.
 
 - WGPU readback validates source regions and buffer sizes, propagates mapping failures, and stops waiting when device polling fails.
 - SDL GPU factory memory trimming releases tessellation scratch buffers.

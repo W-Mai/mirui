@@ -364,7 +364,9 @@ impl Outputs<WidgetTexture> {
     }
 
     pub(crate) fn trim_memory(&self) {
-        let mut storage = self.storage_mut();
+        let Some(mut storage) = self.try_storage_mut() else {
+            return;
+        };
         storage.textures.retain(|entity, slots| {
             self.reset(*entity);
             for plane in &mut slots.planes {
@@ -1047,6 +1049,36 @@ mod tests {
         assert_eq!(plan.workspace.capacity(), 0);
         outputs.put_texture_plan(plan);
         assert!(outputs.prepare_texture(key(1, 1)).unwrap().publish());
+    }
+
+    #[test]
+    fn trimming_borrowed_output_keeps_its_pixels_and_budget_until_a_later_trim() {
+        let outputs = Outputs::<WidgetTexture>::with_budget(TEXTURE_BYTES);
+        let input = key(1, 1);
+        let mut write = outputs.prepare_texture(input).unwrap();
+        let expected = Color::rgb(11, 23, 37);
+        write
+            .texture_mut()
+            .pixels_mut()
+            .unwrap()
+            .set_pixel(0, 0, &expected);
+        assert!(write.publish());
+        let read = outputs.get(input.entity).unwrap();
+        let pixels = read.texture().read_pixels().unwrap();
+        let allocations = tracked_allocations(|| {
+            for _ in 0..8 {
+                outputs.trim_memory();
+                assert_eq!(pixels.get_pixel(0, 0), expected);
+                assert_eq!(outputs.storage().budget.allocated(), TEXTURE_BYTES);
+                assert!(outputs.texture_matches(input));
+            }
+        });
+        assert_eq!(allocations, 0);
+        drop(pixels);
+        drop(read);
+        outputs.trim_memory();
+        assert!(outputs.get(input.entity).is_none());
+        assert_eq!(outputs.storage().budget.allocated(), 0);
     }
 
     #[test]

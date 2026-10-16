@@ -34,7 +34,9 @@ The backend does not create a second persistent CPU cache or retain the destinat
 
 Native output admission reserves target storage, a complete CPU copy and backend readback staging in the shared output budget. The CPU copy is allocated on demand, then charged at its actual capacity. The staging reservation remains held until target destruction; it is an admission bound, not a measurement of driver memory. Native cache accounting includes these reserved bytes. Pixel guards and upload keys do not create another pixel cache; keys retain an identity token without retaining the source device. Cold target metadata allocations are separate from image-plane byte accounting.
 
-Output publication retains an already valid CPU copy under the published revision, including copies read for history comparison. Current and previous outputs remain separate slots. Native writes use `TargetUpdate::Rebuild` through the existing renderer scope; no additional publication state or renderer is required. Texture and pixel guards are thread-local, including CPU textures; CPU construction itself does not allocate device ownership or native caches.
+Output publication retains an already valid CPU copy under the published revision, including copies read for history comparison. Current and previous outputs remain separate slots. Native writes use `TargetUpdate::Rebuild` through the existing renderer scope; no additional publication state or renderer is required. Texture and read-only pixel guards are thread-local, including CPU textures; CPU construction itself does not allocate device ownership or native caches.
+
+An output read pins its storage. Memory trimming preserves borrowed output pixels, their records and their budget charge; a later trim can reclaim them after the reads are dropped. Active write and workspace leases keep their existing release-on-return behavior.
 
 ## Renderer scopes
 
