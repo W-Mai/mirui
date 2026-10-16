@@ -6,7 +6,7 @@ use crate::render::budget::{Allocation, MemoryBudget};
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::Rect;
 use crate::ui::outputs::{
-    HistoryOutput, Output, Outputs,
+    HistoryOutput, Output, OutputState, Outputs,
     private::{HistoryKind, OutputKind},
     workspace::PaintWorkspace,
 };
@@ -48,6 +48,16 @@ pub struct WidgetTextureRecord {
     entity: Entity,
     slot: usize,
     key: BufferKey,
+}
+
+fn writable_slot(state: OutputState<WidgetTextureRecord>) -> usize {
+    if state.retained {
+        state
+            .previous
+            .map_or(0, |previous| 1 - previous.record.slot)
+    } else {
+        state.current.map_or(0, |current| current.record.slot)
+    }
 }
 
 struct TextureSlots {
@@ -123,18 +133,40 @@ impl WidgetTextureStorage {
         slot: usize,
         layout: crate::render::PlaneLayout,
         mut native: Option<(&mut dyn crate::render::Renderer, crate::render::TargetPlan)>,
-        workspace: Option<(&mut PaintWorkspace, usize)>,
+        mut workspace: Option<(&mut PaintWorkspace, usize, bool)>,
     ) -> Result<bool, RenderError> {
-        if let (Some((renderer, plan)), Some((workspace, paint_bytes))) = (&native, workspace)
+        if let (Some((renderer, plan)), Some((workspace, paint_bytes, _))) =
+            (&native, &mut workspace)
             && !self.admit_native_plane(
                 entity,
                 slot,
                 (&**renderer, plan),
                 workspace,
-                paint_bytes,
+                *paint_bytes,
             )?
         {
             native = None;
+        }
+        if native.is_none()
+            && let Some((workspace, paint_bytes, false)) = workspace
+        {
+            let plane = self
+                .textures
+                .get(&entity)
+                .and_then(|slots| slots.planes[slot].as_ref());
+            let reusable = plane.is_some_and(|plane| !plane.texture.is_native());
+            let reclaim = if reusable {
+                0
+            } else {
+                plane.map_or(0, |plane| plane.texture.cache_size())
+            };
+            let storage_bytes = if reusable { 0 } else { layout.required_bytes() };
+            if storage_bytes
+                .checked_add(paint_bytes)
+                .is_none_or(|required| required > self.budget.available().saturating_add(reclaim))
+            {
+                workspace.release();
+            }
         }
         if let Some(plane) = self
             .textures
@@ -323,6 +355,7 @@ impl Outputs<WidgetTexture> {
         renderer: &mut dyn crate::render::Renderer,
         workspace: &mut PaintWorkspace,
         paint_bytes: usize,
+        binding_required: bool,
     ) -> Result<bool, RenderError> {
         let layout = crate::render::PlaneLayout::packed(key.w, key.h, key.format)
             .map_err(|_| RenderError::InvalidTexture)?;
@@ -330,26 +363,27 @@ impl Outputs<WidgetTexture> {
         self.reserve_texture_slot(
             key,
             plan.map(|plan| (renderer, plan)),
-            Some((workspace, paint_bytes)),
+            Some((workspace, paint_bytes, binding_required)),
         )
     }
 
-    pub(crate) fn target_workspace_bytes(&self, entity: Entity) -> usize {
+    pub(crate) fn write_workspace_bytes(&self, entity: Entity) -> usize {
+        let Some(state) = self.state(entity) else {
+            return 0;
+        };
+        let slot = writable_slot(state);
         self.storage()
             .textures
             .get(&entity)
-            .into_iter()
-            .flat_map(|slots| slots.planes.iter().flatten())
-            .map(|plane| plane.texture.target_workspace_bytes())
-            .max()
-            .unwrap_or(0)
+            .and_then(|slots| slots.planes[slot].as_ref())
+            .map_or(0, |plane| plane.texture.target_workspace_bytes())
     }
 
     fn reserve_texture_slot(
         &self,
         key: BufferKey,
         native: Option<(&mut dyn crate::render::Renderer, crate::render::TargetPlan)>,
-        workspace: Option<(&mut PaintWorkspace, usize)>,
+        workspace: Option<(&mut PaintWorkspace, usize, bool)>,
     ) -> Result<bool, RenderError> {
         if let Some((_, plan)) = &native
             && (plan.descriptor.layout.width() != key.w
@@ -409,13 +443,7 @@ impl Outputs<WidgetTexture> {
         let Some(state) = self.state(key.entity) else {
             return Ok(false);
         };
-        let slot = if state.retained {
-            state
-                .previous
-                .map_or(0, |previous| 1 - previous.record.slot)
-        } else {
-            state.current.map_or(0, |current| current.record.slot)
-        };
+        let slot = writable_slot(state);
         storage.reserve_plane(key.entity, slot, layout, native, workspace)
     }
 
@@ -428,13 +456,7 @@ impl Outputs<WidgetTexture> {
         {
             return None;
         }
-        let slot = if state.retained {
-            state
-                .previous
-                .map_or(0, |previous| 1 - previous.record.slot)
-        } else {
-            state.current.map_or(0, |current| current.record.slot)
-        };
+        let slot = writable_slot(state);
         let mut storage = self.storage_mut();
         let slots = storage.textures.get_mut(&key.entity)?;
         if slots.writing || slots.discard || slots.shape != (key.w, key.h, key.format) {

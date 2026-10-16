@@ -48,6 +48,8 @@ An output read pins its storage. Memory trimming preserves borrowed output pixel
 
 Output production automatically selects native targets when the backend plan and complete storage/workspace requirements fit. Otherwise it selects software pixels before invoking the View. Native binding workspace is separate from View paint workspace in the same output budget; sequential targets reuse the largest required binding buffer. Rejected native admission preserves reusable CPU storage and frozen history. Backend failures propagate without replaying the View. Memory trimming releases both workspaces through the output plan.
 
+Binding workspace is required only by pending native writes, not by completed sources or retained history. Software production can reclaim unused binding storage under budget pressure, while preserving storage needed by earlier admitted native writes in the same batch. Idle batches retain reusable capacity.
+
 ## Renderer scopes
 
 SDL-GPU and native WGPU target planning requires enough configured destination workspace for a complete target-sized fallback. SDL checks its existing `ProjectiveFallback` capacity, including row alignment; WGPU checks `with_target_edit_budget` and the device readback limit. Missing capacity returns `None` before drawing. Binding rechecks the workspace; WGPU prepares reusable edit bytes and staging before entering the callback. Incremental binding never replaces target storage to satisfy these checks. Output storage, history, source CPU copies, source staging and shared paint/binding workspace use the output budget; destination fallback buffers and upload caches retain their Factory limits. The output budget is not a total backend memory limit.

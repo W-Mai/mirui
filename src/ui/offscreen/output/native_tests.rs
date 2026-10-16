@@ -322,7 +322,7 @@ fn automatic_admission_preserves_cpu_slots_and_shared_workspace_at_budget_bounda
         outputs.reserve(1).unwrap();
         assert!(
             outputs
-                .reserve_render_texture(key, &mut renderer, &mut working.target_workspace, 0)
+                .reserve_render_texture(key, &mut renderer, &mut working.target_workspace, 0, false)
                 .unwrap()
         );
         let native = outputs.storage().textures[&key.entity].planes[0]
@@ -341,7 +341,8 @@ fn automatic_admission_preserves_cpu_slots_and_shared_workspace_at_budget_bounda
                                 key,
                                 &mut renderer,
                                 &mut working.target_workspace,
-                                0
+                                0,
+                                false
                             )
                             .unwrap()
                     );
@@ -358,7 +359,8 @@ fn automatic_admission_preserves_cpu_slots_and_shared_workspace_at_budget_bounda
                     key,
                     &mut renderer,
                     &mut working.target_workspace,
-                    0
+                    0,
+                    false
                 ),
                 Err(RenderError::InvalidScope)
             );
@@ -381,7 +383,7 @@ fn automatic_cpu_selection_keeps_frozen_native_history() {
         let _batch = outputs.begin_batch();
         assert!(
             outputs
-                .reserve_render_texture(key, &mut renderer, &mut working.target_workspace, 0)
+                .reserve_render_texture(key, &mut renderer, &mut working.target_workspace, 0, false)
                 .unwrap()
         );
         let mut write = outputs.prepare_texture(key).unwrap();
@@ -396,7 +398,13 @@ fn automatic_cpu_selection_keeps_frozen_native_history() {
     };
     assert!(
         outputs
-            .reserve_render_texture(changed, &mut renderer, &mut working.target_workspace, 0)
+            .reserve_render_texture(
+                changed,
+                &mut renderer,
+                &mut working.target_workspace,
+                0,
+                false
+            )
             .unwrap()
     );
     let mut write = outputs.prepare_texture(changed).unwrap();
@@ -417,6 +425,165 @@ fn automatic_cpu_selection_keeps_frozen_native_history() {
     assert_eq!(renderer.device.creates.get(), 1);
     drop(previous);
     outputs.put_texture_plan(working);
+}
+
+#[test]
+fn retained_native_pixels_do_not_require_binding_workspace_for_software_production() {
+    use crate::app::App;
+    use crate::ecs::World;
+    use crate::ui::dirty::PaintCoverage;
+    use crate::ui::view::{PaintCtx, PaintMeasurement, SourceGeometry, View};
+
+    struct Scene {
+        workspace: bool,
+        calls: Cell<usize>,
+    }
+    fn measure(
+        world: &World,
+        _: Entity,
+        rect: Rect,
+        _: &dyn Fn(Entity) -> Option<SourceGeometry>,
+    ) -> Option<PaintMeasurement> {
+        Some(PaintMeasurement {
+            coverage: PaintCoverage::solid(rect),
+            workspace: world
+                .resource::<Scene>()
+                .unwrap()
+                .workspace
+                .then(|| PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap()),
+        })
+    }
+    fn paint(world: &World, _: Entity, paint: &mut PaintCtx<'_>) {
+        let scene = world.resource::<Scene>().unwrap();
+        scene.calls.set(scene.calls.get() + 1);
+        if scene.workspace {
+            let layout = PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap();
+            assert!(paint.with_workspace(layout, |texture, _| {
+                texture.pixels_mut().unwrap().bytes_mut().fill(0xa5);
+            }));
+        }
+        paint.draw(&DrawCommand::Fill {
+            area: paint.rect(),
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: Color::rgb(20, 40, 60),
+            radius: Fixed::ZERO,
+            opa: 255,
+        });
+    }
+
+    for paint_bytes in [0, 64] {
+        let mut app = App::headless(4, 4);
+        app.with_default_widgets()
+            .with_offscreen_pool_budget(256 + paint_bytes);
+        app.world.insert_resource(Scene {
+            workspace: false,
+            calls: Cell::new(0),
+        });
+        app.with_widget(View::new("Workspace", 90, paint).with_measurement(measure));
+        let root = app.spawn_root().id();
+        app.world.insert(root, crate::ui::OffscreenRender::new());
+        let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+        outputs.reserve(1).unwrap();
+        outputs.set_retained(root, true).unwrap();
+        let mut renderer = Fixture {
+            workspace_bytes: 32,
+            ..Fixture::default()
+        };
+        let viewport = Viewport::new(4, 4, Fixed::ONE);
+        crate::ui::render_system::render(&app.world, root, &viewport, &mut renderer).unwrap();
+        assert!(outputs.get(root).unwrap().texture().is_native());
+        assert_eq!(renderer.bindings, 1);
+
+        app.world.resource_mut::<Scene>().unwrap().workspace = paint_bytes != 0;
+        app.world.invalidate_visual(root);
+        app.dirty_regions().unwrap();
+        crate::ui::render_system::render(&app.world, root, &viewport, &mut renderer).unwrap();
+        let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+        let current = outputs
+            .get(root)
+            .expect("software output fits beside frozen native history");
+        assert!(!current.texture().is_native());
+        assert_eq!(
+            current.texture().read_pixels().unwrap().get_pixel(0, 0),
+            Color::rgb(20, 40, 60)
+        );
+        let previous = outputs.previous(root).unwrap();
+        assert!(previous.texture().is_native());
+        assert_eq!(
+            previous.texture().read_pixels().unwrap().get_pixel(0, 0),
+            Color::rgb(20, 40, 60)
+        );
+        assert_eq!(app.world.resource::<Scene>().unwrap().calls.get(), 2);
+        assert_eq!(renderer.bindings, 1);
+        assert_eq!(renderer.device.creates.get(), 1);
+        drop(current);
+        drop(previous);
+        let plan = outputs.take_texture_plan().unwrap();
+        assert_eq!(plan.target_workspace.capacity(), 0);
+        assert_eq!(plan.workspace.capacity(), paint_bytes);
+        outputs.put_texture_plan(plan);
+    }
+}
+
+#[test]
+fn software_admission_preserves_binding_storage_needed_by_prior_native_outputs() {
+    for budget in [287, 288] {
+        let outputs = Outputs::<WidgetTexture>::with_budget(budget);
+        outputs.reserve(2).unwrap();
+        let mut working = outputs.take_texture_plan().unwrap();
+        let mut renderer = Fixture {
+            workspace_bytes: 32,
+            ..Fixture::default()
+        };
+        let first = super::tests::key(1, 1);
+        let second = super::tests::key(2, 1);
+        assert!(
+            outputs
+                .reserve_render_texture(
+                    first,
+                    &mut renderer,
+                    &mut working.target_workspace,
+                    0,
+                    false
+                )
+                .unwrap()
+        );
+        assert_eq!(outputs.write_workspace_bytes(first.entity), 32);
+        assert_eq!(
+            outputs
+                .reserve_render_texture(
+                    second,
+                    &mut renderer,
+                    &mut working.target_workspace,
+                    0,
+                    true
+                )
+                .unwrap(),
+            budget == 288
+        );
+        assert_eq!(working.target_workspace.capacity(), 32);
+        let mut write = outputs.prepare_texture(first).unwrap();
+        assert!(write.texture_mut().is_native());
+        working
+            .target_workspace
+            .with_bytes(32, |workspace| {
+                write.texture_mut().render_native(
+                    &mut renderer,
+                    Viewport::new(4, 4, Fixed::ONE),
+                    workspace,
+                    &mut |_| Ok(()),
+                )
+            })
+            .unwrap();
+        assert!(write.publish());
+        if budget == 288 {
+            let mut write = outputs.prepare_texture(second).unwrap();
+            assert!(!write.texture_mut().is_native());
+            assert!(write.publish());
+        }
+        outputs.put_texture_plan(working);
+    }
 }
 
 #[test]

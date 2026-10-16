@@ -122,23 +122,31 @@ impl TexturePlan {
     }
 
     fn reserve_workspaces(&mut self, outputs: &Outputs<WidgetTexture>) {
-        if self.workspace_bytes != 0 {
-            outputs.reserve_workspace(&mut self.workspace, self.workspace_bytes);
-        }
         let target_bytes = self
             .captures
             .iter()
-            .filter(|capture| matches!(capture.state, CaptureState::Pending | CaptureState::Ready))
-            .map(|capture| outputs.target_workspace_bytes(capture.entity))
+            .filter(|capture| capture.state == CaptureState::Pending)
+            .map(|capture| outputs.write_workspace_bytes(capture.entity))
             .max()
             .unwrap_or(0);
-        outputs.reserve_workspace(&mut self.target_workspace, target_bytes);
+        if target_bytes != 0
+            || self.workspace_bytes > self.workspace.capacity()
+            || self
+                .captures
+                .iter()
+                .any(|capture| capture.state == CaptureState::Pending)
+        {
+            outputs.reserve_workspace(&mut self.target_workspace, target_bytes);
+        }
+        if self.workspace_bytes != 0 {
+            outputs.reserve_workspace(&mut self.workspace, self.workspace_bytes);
+        }
         for position in 0..self.graph.order().len() {
             let id = self.graph.order()[position];
             let capture = &self.captures[id];
             let missing = capture.workspace_bytes > self.workspace.capacity()
                 || (capture.state == CaptureState::Pending
-                    && outputs.target_workspace_bytes(capture.entity)
+                    && outputs.write_workspace_bytes(capture.entity)
                         > self.target_workspace.capacity())
                 || self
                     .graph
@@ -626,6 +634,7 @@ pub(super) fn prepare<'a>(
     }
     // All output slots are admitted before a View can run. No result is evicted
     // to admit a later node in the same working set.
+    let mut binding_required = false;
     for position in 0..plan.graph.order().len() {
         let id = plan.graph.order()[position];
         let capture = &plan.captures[id];
@@ -655,11 +664,15 @@ pub(super) fn prepare<'a>(
             &mut plan.target_workspace,
             plan.workspace_bytes
                 .saturating_sub(plan.workspace.capacity()),
+            binding_required,
         )? {
             CaptureState::Pending
         } else {
             CaptureState::Missing
         };
+        if state == CaptureState::Pending {
+            binding_required |= outputs.write_workspace_bytes(capture.entity) != 0;
+        }
         plan.captures[id].state = state;
     }
     plan.reserve_workspaces(outputs);
