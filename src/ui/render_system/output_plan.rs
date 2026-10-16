@@ -537,7 +537,7 @@ pub(super) fn prepare<'a>(
     world: &'a World,
     tree: &LayoutNode,
     entities: &[Entity],
-    renderer: &dyn Renderer,
+    renderer: &mut dyn Renderer,
 ) -> Result<Option<PreparedTextures<'a>>, RenderError> {
     let Some(outputs) = world.resource::<Outputs<WidgetTexture>>() else {
         return Ok(None);
@@ -610,14 +610,14 @@ pub(super) fn prepare<'a>(
             outputs.invalidate(capture.entity);
         }
         let state = if capture.key.w == 0 || capture.key.h == 0 {
-            outputs.reserve_texture(capture.key);
+            outputs.reserve_texture(capture.key, None)?;
             CaptureState::Missing
         } else if missing {
             outputs.invalidate(capture.entity);
             CaptureState::Missing
         } else if outputs.texture_matches(capture.key) {
             CaptureState::Ready
-        } else if outputs.reserve_texture(capture.key) {
+        } else if outputs.reserve_texture(capture.key, None)? {
             CaptureState::Pending
         } else {
             CaptureState::Missing

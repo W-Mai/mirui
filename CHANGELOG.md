@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- `Texture` and pixel guards are thread-local. Pixel guards borrow direct CPU storage or a source-owned readback cache.
+
 - `TargetPlan::readback_bytes` reports backend staging requirements separately from native storage and drawing workspace.
 
 - Native target scopes and binding hooks accept `TargetUpdate::Rebuild` or `Incremental` to initialize a complete image or preserve successful contents.
@@ -22,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Texture::new`, `from_ref`, `from_static`, `owned`, and `from_vec` return `Result<Texture, RenderError>`, rejecting empty dimensions and insufficient pixel storage before use. Owned allocations report capacity failures through the same error path.
 
 ### Changed
+
+- Native texture storage retains its source, prepares CPU pixels on demand and reuses readback capacity. Output writes share existing publication and history slots; failed writes and reads do not expose incomplete pixels. Native upload identities remain distinct across resource replacement.
 
 - WGPU supports source-owned RGBA8 native targets, retained multisample attachments, incremental drawing and nested target restoration. Offscreen scopes reuse frame workspace without clearing the window; invalid device state blocks subsequent drawing and presentation.
 

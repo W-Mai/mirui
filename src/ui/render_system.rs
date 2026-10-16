@@ -2254,7 +2254,7 @@ fn prepare_offscreen(
     world: &World,
     entities: &[Entity],
     idx: &mut usize,
-    renderer: &dyn Renderer,
+    renderer: &mut dyn Renderer,
     shifted_rect: &Rect,
     key: super::offscreen::BufferKey,
     entity: Entity,
@@ -2294,7 +2294,26 @@ fn prepare_offscreen(
     let requests = PaintRequestScope::new(world);
     let texture = write.texture_mut();
 
-    {
+    if texture.is_native() {
+        texture.render_native(
+            renderer,
+            Viewport::new(buf_w, buf_h, scale),
+            &mut [],
+            &mut |inner| {
+                draw_output_subtree(
+                    node,
+                    world,
+                    entities,
+                    idx,
+                    inner,
+                    shifted_rect,
+                    key,
+                    output_plan,
+                    &requests,
+                )
+            },
+        )?;
+    } else {
         let mut pixels = texture.pixels_mut()?;
         let stride = pixels.stride();
         let inner_tex =
@@ -7276,7 +7295,7 @@ mod offscreen_render_check {
                 &world,
                 &snapshot.layout_tree,
                 &snapshot.entities,
-                &PreparationTarget,
+                &mut PreparationTarget,
             )
             .unwrap();
             assert_eq!(

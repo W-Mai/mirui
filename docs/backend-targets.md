@@ -30,6 +30,12 @@ Native WGPU readback reuses a device-specific staging buffer and mapping complet
 
 The backend does not create a second persistent CPU cache or retain the destination borrow. Pixel caching and publication belong to the common resource layer. Newly allocated native storage is not a completed image and must not be published before initialization and successful production.
 
+`Texture::pixels()` only borrows resident pixels. `Ok(None)` denotes a valid source needing readback; `Texture::read_pixels()` prepares its CPU copy and returns a `TexturePixels` guard. Multiple guards share those bytes. Unchanged resident pixels need no additional readback, and rewriting the source invalidates the copy while retaining its allocation. Failed or interrupted writes cannot expose stale pixels; a failed read cannot publish a partially populated copy. A valid CPU copy remains readable after source device loss.
+
+Native output admission reserves target storage, a complete CPU copy and backend readback staging in the shared output budget. The CPU copy is allocated on demand, then charged at its actual capacity. The staging reservation remains held until target destruction; it is an admission bound, not a measurement of driver memory. Native cache accounting includes these reserved bytes. Pixel guards and upload keys do not create another pixel cache; keys retain an identity token without retaining the source device. Cold target metadata allocations are separate from image-plane byte accounting.
+
+Output publication retains an already valid CPU copy under the published revision, including copies read for history comparison. Current and previous outputs remain separate slots. Native writes use `TargetUpdate::Rebuild` through the existing renderer scope; no additional publication state or renderer is required. Texture and pixel guards are thread-local, including CPU textures; CPU construction itself does not allocate device ownership or native caches.
+
 ## Renderer scopes
 
 Each `Renderer` declares `type TargetState`; renderers without native target support use `()`. Native backends implement `plan_target`, `create_target`, `bind_target` and `restore_target`. Planning returns `None` when native storage is unsupported. The binding state must not borrow the renderer or the supplied workspace.

@@ -1,6 +1,7 @@
 use super::{ColorFormat, Texture};
+use alloc::rc::Rc;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TextureKey {
     ptr: usize,
     len: usize,
@@ -9,6 +10,7 @@ pub(crate) struct TextureKey {
     format: ColorFormat,
     stride: usize,
     revision: u64,
+    owner: Option<Rc<()>>,
 }
 
 impl TextureKey {
@@ -17,15 +19,29 @@ impl TextureKey {
     }
 
     pub fn from(src: &Texture) -> Self {
-        let buf = src.buf.as_slice();
+        let (ptr, len, owner) = match &src.buf {
+            super::TexBuf::Native(native) => {
+                let owner = native.identity();
+                (
+                    Rc::as_ptr(&owner) as usize,
+                    native.layout().required_bytes(),
+                    Some(owner),
+                )
+            }
+            _ => {
+                let buf = src.buf.cpu_bytes().expect("CPU storage");
+                (buf.as_ptr() as usize, buf.len(), None)
+            }
+        };
         Self {
-            ptr: buf.as_ptr() as usize,
-            len: buf.len(),
+            ptr,
+            len,
             width: src.width,
             height: src.height,
             format: src.format,
             stride: src.stride,
             revision: src.cache_revision,
+            owner,
         }
     }
 }

@@ -480,7 +480,7 @@ fn warm_output_preparation_reuses_the_plan_and_pixel_slots_without_allocating() 
     let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
     let snapshot = app.world.resource::<LayoutSnapshot>().unwrap();
     let mut pixels = [0_u8; 12 * 4 * 4];
-    let renderer = crate::render::sw::SwRenderer::new(
+    let mut renderer = crate::render::sw::SwRenderer::new(
         Texture::new(&mut pixels, 12, 4, ColorFormat::RGBA8888).expect("valid pixel storage"),
     );
 
@@ -491,7 +491,7 @@ fn warm_output_preparation_reuses_the_plan_and_pixel_slots_without_allocating() 
                 &app.world,
                 &snapshot.layout_tree,
                 &snapshot.entities,
-                &renderer,
+                &mut renderer,
             )
             .unwrap()
             .unwrap();

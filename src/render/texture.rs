@@ -3,6 +3,7 @@ use super::scratch::PlaneLayout;
 use crate::core::cache::HasSize;
 
 mod access;
+mod native;
 mod pixels;
 #[cfg(any(feature = "wgpu", target_arch = "wasm32", test))]
 mod upload;
@@ -128,16 +129,23 @@ enum TexBuf<'a> {
     Mut(&'a mut [u8]),
     Owned(Vec<u8>),
     Aligned(AlignedBytes),
+    Native(alloc::boxed::Box<native::NativeTexture>),
 }
 
 impl TexBuf<'_> {
-    pub fn as_slice(&self) -> &[u8] {
+    fn cpu_bytes(&self) -> Option<&[u8]> {
         match self {
-            Self::Ref(s) => s,
-            Self::Mut(s) => s,
-            Self::Owned(v) => v,
-            Self::Aligned(v) => v.as_slice(),
+            Self::Ref(s) => Some(s),
+            Self::Mut(s) => Some(s),
+            Self::Owned(v) => Some(v),
+            Self::Aligned(v) => Some(v.as_slice()),
+            Self::Native(_) => None,
         }
+    }
+
+    #[cfg(test)]
+    fn as_slice(&self) -> &[u8] {
+        self.cpu_bytes().expect("CPU test storage")
     }
 }
 
@@ -188,6 +196,7 @@ pub(crate) fn blend_straight_source_over(source: &Color, destination: &Color, al
 /// Pixel constructors return [`RenderError::InvalidTexture`] for empty dimensions, overflowing layouts, or insufficient storage. [`Texture::owned`] reports allocation failure as [`RenderError::ResourceLimit`].
 ///
 /// A texture is not implicitly duplicated. Cache handles can share an existing resource; a snapshot owns an explicit pixel copy.
+/// Native storage retains its source device and prepares CPU pixels through [`Texture::read_pixels`]. Textures and their pixel guards are thread-local; CPU constructors do not allocate native storage or readback caches.
 ///
 /// ```compile_fail,E0277
 /// use mirui::render::texture::Texture;
@@ -204,7 +213,7 @@ pub struct Texture<'a> {
     /// Increment when reusing a buffer with new pixels and retaining GPU upload caching.
     /// Borrowed and mutable constructors bypass the cache until a revision is supplied.
     pub cache_revision: u64,
-    /// Bypass GPU-side upload caches keyed by buffer pointer.
+    /// Bypass GPU-side upload caches keyed by source identity and revision.
     pub transient: bool,
 }
 
@@ -215,6 +224,7 @@ impl HasSize for Texture<'_> {
             TexBuf::Mut(bytes) => bytes.len(),
             TexBuf::Owned(bytes) => bytes.capacity(),
             TexBuf::Aligned(bytes) => bytes.storage.capacity(),
+            TexBuf::Native(native) => native.cache_size(),
         }
     }
 }

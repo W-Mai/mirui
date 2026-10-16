@@ -53,6 +53,10 @@ pub(crate) struct Reservation {
 }
 
 impl Reservation {
+    pub(crate) fn bytes(&self) -> usize {
+        self.bytes
+    }
+
     pub(crate) fn commit(mut self, actual: usize) -> Result<Allocation, Self> {
         let ledger = self.ledger.as_ref().expect("active reservation");
         let remaining = ledger.reserved.get() - self.bytes;

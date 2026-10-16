@@ -2,10 +2,11 @@ use super::{AlphaMode, ColorFormat, Texture, blend_straight_source_over};
 use crate::render::renderer::RenderError;
 use crate::render::scratch::{PlaneLayout, PlaneRequirements};
 use crate::types::{Color, Fixed};
+use core::cell::Ref;
 
 /// Borrowed, CPU-readable pixels and their row layout. Reading a pixel never performs a transfer or allocation.
 ///
-/// The borrow prevents writes while its pixels remain in use.
+/// The guard borrows CPU storage or a source-owned readback cache; it does not own a texture or copy pixels. Drop the guard before requesting mutable access to the texture.
 ///
 /// ```compile_fail,E0502
 /// use mirui::render::texture::{ColorFormat, Texture};
@@ -15,17 +16,35 @@ use crate::types::{Color, Fixed};
 /// assert_eq!(pixels.bytes().len(), 4);
 /// ```
 pub struct TexturePixels<'a> {
-    bytes: &'a [u8],
+    bytes: PixelBorrow<'a>,
     layout: PlaneLayout,
+}
+
+enum PixelBorrow<'a> {
+    Direct(&'a [u8]),
+    Cached(Ref<'a, [u8]>),
 }
 
 impl<'a> TexturePixels<'a> {
     pub(super) fn new(bytes: &'a [u8], layout: PlaneLayout) -> Self {
-        Self { bytes, layout }
+        Self {
+            bytes: PixelBorrow::Direct(bytes),
+            layout,
+        }
+    }
+
+    pub(super) fn cached(bytes: Ref<'a, [u8]>, layout: PlaneLayout) -> Self {
+        Self {
+            bytes: PixelBorrow::Cached(bytes),
+            layout,
+        }
     }
 
     pub fn bytes(&self) -> &[u8] {
-        self.bytes
+        match &self.bytes {
+            PixelBorrow::Direct(bytes) => bytes,
+            PixelBorrow::Cached(bytes) => bytes,
+        }
     }
 
     pub fn width(&self) -> u16 {
@@ -49,7 +68,7 @@ impl<'a> TexturePixels<'a> {
         let Some(offset) = offset(self.layout, x, y) else {
             return Color::rgb(0, 0, 0);
         };
-        self.format().read_pixel(self.bytes, offset)
+        self.format().read_pixel(self.bytes(), offset)
     }
 }
 
@@ -276,7 +295,19 @@ impl Texture<'_> {
             PlaneRequirements::CPU,
         )
         .map_err(|_| RenderError::InvalidTexture)?;
-        if self.buf.as_slice().len() < layout.minimum_bytes() {
+        if let super::TexBuf::Native(native) = &self.buf {
+            if layout != native.layout() {
+                return Err(RenderError::InvalidTexture);
+            }
+            return native.validate(self.cache_revision).map(|()| layout);
+        }
+        if self
+            .buf
+            .cpu_bytes()
+            .ok_or(RenderError::InvalidTexture)?
+            .len()
+            < layout.minimum_bytes()
+        {
             return Err(RenderError::InvalidTexture);
         }
         Ok(layout)
@@ -284,29 +315,40 @@ impl Texture<'_> {
 
     /// Interpret CPU storage with a padded row stride, rejecting layouts that exceed the supplied bytes.
     pub fn with_stride(mut self, stride: usize) -> Result<Self, RenderError> {
+        if matches!(self.buf, super::TexBuf::Native(_)) {
+            return Err(RenderError::InvalidTexture);
+        }
         self.stride = stride;
         self.pixel_layout()?;
         Ok(self)
     }
 
-    /// Borrow resident CPU pixels without allocation or device work.
+    /// Borrow resident CPU pixels without allocation or device work. `Ok(None)` means a valid source requires readback; invalid or conflicting access returns an error.
     pub fn pixels(&self) -> Result<Option<TexturePixels<'_>>, RenderError> {
-        self.read_pixels().map(Some)
-    }
-
-    /// Obtain readable pixels for this texture.
-    pub fn read_pixels(&self) -> Result<TexturePixels<'_>, RenderError> {
-        Ok(TexturePixels::new(
-            self.buf.as_slice(),
+        if let super::TexBuf::Native(native) = &self.buf {
+            return native.pixels(self.cache_revision);
+        }
+        Ok(Some(TexturePixels::new(
+            self.buf.cpu_bytes().ok_or(RenderError::InvalidTexture)?,
             self.pixel_layout()?,
-        ))
+        )))
     }
 
-    /// Borrow writable CPU storage. Read-only storage is rejected without copying or changing the texture.
+    /// Obtain readable pixels, preparing and caching a source-owned CPU copy when necessary. Repeated reads of unchanged resident pixels borrow the same storage; source readback may allocate or wait for its device.
+    pub fn read_pixels(&self) -> Result<TexturePixels<'_>, RenderError> {
+        if let super::TexBuf::Native(native) = &self.buf {
+            return native.read_pixels(self.cache_revision);
+        }
+        self.pixels()?.ok_or(RenderError::InvalidTexture)
+    }
+
+    /// Borrow writable CPU storage. Read-only and native storage are rejected without copying; native CPU copies cannot be edited independently of their source.
     pub fn pixels_mut(&mut self) -> Result<TexturePixelsMut<'_>, RenderError> {
         let layout = self.pixel_layout()?;
         let bytes = match &mut self.buf {
-            super::TexBuf::Ref(_) => return Err(RenderError::InvalidTexture),
+            super::TexBuf::Ref(_) | super::TexBuf::Native(_) => {
+                return Err(RenderError::InvalidTexture);
+            }
             super::TexBuf::Mut(bytes) => &mut **bytes,
             super::TexBuf::Owned(bytes) => bytes.as_mut_slice(),
             super::TexBuf::Aligned(bytes) => bytes.as_mut_slice(),
