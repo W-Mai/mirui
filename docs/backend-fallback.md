@@ -142,7 +142,7 @@ Pixel storage variants are private to the texture module. Renderer, widget, snap
 
 The widget output budget accounts for reservations and live allocations in one ledger. Current pixels, history slots and paint workspaces retain their charge while borrowed or detached for rendering; releasing storage returns the charge automatically. A zero budget allocates no ledger. Owned texture cache sizes include unused vector capacity and alignment storage, not only visible pixel bytes.
 
-Widget snapshots borrow the completed source and copy its active rows into an independent CPU texture, preserving its format and alpha mode. Output preparation clears a writable slot through checked pixel access; failed access returns the slot without publishing it. History comparison propagates read failures instead of treating unavailable pixels as unchanged content. Raw texture storage is internal and has no copy-on-write mutation path.
+Widget snapshots borrow the completed source and copy its active rows into an independent CPU texture, preserving its format and alpha mode. Software output preparation clears a writable slot through checked pixel access; native production uses the renderer's rebuilding target scope. Failed writes return the slot without publishing it. History comparison propagates read failures instead of treating unavailable pixels as unchanged content. Raw texture storage is internal and has no copy-on-write mutation path.
 
 Use `texture.width()`, `height()`, and `format()` for resource metadata. `texture.pixels()` returns `Result<Option<TexturePixels>, RenderError>` without performing device work; `read_pixels()` returns a readable pixel borrow. The borrow exposes `bytes()`, `stride()`, and `get_pixel()`. Writable CPU storage uses `pixels_mut()` and its `bytes_mut()` / `set_pixel()` methods. `pixels_mut()` rejects read-only storage without allocating a copy. Each writable borrow advances the upload revision once; revision exhaustion disables caching. Padded CPU sources use checked `with_stride(stride)` construction.
 
@@ -183,7 +183,73 @@ Software, SDL GPU, native WGPU, and Web Canvas provide target readback. Browser 
 
 `OffscreenRender` renders a widget subtree into a texture and composites the completed result through the outer backend. Configure `app.with_offscreen_pool_budget(bytes)` before constructing output consumers; zero disables output storage and explicit offscreen nodes render inline. `OffscreenRender::with_scale(scale)` controls output resolution, and `with_opacity(alpha)` controls subtree composition. Production selects a native target when its storage and configured fallback workspace fit, otherwise it selects software pixels before drawing. Both paths use the same output graph and history; failed callbacks are not replayed in software. [Native target budgets](backend-targets.md#renderer-scopes) remain distinct from backend upload and fallback limits.
 
-Typed callbacks can declare `textures: res!(Outputs<WidgetTexture>)`, importing both types from `mirui::ui`. `textures.get(source)` returns a borrowed result whose `texture()` method exposes completed pixels. An unprepared or failed output returns `None`. Reading does not produce a source, subscribe to its changes, or change the Component-only `query!` contract. An explicit `OffscreenRender` attachment or an effect widget establishes the existing source request. `App::snapshot_widget(entity)` returns an owned copy when the pixels must outlive the callback borrow.
+Typed callbacks can declare `textures: res!(Outputs<WidgetTexture>)`, importing both types from `mirui::ui`. `textures.get(source)` returns a borrowed result whose `texture()` method exposes the completed texture, which may reside on a device. An unprepared or failed output returns `None`. Reading does not produce a source, subscribe to its changes, or change the Component-only `query!` contract. A declared dependency, explicit `OffscreenRender` attachment or effect widget establishes the source request. `App::snapshot_widget(entity)` returns an owned CPU copy when the pixels must outlive the callback borrow.
+
+### Composing an output without CPU access
+
+Pass the source texture directly to a drawing command. The View does not request pixels, allocate a destination or select a device. Registering its component-filtered View activates the declared dependency; the source is produced before the consumer. Same-device native sampling and cross-device conversion follow the selected backend's existing texture path.
+
+```rust
+use mirui::prelude::*;
+use mirui::render::RenderError;
+use mirui::render::command::{CompositeMode, DrawCommand};
+use mirui::ui::{Outputs, WidgetTexture};
+
+#[component]
+struct Preview {
+    #[depends_on(WidgetTexture)]
+    source: Entity,
+}
+
+#[view(component = Preview)]
+fn preview(item: component!(), outputs: res!(Outputs<WidgetTexture>), paint: paint!()) {
+    let Some(source) = outputs.get(item.source) else {
+        return;
+    };
+    let rect = paint.rect();
+    paint.draw(&DrawCommand::Blit {
+        pos: Point::new(rect.x, rect.y),
+        size: Point::new(rect.w, rect.h),
+        transform: paint.transform(),
+        quad: paint.quad(),
+        texture: source.texture(),
+        opa: 255,
+        radius: Fixed::ZERO,
+        composite: CompositeMode::SourceOver,
+    });
+}
+
+#[compose]
+fn panel() {
+    ui! {
+        Row (width: 32, height: 16) {
+            View (
+                id: "source",
+                width: 16,
+                height: 16,
+                bg_color: Color::rgb(32, 160, 224)
+            )
+            View (width: 16, height: 16) [Preview { source: id("source") }]
+        }
+    };
+}
+
+fn main() -> Result<(), RenderError> {
+    let mut app = App::headless(32, 16);
+    app.with_default_widgets()
+        .with_widget(preview::view())
+        .with_offscreen_pool_budget(64 * 1024);
+    let root = app.spawn_root().id();
+    app.compose(root, panel());
+    app.render()
+}
+```
+
+This executable example uses a software framebuffer. The same component, View and composition work with an App constructed from SDL-GPU, WGPU or Web Canvas surfaces and factories; native output selection additionally checks the factory's fallback capacity. The `outputs` parameter is supplied by the existing `res!` role, not a global variable or an argument passed by the application.
+
+For an effect that actually needs pixels, use `paint.read_pixels(source.texture())` inside its View and keep the returned borrow while reading. That call can synchronize and populate the source's reusable CPU copy. Merely composing the texture above does not make that request. `#[retain_previous(WidgetTexture)]` retains the consumer entity's own successful output; it does not retain history for its `source` field. Read that history with `outputs.previous(owner)`, obtaining `owner` through the existing `entity!()` role.
+
+### Output geometry and history
 
 Each published texture also exposes `layout_rect()` in root layout coordinates and `local_bounds()` in logical units relative to that origin. Local bounds include borders, shadow and glow extents, and unclipped children; explicit child clips and scrolling viewports still use the layout rectangle. Capture dimensions round outward after scaling, and composition uses the same footprint without moving the layout-based transform pivot. These values exclude ancestor scrolling and external transforms and belong to the same successful output as the pixels. Moving a source preserves local history; changing its logical size, local footprint, or output scale clears incompatible history even when its pixel dimensions stay the same.
 
@@ -218,6 +284,6 @@ Field declarations accept `Entity` or `Option<Entity>`. A type-level `#[depends_
 
 `LayoutGeometry` publishes widget bounds without a texture. Declare `#[depends_on(LayoutGeometry)]` and read `res!(Outputs<LayoutGeometry>)`, importing both types from `mirui::ui`. `get(source)` returns a copyable snapshot: `border_rect()` and `content_rect()` use widget-local logical coordinates; `transform()` maps them to the screen, including ancestor scrolling and 2D/3D transforms; `clip()` is the screen-space intersection of ancestor clips and the viewport. Content bounds use resolved layout padding, including safe-area padding. Geometry is prepared before input and drawing, not while reading. Hidden, detached, deleted, or unprepared sources return `None`; an empty ancestor intersection retains geometry with an empty clip. Unchanged geometry retains its publication version. Only requested entities have records, with no pixel buffers or per-frame storage growth.
 
-The output budget counts stored current and historical pixel slots, in-progress writes, and the shared Mirror/Shadow/Glow/TemporalMix workspace. Admission reserves these pixels before paint callbacks and preserves independent outputs on rejection. A 128×64 RGBA source and its reflection workspace need 64 KiB together. Sequential effects share the largest required workspace, including blur padding; it is released when no effect needs it. Offscreen captures also share retained software path and clip scratch, released when capture demand ends or on a memory warning. This raster scratch, the framebuffer, and metadata are outside the pixel budget. Unchanged inputs reuse completed pixels; changed outputs of the same size reuse their slots.
+The output budget counts stored current and historical slots, in-progress writes, source CPU copies and readback reservations, and shared paint/binding workspace. Admission reserves this working set before paint callbacks and preserves independent outputs on rejection. On the software path, a 128×64 RGBA source and its reflection workspace need 64 KiB together, excluding any separately captured consumer output. Native storage and staging add their own charges. Sequential effects share the largest required paint workspace, including blur padding; it is released when no effect needs it. Offscreen captures also share retained software path and clip scratch, released when capture demand ends or on a memory warning. This raster scratch, the framebuffer, and metadata are outside the output byte budget. Factory-owned destination fallback buffers and upload caches keep their separate limits. Unchanged inputs reuse completed textures; changed outputs of the same size reuse compatible slots.
 
 Widget textures contain local transparent RGBA pixels and never capture the parent framebuffer. Current dependencies and nested output boundaries determine production order, independently of sibling order or damage clipping. Composition applies the node's position, transform, scale, and group opacity; it does not produce textures. Cyclic output dependencies remain unavailable without executing the affected output callbacks. Completed sources remain valid if a dependent output or the final target fails.
