@@ -106,7 +106,7 @@ impl<B: FramebufferAccess> RendererFactory<B> for SwRendererFactory {
                     for inact in inactives.iter_mut() {
                         crate::surface::mirror::texture_scroll_in_place(
                             inact, area, dx_phys, dy_phys,
-                        );
+                        )?;
                     }
                 }
                 for rect in &plan.rects {
@@ -114,7 +114,7 @@ impl<B: FramebufferAccess> RendererFactory<B> for SwRendererFactory {
                         continue;
                     };
                     for inact in inactives.iter_mut() {
-                        crate::surface::mirror::blit_region(inact, active, area);
+                        crate::surface::mirror::blit_region(inact, active, area)?;
                     }
                 }
             }

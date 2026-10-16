@@ -1598,6 +1598,9 @@ impl SwRenderer<'_> {
         &self,
         src: &Rect,
     ) -> Result<Option<crate::render::texture::Texture<'static>>, RenderError> {
+        if let Some(error) = self.failure {
+            return Err(error);
+        }
         let (sx0, sy0, sx1, sy1) = self.viewport.rect_to_physical_pixel_bounds(*src);
         if sx0 >= i32::from(self.target.width)
             || sy0 >= i32::from(self.target.height)
@@ -1608,8 +1611,7 @@ impl SwRenderer<'_> {
         }
         let w = u16::try_from((sx1 - sx0).max(1)).map_err(|_| RenderError::InvalidGeometry)?;
         let h = u16::try_from((sy1 - sy0).max(1)).map_err(|_| RenderError::InvalidGeometry)?;
-        let mut tex = crate::render::texture::Texture::owned(w, h, self.target.format)
-            .expect("valid pixel storage");
+        let mut tex = crate::render::texture::Texture::owned(w, h, self.target.format)?;
         self.read_target_region(src, &mut tex)?;
         Ok(Some(tex))
     }
@@ -1619,11 +1621,9 @@ impl SwRenderer<'_> {
         src: &Rect,
         f: &mut dyn FnMut(&mut crate::render::texture::Texture) -> Result<(), RenderError>,
     ) -> Result<bool, RenderError> {
-        use crate::render::texture::{TexBuf, Texture};
-        if !self.target.valid_storage()
-            || matches!(&self.target.buf, crate::render::texture::TexBuf::Ref(_))
-        {
-            return Err(RenderError::InvalidTexture);
+        use crate::render::scratch::{PlaneLayout, PlaneRequirements};
+        if let Some(error) = self.failure {
+            return Err(error);
         }
         let (sx0, sy0, sx1, sy1) = self.viewport.rect_to_physical_pixel_bounds(*src);
         let target_w = self.target.width as i32;
@@ -1635,27 +1635,19 @@ impl SwRenderer<'_> {
         if cx1 <= cx0 || cy1 <= cy0 {
             return Ok(false);
         }
-        let bpp = self.target.format.bytes_per_pixel();
-        let target_stride = self.target.stride;
+        let alpha_mode = self.target.alpha_mode;
+        let mut target = self.target.pixels_mut()?;
+        let format = target.format();
+        let bpp = format.bytes_per_pixel();
+        let target_stride = target.stride();
         let off_start = cy0 as usize * target_stride + cx0 as usize * bpp;
-        // `(row_h - 1) * stride + row_w * bpp` so the slice ends at
-        // the rect's last pixel, not the last full stride row — the
-        // gap past `width` per row is shared with neighbouring
-        // entities and must stay outside our borrow.
         let row_w = (cx1 - cx0) as u16;
         let row_h = (cy1 - cy0) as u16;
-        let view_bytes = (row_h as usize - 1) * target_stride + row_w as usize * bpp;
-        let buf = &mut self.target.buf.as_mut_slice()[off_start..off_start + view_bytes];
-        let mut view = Texture {
-            buf: TexBuf::Mut(buf),
-            width: row_w,
-            height: row_h,
-            format: self.target.format,
-            stride: target_stride,
-            alpha_mode: self.target.alpha_mode,
-            cache_revision: self.target.cache_revision,
-            transient: self.target.transient,
-        };
+        let layout = PlaneLayout::new(row_w, row_h, format, target_stride, PlaneRequirements::CPU)
+            .map_err(|_| RenderError::InvalidTexture)?;
+        let buf = &mut target.bytes_mut()[off_start..off_start + layout.minimum_bytes()];
+        let mut view = Texture::new(buf, row_w, row_h, format)?.with_stride(target_stride)?;
+        view.alpha_mode = alpha_mode;
         f(&mut view)?;
         Ok(true)
     }
@@ -1670,6 +1662,7 @@ impl SwRenderer<'_> {
         dx: Fixed,
         dy: Fixed,
     ) -> Result<(), RenderError> {
+        self.flush()?;
         // Truncate (not floor) so sub-pixel residue keeps the original sign.
         let Some(area) = self.viewport.physical_rect(*area) else {
             return Ok(());
@@ -1677,8 +1670,7 @@ impl SwRenderer<'_> {
         let scale = self.viewport.scale();
         let dx_phys = (dx * scale).trunc_to_int();
         let dy_phys = (dy * scale).trunc_to_int();
-        crate::surface::mirror::texture_scroll_in_place(&mut self.target, area, dx_phys, dy_phys);
-        Ok(())
+        crate::surface::mirror::texture_scroll_in_place(&mut self.target, area, dx_phys, dy_phys)
     }
 
     fn read_target_region(
@@ -1686,27 +1678,29 @@ impl SwRenderer<'_> {
         src: &Rect,
         dst: &mut crate::render::texture::Texture,
     ) -> Result<(), RenderError> {
-        if !dst.valid_storage() || matches!(&dst.buf, crate::render::texture::TexBuf::Ref(_)) {
-            return Err(RenderError::InvalidTexture);
+        if let Some(error) = self.failure {
+            return Err(error);
         }
         // Caller may pass a logical-sized dst; clipping to the
         // overlap avoids stretched top-left samples on HiDPI.
         let (sx0, sy0, sx1, sy1) = self.viewport.rect_to_physical_pixel_bounds(*src);
-        let target_w = self.target.width as i32;
-        let target_h = self.target.height as i32;
-        let copy_w = ((sx1 - sx0).min(dst.width as i32)).max(0);
-        let copy_h = ((sy1 - sy0).min(dst.height as i32)).max(0);
+        let target = self.target.read_pixels()?;
+        let mut dst = dst.pixels_mut()?;
+        let target_w = target.width() as i32;
+        let target_h = target.height() as i32;
+        let copy_w = ((sx1 - sx0).min(dst.width() as i32)).max(0);
+        let copy_h = ((sy1 - sy0).min(dst.height() as i32)).max(0);
         if copy_w == 0 || copy_h == 0 {
             return Ok(());
         }
 
         // Same-format reads can copy complete pixel rows.
-        if self.target.format == dst.format {
-            let bpp = dst.format.bytes_per_pixel();
-            let target_buf = self.target.buf.as_slice();
-            let dst_buf = dst.buf.as_mut_slice();
-            let target_stride = self.target.stride;
-            let dst_stride = dst.stride;
+        if target.format() == dst.format() {
+            let bpp = dst.format().bytes_per_pixel();
+            let target_buf = target.bytes();
+            let target_stride = target.stride();
+            let dst_stride = dst.stride();
+            let dst_buf = dst.bytes_mut();
             for dy in 0..copy_h as usize {
                 let phys_y = sy0 + dy as i32;
                 if phys_y < 0 || phys_y >= target_h {
@@ -1734,7 +1728,7 @@ impl SwRenderer<'_> {
                 if phys_x < 0 || phys_y < 0 || phys_x >= target_w || phys_y >= target_h {
                     continue;
                 }
-                let px = self.target.get_pixel(phys_x, phys_y);
+                let px = target.get_pixel(phys_x, phys_y);
                 dst.set_pixel(dx, dy, &px);
             }
         }
@@ -3336,6 +3330,103 @@ mod tests {
         assert_eq!(
             result,
             Err(RenderError::ResourceLimit(RenderResource::Geometry))
+        );
+        assert_eq!(backend.target.cache_revision, 1);
+    }
+
+    #[test]
+    fn region_writes_and_readback_share_checked_pixel_leases() {
+        let mut bytes = [0x35; 44];
+        let target = Texture::new(&mut bytes, 3, 3, ColorFormat::RGBA8888)
+            .unwrap()
+            .with_stride(16)
+            .unwrap()
+            .with_cache_revision(10);
+        let mut renderer = SwRenderer::new(target);
+        let mut copied = Texture::owned(1, 2, ColorFormat::RGBA8888)
+            .unwrap()
+            .with_cache_revision(20);
+        let area = Rect::new(2, 1, 1, 2);
+        let allocations = crate::test_support::tracked_allocations(|| {
+            assert_eq!(
+                renderer.modify_target_region(&area, &mut |view| {
+                    assert!(view.transient);
+                    let mut pixels = view.pixels_mut()?;
+                    assert_eq!(pixels.stride(), 16);
+                    assert_eq!(pixels.bytes().len(), 20);
+                    pixels.set_pixel(0, 0, &Color::rgb(255, 0, 0));
+                    pixels.set_pixel(0, 1, &Color::rgb(0, 255, 0));
+                    Ok(())
+                }),
+                Ok(true)
+            );
+            renderer.read_target_region(&area, &mut copied).unwrap();
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(renderer.target.cache_revision, 11);
+        assert_eq!(copied.cache_revision, 21);
+        let pixels = copied.read_pixels().unwrap();
+        assert_eq!(pixels.get_pixel(0, 0), Color::rgb(255, 0, 0));
+        assert_eq!(pixels.get_pixel(0, 1), Color::rgb(0, 255, 0));
+        let target = renderer.target.read_pixels().unwrap();
+        assert!(target.bytes()[..24].iter().all(|byte| *byte == 0x35));
+        assert!(target.bytes()[28..40].iter().all(|byte| *byte == 0x35));
+    }
+
+    #[test]
+    fn failed_source_cannot_be_read_back_or_modified_as_a_successful_frame() {
+        let mut renderer = SwRenderer::new(Texture::owned(4, 4, ColorFormat::RGBA8888).unwrap());
+        renderer.failure = Some(RenderError::BackendFailure);
+        let mut destination = Texture::owned(4, 4, ColorFormat::RGBA8888).unwrap();
+        let area = Rect::new(0, 0, 4, 4);
+        assert_eq!(
+            renderer.read_target_region(&area, &mut destination),
+            Err(RenderError::BackendFailure)
+        );
+        assert!(matches!(
+            renderer.sample_target_region(&area),
+            Err(RenderError::BackendFailure)
+        ));
+        assert_eq!(
+            renderer.modify_target_region(&area, &mut |_| panic!("failed frame callback")),
+            Err(RenderError::BackendFailure)
+        );
+        assert_eq!(
+            renderer.scroll_target_region(&area, Fixed::ZERO, Fixed::ONE),
+            Err(RenderError::BackendFailure)
+        );
+        assert_eq!(renderer.target.cache_revision, 0);
+        assert_eq!(destination.cache_revision, 0);
+    }
+
+    #[test]
+    fn target_region_access_rejects_invalid_storage_before_writing() {
+        let bytes = [0u8; 16];
+        let mut renderer =
+            SwRenderer::new(Texture::from_ref(&bytes, 2, 2, ColorFormat::RGBA8888).unwrap());
+        let area = Rect::new(0, 0, 2, 2);
+        assert_eq!(
+            renderer.modify_target_region(&area, &mut |_| panic!("read-only target")),
+            Err(RenderError::InvalidTexture)
+        );
+        assert!(matches!(
+            renderer.target.buf,
+            crate::render::texture::TexBuf::Ref(_)
+        ));
+        let mut destination = Texture::owned(2, 2, ColorFormat::RGBA8888).unwrap();
+        renderer.target.stride = 16;
+        assert_eq!(
+            renderer.read_target_region(&area, &mut destination),
+            Err(RenderError::InvalidTexture)
+        );
+        assert_eq!(destination.cache_revision, 0);
+        assert!(
+            destination
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .iter()
+                .all(|byte| *byte == 0)
         );
     }
 
