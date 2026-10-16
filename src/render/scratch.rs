@@ -3,6 +3,7 @@ use super::texture::{AlphaMode, ColorFormat, TexBuf, Texture};
 /// Invalid or insufficient storage for a render plane.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PlaneError {
+    EmptyDimensions,
     InvalidAlignment,
     InvalidStride { minimum: usize, actual: usize },
     MisalignedStride { alignment: usize },
@@ -25,7 +26,10 @@ impl PlaneRequirements {
         stride_alignment: 1,
     };
 
-    pub fn new(address_alignment: usize, stride_alignment: usize) -> Result<Self, PlaneError> {
+    pub const fn new(
+        address_alignment: usize,
+        stride_alignment: usize,
+    ) -> Result<Self, PlaneError> {
         if !address_alignment.is_power_of_two() || !stride_alignment.is_power_of_two() {
             return Err(PlaneError::InvalidAlignment);
         }
@@ -66,34 +70,36 @@ pub struct PlaneLayout {
 
 impl PlaneLayout {
     /// Use the minimum packed row stride with no extra alignment.
-    pub fn packed(width: u16, height: u16, format: ColorFormat) -> Result<Self, PlaneError> {
+    pub const fn packed(width: u16, height: u16, format: ColorFormat) -> Result<Self, PlaneError> {
         Self::aligned(width, height, format, PlaneRequirements::CPU)
     }
 
-    pub fn aligned(
+    pub const fn aligned(
         width: u16,
         height: u16,
         format: ColorFormat,
         requirements: PlaneRequirements,
     ) -> Result<Self, PlaneError> {
-        let minimum = usize::from(width)
-            .checked_mul(format.bytes_per_pixel())
-            .ok_or(PlaneError::Overflow)?;
+        let minimum = Self::row_bytes(width, format);
         let mask = requirements.stride_alignment - 1;
-        let stride_bytes = minimum.checked_add(mask).ok_or(PlaneError::Overflow)? & !mask;
+        let Some(padded) = minimum.checked_add(mask) else {
+            return Err(PlaneError::Overflow);
+        };
+        let stride_bytes = padded & !mask;
         Self::new(width, height, format, stride_bytes, requirements)
     }
 
-    pub fn new(
+    pub const fn new(
         width: u16,
         height: u16,
         format: ColorFormat,
         stride_bytes: usize,
         requirements: PlaneRequirements,
     ) -> Result<Self, PlaneError> {
-        let minimum = usize::from(width)
-            .checked_mul(format.bytes_per_pixel())
-            .ok_or(PlaneError::Overflow)?;
+        if width == 0 || height == 0 {
+            return Err(PlaneError::EmptyDimensions);
+        }
+        let minimum = Self::row_bytes(width, format);
         if stride_bytes < minimum {
             return Err(PlaneError::InvalidStride {
                 minimum,
@@ -105,9 +111,9 @@ impl PlaneLayout {
                 alignment: requirements.stride_alignment,
             });
         }
-        let required_bytes = stride_bytes
-            .checked_mul(usize::from(height))
-            .ok_or(PlaneError::Overflow)?;
+        let Some(required_bytes) = stride_bytes.checked_mul(height as usize) else {
+            return Err(PlaneError::Overflow);
+        };
         Ok(Self {
             width,
             height,
@@ -140,6 +146,16 @@ impl PlaneLayout {
 
     pub const fn required_bytes(self) -> usize {
         self.required_bytes
+    }
+
+    /// Bytes through the last pixel, excluding trailing padding in the final row.
+    /// Render workspaces require [`Self::required_bytes`] instead.
+    pub const fn minimum_bytes(self) -> usize {
+        self.required_bytes - self.stride_bytes + Self::row_bytes(self.width, self.format)
+    }
+
+    const fn row_bytes(width: u16, format: ColorFormat) -> usize {
+        width as usize * format.bytes_per_pixel()
     }
 
     /// Validate an actual buffer before exposing it as a render plane.
@@ -194,6 +210,47 @@ impl AlignedPlane<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constant_layouts_share_runtime_validation() {
+        const PACKED: Result<PlaneLayout, PlaneError> =
+            PlaneLayout::packed(3, 2, ColorFormat::RGB888);
+        const ALIGNED: Result<PlaneLayout, PlaneError> =
+            PlaneLayout::new(3, 2, ColorFormat::RGB888, 16, PlaneRequirements::CPU);
+        let packed = PACKED.unwrap();
+        assert_eq!(packed.required_bytes(), 18);
+        assert_eq!(packed.minimum_bytes(), 18);
+        let aligned = ALIGNED.unwrap();
+        assert_eq!(aligned.required_bytes(), 32);
+        assert_eq!(aligned.minimum_bytes(), 25);
+        assert_eq!(PACKED, PlaneLayout::packed(3, 2, ColorFormat::RGB888));
+    }
+
+    #[test]
+    fn empty_planes_are_rejected_in_every_format() {
+        for format in [
+            ColorFormat::RGB565,
+            ColorFormat::RGB565Swapped,
+            ColorFormat::RGB888,
+            ColorFormat::RGBA8888,
+            ColorFormat::BGRA8888,
+        ] {
+            for (width, height) in [(0, 0), (0, 1), (1, 0)] {
+                assert_eq!(
+                    PlaneLayout::packed(width, height, format),
+                    Err(PlaneError::EmptyDimensions)
+                );
+            }
+            let layout = PlaneLayout::packed(u16::MAX, u16::MAX, format);
+            let expected = (u16::MAX as usize)
+                .checked_mul(format.bytes_per_pixel())
+                .and_then(|stride| stride.checked_mul(u16::MAX as usize));
+            match expected {
+                Some(bytes) => assert_eq!(layout.unwrap().required_bytes(), bytes),
+                None => assert_eq!(layout, Err(PlaneError::Overflow)),
+            }
+        }
+    }
 
     #[test]
     fn aligned_borrowed_plane_preserves_padded_stride() {

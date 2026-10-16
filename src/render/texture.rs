@@ -1,3 +1,4 @@
+use super::scratch::{PlaneLayout, PlaneRequirements};
 use crate::core::cache::HasSize;
 
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu"))]
@@ -335,20 +336,16 @@ impl<'a> Texture<'a> {
     }
 
     pub(crate) fn valid_storage(&self) -> bool {
-        let width = usize::from(self.width);
-        let height = usize::from(self.height);
-        if width == 0 || height == 0 {
-            return false;
-        }
-        let Some(row_bytes) = width.checked_mul(self.format.bytes_per_pixel()) else {
+        let Ok(layout) = PlaneLayout::new(
+            self.width,
+            self.height,
+            self.format,
+            self.stride,
+            PlaneRequirements::CPU,
+        ) else {
             return false;
         };
-        self.stride >= row_bytes
-            && self
-                .stride
-                .checked_mul(height - 1)
-                .and_then(|start| start.checked_add(row_bytes))
-                .is_some_and(|required| required <= self.buf.as_slice().len())
+        layout.minimum_bytes() <= self.buf.as_slice().len()
     }
 
     #[cfg(any(target_arch = "wasm32", test))]
