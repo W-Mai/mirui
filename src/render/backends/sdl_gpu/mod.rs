@@ -88,7 +88,6 @@ pub struct SdlGpuSurface {
     label_cache: LabelCache,
     _event_pump: EventPump,
     text_input: crate::surface::sdl_events::NativeTextInput,
-    tessellator: TessellationCache,
     viewport: Viewport,
     renderer_generation: u64,
     needs_redraw: bool,
@@ -177,7 +176,6 @@ impl SdlGpuSurface {
             label_cache: LabelCache::new(texture_creator),
             _event_pump: event_pump,
             text_input,
-            tessellator: TessellationCache::new(),
             viewport,
             renderer_generation: 0,
             needs_redraw: true,
@@ -290,20 +288,6 @@ impl SdlGpuSurface {
         });
         self.multi.active = false;
         self.multi.last_event = None;
-    }
-
-    pub(crate) fn parts_mut(
-        &mut self,
-    ) -> (
-        &mut SdlCanvas<Window>,
-        &mut LabelCache,
-        &mut TessellationCache,
-    ) {
-        (
-            &mut self.canvas,
-            &mut self.label_cache,
-            &mut self.tessellator,
-        )
     }
 }
 
@@ -538,6 +522,7 @@ impl InspectCaches for SdlGpuSurface {
 
 pub struct SdlGpuFactory<S = Box<[u8]>> {
     projective_fallback: Option<ProjectiveFallback<S>>,
+    tessellator: TessellationCache,
     stroke_scratch: StrokeScratch,
     texture_cache: Option<TextureCache>,
     texture_cache_budget: usize,
@@ -547,6 +532,7 @@ impl SdlGpuFactory<Box<[u8]>> {
     pub fn new() -> Self {
         Self {
             projective_fallback: None,
+            tessellator: TessellationCache::new(),
             stroke_scratch: StrokeScratch::new(),
             texture_cache: None,
             texture_cache_budget: texture_cache::DEFAULT_BUDGET,
@@ -556,6 +542,7 @@ impl SdlGpuFactory<Box<[u8]>> {
     pub fn with_projective_fallback<S>(self, fallback: ProjectiveFallback<S>) -> SdlGpuFactory<S> {
         SdlGpuFactory {
             projective_fallback: Some(fallback),
+            tessellator: self.tessellator,
             stroke_scratch: self.stroke_scratch,
             texture_cache: self.texture_cache,
             texture_cache_budget: self.texture_cache_budget,
@@ -610,11 +597,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFact
                 self.texture_cache_budget,
             ));
         }
-        let (canvas, label_cache, tessellator) = backend.parts_mut();
         SdlGpuRenderer {
-            canvas,
-            label_cache,
-            tessellator,
+            canvas: &mut backend.canvas,
+            label_cache: &mut backend.label_cache,
+            tessellator: &mut self.tessellator,
             texture_cache: self.texture_cache.as_mut().expect("prepared texture cache"),
             projective_fallback: self.projective_fallback.as_mut(),
             stroke_scratch: &mut self.stroke_scratch,
@@ -625,6 +611,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFact
 
     fn trim_memory(&mut self) {
         self.texture_cache = None;
+        self.tessellator = TessellationCache::new();
         self.stroke_scratch = StrokeScratch::new();
     }
 }

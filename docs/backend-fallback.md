@@ -148,6 +148,8 @@ Raster glyph geometry shares representation scaling and bearing calculations for
 
 SDL GPU and WGPU share checked path tessellation. Invalid geometry, vertex limits and tessellator failures propagate through the existing render error path; neither backend submits a partial mesh after failure. Scratch buffers retain capacity for reuse.
 
+SDL GPU tessellation scratch storage belongs to `SdlGpuFactory`. Factory configuration preserves the prepared buffers; `trim_memory()` releases them alongside other factory-owned drawing caches, and subsequent draws prepare them again.
+
 In a View, `paint.read_pixels(texture)` borrows the source pixels and retains read errors for the render walker. A `None` result means the paint has failed, not that an output is absent; check `outputs.get(entity)` separately. The pixel borrow does not borrow the paint context, so the callback can continue drawing while reading it. Temporal, reflection and drop effects use this access path with their existing workspace and history.
 
 ```rust

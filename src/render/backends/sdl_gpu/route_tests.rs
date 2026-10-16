@@ -1,4 +1,5 @@
 use super::*;
+use crate::render::raster::FillRule;
 
 #[test]
 fn axis_blit_fallback_preserves_rounded_and_composite_requests() {
@@ -116,6 +117,54 @@ fn borrowed_fallback_factory_keeps_the_caller_budget() {
     let factory =
         SdlGpuFactory::new().with_projective_fallback(ProjectiveFallback::borrowed(&mut bytes));
     assert_eq!(factory.projective_fallback.unwrap().capacity(), 256);
+}
+
+#[test]
+fn factory_configuration_retains_geometry_and_trim_releases_it() {
+    let mut factory = SdlGpuFactory::new().with_texture_cache_budget(1234);
+    let path = Path::rect(0.into(), 0.into(), 10.into(), 6.into());
+    let color = Color::rgb(20, 80, 120);
+    factory
+        .tessellator
+        .fill(&path, None, &color, 255, FillRule::NonZero)
+        .unwrap();
+    let vertices = factory.tessellator.verts.as_ptr();
+    let indices = factory.tessellator.indices.as_ptr();
+    let counts = (
+        factory.tessellator.verts.len(),
+        factory.tessellator.indices.len(),
+    );
+    assert!(counts.0 > 0 && counts.1 > 0);
+    let mut bytes = [0u8; 256];
+    let mut configured = None;
+    let allocations = crate::test_support::tracked_allocations(|| {
+        configured =
+            Some(factory.with_projective_fallback(ProjectiveFallback::borrowed(&mut bytes)));
+    });
+    assert_eq!(allocations, 0);
+    let mut factory = configured.unwrap();
+    assert_eq!(factory.tessellator.verts.as_ptr(), vertices);
+    assert_eq!(factory.tessellator.indices.as_ptr(), indices);
+    assert_eq!(factory.texture_cache_budget, 1234);
+    RendererFactory::<SdlGpuSurface>::trim_memory(&mut factory);
+    assert_eq!(factory.tessellator.verts.capacity(), 0);
+    assert_eq!(factory.tessellator.indices.capacity(), 0);
+    assert_eq!(
+        factory.projective_fallback.as_ref().unwrap().capacity(),
+        256
+    );
+    assert_eq!(factory.texture_cache_budget, 1234);
+    factory
+        .tessellator
+        .fill(&path, None, &color, 255, FillRule::NonZero)
+        .unwrap();
+    assert_eq!(
+        (
+            factory.tessellator.verts.len(),
+            factory.tessellator.indices.len()
+        ),
+        counts
+    );
 }
 
 #[test]

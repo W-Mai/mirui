@@ -16,8 +16,7 @@ use crate::render::raster::{FillRule, StrokeSpec};
 use crate::render::renderer::RenderError;
 use crate::types::{Color, Transform};
 
-/// Holds reusable tessellators and output buffers so path commands don't
-/// re-allocate every frame. One cache per `SdlGpuSurface`.
+/// Reusable tessellators and output buffers owned by the renderer factory.
 pub struct TessellationCache {
     fill_tess: FillTessellator,
     stroke_tess: SharedStrokeTessellator,
