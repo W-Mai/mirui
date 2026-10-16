@@ -150,6 +150,46 @@ pub(crate) struct RasterQuad {
 }
 
 impl RasterGlyph<'_> {
+    fn local_rect(self, requested_size: u16) -> Option<Rect> {
+        let region = self
+            .region
+            .filter(|region| region.width() > 0 && region.height() > 0)?;
+        let scale = Fixed::from_int(i32::from(requested_size))
+            / Fixed::from_int(i32::from(self.representation.design_ppem().max(1)));
+        Some(Rect {
+            x: self.offset_x,
+            y: Fixed::ZERO - self.offset_y,
+            w: Fixed::from_int(i32::try_from(region.width()).ok()?) * scale,
+            h: Fixed::from_int(i32::try_from(region.height()).ok()?) * scale,
+        })
+    }
+
+    #[cfg(any(feature = "wgpu", test))]
+    pub(crate) fn positioned_quad(
+        self,
+        pos: Point,
+        first_origin: textflow::shaping::FlowPoint,
+        glyph: &textflow::shaping::PositionedGlyph,
+        requested_size: u16,
+        ascender: Fixed,
+        transform: Transform,
+    ) -> Option<RasterQuad> {
+        let dx = glyph
+            .origin
+            .x
+            .checked_sub(first_origin.x)?
+            .checked_add(glyph.offset.x)?;
+        let dy = glyph
+            .origin
+            .y
+            .checked_sub(first_origin.y)?
+            .checked_add(glyph.offset.y)?;
+        let mut rect = self.local_rect(requested_size)?;
+        rect.x = pos.x + crate::types::fixed::from_textflow(dx) + self.offset_x;
+        rect.y = pos.y + ascender + crate::types::fixed::from_textflow(dy) - self.offset_y;
+        Some(RasterQuad { rect, transform })
+    }
+
     pub(crate) fn posed_quad(
         self,
         pos: Point,
@@ -157,9 +197,7 @@ impl RasterGlyph<'_> {
         requested_size: u16,
         transform: Transform,
     ) -> Option<RasterQuad> {
-        let region = self
-            .region
-            .filter(|region| region.width() > 0 && region.height() > 0)?;
+        let rect = self.local_rect(requested_size)?;
         let tangent = Point {
             x: crate::types::fixed::from_textflow(frame.unit_tangent.x),
             y: crate::types::fixed::from_textflow(frame.unit_tangent.y),
@@ -176,15 +214,8 @@ impl RasterGlyph<'_> {
             m11: tangent.x,
             ty: origin.y,
         };
-        let scale = Fixed::from_int(i32::from(requested_size))
-            / Fixed::from_int(i32::from(self.representation.design_ppem().max(1)));
         Some(RasterQuad {
-            rect: Rect {
-                x: self.offset_x,
-                y: Fixed::ZERO - self.offset_y,
-                w: Fixed::from_int(i32::try_from(region.width()).ok()?) * scale,
-                h: Fixed::from_int(i32::try_from(region.height()).ok()?) * scale,
-            },
+            rect,
             transform: transform.compose(&pose),
         })
     }
@@ -1176,6 +1207,109 @@ pub(crate) fn resolve_or_default(world: &World, token: &FontToken) -> Option<Rc<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn positioned_raster_preserves_baseline_offsets_and_representation_scale() {
+        use textflow::shaping::{FlowPoint, PositionedGlyph};
+
+        let font = Font::bitmap_8x8();
+        let mut raster = font.raster_for_output(GlyphId::new(65), 8, 8).unwrap();
+        raster.offset_x = Fixed::from_int(-2);
+        raster.offset_y = Fixed::from_int(5);
+        let first = FlowPoint {
+            x: 10 * 256,
+            y: 20 * 256,
+        };
+        let glyph = PositionedGlyph::new(
+            GlyphId::new(65),
+            FlowPoint {
+                x: 13 * 256,
+                y: 24 * 256,
+            },
+        )
+        .with_offset(FlowPoint { x: 128, y: -64 });
+        let transform = Transform::translate(Fixed::from_int(2), Fixed::from_int(-3));
+        let expected = RasterQuad {
+            rect: Rect {
+                x: Fixed::from_ratio(17, 2),
+                y: Fixed::from_ratio(75, 4),
+                w: Fixed::from_int(12),
+                h: Fixed::from_int(12),
+            },
+            transform,
+        };
+        let allocations = crate::test_support::tracked_allocations(|| {
+            let quad = raster
+                .positioned_quad(
+                    Point::new(7, 11),
+                    first,
+                    &glyph,
+                    12,
+                    Fixed::from_int(9),
+                    transform,
+                )
+                .unwrap();
+            assert_eq!(quad, expected);
+            let posed = raster
+                .posed_quad(
+                    Point::new(7, 20),
+                    textflow::placement::GlyphFrame {
+                        local_origin: FlowPoint {
+                            x: 3 * 256 + 128,
+                            y: 4 * 256 - 64,
+                        },
+                        unit_tangent: FlowPoint { x: 256, y: 0 },
+                    },
+                    12,
+                    transform,
+                )
+                .unwrap();
+            assert_eq!(
+                quad.transform.apply_rect(quad.rect),
+                posed.transform.apply_rect(posed.rect)
+            );
+        });
+        assert_eq!(allocations, 0);
+    }
+
+    #[test]
+    fn raster_geometry_rejects_missing_ink_and_position_overflow() {
+        use textflow::shaping::{FlowPoint, PositionedGlyph};
+
+        let font = Font::bitmap_8x8();
+        let mut raster = font.raster_for_output(GlyphId::new(65), 8, 8).unwrap();
+        let quad = |raster: RasterGlyph<'_>, first, glyph: PositionedGlyph| {
+            raster.positioned_quad(
+                Point::ZERO,
+                first,
+                &glyph,
+                8,
+                Fixed::ONE,
+                Transform::IDENTITY,
+            )
+        };
+        let origin = FlowPoint { x: 0, y: 0 };
+        let glyph = PositionedGlyph::new(GlyphId::new(65), origin);
+        assert!(quad(raster, FlowPoint { x: i32::MIN, y: 0 }, glyph).is_none());
+        assert!(
+            quad(
+                raster,
+                origin,
+                PositionedGlyph::new(glyph.glyph_id(), FlowPoint { x: 0, y: i32::MAX },)
+                    .with_offset(FlowPoint { x: 0, y: 1 })
+            )
+            .is_none()
+        );
+        for region in [None, ::mirx::image::Region::new(0, 0, 0, 0).ok()] {
+            raster.region = region;
+            assert!(quad(raster, origin, glyph).is_none());
+            assert!(
+                raster
+                    .posed_quad(Point::ZERO, Default::default(), 8, Transform::IDENTITY)
+                    .is_none()
+            );
+        }
+    }
 
     #[cfg(any(
         feature = "sdl-gpu",

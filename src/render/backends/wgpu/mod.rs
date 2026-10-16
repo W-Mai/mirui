@@ -2151,29 +2151,16 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             color,
             opacity,
             projective,
-            |_, positioned, raster, region| {
-                let dx = positioned
-                    .origin
-                    .x
-                    .checked_sub(first.origin.x)?
-                    .checked_add(positioned.offset.x)?;
-                let dy = positioned
-                    .origin
-                    .y
-                    .checked_sub(first.origin.y)?
-                    .checked_add(positioned.offset.y)?;
-                let scale = Fixed::from_int(i32::from(requested_size))
-                    / Fixed::from_int(i32::from(raster.representation.design_ppem().max(1)));
-                Some((
-                    Rect {
-                        x: pos.x + crate::types::fixed::from_textflow(dx) + raster.offset_x,
-                        y: pos.y + metrics.ascender + crate::types::fixed::from_textflow(dy)
-                            - raster.offset_y,
-                        w: Fixed::from_int(region.width() as i32) * scale,
-                        h: Fixed::from_int(region.height() as i32) * scale,
-                    },
+            |_, positioned, raster, _| {
+                let quad = raster.positioned_quad(
+                    *pos,
+                    first.origin,
+                    positioned,
+                    requested_size,
+                    metrics.ascender,
                     *transform,
-                ))
+                )?;
+                Some((quad.rect, quad.transform))
             },
         );
     }

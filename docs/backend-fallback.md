@@ -144,6 +144,8 @@ SDL, WGPU and Web Canvas uploads read through validated pixel borrows on cache m
 
 SDL and WGPU scalar glyph surfaces use a shared cache key containing the font face, revision, surface identity, dimensions, stride and sample layout. Backend upload formats and byte budgets remain independent; SDL uses RGBA coverage textures while WGPU uses single-channel coverage storage.
 
+Raster glyph geometry shares representation scaling and bearing calculations for positioned and path-placed text. Positioned runs account for the first glyph origin, shaping offsets and font ascender; path placement supplies its own baseline frame. WGPU positioned glyphs use this geometry without changing their sampling or batching.
+
 In a View, `paint.read_pixels(texture)` borrows the source pixels and retains read errors for the render walker. A `None` result means the paint has failed, not that an output is absent; check `outputs.get(entity)` separately. The pixel borrow does not borrow the paint context, so the callback can continue drawing while reading it. Temporal, reflection and drop effects use this access path with their existing workspace and history.
 
 ```rust
