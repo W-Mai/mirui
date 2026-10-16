@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- SDL-GPU supports source-owned RGBA8 native targets, incremental drawing, nested state restoration and alpha-aware software fallback. Invalid or abandoned target scopes prevent unsafe device reuse.
+
 - SDL-GPU surfaces and upload caches share device ownership and resource invalidation. Driver borrows exclude source preparation, software fallback and region-edit callbacks.
 
 - Native output storage has a backend extension contract with checked plane geometry, explicit alpha encoding, allocation requirements and source-owned pixel readback.

@@ -12,6 +12,10 @@ A target owns the device resources required to sample, read and release its stor
 
 SDL-GPU surfaces and upload caches share one renderer/window owner and resource generation. Temporary renderers borrow driver state only during upload, drawing or readback. Source pixel preparation, CPU glyph rasterization, software fallback and region-edit callbacks run outside that borrow. A conflicting driver borrow returns `RenderError::InvalidScope`; retained caches keep the underlying renderer alive until their textures are released.
 
+SDL-GPU native targets use single-sample, packed RGBA8 storage with premultiplied channels. Window MSAA does not add multisample attachments to these textures. Targets retain their renderer owner and remain readable after the surface and factory are dropped. Rebuilding clears the complete target; incremental scopes preserve valid contents. Binding saves the parent target, viewport, clip, scale, logical size, draw color and blend mode. Failed, abandoned, out-of-order or stale restoration prevents further device submission.
+
+SDL source reads and region-edit callbacks expose straight-alpha pixels. Software fallback converts the affected region before drawing and converts it back before replacement, reusing its existing workspace. Non-source-over composites on transparent native targets use this path. Source readback accepts padded destinations, including buffers without trailing padding after the final row. Prepared nested binding and source readback allocate no additional Rust storage; target creation and explicit snapshots allocate storage.
+
 ## Source reads
 
 `read_pixels_into` receives a prepared `TexturePixelsMut` with matching dimensions and format. It writes straight-alpha pixels using the destination stride, including when native storage is premultiplied. The source implementation completes necessary pending writes and restores any changed device state on both success and error. Device restoration failures must prevent further submission.

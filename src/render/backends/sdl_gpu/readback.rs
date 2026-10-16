@@ -1,17 +1,66 @@
 use crate::render::texture::{ColorFormat, Texture};
-use crate::render::{PlaneLayout, PlaneRequirements, RenderError};
+use crate::render::{PlaneLayout, PlaneRequirements, RenderError, TargetAlpha};
 use crate::types::PhysicalRect;
 use sdl2::render::{Canvas, RenderTarget};
 
 pub(super) fn texture<T: RenderTarget>(
     canvas: &Canvas<T>,
     area: PhysicalRect,
+    alpha: TargetAlpha,
 ) -> Result<Texture<'static>, RenderError> {
     let mut texture = Texture::owned(area.width(), area.height(), ColorFormat::RGBA8888)?;
     let mut pixels = texture.pixels_mut()?;
     let stride = pixels.stride();
     rgba8(canvas, area, pixels.bytes_mut(), stride)?;
+    convert_alpha(
+        pixels.bytes_mut(),
+        area.width(),
+        area.height(),
+        stride,
+        alpha,
+        TargetAlpha::Straight,
+    )?;
+    texture.alpha_mode = crate::render::texture::AlphaMode::Blend;
     Ok(texture)
+}
+
+pub(super) fn convert_alpha(
+    bytes: &mut [u8],
+    width: u16,
+    height: u16,
+    stride: usize,
+    from: TargetAlpha,
+    to: TargetAlpha,
+) -> Result<(), RenderError> {
+    if from == to {
+        return Ok(());
+    }
+    let layout = PlaneLayout::new(
+        width,
+        height,
+        ColorFormat::RGBA8888,
+        stride,
+        PlaneRequirements::CPU,
+    )
+    .map_err(|_| RenderError::InvalidTexture)?;
+    if bytes.len() < layout.minimum_bytes() {
+        return Err(RenderError::InvalidTexture);
+    }
+    for y in 0..usize::from(height) {
+        for pixel in bytes[y * stride..][..usize::from(width) * 4].chunks_exact_mut(4) {
+            let alpha = u32::from(pixel[3]);
+            for channel in &mut pixel[..3] {
+                *channel = match to {
+                    TargetAlpha::Premultiplied => ((u32::from(*channel) * alpha + 127) / 255) as u8,
+                    TargetAlpha::Straight if alpha == 0 => 0,
+                    TargetAlpha::Straight => {
+                        ((u32::from(*channel) * 255 + alpha / 2) / alpha).min(255) as u8
+                    }
+                };
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn rgba8<T: RenderTarget>(
@@ -31,7 +80,7 @@ pub(super) fn rgba8<T: RenderTarget>(
         PlaneRequirements::CPU,
     )
     .map_err(|_| RenderError::InvalidTexture)?;
-    if bytes.len() < layout.required_bytes() {
+    if bytes.len() < layout.minimum_bytes() {
         return Err(RenderError::InvalidTexture);
     }
     let pitch = i32::try_from(stride).map_err(|_| RenderError::InvalidTexture)?;
@@ -41,7 +90,40 @@ pub(super) fn rgba8<T: RenderTarget>(
         w: i32::from(area.width()),
         h: i32::from(area.height()),
     };
-    // The canvas owns a live renderer; the checked destination contains every pitched row.
+    if bytes.len() < layout.required_bytes() {
+        let last = usize::from(area.height() - 1) * stride;
+        if area.height() > 1 {
+            read_rows(
+                canvas,
+                sdl2_sys::SDL_Rect {
+                    h: rect.h - 1,
+                    ..rect
+                },
+                &mut bytes[..last],
+                pitch,
+            )?;
+        }
+        return read_rows(
+            canvas,
+            sdl2_sys::SDL_Rect {
+                y: rect.y + rect.h - 1,
+                h: 1,
+                ..rect
+            },
+            &mut bytes[last..],
+            i32::from(area.width()) * 4,
+        );
+    }
+    read_rows(canvas, rect, bytes, pitch)
+}
+
+fn read_rows<T: RenderTarget>(
+    canvas: &Canvas<T>,
+    rect: sdl2_sys::SDL_Rect,
+    bytes: &mut [u8],
+    pitch: i32,
+) -> Result<(), RenderError> {
+    // rgba8 validates every pitched row; a short final row uses its packed width.
     let result = unsafe {
         sdl2_sys::SDL_RenderReadPixels(
             canvas.raw(),
@@ -64,6 +146,50 @@ mod tests {
     use crate::test_support::tracked_allocations;
 
     #[test]
+    fn alpha_conversion_preserves_valid_premultiplied_values_and_row_padding() {
+        for alpha in 0..=255u8 {
+            for channel in 0..=alpha {
+                let mut bytes = [channel, channel, channel, alpha, 0xa5, 0xa5, 0xa5, 0xa5];
+                convert_alpha(
+                    &mut bytes,
+                    1,
+                    1,
+                    8,
+                    TargetAlpha::Premultiplied,
+                    TargetAlpha::Straight,
+                )
+                .unwrap();
+                convert_alpha(
+                    &mut bytes,
+                    1,
+                    1,
+                    8,
+                    TargetAlpha::Straight,
+                    TargetAlpha::Premultiplied,
+                )
+                .unwrap();
+                assert_eq!(
+                    bytes,
+                    [channel, channel, channel, alpha, 0xa5, 0xa5, 0xa5, 0xa5]
+                );
+            }
+        }
+        let mut bytes = [0xa5; 8];
+        assert_eq!(
+            convert_alpha(
+                &mut bytes,
+                2,
+                2,
+                8,
+                TargetAlpha::Straight,
+                TargetAlpha::Premultiplied
+            ),
+            Err(RenderError::InvalidTexture)
+        );
+        assert_eq!(bytes, [0xa5; 8]);
+    }
+
+    #[test]
     fn reads_into_prepared_rows_without_rust_allocations_or_padding_writes() {
         let surface =
             sdl2::surface::Surface::new(4, 3, sdl2::pixels::PixelFormatEnum::RGBA32).unwrap();
@@ -83,7 +209,7 @@ mod tests {
             assert_eq!(&row[..8], &[17, 39, 83, 127, 17, 39, 83, 127]);
             assert_eq!(&row[8..], &[0xa5; 8]);
         }
-        let snapshot = texture(&canvas, area).unwrap();
+        let snapshot = texture(&canvas, area, TargetAlpha::Straight).unwrap();
         canvas.set_draw_color(sdl2::pixels::Color::RGBA(0, 0, 0, 0));
         canvas.clear();
         drop(canvas);
@@ -110,5 +236,20 @@ mod tests {
             assert_eq!(bytes, [0xa5; 16]);
         }
         assert_eq!(rgba8(&canvas, PhysicalRect::EMPTY, &mut [], 0), Ok(()));
+    }
+
+    #[test]
+    fn source_readback_accepts_omitted_padding_after_the_final_row() {
+        let surface =
+            sdl2::surface::Surface::new(2, 2, sdl2::pixels::PixelFormatEnum::RGBA32).unwrap();
+        let mut canvas = surface.into_canvas().unwrap();
+        canvas.set_draw_color(sdl2::pixels::Color::RGBA(17, 39, 83, 127));
+        canvas.clear();
+        let mut bytes = [0xa5; 20];
+        rgba8(&canvas, PhysicalRect::from_size(2, 2), &mut bytes, 12).unwrap();
+        assert_eq!(&bytes[..8], &[17, 39, 83, 127].repeat(2));
+        assert_eq!(&bytes[8..12], &[0xa5; 4]);
+        assert_eq!(&bytes[12..], &[17, 39, 83, 127].repeat(2));
+        rgba8(&canvas, PhysicalRect::from_size(2, 1), &mut bytes[..8], 12).unwrap();
     }
 }

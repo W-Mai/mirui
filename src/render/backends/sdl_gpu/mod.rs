@@ -17,6 +17,8 @@ mod quad;
 mod readback;
 mod rect_fill;
 mod rect_stroke;
+mod target;
+mod target_state;
 mod tessellation;
 mod texture_cache;
 
@@ -613,6 +615,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFact
             stroke_scratch: &mut self.stroke_scratch,
             viewport,
             failure: None,
+            native_target: false,
         }
     }
 
@@ -624,7 +627,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFact
 }
 
 pub struct SdlGpuRenderer<'a, S = Box<[u8]>> {
-    device: &'a Device,
+    device: &'a Rc<Device>,
     label_cache: &'a mut LabelCache,
     tessellator: &'a mut TessellationCache,
     texture_cache: &'a mut TextureCache,
@@ -632,9 +635,18 @@ pub struct SdlGpuRenderer<'a, S = Box<[u8]>> {
     stroke_scratch: &'a mut StrokeScratch,
     viewport: Viewport,
     failure: Option<RenderError>,
+    native_target: bool,
 }
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
+    fn target_alpha(&self) -> crate::render::TargetAlpha {
+        if self.native_target {
+            crate::render::TargetAlpha::Premultiplied
+        } else {
+            crate::render::TargetAlpha::Straight
+        }
+    }
+
     fn physical_clip_rect(&self, src: &Rect) -> Option<PhysicalRect> {
         let (pw, ph) = self.viewport.physical_size();
         self.viewport
@@ -689,6 +701,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         if plan.width() == 0 || plan.height() == 0 {
             return Ok(());
         }
+        let alpha = self.target_alpha();
         let fallback = self
             .projective_fallback
             .as_deref_mut()
@@ -700,8 +713,24 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             target,
             plan.region().stride_bytes(),
         )?;
+        readback::convert_alpha(
+            target,
+            plan.width(),
+            plan.height(),
+            plan.region().stride_bytes(),
+            alpha,
+            crate::render::TargetAlpha::Straight,
+        )?;
 
         fallback.render(plan, command, projective, self.viewport)?;
+        readback::convert_alpha(
+            fallback.target_mut(plan),
+            plan.width(),
+            plan.height(),
+            plan.region().stride_bytes(),
+            crate::render::TargetAlpha::Straight,
+            alpha,
+        )?;
         let target = fallback.target(plan);
         let mut canvas = self.device.canvas()?;
         let mut texture = self
@@ -730,7 +759,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
 }
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
-    fn needs_blit_fallback(request: &DrawRequest<'_, '_>) -> bool {
+    fn needs_blit_fallback(request: &DrawRequest<'_, '_>, native_target: bool) -> bool {
         match request.command {
             DrawCommand::Blit {
                 quad,
@@ -739,7 +768,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 transform,
                 ..
             } => {
-                if *radius > Fixed::ZERO {
+                if *radius > Fixed::ZERO
+                    || (native_target && *composite != CompositeMode::SourceOver)
+                {
                     return true;
                 }
                 match quad {
@@ -806,7 +837,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             _ => false,
         };
         if !supports_affine
-            && !Self::needs_blit_fallback(request)
+            && !Self::needs_blit_fallback(request, false)
             && !matches!(
                 request.command.transform().classify(),
                 TransformClass::Identity | TransformClass::Translate
@@ -845,7 +876,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
         }
         if request.projective.is_identity()
-            && !Self::needs_blit_fallback(request)
+            && !Self::needs_blit_fallback(request, self.native_target)
             && !paint_fallback
         {
             return Ok(RenderRoute::Native);
@@ -875,6 +906,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,
     ) -> Result<(), RenderError> {
+        self.device.check()?;
         if let Some(error) = self.failure {
             return Err(error);
         }
@@ -889,7 +921,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
         }
         let needs_fallback = !request.projective.is_identity()
-            || Self::needs_blit_fallback(request)
+            || Self::needs_blit_fallback(request, self.native_target)
             || paint_fallback;
         if !needs_fallback {
             if route != RenderRoute::Native {
@@ -1171,6 +1203,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     }
 
     fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
+        self.device.check()?;
         if let Some(error) = self.failure {
             return Err(error);
         }
@@ -1192,7 +1225,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let Some(phys) = self.physical_clip_rect(src) else {
             return Ok(None);
         };
-        readback::texture(&*self.device.canvas()?, phys).map(Some)
+        readback::texture(&*self.device.canvas()?, phys, self.target_alpha()).map(Some)
     }
 
     fn read_target_region(
@@ -1203,7 +1236,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let Some(phys) = self.physical_clip_rect(src) else {
             return Ok(());
         };
-        let texture = readback::texture(&*self.device.canvas()?, phys)?;
+        let texture = readback::texture(&*self.device.canvas()?, phys, self.target_alpha())?;
         let pixels = texture.read_pixels()?;
         let (x, y, _, _) = self.viewport.rect_to_physical_pixel_bounds(*src);
         crate::render::renderer::copy_packed_rgba8(pixels.bytes(), phys, (x, y), dst)
@@ -1223,6 +1256,18 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         };
         let w = tex.width as u32;
         let h = tex.height as u32;
+        if self.native_target {
+            let mut pixels = tex.pixels_mut()?;
+            let stride = pixels.stride();
+            readback::convert_alpha(
+                pixels.bytes_mut(),
+                w as u16,
+                h as u16,
+                stride,
+                crate::render::TargetAlpha::Straight,
+                crate::render::TargetAlpha::Premultiplied,
+            )?;
+        }
         let pixels = tex.read_pixels()?;
         let bytes = pixels.bytes();
         let stride = pixels.stride();
@@ -1245,14 +1290,65 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
 }
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
-    type TargetState = ();
+    type TargetState = target::TargetState;
+
+    fn plan_target(
+        &self,
+        layout: crate::render::PlaneLayout,
+    ) -> Result<Option<crate::render::TargetPlan>, RenderError> {
+        target::plan(self.device, layout)
+    }
+
+    fn create_target(
+        &mut self,
+        plan: &crate::render::TargetPlan,
+    ) -> Result<Box<dyn crate::render::BackendTarget>, RenderError> {
+        target::create(self.device, plan)
+    }
+
+    fn bind_target(
+        &mut self,
+        target: &mut dyn crate::render::BackendTarget,
+        viewport: Viewport,
+        update: crate::render::TargetUpdate,
+        _workspace: &mut [u8],
+    ) -> Result<Self::TargetState, RenderError> {
+        let state = target::bind(
+            self.device,
+            target,
+            update,
+            viewport,
+            self.viewport,
+            self.failure,
+            self.native_target,
+        )?;
+        self.viewport = viewport;
+        self.failure = None;
+        self.native_target = true;
+        Ok(state)
+    }
+
+    fn restore_target(
+        &mut self,
+        state: Self::TargetState,
+        completed: bool,
+    ) -> Result<(), RenderError> {
+        self.viewport = state.viewport;
+        self.failure = state.failure;
+        self.native_target = state.native;
+        target::restore(self.device, state, completed)
+    }
 
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         SdlGpuRenderer::route(self, request)
     }
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-        SdlGpuRenderer::submit(self, request)
+        let result = SdlGpuRenderer::submit(self, request);
+        if let Err(error) = result {
+            self.failure.get_or_insert(error);
+        }
+        result
     }
 
     fn submit_with_route(
@@ -1260,7 +1356,11 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,
     ) -> Result<(), RenderError> {
-        SdlGpuRenderer::submit_with_route(self, request, route)
+        let result = SdlGpuRenderer::submit_with_route(self, request, route);
+        if let Err(error) = result {
+            self.failure.get_or_insert(error);
+        }
+        result
     }
 
     fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
@@ -1302,7 +1402,11 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
         src: &Rect,
         f: &mut dyn FnMut(&mut Texture) -> Result<(), RenderError>,
     ) -> Result<bool, RenderError> {
-        SdlGpuRenderer::modify_target_region(self, src, f)
+        let result = SdlGpuRenderer::modify_target_region(self, src, f);
+        if let Err(error) = result {
+            self.failure.get_or_insert(error);
+        }
+        result
     }
 }
 

@@ -9,25 +9,41 @@ pub(super) struct Device<T: RenderTarget = Window> {
     canvas: RefCell<Canvas<T>>,
     pub(super) creator: TextureCreator<T::Context>,
     generation: Cell<u64>,
+    failure: Cell<Option<RenderError>>,
+    pub(super) target_supported: bool,
+    pub(super) max_texture_size: (u32, u32),
     name: &'static str,
 }
 
 impl<T: RenderTarget> Device<T> {
     pub(super) fn new(canvas: Canvas<T>, creator: TextureCreator<T::Context>) -> Self {
         assert_eq!(canvas.raw(), creator.raw());
-        let name = canvas.info().name;
+        let info = canvas.info();
+        let target_supported = canvas.render_target_supported();
         Self {
             canvas: RefCell::new(canvas),
             creator,
             generation: Cell::new(0),
-            name,
+            failure: Cell::new(None),
+            target_supported,
+            max_texture_size: (info.max_texture_width, info.max_texture_height),
+            name: info.name,
         }
     }
 
     pub(super) fn canvas(&self) -> Result<RefMut<'_, Canvas<T>>, RenderError> {
+        self.check()?;
         self.canvas
             .try_borrow_mut()
             .map_err(|_| RenderError::InvalidScope)
+    }
+
+    pub(super) fn check(&self) -> Result<(), RenderError> {
+        self.failure.get().map_or(Ok(()), Err)
+    }
+
+    pub(super) fn poison(&self) {
+        self.failure.set(Some(RenderError::BackendFailure));
     }
 
     pub(super) fn name(&self) -> &'static str {
@@ -40,6 +56,7 @@ impl<T: RenderTarget> Device<T> {
 
     pub(super) fn invalidate(&self) {
         self.generation.set(self.generation.get().wrapping_add(1));
+        self.failure.set(None);
     }
 }
 

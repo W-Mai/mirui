@@ -18,7 +18,9 @@ fn axis_blit_fallback_preserves_rounded_and_composite_requests() {
             composite: CompositeMode::Screen,
         };
         let request = DrawRequest::new(&command, Rect::new(0, 0, 20, 20));
-        assert!(SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(&request));
+        assert!(SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(
+            &request, false
+        ));
         assert_eq!(
             SdlGpuRenderer::<Box<[u8]>>::classify_request(&request),
             Ok(())
@@ -35,7 +37,8 @@ fn axis_blit_fallback_preserves_rounded_and_composite_requests() {
         composite: CompositeMode::SourceOver,
     };
     assert!(!SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(
-        &DrawRequest::new(&ordinary, Rect::new(0, 0, 20, 20))
+        &DrawRequest::new(&ordinary, Rect::new(0, 0, 20, 20)),
+        false
     ));
     let rotated = DrawCommand::Blit {
         pos: Point::new(2, 2),
@@ -48,7 +51,8 @@ fn axis_blit_fallback_preserves_rounded_and_composite_requests() {
         composite: CompositeMode::SourceOver,
     };
     assert!(SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(
-        &DrawRequest::new(&rotated, Rect::new(0, 0, 20, 20))
+        &DrawRequest::new(&rotated, Rect::new(0, 0, 20, 20)),
+        false
     ));
 }
 
@@ -74,7 +78,9 @@ fn non_affine_explicit_quad_uses_exact_fallback() {
         composite: CompositeMode::SourceOver,
     };
     let request = DrawRequest::new(&command, Rect::new(0, 0, 20, 20));
-    assert!(SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(&request));
+    assert!(SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(
+        &request, false
+    ));
     assert_eq!(
         SdlGpuRenderer::<Box<[u8]>>::classify_request(&request),
         Ok(())
@@ -241,7 +247,8 @@ fn distinguishes_sdl_gpu_quad_composite_and_affine_support() {
         Ok(())
     );
     assert!(SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(
-        &DrawRequest::new(&blit, clip)
+        &DrawRequest::new(&blit, clip),
+        false
     ));
 
     let line = DrawCommand::Line {
@@ -256,4 +263,36 @@ fn distinguishes_sdl_gpu_quad_composite_and_affine_support() {
         SdlGpuRenderer::<Box<[u8]>>::classify_request(&DrawRequest::new(&line, clip)),
         Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
     );
+}
+
+#[test]
+fn transparent_targets_use_straight_alpha_fallback_for_composite_modes() {
+    let texture = Texture::from_static(&[255; 4], 1, 1, ColorFormat::RGBA8888).unwrap();
+    for composite in [
+        CompositeMode::SourceOver,
+        CompositeMode::Add,
+        CompositeMode::Multiply,
+        CompositeMode::Screen,
+        CompositeMode::Darken,
+        CompositeMode::Lighten,
+        CompositeMode::Difference,
+    ] {
+        let command = DrawCommand::Blit {
+            pos: Point::ZERO,
+            size: Point::new(4, 4),
+            transform: Transform::IDENTITY,
+            quad: None,
+            texture: &texture,
+            opa: 128,
+            radius: Fixed::ZERO,
+            composite,
+        };
+        assert_eq!(
+            SdlGpuRenderer::<Box<[u8]>>::needs_blit_fallback(
+                &DrawRequest::new(&command, Rect::new(0, 0, 4, 4)),
+                true
+            ),
+            composite != CompositeMode::SourceOver,
+        );
+    }
 }
