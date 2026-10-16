@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- View path clips use bounded software scopes when native clipping is unavailable. Region translation preserves affine drawing and clip transforms without replaying View callbacks.
+
 - SDL-GPU and native WGPU target readback write directly into destination pixel regions without an intermediate CPU texture, preserving clipped offsets and row padding.
 
 - Native output production reuses budgeted binding workspace independently of View paint workspace, with capacity checks before target writes.

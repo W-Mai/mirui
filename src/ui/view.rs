@@ -11,7 +11,9 @@ use crate::ecs::{Entity, World};
 use crate::render::command::DrawCommand;
 use crate::render::path::Path;
 use crate::render::raster::FillRule;
-use crate::render::renderer::{DrawRequest, RenderError, Renderer, TextRunIdentity};
+use crate::render::renderer::{
+    DrawRequest, FallbackRegion, RenderError, RenderFeature, RenderRoute, Renderer, TextRunIdentity,
+};
 use crate::render::scratch::PlaneLayout;
 use crate::render::texture::{Texture, TexturePixels};
 use crate::types::{Point, Rect, Transform};
@@ -20,6 +22,8 @@ use crate::ui::outputs::workspace::PaintWorkspace;
 use crate::ui::outputs::{OutputDependency, relations::OutputRelations};
 use crate::ui::theme::WidgetState;
 
+#[cfg(test)]
+mod clip_tests;
 #[cfg(test)]
 mod query_tests;
 
@@ -193,17 +197,15 @@ impl<'frame> PaintCtx<'frame> {
         }
     }
 
-    /// Draw inside a path clip and restore the renderer clip stack after the
-    /// body returns.
+    /// Draw inside a path clip, using the renderer's software scope when native path clipping is unavailable. The callback borrows the scope's drawing context and executes at most once.
     ///
-    /// The body is skipped when entering the clip fails. If drawing the body
-    /// fails, the matching pop still runs and the first failure is retained.
+    /// The body is skipped when entering the clip fails. If drawing the body fails, the matching pop still runs and the first failure is retained.
     pub fn with_clip_path(
         &mut self,
         path: &Path,
         transform: Transform,
         fill_rule: FillRule,
-        body: impl FnOnce(&mut Self),
+        body: impl FnOnce(&mut PaintCtx<'_>),
     ) {
         if self.error.is_some() {
             return;
@@ -215,7 +217,26 @@ impl<'frame> PaintCtx<'frame> {
             transform,
             fill_rule,
         };
-        let result = self.renderer.submit(&DrawRequest::new(&push, clip));
+        let region = match self.renderer.route(&DrawRequest::new(&push, clip)) {
+            Ok(RenderRoute::Native) => {
+                self.draw_clip_scope(&push, body);
+                return;
+            }
+            Ok(RenderRoute::ExactFallback(region)) => Ok(region),
+            Err(RenderError::Unsupported(RenderFeature::PathClip)) => {
+                self.renderer.plan_scope(&clip)
+            }
+            Err(error) => Err(error),
+        };
+        match region {
+            Ok(region) => self.draw_software_clip_scope(region, &push, body),
+            Err(error) => self.fail(error),
+        }
+    }
+
+    fn draw_clip_scope(&mut self, push: &DrawCommand<'_>, body: impl FnOnce(&mut PaintCtx<'_>)) {
+        let clip = *self.clip;
+        let result = self.renderer.submit(&DrawRequest::new(push, clip));
         self.retain_error(result);
         if self.error.is_some() {
             return;
@@ -227,6 +248,44 @@ impl<'frame> PaintCtx<'frame> {
             .renderer
             .submit(&DrawRequest::new(&DrawCommand::PopClip, clip));
         self.retain_error(result);
+    }
+
+    fn draw_software_clip_scope(
+        &mut self,
+        region: FallbackRegion,
+        push: &DrawCommand<'_>,
+        body: impl FnOnce(&mut PaintCtx<'_>),
+    ) {
+        let mut body = Some(body);
+        let mut error = None;
+        let result = self.renderer.render_scope(region, &mut |renderer| {
+            let body = body.take().ok_or(RenderError::InvalidScope)?;
+            let mut paint = PaintCtx {
+                renderer,
+                style: self.style,
+                rect: self.rect,
+                clip: self.clip,
+                transform: self.transform,
+                quad: self.quad,
+                state: self.state,
+                background_handled: self.background_handled,
+                error: None,
+                workspace: self.workspace,
+                layout_offset: self.layout_offset,
+                frame_request: self.frame_request,
+                query_reads_global: self.query_reads_global,
+            };
+            paint.draw_clip_scope(push, body);
+            self.background_handled = paint.background_handled;
+            self.frame_request = paint.frame_request;
+            self.query_reads_global = paint.query_reads_global;
+            error = paint.error;
+            error.map_or(Ok(()), Err)
+        });
+        if let Some(error) = error {
+            self.fail(error);
+        }
+        self.retain_error(result.map(|_| ()));
     }
 
     /// Replay borrowed scene operations and retain the first failure.
@@ -3501,6 +3560,10 @@ mod tests {
 
         impl Renderer for ClipRenderer {
             type TargetState = ();
+
+            fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+                Ok(RenderRoute::Native)
+            }
 
             fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 match request.command {

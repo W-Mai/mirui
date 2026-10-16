@@ -74,6 +74,7 @@ impl CompositeMode {
 /// An optional `quad` is explicit leaf geometry, not inherited projective
 /// state. Widget and scene homographies are supplied through
 /// [`crate::render::renderer::Renderer::submit`].
+#[derive(Clone, Copy)]
 pub enum DrawCommand<'a> {
     Fill {
         area: Rect,
@@ -189,8 +190,9 @@ impl DrawCommand<'_> {
             | Self::Arc { transform, .. }
             | Self::Blit { transform, .. }
             | Self::FillPath { transform, .. }
-            | Self::StrokePath { transform, .. } => transform,
-            Self::PushClip { .. } | Self::PopClip | Self::ApplyBlur { .. } => Transform::IDENTITY,
+            | Self::StrokePath { transform, .. }
+            | Self::PushClip { transform, .. } => transform,
+            Self::PopClip | Self::ApplyBlur { .. } => Transform::IDENTITY,
         }
     }
 }

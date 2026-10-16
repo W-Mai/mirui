@@ -267,65 +267,48 @@ impl RegionRenderer<'_> {
         }
     }
 
-    fn explicit_quad<'data>(&self, command: &DrawCommand<'data>) -> Option<DrawCommand<'data>> {
+    fn local_command<'data>(&self, request: &DrawRequest<'_, 'data>) -> Option<DrawCommand<'data>> {
         let translate = |point: crate::types::Point| crate::types::Point {
             x: point.x - self.origin_x,
             y: point.y - self.origin_y,
         };
-        match command {
+        let mut command = *request.command;
+        match &mut command {
             DrawCommand::Fill {
-                area,
-                transform,
-                quad: Some(quad),
-                color,
-                radius,
-                opa,
-            } => Some(DrawCommand::Fill {
-                area: *area,
-                transform: *transform,
-                quad: Some(quad.map(translate)),
-                color: *color,
-                radius: *radius,
-                opa: *opa,
-            }),
-            DrawCommand::Border {
-                area,
-                transform,
-                quad: Some(quad),
-                color,
-                width,
-                radius,
-                opa,
-            } => Some(DrawCommand::Border {
-                area: *area,
-                transform: *transform,
-                quad: Some(quad.map(translate)),
-                color: *color,
-                width: *width,
-                radius: *radius,
-                opa: *opa,
-            }),
-            DrawCommand::Blit {
-                pos,
-                size,
-                transform,
-                quad: Some(quad),
-                texture,
-                opa,
-                radius,
-                composite,
-            } => Some(DrawCommand::Blit {
-                pos: *pos,
-                size: *size,
-                transform: *transform,
-                quad: Some(quad.map(translate)),
-                texture,
-                opa: *opa,
-                radius: *radius,
-                composite: *composite,
-            }),
-            _ => None,
+                quad: Some(quad), ..
+            }
+            | DrawCommand::Border {
+                quad: Some(quad), ..
+            }
+            | DrawCommand::Blit {
+                quad: Some(quad), ..
+            } => {
+                *quad = quad.map(translate);
+                return Some(command);
+            }
+            _ => {}
         }
+        if !request.projective.is_identity() {
+            return None;
+        }
+        match &mut command {
+            DrawCommand::Fill { transform, .. }
+            | DrawCommand::Border { transform, .. }
+            | DrawCommand::Blit { transform, .. }
+            | DrawCommand::GlyphRun { transform, .. }
+            | DrawCommand::PosedGlyphRun { transform, .. }
+            | DrawCommand::Line { transform, .. }
+            | DrawCommand::Arc { transform, .. }
+            | DrawCommand::FillPath { transform, .. }
+            | DrawCommand::StrokePath { transform, .. }
+            | DrawCommand::PushClip { transform, .. } => {
+                *transform = crate::types::Transform::translate(-self.origin_x, -self.origin_y)
+                    .compose(transform);
+            }
+            DrawCommand::ApplyBlur { region, .. } => *region = self.clip(*region),
+            DrawCommand::PopClip => {}
+        }
+        Some(command)
     }
 
     fn request<'cmd, 'data>(&self, request: &DrawRequest<'cmd, 'data>) -> DrawRequest<'cmd, 'data> {
@@ -362,7 +345,7 @@ impl Renderer for RegionRenderer<'_> {
     }
 
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
-        if let Some(command) = self.explicit_quad(request.command) {
+        if let Some(command) = self.local_command(request) {
             return self.inner.route(
                 &DrawRequest::new(&command, self.clip(request.clip))
                     .with_projective(request.projective),
@@ -372,7 +355,7 @@ impl Renderer for RegionRenderer<'_> {
     }
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-        if let Some(command) = self.explicit_quad(request.command) {
+        if let Some(command) = self.local_command(request) {
             return self.inner.submit(
                 &DrawRequest::new(&command, self.clip(request.clip))
                     .with_projective(request.projective),
@@ -386,7 +369,7 @@ impl Renderer for RegionRenderer<'_> {
         request: &DrawRequest<'_, '_>,
         identity: TextRunIdentity,
     ) -> Result<(), RenderError> {
-        if let Some(command) = self.explicit_quad(request.command) {
+        if let Some(command) = self.local_command(request) {
             return self.inner.submit_text_run(
                 &DrawRequest::new(&command, self.clip(request.clip))
                     .with_projective(request.projective),
@@ -401,7 +384,7 @@ impl Renderer for RegionRenderer<'_> {
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,
     ) -> Result<(), RenderError> {
-        if let Some(command) = self.explicit_quad(request.command) {
+        if let Some(command) = self.local_command(request) {
             return self.inner.submit_with_route(
                 &DrawRequest::new(&command, self.clip(request.clip))
                     .with_projective(request.projective),
@@ -1309,7 +1292,7 @@ mod tests {
     fn region_forwards_text_run_identity_and_rebased_request() {
         #[derive(Default)]
         struct Recorder {
-            seen: Option<(TextRunIdentity, Rect, Transform3D)>,
+            seen: Option<(TextRunIdentity, Rect, Transform3D, Rect)>,
         }
 
         impl Renderer for Recorder {
@@ -1324,7 +1307,10 @@ mod tests {
                 request: &DrawRequest<'_, '_>,
                 identity: TextRunIdentity,
             ) -> Result<(), RenderError> {
-                self.seen = Some((identity, request.clip, request.projective));
+                let DrawCommand::ApplyBlur { region, .. } = request.command else {
+                    panic!("test command changed");
+                };
+                self.seen = Some((identity, request.clip, request.projective, *region));
                 Ok(())
             }
 
@@ -1354,7 +1340,8 @@ mod tests {
             Some((
                 identity,
                 Rect::new(0, 0, 8, 9),
-                Transform3D::translate(Fixed::from_int(-3), Fixed::from_int(-4)),
+                Transform3D::IDENTITY,
+                Rect::new(0, 0, 8, 9),
             ))
         );
     }

@@ -4883,7 +4883,7 @@ mod tests {
         let clip = Rect::new(0, 0, 8, 8);
         let push = DrawCommand::PushClip {
             path: &path,
-            transform: Transform::IDENTITY,
+            transform: Transform::translate(Fixed::ONE, Fixed::ONE),
             fill_rule: crate::render::raster::FillRule::NonZero,
         };
         let fill = DrawCommand::Fill {
@@ -4894,7 +4894,7 @@ mod tests {
             radius: Fixed::ZERO,
             opa: 255,
         };
-        let projection = Transform3D::translate(Fixed::from_int(2), Fixed::ONE);
+        let projection = Transform3D::translate(Fixed::ONE, Fixed::ZERO);
 
         renderer
             .submit(&DrawRequest::new(&push, clip).with_projective(projection))

@@ -9,6 +9,8 @@ else either enters an exact bounded fallback or returns a typed error.
 
 ## Route contract
 
+`PaintCtx::with_clip_path` uses native clipping when supported and otherwise executes its complete body through `plan_scope` and `render_scope`. Planning failure skips the body; successful entry executes it once, preserves nested clip order and drawing context, and retains drawing failures before writeback failures. Region rebasing preserves affine commands as affine operations instead of selecting a projective raster path for a translation.
+
 `RenderRoute::Native` performs no fallback allocation, readback, or upload.
 `RenderRoute::ExactFallback(FallbackRegion)` carries the physical destination
 and row stride required by a prepared software replay. Planning completes
