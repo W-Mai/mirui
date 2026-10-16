@@ -441,9 +441,7 @@ pub struct WgpuRenderer<'a, B: WgpuTarget> {
 }
 
 struct Frame {
-    texture: wgpu::Texture,
-    swapchain_view: wgpu::TextureView,
-    msaa_view: Option<wgpu::TextureView>,
+    target: FrameTarget,
     encoder: wgpu::CommandEncoder,
     /// One viewport uniform shared across the frame's draws.
     viewport_buf: wgpu::Buffer,
@@ -458,10 +456,36 @@ struct Frame {
     path_bind_group: Option<wgpu::BindGroup>,
     /// Encoded into one render pass on `flush`.
     ops: alloc::vec::Vec<DrawOp>,
-    /// Tracks whether a render pass has already cleared/written the
-    /// swapchain target so the next partial flush picks `LoadOp::Load`
-    /// instead of clearing the already-written pixels.
+}
+
+struct FrameTarget {
+    view: wgpu::TextureView,
+    msaa_view: Option<wgpu::TextureView>,
     has_committed_pass: bool,
+}
+
+impl FrameTarget {
+    fn texture(&self) -> &wgpu::Texture {
+        self.view.texture()
+    }
+
+    fn pipeline_key(&self, shader: ShaderKind, composite: CompositeMode) -> PipelineKey {
+        PipelineKey {
+            shader,
+            format: self.texture().format(),
+            samples: self
+                .msaa_view
+                .as_ref()
+                .unwrap_or(&self.view)
+                .texture()
+                .sample_count(),
+            composite,
+        }
+    }
+
+    fn clip_rect(&self, viewport: Viewport, rect: Rect) -> Option<PhysicalRect> {
+        viewport.physical_rect_in(rect, self.texture().width(), self.texture().height())
+    }
 }
 
 /// A full arena starts another ordered pass before its offsets are reused.
@@ -811,8 +835,8 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         let mut pixels = wgpu_readback_rgba8(
             &state.device,
             &state.queue,
-            &frame.texture,
-            state.config.format,
+            frame.target.texture(),
+            frame.target.texture().format(),
             u32::from(plan.x()),
             u32::from(plan.y()),
             u32::from(plan.width()),
@@ -973,7 +997,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             .surface
             .state()
             .expect("WgpuSurface state missing in begin_frame");
-        let swapchain_view = surface_texture
+        let view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
         let msaa_view = state
@@ -989,8 +1013,8 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         // Logical pixels — NDC scales onto the physical swapchain.
         let viewport_uniform = ViewportUniform {
             size: [
-                state.config.width as f32 / scale,
-                state.config.height as f32 / scale,
+                surface_texture.texture.width() as f32 / scale,
+                surface_texture.texture.height() as f32 / scale,
             ],
             _pad: [0.0, 0.0],
         };
@@ -1008,9 +1032,11 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             mapped_at_creation: false,
         });
         self.frame = Some(Frame {
-            texture: surface_texture.texture.clone(),
-            swapchain_view,
-            msaa_view,
+            target: FrameTarget {
+                view,
+                msaa_view,
+                has_committed_pass: false,
+            },
             encoder,
             viewport_buf,
             uniform_arena,
@@ -1018,21 +1044,20 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             fill_bind_group: None,
             path_bind_group: None,
             ops: alloc::vec::Vec::new(),
-            has_committed_pass: false,
         });
         true
     }
 
     /// Submit recorded operations without presenting the surface-owned drawable.
-    fn flush_ops_to_swapchain(&mut self) -> Result<(), RenderError> {
+    fn flush_ops(&mut self) -> Result<(), RenderError> {
         let Some(frame) = self.frame.as_mut() else {
             return Ok(());
         };
-        if frame.ops.is_empty() && frame.has_committed_pass {
+        if frame.ops.is_empty() && frame.target.has_committed_pass {
             return Ok(());
         }
         let state = self.surface.state().ok_or(RenderError::BackendFailure)?;
-        let load = if frame.has_committed_pass {
+        let load = if frame.target.has_committed_pass {
             wgpu::LoadOp::Load
         } else {
             wgpu::LoadOp::Clear(if frame.ops.is_empty() {
@@ -1042,9 +1067,9 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             })
         };
         {
-            let (view, resolve_target) = match frame.msaa_view.as_ref() {
-                Some(msaa_view) => (msaa_view, Some(&frame.swapchain_view)),
-                None => (&frame.swapchain_view, None),
+            let (view, resolve_target) = match frame.target.msaa_view.as_ref() {
+                Some(msaa_view) => (msaa_view, Some(&frame.target.view)),
+                None => (&frame.target.view, None),
             };
             let mut pass = frame
                 .encoder
@@ -1111,7 +1136,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         let old_encoder = core::mem::replace(&mut frame.encoder, new_encoder);
         state.queue.submit(Some(old_encoder.finish()));
         frame.ops.clear();
-        frame.has_committed_pass = true;
+        frame.target.has_committed_pass = true;
 
         Ok(())
     }
@@ -1120,7 +1145,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     /// before their offsets are reused by a later pass.
     fn push_uniform<T: bytemuck::Pod>(&mut self, value: &T) -> Option<u32> {
         if uniform_arena_full(self.frame.as_ref()?.uniform_cursor) {
-            if !self.frame.as_ref()?.ops.is_empty() && self.flush_ops_to_swapchain().is_err() {
+            if !self.frame.as_ref()?.ops.is_empty() && self.flush_ops().is_err() {
                 self.failure.get_or_insert(RenderError::BackendFailure);
                 return None;
             }
@@ -1200,12 +1225,9 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
 
         let pipeline = cache.get_or_build(
             &state.device,
-            PipelineKey {
-                shader: ShaderKind::Fill,
-                format: state.config.format,
-                samples: state.samples(),
-                composite: CompositeMode::SourceOver,
-            },
+            frame
+                .target
+                .pipeline_key(ShaderKind::Fill, CompositeMode::SourceOver),
         );
 
         frame.ops.push(DrawOp {
@@ -1392,15 +1414,8 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             ],
         });
 
-        let pipeline = cache.get_or_build(
-            &state.device,
-            PipelineKey {
-                shader,
-                format: state.config.format,
-                samples: state.samples(),
-                composite,
-            },
-        );
+        let pipeline =
+            cache.get_or_build(&state.device, frame.target.pipeline_key(shader, composite));
 
         frame.ops.push(DrawOp {
             pipeline,
@@ -1420,14 +1435,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
 
 impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     fn scissor_from_clip(&self, clip: &Rect) -> [u32; 4] {
-        let state = self
-            .surface
-            .state()
-            .expect("WgpuSurface state missing for scissor");
-        let Some(rect) =
-            self.viewport
-                .physical_rect_in(*clip, state.config.width, state.config.height)
-        else {
+        let Some(rect) = self.physical_clip_rect(clip) else {
             return [0, 0, 0, 0];
         };
         [
@@ -1513,6 +1521,9 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
 
 impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     fn physical_clip_rect(&self, src: &Rect) -> Option<PhysicalRect> {
+        if let Some(frame) = &self.frame {
+            return frame.target.clip_rect(self.viewport, *src);
+        }
         let state = self.surface.state()?;
         self.viewport
             .physical_rect_in(*src, state.config.width, state.config.height)
@@ -1835,12 +1846,9 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
 
         let pipeline = cache.get_or_build(
             &state.device,
-            PipelineKey {
-                shader: ShaderKind::Path,
-                format: state.config.format,
-                samples: state.samples(),
-                composite: CompositeMode::SourceOver,
-            },
+            frame
+                .target
+                .pipeline_key(ShaderKind::Path, CompositeMode::SourceOver),
         );
 
         let count = indices.len() as u32;
@@ -2007,12 +2015,9 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
 
         let pipeline = cache.get_or_build(
             &state.device,
-            PipelineKey {
-                shader: ShaderKind::QuadSdf,
-                format: state.config.format,
-                samples: state.samples(),
-                composite: CompositeMode::SourceOver,
-            },
+            frame
+                .target
+                .pipeline_key(ShaderKind::QuadSdf, CompositeMode::SourceOver),
         );
 
         frame.ops.push(DrawOp {
@@ -2149,12 +2154,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
 
         let pipeline = cache.get_or_build(
             &state.device,
-            PipelineKey {
-                shader: ShaderKind::BlitQuad,
-                format: state.config.format,
-                samples: state.samples(),
-                composite,
-            },
+            frame.target.pipeline_key(ShaderKind::BlitQuad, composite),
         );
 
         frame.ops.push(DrawOp {
@@ -2360,7 +2360,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         }
         let glyph_count = self.factory.glyph_instances.len();
         if !self.factory.glyph_buffers.can_fit(glyph_count) {
-            if self.flush_ops_to_swapchain().is_err() {
+            if self.flush_ops().is_err() {
                 self.factory.glyph_instances.clear();
                 self.failure.get_or_insert(RenderError::BackendFailure);
                 return;
@@ -2487,12 +2487,9 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         });
         let pipeline = cache.get_or_build(
             &state.device,
-            PipelineKey {
-                shader: batch.key.shader,
-                format: state.config.format,
-                samples: state.samples(),
-                composite: CompositeMode::SourceOver,
-            },
+            frame
+                .target
+                .pipeline_key(batch.key.shader, CompositeMode::SourceOver),
         );
         frame.ops.push(DrawOp {
             pipeline,
@@ -2778,6 +2775,80 @@ mod route_tests {
         let sample = |x: usize, y: usize| pixels[(y * 64 + x) * 4];
         assert!(sample(32, 32) > 240);
         assert!(sample(4, 32) < 64);
+    }
+
+    #[test]
+    fn frame_target_metadata_follows_owned_attachments() {
+        let _gpu = GPU.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        let Ok(adapter) = pollster::block_on(instance.request_adapter(&Default::default())) else {
+            std::eprintln!("SKIP attachment checks: no GPU adapter");
+            return;
+        };
+        let (device, _) = pollster::block_on(adapter.request_device(&Default::default()))
+            .expect("attachment device");
+        for (format, samples, width, height) in [
+            (wgpu::TextureFormat::Rgba8Unorm, 1, 20, 12),
+            (wgpu::TextureFormat::Bgra8Unorm, 4, 8, 6),
+        ] {
+            let mut descriptor = wgpu::TextureDescriptor {
+                label: Some("mirui-frame-attachment"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            };
+            let view = device
+                .create_texture(&descriptor)
+                .create_view(&Default::default());
+            descriptor.sample_count = samples;
+            let msaa_view = (samples > 1).then(|| {
+                device
+                    .create_texture(&descriptor)
+                    .create_view(&Default::default())
+            });
+            let target = FrameTarget {
+                view,
+                msaa_view,
+                has_committed_pass: true,
+            };
+            for shader in [
+                ShaderKind::Fill,
+                ShaderKind::Blit,
+                ShaderKind::BlitReplace,
+                ShaderKind::BlitQuad,
+                ShaderKind::GlyphCoverage,
+                ShaderKind::GlyphSdf,
+                ShaderKind::QuadSdf,
+                ShaderKind::Path,
+            ] {
+                assert_eq!(
+                    target.pipeline_key(shader, CompositeMode::SourceOver),
+                    PipelineKey {
+                        shader,
+                        format,
+                        samples,
+                        composite: CompositeMode::SourceOver
+                    }
+                );
+            }
+            let viewport = Viewport::new(100, 100, Fixed::from_int(2));
+            assert_eq!(target.texture().sample_count(), 1);
+            assert_eq!(
+                target.clip_rect(viewport, Rect::new(1, 1, 100, 100)),
+                PhysicalRect::new(2, 2, width as u16 - 2, height as u16 - 2),
+            );
+            assert_eq!(target.clip_rect(viewport, Rect::new(50, 50, 10, 10)), None);
+            assert!(target.has_committed_pass);
+        }
+        std::eprintln!("attachment device checks completed");
     }
 
     #[test]
@@ -4615,7 +4686,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         if let Some(error) = self.failure {
             return Err(error);
         }
-        self.flush_ops_to_swapchain()
+        self.flush_ops()
     }
 
     fn supports_offscreen(&self) -> bool {
@@ -4628,7 +4699,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
 
     fn prepare_readback(&mut self, _src: &Rect) -> Result<(), RenderError> {
         if self.frame.is_some() {
-            self.flush_ops_to_swapchain()?;
+            self.flush_ops()?;
         }
         Ok(())
     }
@@ -4648,8 +4719,8 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         let bytes = wgpu_readback_rgba8(
             &state.device,
             &state.queue,
-            &frame.texture,
-            state.config.format,
+            frame.target.texture(),
+            frame.target.texture().format(),
             u32::from(phys.x()),
             u32::from(phys.y()),
             u32::from(w),
@@ -4692,8 +4763,8 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         let bytes = wgpu_readback_rgba8(
             &state.device,
             &state.queue,
-            &frame.texture,
-            state.config.format,
+            frame.target.texture(),
+            frame.target.texture().format(),
             u32::from(phys.x()),
             u32::from(phys.y()),
             w,

@@ -16,6 +16,8 @@ SDL-GPU native targets use single-sample, packed RGBA8 storage with premultiplie
 
 SDL source reads and region-edit callbacks expose straight-alpha pixels. Software fallback converts the affected region before drawing and converts it back before replacement, reusing its existing workspace. Non-source-over composites on transparent native targets use this path. Source readback accepts padded destinations, including buffers without trailing padding after the final row. Prepared nested binding and source readback allocate no additional Rust storage; target creation and explicit snapshots allocate storage.
 
+WGPU frame attachments determine pipeline format, sample count, clipping bounds and readback format. The resolved view retains its backing texture; a multisample view retains the attachment loaded by subsequent passes. Command encoding, uniform storage and pipeline caching remain shared by the renderer.
+
 ## Source reads
 
 `read_pixels_into` receives a prepared `TexturePixelsMut` with matching dimensions and format. It writes straight-alpha pixels using the destination stride, including when native storage is premultiplied. The source implementation completes necessary pending writes and restores any changed device state on both success and error. Device restoration failures must prevent further submission.
