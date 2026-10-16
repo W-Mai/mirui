@@ -12,9 +12,20 @@ use mirui::types::Viewport;
 
 use super::*;
 
+#[path = "native_targets/updates.rs"]
+mod updates;
+
 pub(super) struct Slot {
     pub value: Cell<u8>,
+    pub alpha: Cell<u8>,
     pub completed: Cell<bool>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum Fault {
+    Initialize,
+    Flush,
+    Restore,
 }
 
 struct Target {
@@ -45,7 +56,11 @@ impl BackendTarget for Target {
         {
             return Err(RenderError::InvalidTexture);
         }
-        dst.set_pixel(0, 0, &Color::rgb(self.slot.value.get(), 0, 0));
+        dst.set_pixel(
+            0,
+            0,
+            &Color::rgba(self.slot.value.get(), 0, 0, self.slot.alpha.get()),
+        );
         Ok(())
     }
 }
@@ -75,6 +90,7 @@ pub(super) fn create(
         device: Rc::clone(&renderer.device),
         slot: Rc::new(Slot {
             value: Cell::new(0),
+            alpha: Cell::new(0),
             completed: Cell::new(false),
         }),
         descriptor: requested.descriptor,
@@ -99,14 +115,55 @@ pub(super) fn bind(
         return Err(RenderError::InvalidTexture);
     }
     match update {
-        TargetUpdate::Rebuild => target.slot.value.set(0),
+        TargetUpdate::Rebuild => {
+            target.slot.value.set(0);
+            target.slot.alpha.set(0);
+        }
         TargetUpdate::Incremental if !target.slot.completed.get() => {
             return Err(RenderError::InvalidTexture);
         }
         TargetUpdate::Incremental => {}
     }
     target.slot.completed.set(false);
+    if renderer.fault == Some(Fault::Initialize) {
+        renderer.fault = None;
+        return Err(RenderError::BackendFailure);
+    }
     Ok(renderer.active.replace(Rc::clone(&target.slot)))
+}
+
+pub(super) fn flush(renderer: &mut BorrowedDummy<'_>) -> Result<(), RenderError> {
+    if renderer.poisoned {
+        return Err(RenderError::InvalidScope);
+    }
+    if renderer.active.is_some() && renderer.fault == Some(Fault::Flush) {
+        renderer.fault = None;
+        return Err(RenderError::BackendFailure);
+    }
+    Ok(())
+}
+
+pub(super) fn restore(
+    renderer: &mut BorrowedDummy<'_>,
+    saved: Option<Rc<Slot>>,
+    completed: bool,
+) -> Result<(), RenderError> {
+    let failed = renderer.fault == Some(Fault::Restore);
+    if failed {
+        renderer.fault = None;
+        renderer.poisoned = true;
+    }
+    if let Some(child) = renderer.active.take() {
+        child
+            .completed
+            .set(completed && !failed && !renderer.poisoned);
+    }
+    renderer.active = saved;
+    if renderer.poisoned {
+        Err(RenderError::InvalidScope)
+    } else {
+        Ok(())
+    }
 }
 
 struct Inner<'a>(&'a Cell<u32>);
@@ -165,11 +222,15 @@ fn draw(renderer: &mut dyn Renderer) -> Result<(), RenderError> {
     renderer.submit_with_route(&request, route)
 }
 
-fn read(target: &dyn BackendTarget) -> Result<u8, RenderError> {
+fn read_color(target: &dyn BackendTarget) -> Result<Color, RenderError> {
     let mut bytes = [0; 4];
     let mut texture = Texture::new(&mut bytes[..], 1, 1, ColorFormat::RGBA8888)?;
     target.read_pixels_into(&mut texture.pixels_mut()?)?;
-    Ok(texture.read_pixels()?.get_pixel(0, 0).r)
+    Ok(texture.read_pixels()?.get_pixel(0, 0))
+}
+
+fn read(target: &dyn BackendTarget) -> Result<u8, RenderError> {
+    Ok(read_color(target)?.r)
 }
 
 #[test]
@@ -313,6 +374,7 @@ fn composed_target_updates_rebuild_or_preserve_completed_contents() {
         )
         .unwrap();
     assert_eq!(read(target.as_ref()), Ok(0));
+    assert_eq!(read_color(target.as_ref()), Ok(Color::rgba(0, 0, 0, 0)));
     assert_eq!(inner_count.get(), 3);
     assert_eq!(outer_count.get(), 3);
 }
@@ -358,6 +420,8 @@ impl RendererFactory<NativeSurface> for NativeFactory {
             fills: Cell::new(0),
             device: Rc::clone(&surface.device),
             active: None,
+            fault: None,
+            poisoned: false,
         };
         NativeOuter::new(
             NativeInner::new(target, Inner(&self.inner_count)),

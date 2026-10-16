@@ -14,6 +14,9 @@ use mirui_macros::compose_backend;
 #[path = "compose_backend_basic/native_targets.rs"]
 mod native_targets;
 
+#[path = "support/tracking_allocator.rs"]
+mod tracking_allocator;
+
 #[derive(Default)]
 struct Counts {
     fill_path: Cell<u32>,
@@ -479,6 +482,8 @@ struct BorrowedDummy<'fb> {
     fills: Cell<u32>,
     device: std::rc::Rc<()>,
     active: Option<std::rc::Rc<native_targets::Slot>>,
+    fault: Option<native_targets::Fault>,
+    poisoned: bool,
 }
 
 impl<'fb> BorrowedDummy<'fb> {
@@ -488,6 +493,8 @@ impl<'fb> BorrowedDummy<'fb> {
             fills: Cell::new(0),
             device: std::rc::Rc::new(()),
             active: None,
+            fault: None,
+            poisoned: false,
         }
     }
 }
@@ -506,6 +513,7 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
         // would be vacuous.
         if let Some(slot) = &self.active {
             slot.value.set(slot.value.get().wrapping_add(1));
+            slot.alpha.set(255);
         } else if !self.buf.is_empty() {
             self.buf[0] = self.buf[0].wrapping_add(1);
         }
@@ -594,14 +602,13 @@ impl Renderer for BorrowedDummy<'_> {
         saved: Self::TargetState,
         completed: bool,
     ) -> Result<(), RenderError> {
-        if let Some(child) = self.active.take() {
-            child.completed.set(completed);
-        }
-        self.active = saved;
-        Ok(())
+        native_targets::restore(self, saved, completed)
     }
 
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        if self.poisoned {
+            return Err(RenderError::InvalidScope);
+        }
         request.validate()?;
         Ok(RenderRoute::Native)
     }
@@ -622,7 +629,7 @@ impl Renderer for BorrowedDummy<'_> {
     }
 
     fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
-        Canvas::flush(self)
+        native_targets::flush(self)
     }
 }
 

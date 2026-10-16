@@ -43,6 +43,7 @@ struct Recorder {
     viewport: Viewport,
     samples: Vec<Sample>,
     restored: Vec<bool>,
+    updates: Vec<TargetUpdate>,
     flush_error: Option<RenderError>,
 }
 
@@ -52,6 +53,7 @@ impl Recorder {
             viewport: Viewport::new(80, 60, Fixed::ONE),
             samples: Vec::new(),
             restored: Vec::new(),
+            updates: Vec::new(),
             flush_error: None,
         }
     }
@@ -82,6 +84,7 @@ impl Renderer for Recorder {
         update: TargetUpdate,
         _: &mut [u8],
     ) -> Result<Viewport, RenderError> {
+        self.updates.push(update);
         if !target.as_any().is::<Target>() || update != TargetUpdate::Rebuild {
             return Err(RenderError::InvalidTexture);
         }
@@ -235,4 +238,44 @@ fn wrapped_target_scope_preserves_parent_flush_failure() {
     );
     assert!(recorder.restored.is_empty());
     assert!(recorder.samples.is_empty());
+}
+
+#[test]
+fn coordinate_wrappers_forward_incremental_intent_without_rebuilding() {
+    for region_outside in [false, true] {
+        let mut recorder = Recorder::new();
+        let mut region;
+        let mut projected;
+        let renderer: &mut dyn Renderer = if region_outside {
+            projected = ProjectiveRenderer {
+                inner: &mut recorder,
+                transform: Transform3D::translate(Fixed::ONE, Fixed::ONE),
+            };
+            region = RegionRenderer::new(&mut projected, Fixed::ONE, Fixed::ONE);
+            &mut region
+        } else {
+            region = RegionRenderer::new(&mut recorder, Fixed::ONE, Fixed::ONE);
+            projected = ProjectiveRenderer {
+                inner: &mut region,
+                transform: Transform3D::translate(Fixed::ONE, Fixed::ONE),
+            };
+            &mut projected
+        };
+        let layout = PlaneLayout::packed(1, 1, ColorFormat::RGBA8888).unwrap();
+        let plan = renderer.plan_target(layout).unwrap().unwrap();
+        let mut target = renderer.create_target(&plan).unwrap();
+        assert_eq!(
+            renderer.with_target(
+                target.as_mut(),
+                Viewport::new(1, 1, Fixed::ONE),
+                TargetUpdate::Incremental,
+                &mut [],
+                &mut |_| panic!("a rejected update must not run its callback"),
+            ),
+            Err(RenderError::InvalidTexture)
+        );
+        assert_eq!(recorder.updates, [TargetUpdate::Incremental]);
+        assert!(recorder.restored.is_empty());
+        assert!(recorder.samples.is_empty());
+    }
 }
