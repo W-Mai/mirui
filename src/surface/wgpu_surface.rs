@@ -23,6 +23,7 @@ use winit::window::{Window, WindowId};
 use super::SafeAreaInsets;
 use super::{BackbufferPersistence, DisplayInfo, InputEvent, Surface, logical_from_physical};
 use crate::core::cache::InspectCaches;
+use crate::render::RenderError;
 use crate::render::texture::ColorFormat;
 use crate::types::Fixed;
 
@@ -189,16 +190,71 @@ pub(crate) fn mobile_window_drawable_size(window: &Window) -> winit::dpi::Physic
     }
 }
 
-/// Live wgpu state — only present after the first `pump_app_events`
-/// has driven `ApplicationHandler::resumed`, which is where winit
-/// permits `create_window`.
+/// Shared device resources retained by surfaces and native render targets.
 pub struct WgpuDeviceContext {
     pub instance: wgpu::Instance,
     pub adapter: wgpu::Adapter,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+    invalid: core::sync::atomic::AtomicBool,
 }
 
+impl WgpuDeviceContext {
+    pub(crate) fn new(
+        instance: wgpu::Instance,
+        adapter: wgpu::Adapter,
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+    ) -> Arc<Self> {
+        let context = Arc::new(Self {
+            instance,
+            adapter,
+            device,
+            queue,
+            invalid: core::sync::atomic::AtomicBool::new(false),
+        });
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let owner = Arc::downgrade(&context);
+            context.device.set_device_lost_callback(move |_, _| {
+                if let Some(owner) = owner.upgrade() {
+                    owner.invalidate();
+                }
+            });
+        }
+        context
+    }
+
+    pub(crate) fn check(&self) -> Result<(), RenderError> {
+        if self.invalid.load(core::sync::atomic::Ordering::Acquire) {
+            Err(RenderError::BackendFailure)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn invalidate(&self) {
+        self.invalid
+            .store(true, core::sync::atomic::Ordering::Release);
+    }
+
+    pub(crate) fn format_features(
+        &self,
+        format: wgpu::TextureFormat,
+    ) -> wgpu::TextureFormatFeatures {
+        if self
+            .device
+            .features()
+            .contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES)
+        {
+            self.adapter.get_texture_format_features(format)
+        } else {
+            format.guaranteed_format_features(self.device.features())
+        }
+    }
+}
+
+/// Live window attachments, created when the platform resumes the surface.
 pub struct WgpuState {
     context: Arc<WgpuDeviceContext>,
     pub window: Arc<Window>,
@@ -218,6 +274,10 @@ impl Deref for WgpuState {
 }
 
 impl WgpuState {
+    pub(crate) fn context(&self) -> &Arc<WgpuDeviceContext> {
+        &self.context
+    }
+
     /// Actual color attachment sample count shared with render pipelines.
     pub fn samples(&self) -> u32 {
         self.msaa.as_ref().map_or(1, wgpu::Texture::sample_count)
@@ -401,6 +461,9 @@ impl WgpuRuntime {
         let Some(state) = self.state.as_mut() else {
             return false;
         };
+        if state.check().is_err() {
+            return false;
+        }
         let size = mobile_window_drawable_size(&state.window);
         state.config.width = size.width.max(1);
         state.config.height = size.height.max(1);
@@ -480,11 +543,19 @@ impl WgpuRuntime {
 
     fn begin_frame(&mut self) -> Result<(), crate::render::RenderError> {
         self.frame_texture = None;
+        self.state
+            .as_ref()
+            .ok_or(RenderError::SurfaceUnavailable)?
+            .check()?;
         self.frame_texture = Some(self.acquire_surface_texture()?);
         Ok(())
     }
 
     fn present_frame(&mut self) -> Result<(), crate::render::RenderError> {
+        self.state
+            .as_ref()
+            .ok_or(RenderError::SurfaceUnavailable)?
+            .check()?;
         let frame = self
             .frame_texture
             .take()
@@ -540,7 +611,9 @@ impl WgpuRuntime {
             }
             WindowEvent::Resized(new_size) => {
                 self.needs_redraw = true;
-                if let Some(state) = self.state.as_mut() {
+                if let Some(state) = self.state.as_mut()
+                    && state.check().is_ok()
+                {
                     state.config.width = new_size.width.max(1);
                     state.config.height = new_size.height.max(1);
                     state.surface.configure(&state.device, &state.config);
@@ -551,7 +624,9 @@ impl WgpuRuntime {
             }
             WindowEvent::ScaleFactorChanged { .. } => {
                 self.needs_redraw = true;
-                if let Some(state) = self.state.as_mut() {
+                if let Some(state) = self.state.as_mut()
+                    && state.check().is_ok()
+                {
                     let new_size = mobile_window_drawable_size(&state.window);
                     state.config.width = new_size.width.max(1);
                     state.config.height = new_size.height.max(1);
@@ -721,12 +796,7 @@ fn create_wgpu_state(
         ..Default::default()
     }))
     .map_err(|error| WgpuSurfaceError::Backend(error.to_string()))?;
-    let context = Arc::new(WgpuDeviceContext {
-        instance,
-        adapter,
-        device,
-        queue,
-    });
+    let context = WgpuDeviceContext::new(instance, adapter, device, queue);
     configure_wgpu_state(context, window, surface, options)
 }
 
@@ -735,6 +805,9 @@ fn create_wgpu_state_with_context(
     window: Arc<Window>,
     options: WgpuConfig,
 ) -> Result<WgpuState, WgpuSurfaceError> {
+    context
+        .check()
+        .map_err(|_| WgpuSurfaceError::Backend("device unavailable".into()))?;
     let surface = context
         .instance
         .create_surface(window.clone())
@@ -764,15 +837,7 @@ fn configure_wgpu_state(
     if !surface_caps.usages.contains(usage) {
         return Err(WgpuSurfaceError::UnsupportedSurface);
     }
-    let format_features = if context
-        .device
-        .features()
-        .contains(wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES)
-    {
-        context.adapter.get_texture_format_features(surface_format)
-    } else {
-        surface_format.guaranteed_format_features(context.device.features())
-    };
+    let format_features = context.format_features(surface_format);
     if !format_features
         .flags
         .sample_count_supported(options.samples)

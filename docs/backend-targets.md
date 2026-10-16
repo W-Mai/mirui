@@ -18,6 +18,10 @@ SDL source reads and region-edit callbacks expose straight-alpha pixels. Softwar
 
 WGPU frame attachments determine pipeline format, sample count, clipping bounds and readback format. The resolved view retains its backing texture; a multisample view retains the attachment loaded by subsequent passes. Command encoding, uniform storage and pipeline caching remain shared by the renderer.
 
+Native WGPU targets retain the original device context and queue independently of the surface and factory. Packed RGBA8 targets preserve their multisample and resolve attachments across incremental scopes. Rebuild clears transparent once; failed writes require rebuilding. Nested scopes restore attachments and viewport scale, including scales below one. Frame workspace remains reusable while no attachment is bound, so offscreen work does not initialize or clear the window.
+
+Device loss and abandoned or out-of-order restoration invalidate native resources and block later rendering and presentation. Source reads reject active or unfinished targets and return straight-alpha pixels through the shared readback implementation. Non-source-over composites on transparent native targets use the existing software fallback. WGPU native targets are available on native hosts; synchronous source readback is not provided by the WASM backend.
+
 Native WGPU readback reuses a device-specific staging buffer and mapping completion state. Factory memory trimming releases that storage; growth replaces it, and failed mapping discards it before retrying. Source bytes are converted directly into checked pixel storage, preserving destination stride and padding. Explicit snapshots still allocate independent CPU pixels, and GPU command encoding and mapping retain their driver costs.
 
 ## Source reads

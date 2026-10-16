@@ -3,6 +3,8 @@
 mod pipeline;
 #[cfg(not(target_arch = "wasm32"))]
 mod readback;
+#[cfg(not(target_arch = "wasm32"))]
+mod target;
 mod texture_pool;
 
 use wgpu::util::DeviceExt;
@@ -379,6 +381,15 @@ impl<B: WgpuTarget> RendererFactory<B> for WgpuRendererFactory {
         B: 'a;
 
     fn make<'a>(&'a mut self, backend: &'a mut B, transform: &Viewport) -> WgpuRenderer<'a, B> {
+        if let Some(error) = backend.state().and_then(|state| state.check().err()) {
+            return WgpuRenderer {
+                factory: self,
+                surface: backend,
+                viewport: *transform,
+                frame: None,
+                failure: Some(error),
+            };
+        }
         let device = &backend
             .state()
             .expect("WgpuSurface must be initialised before make()")
@@ -451,7 +462,7 @@ pub struct WgpuRenderer<'a, B: WgpuTarget> {
 }
 
 struct Frame {
-    target: FrameTarget,
+    target: Option<FrameTarget>,
     encoder: wgpu::CommandEncoder,
     /// One viewport uniform shared across the frame's draws.
     viewport_buf: wgpu::Buffer,
@@ -468,10 +479,12 @@ struct Frame {
     ops: alloc::vec::Vec<DrawOp>,
 }
 
+#[derive(Clone)]
 struct FrameTarget {
     view: wgpu::TextureView,
     msaa_view: Option<wgpu::TextureView>,
     has_committed_pass: bool,
+    native: bool,
 }
 
 impl FrameTarget {
@@ -495,6 +508,65 @@ impl FrameTarget {
 
     fn clip_rect(&self, viewport: Viewport, rect: Rect) -> Option<PhysicalRect> {
         viewport.physical_rect_in(rect, self.texture().width(), self.texture().height())
+    }
+
+    fn viewport_uniform(&self, viewport: Viewport) -> ViewportUniform {
+        let scale = viewport.scale().to_f32();
+        ViewportUniform {
+            size: [
+                self.texture().width() as f32 / scale,
+                self.texture().height() as f32 / scale,
+            ],
+            _pad: [0.0; 2],
+        }
+    }
+}
+
+impl Frame {
+    fn target(&self) -> &FrameTarget {
+        self.target
+            .as_ref()
+            .expect("draw requires an active attachment")
+    }
+
+    fn replace_target(
+        &mut self,
+        target: Option<FrameTarget>,
+        viewport: Viewport,
+        queue: &wgpu::Queue,
+    ) -> Option<FrameTarget> {
+        if let Some(target) = &target {
+            queue.write_buffer(
+                &self.viewport_buf,
+                0,
+                bytemuck::bytes_of(&target.viewport_uniform(viewport)),
+            );
+        }
+        core::mem::replace(&mut self.target, target)
+    }
+
+    fn new(device: &wgpu::Device, target: FrameTarget, viewport: Viewport) -> Self {
+        Self {
+            viewport_buf: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-frame-viewport"),
+                contents: bytemuck::bytes_of(&target.viewport_uniform(viewport)),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            }),
+            target: Some(target),
+            encoder: device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("mirui-wgpu-encoder"),
+            }),
+            uniform_arena: device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("mirui-frame-uniform-arena"),
+                size: UNIFORM_ARENA_SIZE,
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }),
+            uniform_cursor: 0,
+            fill_bind_group: None,
+            path_bind_group: None,
+            ops: alloc::vec::Vec::new(),
+        }
     }
 }
 
@@ -767,7 +839,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         &self,
         request: &DrawRequest<'_, '_>,
     ) -> Result<Option<ProjectiveFallbackPlan>, RenderError> {
-        if !Self::needs_non_native_fallback(request)? {
+        if !self.needs_non_native_fallback(request)? {
             return Ok(None);
         }
         #[cfg(target_arch = "wasm32")]
@@ -791,12 +863,23 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         }
     }
 
-    fn needs_non_native_fallback(request: &DrawRequest<'_, '_>) -> Result<bool, RenderError> {
+    fn needs_non_native_fallback(
+        &self,
+        request: &DrawRequest<'_, '_>,
+    ) -> Result<bool, RenderError> {
         let needs_fallback = match request.command {
-            DrawCommand::Blit { composite, .. } => matches!(
-                composite,
-                CompositeMode::Darken | CompositeMode::Lighten | CompositeMode::Difference
-            ),
+            DrawCommand::Blit { composite, .. } => {
+                (self
+                    .frame
+                    .as_ref()
+                    .and_then(|frame| frame.target.as_ref())
+                    .is_some_and(|target| target.native)
+                    && *composite != CompositeMode::SourceOver)
+                    || matches!(
+                        composite,
+                        CompositeMode::Darken | CompositeMode::Lighten | CompositeMode::Difference
+                    )
+            }
             DrawCommand::FillPath {
                 path,
                 transform,
@@ -850,7 +933,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             .read(
                 &state.device,
                 &state.queue,
-                frame.target.texture(),
+                frame.target().texture(),
                 PhysicalRect::new(plan.x(), plan.y(), plan.width(), plan.height())
                     .ok_or(RenderError::InvalidGeometry)?,
             )?;
@@ -996,7 +1079,17 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
 
     /// Start recording against the drawable prepared by the surface.
     fn begin_frame(&mut self) -> bool {
-        if self.frame.is_some() {
+        if let Some(state) = self.surface.state()
+            && let Err(error) = state.check()
+        {
+            self.failure.get_or_insert(error);
+            return false;
+        }
+        if self
+            .frame
+            .as_ref()
+            .is_some_and(|frame| frame.target.is_some())
+        {
             return true;
         }
         let Some(surface_texture) = self.surface.frame_texture() else {
@@ -1013,72 +1106,48 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             .msaa
             .as_ref()
             .map(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()));
-        let encoder = state
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("mirui-wgpu-encoder"),
-            });
-        let scale = self.viewport.scale().to_f32().max(1.0);
-        // Logical pixels — NDC scales onto the physical swapchain.
-        let viewport_uniform = ViewportUniform {
-            size: [
-                surface_texture.texture.width() as f32 / scale,
-                surface_texture.texture.height() as f32 / scale,
-            ],
-            _pad: [0.0, 0.0],
+        let target = FrameTarget {
+            view,
+            msaa_view,
+            has_committed_pass: false,
+            native: false,
         };
-        let viewport_buf = state
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("mirui-frame-viewport"),
-                contents: bytemuck::bytes_of(&viewport_uniform),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
-        let uniform_arena = state.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("mirui-frame-uniform-arena"),
-            size: UNIFORM_ARENA_SIZE,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        self.frame = Some(Frame {
-            target: FrameTarget {
-                view,
-                msaa_view,
-                has_committed_pass: false,
-            },
-            encoder,
-            viewport_buf,
-            uniform_arena,
-            uniform_cursor: 0,
-            fill_bind_group: None,
-            path_bind_group: None,
-            ops: alloc::vec::Vec::new(),
-        });
+        if let Some(frame) = self.frame.as_mut() {
+            frame.replace_target(Some(target), self.viewport, &state.queue);
+        } else {
+            self.frame = Some(Frame::new(&state.device, target, self.viewport));
+        }
         true
     }
 
     /// Submit recorded operations without presenting the surface-owned drawable.
     fn flush_ops(&mut self) -> Result<(), RenderError> {
+        if let Some(state) = self.surface.state() {
+            state.check()?;
+        }
         let Some(frame) = self.frame.as_mut() else {
             return Ok(());
         };
-        if frame.ops.is_empty() && frame.target.has_committed_pass {
+        let Some(target) = frame.target.as_mut() else {
+            return Ok(());
+        };
+        if frame.ops.is_empty() && target.has_committed_pass {
             return Ok(());
         }
         let state = self.surface.state().ok_or(RenderError::BackendFailure)?;
-        let load = if frame.target.has_committed_pass {
+        let load = if target.has_committed_pass {
             wgpu::LoadOp::Load
         } else {
-            wgpu::LoadOp::Clear(if frame.ops.is_empty() {
+            wgpu::LoadOp::Clear(if frame.ops.is_empty() && !target.native {
                 wgpu::Color::BLACK
             } else {
                 wgpu::Color::TRANSPARENT
             })
         };
         {
-            let (view, resolve_target) = match frame.target.msaa_view.as_ref() {
-                Some(msaa_view) => (msaa_view, Some(&frame.target.view)),
-                None => (&frame.target.view, None),
+            let (view, resolve_target) = match target.msaa_view.as_ref() {
+                Some(msaa_view) => (msaa_view, Some(&target.view)),
+                None => (&target.view, None),
             };
             let mut pass = frame
                 .encoder
@@ -1145,7 +1214,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         let old_encoder = core::mem::replace(&mut frame.encoder, new_encoder);
         state.queue.submit(Some(old_encoder.finish()));
         frame.ops.clear();
-        frame.target.has_committed_pass = true;
+        target.has_committed_pass = true;
 
         Ok(())
     }
@@ -1235,7 +1304,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         let pipeline = cache.get_or_build(
             &state.device,
             frame
-                .target
+                .target()
                 .pipeline_key(ShaderKind::Fill, CompositeMode::SourceOver),
         );
 
@@ -1423,8 +1492,10 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             ],
         });
 
-        let pipeline =
-            cache.get_or_build(&state.device, frame.target.pipeline_key(shader, composite));
+        let pipeline = cache.get_or_build(
+            &state.device,
+            frame.target().pipeline_key(shader, composite),
+        );
 
         frame.ops.push(DrawOp {
             pipeline,
@@ -1530,8 +1601,8 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
 
 impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     fn physical_clip_rect(&self, src: &Rect) -> Option<PhysicalRect> {
-        if let Some(frame) = &self.frame {
-            return frame.target.clip_rect(self.viewport, *src);
+        if let Some(target) = self.frame.as_ref().and_then(|frame| frame.target.as_ref()) {
+            return target.clip_rect(self.viewport, *src);
         }
         let state = self.surface.state()?;
         self.viewport
@@ -1723,7 +1794,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         let pipeline = cache.get_or_build(
             &state.device,
             frame
-                .target
+                .target()
                 .pipeline_key(ShaderKind::Path, CompositeMode::SourceOver),
         );
 
@@ -1892,7 +1963,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         let pipeline = cache.get_or_build(
             &state.device,
             frame
-                .target
+                .target()
                 .pipeline_key(ShaderKind::QuadSdf, CompositeMode::SourceOver),
         );
 
@@ -2030,7 +2101,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
 
         let pipeline = cache.get_or_build(
             &state.device,
-            frame.target.pipeline_key(ShaderKind::BlitQuad, composite),
+            frame.target().pipeline_key(ShaderKind::BlitQuad, composite),
         );
 
         frame.ops.push(DrawOp {
@@ -2364,7 +2435,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         let pipeline = cache.get_or_build(
             &state.device,
             frame
-                .target
+                .target()
                 .pipeline_key(batch.key.shader, CompositeMode::SourceOver),
         );
         frame.ops.push(DrawOp {
@@ -2690,6 +2761,7 @@ mod route_tests {
                 view,
                 msaa_view,
                 has_committed_pass: true,
+                native: false,
             };
             for shader in [
                 ShaderKind::Fill,
@@ -4028,7 +4100,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         }
         request.validate_projection()?;
         request.validate_texture()?;
-        if Self::needs_non_native_fallback(request)? {
+        if self.needs_non_native_fallback(request)? {
             let RenderRoute::ExactFallback(region) = route else {
                 return Err(RenderError::InvalidGeometry);
             };
@@ -4439,10 +4511,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     }
 
     fn prepare_readback(&mut self, _src: &Rect) -> Result<(), RenderError> {
-        if self.frame.is_some() {
-            self.flush_ops()?;
-        }
-        Ok(())
+        self.flush()
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -4454,12 +4523,14 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             return Ok(None);
         };
         let frame = self.frame.as_ref().ok_or(RenderError::BackendFailure)?;
+        let target = frame.target.as_ref().ok_or(RenderError::BackendFailure)?;
         let state = self.surface.state().ok_or(RenderError::BackendFailure)?;
+        state.check()?;
         self.factory
             .readback
             .try_borrow_mut()
             .map_err(|_| RenderError::InvalidScope)?
-            .read(&state.device, &state.queue, frame.target.texture(), phys)
+            .read(&state.device, &state.queue, target.texture(), phys)
             .map(Some)
     }
 
@@ -4483,15 +4554,17 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         let Some(frame) = self.frame.as_ref() else {
             return Err(RenderError::BackendFailure);
         };
+        let target = frame.target.as_ref().ok_or(RenderError::BackendFailure)?;
         let Some(state) = self.surface.state() else {
             return Err(RenderError::BackendFailure);
         };
+        state.check()?;
         let texture = self
             .factory
             .readback
             .try_borrow_mut()
             .map_err(|_| RenderError::InvalidScope)?
-            .read(&state.device, &state.queue, frame.target.texture(), phys)?;
+            .read(&state.device, &state.queue, target.texture(), phys)?;
         let (x, y, _, _) = self.viewport.rect_to_physical_pixel_bounds(*src);
         crate::render::renderer::copy_packed_rgba8(
             texture.read_pixels()?.bytes(),
@@ -4567,14 +4640,59 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
 }
 
 impl<B: WgpuTarget> Renderer for WgpuRenderer<'_, B> {
+    #[cfg(not(target_arch = "wasm32"))]
+    type TargetState = target::TargetState;
+    #[cfg(target_arch = "wasm32")]
     type TargetState = ();
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn plan_target(
+        &self,
+        layout: crate::render::PlaneLayout,
+    ) -> Result<Option<crate::render::TargetPlan>, RenderError> {
+        let state = self.surface.state().ok_or(RenderError::BackendFailure)?;
+        target::plan(state, state.samples(), layout)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn create_target(
+        &mut self,
+        plan: &crate::render::TargetPlan,
+    ) -> Result<alloc::boxed::Box<dyn crate::render::BackendTarget>, RenderError> {
+        let state = self.surface.state().ok_or(RenderError::BackendFailure)?;
+        target::create(state.context(), state.samples(), plan)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn bind_target(
+        &mut self,
+        target: &mut dyn crate::render::BackendTarget,
+        viewport: Viewport,
+        update: crate::render::TargetUpdate,
+        _workspace: &mut [u8],
+    ) -> Result<Self::TargetState, RenderError> {
+        self.bind_native_target(target, viewport, update)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn restore_target(
+        &mut self,
+        state: Self::TargetState,
+        completed: bool,
+    ) -> Result<(), RenderError> {
+        self.restore_native_target(state, completed)
+    }
 
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         WgpuRenderer::route(self, request)
     }
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-        WgpuRenderer::submit(self, request)
+        let result = WgpuRenderer::submit(self, request);
+        if let Err(error) = result {
+            self.failure.get_or_insert(error);
+        }
+        result
     }
 
     fn submit_with_route(
@@ -4582,7 +4700,11 @@ impl<B: WgpuTarget> Renderer for WgpuRenderer<'_, B> {
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,
     ) -> Result<(), RenderError> {
-        WgpuRenderer::submit_with_route(self, request, route)
+        let result = WgpuRenderer::submit_with_route(self, request, route);
+        if let Err(error) = result {
+            self.failure.get_or_insert(error);
+        }
+        result
     }
 
     fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
@@ -4626,7 +4748,11 @@ impl<B: WgpuTarget> Renderer for WgpuRenderer<'_, B> {
         src: &Rect,
         f: &mut dyn FnMut(&mut Texture) -> Result<(), RenderError>,
     ) -> Result<bool, RenderError> {
-        WgpuRenderer::modify_target_region(self, src, f)
+        let result = WgpuRenderer::modify_target_region(self, src, f);
+        if let Err(error) = result {
+            self.failure.get_or_insert(error);
+        }
+        result
     }
 }
 
