@@ -22,6 +22,9 @@ mod target_state;
 mod tessellation;
 mod texture_cache;
 
+#[cfg(all(test, feature = "wgpu", not(target_arch = "wasm32")))]
+pub(crate) use target::tests::source::{check_foreign_source, native_source};
+
 use alloc::rc::Rc;
 use std::time::Instant;
 

@@ -166,6 +166,69 @@ fn native_texture_sources_share_views_or_bridge_through_the_upload_cache() {
     ));
 }
 
+#[cfg(feature = "sdl-gpu")]
+#[test]
+fn sdl_and_wgpu_sources_bridge_without_consumer_specific_readback() {
+    use super::super::super::texture_pool::{new_pool, source_view};
+    use crate::render::backends::sdl_gpu::{check_foreign_source, native_source};
+    use crate::render::budget::MemoryBudget;
+
+    let Some(context) = context() else {
+        return;
+    };
+    let source = native_source();
+    assert!(source.pixels().unwrap().is_none());
+    let mut pool = new_pool(256);
+    for _ in 0..2 {
+        let uploaded = source_view(&mut pool, 256, &context, &source).unwrap();
+        assert_eq!(uploaded.alpha, TargetAlpha::Straight);
+        assert_eq!(
+            sample_color(&context, &uploaded),
+            Color::rgba(255, 0, 0, 128)
+        );
+    }
+    assert_eq!(pool.len(), 1);
+    assert_eq!(pool.stats().insert_count, 1);
+    assert_eq!(
+        source.pixels().unwrap().unwrap().get_pixel(0, 0),
+        Color::rgba(255, 0, 0, 128)
+    );
+
+    let mut producer = SourceProducer {
+        context: Arc::clone(&context),
+        active: None,
+        color: wgpu::Color {
+            r: 0.25,
+            g: 0.0,
+            b: 0.0,
+            a: 0.5,
+        },
+    };
+    let layout = PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap();
+    let plan = producer.plan_target(layout).unwrap().unwrap();
+    let budget =
+        MemoryBudget::new(plan.storage_bytes + plan.readback_bytes + layout.required_bytes());
+    let mut source = Texture::native(&mut producer, plan, &budget).unwrap();
+    source
+        .render_native(
+            &mut producer,
+            Viewport::new(4, 4, Fixed::ONE),
+            &mut [],
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+    source.set_output_revision(1);
+    assert!(source.pixels().unwrap().is_none());
+    drop(producer);
+    drop(context);
+    check_foreign_source(&source, Color::rgba(64, 0, 0, 128));
+    assert_eq!(
+        source.pixels().unwrap().unwrap().get_pixel(0, 0),
+        Color::rgba(128, 0, 0, 128)
+    );
+    std::eprintln!("SDL software renderer / WGPU source bridges passed in both directions");
+}
+
 fn sample_color(
     context: &Arc<WgpuDeviceContext>,
     source: &super::super::super::texture_pool::BlitSource,

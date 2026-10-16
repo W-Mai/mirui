@@ -79,6 +79,39 @@ fn draw(
         .unwrap()
 }
 
+#[cfg(all(feature = "wgpu", not(target_arch = "wasm32")))]
+pub(crate) fn native_source() -> Texture<'static> {
+    let mut producer = Producer {
+        device: device(),
+        color: (255, 0, 0, 128),
+    };
+    let layout = PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap();
+    let plan = producer.plan_target(layout).unwrap().unwrap();
+    let budget = MemoryBudget::new(plan.storage_bytes + layout.required_bytes());
+    let mut texture = Texture::native(&mut producer, plan, &budget).unwrap();
+    texture
+        .render_native(
+            &mut producer,
+            Viewport::new(4, 4, Fixed::ONE),
+            &mut [],
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+    texture.set_output_revision(1);
+    texture
+}
+
+#[cfg(all(feature = "wgpu", not(target_arch = "wasm32")))]
+pub(crate) fn check_foreign_source(texture: &Texture<'_>, expected: Color) {
+    let device = device();
+    let mut cache = TextureCache::new(Rc::clone(&device), 256);
+    for _ in 0..2 {
+        assert_eq!(draw(&mut cache, &device, texture), expected);
+    }
+    assert_eq!(cache.inspect().cache_len(), 1);
+    assert_eq!(cache.inspect().cache_stats().insert_count, 1);
+}
+
 #[test]
 fn native_sources_bridge_once_and_reject_feedback_before_cached_uploads() {
     let source = device();

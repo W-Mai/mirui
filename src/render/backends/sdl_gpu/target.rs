@@ -20,7 +20,7 @@ use crate::types::{PhysicalRect, Viewport};
 
 #[cfg(test)]
 #[path = "target_tests.rs"]
-mod tests;
+pub(crate) mod tests;
 
 struct Storage<T: RenderTarget> {
     texture: RefCell<SdlTexture<'static>>,
