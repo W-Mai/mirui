@@ -101,6 +101,8 @@ Software Blit execution acquires one validated source pixel borrow before sampli
 
 Software target-region edits, readback destinations, framebuffer mirroring and scroll transfers use exclusive pixel borrows. Each write borrow advances the destination upload revision, including a region callback that modifies pixels and then fails. Read-only storage is rejected without allocating a writable copy. Region views preserve row stride, exclude trailing padding after their final pixel and remain transient upload sources.
 
+SDL-GPU and native WGPU target readback write directly into the supplied destination region without an intermediate CPU texture. The shared region mapping clips to the destination extent and preserves uncovered pixels and row padding. WGPU retains its staging-buffer reuse and alpha conversion; explicit snapshots still own independent pixels. Driver transfers may synchronize and allocate internally.
+
 `Surface::begin_flush()` prepares the target before drawing. `flush(area)` transfers each physical region; `end_flush()` accepts the completed frame. These methods return `Result<(), RenderError>`. App calls `abort_flush()` on an unsuccessful frame and retains its pending damage. `SurfaceUnavailable` means acquisition can be retried; it is returned by explicit rendering and does not produce repeated tick warnings. `frame_end()` maintains platform completion and retained presentation retries, including idle and failed ticks. A successful submission does not generally mean the display has scanned the pixels. DRM waits for the flip event before exposing released buffers as mirror destinations; a timeout does not release them.
 
 - Software writes directly into its framebuffer and normally needs no RGBA

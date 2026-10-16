@@ -3,6 +3,32 @@ use crate::render::{PlaneLayout, PlaneRequirements, RenderError, TargetAlpha};
 use crate::types::PhysicalRect;
 use sdl2::render::{Canvas, RenderTarget};
 
+pub(super) fn region_into<T: RenderTarget>(
+    canvas: &Canvas<T>,
+    area: PhysicalRect,
+    source_origin: (i32, i32),
+    destination: &mut Texture<'_>,
+    alpha: TargetAlpha,
+) -> Result<(), RenderError> {
+    crate::render::renderer::with_rgba8_readback(
+        area,
+        source_origin,
+        destination,
+        |area, pixels| {
+            let stride = pixels.stride();
+            rgba8(canvas, area, pixels.bytes_mut(), stride)?;
+            convert_alpha(
+                pixels.bytes_mut(),
+                area.width(),
+                area.height(),
+                stride,
+                alpha,
+                TargetAlpha::Straight,
+            )
+        },
+    )
+}
+
 pub(super) fn texture<T: RenderTarget>(
     canvas: &Canvas<T>,
     area: PhysicalRect,
@@ -211,6 +237,38 @@ mod tests {
             snapshot.read_pixels().unwrap().bytes(),
             &[17, 39, 83, 127].repeat(4)
         );
+    }
+
+    #[test]
+    fn region_reads_reuse_destination_storage_and_preserve_uncovered_pixels() {
+        let surface =
+            sdl2::surface::Surface::new(3, 2, sdl2::pixels::PixelFormatEnum::RGBA32).unwrap();
+        let mut canvas = surface.into_canvas().unwrap();
+        canvas.set_draw_color(sdl2::pixels::Color::RGBA(32, 64, 16, 128));
+        canvas.clear();
+        let mut bytes = [0xa5; 44];
+        let mut destination = Texture::new(&mut bytes, 3, 3, ColorFormat::RGBA8888)
+            .unwrap()
+            .with_stride(16)
+            .unwrap();
+        let allocations = tracked_allocations(|| {
+            for _ in 0..3 {
+                region_into(
+                    &canvas,
+                    PhysicalRect::from_size(3, 2),
+                    (-1, -1),
+                    &mut destination,
+                    TargetAlpha::Premultiplied,
+                )
+                .unwrap();
+            }
+        });
+        assert_eq!(allocations, 0);
+        let pixels = destination.read_pixels().unwrap();
+        assert_eq!(&pixels.bytes()[..20], &[0xa5; 20]);
+        assert_eq!(&pixels.bytes()[20..28], &[64, 128, 32, 128].repeat(2));
+        assert_eq!(&pixels.bytes()[28..36], &[0xa5; 8]);
+        assert_eq!(&pixels.bytes()[36..44], &[64, 128, 32, 128].repeat(2));
     }
 
     #[test]

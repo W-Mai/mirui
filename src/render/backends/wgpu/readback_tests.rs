@@ -85,6 +85,8 @@ fn readback_reuses_mapping_storage_and_preserves_destination_layout() {
         assert_eq!(pixels.read_pixels().unwrap().bytes(), expected);
         let buffer = readback.staging.as_ref().unwrap().buffer.clone();
         let state = Arc::downgrade(&readback.staging.as_ref().unwrap().mapped);
+        check_clipped_destination(&mut readback, &device, &queue, &target);
+        assert_eq!(readback.staging.as_ref().unwrap().buffer, buffer);
         let mut bytes = [0xabu8; 20];
         let mut dst = Texture::new(&mut bytes, 2, 2, ColorFormat::RGBA8888)
             .unwrap()
@@ -202,4 +204,37 @@ fn readback_reuses_mapping_storage_and_preserves_destination_layout() {
     assert_eq!(readback.staging.as_ref().unwrap().device, other_device);
     assert_ne!(readback.staging.as_ref().unwrap().buffer, first_buffer);
     std::eprintln!("readback storage and pixel checks completed");
+}
+
+fn check_clipped_destination(
+    readback: &mut Readback,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    target: &wgpu::Texture,
+) {
+    let mut bytes = [0xab; 44];
+    let mut destination = Texture::new(&mut bytes, 3, 3, ColorFormat::RGBA8888)
+        .unwrap()
+        .with_stride(16)
+        .unwrap();
+    for _ in 0..3 {
+        crate::render::renderer::with_rgba8_readback(
+            PhysicalRect::from_size(3, 2),
+            (-1, -1),
+            &mut destination,
+            |area, pixels| readback.read_into(device, queue, target, area, pixels),
+        )
+        .unwrap();
+    }
+    let pixels = destination.read_pixels().unwrap();
+    assert_eq!(&pixels.bytes()[..20], &[0xab; 20]);
+    assert_eq!(
+        &pixels.bytes()[20..28],
+        &[0, 64, 128, 128, 16, 64, 128, 128]
+    );
+    assert_eq!(&pixels.bytes()[28..36], &[0xab; 8]);
+    assert_eq!(
+        &pixels.bytes()[36..44],
+        &[48, 64, 128, 128, 64, 64, 128, 128]
+    );
 }

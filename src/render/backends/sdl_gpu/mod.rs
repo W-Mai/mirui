@@ -1239,10 +1239,14 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let Some(phys) = self.physical_clip_rect(src) else {
             return Ok(());
         };
-        let texture = readback::texture(&*self.device.canvas()?, phys, self.target_alpha())?;
-        let pixels = texture.read_pixels()?;
         let (x, y, _, _) = self.viewport.rect_to_physical_pixel_bounds(*src);
-        crate::render::renderer::copy_packed_rgba8(pixels.bytes(), phys, (x, y), dst)
+        readback::region_into(
+            &*self.device.canvas()?,
+            phys,
+            (x, y),
+            dst,
+            self.target_alpha(),
+        )
     }
 
     fn modify_target_region(

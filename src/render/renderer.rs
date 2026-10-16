@@ -509,12 +509,7 @@ pub enum RenderError {
     BackendFailure,
 }
 
-#[cfg(any(
-    feature = "sdl-gpu",
-    feature = "wgpu",
-    all(feature = "web-canvas", target_arch = "wasm32"),
-    test
-))]
+#[cfg(any(all(feature = "web-canvas", target_arch = "wasm32"), test))]
 pub(crate) fn copy_packed_rgba8(
     bytes: &[u8],
     clipped: PhysicalRect,
@@ -533,26 +528,69 @@ pub(crate) fn copy_packed_rgba8(
     if bytes.len() < required {
         return Err(RenderError::BackendFailure);
     }
-    let x = usize::try_from(i32::from(clipped.x()) - source_origin.0)
-        .map_err(|_| RenderError::InvalidGeometry)?;
-    let y = usize::try_from(i32::from(clipped.y()) - source_origin.1)
-        .map_err(|_| RenderError::InvalidGeometry)?;
-    let copy_width = width.min(usize::from(dst.width).saturating_sub(x));
-    let copy_height = height.min(usize::from(dst.height).saturating_sub(y));
-    if copy_width == 0 || copy_height == 0 {
+    with_rgba8_readback(clipped, source_origin, dst, |area, pixels| {
+        let copy_bytes = usize::from(area.width()) * ColorFormat::RGBA8888.bytes_per_pixel();
+        let dst_stride = pixels.stride();
+        let dst_bytes = pixels.bytes_mut();
+        for row in 0..usize::from(area.height()) {
+            let src_start = row * row_bytes;
+            let dst_start = row * dst_stride;
+            dst_bytes[dst_start..dst_start + copy_bytes]
+                .copy_from_slice(&bytes[src_start..src_start + copy_bytes]);
+        }
+        Ok(())
+    })
+}
+
+#[cfg(any(
+    feature = "sdl-gpu",
+    all(feature = "wgpu", not(target_arch = "wasm32")),
+    all(feature = "web-canvas", target_arch = "wasm32"),
+    test
+))]
+pub(crate) fn with_rgba8_readback(
+    clipped: PhysicalRect,
+    source_origin: (i32, i32),
+    dst: &mut Texture<'_>,
+    read: impl FnOnce(
+        PhysicalRect,
+        &mut super::texture::TexturePixelsMut<'_>,
+    ) -> Result<(), RenderError>,
+) -> Result<(), RenderError> {
+    if dst.format != ColorFormat::RGBA8888 || !dst.valid_storage() {
+        return Err(RenderError::InvalidTexture);
+    }
+    let offset = |position: u16, origin: i32| {
+        i32::from(position)
+            .checked_sub(origin)
+            .and_then(|value| usize::try_from(value).ok())
+            .ok_or(RenderError::InvalidGeometry)
+    };
+    let x = offset(clipped.x(), source_origin.0)?;
+    let y = offset(clipped.y(), source_origin.1)?;
+    let width = usize::from(clipped.width()).min(usize::from(dst.width).saturating_sub(x));
+    let height = usize::from(clipped.height()).min(usize::from(dst.height).saturating_sub(y));
+    if width == 0 || height == 0 {
         return Ok(());
     }
-    let copy_bytes = copy_width * 4;
+    let area = PhysicalRect::new(clipped.x(), clipped.y(), width as u16, height as u16)
+        .ok_or(RenderError::InvalidGeometry)?;
     let mut pixels = dst.pixels_mut()?;
-    let dst_stride = pixels.stride();
-    let dst_bytes = pixels.bytes_mut();
-    for row in 0..copy_height {
-        let src_start = row * row_bytes;
-        let dst_start = (y + row) * dst_stride + x * 4;
-        dst_bytes[dst_start..dst_start + copy_bytes]
-            .copy_from_slice(&bytes[src_start..src_start + copy_bytes]);
-    }
-    Ok(())
+    let stride = pixels.stride();
+    let layout = PlaneLayout::new(
+        area.width(),
+        area.height(),
+        ColorFormat::RGBA8888,
+        stride,
+        PlaneRequirements::CPU,
+    )
+    .map_err(|_| RenderError::InvalidTexture)?;
+    let start = y * stride + x * ColorFormat::RGBA8888.bytes_per_pixel();
+    let bytes = &mut pixels.bytes_mut()[start..start + layout.minimum_bytes()];
+    let mut region = Texture::new(bytes, area.width(), area.height(), ColorFormat::RGBA8888)?
+        .with_stride(stride)?;
+    let mut pixels = region.pixels_mut()?;
+    read(area, &mut pixels)
 }
 
 /// Failure to execute a draw command under a non-affine homography.
@@ -955,6 +993,101 @@ mod tests {
         assert_eq!(&pixels[20..28], &source[..8]);
         assert_eq!(&pixels[36..44], &source[8..]);
         assert_eq!(&pixels[44..], &[0; 4]);
+    }
+
+    #[test]
+    fn direct_readback_borrows_only_the_clipped_destination_without_allocating() {
+        for (origin, expected_area, destination_offset) in [
+            ((0, -1), (2, 2), (1, 1)),
+            ((-1, -1), (1, 2), (2, 1)),
+            ((-1, -2), (1, 1), (2, 2)),
+            ((-3, 0), (0, 0), (4, 0)),
+        ] {
+            let mut bytes = [0xa5; 44];
+            let base = bytes.as_ptr();
+            let mut dst = Texture::new(&mut bytes, 3, 3, ColorFormat::RGBA8888)
+                .unwrap()
+                .with_stride(16)
+                .unwrap()
+                .with_cache_revision(10);
+            let mut calls = 0;
+            let allocations = crate::test_support::tracked_allocations(|| {
+                with_rgba8_readback(
+                    PhysicalRect::new(1, 0, 2, 2).unwrap(),
+                    origin,
+                    &mut dst,
+                    |area, pixels| {
+                        calls += 1;
+                        assert_eq!((area.width(), area.height()), expected_area);
+                        assert_eq!((area.x(), area.y()), (1, 0));
+                        assert_eq!(pixels.stride(), 16);
+                        assert_eq!(
+                            pixels.bytes().as_ptr(),
+                            base.wrapping_add(destination_offset.1 * 16 + destination_offset.0 * 4)
+                        );
+                        for y in 0..i32::from(pixels.height()) {
+                            for x in 0..i32::from(pixels.width()) {
+                                pixels.set_pixel(x, y, &crate::types::Color::rgba(11, 22, 33, 44));
+                            }
+                        }
+                        Ok(())
+                    },
+                )
+                .unwrap();
+            });
+            assert_eq!(allocations, 0);
+            assert_eq!(calls, usize::from(expected_area.0 != 0));
+            assert_eq!(dst.cache_revision, 10 + calls as u64);
+            let pixels = dst.read_pixels().unwrap();
+            for y in 0..3 {
+                for x in 0..3 {
+                    let covered = x >= destination_offset.0
+                        && x < destination_offset.0 + usize::from(expected_area.0)
+                        && y >= destination_offset.1
+                        && y < destination_offset.1 + usize::from(expected_area.1);
+                    assert_eq!(
+                        &pixels.bytes()[y * 16 + x * 4..][..4],
+                        if covered {
+                            &[11, 22, 33, 44]
+                        } else {
+                            &[0xa5; 4]
+                        }
+                    );
+                }
+            }
+            assert_eq!(&pixels.bytes()[12..16], &[0xa5; 4]);
+            assert_eq!(&pixels.bytes()[28..32], &[0xa5; 4]);
+        }
+    }
+
+    #[test]
+    fn direct_readback_validates_before_io_and_invalidates_failed_writes() {
+        let area = PhysicalRect::from_size(1, 1);
+        let mut dst = Texture::owned(2, 2, ColorFormat::RGBA8888).unwrap();
+        for origin in [(i32::MIN, 0), (0, i32::MIN), (1, 0), (0, 1)] {
+            assert_eq!(
+                with_rgba8_readback(area, origin, &mut dst, |_, _| panic!("unexpected read")),
+                Err(RenderError::InvalidGeometry)
+            );
+            assert_eq!(dst.cache_revision, 0);
+        }
+        let mut readonly = Texture::from_ref(&[0; 16], 2, 2, ColorFormat::RGBA8888).unwrap();
+        let mut rgb = Texture::owned(2, 2, ColorFormat::RGB888).unwrap();
+        for invalid in [&mut readonly, &mut rgb] {
+            assert_eq!(
+                with_rgba8_readback(area, (0, 0), invalid, |_, _| panic!("unexpected read")),
+                Err(RenderError::InvalidTexture)
+            );
+        }
+        assert_eq!(
+            with_rgba8_readback(area, (0, 0), &mut dst, |_, pixels| {
+                pixels.bytes_mut()[0] = 7;
+                Err(RenderError::BackendFailure)
+            }),
+            Err(RenderError::BackendFailure)
+        );
+        assert_eq!(dst.cache_revision, 1);
+        assert_eq!(dst.read_pixels().unwrap().bytes()[0], 7);
     }
 
     #[test]

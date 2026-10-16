@@ -4542,19 +4542,14 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             return Err(RenderError::BackendFailure);
         };
         state.check()?;
-        let texture = self
-            .factory
-            .readback
-            .try_borrow_mut()
-            .map_err(|_| RenderError::InvalidScope)?
-            .read(&state.device, &state.queue, target.texture(), phys)?;
         let (x, y, _, _) = self.viewport.rect_to_physical_pixel_bounds(*src);
-        crate::render::renderer::copy_packed_rgba8(
-            texture.read_pixels()?.bytes(),
-            phys,
-            (x, y),
-            dst,
-        )
+        crate::render::renderer::with_rgba8_readback(phys, (x, y), dst, |area, pixels| {
+            self.factory
+                .readback
+                .try_borrow_mut()
+                .map_err(|_| RenderError::InvalidScope)?
+                .read_into(&state.device, &state.queue, target.texture(), area, pixels)
+        })
     }
 
     #[cfg(target_arch = "wasm32")]

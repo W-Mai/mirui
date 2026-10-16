@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- SDL-GPU and native WGPU target readback write directly into destination pixel regions without an intermediate CPU texture, preserving clipped offsets and row padding.
+
 - Native output production reuses budgeted binding workspace independently of View paint workspace, with capacity checks before target writes.
 
 - SDL-GPU blits sample compatible same-device native textures directly with premultiplied opacity. Other sources reuse pixel readback and upload caching; active or unfinished targets are rejected before cache lookup.
