@@ -116,6 +116,8 @@ fn dispatch_tap(world: &mut World, root: Entity, x: Fixed, y: Fixed, now_ms: u32
 struct FillColors(Vec<Color>);
 
 impl Renderer for FillColors {
+    type TargetState = ();
+
     fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         Ok(RenderRoute::Native)
     }

@@ -636,6 +636,8 @@ fn a_renderer_without_offscreen_support_draws_the_destination_inline() {
         use crate::render::texture::{ColorFormat, Texture};
         struct InlineOnly<'a>(SwRenderer<'a>);
         impl Renderer for InlineOnly<'_> {
+            type TargetState = ();
+
             fn submit(
                 &mut self,
                 request: &DrawRequest<'_, '_>,

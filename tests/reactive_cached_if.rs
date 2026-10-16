@@ -37,6 +37,8 @@ impl VisibilityModel {
 struct FillColors(Vec<Color>);
 
 impl Renderer for FillColors {
+    type TargetState = ();
+
     fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         Ok(RenderRoute::Native)
     }

@@ -6,6 +6,10 @@ use super::renderer::RenderError;
 use super::scratch::PlaneLayout;
 use super::texture::TexturePixelsMut;
 
+#[doc(hidden)]
+#[path = "target_scope.rs"]
+pub mod __private;
+
 /// Encoding of color channels relative to stored alpha.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TargetAlpha {

@@ -228,6 +228,8 @@ mod tests {
     fn cursor_draw_failure_reaches_paint_context() {
         struct RejectRenderer;
         impl Renderer for RejectRenderer {
+            type TargetState = ();
+
             fn submit(
                 &mut self,
                 _: &crate::render::renderer::DrawRequest<'_, '_>,

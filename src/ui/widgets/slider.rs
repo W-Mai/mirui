@@ -811,6 +811,8 @@ mod tests {
             transform: Transform,
         }
         impl Renderer for Trace {
+            type TargetState = ();
+
             fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 let DrawCommand::Fill { transform, .. } = request.command else {
                     panic!("expected slider fill")

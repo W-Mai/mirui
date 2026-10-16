@@ -87,6 +87,8 @@ mod tests {
     }
 
     impl Renderer for Trace {
+        type TargetState = ();
+
         fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
             match *request.command {
                 DrawCommand::Fill { color, .. } => self.colors[0] = Some(color),

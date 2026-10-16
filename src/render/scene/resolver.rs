@@ -97,6 +97,8 @@ mod tests {
         sizes: alloc::vec::Vec<(u16, u16)>,
     }
     impl crate::render::renderer::Renderer for DimsRenderer {
+        type TargetState = ();
+
         fn route(
             &self,
             _: &crate::render::renderer::DrawRequest<'_, '_>,

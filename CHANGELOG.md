@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- `Renderer` implementations declare `TargetState`; native targets use binding and restoration hooks, while software renderers use `()`. Composed renderers preserve their concrete engines inside target scopes.
+
 - Texture storage is internal; writable pixel access no longer copies read-only storage.
 - `iir_blur_inplace` and `mix_inplace` accept pixel borrows instead of textures.
 - Texture pixel storage and geometry fields are private. Read through `TexturePixels`, write through `TexturePixelsMut`, and use metadata getters and checked `with_stride` for padded CPU data.

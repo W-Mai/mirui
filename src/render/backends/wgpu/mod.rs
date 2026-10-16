@@ -4627,6 +4627,8 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
 }
 
 impl<B: WgpuTarget> Renderer for WgpuRenderer<'_, B> {
+    type TargetState = ();
+
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         WgpuRenderer::route(self, request)
     }

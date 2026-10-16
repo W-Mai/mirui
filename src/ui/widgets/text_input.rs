@@ -423,6 +423,8 @@ mod tests {
     }
 
     impl Renderer for RecordingRenderer {
+        type TargetState = ();
+
         fn route(
             &self,
             _: &crate::render::DrawRequest<'_, '_>,
@@ -746,6 +748,8 @@ mod tests {
             fills: usize,
         }
         impl Renderer for Trace {
+            type TargetState = ();
+
             fn submit(
                 &mut self,
                 request: &crate::render::DrawRequest<'_, '_>,
@@ -880,6 +884,8 @@ mod tests {
     fn typed_paint_prepares_optional_dependencies_and_preserves_early_returns_without_allocating() {
         struct Trace(usize);
         impl Renderer for Trace {
+            type TargetState = ();
+
             fn submit(
                 &mut self,
                 _: &crate::render::DrawRequest<'_, '_>,
@@ -1004,6 +1010,8 @@ mod tests {
         }
 
         impl Renderer for Trace {
+            type TargetState = ();
+
             fn submit(
                 &mut self,
                 request: &crate::render::DrawRequest<'_, '_>,

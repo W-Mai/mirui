@@ -115,6 +115,8 @@ mod paint_contract_tests {
         fail: bool,
     }
     impl Renderer for Trace {
+        type TargetState = ();
+
         fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
             assert!(matches!(request.command, DrawCommand::Fill { .. }));
             self.calls += 1;

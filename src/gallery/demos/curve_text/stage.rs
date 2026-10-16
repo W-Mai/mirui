@@ -140,6 +140,8 @@ mod paint_contract_tests {
     }
 
     impl Renderer for Trace {
+        type TargetState = ();
+
         fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
             self.calls += 1;
             if self.fail {

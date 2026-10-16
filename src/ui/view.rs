@@ -1379,6 +1379,8 @@ mod tests {
     fn optional_resource_paint_refetches_borrowed_values_without_allocating() {
         struct StubRenderer;
         impl Renderer for StubRenderer {
+            type TargetState = ();
+
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
             }
@@ -1518,6 +1520,8 @@ mod tests {
             calls: usize,
         }
         impl Renderer for Trace {
+            type TargetState = ();
+
             fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 assert_eq!(request.clip, Rect::new(13, 17, 460, 340));
                 match *request.command {
@@ -2176,6 +2180,8 @@ mod tests {
     fn builtin_typed_views_preserve_descriptors_and_borrowed_paint_execution() {
         struct CountingRenderer(usize);
         impl Renderer for CountingRenderer {
+            type TargetState = ();
+
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 self.0 += 1;
                 Ok(())
@@ -3089,6 +3095,8 @@ mod tests {
     fn generated_view_borrows_current_model_only_while_painting() {
         struct StubRenderer;
         impl Renderer for StubRenderer {
+            type TargetState = ();
+
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
             }
@@ -3132,6 +3140,8 @@ mod tests {
     fn generated_view_reads_two_instances_and_two_aliases() {
         struct StubRenderer;
         impl Renderer for StubRenderer {
+            type TargetState = ();
+
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
             }
@@ -3182,6 +3192,8 @@ mod tests {
     fn optional_model_view_runs_with_and_without_an_instance() {
         struct StubRenderer;
         impl Renderer for StubRenderer {
+            type TargetState = ();
+
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
             }
@@ -3333,6 +3345,8 @@ mod tests {
     fn generated_view_rejects_model_writes_and_restores_scope_after_panic() {
         struct StubRenderer;
         impl Renderer for StubRenderer {
+            type TargetState = ();
+
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
             }
@@ -3431,6 +3445,8 @@ mod tests {
     fn render_fn_can_mutate_ctx_while_reading_world() {
         struct StubRenderer;
         impl Renderer for StubRenderer {
+            type TargetState = ();
+
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
             }
@@ -3484,6 +3500,8 @@ mod tests {
         }
 
         impl Renderer for ClipRenderer {
+            type TargetState = ();
+
             fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 match request.command {
                     DrawCommand::PushClip { .. } => {
@@ -3549,6 +3567,8 @@ mod tests {
         }
 
         impl Renderer for CountingRenderer {
+            type TargetState = ();
+
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 self.submissions += 1;
                 Ok(())
@@ -3590,6 +3610,8 @@ mod tests {
     fn source_pixels_borrow_texture_and_latch_errors_before_draw() {
         struct DrawCounter(usize);
         impl Renderer for DrawCounter {
+            type TargetState = ();
+
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 self.0 += 1;
                 Ok(())
@@ -3657,6 +3679,8 @@ mod tests {
         }
 
         impl Renderer for ReadbackRenderer {
+            type TargetState = ();
+
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
             }
@@ -3726,6 +3750,8 @@ mod tests {
         }
 
         impl Renderer for TextRenderer {
+            type TargetState = ();
+
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 self.draws += 1;
                 Ok(())
@@ -3787,6 +3813,8 @@ mod tests {
         struct RejectingRenderer;
 
         impl Renderer for RejectingRenderer {
+            type TargetState = ();
+
             fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 self.route(request).map(|_| ())
             }
@@ -3836,6 +3864,8 @@ mod tests {
         }
 
         impl Renderer for CapturingRenderer {
+            type TargetState = ();
+
             fn route(
                 &self,
                 _: &DrawRequest<'_, '_>,

@@ -269,6 +269,8 @@ impl RendererFactory<TestSurface> for SubmissionFactory {
 }
 
 impl Renderer for SubmissionRenderer {
+    type TargetState = ();
+
     fn route(
         &self,
         _: &crate::render::DrawRequest<'_, '_>,

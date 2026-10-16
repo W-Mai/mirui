@@ -405,6 +405,43 @@ impl ComposeInput {
                     + ::mirui::render::renderer::Renderer,
                 #(#engine_generics: ::mirui::render::engine::RenderEngine<#target_generic>,)*
             {
+                type TargetState = <#target_generic as ::mirui::render::Renderer>::TargetState;
+
+                fn plan_target(
+                    &self,
+                    layout: ::mirui::render::PlaneLayout,
+                ) -> Result<Option<::mirui::render::TargetPlan>, ::mirui::render::RenderError> {
+                    ::mirui::render::Renderer::plan_target(&self.#default_field, layout)
+                }
+
+                fn create_target(
+                    &mut self,
+                    plan: &::mirui::render::TargetPlan,
+                ) -> Result<::mirui::render::target::__private::Box<dyn ::mirui::render::BackendTarget>, ::mirui::render::RenderError> {
+                    ::mirui::render::Renderer::create_target(&mut self.#default_field, plan)
+                }
+
+                fn bind_target(
+                    &mut self,
+                    target: &mut dyn ::mirui::render::BackendTarget,
+                    viewport: ::mirui::types::Viewport,
+                    workspace: &mut [u8],
+                ) -> Result<Self::TargetState, ::mirui::render::RenderError> {
+                    ::mirui::render::Renderer::bind_target(
+                        &mut self.#default_field, target, viewport, workspace,
+                    )
+                }
+
+                fn restore_target(
+                    &mut self,
+                    state: Self::TargetState,
+                    completed: bool,
+                ) -> Result<(), ::mirui::render::RenderError> {
+                    ::mirui::render::Renderer::restore_target(
+                        &mut self.#default_field, state, completed,
+                    )
+                }
+
                 fn route(
                     &self,
                     request: &::mirui::render::renderer::DrawRequest<'_, '_>,

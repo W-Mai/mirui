@@ -143,6 +143,8 @@ impl Canvas for Dummy {
 }
 
 impl Renderer for Dummy {
+    type TargetState = ();
+
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate()?;
         if !request.projective.is_identity() {
@@ -552,6 +554,8 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
 }
 
 impl Renderer for BorrowedDummy<'_> {
+    type TargetState = ();
+
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate()?;
         Ok(RenderRoute::Native)

@@ -510,6 +510,8 @@ fn map_gradient_points(
 }
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
+    type TargetState = ();
+
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         WebCanvasRenderer::route(self, request)
     }

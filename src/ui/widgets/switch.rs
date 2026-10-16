@@ -354,6 +354,8 @@ mod tests {
     }
 
     impl Renderer for Trace {
+        type TargetState = ();
+
         fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
             let DrawCommand::Fill {
                 area,

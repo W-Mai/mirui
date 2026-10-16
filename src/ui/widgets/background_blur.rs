@@ -87,6 +87,8 @@ mod tests {
     struct FailingReadback;
 
     impl Renderer for FailingReadback {
+        type TargetState = ();
+
         fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
             panic!("readback preparation failure must stop the draw")
         }
@@ -144,6 +146,8 @@ mod tests {
         }
 
         impl Renderer for PreparedReadback {
+            type TargetState = ();
+
             fn prepare_readback(&mut self, region: &Rect) -> Result<(), RenderError> {
                 assert_eq!(*region, self.bounds);
                 assert!(!self.prepared.replace(true));

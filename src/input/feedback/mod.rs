@@ -164,6 +164,8 @@ mod tests {
     struct CountingRenderer(usize);
 
     impl Renderer for CountingRenderer {
+        type TargetState = ();
+
         fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
             self.0 += 1;
             Ok(())

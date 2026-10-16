@@ -158,6 +158,8 @@ struct ProjectiveRenderer<'a> {
 }
 
 impl Renderer for ProjectiveRenderer<'_> {
+    type TargetState = ();
+
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         self.inner.route(
             &DrawRequest::new(request.command, request.clip)
@@ -1937,6 +1939,8 @@ mod projective_transform_tests {
     }
 
     impl Renderer for AffineOnlyRenderer {
+        type TargetState = ();
+
         fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
             self.route(request)?;
             self.draws += 1;
@@ -1949,6 +1953,8 @@ mod projective_transform_tests {
     }
 
     impl Renderer for ProjectiveLeafCapture {
+        type TargetState = ();
+
         fn route(
             &self,
             _: &DrawRequest<'_, '_>,
@@ -2052,6 +2058,8 @@ mod projective_transform_tests {
         }
 
         impl Renderer for Recorder {
+            type TargetState = ();
+
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
             }
@@ -3852,6 +3860,8 @@ mod layout_snapshot_reuse_check {
         struct GlyphRecorder(usize);
 
         impl Renderer for GlyphRecorder {
+            type TargetState = ();
+
             fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
                 Ok(RenderRoute::Native)
             }
@@ -4756,6 +4766,8 @@ mod text_layout_check {
         }
 
         impl Renderer for Recorder {
+            type TargetState = ();
+
             fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
                 Ok(RenderRoute::Native)
             }
@@ -4859,6 +4871,8 @@ mod text_layout_check {
         }
 
         impl Renderer for Recorder {
+            type TargetState = ();
+
             fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
                 Ok(RenderRoute::Native)
             }
@@ -4930,6 +4944,8 @@ mod text_layout_check {
         }
 
         impl Renderer for Recorder {
+            type TargetState = ();
+
             fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
                 Ok(RenderRoute::Native)
             }
@@ -5713,6 +5729,8 @@ mod text_layout_check {
         }
 
         impl Renderer for Recorder {
+            type TargetState = ();
+
             fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
                 Ok(RenderRoute::Native)
             }
@@ -5964,6 +5982,8 @@ mod text_layout_check {
         }
 
         impl Renderer for Recorder {
+            type TargetState = ();
+
             fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
                 Ok(RenderRoute::Native)
             }
@@ -7087,6 +7107,8 @@ mod offscreen_render_check {
         struct PreparationTarget;
 
         impl Renderer for PreparationTarget {
+            type TargetState = ();
+
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 panic!("source preparation must not write to the parent target");
             }
@@ -7168,6 +7190,8 @@ mod offscreen_render_check {
         struct FailingRead;
 
         impl Renderer for FailingRead {
+            type TargetState = ();
+
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
             }
@@ -9932,6 +9956,8 @@ mod scroll_plan_check {
 
         struct Recorder(std::vec::Vec<core::mem::Discriminant<DrawCommand<'static>>>);
         impl Renderer for Recorder {
+            type TargetState = ();
+
             fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
                 Ok(RenderRoute::Native)
             }

@@ -1770,6 +1770,8 @@ impl SwRenderer<'_> {
 }
 
 impl Renderer for SwRenderer<'_> {
+    type TargetState = ();
+
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         SwRenderer::route(self, request)
     }

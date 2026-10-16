@@ -15,6 +15,8 @@ struct FailingRenderer {
 }
 
 impl Renderer for FailingRenderer {
+    type TargetState = ();
+
     fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         Ok(RenderRoute::Native)
     }

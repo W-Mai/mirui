@@ -45,6 +45,8 @@ fn failing(rows: query!(Tile), entity: entity!(), paint: paint!()) {
 struct Sink;
 
 impl Renderer for Sink {
+    type TargetState = ();
+
     fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         Ok(())
     }

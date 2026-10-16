@@ -278,6 +278,8 @@ struct ScopeProbe<'a> {
 }
 
 impl Renderer for ScopeProbe<'_> {
+    type TargetState = ();
+
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         match self.renderer.route(request) {
             Ok(RenderRoute::Native) => {}
@@ -1768,6 +1770,8 @@ mod tests {
     }
 
     impl Renderer for ScopeFallback<'_> {
+        type TargetState = ();
+
         fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
             if matches!(request.command, DrawCommand::PushClip { .. })
                 && (!self.projective_clip_only || !request.projective.is_identity())
@@ -1908,6 +1912,8 @@ mod tests {
         }
 
         impl Renderer for RoutedCapture {
+            type TargetState = ();
+
             fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
                 self.route_calls.set(self.route_calls.get() + 1);
                 Ok(RenderRoute::ExactFallback(FallbackRegion::from_parts(
@@ -2236,6 +2242,8 @@ mod tests {
         }
 
         impl Renderer for ScopePlanCapture {
+            type TargetState = ();
+
             fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
                 Ok(RenderRoute::Native)
             }
@@ -2306,6 +2314,8 @@ mod tests {
         }
 
         impl Renderer for FirstScopeBounds {
+            type TargetState = ();
+
             fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
                 Ok(RenderRoute::Native)
             }
@@ -2383,6 +2393,8 @@ mod tests {
         struct BlurCapture(Cell<Option<Rect>>);
 
         impl Renderer for BlurCapture {
+            type TargetState = ();
+
             fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
                 Ok(RenderRoute::Native)
             }
@@ -2507,6 +2519,8 @@ mod tests {
         fill_opas: Vec<u8>,
     }
     impl Renderer for CaptureRenderer {
+        type TargetState = ();
+
         fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
             Ok(RenderRoute::Native)
         }
@@ -2531,6 +2545,8 @@ mod tests {
     }
 
     impl Renderer for ProjectiveCapture {
+        type TargetState = ();
+
         fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
             Ok(RenderRoute::Native)
         }
@@ -2562,6 +2578,8 @@ mod tests {
     }
 
     impl Renderer for FillOnlyProjectiveRenderer {
+        type TargetState = ();
+
         fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
             if !request.projective.is_identity()
                 && !matches!(request.command, DrawCommand::Fill { .. })
@@ -2818,6 +2836,8 @@ mod tests {
         }
 
         impl Renderer for FillOnlyRoute {
+            type TargetState = ();
+
             fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
                 if matches!(request.command, DrawCommand::Line { .. }) {
                     Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
@@ -2863,6 +2883,8 @@ mod tests {
         struct ExhaustedRenderer;
 
         impl Renderer for ExhaustedRenderer {
+            type TargetState = ();
+
             fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
                 Ok(RenderRoute::Native)
             }
@@ -3044,6 +3066,8 @@ mod tests {
             ppem: u16,
         }
         impl Renderer for GlyphRenderer {
+            type TargetState = ();
+
             fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
                 Ok(RenderRoute::Native)
             }
@@ -3108,6 +3132,8 @@ mod tests {
             tangent: Option<textflow::shaping::FlowPoint>,
         }
         impl Renderer for GlyphRenderer {
+            type TargetState = ();
+
             fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
                 Ok(RenderRoute::Native)
             }

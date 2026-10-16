@@ -1500,6 +1500,8 @@ mod tests {
     }
 
     impl Renderer for RecordingRenderer {
+        type TargetState = ();
+
         fn route(
             &self,
             _: &crate::render::DrawRequest<'_, '_>,
@@ -1590,6 +1592,8 @@ mod tests {
             calls: usize,
         }
         impl Renderer for Trace {
+            type TargetState = ();
+
             fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 assert_eq!(request.clip, Rect::new(4, 6, 18, 8));
                 let DrawCommand::GlyphRun {

@@ -332,6 +332,8 @@ mod tests {
             calls: core::cell::Cell<usize>,
         }
         impl Renderer for RejectingRenderer {
+            type TargetState = ();
+
             fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
                 let DrawCommand::Fill {
                     area, transform, ..

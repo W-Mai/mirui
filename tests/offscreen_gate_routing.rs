@@ -22,6 +22,8 @@ struct MockOuter {
 }
 
 impl Renderer for MockOuter {
+    type TargetState = ();
+
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         if self.fail_blit && matches!(request.command, DrawCommand::Blit { .. }) {
             return Err(RenderError::ResourceLimit(RenderResource::Texture));

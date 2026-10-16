@@ -11,6 +11,8 @@ struct GracefulSkipRenderer {
 }
 
 impl Renderer for GracefulSkipRenderer {
+    type TargetState = ();
+
     fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         Ok(RenderRoute::Native)
     }
@@ -77,6 +79,8 @@ fn background_blur_reports_unsupported_readback() {
     struct NoReadback;
 
     impl Renderer for NoReadback {
+        type TargetState = ();
+
         fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
             Ok(())
         }

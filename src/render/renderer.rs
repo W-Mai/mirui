@@ -3,6 +3,7 @@ use crate::types::{Fixed, PhysicalRect, Rect, Transform3D, Viewport};
 
 use super::command::{CompositeMode, DrawCommand};
 use super::scratch::{PlaneLayout, PlaneRequirements};
+use super::target::{BackendTarget, TargetPlan};
 use super::texture::{ColorFormat, Texture};
 
 /// Stable identity of one run in a bounded `Text` widget.
@@ -335,6 +336,8 @@ impl RegionRenderer<'_> {
 }
 
 impl Renderer for RegionRenderer<'_> {
+    type TargetState = ();
+
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         if let Some(command) = self.explicit_quad(request.command) {
             return self.inner.route(
@@ -567,7 +570,67 @@ impl From<ProjectiveDrawError> for RenderError {
     }
 }
 
-pub trait Renderer {
+pub trait Renderer: super::target::__private::TargetScopeDispatch {
+    /// Owned state restored after binding an independent native target. Use `()` when native targets are unsupported.
+    type TargetState
+    where
+        Self: Sized;
+
+    /// Plan native target storage without allocating or modifying device state. `None` selects software output production.
+    fn plan_target(&self, _layout: PlaneLayout) -> Result<Option<TargetPlan>, RenderError> {
+        Ok(None)
+    }
+
+    /// Allocate an unpublished target according to a storage plan.
+    fn create_target(
+        &mut self,
+        _plan: &TargetPlan,
+    ) -> Result<alloc::boxed::Box<dyn BackendTarget>, RenderError> {
+        Err(RenderError::Unsupported(RenderFeature::Scope))
+    }
+
+    /// Bind a native target and return owned restoration state, releasing device and workspace borrows before returning.
+    ///
+    /// Reject foreign devices, stale resources and active-target feedback. A failed bind must restore the parent state or latch device failure. This operation does not clear the target.
+    fn bind_target(
+        &mut self,
+        _target: &mut dyn BackendTarget,
+        _viewport: Viewport,
+        _workspace: &mut [u8],
+    ) -> Result<Self::TargetState, RenderError>
+    where
+        Self: Sized,
+    {
+        Err(RenderError::Unsupported(RenderFeature::Scope))
+    }
+
+    /// Restore parent state after drawing. `completed` means the callback and its flush succeeded, not that the output was published.
+    ///
+    /// On failure, discard or safely finish pending child work before restoring the parent. Latch any restoration failure so later submissions cannot use unknown device state. This method must not panic during unwind cleanup.
+    fn restore_target(
+        &mut self,
+        _state: Self::TargetState,
+        _completed: bool,
+    ) -> Result<(), RenderError>
+    where
+        Self: Sized,
+    {
+        Err(RenderError::Unsupported(RenderFeature::Scope))
+    }
+
+    /// Execute one callback on an independent target while preserving this renderer's complete routing.
+    ///
+    /// Flush the parent, bind, execute once, flush successful child work and restore. Restoration runs on callback errors and unwinding; the earliest error is returned. Initialization and output publication belong to the caller. Abort does not guarantee cleanup.
+    fn with_target(
+        &mut self,
+        target: &mut dyn BackendTarget,
+        viewport: Viewport,
+        workspace: &mut [u8],
+        body: &mut dyn FnMut(&mut dyn Renderer) -> Result<(), RenderError>,
+    ) -> Result<(), RenderError> {
+        self.dispatch_target_scope(target, viewport, workspace, body)
+    }
+
     /// Classify exact execution before changing the target. Unknown backends
     /// conservatively reject requests until they define their own route.
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
@@ -918,6 +981,8 @@ mod tests {
         struct NoScroll;
 
         impl Renderer for NoScroll {
+            type TargetState = ();
+
             fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 self.route(request).map(|_| ())
             }
@@ -939,6 +1004,8 @@ mod tests {
         struct NoTargetEdit;
 
         impl Renderer for NoTargetEdit {
+            type TargetState = ();
+
             fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 self.route(request).map(|_| ())
             }
@@ -961,6 +1028,8 @@ mod tests {
     fn software_scope_rejects_readonly_target_before_running_body() {
         struct BorrowedTarget<'a>(Texture<'a>);
         impl Renderer for BorrowedTarget<'_> {
+            type TargetState = ();
+
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
             }
@@ -1084,6 +1153,8 @@ mod tests {
         }
 
         impl Renderer for Recorder {
+            type TargetState = ();
+
             fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 Ok(())
             }
@@ -1155,6 +1226,8 @@ mod tests {
 
     struct NoopRenderer;
     impl Renderer for NoopRenderer {
+        type TargetState = ();
+
         fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
             self.route(request).map(|_| ())
         }
@@ -1202,6 +1275,8 @@ mod tests {
         struct CountingRenderer(usize);
 
         impl Renderer for CountingRenderer {
+            type TargetState = ();
+
             fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 self.route(request)?;
                 self.0 += 1;

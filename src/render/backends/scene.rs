@@ -27,6 +27,8 @@ impl<'a> SceneRenderer<'a> {
 }
 
 impl Renderer for SceneRenderer<'_> {
+    type TargetState = ();
+
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
         request.validate_texture()?;

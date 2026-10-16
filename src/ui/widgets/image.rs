@@ -554,6 +554,8 @@ mod tests {
     }
 
     impl Renderer for Trace {
+        type TargetState = ();
+
         fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
             self.request = Some(match *request.command {
                 DrawCommand::Blit {

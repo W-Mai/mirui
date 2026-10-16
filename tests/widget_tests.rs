@@ -18,6 +18,8 @@ mod tests {
     }
 
     impl Renderer for RecordingRenderer {
+        type TargetState = ();
+
         fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
             Ok(RenderRoute::Native)
         }
