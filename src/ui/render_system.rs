@@ -2301,77 +2301,16 @@ fn prepare_offscreen(
             .with_alpha_mode(crate::render::sw::AlphaMode::Blend);
         inner.viewport = Viewport::new(buf_w, buf_h, scale);
 
-        // Dispatch the root directly so its marker is not treated as a nested
-        // offscreen request. Its logical origin maps to the buffer origin.
-        let inner_offset_x = shifted_rect.x + key.local_bounds.x;
-        let inner_offset_y = shifted_rect.y + key.local_bounds.y;
-        let entity_rect = Rect {
-            x: -key.local_bounds.x,
-            y: -key.local_bounds.y,
-            w: shifted_rect.w,
-            h: shifted_rect.h,
-        };
-        let inner_clip = Rect::new(0, 0, key.local_bounds.w, key.local_bounds.h);
-
-        super::widgets::follow_bounds::clip::draw(
+        draw_output_subtree(
+            node,
             world,
-            entity,
-            entity_rect,
-            Transform::IDENTITY,
-            Transform3D::IDENTITY,
+            entities,
+            idx,
             &mut inner,
-            inner_clip,
-            |inner, inner_clip| {
-                if let Some(style) = world.get::<Style>(entity) {
-                    let state = resolve_widget_state(world, entity);
-                    let mut ctx = PaintCtx::new(
-                        inner,
-                        style,
-                        &entity_rect,
-                        &inner_clip,
-                        Transform::IDENTITY,
-                        None,
-                        state,
-                    );
-                    if let Some(plan) = output_plan {
-                        ctx.set_workspace(&plan.workspace);
-                    }
-                    ctx.set_layout_offset(Point::new(inner_offset_x, inner_offset_y));
-                    render_views(world, entity, &mut ctx, &requests)?;
-                }
-                *idx += 1;
-
-                // Children retain their scroll offsets inside the local buffer.
-                let scroll = world.get::<crate::input::event::scroll::ScrollOffset>(entity);
-                let (sx, sy) = scroll.map_or((inner_offset_x, inner_offset_y), |scroll| {
-                    (inner_offset_x + scroll.x, inner_offset_y + scroll.y)
-                });
-                let child_clip = if scroll.is_some()
-                    || world.get::<Style>(entity).is_some_and(|s| s.clip_children)
-                {
-                    inner_clip.intersect(&entity_rect).unwrap_or(Rect::ZERO)
-                } else {
-                    inner_clip
-                };
-
-                for child in &node.children {
-                    draw_tree_offset(
-                        child,
-                        world,
-                        entities,
-                        idx,
-                        inner,
-                        &child_clip,
-                        sx,
-                        sy,
-                        &Transform::IDENTITY,
-                        &Transform3D::IDENTITY,
-                        output_plan,
-                        &requests,
-                    )?;
-                }
-                Ok(())
-            },
+            shifted_rect,
+            key,
+            output_plan,
+            &requests,
         )?;
         Canvas::flush(&mut inner)?;
     }
@@ -2382,6 +2321,91 @@ fn prepare_offscreen(
         requests.commit_output(changed);
     }
     Ok(published)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_output_subtree(
+    node: &LayoutNode,
+    world: &World,
+    entities: &[Entity],
+    idx: &mut usize,
+    renderer: &mut dyn Renderer,
+    shifted_rect: &Rect,
+    key: super::offscreen::BufferKey,
+    output_plan: Option<&output_plan::TexturePlan>,
+    requests: &PaintRequestScope,
+) -> Result<(), RenderError> {
+    // Render the capture root directly; its marker must not recursively capture itself.
+    let entity = key.entity;
+    let offset_x = shifted_rect.x + key.local_bounds.x;
+    let offset_y = shifted_rect.y + key.local_bounds.y;
+    let entity_rect = Rect {
+        x: -key.local_bounds.x,
+        y: -key.local_bounds.y,
+        w: shifted_rect.w,
+        h: shifted_rect.h,
+    };
+    let clip = Rect::new(0, 0, key.local_bounds.w, key.local_bounds.h);
+
+    super::widgets::follow_bounds::clip::draw(
+        world,
+        entity,
+        entity_rect,
+        Transform::IDENTITY,
+        Transform3D::IDENTITY,
+        renderer,
+        clip,
+        |renderer, clip| {
+            if let Some(style) = world.get::<Style>(entity) {
+                let state = resolve_widget_state(world, entity);
+                let mut ctx = PaintCtx::new(
+                    renderer,
+                    style,
+                    &entity_rect,
+                    &clip,
+                    Transform::IDENTITY,
+                    None,
+                    state,
+                );
+                if let Some(plan) = output_plan {
+                    ctx.set_workspace(&plan.workspace);
+                }
+                ctx.set_layout_offset(Point::new(offset_x, offset_y));
+                render_views(world, entity, &mut ctx, requests)?;
+            }
+            *idx += 1;
+
+            let scroll = world.get::<crate::input::event::scroll::ScrollOffset>(entity);
+            let (sx, sy) = scroll.map_or((offset_x, offset_y), |scroll| {
+                (offset_x + scroll.x, offset_y + scroll.y)
+            });
+            let child_clip = if scroll.is_some()
+                || world.get::<Style>(entity).is_some_and(|s| s.clip_children)
+            {
+                clip.intersect(&entity_rect).unwrap_or(Rect::ZERO)
+            } else {
+                clip
+            };
+
+            for child in &node.children {
+                draw_tree_offset(
+                    child,
+                    world,
+                    entities,
+                    idx,
+                    renderer,
+                    &child_clip,
+                    sx,
+                    sy,
+                    &Transform::IDENTITY,
+                    &Transform3D::IDENTITY,
+                    output_plan,
+                    requests,
+                )?;
+            }
+            Ok(())
+        },
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -6942,6 +6966,115 @@ mod offscreen_render_check {
         app.with_default_widgets()
             .with_offscreen_pool_budget(64 * 1024);
         app.world
+    }
+
+    #[test]
+    fn output_subtree_uses_supplied_renderer_without_committing_or_replaying() {
+        struct Target {
+            fills: alloc::vec::Vec<(Rect, Rect)>,
+            fail: bool,
+        }
+        impl Renderer for Target {
+            type TargetState = ();
+
+            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                let DrawCommand::Fill { area, .. } = request.command else {
+                    panic!("unexpected output command");
+                };
+                self.fills.push((*area, request.clip));
+                if self.fail {
+                    Err(RenderError::BackendFailure)
+                } else {
+                    Ok(())
+                }
+            }
+
+            fn flush(&mut self) -> Result<(), RenderError> {
+                panic!("the producer, not the subtree painter, commits the target");
+            }
+        }
+
+        let mut world = make_world();
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(1, 2, 3).into()),
+                layout: LayoutStyle {
+                    width: Dimension::px(8),
+                    height: Dimension::px(8),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        spawn(
+            &mut world,
+            Some(root),
+            Style {
+                bg_color: Some(Color::rgb(4, 5, 6).into()),
+                layout: LayoutStyle {
+                    width: Dimension::px(4),
+                    height: Dimension::px(4),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(root, OffscreenRender::default());
+        try_update_layout(&mut world, root, &Viewport::new(8, 8, Fixed::ONE)).unwrap();
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        let rect = Rect::new(0, 0, 8, 8);
+        let key = BufferKey::for_widget(
+            root,
+            rect,
+            Rect::new(-2, -1, 12, 10),
+            OffscreenRender::default(),
+            1,
+        );
+        for fail in [false, true] {
+            let mut renderer = Target {
+                fills: alloc::vec::Vec::with_capacity(2),
+                fail,
+            };
+            let mut index = 0;
+            let requests = PaintRequestScope::new(&world);
+            let result = draw_output_subtree(
+                &snapshot.layout_tree,
+                &world,
+                &snapshot.entities,
+                &mut index,
+                &mut renderer,
+                &rect,
+                key,
+                None,
+                &requests,
+            );
+            assert_eq!(
+                result,
+                if fail {
+                    Err(RenderError::BackendFailure)
+                } else {
+                    Ok(())
+                }
+            );
+            assert_eq!(index, if fail { 0 } else { 2 });
+            assert_eq!(renderer.fills.len(), if fail { 1 } else { 2 });
+            assert_eq!(
+                renderer.fills[0],
+                (Rect::new(2, 1, 8, 8), Rect::new(0, 0, 12, 10))
+            );
+            if !fail {
+                assert_eq!(renderer.fills[1].0, Rect::new(2, 1, 4, 4));
+            }
+            assert!(
+                world
+                    .resource::<Outputs<WidgetTexture>>()
+                    .unwrap()
+                    .get(root)
+                    .is_none()
+            );
+        }
     }
 
     #[crate::component]
