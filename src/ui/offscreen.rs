@@ -272,7 +272,7 @@ mod tests {
     fn texture_is_unavailable_until_successfully_published() {
         let outputs = Outputs::<WidgetTexture>::with_budget(64 * 1024);
         let key = texture_key(1, 0);
-        let mut write = outputs.prepare_texture(key).expect("texture storage");
+        let mut write = outputs.prepare_test_texture(key).expect("texture storage");
         write
             .texture_mut()
             .pixels_mut()
@@ -323,7 +323,7 @@ mod tests {
     fn default_output_budget_rejects_texture_preparation() {
         let outputs = Outputs::<WidgetTexture>::default();
         let key = texture_key(1, 0);
-        assert!(outputs.prepare_texture(key).is_none());
+        assert!(outputs.prepare_test_texture(key).is_none());
         assert!(outputs.get(key.entity).is_none());
     }
 
@@ -466,7 +466,7 @@ mod tests {
     fn texture_preparation_preserves_requested_geometry() {
         let outputs = Outputs::<WidgetTexture>::with_budget(64 * 1024);
         let key = texture_key(1, 0);
-        let write = outputs.prepare_texture(key).expect("texture storage");
+        let write = outputs.prepare_test_texture(key).expect("texture storage");
         assert!(write.publish());
         let output = outputs.get(key.entity).expect("published texture");
         let tex = output.texture();
@@ -479,7 +479,7 @@ mod tests {
     fn stable_texture_rewrites_reuse_prepared_storage() {
         let outputs = Outputs::<WidgetTexture>::with_budget(64 * 1024);
         let write = outputs
-            .prepare_texture(texture_key(1, 0))
+            .prepare_test_texture(texture_key(1, 0))
             .expect("initial texture storage");
         assert!(write.publish());
 
@@ -487,7 +487,7 @@ mod tests {
             for generation in 1..8 {
                 let _batch = outputs.begin_batch();
                 let write = outputs
-                    .prepare_texture(texture_key(1, generation))
+                    .prepare_test_texture(texture_key(1, generation))
                     .expect("reusable texture storage");
                 assert!(write.publish());
                 assert!(outputs.get(dummy_entity(1)).is_some());
@@ -500,10 +500,10 @@ mod tests {
     fn cancelled_texture_write_does_not_publish_partial_pixels() {
         let outputs = Outputs::<WidgetTexture>::with_budget(64 * 1024);
         let key = texture_key(1, 0);
-        assert!(outputs.prepare_texture(key).unwrap().publish());
+        assert!(outputs.prepare_test_texture(key).unwrap().publish());
 
         let mut write = outputs
-            .prepare_texture(texture_key(1, 7))
+            .prepare_test_texture(texture_key(1, 7))
             .expect("replacement texture storage");
         write
             .texture_mut()
@@ -522,15 +522,15 @@ mod tests {
         let outputs = Outputs::<WidgetTexture>::with_budget(8 * 1024);
         assert!(
             outputs
-                .prepare_texture(texture_key(1, 0))
+                .prepare_test_texture(texture_key(1, 0))
                 .unwrap()
                 .publish()
         );
-        let pending = outputs.prepare_texture(texture_key(2, 0)).unwrap();
+        let pending = outputs.prepare_test_texture(texture_key(2, 0)).unwrap();
         assert!(outputs.get(dummy_entity(1)).is_some());
         assert!(outputs.get(dummy_entity(2)).is_none());
 
-        assert!(outputs.prepare_texture(texture_key(3, 0)).is_none());
+        assert!(outputs.prepare_test_texture(texture_key(3, 0)).is_none());
         assert!(outputs.get(dummy_entity(1)).is_some());
         assert!(pending.publish());
         assert!(outputs.get(dummy_entity(2)).is_some());
@@ -556,7 +556,7 @@ mod tests {
             generation: 0,
         };
         let allocations = crate::test_support::tracked_allocations(|| {
-            assert!(outputs.prepare_texture(key).is_none());
+            assert!(outputs.prepare_test_texture(key).is_none());
         });
         assert_eq!(allocations, 0);
         assert!(outputs.get(key.entity).is_none());
@@ -572,7 +572,7 @@ mod tests {
         let second = Color::rgb(30, 40, 220);
         {
             let _batch = outputs.begin_batch();
-            let mut write = outputs.prepare_texture(texture_key(1, 2)).unwrap();
+            let mut write = outputs.prepare_test_texture(texture_key(1, 2)).unwrap();
             write
                 .texture_mut()
                 .pixels_mut()
@@ -583,7 +583,7 @@ mod tests {
         }
         {
             let _batch = outputs.begin_batch();
-            let mut write = outputs.prepare_texture(texture_key(1, 11)).unwrap();
+            let mut write = outputs.prepare_test_texture(texture_key(1, 11)).unwrap();
             assert_eq!(
                 outputs
                     .previous(entity)
@@ -620,11 +620,11 @@ mod tests {
                     .get_pixel(0, 0),
                 first
             );
-            assert!(outputs.prepare_texture(texture_key(2, 0)).is_none());
+            assert!(outputs.prepare_test_texture(texture_key(2, 0)).is_none());
         }
         {
             let _batch = outputs.begin_batch();
-            let write = outputs.prepare_texture(texture_key(1, 19)).unwrap();
+            let write = outputs.prepare_test_texture(texture_key(1, 19)).unwrap();
             drop(write);
             assert!(outputs.get(entity).is_none());
             assert_eq!(
@@ -645,17 +645,17 @@ mod tests {
         let outputs = Outputs::<WidgetTexture>::with_budget(40 * 24 * 4);
         assert!(
             outputs
-                .prepare_texture(texture_key(1, 0))
+                .prepare_test_texture(texture_key(1, 0))
                 .unwrap()
                 .publish()
         );
-        assert!(outputs.prepare_texture(texture_key(2, 0)).is_none());
+        assert!(outputs.prepare_test_texture(texture_key(2, 0)).is_none());
 
         outputs.trim_memory();
         assert!(outputs.get(dummy_entity(1)).is_none());
         assert!(
             outputs
-                .prepare_texture(texture_key(2, 0))
+                .prepare_test_texture(texture_key(2, 0))
                 .unwrap()
                 .publish()
         );
@@ -671,7 +671,7 @@ mod tests {
             {
                 let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
                 let write = outputs
-                    .prepare_texture(BufferKey {
+                    .prepare_test_texture(BufferKey {
                         entity: source,
                         ..texture_key(0, 1)
                     })
@@ -692,7 +692,7 @@ mod tests {
             let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
             assert!(outputs.get(source).is_none());
             let write = outputs
-                .prepare_texture(BufferKey {
+                .prepare_test_texture(BufferKey {
                     entity: replacement,
                     ..texture_key(0, 1)
                 })
@@ -718,7 +718,7 @@ mod tests {
             for generation in 1..=2 {
                 let _batch = outputs.begin_batch();
                 let write = outputs
-                    .prepare_texture(BufferKey {
+                    .prepare_test_texture(BufferKey {
                         entity: source,
                         ..texture_key(0, generation)
                     })
@@ -746,7 +746,7 @@ mod tests {
             let _batch = outputs.begin_batch();
             assert!(outputs.previous(source).is_none());
             let mut write = outputs
-                .prepare_texture(BufferKey {
+                .prepare_test_texture(BufferKey {
                     entity: source,
                     ..texture_key(0, 7)
                 })

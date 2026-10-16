@@ -1913,7 +1913,7 @@ mod tests {
             let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
             let _batch = outputs.begin_batch();
             let write = outputs
-                .prepare_texture(BufferKey {
+                .prepare_test_texture(BufferKey {
                     entity,
                     w: 2,
                     h: 2,
