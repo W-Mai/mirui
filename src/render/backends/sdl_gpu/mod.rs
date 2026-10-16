@@ -13,6 +13,7 @@ mod label_cache;
 mod line;
 mod path;
 mod quad;
+mod readback;
 mod rect_fill;
 mod rect_stroke;
 mod tessellation;
@@ -679,26 +680,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             .projective_fallback
             .as_deref_mut()
             .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
-        let read_rect = sdl2_sys::SDL_Rect {
-            x: i32::from(plan.x()),
-            y: i32::from(plan.y()),
-            w: i32::from(plan.width()),
-            h: i32::from(plan.height()),
-        };
         let target = fallback.target_mut(plan);
-        let read_result = unsafe {
-            sdl2_sys::SDL_RenderReadPixels(
-                self.canvas.raw(),
-                &read_rect,
-                sdl2_sys::SDL_PixelFormatEnum::SDL_PIXELFORMAT_RGBA32 as u32,
-                target.as_mut_ptr().cast(),
-                i32::try_from(plan.region().stride_bytes())
-                    .map_err(|_| ProjectiveDrawError::InvalidProjection)?,
-            )
-        };
-        if read_result != 0 {
-            return Err(RenderError::BackendFailure);
-        }
+        readback::rgba8(
+            self.canvas,
+            plan.region().rect(),
+            target,
+            plan.region().stride_bytes(),
+        )?;
 
         fallback.render(plan, command, projective, self.viewport)?;
         let target = fallback.target(plan);
@@ -1198,25 +1186,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let Some(phys) = self.physical_clip_rect(src) else {
             return Ok(None);
         };
-        let sdl_rect = sdl2::rect::Rect::new(
-            i32::from(phys.x()),
-            i32::from(phys.y()),
-            u32::from(phys.width()),
-            u32::from(phys.height()),
-        );
-        let bytes = self
-            .canvas
-            .read_pixels(Some(sdl_rect), sdl2::pixels::PixelFormatEnum::RGBA32)
-            .map_err(|_| RenderError::BackendFailure)?;
-        let w = phys.width();
-        let h = phys.height();
-        crate::render::texture::Texture::from_vec(
-            bytes,
-            w,
-            h,
-            crate::render::texture::ColorFormat::RGBA8888,
-        )
-        .map(Some)
+        readback::texture(self.canvas, phys).map(Some)
     }
 
     fn read_target_region(
@@ -1227,18 +1197,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let Some(phys) = self.physical_clip_rect(src) else {
             return Ok(());
         };
-        let sdl_rect = sdl2::rect::Rect::new(
-            i32::from(phys.x()),
-            i32::from(phys.y()),
-            u32::from(phys.width()),
-            u32::from(phys.height()),
-        );
-        let bytes = self
-            .canvas
-            .read_pixels(Some(sdl_rect), sdl2::pixels::PixelFormatEnum::RGBA32)
-            .map_err(|_| RenderError::BackendFailure)?;
+        let texture = readback::texture(self.canvas, phys)?;
+        let pixels = texture.read_pixels()?;
         let (x, y, _, _) = self.viewport.rect_to_physical_pixel_bounds(*src);
-        crate::render::renderer::copy_packed_rgba8(&bytes, phys, (x, y), dst)
+        crate::render::renderer::copy_packed_rgba8(pixels.bytes(), phys, (x, y), dst)
     }
 
     fn modify_target_region(
