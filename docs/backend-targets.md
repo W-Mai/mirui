@@ -48,7 +48,9 @@ Output production reserves native binding workspace separately from View paint w
 
 ## Renderer scopes
 
-Each `Renderer` declares `type TargetState`; renderers without native target support use `()`. Native backends implement `plan_target`, `create_target`, `bind_target` and `restore_target`. Planning returns `None` when native storage is unsupported. The binding state must not borrow the renderer or the supplied workspace.
+Each `Renderer` declares `type TargetState`; renderers without native target support use `()`. Native backends implement `plan_target`, `can_reuse_target`, `create_target`, `bind_target` and `restore_target`. Planning returns `None` when native storage is unsupported. The binding state must not borrow the renderer or the supplied workspace.
+
+`can_reuse_target(target, plan)` checks writable storage compatibility without binding, allocating, submitting or reading pixels. A different device, stale generation or incompatible attachments return `Ok(false)`; destination failures and active-target conflicts return errors. Incomplete contents do not prevent storage reuse for rebuilding. Binding repeats the shared backend checks and separately requires completed contents for `Incremental`. An incremental operation never replaces mismatched storage or changes itself into a rebuild. Readable source textures use their existing source validation and conversion paths, independently of writable target compatibility.
 
 The default `with_target` implementation flushes parent work, validates and binds the target, calls the drawing callback once, flushes successful child work and restores the parent. The callback receives the original renderer, including its composed engines. Callback and submission errors still restore the parent; the earliest error is returned. Unwinding attempts restoration, but abort does not run cleanup.
 
@@ -58,7 +60,7 @@ The backend checks content validity when binding and invalidates partially modif
 
 `restore_target(state, completed)` receives `true` only when the callback and child flush succeeded. Accept child contents only if restoration also succeeds; otherwise invalidate them. It does not signal publication or window presentation. On failure, pending child commands must be discarded or safely completed on their original target before restoring the parent. Failed binding must restore its partial state or invalidate the device; failed restoration must prevent later submission. Restoring a parent must not initialize it again.
 
-`compose_backend!` forwards target planning, creation, binding and restoration to its `default` field. It uses the default scope executor, preserving every original engine and concrete renderer type, including nested compositions and borrowed engines. No additional DSL, projection type or callback adapter is required from the backend author.
+`compose_backend!` forwards target planning, reuse checks, creation, binding and restoration to its `default` field. It uses the default scope executor, preserving every original engine and concrete renderer type, including nested compositions and borrowed engines. No additional DSL, projection type or callback adapter is required from the backend author.
 
 An independent target uses its own viewport and local coordinates. Region offsets and projective transforms on the parent renderer do not transform the new image during production; they apply when drawing into the parent again, including when compositing the finished image. Coordinate wrappers forward target scopes without reapplying parent transforms. Software `render_scope` keeps its existing parent-region coordinate mapping.
 

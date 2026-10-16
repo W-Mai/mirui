@@ -78,6 +78,17 @@ impl Renderer for Recorder {
         Ok(Box::new(Target(plan.descriptor)))
     }
 
+    fn can_reuse_target(
+        &self,
+        target: &dyn BackendTarget,
+        plan: &TargetPlan,
+    ) -> Result<bool, RenderError> {
+        if let Some(error) = self.flush_error {
+            return Err(error);
+        }
+        Ok(target.as_any().is::<Target>() && target.descriptor() == plan.descriptor)
+    }
+
     fn bind_target(
         &mut self,
         target: &mut dyn BackendTarget,
@@ -112,7 +123,9 @@ impl Renderer for Recorder {
             size: self.viewport.physical_size(),
             scale: self.output_scale(),
             clip: request.clip,
-            projection: request.projective,
+            projection: request
+                .projective
+                .compose(&Transform3D::from_affine(request.command.transform())),
             quad: *quad,
         });
         Ok(())
@@ -169,6 +182,10 @@ fn independent_targets_drop_parent_coordinates_and_restore_them_after_nested_fai
         assert_eq!(plan.descriptor.layout, layout);
         let mut first = renderer.create_target(&plan).unwrap();
         let mut second = renderer.create_target(&plan).unwrap();
+        assert!(renderer.can_reuse_target(&*first, &plan).unwrap());
+        let mut changed = plan;
+        changed.descriptor.alpha = TargetAlpha::Premultiplied;
+        assert!(!renderer.can_reuse_target(&*first, &changed).unwrap());
         let viewport = Viewport::new(40, 30, Fixed::from_int(2));
         let quad = [Point::new(Fixed::ONE, Fixed::ONE); 4];
         draw(renderer, None).unwrap();
@@ -227,6 +244,10 @@ fn wrapped_target_scope_preserves_parent_flush_failure() {
     let layout = PlaneLayout::packed(1, 1, ColorFormat::RGBA8888).unwrap();
     let plan = region.plan_target(layout).unwrap().unwrap();
     let mut target = region.create_target(&plan).unwrap();
+    assert_eq!(
+        region.can_reuse_target(&*target, &plan),
+        Err(RenderError::BackendFailure)
+    );
     assert_eq!(
         region.with_target(
             &mut *target,

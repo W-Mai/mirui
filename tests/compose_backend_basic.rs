@@ -580,6 +580,14 @@ impl Renderer for BorrowedDummy<'_> {
         native_targets::plan(layout)
     }
 
+    fn can_reuse_target(
+        &self,
+        target: &dyn mirui::render::BackendTarget,
+        plan: &mirui::render::TargetPlan,
+    ) -> Result<bool, RenderError> {
+        native_targets::can_reuse(self, target, plan)
+    }
+
     fn create_target(
         &mut self,
         plan: &mirui::render::TargetPlan,

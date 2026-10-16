@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- Native renderers implement `can_reuse_target` to check writable storage compatibility without binding or modifying contents. Composed renderers forward the check to their target backend.
+
 - `Texture` and read-only pixel guards are thread-local. Read-only guards borrow direct CPU storage or a source-owned readback cache.
 
 - `TargetPlan::readback_bytes` reports backend staging requirements separately from native storage and drawing workspace.

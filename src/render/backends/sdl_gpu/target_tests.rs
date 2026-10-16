@@ -44,6 +44,44 @@ fn pixels(target: &dyn BackendTarget) -> Texture<'static> {
 }
 
 #[test]
+fn reuse_checks_storage_without_binding_or_accepting_invalid_contents() {
+    let first = device();
+    let second = device();
+    let image = target(&first);
+    let requested = plan(&first, image.descriptor().layout).unwrap().unwrap();
+    let allocations = tracked_allocations(|| {
+        for _ in 0..16 {
+            assert!(can_reuse(&first, &*image, &requested).unwrap());
+            assert!(!can_reuse(&second, &*image, &requested).unwrap());
+        }
+    });
+    assert_eq!(allocations, 0);
+    assert!(Binding::begin(&first, &*image, TargetUpdate::Incremental).is_err());
+    let mut changed = requested;
+    changed.workspace_bytes += 1;
+    assert!(!can_reuse(&first, &*image, &changed).unwrap());
+    let binding = Binding::begin(&first, &*image, TargetUpdate::Rebuild).unwrap();
+    assert_eq!(
+        can_reuse(&first, &*image, &requested),
+        Err(RenderError::InvalidScope)
+    );
+    binding.finish(&first, false).unwrap();
+    assert!(can_reuse(&first, &*image, &requested).unwrap());
+    assert!(Binding::begin(&first, &*image, TargetUpdate::Incremental).is_err());
+    {
+        let _lease = first.canvas().unwrap();
+        assert_eq!(
+            can_reuse(&first, &*image, &requested),
+            Err(RenderError::InvalidScope)
+        );
+    }
+    first.invalidate();
+    assert!(!can_reuse(&first, &*image, &requested).unwrap());
+    first.poison();
+    assert!(can_reuse(&first, &*image, &requested).is_err());
+}
+
+#[test]
 fn target_rebuild_incremental_failure_and_owner_lifetime() {
     let device = device();
     let target = target(&device);

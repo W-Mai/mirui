@@ -414,6 +414,14 @@ impl ComposeInput {
                     ::mirui::render::Renderer::plan_target(&self.#default_field, layout)
                 }
 
+                fn can_reuse_target(
+                    &self,
+                    target: &dyn ::mirui::render::BackendTarget,
+                    plan: &::mirui::render::TargetPlan,
+                ) -> Result<bool, ::mirui::render::RenderError> {
+                    ::mirui::render::Renderer::can_reuse_target(&self.#default_field, target, plan)
+                }
+
                 fn create_target(
                     &mut self,
                     plan: &::mirui::render::TargetPlan,

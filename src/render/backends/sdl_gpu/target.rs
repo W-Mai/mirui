@@ -156,6 +156,42 @@ pub(super) fn plan<T: RenderTarget>(
     }))
 }
 
+fn matching_target<'a, T: RenderTarget + 'static>(
+    device: &Rc<Device<T>>,
+    target: &'a dyn BackendTarget,
+    requested: &TargetPlan,
+) -> Result<Option<&'a Target<T>>, RenderError> {
+    device.check()?;
+    let Some(target) = target.as_any().downcast_ref::<Target<T>>() else {
+        return Ok(None);
+    };
+    let child = &target.storage;
+    if !Rc::ptr_eq(device, &child.device)
+        || child.generation != device.generation()
+        || child.descriptor != requested.descriptor
+        || plan(device, requested.descriptor.layout)? != Some(*requested)
+    {
+        return Ok(None);
+    }
+    if child.active.get() {
+        return Err(RenderError::InvalidScope);
+    }
+    let _texture = child
+        .texture
+        .try_borrow()
+        .map_err(|_| RenderError::InvalidScope)?;
+    let _canvas = device.canvas()?;
+    Ok(Some(target))
+}
+
+pub(super) fn can_reuse<T: RenderTarget + 'static>(
+    device: &Rc<Device<T>>,
+    target: &dyn BackendTarget,
+    plan: &TargetPlan,
+) -> Result<bool, RenderError> {
+    Ok(matching_target(device, target, plan)?.is_some())
+}
+
 pub(super) fn create<T: RenderTarget + 'static>(
     device: &Rc<Device<T>>,
     requested: &TargetPlan,
@@ -227,16 +263,12 @@ impl<T: RenderTarget + 'static> Binding<T> {
         target: &dyn BackendTarget,
         update: TargetUpdate,
     ) -> Result<Self, RenderError> {
-        let target = target
-            .as_any()
-            .downcast_ref::<Target<T>>()
-            .ok_or(RenderError::InvalidTexture)?;
-        target.validate()?;
+        let requested =
+            plan(device, target.descriptor().layout)?.ok_or(RenderError::InvalidTexture)?;
+        let target =
+            matching_target(device, target, &requested)?.ok_or(RenderError::InvalidTexture)?;
         let child = &target.storage;
-        if !Rc::ptr_eq(device, &child.device)
-            || child.active.get()
-            || (update == TargetUpdate::Incremental && !child.completed.get())
-        {
+        if update == TargetUpdate::Incremental && !child.completed.get() {
             return Err(RenderError::InvalidTexture);
         }
         let texture = child

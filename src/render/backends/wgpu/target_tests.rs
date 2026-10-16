@@ -45,6 +45,37 @@ fn completed(target: &dyn BackendTarget, color: wgpu::Color) {
 }
 
 #[test]
+fn reuse_checks_device_and_attachments_without_changing_contents() {
+    let (Some(first), Some(second)) = (context(), context()) else {
+        return;
+    };
+    let layout = PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap();
+    let requested = plan(&first, 1, layout).unwrap().unwrap();
+    let image = create(&first, 1, &requested).unwrap();
+    assert!(can_reuse(&first, 1, &*image, &requested).unwrap());
+    assert!(!can_reuse(&second, 1, &*image, &requested).unwrap());
+    let storage = &image.as_any().downcast_ref::<Target>().unwrap().storage;
+    assert!(!storage.completed.get());
+    if let Some(multisampled) = plan(&first, 4, layout).unwrap() {
+        assert!(!can_reuse(&first, 4, &*image, &multisampled).unwrap());
+    }
+    let mut changed = requested;
+    changed.readback_bytes += 1;
+    assert!(!can_reuse(&first, 1, &*image, &changed).unwrap());
+    storage.active.set(true);
+    assert_eq!(
+        can_reuse(&first, 1, &*image, &requested),
+        Err(RenderError::InvalidScope)
+    );
+    storage.active.set(false);
+    completed(&*image, wgpu::Color::RED);
+    assert!(can_reuse(&first, 1, &*image, &requested).unwrap());
+    assert!(storage.completed.get());
+    first.invalidate();
+    assert!(can_reuse(&first, 1, &*image, &requested).is_err());
+}
+
+#[test]
 fn native_source_owns_device_and_checks_completed_contents() {
     let Some(context) = context() else {
         return;

@@ -166,6 +166,14 @@ impl Renderer for ProjectiveRenderer<'_> {
         self.inner.plan_target(layout)
     }
 
+    fn can_reuse_target(
+        &self,
+        target: &dyn BackendTarget,
+        plan: &TargetPlan,
+    ) -> Result<bool, RenderError> {
+        self.inner.can_reuse_target(target, plan)
+    }
+
     fn create_target(&mut self, plan: &TargetPlan) -> Result<Box<dyn BackendTarget>, RenderError> {
         self.inner.create_target(plan)
     }

@@ -1306,6 +1306,17 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
         target::plan(self.device, layout)
     }
 
+    fn can_reuse_target(
+        &self,
+        target: &dyn crate::render::BackendTarget,
+        plan: &crate::render::TargetPlan,
+    ) -> Result<bool, RenderError> {
+        if let Some(error) = self.failure {
+            return Err(error);
+        }
+        target::can_reuse(self.device, target, plan)
+    }
+
     fn create_target(
         &mut self,
         plan: &crate::render::TargetPlan,

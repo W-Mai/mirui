@@ -4629,6 +4629,19 @@ impl<B: WgpuTarget> Renderer for WgpuRenderer<'_, B> {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    fn can_reuse_target(
+        &self,
+        target: &dyn crate::render::BackendTarget,
+        plan: &crate::render::TargetPlan,
+    ) -> Result<bool, RenderError> {
+        if let Some(error) = self.failure {
+            return Err(error);
+        }
+        let state = self.surface.state().ok_or(RenderError::BackendFailure)?;
+        target::can_reuse(state.context(), state.samples(), target, plan)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     fn create_target(
         &mut self,
         plan: &crate::render::TargetPlan,

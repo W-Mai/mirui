@@ -52,6 +52,11 @@ fn failed_updates_require_rebuilding_before_reading_or_appending() {
             assert_eq!(calls, usize::from(fault != Some(Fault::Initialize)));
             assert!(renderer.target.target.active.is_none());
             assert_eq!(read(image.as_ref()), Err(RenderError::InvalidTexture));
+            let plan = renderer
+                .plan_target(image.descriptor().layout)
+                .unwrap()
+                .unwrap();
+            assert!(renderer.can_reuse_target(image.as_ref(), &plan).unwrap());
             assert_eq!(
                 renderer.with_target(
                     image.as_mut(),

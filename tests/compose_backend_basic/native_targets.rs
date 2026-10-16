@@ -98,23 +98,49 @@ pub(super) fn create(
     }))
 }
 
+fn matching_target<'a>(
+    renderer: &BorrowedDummy<'_>,
+    target: &'a dyn BackendTarget,
+    requested: &TargetPlan,
+) -> Result<Option<&'a Target>, RenderError> {
+    if renderer.poisoned {
+        return Err(RenderError::InvalidScope);
+    }
+    let Some(target) = target.as_any().downcast_ref::<Target>() else {
+        return Ok(None);
+    };
+    if !Rc::ptr_eq(&renderer.device, &target.device)
+        || target.descriptor != requested.descriptor
+        || plan(requested.descriptor.layout)? != Some(*requested)
+    {
+        return Ok(None);
+    }
+    if renderer
+        .active
+        .as_ref()
+        .is_some_and(|s| Rc::ptr_eq(s, &target.slot))
+    {
+        return Err(RenderError::InvalidScope);
+    }
+    Ok(Some(target))
+}
+
+pub(super) fn can_reuse(
+    renderer: &BorrowedDummy<'_>,
+    target: &dyn BackendTarget,
+    plan: &TargetPlan,
+) -> Result<bool, RenderError> {
+    Ok(matching_target(renderer, target, plan)?.is_some())
+}
+
 pub(super) fn bind(
     renderer: &mut BorrowedDummy<'_>,
     target: &dyn BackendTarget,
     update: TargetUpdate,
 ) -> Result<Option<Rc<Slot>>, RenderError> {
-    let target = target
-        .as_any()
-        .downcast_ref::<Target>()
-        .ok_or(RenderError::InvalidTexture)?;
-    if !Rc::ptr_eq(&renderer.device, &target.device)
-        || renderer
-            .active
-            .as_ref()
-            .is_some_and(|s| Rc::ptr_eq(s, &target.slot))
-    {
-        return Err(RenderError::InvalidTexture);
-    }
+    let requested = plan(target.descriptor().layout)?.ok_or(RenderError::InvalidTexture)?;
+    let target =
+        matching_target(renderer, target, &requested)?.ok_or(RenderError::InvalidTexture)?;
     match update {
         TargetUpdate::Rebuild => {
             target.slot.value.set(0);
@@ -252,6 +278,10 @@ fn external_nested_composition_preserves_concrete_borrowed_engines_and_sources()
     let mut first = renderer.create_target(&plan).unwrap();
     let mut second = renderer.create_target(&plan).unwrap();
     let mut failed = renderer.create_target(&plan).unwrap();
+    assert!(renderer.can_reuse_target(&*first, &plan).unwrap());
+    let mut invalid_plan = plan;
+    invalid_plan.workspace_bytes += 1;
+    assert!(!renderer.can_reuse_target(&*first, &invalid_plan).unwrap());
     assert_eq!(read(&*first), Err(RenderError::InvalidTexture));
 
     let erased: &mut dyn Renderer = &mut renderer;
@@ -262,6 +292,7 @@ fn external_nested_composition_preserves_concrete_borrowed_engines_and_sources()
             TargetUpdate::Rebuild,
             &mut [],
             &mut |outer| {
+                assert!(outer.can_reuse_target(&*second, &plan)?);
                 draw(outer)?;
                 outer.with_target(
                     &mut *second,
@@ -297,6 +328,7 @@ fn external_nested_composition_preserves_concrete_borrowed_engines_and_sources()
     assert_eq!(read(&*first), Ok(2));
     assert_eq!(read(&*second), Ok(2));
     assert_eq!(read(&*failed), Err(RenderError::InvalidTexture));
+    assert!(renderer.can_reuse_target(&*failed, &plan).unwrap());
     drop(renderer);
     assert_eq!(screen[0], 1);
     assert_eq!(read(&*first), Ok(2));
@@ -314,6 +346,8 @@ fn foreign_target_rejection_keeps_the_composed_parent_usable() {
         .unwrap()
         .unwrap();
     let mut target = other.create_target(&plan).unwrap();
+    assert!(!renderer.can_reuse_target(&*target, &plan).unwrap());
+    assert!(other.can_reuse_target(&*target, &plan).unwrap());
     assert_eq!(
         renderer.with_target(
             &mut *target,

@@ -138,6 +138,45 @@ pub(super) fn plan(
     }))
 }
 
+fn matching_target<'a>(
+    context: &Arc<WgpuDeviceContext>,
+    samples: u32,
+    target: &'a dyn BackendTarget,
+    requested: &TargetPlan,
+) -> Result<Option<&'a Target>, RenderError> {
+    context.check()?;
+    let Some(target) = target.as_any().downcast_ref::<Target>() else {
+        return Ok(None);
+    };
+    let child = &target.storage;
+    let actual_samples = child
+        .frame
+        .msaa_view
+        .as_ref()
+        .map_or(1, |view| view.texture().sample_count());
+    if !Arc::ptr_eq(context, &child.context)
+        || child.descriptor != requested.descriptor
+        || actual_samples != samples
+        || child.bytes != requested.storage_bytes
+        || plan(context, samples, requested.descriptor.layout)? != Some(*requested)
+    {
+        return Ok(None);
+    }
+    if child.active.get() {
+        return Err(RenderError::InvalidScope);
+    }
+    Ok(Some(target))
+}
+
+pub(super) fn can_reuse(
+    context: &Arc<WgpuDeviceContext>,
+    samples: u32,
+    target: &dyn BackendTarget,
+    plan: &TargetPlan,
+) -> Result<bool, RenderError> {
+    Ok(matching_target(context, samples, target, plan)?.is_some())
+}
+
 impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     pub(super) fn bind_native_target(
         &mut self,
@@ -155,23 +194,13 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         {
             return Err(RenderError::InvalidScope);
         }
-        let context = self
-            .surface
-            .state()
-            .ok_or(RenderError::BackendFailure)?
-            .context();
-        context.check()?;
-        let child = &target
-            .as_any()
-            .downcast_ref::<Target>()
+        let surface = self.surface.state().ok_or(RenderError::BackendFailure)?;
+        let context = surface.context();
+        let requested = plan(context, surface.samples(), target.descriptor().layout)?
+            .ok_or(RenderError::InvalidTexture)?;
+        let child = &matching_target(context, surface.samples(), target, &requested)?
             .ok_or(RenderError::InvalidTexture)?
             .storage;
-        if !Arc::ptr_eq(context, &child.context) {
-            return Err(RenderError::InvalidTexture);
-        }
-        if child.active.get() {
-            return Err(RenderError::InvalidScope);
-        }
         if update == TargetUpdate::Incremental && !child.completed.get() {
             return Err(RenderError::InvalidTexture);
         }

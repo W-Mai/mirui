@@ -325,6 +325,14 @@ impl Renderer for RegionRenderer<'_> {
         self.inner.plan_target(layout)
     }
 
+    fn can_reuse_target(
+        &self,
+        target: &dyn BackendTarget,
+        plan: &TargetPlan,
+    ) -> Result<bool, RenderError> {
+        self.inner.can_reuse_target(target, plan)
+    }
+
     fn create_target(
         &mut self,
         plan: &TargetPlan,
@@ -623,6 +631,17 @@ pub trait Renderer: super::target::__private::TargetScopeDispatch {
     /// Plan native target storage without allocating or modifying device state. `None` selects software output production.
     fn plan_target(&self, _layout: PlaneLayout) -> Result<Option<TargetPlan>, RenderError> {
         Ok(None)
+    }
+
+    /// Check writable storage compatibility without binding, allocating, reading or submitting work.
+    ///
+    /// A different device, stale allocation or incompatible plan returns `false`; device failures and active-target conflicts return errors. Completed contents are not required for storage reuse. Binding must repeat the storage checks and reject incomplete contents for `TargetUpdate::Incremental`; a mismatch must not silently rebuild an incremental target.
+    fn can_reuse_target(
+        &self,
+        _target: &dyn BackendTarget,
+        _plan: &TargetPlan,
+    ) -> Result<bool, RenderError> {
+        Ok(false)
     }
 
     /// Allocate an unpublished target according to a storage plan.
