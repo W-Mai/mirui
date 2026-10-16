@@ -14,13 +14,20 @@ type TestSurface = FramebufSurface<Flush>;
 
 #[test]
 fn snapshot_copy_owns_packed_rows_without_source_padding() {
-    for format in [ColorFormat::RGB565, ColorFormat::RGBA8888] {
+    for format in [
+        ColorFormat::RGB565,
+        ColorFormat::RGB565Swapped,
+        ColorFormat::RGB888,
+        ColorFormat::RGBA8888,
+        ColorFormat::BGRA8888,
+    ] {
         let packed = crate::render::scratch::PlaneLayout::packed(2, 2, format)
             .unwrap()
             .stride_bytes();
         let stride = packed + 3;
         let mut source = Texture::from_vec(alloc::vec![0; stride + packed], 2, 2, format).unwrap();
         source.stride = stride;
+        source.alpha_mode = crate::render::texture::AlphaMode::Blend;
         source
             .pixels_mut()
             .unwrap()
@@ -30,6 +37,7 @@ fn snapshot_copy_owns_packed_rows_without_source_padding() {
             .unwrap()
             .set_pixel(1, 1, &Color::rgb(0, 255, 0));
         let copy = clone_texture_owned(&source).unwrap();
+        assert_eq!(copy.alpha_mode, source.alpha_mode);
         assert_eq!(copy.stride, packed);
         assert_eq!(copy.buf.as_slice().len(), packed * 2);
         assert_ne!(copy.buf.as_slice().as_ptr(), source.buf.as_slice().as_ptr());

@@ -123,7 +123,7 @@ impl ColorFormat {
     }
 }
 
-pub enum TexBuf<'a> {
+pub(crate) enum TexBuf<'a> {
     Ref(&'a [u8]),
     Mut(&'a mut [u8]),
     Owned(Vec<u8>),
@@ -137,21 +137,6 @@ impl TexBuf<'_> {
             Self::Mut(s) => s,
             Self::Owned(v) => v,
             Self::Aligned(v) => v.as_slice(),
-        }
-    }
-
-    pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        match self {
-            Self::Ref(data) => {
-                *self = Self::Owned(data.to_vec());
-                match self {
-                    Self::Owned(v) => v,
-                    _ => unreachable!(),
-                }
-            }
-            Self::Mut(s) => s,
-            Self::Owned(v) => v,
-            Self::Aligned(v) => v.as_mut_slice(),
         }
     }
 }

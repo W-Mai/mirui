@@ -2533,7 +2533,7 @@ mod tests {
             renderer.scratch.scanline_crossings.capacity(),
         );
         for _ in 0..8 {
-            renderer.target.buf.as_mut_slice().fill(0);
+            renderer.target.pixels_mut().unwrap().bytes_mut().fill(0);
             draw(&mut renderer);
             assert_eq!(
                 (
@@ -2669,7 +2669,7 @@ mod tests {
 
         let capacity = actual.scratch.primitive_path.command_capacity();
         assert!(capacity >= path.commands().len());
-        actual.target.buf.as_mut_slice().fill(0);
+        actual.target.pixels_mut().unwrap().bytes_mut().fill(0);
         assert_eq!(actual.submit(&DrawRequest::new(&command, clip)), Ok(()));
         assert_eq!(actual.scratch.primitive_path.command_capacity(), capacity);
     }
@@ -4835,7 +4835,7 @@ mod tests {
                 .any(|pixel| pixel[3] != 0)
         );
 
-        renderer.target.buf.as_mut_slice().fill(0);
+        renderer.target.pixels_mut().unwrap().bytes_mut().fill(0);
         assert_eq!(
             renderer.submit(&DrawRequest::new(&command, clip).with_projective(projection)),
             Ok(())

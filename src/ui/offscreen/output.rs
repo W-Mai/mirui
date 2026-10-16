@@ -1,5 +1,7 @@
 use super::BufferKey;
+use crate::core::cache::HasSize;
 use crate::ecs::Entity;
+use crate::render::RenderError;
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::Rect;
 use crate::ui::outputs::{
@@ -230,7 +232,7 @@ impl Outputs<WidgetTexture> {
                 .planes
                 .iter()
                 .flatten()
-                .map(|plane| plane.buf.as_slice().len())
+                .map(|plane| plane.cache_size())
                 .sum::<usize>();
         }
         if pixel_shape_changed || local_mapping_changed {
@@ -305,9 +307,7 @@ impl Outputs<WidgetTexture> {
         let texture = slots.planes[slot].take()?;
         slots.writing = true;
         drop(storage);
-        let mut texture = texture;
-        texture.buf.as_mut_slice().fill(0);
-        Some(TextureWrite {
+        let mut write = TextureWrite {
             outputs: self,
             record: WidgetTextureRecord {
                 entity: key.entity,
@@ -315,7 +315,9 @@ impl Outputs<WidgetTexture> {
                 key,
             },
             texture: Some(texture),
-        })
+        };
+        write.texture_mut().pixels_mut().ok()?.bytes_mut().fill(0);
+        Some(write)
     }
 
     fn reset_texture(&self, entity: Entity) {
@@ -327,7 +329,7 @@ impl Outputs<WidgetTexture> {
         let mut released = 0;
         for plane in &mut slots.planes {
             if let Some(plane) = plane.take() {
-                released += plane.buf.as_slice().len();
+                released += plane.cache_size();
             }
         }
         slots.discard = true;
@@ -344,7 +346,7 @@ impl Outputs<WidgetTexture> {
             self.reset(*entity);
             for plane in &mut slots.planes {
                 if let Some(plane) = plane.take() {
-                    released += plane.buf.as_slice().len();
+                    released += plane.cache_size();
                 }
             }
             slots.discard = true;
@@ -378,7 +380,7 @@ impl Outputs<WidgetTexture> {
                         if keep != Some(index)
                             && let Some(plane) = plane.take()
                         {
-                            released += plane.buf.as_slice().len();
+                            released += plane.cache_size();
                         }
                     }
                 }
@@ -388,7 +390,7 @@ impl Outputs<WidgetTexture> {
                 .planes
                 .iter()
                 .flatten()
-                .map(|plane| plane.buf.as_slice().len())
+                .map(|plane| plane.cache_size())
                 .sum::<usize>();
             slots.planes = [None, None];
             slots.discard = true;
@@ -421,9 +423,9 @@ impl TextureWrite<'_> {
         self.texture.as_mut().expect("active output write")
     }
 
-    pub(crate) fn differs_from_previous(&self) -> bool {
+    pub(crate) fn differs_from_previous(&self) -> Result<bool, RenderError> {
         let Some(previous) = self.outputs.previous(self.record.entity) else {
-            return false;
+            return Ok(false);
         };
         let previous = previous.texture();
         let current = self.texture.as_ref().expect("active output write");
@@ -431,13 +433,15 @@ impl TextureWrite<'_> {
             || current.height != previous.height
             || current.format != previous.format
         {
-            return false;
+            return Ok(false);
         }
-        let row_bytes = usize::from(current.width) * current.format.bytes_per_pixel();
-        (0..usize::from(current.height)).any(|row| {
-            current.buf.as_slice()[row * current.stride..][..row_bytes]
-                != previous.buf.as_slice()[row * previous.stride..][..row_bytes]
-        })
+        let current = current.read_pixels()?;
+        let previous = previous.read_pixels()?;
+        let row_bytes = usize::from(current.width()) * current.format().bytes_per_pixel();
+        Ok((0..usize::from(current.height())).any(|row| {
+            current.bytes()[row * current.stride()..][..row_bytes]
+                != previous.bytes()[row * previous.stride()..][..row_bytes]
+        }))
     }
 
     pub(crate) fn publish(mut self) -> bool {
@@ -454,7 +458,7 @@ impl TextureWrite<'_> {
             .get(&self.record.entity)
             .is_some_and(|slots| slots.discard)
         {
-            storage.allocated -= texture.buf.as_slice().len();
+            storage.allocated -= texture.cache_size();
             storage.textures.remove(&self.record.entity);
             return false;
         }
@@ -500,6 +504,60 @@ mod tests {
     use crate::types::{Color, Fixed};
 
     const TEXTURE_BYTES: usize = 4 * 4 * 4;
+
+    #[test]
+    fn rejected_write_returns_storage_without_copying_or_leaking_the_slot() {
+        static BYTES: [u8; TEXTURE_BYTES] = [17; TEXTURE_BYTES];
+        let outputs = Outputs::<WidgetTexture>::with_budget(TEXTURE_BYTES);
+        let source = key(1, 1);
+        assert!(outputs.prepare_texture(source).unwrap().publish());
+        let writable = {
+            let mut storage = outputs.storage_mut();
+            let slot = &mut storage.textures.get_mut(&source.entity).unwrap().planes[0];
+            slot.replace(Texture::from_static(&BYTES, 4, 4, ColorFormat::RGBA8888).unwrap())
+                .unwrap()
+        };
+        let allocations = tracked_allocations(|| {
+            assert!(outputs.prepare_texture(source).is_none());
+        });
+        assert_eq!(allocations, 0);
+        assert!(outputs.get(source.entity).is_none());
+        {
+            let mut storage = outputs.storage_mut();
+            assert_eq!(storage.allocated, TEXTURE_BYTES);
+            let slots = storage.textures.get_mut(&source.entity).unwrap();
+            assert!(!slots.writing);
+            let pixels = slots.planes[0].as_ref().unwrap().read_pixels().unwrap();
+            assert_eq!(pixels.bytes().as_ptr(), BYTES.as_ptr());
+            assert_eq!(pixels.bytes(), &BYTES);
+            slots.planes[0] = Some(writable);
+        }
+        assert!(outputs.prepare_texture(source).unwrap().publish());
+    }
+
+    #[test]
+    fn failed_history_read_does_not_publish_the_working_slot() {
+        let outputs = Outputs::<WidgetTexture>::with_budget(2 * TEXTURE_BYTES);
+        let source = key(1, 1);
+        outputs.reserve(1).unwrap();
+        outputs.set_retained(source.entity, true).unwrap();
+        {
+            let _batch = outputs.begin_batch();
+            assert!(outputs.prepare_texture(source).unwrap().publish());
+        }
+        let _batch = outputs.begin_batch();
+        let mut write = outputs.prepare_texture(source).unwrap();
+        write.texture_mut().stride = usize::MAX;
+        assert_eq!(
+            write.differs_from_previous(),
+            Err(RenderError::InvalidTexture)
+        );
+        drop(write);
+        assert!(outputs.get(source.entity).is_none());
+        assert!(outputs.previous(source.entity).is_some());
+        assert!(!outputs.storage().textures[&source.entity].writing);
+        assert_eq!(outputs.storage().allocated, 2 * TEXTURE_BYTES);
+    }
 
     fn key(id: u32, generation: u32) -> BufferKey {
         BufferKey {

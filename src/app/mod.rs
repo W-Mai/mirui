@@ -2036,16 +2036,15 @@ mod web_runner;
 fn clone_texture_owned(
     src: &crate::render::texture::Texture<'static>,
 ) -> Result<crate::render::texture::Texture<'static>, crate::render::RenderError> {
-    use crate::render::texture::{TexBuf, Texture};
-    if !src.valid_storage() {
-        return Err(crate::render::RenderError::InvalidTexture);
-    }
-    let mut owned = Texture::owned(src.width, src.height, src.format)?;
-    if let TexBuf::Owned(ref mut dst) = owned.buf {
-        for (row, destination) in dst.chunks_exact_mut(owned.stride).enumerate() {
-            let start = row * src.stride;
-            destination.copy_from_slice(&src.buf.as_slice()[start..start + owned.stride]);
-        }
+    use crate::render::texture::Texture;
+    let source = src.read_pixels()?;
+    let mut owned = Texture::owned(source.width(), source.height(), source.format())?;
+    owned.alpha_mode = src.alpha_mode;
+    let mut target = owned.pixels_mut()?;
+    let stride = target.stride();
+    for (row, destination) in target.bytes_mut().chunks_exact_mut(stride).enumerate() {
+        let start = row * source.stride();
+        destination.copy_from_slice(&source.bytes()[start..start + stride]);
     }
     Ok(owned)
 }

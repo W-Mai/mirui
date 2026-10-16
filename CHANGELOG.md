@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- Texture storage is internal; writable pixel access no longer copies read-only storage.
 - `iir_blur_inplace` and `mix_inplace` accept pixel borrows instead of textures.
 - Texture pixel storage and geometry fields are private. Read through `TexturePixels`, write through `TexturePixelsMut`, and use metadata getters and checked `with_stride` for padded CPU data.
 - `Texture` no longer implements `Clone`. Cache handles share resources without copying pixels; frame and widget snapshots return independent owned copies.
@@ -16,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Output clearing, history comparisons and owned snapshots use checked pixel borrows. Failed output preparation returns its reserved slot without publishing pixels; snapshots preserve the source alpha mode.
 - GPU uploads use checked source pixel borrows and retain upload errors through submission and flush. Packed RGBA uploads avoid a temporary CPU copy in WGPU; Web Canvas shares the common texture cache key.
 - Target readback copies and software scopes use checked writable pixels. Software scopes flush before accepting their result.
 - `PaintCtx::read_pixels` retains source-read failures and borrows pixels independently of the paint context. Temporal, reflection, shadow and glow effects read sources before modifying their reusable workspace.

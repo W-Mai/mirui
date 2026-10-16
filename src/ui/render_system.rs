@@ -2277,7 +2277,10 @@ fn prepare_offscreen(
     let texture = write.texture_mut();
 
     {
-        let inner_tex = Texture::new(texture.buf.as_mut_slice(), buf_w, buf_h, key.format)?;
+        let mut pixels = texture.pixels_mut()?;
+        let stride = pixels.stride();
+        let inner_tex =
+            Texture::new(pixels.bytes_mut(), buf_w, buf_h, key.format)?.with_stride(stride)?;
         let mut inner = SwRenderer::with_scratch(inner_tex, scratch)
             .with_alpha_mode(crate::render::sw::AlphaMode::Blend);
         inner.viewport = Viewport::new(buf_w, buf_h, scale);
@@ -2357,7 +2360,7 @@ fn prepare_offscreen(
         Canvas::flush(&mut inner)?;
     }
 
-    let changed = requests.has_change_requests() && write.differs_from_previous();
+    let changed = requests.has_change_requests() && write.differs_from_previous()?;
     let published = write.publish();
     if published {
         requests.commit_output(changed);
@@ -10024,7 +10027,7 @@ mod scroll_blit_visual_check {
                 let post_shift_red = ((y + 4) * 8) as u8;
                 for x in 0..32 {
                     let off = (y * 32 + x) * 4;
-                    backend.target.buf.as_mut_slice()[off] = post_shift_red;
+                    backend.target.pixels_mut().unwrap().bytes_mut()[off] = post_shift_red;
                 }
             }
         }
@@ -10095,7 +10098,7 @@ mod scroll_blit_visual_check {
                 let post_inner_red = ((y + 2) * 4) as u8;
                 for x in 0..32 {
                     let off = (y * 32 + x) * 4;
-                    backend.target.buf.as_mut_slice()[off] = post_inner_red;
+                    backend.target.pixels_mut().unwrap().bytes_mut()[off] = post_inner_red;
                 }
             }
 
@@ -10122,7 +10125,7 @@ mod scroll_blit_visual_check {
                 };
                 for x in 0..32 {
                     let off = (y * 32 + x) * 4;
-                    backend.target.buf.as_mut_slice()[off] = red;
+                    backend.target.pixels_mut().unwrap().bytes_mut()[off] = red;
                 }
             }
         }

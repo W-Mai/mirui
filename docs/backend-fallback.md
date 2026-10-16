@@ -126,6 +126,8 @@ Pixel constructors (`Texture::new`, `from_ref`, `from_static`, `owned`, and `fro
 
 `Texture` does not implement `Clone`. Clone a cache handle to share its existing resource, borrow an output for immediate use, or request a frame/widget snapshot when an independent owned copy is required.
 
+Widget snapshots borrow the completed source and copy its active rows into an independent CPU texture, preserving its format and alpha mode. Output preparation clears a writable slot through checked pixel access; failed access returns the slot without publishing it. History comparison propagates read failures instead of treating unavailable pixels as unchanged content. Raw texture storage is internal and has no copy-on-write mutation path.
+
 Use `texture.width()`, `height()`, and `format()` for resource metadata. `texture.pixels()` returns `Result<Option<TexturePixels>, RenderError>` without performing device work; `read_pixels()` returns a readable pixel borrow. The borrow exposes `bytes()`, `stride()`, and `get_pixel()`. Writable CPU storage uses `pixels_mut()` and its `bytes_mut()` / `set_pixel()` methods. `pixels_mut()` rejects read-only storage without allocating a copy. Each writable borrow advances the upload revision once; revision exhaustion disables caching. Padded CPU sources use checked `with_stride(stride)` construction.
 
 Software rasterization acquires a writable borrow before each raster batch, not for each pixel. The blur helper takes the same borrow: `iir_blur_inplace(&mut pixels, alpha, region)`. Direct `Canvas` calls report failed writes through `flush()`; `Renderer::submit` returns them immediately.
