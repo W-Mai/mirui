@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- SDL GPU and WGPU reject failed path tessellation instead of submitting partial meshes. Failed meshes release their contents while retaining reusable buffer capacity.
 - Fully clipped fallback scopes remain empty operations without allocating or validating a zero-sized texture.
 
 ## [0.50.0] - 2026-10-15

@@ -38,13 +38,16 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         ];
         let phys_radius = radius * self.viewport.scale();
         let path = Path::rounded_quad(&phys_q, phys_radius);
-        self.tessellator.fill(
+        if let Err(error) = self.tessellator.fill(
             &path,
             None,
             color,
             opa,
             crate::render::raster::FillRule::NonZero,
-        );
+        ) {
+            self.failure.get_or_insert(error);
+            return;
+        }
         self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
     }
 
@@ -67,7 +70,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let phys_radius = radius * self.viewport.scale();
         let phys_width = (width * self.viewport.scale()).max(Fixed::ONE);
         let path = Path::rounded_quad(&phys_q, phys_radius);
-        self.tessellator.stroke(
+        if let Err(error) = self.tessellator.stroke(
             &path,
             None,
             crate::render::raster::StrokeSpec {
@@ -80,7 +83,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             },
             color,
             opa,
-        );
+        ) {
+            self.failure.get_or_insert(error);
+            return;
+        }
         self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
     }
 

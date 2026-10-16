@@ -14,8 +14,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     ) {
         let phys_tf = self.viewport.as_transform();
         let phys_clip = self.viewport.rect_to_physical(*clip);
-        self.tessellator
-            .fill(path, Some(&phys_tf), color, opa, fill_rule);
+        if let Err(error) = self
+            .tessellator
+            .fill(path, Some(&phys_tf), color, opa, fill_rule)
+        {
+            self.failure.get_or_insert(error);
+            return;
+        }
         self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
     }
 
@@ -30,8 +35,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     ) {
         let phys_tf = self.viewport.as_transform().compose(cmd_tf);
         let phys_clip = self.viewport.rect_to_physical(*clip);
-        self.tessellator
-            .fill(path, Some(&phys_tf), color, opa, fill_rule);
+        if let Err(error) = self
+            .tessellator
+            .fill(path, Some(&phys_tf), color, opa, fill_rule)
+        {
+            self.failure.get_or_insert(error);
+            return;
+        }
         self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
     }
 
@@ -86,8 +96,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 physical.width += Fixed::HALF;
                 physical_opacity = coverage_opacity(opa, requested, physical.width);
             }
-            self.tessellator
-                .stroke(path, Some(&phys_tf), physical, color, physical_opacity);
+            if let Err(error) =
+                self.tessellator
+                    .stroke(path, Some(&phys_tf), physical, color, physical_opacity)
+            {
+                self.failure.get_or_insert(error);
+                return;
+            }
             let phys_clip = self.viewport.rect_to_physical(*clip);
             self.submit_geometry(&phys_clip, physical_opacity != 255 || color.a != 255);
             return;
@@ -101,8 +116,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 ..spec
             },
         );
-        self.tessellator
-            .fill(outline, None, color, opa, FillRule::NonZero);
+        if let Err(error) = self
+            .tessellator
+            .fill(outline, None, color, opa, FillRule::NonZero)
+        {
+            self.failure.get_or_insert(error);
+            return;
+        }
         let phys_clip = self.viewport.rect_to_physical(*clip);
         self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
     }

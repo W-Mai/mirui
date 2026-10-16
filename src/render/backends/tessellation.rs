@@ -1,13 +1,15 @@
 use lyon::math::Point as LyonPoint;
 use lyon::tessellation::{
     BuffersBuilder, FillOptions, FillRule as LyonFillRule, FillTessellator as LyonFillTessellator,
-    FillVertex, LineCap as LyonLineCap, LineJoin as LyonLineJoin, StrokeOptions,
-    StrokeTessellator as LyonStrokeTessellator, StrokeVertex, VertexBuffers,
+    FillVertex, GeometryBuilderError, LineCap as LyonLineCap, LineJoin as LyonLineJoin,
+    StrokeOptions, StrokeTessellator as LyonStrokeTessellator, StrokeVertex, TessellationError,
+    VertexBuffers,
 };
 
 use crate::render::backends::lyon_path::to_lyon_path;
 use crate::render::path::Path;
 use crate::render::raster::{FillRule, LineCap, LineJoin, StrokeSpec};
+use crate::render::renderer::{RenderError, RenderResource};
 use crate::types::{Fixed, Transform};
 
 pub(super) struct FillTessellator {
@@ -28,11 +30,11 @@ impl FillTessellator {
         path: &Path,
         transform: Option<&Transform>,
         fill_rule: FillRule,
-    ) -> (&[LyonPoint], &[u32]) {
+    ) -> Result<(&[LyonPoint], &[u32]), RenderError> {
         self.buffers.vertices.clear();
         self.buffers.indices.clear();
         let path = to_lyon_path(path, transform);
-        let _ = self.tessellator.tessellate_path(
+        let result = self.tessellator.tessellate_path(
             &path,
             &FillOptions::tolerance(TOLERANCE).with_fill_rule(match fill_rule {
                 FillRule::EvenOdd => LyonFillRule::EvenOdd,
@@ -42,7 +44,7 @@ impl FillTessellator {
                 vertex.position()
             }),
         );
-        (&self.buffers.vertices, &self.buffers.indices)
+        finish_mesh(&mut self.buffers, result)
     }
 
     pub(super) fn take_mesh(&mut self) -> VertexBuffers<LyonPoint, u32> {
@@ -78,7 +80,7 @@ impl StrokeTessellator {
         path: &Path,
         transform: Option<&Transform>,
         spec: StrokeSpec<'_>,
-    ) -> (&[LyonPoint], &[u32]) {
+    ) -> Result<(&[LyonPoint], &[u32]), RenderError> {
         self.buffers.vertices.clear();
         self.buffers.indices.clear();
         let path = to_lyon_path(path, transform);
@@ -95,14 +97,14 @@ impl StrokeTessellator {
                 LineJoin::Bevel => LyonLineJoin::Bevel,
             })
             .with_miter_limit(spec.miter_limit.max(Fixed::ONE).to_f32());
-        let _ = self.tessellator.tessellate_path(
+        let result = self.tessellator.tessellate_path(
             &path,
             &options,
             &mut BuffersBuilder::new(&mut self.buffers, |vertex: StrokeVertex<'_, '_>| {
                 vertex.position()
             }),
         );
-        (&self.buffers.vertices, &self.buffers.indices)
+        finish_mesh(&mut self.buffers, result)
     }
 
     pub(super) fn take_mesh(&mut self) -> VertexBuffers<LyonPoint, u32> {
@@ -122,6 +124,25 @@ impl Default for StrokeTessellator {
 
 const TOLERANCE: f32 = 0.1;
 
+fn finish_mesh(
+    buffers: &mut VertexBuffers<LyonPoint, u32>,
+    result: Result<(), TessellationError>,
+) -> Result<(&[LyonPoint], &[u32]), RenderError> {
+    if let Err(error) = result {
+        buffers.vertices.clear();
+        buffers.indices.clear();
+        return Err(match error {
+            TessellationError::GeometryBuilder(GeometryBuilderError::TooManyVertices) => {
+                RenderError::ResourceLimit(RenderResource::Geometry)
+            }
+            TessellationError::GeometryBuilder(GeometryBuilderError::InvalidVertex)
+            | TessellationError::UnsupportedParamater(_) => RenderError::InvalidGeometry,
+            TessellationError::Internal(_) => RenderError::BackendFailure,
+        });
+    }
+    Ok((&buffers.vertices, &buffers.indices))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -139,7 +160,7 @@ mod tests {
         }
         let mut tessellator = FillTessellator::new();
         let mut area = |rule| {
-            let (vertices, indices) = tessellator.fill(&path, None, rule);
+            let (vertices, indices) = tessellator.fill(&path, None, rule).unwrap();
             indices
                 .chunks_exact(3)
                 .map(|triangle| {
@@ -165,18 +186,20 @@ mod tests {
             Point::new(100, 0),
         );
         let mut tessellator = StrokeTessellator::new();
-        let (vertices, indices) = tessellator.stroke(
-            &path,
-            None,
-            StrokeSpec {
-                width: Fixed::from_int(6),
-                cap: LineCap::Round,
-                join: LineJoin::Round,
-                miter_limit: Fixed::from_int(4),
-                dash: &[],
-                dash_scale: Fixed::ONE,
-            },
-        );
+        let (vertices, indices) = tessellator
+            .stroke(
+                &path,
+                None,
+                StrokeSpec {
+                    width: Fixed::from_int(6),
+                    cap: LineCap::Round,
+                    join: LineJoin::Round,
+                    miter_limit: Fixed::from_int(4),
+                    dash: &[],
+                    dash_scale: Fixed::ONE,
+                },
+            )
+            .unwrap();
 
         assert!(vertices.len() > 8);
         assert!(indices.len() > 12);
@@ -186,5 +209,51 @@ mod tests {
                 .iter()
                 .all(|index| (*index as usize) < vertices.len())
         );
+    }
+
+    #[test]
+    fn failed_mesh_is_discarded_without_losing_reusable_capacity() {
+        use lyon::tessellation::{InternalError, UnsupportedParamater};
+
+        let mut buffers = VertexBuffers::new();
+        buffers.vertices.reserve(3);
+        buffers.indices.reserve(3);
+        let capacities = (buffers.vertices.capacity(), buffers.indices.capacity());
+        for (error, expected) in [
+            (
+                GeometryBuilderError::InvalidVertex.into(),
+                RenderError::InvalidGeometry,
+            ),
+            (
+                GeometryBuilderError::TooManyVertices.into(),
+                RenderError::ResourceLimit(RenderResource::Geometry),
+            ),
+            (
+                TessellationError::UnsupportedParamater(UnsupportedParamater::PositionIsNaN),
+                RenderError::InvalidGeometry,
+            ),
+            (
+                InternalError::InsufficientNumberOfEdges.into(),
+                RenderError::BackendFailure,
+            ),
+        ] {
+            buffers.vertices.extend([LyonPoint::new(0.0, 0.0); 3]);
+            buffers.indices.extend([0, 1, 2]);
+            let allocations = crate::test_support::tracked_allocations(|| {
+                assert_eq!(finish_mesh(&mut buffers, Err(error)), Err(expected));
+            });
+            assert_eq!(allocations, 0);
+            assert!(buffers.vertices.is_empty());
+            assert!(buffers.indices.is_empty());
+            assert_eq!(
+                (buffers.vertices.capacity(), buffers.indices.capacity()),
+                capacities
+            );
+        }
+        buffers.vertices.push(LyonPoint::new(2.0, 3.0));
+        buffers.indices.push(0);
+        let (vertices, indices) = finish_mesh(&mut buffers, Ok(())).unwrap();
+        assert_eq!(vertices, &[LyonPoint::new(2.0, 3.0)]);
+        assert_eq!(indices, &[0]);
     }
 }

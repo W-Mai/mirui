@@ -1502,7 +1502,10 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             self.failure.get_or_insert(RenderError::BackendFailure);
             return;
         };
-        self.factory.tessellator.fill(path, Some(cmd_tf), fill_rule);
+        if let Err(error) = self.factory.tessellator.fill(path, Some(cmd_tf), fill_rule) {
+            self.failure.get_or_insert(error);
+            return;
+        }
         let mesh = self.factory.tessellator.take_mesh();
         self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, &paint_uniform);
         self.factory.tessellator.restore_mesh(mesh);
@@ -1642,7 +1645,10 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             self.failure.get_or_insert(RenderError::BackendFailure);
             return;
         };
-        self.factory.tessellator.fill(path, None, fill_rule);
+        if let Err(error) = self.factory.tessellator.fill(path, None, fill_rule) {
+            self.failure.get_or_insert(error);
+            return;
+        }
         let mesh = self.factory.tessellator.take_mesh();
         self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, &paint_uniform);
         self.factory.tessellator.restore_mesh(mesh);
@@ -1686,9 +1692,14 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             return;
         }
         if spec.dash.is_empty() {
-            self.factory
+            if let Err(error) = self
+                .factory
                 .stroke_tessellator
-                .stroke(path, transform, spec);
+                .stroke(path, transform, spec)
+            {
+                self.failure.get_or_insert(error);
+                return;
+            }
             let mesh = self.factory.stroke_tessellator.take_mesh();
             let paint_uniform = solid_path_paint_uniform(*color, opa);
             self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, &paint_uniform);
@@ -1696,9 +1707,14 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             return;
         }
         let outline = self.factory.stroke_scratch.outline(path, transform, spec);
-        self.factory
+        if let Err(error) = self
+            .factory
             .tessellator
-            .fill(outline, None, FillRule::NonZero);
+            .fill(outline, None, FillRule::NonZero)
+        {
+            self.failure.get_or_insert(error);
+            return;
+        }
         let mesh = self.factory.tessellator.take_mesh();
         let paint_uniform = solid_path_paint_uniform(*color, opa);
         self.draw_path_mesh(&mesh.vertices, &mesh.indices, clip, &paint_uniform);
@@ -2851,7 +2867,7 @@ mod route_tests {
             },
         );
         let mut tessellator = FillTessellator::new();
-        let (vertices, indices) = tessellator.fill(outline, None, FillRule::NonZero);
+        let (vertices, indices) = tessellator.fill(outline, None, FillRule::NonZero).unwrap();
         assert!(!indices.is_empty());
         assert!(
             vertices.iter().all(|point| {
@@ -2882,7 +2898,7 @@ mod route_tests {
             },
         );
         let mut tessellator = FillTessellator::new();
-        let (vertices, indices) = tessellator.fill(outline, None, FillRule::NonZero);
+        let (vertices, indices) = tessellator.fill(outline, None, FillRule::NonZero).unwrap();
         let covers = |x: f32, y: f32| {
             indices.chunks_exact(3).any(|triangle| {
                 let points = [

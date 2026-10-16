@@ -13,6 +13,7 @@ use crate::render::backends::tessellation::{
 };
 use crate::render::path::Path;
 use crate::render::raster::{FillRule, StrokeSpec};
+use crate::render::renderer::RenderError;
 use crate::types::{Color, Transform};
 
 /// Holds reusable tessellators and output buffers so path commands don't
@@ -41,11 +42,14 @@ impl TessellationCache {
         color: &Color,
         opa: u8,
         fill_rule: FillRule,
-    ) {
-        self.fill_tess.fill(path, transform, fill_rule);
+    ) -> Result<(), RenderError> {
+        self.verts.clear();
+        self.indices.clear();
+        self.fill_tess.fill(path, transform, fill_rule)?;
         let mesh = self.fill_tess.take_mesh();
         self.bake(&mesh, color, opa);
         self.fill_tess.restore_mesh(mesh);
+        Ok(())
     }
 
     pub fn stroke(
@@ -55,11 +59,14 @@ impl TessellationCache {
         spec: StrokeSpec<'_>,
         color: &Color,
         opa: u8,
-    ) {
-        self.stroke_tess.stroke(path, transform, spec);
+    ) -> Result<(), RenderError> {
+        self.verts.clear();
+        self.indices.clear();
+        self.stroke_tess.stroke(path, transform, spec)?;
         let mesh = self.stroke_tess.take_mesh();
         self.bake(&mesh, color, opa);
         self.stroke_tess.restore_mesh(mesh);
+        Ok(())
     }
 
     fn bake(&mut self, mesh: &VertexBuffers<LyonPoint, u32>, color: &Color, opa: u8) {
