@@ -12,7 +12,7 @@ struct Blit {
     dst_size: vec2<f32>,
     // Source UV rect [u0, v0, u1, v1].
     uv: vec4<f32>,
-    // `.x` is opacity; `.y` is the logical corner radius.
+    // Opacity, logical corner radius, premultiplied-source flag, padding.
     alpha: vec4<f32>,
 };
 
@@ -62,6 +62,7 @@ fn fs_main(v: VertexOut) -> @location(0) vec4<f32> {
     // assuming `rgb` is already scaled by `a`, so RGB-only composite modes
     // (Source-over / Add / Screen / Multiply / Darken / Lighten) all share
     // this fragment path.
-    let a = c.a * blit.alpha.x * coverage;
-    return vec4<f32>(c.rgb * a, a);
+    let opacity = blit.alpha.x * coverage;
+    let rgb = c.rgb * select(c.a, 1.0, blit.alpha.z != 0.0);
+    return vec4<f32>(rgb * opacity, c.a * opacity);
 }

@@ -56,9 +56,8 @@ pub struct BlitUniform {
     pub dst_pos: [f32; 2],
     pub dst_size: [f32; 2],
     pub uv: [f32; 4],
-    /// `.x` carries opacity in [0..1]; `.y` carries logical corner radius.
-    /// Padded to vec4 because std140 rounds the struct end up to its
-    /// largest member alignment (16), matching `RectUniform`'s trick.
+    /// `.x` carries opacity in [0..1]; `.y` carries logical corner radius; `.z` is one for premultiplied sources, zero for straight sources.
+    /// The vec4 matches the shader's 16-byte member alignment and 48-byte uniform layout.
     pub alpha: [f32; 4],
 }
 
@@ -105,6 +104,8 @@ pub struct BlitQuadVertex {
     pub uvw: [f32; 3],
     /// Opacity, logical radius, logical width, logical height.
     pub params: [f32; 4],
+    /// One for premultiplied source channels, zero for straight channels.
+    pub premultiplied: f32,
 }
 
 /// `local_uvw = (lx/w, ly/w, 1/w)` where `(lx, ly)` are widget-local
@@ -351,6 +352,11 @@ fn build_pipeline(
                 offset: core::mem::offset_of!(BlitQuadVertex, params) as u64,
                 shader_location: 2,
             },
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32,
+                offset: core::mem::offset_of!(BlitQuadVertex, premultiplied) as u64,
+                shader_location: 3,
+            },
         ],
     };
     let quad_sdf_vertex_layout = wgpu::VertexBufferLayout {
@@ -539,8 +545,8 @@ const _: () = {
     assert!(core::mem::size_of::<GlyphUniform>() == 80);
     assert!(core::mem::size_of::<GlyphInstance>() == 40);
     // Must match `VertexIn` in shader/blit_quad.wgsl
-    // (vec2 + vec3 + vec4 = 36).
-    assert!(core::mem::size_of::<BlitQuadVertex>() == 36);
+    // (vec2 + vec3 + vec4 + float = 40).
+    assert!(core::mem::size_of::<BlitQuadVertex>() == 40);
     assert!(core::mem::size_of::<QuadSdfVertex>() == 20);
     // Must match `QuadSdf` in shader/quad_sdf.wgsl and stay 48 bytes
     // so the fill bind group's binding-1 binding-size covers it.

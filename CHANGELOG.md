@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- WGPU blits sample same-device native textures directly and use the existing upload cache for other sources. Rectangle and projective sampling preserve premultiplied alpha; active or incomplete sources are rejected before cache lookup.
+
 - `Texture::backend_target()` exposes checked read-only native storage to backend consumers without readback. Invalid native storage with a valid CPU copy remains usable through pixel uploads; incomplete contents and access conflicts are rejected.
 
 - Native texture storage retains its source, prepares CPU pixels on demand and reuses readback capacity. Output writes share existing publication and history slots; failed writes and reads do not expose incomplete pixels. Native upload identities remain distinct across resource replacement.

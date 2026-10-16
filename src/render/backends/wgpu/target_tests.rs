@@ -2,6 +2,9 @@ use super::*;
 use crate::render::texture::Texture;
 use crate::types::{Color, Fixed};
 
+#[path = "target_tests/source.rs"]
+mod source;
+
 fn context() -> Option<Arc<WgpuDeviceContext>> {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&Default::default())) else {

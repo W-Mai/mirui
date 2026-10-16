@@ -32,7 +32,7 @@ use self::pipeline::{
     ShaderKind, ViewportUniform,
 };
 use self::texture_pool::{
-    CachedScalarSurface, CachedTexture, ScalarSurfacePool, TextureKey, TexturePool, new_pool,
+    BlitSource, CachedScalarSurface, ScalarSurfacePool, TexturePool, new_pool,
     new_scalar_surface_pool,
 };
 use crate::render::backends::tessellation::{FillTessellator, StrokeTessellator};
@@ -1323,7 +1323,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         });
     }
 
-    fn blit_source_view(&mut self, src: &Texture) -> Option<wgpu::TextureView> {
+    fn blit_source_view(&mut self, src: &Texture) -> Option<BlitSource> {
         if self.failure.is_some() {
             return None;
         }
@@ -1336,42 +1336,17 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         }
     }
 
-    fn blit_source_view_checked(
-        &mut self,
-        src: &Texture,
-    ) -> Result<wgpu::TextureView, RenderError> {
+    fn blit_source_view_checked(&mut self, src: &Texture) -> Result<BlitSource, RenderError> {
         let state = self
             .surface
             .state()
             .ok_or(RenderError::SurfaceUnavailable)?;
-        let key = TextureKey::cacheable(src).filter(|_| {
-            usize::from(src.width) * usize::from(src.height) * 4
-                <= self.factory.texture_cache_budget
-        });
-        let Some(key) = key else {
-            let pixels = src.read_pixels()?;
-            let rgba = pixels.rgba8_upload_pixels()?;
-            let texture = upload_blit_source(&state.device, &state.queue, src, &rgba);
-            return Ok(texture.create_view(&wgpu::TextureViewDescriptor::default()));
-        };
-
-        let handle = self
-            .factory
-            .texture_pool
-            .entry(key)
-            .or_try_insert_with::<_, RenderError>(|| {
-                let pixels = src.read_pixels()?;
-                let rgba = pixels.rgba8_upload_pixels()?;
-                Ok(CachedTexture(upload_blit_source(
-                    &state.device,
-                    &state.queue,
-                    src,
-                    &rgba,
-                )))
-            })?;
-        Ok(handle
-            .0
-            .create_view(&wgpu::TextureViewDescriptor::default()))
+        texture_pool::source_view(
+            &mut self.factory.texture_pool,
+            self.factory.texture_cache_budget,
+            state.context(),
+            src,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1419,7 +1394,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     #[allow(clippy::too_many_arguments)]
     fn blit_view_inner(
         &mut self,
-        tex_view: wgpu::TextureView,
+        source: BlitSource,
         texture_width: u16,
         texture_height: u16,
         src_rect: &Rect,
@@ -1458,7 +1433,16 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                 (src_rect.x.to_f32() + src_rect.w.to_f32()) / tw,
                 (src_rect.y.to_f32() + src_rect.h.to_f32()) / th,
             ],
-            alpha: [opa as f32 / 255.0, radius.to_f32().max(0.0), 0.0, 0.0],
+            alpha: [
+                opa as f32 / 255.0,
+                radius.to_f32().max(0.0),
+                if source.alpha == crate::render::TargetAlpha::Premultiplied {
+                    1.0
+                } else {
+                    0.0
+                },
+                0.0,
+            ],
         };
 
         let blit_buf = state
@@ -1483,7 +1467,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&tex_view),
+                    resource: wgpu::BindingResource::TextureView(&source.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
@@ -1525,33 +1509,6 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             u32::from(rect.height()),
         ]
     }
-}
-
-fn upload_blit_source(
-    device: &wgpu::Device,
-    queue: &wgpu::Queue,
-    src: &Texture,
-    rgba: &[u8],
-) -> wgpu::Texture {
-    device.create_texture_with_data(
-        queue,
-        &wgpu::TextureDescriptor {
-            label: Some("mirui-blit-source"),
-            size: wgpu::Extent3d {
-                width: src.width as u32,
-                height: src.height as u32,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        },
-        wgpu::util::TextureDataOrder::LayerMajor,
-        rgba,
-    )
 }
 
 struct BlitMask {
@@ -2042,13 +1999,22 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                 pos: [q[i].x.to_f32(), q[i].y.to_f32()],
                 uvw: [u * inv_w, v * inv_w, inv_w],
                 params,
+                premultiplied: 0.0,
             };
         }
         let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
 
-        let Some(tex_view) = self.blit_source_view(src) else {
+        let Some(source) = self.blit_source_view(src) else {
             return;
         };
+
+        for vertex in &mut verts {
+            vertex.premultiplied = if source.alpha == crate::render::TargetAlpha::Premultiplied {
+                1.0
+            } else {
+                0.0
+            };
+        }
 
         let frame = self.frame.as_mut().expect("frame just initialised");
         let state = self
@@ -2090,7 +2056,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&tex_view),
+                    resource: wgpu::BindingResource::TextureView(&source.view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
@@ -3138,7 +3104,17 @@ mod blit_tests {
 
     #[test]
     fn blit_paths_mask_corners_and_premultiply_alpha() {
+        for premultiplied in [false, true] {
+            for opacity in [1.0, 0.5] {
+                check_blit_alpha(premultiplied, opacity);
+            }
+        }
+    }
+
+    fn check_blit_alpha(premultiplied: bool, opacity: f32) {
         const SIZE: u32 = 32;
+        let source_encoding = if premultiplied { 1.0 } else { 0.0 };
+        let expected_alpha = (128.0 * opacity) as i16;
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let Ok(adapter) =
             pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -3147,6 +3123,7 @@ mod blit_tests {
                 force_fallback_adapter: false,
             }))
         else {
+            std::eprintln!("SKIP blit alpha checks: no GPU adapter");
             return;
         };
         let Ok((device, queue)) =
@@ -3160,6 +3137,7 @@ mod blit_tests {
                 ..Default::default()
             }))
         else {
+            std::eprintln!("SKIP blit alpha checks: device request failed");
             return;
         };
         let source = device.create_texture_with_data(
@@ -3179,7 +3157,7 @@ mod blit_tests {
                 view_formats: &[],
             },
             wgpu::util::TextureDataOrder::LayerMajor,
-            &[255, 0, 0, 128],
+            &[if premultiplied { 128 } else { 255 }, 0, 0, 128],
         );
         let target = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("mirui-rounded-blit-test-target"),
@@ -3223,7 +3201,7 @@ mod blit_tests {
                 dst_pos: [0.0, 0.0],
                 dst_size: [SIZE as f32, SIZE as f32],
                 uv: [0.0, 0.0, 1.0, 1.0],
-                alpha: [1.0, 10.0, 0.0, 0.0],
+                alpha: [opacity, 10.0, source_encoding, 0.0],
             }),
             usage: wgpu::BufferUsages::UNIFORM,
         });
@@ -3298,9 +3276,10 @@ mod blit_tests {
         .expect("rounded blit target could not be read");
         let alpha = |x: usize, y: usize| bytes[(y * SIZE as usize + x) * 4 + 3];
         assert_eq!(alpha(0, 0), 0);
-        assert!(alpha(16, 0) > 120);
-        assert!(alpha(0, 16) > 120);
-        assert!(alpha(16, 16) > 120);
+        for (x, y) in [(16, 0), (0, 16), (16, 16)] {
+            assert!((i16::from(alpha(x, y)) - expected_alpha).abs() <= 1);
+            assert!((i16::from(bytes[(y * SIZE as usize + x) * 4]) - 255).abs() <= 1);
+        }
 
         let replace_pipeline = cache.get_or_build(
             &device,
@@ -3345,28 +3324,32 @@ mod blit_tests {
             PhysicalRect::new(16 as u16, 16 as u16, 1 as u16, 1 as u16).unwrap(),
         )
         .expect("replacement pixel should be readable");
-        assert!((125..=131).contains(&replaced[3]));
+        assert!((i16::from(replaced[3]) - expected_alpha).abs() <= 1);
 
         let vertices = [
             BlitQuadVertex {
                 pos: [0.0, 0.0],
                 uvw: [0.0, 0.0, 1.0],
-                params: [1.0, 10.0, 32.0, 32.0],
+                params: [opacity, 10.0, 32.0, 32.0],
+                premultiplied: source_encoding,
             },
             BlitQuadVertex {
                 pos: [32.0, 0.0],
                 uvw: [0.5, 0.0, 0.5],
-                params: [1.0, 10.0, 32.0, 32.0],
+                params: [opacity, 10.0, 32.0, 32.0],
+                premultiplied: source_encoding,
             },
             BlitQuadVertex {
                 pos: [32.0, 32.0],
                 uvw: [0.5, 0.5, 0.5],
-                params: [1.0, 10.0, 32.0, 32.0],
+                params: [opacity, 10.0, 32.0, 32.0],
+                premultiplied: source_encoding,
             },
             BlitQuadVertex {
                 pos: [0.0, 32.0],
                 uvw: [0.0, 1.0, 1.0],
-                params: [1.0, 10.0, 32.0, 32.0],
+                params: [opacity, 10.0, 32.0, 32.0],
+                premultiplied: source_encoding,
             },
         ];
         let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -3448,7 +3431,7 @@ mod blit_tests {
         let center = &bytes[(16 * SIZE as usize + 16) * 4..][..4];
         assert_eq!(bytes[3], 0);
         assert!((i16::from(center[0]) - 255).abs() <= 1);
-        assert!((i16::from(center[3]) - 128).abs() <= 1);
+        assert!((i16::from(center[3]) - expected_alpha).abs() <= 1);
     }
 }
 

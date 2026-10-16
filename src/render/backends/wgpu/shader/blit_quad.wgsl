@@ -16,6 +16,7 @@ struct VertexIn {
     @location(0) pos: vec2<f32>,
     @location(1) uvw: vec3<f32>,
     @location(2) params: vec4<f32>,
+    @location(3) premultiplied: f32,
 };
 
 struct VertexOut {
@@ -24,6 +25,7 @@ struct VertexOut {
     // already encoded the homography weight into `uvw`.
     @location(0) @interpolate(linear) uvw: vec3<f32>,
     @location(1) @interpolate(flat) params: vec4<f32>,
+    @location(2) @interpolate(flat) premultiplied: f32,
 };
 
 @vertex
@@ -36,6 +38,7 @@ fn vs_main(in: VertexIn) -> VertexOut {
     out.clip = vec4<f32>(ndc, 0.0, 1.0);
     out.uvw = in.uvw;
     out.params = in.params;
+    out.premultiplied = in.premultiplied;
     return out;
 }
 
@@ -52,6 +55,7 @@ fn fs_main(v: VertexOut) -> @location(0) vec4<f32> {
         let distance = length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - radius;
         coverage = clamp(0.5 - distance / max(fwidth(distance), 0.001), 0.0, 1.0);
     }
-    let alpha = c.a * v.params.x * coverage;
-    return vec4<f32>(c.rgb * alpha, alpha);
+    let opacity = v.params.x * coverage;
+    let rgb = c.rgb * select(c.a, 1.0, v.premultiplied != 0.0);
+    return vec4<f32>(rgb * opacity, c.a * opacity);
 }

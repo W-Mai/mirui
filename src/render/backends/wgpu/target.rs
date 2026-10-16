@@ -31,6 +31,19 @@ pub(super) struct Target {
     pub(super) storage: Rc<Storage>,
 }
 
+impl Target {
+    pub(super) fn sample_view(
+        &self,
+        context: &Arc<WgpuDeviceContext>,
+    ) -> Result<Option<wgpu::TextureView>, RenderError> {
+        self.validate()?;
+        if self.storage.active.get() || !self.storage.completed.get() {
+            return Err(RenderError::InvalidTexture);
+        }
+        Ok(Arc::ptr_eq(&self.storage.context, context).then(|| self.storage.frame.view.clone()))
+    }
+}
+
 /// Saved attachment and viewport for one native target scope.
 pub struct TargetState {
     pub(super) child: Rc<Storage>,
