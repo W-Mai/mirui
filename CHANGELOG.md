@@ -9,19 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
-- `iir_blur_inplace` accepts a `TexturePixelsMut` borrow instead of a texture.
+- `iir_blur_inplace` and `mix_inplace` accept pixel borrows instead of textures.
 - Texture pixel storage and geometry fields are private. Read through `TexturePixels`, write through `TexturePixelsMut`, and use metadata getters and checked `with_stride` for padded CPU data.
 - `Texture` no longer implements `Clone`. Cache handles share resources without copying pixels; frame and widget snapshots return independent owned copies.
 - `Texture::new`, `from_ref`, `from_static`, `owned`, and `from_vec` return `Result<Texture, RenderError>`, rejecting empty dimensions and insufficient pixel storage before use. Owned allocations report capacity failures through the same error path.
 
 ### Changed
 
+- Target readback copies and software scopes use checked writable pixels. Software scopes flush before accepting their result.
 - `PaintCtx::read_pixels` retains source-read failures and borrows pixels independently of the paint context. Temporal, reflection, shadow and glow effects read sources before modifying their reusable workspace.
 - Software raster batches use exclusive pixel borrows for fills, paths, glyphs, blits and blur. Write failures propagate through submission or `Canvas::flush`; blending retains the existing pixel arithmetic.
 - Framebuffer region edits, readback, mirroring and scroll transfers use checked pixel borrows and advance destination upload revisions. Read-only targets are rejected without copying storage.
 - Software Blit sampling borrows validated source pixels before rasterization. Source-read failures propagate through renderer submission and software fallback without accepting the frame.
 - Resource managers and handles accept non-`Clone` values and share their existing reference-counted storage.
 - Render plane layouts reject empty dimensions and support checked construction in constant expressions. Texture storage validation shares the plane layout calculation and accepts omitted padding after the last pixel.
+
+### Fixed
+
+- Fully clipped fallback scopes remain empty operations without allocating or validating a zero-sized texture.
 
 ## [0.50.0] - 2026-10-15
 

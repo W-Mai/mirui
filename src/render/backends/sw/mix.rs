@@ -1,54 +1,38 @@
-//! Linear blend of two textures, channel-by-channel:
-//! `out = (1 - mix) * a + mix * b`. Used by `TemporalMix` to blend
-//! current and previous frames.
+//! Linear blend of two pixel borrows, channel-by-channel: `out = (1 - mix) * a + mix * b`.
 //!
-//! Both textures must match in size and format. `mix` is u8 (0..255)
-//! so the math stays in i32 without rounding tricks.
+//! Both planes must match in size and format. `mix` is u8 (0..255); interpolation uses integer arithmetic.
 
-use crate::render::texture::{ColorFormat, Texture};
+use crate::render::texture::{ColorFormat, TexturePixels, TexturePixelsMut};
 
-/// Mix `b` into `a` in place. `mix=0` leaves `a` untouched; `mix=255`
-/// makes `a` a copy of `b`.
-pub fn mix_inplace(a: &mut Texture, b: &Texture, mix: u8) {
-    if a.width != b.width || a.height != b.height || a.format != b.format {
+/// Mix `b` into `a` in place. `mix=0` leaves `a` untouched; `mix=255` copies `b`. Mismatched dimensions or formats leave `a` unchanged.
+pub fn mix_inplace(a: &mut TexturePixelsMut<'_>, b: &TexturePixels<'_>, mix: u8) {
+    if a.width() != b.width() || a.height() != b.height() || a.format() != b.format() {
         return;
     }
     if mix == 0 {
         return;
     }
-    let w = a.width as usize;
-    let h = a.height as usize;
-    match a.format {
+    let w = a.width() as usize;
+    let h = a.height() as usize;
+    let stride = a.stride();
+    let format = a.format();
+    match format {
         // Per-channel lerp is byte-order-agnostic.
-        ColorFormat::RGBA8888 | ColorFormat::BGRA8888 => mix_bytewise(
-            a.buf.as_mut_slice(),
-            a.stride,
-            b.buf.as_slice(),
-            b.stride,
-            w,
-            h,
-            4,
-            mix,
-        ),
-        ColorFormat::RGB888 => mix_bytewise(
-            a.buf.as_mut_slice(),
-            a.stride,
-            b.buf.as_slice(),
-            b.stride,
-            w,
-            h,
-            3,
-            mix,
-        ),
+        ColorFormat::RGBA8888 | ColorFormat::BGRA8888 => {
+            mix_bytewise(a.bytes_mut(), stride, b.bytes(), b.stride(), w, h, 4, mix)
+        }
+        ColorFormat::RGB888 => {
+            mix_bytewise(a.bytes_mut(), stride, b.bytes(), b.stride(), w, h, 3, mix)
+        }
         ColorFormat::RGB565 | ColorFormat::RGB565Swapped => mix_565(
-            a.buf.as_mut_slice(),
-            a.stride,
-            b.buf.as_slice(),
-            b.stride,
+            a.bytes_mut(),
+            stride,
+            b.bytes(),
+            b.stride(),
             w,
             h,
             mix,
-            a.format == ColorFormat::RGB565Swapped,
+            format == ColorFormat::RGB565Swapped,
         ),
     }
 }
@@ -131,6 +115,7 @@ fn mix_565(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::texture::Texture;
 
     fn make_rgba(fill: [u8; 4]) -> alloc::vec::Vec<u8> {
         let mut v = alloc::vec![0u8; 16 * 4];
@@ -148,7 +133,7 @@ mod tests {
         let b = Texture::new(&mut b_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut a =
             Texture::new(&mut a_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
-        mix_inplace(&mut a, &b, 0);
+        mix_inplace(&mut a.pixels_mut().unwrap(), &b.read_pixels().unwrap(), 0);
         assert_eq!(a.buf.as_slice(), original.as_slice());
     }
 
@@ -159,7 +144,7 @@ mod tests {
         let b = Texture::new(&mut b_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut a =
             Texture::new(&mut a_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
-        mix_inplace(&mut a, &b, 255);
+        mix_inplace(&mut a.pixels_mut().unwrap(), &b.read_pixels().unwrap(), 255);
         for px in a.buf.as_slice().chunks_exact(4) {
             assert_eq!(px, &[200, 50, 75, 255]);
         }
@@ -172,7 +157,7 @@ mod tests {
         let b = Texture::new(&mut b_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut a =
             Texture::new(&mut a_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
-        mix_inplace(&mut a, &b, 128);
+        mix_inplace(&mut a.pixels_mut().unwrap(), &b.read_pixels().unwrap(), 128);
         for px in a.buf.as_slice().chunks_exact(4) {
             // Integer mix: (127 * a + 128 * b) / 255. Tolerance ±1 for
             // truncation; b is identical-rgb so all three channels
@@ -191,7 +176,7 @@ mod tests {
         let b = Texture::new(&mut b_buf, 2, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut a =
             Texture::new(&mut a_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
-        mix_inplace(&mut a, &b, 128);
+        mix_inplace(&mut a.pixels_mut().unwrap(), &b.read_pixels().unwrap(), 128);
         assert_eq!(a.buf.as_slice(), original.as_slice());
     }
 }

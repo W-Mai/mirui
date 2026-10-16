@@ -3,7 +3,7 @@ use crate::types::{Fixed, PhysicalRect, Rect, Transform3D, Viewport};
 
 use super::command::{CompositeMode, DrawCommand};
 use super::scratch::{PlaneLayout, PlaneRequirements};
-use super::texture::{ColorFormat, TexBuf, Texture};
+use super::texture::{ColorFormat, Texture};
 
 /// Stable identity of one run in a bounded `Text` widget.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -112,6 +112,9 @@ impl FallbackRegion {
         rect: PhysicalRect,
         requirements: PlaneRequirements,
     ) -> Result<Self, RenderError> {
+        if rect.is_empty() {
+            return Ok(Self::EMPTY);
+        }
         let layout = PlaneLayout::aligned(
             rect.width(),
             rect.height(),
@@ -492,10 +495,7 @@ pub(crate) fn copy_packed_rgba8(
     source_origin: (i32, i32),
     dst: &mut Texture<'_>,
 ) -> Result<(), RenderError> {
-    if dst.format != ColorFormat::RGBA8888
-        || !dst.valid_storage()
-        || matches!(&dst.buf, TexBuf::Ref(_))
-    {
+    if dst.format != ColorFormat::RGBA8888 || !dst.valid_storage() {
         return Err(RenderError::InvalidTexture);
     }
     let width = usize::from(clipped.width());
@@ -517,8 +517,9 @@ pub(crate) fn copy_packed_rgba8(
         return Ok(());
     }
     let copy_bytes = copy_width * 4;
-    let dst_stride = dst.stride;
-    let dst_bytes = dst.buf.as_mut_slice();
+    let mut pixels = dst.pixels_mut()?;
+    let dst_stride = pixels.stride();
+    let dst_bytes = pixels.bytes_mut();
     for row in 0..copy_height {
         let src_start = row * row_bytes;
         let dst_start = (y + row) * dst_stride + x * 4;
@@ -702,16 +703,10 @@ pub trait Renderer {
             let format = target.format;
             let stride = target.stride;
             let alpha_mode = target.alpha_mode;
-            let texture = Texture {
-                buf: TexBuf::Mut(target.buf.as_mut_slice()),
-                width,
-                height,
-                format,
-                stride,
-                alpha_mode,
-                cache_revision: 0,
-                transient: true,
-            };
+            let mut pixels = target.pixels_mut()?;
+            let mut texture =
+                Texture::new(pixels.bytes_mut(), width, height, format)?.with_stride(stride)?;
+            texture.alpha_mode = alpha_mode;
             let mut software = crate::render::backends::sw::SwRenderer::new(texture);
             software.viewport = crate::types::Viewport::new(width, height, scale);
             let mut local = RegionRenderer {
@@ -719,7 +714,8 @@ pub trait Renderer {
                 origin_x: logical.x,
                 origin_y: logical.y,
             };
-            draw(&mut local)
+            draw(&mut local)?;
+            local.flush()
         })
     }
 
@@ -785,9 +781,7 @@ mod tests {
         );
         assert_eq!(
             RenderRoute::target_readback(None, None, PlaneRequirements::CPU),
-            Ok(RenderRoute::ExactFallback(FallbackRegion::from_parts(
-                0, 0, 0, 0, 0
-            )))
+            Ok(RenderRoute::ExactFallback(FallbackRegion::EMPTY))
         );
         assert_eq!(
             RenderRoute::target_readback(
@@ -821,6 +815,10 @@ mod tests {
     #[test]
     fn scope_plan_clips_hidpi_bounds_before_charging_capacity() {
         let viewport = Viewport::new(20, 12, Fixed::from_int(2));
+        assert_eq!(
+            FallbackRegion::from_logical_bounds(Rect::new(30, 30, 5, 5), viewport, None),
+            Ok(FallbackRegion::EMPTY)
+        );
         assert_eq!(
             FallbackRegion::from_logical_bounds(
                 Rect::new(-2, 1, 8, 8),
@@ -867,6 +865,35 @@ mod tests {
         assert_eq!(&pixels[20..28], &source[..8]);
         assert_eq!(&pixels[36..44], &source[8..]);
         assert_eq!(&pixels[44..], &[0; 4]);
+    }
+
+    #[test]
+    fn readback_writes_advance_revision_and_reject_readonly_storage() {
+        let bytes = [7u8; 16];
+        let region = PhysicalRect::new(0, 0, 2, 2).unwrap();
+        let mut owned = Texture::owned(2, 2, ColorFormat::RGBA8888)
+            .unwrap()
+            .with_cache_revision(7);
+        let mut readonly = Texture::from_ref(&bytes, 2, 2, ColorFormat::RGBA8888).unwrap();
+        let allocations = crate::test_support::tracked_allocations(|| {
+            copy_packed_rgba8(&bytes, region, (0, 0), &mut owned).unwrap();
+            assert_eq!(owned.cache_revision, 8);
+            assert_eq!(
+                copy_packed_rgba8(&bytes[..4], region, (0, 0), &mut owned),
+                Err(RenderError::BackendFailure)
+            );
+            assert_eq!(owned.cache_revision, 8);
+            assert_eq!(
+                copy_packed_rgba8(&bytes, region, (0, 0), &mut readonly),
+                Err(RenderError::InvalidTexture)
+            );
+            assert_eq!(readonly.cache_revision, 0);
+            assert_eq!(
+                readonly.read_pixels().unwrap().bytes().as_ptr(),
+                bytes.as_ptr()
+            );
+        });
+        assert_eq!(allocations, 0);
     }
 
     #[test]
@@ -927,6 +954,41 @@ mod tests {
                 panic!("unsupported edit must not run its callback")
             }),
             Err(RenderError::Unsupported(RenderFeature::Readback))
+        );
+    }
+
+    #[test]
+    fn software_scope_rejects_readonly_target_before_running_body() {
+        struct BorrowedTarget<'a>(Texture<'a>);
+        impl Renderer for BorrowedTarget<'_> {
+            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+                Ok(())
+            }
+            fn flush(&mut self) -> Result<(), RenderError> {
+                Ok(())
+            }
+            fn modify_target_region(
+                &mut self,
+                _: &Rect,
+                body: &mut dyn FnMut(&mut Texture) -> Result<(), RenderError>,
+            ) -> Result<bool, RenderError> {
+                body(&mut self.0)?;
+                Ok(true)
+            }
+        }
+        let bytes = [0u8; 16];
+        let mut target =
+            BorrowedTarget(Texture::from_ref(&bytes, 2, 2, ColorFormat::RGBA8888).unwrap());
+        assert_eq!(
+            target.render_scope(FallbackRegion::from_parts(0, 0, 2, 2, 8), &mut |_| {
+                panic!("read-only scope body");
+            }),
+            Err(RenderError::InvalidTexture)
+        );
+        assert_eq!(target.0.cache_revision, 0);
+        assert_eq!(
+            target.0.read_pixels().unwrap().bytes().as_ptr(),
+            bytes.as_ptr()
         );
     }
 
