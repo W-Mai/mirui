@@ -69,8 +69,14 @@ mod clip_tests {
             Fixed::from_int(4),
             &[],
         );
-        assert_eq!(renderer.target.get_pixel(10, 20).r, 255);
-        assert_eq!(renderer.target.get_pixel(24, 20).r, 0);
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(10, 20).r,
+            255
+        );
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(24, 20).r,
+            0
+        );
     }
 }
 
@@ -121,8 +127,11 @@ mod linear_transform_tests {
             255,
             FillRule::EvenOdd,
         );
-        assert_eq!(renderer.target.get_pixel(20, 20).r, 0);
-        assert!((126..=130).contains(&renderer.target.get_pixel(140, 20).r));
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(20, 20).r,
+            0
+        );
+        assert!((126..=130).contains(&renderer.target.read_pixels().unwrap().get_pixel(140, 20).r));
     }
 
     #[test]
@@ -151,7 +160,10 @@ mod linear_transform_tests {
             renderer.submit(&DrawRequest::new(&command, clip)),
             Err(RenderError::InvalidGeometry)
         );
-        assert_eq!(renderer.target.get_pixel(10, 10).r, 0);
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(10, 10).r,
+            0
+        );
     }
 
     #[test]
@@ -189,7 +201,7 @@ mod linear_transform_tests {
             255,
             FillRule::EvenOdd,
         );
-        assert!((126..=129).contains(&renderer.target.get_pixel(8, 8).r));
+        assert!((126..=129).contains(&renderer.target.read_pixels().unwrap().get_pixel(8, 8).r));
     }
 
     #[test]
@@ -230,7 +242,7 @@ mod linear_transform_tests {
         };
         let clip = Rect::new(0, 0, 48, 24);
         assert_eq!(renderer.submit(&DrawRequest::new(&command, clip)), Ok(()));
-        assert!((100..=150).contains(&renderer.target.get_pixel(24, 12).r));
+        assert!((100..=150).contains(&renderer.target.read_pixels().unwrap().get_pixel(24, 12).r));
     }
 
     #[test]
@@ -273,8 +285,8 @@ mod linear_transform_tests {
         };
         let clip = Rect::new(0, 0, 104, 54);
         assert_eq!(renderer.submit(&DrawRequest::new(&command, clip)), Ok(()));
-        assert!((83..=87).contains(&renderer.target.get_pixel(50, 25).r));
-        assert!(renderer.target.get_pixel(98, 25).r > 240);
+        assert!((83..=87).contains(&renderer.target.read_pixels().unwrap().get_pixel(50, 25).r));
+        assert!(renderer.target.read_pixels().unwrap().get_pixel(98, 25).r > 240);
     }
 }
 
@@ -463,7 +475,9 @@ impl SwRenderer<'_> {
         let segments = &scratch.flatten_buf;
         let target_width = self.target.width as usize;
         let clip_mask = scratch.clip_stack.last().map(|mask| mask.alpha.as_slice());
-        let target = &mut self.target;
+        let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
+            return Ok(());
+        };
         let acc = &mut scratch.scanline_acc;
         let crossings = &mut scratch.scanline_crossings;
         raster::scanline_fill(
@@ -629,7 +643,9 @@ impl SwRenderer<'_> {
         let segs = &scratch.flatten_buf;
         let target_w = self.target.width as usize;
         let clip_mask = scratch.clip_stack.last().map(|m| m.alpha.as_slice());
-        let target = &mut self.target;
+        let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
+            return;
+        };
         let acc = &mut scratch.scanline_acc;
         let crossings = &mut scratch.scanline_crossings;
         raster::scanline_fill(
@@ -861,7 +877,9 @@ impl SwRenderer<'_> {
         let segs = &scratch.flatten_buf;
         let target_w = self.target.width as usize;
         let clip_mask = scratch.clip_stack.last().map(|m| m.alpha.as_slice());
-        let target = &mut self.target;
+        let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
+            return;
+        };
         let acc = &mut scratch.scanline_acc;
         let crossings = &mut scratch.scanline_crossings;
         raster::scanline_fill(
@@ -960,8 +978,8 @@ mod gradient_tests {
         let paint = linear_paint_obb();
         backend.fill_path(&path, &clip, &paint, 255, FillRule::EvenOdd);
 
-        let tl = backend.target.get_pixel(12, 12);
-        let br = backend.target.get_pixel(48, 48);
+        let tl = backend.target.read_pixels().unwrap().get_pixel(12, 12);
+        let br = backend.target.read_pixels().unwrap().get_pixel(48, 48);
         std::eprintln!("tl={:?} br={:?}", tl, br);
         assert!(
             tl.b > tl.r,

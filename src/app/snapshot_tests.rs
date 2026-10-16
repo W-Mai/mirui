@@ -21,15 +21,30 @@ fn snapshot_copy_owns_packed_rows_without_source_padding() {
         let stride = packed + 3;
         let mut source = Texture::from_vec(alloc::vec![0; stride + packed], 2, 2, format).unwrap();
         source.stride = stride;
-        source.set_pixel(0, 0, &Color::rgb(255, 0, 0));
-        source.set_pixel(1, 1, &Color::rgb(0, 255, 0));
+        source
+            .pixels_mut()
+            .unwrap()
+            .set_pixel(0, 0, &Color::rgb(255, 0, 0));
+        source
+            .pixels_mut()
+            .unwrap()
+            .set_pixel(1, 1, &Color::rgb(0, 255, 0));
         let copy = clone_texture_owned(&source).unwrap();
         assert_eq!(copy.stride, packed);
         assert_eq!(copy.buf.as_slice().len(), packed * 2);
         assert_ne!(copy.buf.as_slice().as_ptr(), source.buf.as_slice().as_ptr());
-        source.set_pixel(1, 1, &Color::rgb(0, 0, 255));
-        assert_eq!(copy.get_pixel(0, 0), Color::rgb(255, 0, 0));
-        assert_eq!(copy.get_pixel(1, 1), Color::rgb(0, 255, 0));
+        source
+            .pixels_mut()
+            .unwrap()
+            .set_pixel(1, 1, &Color::rgb(0, 0, 255));
+        assert_eq!(
+            copy.read_pixels().unwrap().get_pixel(0, 0),
+            Color::rgb(255, 0, 0)
+        );
+        assert_eq!(
+            copy.read_pixels().unwrap().get_pixel(1, 1),
+            Color::rgb(0, 255, 0)
+        );
     }
 }
 
@@ -80,7 +95,10 @@ fn snapshot_preserves_target_pixels_format_and_scale_without_offscreen_request()
             let image = app.snapshot().unwrap().unwrap();
             assert_eq!(image.format, format);
             assert_eq!((image.width, image.height), (24, 18));
-            assert_eq!(image.get_pixel(23, 17), Color::rgb(255, 0, 0));
+            assert_eq!(
+                image.read_pixels().unwrap().get_pixel(23, 17),
+                Color::rgb(255, 0, 0)
+            );
             assert_eq!(
                 image.buf.as_slice(),
                 app.backend.framebuffer().buf.as_slice()
@@ -119,7 +137,10 @@ fn frame_readback_runs_before_presentation_and_errors_do_not_discard_painted_bas
             let area = Rect::new(0, 0, width, height);
             renderer.prepare_readback(&area)?;
             let image = renderer.sample_target_region(&area)?.unwrap();
-            assert_eq!(image.get_pixel(0, 0), Color::rgb(255, 0, 0));
+            assert_eq!(
+                image.read_pixels().unwrap().get_pixel(0, 0),
+                Color::rgb(255, 0, 0)
+            );
             Err::<(), _>(error)
         });
         assert_eq!(result, Err(error));
@@ -177,8 +198,14 @@ fn snapshot_baseline_supports_subsequent_dirty_rendering() {
     let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
     let full = app.snapshot().unwrap().unwrap();
     assert_eq!(full.buf.as_slice(), dirty);
-    assert_eq!(captured.get_pixel(0, 0), Color::rgb(255, 0, 0));
-    assert_eq!(full.get_pixel(0, 0), Color::rgb(0, 0, 255));
+    assert_eq!(
+        captured.read_pixels().unwrap().get_pixel(0, 0),
+        Color::rgb(255, 0, 0)
+    );
+    assert_eq!(
+        full.read_pixels().unwrap().get_pixel(0, 0),
+        Color::rgb(0, 0, 255)
+    );
 }
 
 #[test]
@@ -190,8 +217,8 @@ fn hidden_root_snapshot_contains_the_same_clear_as_render() {
     app.world.insert(root, crate::ui::Hidden);
     let image = app.snapshot().unwrap().unwrap();
     let expected = app.theme().resolve(crate::ui::ColorToken::Surface);
-    assert_eq!(image.get_pixel(0, 0), expected);
-    assert_eq!(image.get_pixel(23, 17), expected);
+    assert_eq!(image.read_pixels().unwrap().get_pixel(0, 0), expected);
+    assert_eq!(image.read_pixels().unwrap().get_pixel(23, 17), expected);
     app.render().unwrap();
     assert_eq!(
         image.buf.as_slice(),

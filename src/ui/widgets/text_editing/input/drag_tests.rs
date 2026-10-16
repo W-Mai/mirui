@@ -97,14 +97,24 @@ fn pointer_drag_selects_in_both_directions_and_repaints_without_changing_text() 
         app.render_dirty().unwrap();
         let partial: Vec<_> = (0..64)
             .flat_map(|y| (0..128).map(move |x| (x, y)))
-            .map(|(x, y)| app.backend.framebuffer().get_pixel(x, y))
+            .map(|(x, y)| {
+                app.backend
+                    .framebuffer()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(x, y)
+            })
             .collect();
         app.render().unwrap();
         for y in 0..64 {
             for x in 0..128 {
                 assert_eq!(
                     partial[(y * 128 + x) as usize],
-                    app.backend.framebuffer().get_pixel(x, y)
+                    app.backend
+                        .framebuffer()
+                        .read_pixels()
+                        .unwrap()
+                        .get_pixel(x, y)
                 );
             }
         }

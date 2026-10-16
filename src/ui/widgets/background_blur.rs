@@ -49,7 +49,13 @@ fn background_blur_render(bg: component!(), paint: paint!()) {
             crate::types::Fixed::from_int(tmp.width as i32),
             crate::types::Fixed::from_int(tmp.height as i32),
         );
-        iir_blur_inplace(&mut tmp, alpha, r);
+        match tmp.pixels_mut() {
+            Ok(mut pixels) => iir_blur_inplace(&mut pixels, alpha, r),
+            Err(error) => {
+                paint.fail(error);
+                return;
+            }
+        }
     }
 
     // sample_rect already has the paint transform baked in; applying it again would double-translate.

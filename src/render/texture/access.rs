@@ -1,7 +1,7 @@
-use super::{ColorFormat, Texture};
+use super::{AlphaMode, ColorFormat, Texture, blend_straight_source_over};
 use crate::render::renderer::RenderError;
 use crate::render::scratch::{PlaneLayout, PlaneRequirements};
-use crate::types::Color;
+use crate::types::{Color, Fixed};
 
 /// Borrowed, CPU-readable pixels and their row layout. Reading a pixel never performs a transfer or allocation.
 ///
@@ -57,11 +57,16 @@ impl<'a> TexturePixels<'a> {
 pub struct TexturePixelsMut<'a> {
     bytes: &'a mut [u8],
     layout: PlaneLayout,
+    alpha_mode: AlphaMode,
 }
 
 impl<'a> TexturePixelsMut<'a> {
-    pub(super) fn new(bytes: &'a mut [u8], layout: PlaneLayout) -> Self {
-        Self { bytes, layout }
+    pub(super) fn new(bytes: &'a mut [u8], layout: PlaneLayout, alpha_mode: AlphaMode) -> Self {
+        Self {
+            bytes,
+            layout,
+            alpha_mode,
+        }
     }
 
     pub fn bytes(&self) -> &[u8] {
@@ -102,6 +107,138 @@ impl<'a> TexturePixelsMut<'a> {
             return;
         };
         self.format().write_pixel(self.bytes, offset, color);
+    }
+}
+
+impl TexturePixelsMut<'_> {
+    pub(crate) fn alpha_mode(&self) -> AlphaMode {
+        self.alpha_mode
+    }
+
+    #[inline(always)]
+    pub(crate) fn blend_pixel(&mut self, x: Fixed, y: Fixed, color: &Color, opa: u8) {
+        if opa == 0 {
+            return;
+        }
+
+        if x.is_integer() && y.is_integer() {
+            let a = ((color.a as u16) * (opa as u16) / 255) as u8;
+            self.blend_pixel_int(x.to_int(), y.to_int(), color, a);
+            return;
+        }
+
+        self.blend_pixel_subpixel(x, y, color, opa);
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn blend_pixel_subpixel(&mut self, x: Fixed, y: Fixed, color: &Color, opa: u8) {
+        let ix = x.to_int();
+        let iy = y.to_int();
+        let fx = x.fract();
+        let fy = y.fract();
+        let lx = Fixed::ONE - fx;
+        let ty = Fixed::ONE - fy;
+
+        let nc = color.normalized();
+        let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
+        let base_a = nc.a * opa_norm;
+        let to_alpha = |cov: Fixed| -> u8 { (base_a * cov).map01(255).to_int() as u8 };
+
+        self.blend_pixel_int(ix, iy, color, to_alpha(lx * ty));
+        self.blend_pixel_int(ix + 1, iy, color, to_alpha(fx * ty));
+        self.blend_pixel_int(ix, iy + 1, color, to_alpha(lx * fy));
+        self.blend_pixel_int(ix + 1, iy + 1, color, to_alpha(fx * fy));
+    }
+
+    #[inline(always)]
+    pub(crate) fn blend_pixel_int(&mut self, x: i32, y: i32, color: &Color, a: u8) {
+        if a == 0 {
+            return;
+        }
+        if a == 255 {
+            // Fully opaque effective alpha covers the destination.
+            self.set_pixel(x, y, &Color { a: 255, ..*color });
+            return;
+        }
+        // Alpha blend in plain u8 space: out = (src·a + dst·(255−a) + 127)/255.
+        // Avoids the NormColor round-trip (8 divisions per call) that the
+        // old implementation did; exact within ±1 over the full range.
+        let dst = self.get_pixel(x, y);
+        let ia = 255 - a as u32;
+        let aa = a as u32;
+        let blend = |src: u8, dst: u8| -> u8 {
+            let sum = src as u32 * aa + dst as u32 * ia + 127;
+            ((sum + (sum >> 8)) >> 8) as u8
+        };
+        let out = match self.alpha_mode {
+            AlphaMode::Opaque => Color {
+                r: blend(color.r, dst.r),
+                g: blend(color.g, dst.g),
+                b: blend(color.b, dst.b),
+                a: 255,
+            },
+            AlphaMode::Blend => blend_straight_source_over(color, &dst, a),
+        };
+        self.set_pixel(x, y, &out);
+    }
+
+    /// Composite-aware pixel write. `src_a` is the effective alpha after
+    /// `src.a × opa` folding; `mode` selects the per-channel formula.
+    /// Falls back to `blend_pixel_int` for SourceOver so the existing
+    /// fast path stays bit-exact.
+    #[inline(always)]
+    pub(crate) fn composite_pixel_int(
+        &mut self,
+        x: i32,
+        y: i32,
+        color: &Color,
+        src_a: u8,
+        mode: crate::render::command::CompositeMode,
+    ) {
+        if src_a == 0 {
+            return;
+        }
+        if matches!(mode, crate::render::command::CompositeMode::SourceOver) {
+            self.blend_pixel_int(x, y, color, src_a);
+            return;
+        }
+        let dst = self.get_pixel(x, y);
+        let aa = src_a as u32;
+        let ia = 255 - aa;
+        // Opaque-target RGB folds the blended channel over the destination.
+        let fold = |src: u8, dst: u8| -> u8 {
+            let m = mode.blend_channel(src, dst) as u32;
+            let sum = m * aa + dst as u32 * ia + 127;
+            ((sum + (sum >> 8)) >> 8) as u8
+        };
+        let out = match self.alpha_mode {
+            AlphaMode::Opaque => Color {
+                r: fold(color.r, dst.r),
+                g: fold(color.g, dst.g),
+                b: fold(color.b, dst.b),
+                a: 255,
+            },
+            AlphaMode::Blend => {
+                let dst_a = u32::from(dst.a);
+                let denominator = aa * 255 + dst_a * ia;
+                let channel = |src: u8, dst: u8| {
+                    let blend = u32::from(mode.blend_channel(src, dst));
+                    ((u32::from(src) * aa * (255 - dst_a)
+                        + blend * aa * dst_a
+                        + u32::from(dst) * dst_a * ia
+                        + denominator / 2)
+                        / denominator) as u8
+                };
+                Color {
+                    r: channel(color.r, dst.r),
+                    g: channel(color.g, dst.g),
+                    b: channel(color.b, dst.b),
+                    a: ((denominator + 127) / 255) as u8,
+                }
+            }
+        };
+        self.set_pixel(x, y, &out);
     }
 }
 
@@ -179,7 +316,7 @@ impl Texture<'_> {
         } else {
             self.transient = true;
         }
-        Ok(TexturePixelsMut::new(bytes, layout))
+        Ok(TexturePixelsMut::new(bytes, layout, self.alpha_mode))
     }
 }
 

@@ -26,6 +26,8 @@ fn output_pixel(world: &World, name: &'static str, x: i32, y: i32) -> Color {
         .get(entity)
         .unwrap()
         .texture()
+        .read_pixels()
+        .unwrap()
         .get_pixel(x, y)
 }
 
@@ -78,8 +80,8 @@ fn reverse_tree_order_prepares_a_complete_mirror_chain_in_the_first_batch() {
     );
     assert!(output_version(&app.world, "chain_middle") < output_version(&app.world, "chain_last"));
     let pixels = app.backend.framebuffer();
-    assert_eq!(pixels.get_pixel(1, 0), red);
-    assert_eq!(pixels.get_pixel(1, 3), blue);
+    assert_eq!(pixels.read_pixels().unwrap().get_pixel(1, 0), red);
+    assert_eq!(pixels.read_pixels().unwrap().get_pixel(1, 3), blue);
 }
 
 #[crate::compose]
@@ -137,7 +139,11 @@ fn repeated_queries_do_not_republish_or_reinvalidate_prepared_textures() {
     app.render_dirty().unwrap();
     let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
     assert_eq!(
-        app.backend.framebuffer().get_pixel(1, 1),
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(1, 1),
         Color::rgb(40, 80, 220)
     );
     assert!(app.dirty_regions().unwrap().is_empty());
@@ -166,7 +172,11 @@ fn capture_inherits_its_inline_consumers_external_dependency() {
     );
     assert!(output_version(&app.world, "external_source") < output_version(&app.world, "capture"));
     assert_eq!(
-        app.backend.framebuffer().get_pixel(1, 1),
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(1, 1),
         Color::rgb(31, 173, 91)
     );
 }
@@ -187,7 +197,14 @@ fn nested_capture_orders_external_source_before_inner_and_outer_outputs() {
         output_version(&app.world, "external_source") < output_version(&app.world, "inline_mirror")
     );
     assert!(output_version(&app.world, "inline_mirror") < output_version(&app.world, "capture"));
-    assert_eq!(app.backend.framebuffer().get_pixel(1, 1), green);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(1, 1),
+        green
+    );
 }
 
 #[crate::compose]
@@ -227,7 +244,14 @@ fn dirty_nested_output_refreshes_inner_and_outer_in_the_same_batch() {
     assert!(output_version(&app.world, "inner") < output_version(&app.world, "outer"));
     assert_eq!(output_pixel(&app.world, "inner", 1, 1), blue);
     assert_eq!(output_pixel(&app.world, "outer", 1, 1), blue);
-    assert_eq!(app.backend.framebuffer().get_pixel(1, 1), blue);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(1, 1),
+        blue
+    );
 }
 
 #[crate::component]
@@ -296,7 +320,11 @@ fn current_cycle_runs_no_affected_views_and_preserves_independent_outputs() {
         Color::rgb(17, 191, 67)
     );
     assert_eq!(
-        app.backend.framebuffer().get_pixel(9, 1),
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(9, 1),
         Color::rgb(17, 191, 67)
     );
 }
@@ -401,12 +429,27 @@ fn nested_scale_scroll_and_opacity_apply_once_at_each_composition_boundary() {
         .unwrap();
     assert_eq!((inner.texture().width, inner.texture().height), (2, 2));
     assert_eq!((outer.texture().width, outer.texture().height), (6, 6));
-    assert_eq!(inner.texture().get_pixel(1, 1), Color::rgb(240, 40, 20));
-    assert_rgb_close(outer.texture().get_pixel(3, 2), Color::rgb(120, 20, 10));
+    assert_eq!(
+        inner.texture().read_pixels().unwrap().get_pixel(1, 1),
+        Color::rgb(240, 40, 20)
+    );
+    assert_rgb_close(
+        outer.texture().read_pixels().unwrap().get_pixel(3, 2),
+        Color::rgb(120, 20, 10),
+    );
     let pixels = app.backend.framebuffer();
-    assert_rgb_close(pixels.get_pixel(5, 3), Color::rgb(60, 10, 5));
-    assert_eq!(pixels.get_pixel(5, 7), Color::rgb(0, 0, 0));
-    assert_eq!(pixels.get_pixel(1, 3), Color::rgb(0, 0, 0));
+    assert_rgb_close(
+        pixels.read_pixels().unwrap().get_pixel(5, 3),
+        Color::rgb(60, 10, 5),
+    );
+    assert_eq!(
+        pixels.read_pixels().unwrap().get_pixel(5, 7),
+        Color::rgb(0, 0, 0)
+    );
+    assert_eq!(
+        pixels.read_pixels().unwrap().get_pixel(1, 3),
+        Color::rgb(0, 0, 0)
+    );
 }
 
 #[cfg(feature = "std")]
@@ -512,7 +555,11 @@ fn switching_roots_rejects_a_live_source_without_current_layout() {
         Color::rgb(227, 41, 53)
     );
     assert_eq!(
-        app.backend.framebuffer().get_pixel(1, 1),
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(1, 1),
         Color::rgb(227, 41, 53)
     );
 
@@ -527,7 +574,14 @@ fn switching_roots_rejects_a_live_source_without_current_layout() {
             .get(source)
             .is_none()
     );
-    assert_eq!(app.backend.framebuffer().get_pixel(1, 1), background);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(1, 1),
+        background
+    );
 }
 
 #[crate::compose]
@@ -631,7 +685,11 @@ fn source_layout_resize_rebuilds_a_fixed_size_cached_consumer_in_the_same_batch(
             "dirty={dirty}"
         );
         assert_eq!(
-            app.backend.framebuffer().get_pixel(3, 1),
+            app.backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(3, 1),
             Color::rgb(23, 47, 229),
             "dirty={dirty}"
         );
@@ -663,7 +721,10 @@ fn retained_batch_probe(
     probe.calls.set(probe.calls.get() + 1);
     probe.previous.set(textures.previous(owner).map(|output| {
         let texture = output.texture();
-        (texture.get_pixel(1, 1), texture.cache_revision)
+        (
+            texture.read_pixels().unwrap().get_pixel(1, 1),
+            texture.cache_revision,
+        )
     }));
 }
 
@@ -688,11 +749,17 @@ fn split_history_probe(
     let mut clips = probe.clips.get();
     previous[index] = textures.previous(probe.source).map(|output| {
         let texture = output.texture();
-        (texture.get_pixel(1, 1), texture.cache_revision)
+        (
+            texture.read_pixels().unwrap().get_pixel(1, 1),
+            texture.cache_revision,
+        )
     });
     current[index] = textures.get(probe.source).map(|output| {
         let texture = output.texture();
-        (texture.get_pixel(1, 1), texture.cache_revision)
+        (
+            texture.read_pixels().unwrap().get_pixel(1, 1),
+            texture.cache_revision,
+        )
     });
     clips[index] = paint.clip();
     probe.previous.set(previous);
@@ -789,8 +856,8 @@ fn app_split_dirty_regions_share_one_publication_and_frozen_history() {
         assert_eq!(reader.current.get(), [Some((next, second_version)); 2]);
     }
     let pixels = app.backend.framebuffer();
-    assert_eq!(pixels.get_pixel(1, 1), next);
-    assert_eq!(pixels.get_pixel(61, 1), other_next);
+    assert_eq!(pixels.read_pixels().unwrap().get_pixel(1, 1), next);
+    assert_eq!(pixels.read_pixels().unwrap().get_pixel(61, 1), other_next);
 
     app.render_dirty().unwrap();
     assert!(
@@ -858,7 +925,11 @@ fn public_region_render_preserves_unpainted_inline_consumer_invalidation() {
     );
     assert_eq!(paint_calls(&app.world, "region_consumer"), 1);
     assert_eq!(
-        app.backend.framebuffer().get_pixel(5, 1),
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(5, 1),
         Color::rgb(229, 47, 23)
     );
 
@@ -882,9 +953,20 @@ fn public_region_render_preserves_unpainted_inline_consumer_invalidation() {
     }
     assert!(output_version(&app.world, "region_source") > source_version);
     assert_eq!(paint_calls(&app.world, "region_consumer"), 1);
-    assert_eq!(app.backend.framebuffer().get_pixel(1, 1), next);
     assert_eq!(
-        app.backend.framebuffer().get_pixel(5, 1),
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(1, 1),
+        next
+    );
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(5, 1),
         Color::rgb(229, 47, 23)
     );
 
@@ -894,7 +976,14 @@ fn public_region_render_preserves_unpainted_inline_consumer_invalidation() {
     ViewRegistry::reconcile_observations(&mut app.world);
     assert!(!app.world.has::<VisualDirty>(consumer));
     assert_eq!(paint_calls(&app.world, "region_consumer"), 2);
-    assert_eq!(app.backend.framebuffer().get_pixel(5, 1), next);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(5, 1),
+        next
+    );
 
     app.render_dirty().unwrap();
     assert!(

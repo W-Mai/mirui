@@ -112,9 +112,12 @@ fn redraw(app: &mut TestApp, entities: &[Entity; 2], color: Color) {
     }
     app.render_dirty().unwrap();
     let pixels = app.backend.framebuffer();
-    assert_eq!(pixels.get_pixel(2, 2), color);
-    assert_eq!(pixels.get_pixel(13, 13), Color::rgb(0, 0, 0));
-    assert_eq!(pixels.get_pixel(29, 13), color);
+    assert_eq!(pixels.read_pixels().unwrap().get_pixel(2, 2), color);
+    assert_eq!(
+        pixels.read_pixels().unwrap().get_pixel(13, 13),
+        Color::rgb(0, 0, 0)
+    );
+    assert_eq!(pixels.read_pixels().unwrap().get_pixel(29, 13), color);
 }
 
 #[test]

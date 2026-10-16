@@ -88,6 +88,9 @@ impl SwRenderer<'_> {
         let target_w = self.target.width as usize;
         let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
 
+        let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
+            return;
+        };
         for dy in 0..target_height {
             let py = cy + dy;
             if py < clip_y || py >= clip_y2 {
@@ -133,7 +136,7 @@ impl SwRenderer<'_> {
                         }
                     }
                 }
-                self.target.blend_pixel_int(px, py, color, final_alpha);
+                target.blend_pixel_int(px, py, color, final_alpha);
             }
         }
     }

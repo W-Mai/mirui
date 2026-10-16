@@ -425,6 +425,9 @@ impl SwRenderer<'_> {
             .last()
             .map(|mask| mask.alpha.as_slice());
         let local_x = logical_rect.x + Fixed::HALF;
+        let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
+            return;
+        };
         for (row, byte) in bitmap.iter().copied().enumerate() {
             let local_y = logical_rect.y + Fixed::from_int(row as i32) + Fixed::HALF;
             let mut screen_x = origin.x + tangent.x * local_x - tangent.y * local_y;
@@ -432,7 +435,7 @@ impl SwRenderer<'_> {
             for col in 0..8 {
                 if byte & (0x80 >> col) != 0 {
                     splat_coverage_pixel(
-                        &mut self.target,
+                        &mut target,
                         screen_x - Fixed::HALF,
                         screen_y - Fixed::HALF,
                         clip_bounds,
@@ -484,6 +487,9 @@ impl SwRenderer<'_> {
             .last()
             .map(|mask| mask.alpha.as_slice());
         let local_x = logical_rect.x + Fixed::HALF;
+        let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
+            return;
+        };
         for row in 0..field.height() {
             let local_y = logical_rect.y + Fixed::from_int(row as i32) + Fixed::HALF;
             let mut screen_x = origin.x + tangent.x * local_x - tangent.y * local_y;
@@ -492,7 +498,7 @@ impl SwRenderer<'_> {
                 let coverage = field.alpha(col, row);
                 if coverage != 0 {
                     splat_coverage_pixel(
-                        &mut self.target,
+                        &mut target,
                         screen_x - Fixed::HALF,
                         screen_y - Fixed::HALF,
                         clip_bounds,
@@ -702,6 +708,9 @@ impl SwRenderer<'_> {
             .clip_stack
             .last()
             .map(|mask| mask.alpha.as_slice());
+        let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
+            return;
+        };
         for py in y0..y1 {
             let mask_row = py as usize * target_width;
             for px in x0..x1 {
@@ -761,7 +770,7 @@ impl SwRenderer<'_> {
                         / 255) as u8;
                 }
                 if alpha != 0 {
-                    self.target.blend_pixel_int(px, py, color, alpha);
+                    target.blend_pixel_int(px, py, color, alpha);
                 }
             }
         }
@@ -815,6 +824,9 @@ impl SwRenderer<'_> {
             .clip_stack
             .last()
             .map(|mask| mask.alpha.as_slice());
+        let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
+            return;
+        };
         for py in y0..y1 {
             let mask_row = py as usize * target_width;
             let (sample_x, sample_y) = inverse.apply(
@@ -860,7 +872,7 @@ impl SwRenderer<'_> {
                         / 255) as u8;
                 }
                 if alpha != 0 {
-                    self.target.blend_pixel_int(px, py, color, alpha);
+                    target.blend_pixel_int(px, py, color, alpha);
                 }
             }
         }
@@ -959,6 +971,9 @@ impl SwRenderer<'_> {
         let (clip_x, clip_y, clip_x2, clip_y2) = phys_bounds;
         let target_w = self.target.width as usize;
         let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
+        let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
+            return;
+        };
         for row in 0..char_h.min(bitmap.len() as i32) {
             let byte = bitmap[row as usize];
             for col in 0..8 {
@@ -980,7 +995,7 @@ impl SwRenderer<'_> {
                                 }
                                 None => opa,
                             };
-                            self.target.blend_pixel(
+                            target.blend_pixel(
                                 Fixed::from_int(px),
                                 Fixed::from_int(py),
                                 color,
@@ -1069,6 +1084,9 @@ impl SwRenderer<'_> {
         let half_texel = Fixed::HALF;
         let target_w = self.target.width as usize;
         let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
+        let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
+            return;
+        };
         for row in 0..target_height {
             let source_y = (Fixed::from_int(row as i32) + half_texel) * scale_y - half_texel;
             for col in 0..target_width {
@@ -1098,7 +1116,7 @@ impl SwRenderer<'_> {
                             }
                         }
                     }
-                    self.target.blend_pixel_int(px, py, color, alpha);
+                    target.blend_pixel_int(px, py, color, alpha);
                 }
             }
         }
@@ -1134,7 +1152,7 @@ fn scale_opacity(opacity: u8, coverage: u8) -> u8 {
 
 #[allow(clippy::too_many_arguments)]
 fn splat_coverage_pixel(
-    target: &mut crate::render::texture::Texture<'_>,
+    target: &mut crate::render::texture::TexturePixelsMut<'_>,
     x: Fixed,
     y: Fixed,
     clip: (i32, i32, i32, i32),

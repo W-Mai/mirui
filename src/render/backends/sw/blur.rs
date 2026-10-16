@@ -5,7 +5,9 @@
 //! decay factor; visually close to Gaussian for the same effective
 //! radius, at a fraction of the cost.
 
-use crate::render::texture::{ColorFormat, Texture};
+#[cfg(test)]
+use crate::render::texture::Texture;
+use crate::render::texture::{ColorFormat, TexturePixelsMut};
 use crate::types::{Fixed, Rect};
 
 /// Convert a Gaussian-equivalent radius (in pixels) to the IIR decay
@@ -48,12 +50,12 @@ pub fn alpha_for_radius(radius: Fixed) -> Fixed {
 /// factor `alpha` (typically from [`alpha_for_radius`]). Alpha values
 /// outside `(0, 1)` short-circuit: `<= 0` is a no-op, `>= 1` would
 /// be a degenerate constant — also no-op.
-pub fn iir_blur_inplace(tex: &mut Texture, alpha: Fixed, region: Rect) {
+pub fn iir_blur_inplace(tex: &mut TexturePixelsMut<'_>, alpha: Fixed, region: Rect) {
     if alpha <= Fixed::ZERO || alpha >= Fixed::ONE {
         return;
     }
-    let w = tex.width;
-    let h = tex.height;
+    let w = tex.width();
+    let h = tex.height();
     if w == 0 || h == 0 {
         return;
     }
@@ -70,12 +72,13 @@ pub fn iir_blur_inplace(tex: &mut Texture, alpha: Fixed, region: Rect) {
     let rw = (x1 - x0) as usize;
     let rh = (y1 - y0) as usize;
 
-    match tex.format {
+    let stride = tex.stride();
+    match tex.format() {
         ColorFormat::RGBA8888 => iir_blur_rgba8888(
-            tex.buf.as_mut_slice(),
+            tex.bytes_mut(),
             w as usize,
             h as usize,
-            tex.stride,
+            stride,
             alpha_q,
             one_minus_q,
             x0 as usize,
@@ -84,10 +87,10 @@ pub fn iir_blur_inplace(tex: &mut Texture, alpha: Fixed, region: Rect) {
             rh,
         ),
         ColorFormat::RGB565 => iir_blur_rgb565(
-            tex.buf.as_mut_slice(),
+            tex.bytes_mut(),
             w as usize,
             h as usize,
-            tex.stride,
+            stride,
             alpha_q,
             one_minus_q,
             false,
@@ -97,10 +100,10 @@ pub fn iir_blur_inplace(tex: &mut Texture, alpha: Fixed, region: Rect) {
             rh,
         ),
         ColorFormat::RGB565Swapped => iir_blur_rgb565(
-            tex.buf.as_mut_slice(),
+            tex.bytes_mut(),
             w as usize,
             h as usize,
-            tex.stride,
+            stride,
             alpha_q,
             one_minus_q,
             true,
@@ -307,7 +310,7 @@ mod tests {
                 Fixed::from_int(tex.width as i32),
                 Fixed::from_int(tex.height as i32),
             );
-            iir_blur_inplace(&mut tex, Fixed::ZERO, r);
+            iir_blur_inplace(&mut tex.pixels_mut().unwrap(), Fixed::ZERO, r);
         }
         assert_eq!(tex.buf.as_slice(), original.as_slice());
     }
@@ -332,7 +335,11 @@ mod tests {
                 Fixed::from_int(tex.width as i32),
                 Fixed::from_int(tex.height as i32),
             );
-            iir_blur_inplace(&mut tex, alpha_for_radius(Fixed::from_int(4)), r);
+            iir_blur_inplace(
+                &mut tex.pixels_mut().unwrap(),
+                alpha_for_radius(Fixed::from_int(4)),
+                r,
+            );
         }
         for px in tex.buf.as_slice().chunks_exact(4) {
             assert!((px[0] as i32 - 200).abs() <= 1, "r drifted: {}", px[0]);
@@ -362,7 +369,11 @@ mod tests {
                 Fixed::from_int(tex.width as i32),
                 Fixed::from_int(tex.height as i32),
             );
-            iir_blur_inplace(&mut tex, alpha_for_radius(Fixed::from_int(2)), r);
+            iir_blur_inplace(
+                &mut tex.pixels_mut().unwrap(),
+                alpha_for_radius(Fixed::from_int(2)),
+                r,
+            );
         }
         let after = tex.buf.as_slice();
         let centre_after = after[centre] as i32;
@@ -394,7 +405,11 @@ mod tests {
                 Fixed::from_int(tex.width as i32),
                 Fixed::from_int(tex.height as i32),
             );
-            iir_blur_inplace(&mut tex, alpha_for_radius(Fixed::from_int(3)), r);
+            iir_blur_inplace(
+                &mut tex.pixels_mut().unwrap(),
+                alpha_for_radius(Fixed::from_int(3)),
+                r,
+            );
         }
         for px in tex.buf.as_slice().chunks_exact(2) {
             let pixel = ((px[1] as u16) << 8) | (px[0] as u16);
@@ -425,7 +440,11 @@ mod tests {
                 Fixed::from_int(tex.width as i32),
                 Fixed::from_int(tex.height as i32),
             );
-            iir_blur_inplace(&mut tex, alpha_for_radius(Fixed::from_int(2)), r);
+            iir_blur_inplace(
+                &mut tex.pixels_mut().unwrap(),
+                alpha_for_radius(Fixed::from_int(2)),
+                r,
+            );
         }
         let after = tex.buf.as_slice();
         let centre_pixel = ((after[i + 1] as u16) << 8) | (after[i] as u16);

@@ -509,7 +509,11 @@ fn colors(budget: usize, transition: PageTransition) -> (TestApp, Entity, Select
 
 fn pixel(app: &mut TestApp, x: i32, y: i32) -> Color {
     use crate::surface::FramebufferAccess;
-    app.backend.framebuffer().get_pixel(x, y)
+    app.backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .get_pixel(x, y)
 }
 
 #[test]
@@ -649,7 +653,10 @@ fn a_renderer_without_offscreen_support_draws_the_destination_inline() {
         crate::ui::render_system::render(&app.world, root, &viewport, &mut renderer).unwrap();
         let texture =
             Texture::new(&mut pixels, 100, 80, ColorFormat::RGBA8888).expect("valid pixel storage");
-        assert_eq!(texture.get_pixel(20, 20), Color::rgb(0, 255, 0));
+        assert_eq!(
+            texture.read_pixels().unwrap().get_pixel(20, 20),
+            Color::rgb(0, 255, 0)
+        );
         advance(&mut app, 16);
         assert!(transition::running(&app.world, container).is_none());
     }

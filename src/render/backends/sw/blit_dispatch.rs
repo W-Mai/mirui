@@ -51,12 +51,15 @@ impl SwRenderer<'_> {
         };
         let src = &pixels;
 
+        let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
+            return;
+        };
         let needs_composite_path =
             !matches!(composite, CompositeMode::SourceOver) || phys_radius != Fixed::ZERO;
         let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
         if needs_composite_path {
             blit_composite_dda(
-                &mut self.target,
+                &mut target,
                 src,
                 sx0,
                 sy0,
@@ -83,7 +86,7 @@ impl SwRenderer<'_> {
         // fast paths' memcpy-ish row copies have no per-pixel hook.
         if opa < 255 || clip_mask.is_some() {
             blit_dda(
-                &mut self.target,
+                &mut target,
                 src,
                 sx0,
                 sy0,
@@ -109,7 +112,7 @@ impl SwRenderer<'_> {
         #[allow(clippy::if_same_then_else)]
         if dw == sw_i && dh == sh_i {
             blit_1to1_fast(
-                &mut self.target,
+                &mut target,
                 src,
                 sx0,
                 sy0,
@@ -124,7 +127,7 @@ impl SwRenderer<'_> {
             );
         } else if dw == sw_i * 2 && dh == sh_i * 2 {
             blit_2to2_fast(
-                &mut self.target,
+                &mut target,
                 src,
                 sx0,
                 sy0,
@@ -139,7 +142,7 @@ impl SwRenderer<'_> {
             );
         } else {
             blit_dda(
-                &mut self.target,
+                &mut target,
                 src,
                 sx0,
                 sy0,

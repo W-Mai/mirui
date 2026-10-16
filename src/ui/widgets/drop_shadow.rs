@@ -201,20 +201,25 @@ fn effect_geometry(
     Some((plane, bounds))
 }
 
-fn blur_effect(texture: &mut Texture<'_>, alpha: (Fixed, Fixed)) {
+fn blur_effect(
+    texture: &mut Texture<'_>,
+    alpha: (Fixed, Fixed),
+) -> Result<(), crate::render::RenderError> {
     let width = texture.width;
     let height = texture.height;
+    let mut pixels = texture.pixels_mut()?;
     if alpha.0 == alpha.1 {
         let bounds = Rect::new(0, 0, width, height);
-        iir_blur_inplace(texture, alpha.0, bounds);
+        iir_blur_inplace(&mut pixels, alpha.0, bounds);
     } else {
         for y in 0..height {
-            iir_blur_inplace(texture, alpha.0, Rect::new(0, y, width, 1));
+            iir_blur_inplace(&mut pixels, alpha.0, Rect::new(0, y, width, 1));
         }
         for x in 0..width {
-            iir_blur_inplace(texture, alpha.1, Rect::new(x, 0, 1, height));
+            iir_blur_inplace(&mut pixels, alpha.1, Rect::new(x, 0, 1, height));
         }
     }
+    Ok(())
 }
 
 fn render_drop_effect(
@@ -253,7 +258,10 @@ fn render_drop_effect(
             let copy_len = usize::from(src.width) * 4;
             buf[di..di + copy_len].copy_from_slice(&src.buf.as_slice()[si..si + copy_len]);
         }
-        blur_effect(work, plane.alpha);
+        if let Err(error) = blur_effect(work, plane.alpha) {
+            paint.fail(error);
+            return;
+        }
         let buf = work.buf.as_mut_slice();
         for y in 0..usize::from(work.height) {
             for x in 0..usize::from(work.width) {

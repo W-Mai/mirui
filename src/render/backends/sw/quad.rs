@@ -1,7 +1,7 @@
 use crate::types::{Color, Fixed, Fixed64, Point, Rect};
 
 use crate::render::command::CompositeMode;
-use crate::render::texture::{Texture, TexturePixels};
+use crate::render::texture::{TexturePixels, TexturePixelsMut};
 
 #[cfg(feature = "perf")]
 use super::perf::quad_perf;
@@ -12,7 +12,7 @@ pub fn quad_bbox(q: &[Point; 4]) -> Rect {
 
 #[allow(clippy::too_many_arguments)]
 pub fn blit_quad(
-    dst: &mut Texture,
+    dst: &mut TexturePixelsMut<'_>,
     src: &TexturePixels<'_>,
     q: &[Point; 4],
     phys_clip: Rect,
@@ -50,7 +50,7 @@ pub fn blit_quad(
     let Some(area) = bbox.intersect(&phys_clip) else {
         return;
     };
-    let screen = Rect::new(0, 0, dst.width, dst.height);
+    let screen = Rect::new(0, 0, dst.width(), dst.height());
     let Some(area) = area.intersect(&screen) else {
         return;
     };
@@ -136,7 +136,7 @@ pub fn blit_quad(
                                     (Fixed::from_int(i32::from(alpha)) * coverage).to_int() as u8
                                 };
                                 let src_alpha =
-                                    masked_opacity(src_alpha, clip_mask, dst.width, px, py);
+                                    masked_opacity(src_alpha, clip_mask, dst.width(), px, py);
                                 if src_alpha > 0 {
                                     dst.composite_pixel_int(px, py, &c, src_alpha, composite);
                                 }
@@ -155,7 +155,7 @@ pub fn blit_quad(
 
 #[allow(clippy::too_many_arguments)]
 pub fn fill_rect_quad(
-    dst: &mut Texture,
+    dst: &mut TexturePixelsMut<'_>,
     q: &[Point; 4],
     phys_clip: Rect,
     color: &Color,
@@ -169,7 +169,7 @@ pub fn fill_rect_quad(
     let Some(area) = bbox.intersect(&phys_clip) else {
         return;
     };
-    let screen = Rect::new(0, 0, dst.width, dst.height);
+    let screen = Rect::new(0, 0, dst.width(), dst.height());
     let Some(area) = area.intersect(&screen) else {
         return;
     };
@@ -220,7 +220,7 @@ pub fn fill_rect_quad(
                 }
                 c
             };
-            let final_opa = masked_opacity(base_opa, clip_mask, dst.width, px, py);
+            let final_opa = masked_opacity(base_opa, clip_mask, dst.width(), px, py);
             if final_opa == 0 {
                 continue;
             }
@@ -239,7 +239,7 @@ pub fn fill_rect_quad(
 
 #[allow(clippy::too_many_arguments)]
 pub fn stroke_rect_quad(
-    dst: &mut Texture,
+    dst: &mut TexturePixelsMut<'_>,
     q: &[Point; 4],
     phys_clip: Rect,
     color: &Color,
@@ -255,7 +255,7 @@ pub fn stroke_rect_quad(
     let Some(area) = bbox.intersect(&phys_clip) else {
         return;
     };
-    let screen = Rect::new(0, 0, dst.width, dst.height);
+    let screen = Rect::new(0, 0, dst.width(), dst.height());
     let Some(area) = area.intersect(&screen) else {
         return;
     };
@@ -346,7 +346,7 @@ pub fn stroke_rect_quad(
                 }
                 c
             };
-            let final_opa = masked_opacity(base_opa, clip_mask, dst.width, px, py);
+            let final_opa = masked_opacity(base_opa, clip_mask, dst.width(), px, py);
             if final_opa == 0 {
                 continue;
             }
@@ -436,7 +436,7 @@ fn prepare_corners(q: &[Point; 4], radius: Fixed) -> [super::quad_aa::PreparedCo
 /// call per pixel (4 × `edge_clip_area`).
 #[allow(clippy::too_many_arguments)]
 fn fill_rect_quad_no_corner(
-    dst: &mut Texture,
+    dst: &mut TexturePixelsMut<'_>,
     px_x0: i32,
     px_y0: i32,
     px_x1: i32,
@@ -486,7 +486,7 @@ fn fill_rect_quad_no_corner(
                 }
                 c
             };
-            let final_opa = masked_opacity(base_opa, clip_mask, dst.width, px, py);
+            let final_opa = masked_opacity(base_opa, clip_mask, dst.width(), px, py);
             if final_opa == 0 {
                 continue;
             }

@@ -8,7 +8,9 @@ pub use access::{TexturePixels, TexturePixelsMut};
 
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu"))]
 mod cache_key;
-use crate::types::{Color, Fixed};
+use crate::types::Color;
+#[cfg(test)]
+use crate::types::Fixed;
 #[cfg(any(target_arch = "wasm32", test))]
 use alloc::borrow::Cow;
 use alloc::vec::Vec;
@@ -354,8 +356,9 @@ impl<'a> Texture<'a> {
         if !self.valid_storage() {
             return None;
         }
-        let width = usize::from(self.width);
-        let height = usize::from(self.height);
+        let pixels = self.read_pixels().ok()?;
+        let width = usize::from(pixels.width());
+        let height = usize::from(pixels.height());
         let output_bytes = width.checked_mul(height)?.checked_mul(4)?;
         let mut rgba = Vec::new();
         rgba.try_reserve_exact(output_bytes).ok()?;
@@ -386,158 +389,13 @@ impl<'a> Texture<'a> {
             ColorFormat::RGB565 | ColorFormat::RGB565Swapped => {
                 for y in 0..height {
                     for x in 0..width {
-                        let color = self.get_pixel(x as i32, y as i32);
+                        let color = pixels.get_pixel(x as i32, y as i32);
                         rgba.extend_from_slice(&[color.r, color.g, color.b, 255]);
                     }
                 }
             }
         }
         Some(rgba)
-    }
-
-    #[inline(always)]
-    fn offset(&self, x: i32, y: i32) -> Option<usize> {
-        pixels::pixel_offset(self.width, self.height, self.stride, self.format, x, y)
-    }
-
-    #[inline(always)]
-    pub(crate) fn get_pixel(&self, x: i32, y: i32) -> Color {
-        let Some(i) = self.offset(x, y) else {
-            return Color::rgb(0, 0, 0);
-        };
-        self.format.read_pixel(self.buf.as_slice(), i)
-    }
-
-    #[inline(always)]
-    pub(crate) fn set_pixel(&mut self, x: i32, y: i32, color: &Color) {
-        let Some(i) = self.offset(x, y) else { return };
-        self.format.write_pixel(self.buf.as_mut_slice(), i, color);
-    }
-
-    #[inline(always)]
-    pub(crate) fn blend_pixel(&mut self, x: Fixed, y: Fixed, color: &Color, opa: u8) {
-        if opa == 0 {
-            return;
-        }
-
-        if x.is_integer() && y.is_integer() {
-            let a = ((color.a as u16) * (opa as u16) / 255) as u8;
-            self.blend_pixel_int(x.to_int(), y.to_int(), color, a);
-            return;
-        }
-
-        self.blend_pixel_subpixel(x, y, color, opa);
-    }
-
-    #[cold]
-    #[inline(never)]
-    fn blend_pixel_subpixel(&mut self, x: Fixed, y: Fixed, color: &Color, opa: u8) {
-        let ix = x.to_int();
-        let iy = y.to_int();
-        let fx = x.fract();
-        let fy = y.fract();
-        let lx = Fixed::ONE - fx;
-        let ty = Fixed::ONE - fy;
-
-        let nc = color.normalized();
-        let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
-        let base_a = nc.a * opa_norm;
-        let to_alpha = |cov: Fixed| -> u8 { (base_a * cov).map01(255).to_int() as u8 };
-
-        self.blend_pixel_int(ix, iy, color, to_alpha(lx * ty));
-        self.blend_pixel_int(ix + 1, iy, color, to_alpha(fx * ty));
-        self.blend_pixel_int(ix, iy + 1, color, to_alpha(lx * fy));
-        self.blend_pixel_int(ix + 1, iy + 1, color, to_alpha(fx * fy));
-    }
-
-    #[inline(always)]
-    pub(crate) fn blend_pixel_int(&mut self, x: i32, y: i32, color: &Color, a: u8) {
-        if a == 0 {
-            return;
-        }
-        if a == 255 {
-            // Fully opaque effective alpha covers the destination.
-            self.set_pixel(x, y, &Color { a: 255, ..*color });
-            return;
-        }
-        // Alpha blend in plain u8 space: out = (src·a + dst·(255−a) + 127)/255.
-        // Avoids the NormColor round-trip (8 divisions per call) that the
-        // old implementation did; exact within ±1 over the full range.
-        let dst = self.get_pixel(x, y);
-        let ia = 255 - a as u32;
-        let aa = a as u32;
-        let blend = |src: u8, dst: u8| -> u8 {
-            let sum = src as u32 * aa + dst as u32 * ia + 127;
-            ((sum + (sum >> 8)) >> 8) as u8
-        };
-        let out = match self.alpha_mode {
-            AlphaMode::Opaque => Color {
-                r: blend(color.r, dst.r),
-                g: blend(color.g, dst.g),
-                b: blend(color.b, dst.b),
-                a: 255,
-            },
-            AlphaMode::Blend => blend_straight_source_over(color, &dst, a),
-        };
-        self.set_pixel(x, y, &out);
-    }
-
-    /// Composite-aware pixel write. `src_a` is the effective alpha after
-    /// `src.a × opa` folding; `mode` selects the per-channel formula.
-    /// Falls back to `blend_pixel_int` for SourceOver so the existing
-    /// fast path stays bit-exact.
-    #[inline(always)]
-    pub(crate) fn composite_pixel_int(
-        &mut self,
-        x: i32,
-        y: i32,
-        color: &Color,
-        src_a: u8,
-        mode: crate::render::command::CompositeMode,
-    ) {
-        if src_a == 0 {
-            return;
-        }
-        if matches!(mode, crate::render::command::CompositeMode::SourceOver) {
-            self.blend_pixel_int(x, y, color, src_a);
-            return;
-        }
-        let dst = self.get_pixel(x, y);
-        let aa = src_a as u32;
-        let ia = 255 - aa;
-        // Opaque-target RGB folds the blended channel over the destination.
-        let fold = |src: u8, dst: u8| -> u8 {
-            let m = mode.blend_channel(src, dst) as u32;
-            let sum = m * aa + dst as u32 * ia + 127;
-            ((sum + (sum >> 8)) >> 8) as u8
-        };
-        let out = match self.alpha_mode {
-            AlphaMode::Opaque => Color {
-                r: fold(color.r, dst.r),
-                g: fold(color.g, dst.g),
-                b: fold(color.b, dst.b),
-                a: 255,
-            },
-            AlphaMode::Blend => {
-                let dst_a = u32::from(dst.a);
-                let denominator = aa * 255 + dst_a * ia;
-                let channel = |src: u8, dst: u8| {
-                    let blend = u32::from(mode.blend_channel(src, dst));
-                    ((u32::from(src) * aa * (255 - dst_a)
-                        + blend * aa * dst_a
-                        + u32::from(dst) * dst_a * ia
-                        + denominator / 2)
-                        / denominator) as u8
-                };
-                Color {
-                    r: channel(color.r, dst.r),
-                    g: channel(color.g, dst.g),
-                    b: channel(color.b, dst.b),
-                    a: ((denominator + 127) / 255) as u8,
-                }
-            }
-        };
-        self.set_pixel(x, y, &out);
     }
 }
 
@@ -1100,7 +958,10 @@ mod tests {
         const VALID: Result<Texture<'static>, RenderError> =
             Texture::from_static(&[10, 20, 30, 40], 1, 1, ColorFormat::RGBA8888);
         assert!(matches!(SHORT, Err(RenderError::InvalidTexture)));
-        assert_eq!(VALID.unwrap().get_pixel(0, 0), Color::rgba(10, 20, 30, 40));
+        assert_eq!(
+            VALID.unwrap().read_pixels().unwrap().get_pixel(0, 0),
+            Color::rgba(10, 20, 30, 40)
+        );
         for format in [
             ColorFormat::RGB565,
             ColorFormat::RGB565Swapped,
@@ -1168,8 +1029,8 @@ mod tests {
         let mut tex =
             Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage");
         let c = Color::rgba(100, 200, 50, 255);
-        tex.set_pixel(0, 0, &c);
-        assert_eq!(tex.get_pixel(0, 0), c);
+        tex.pixels_mut().unwrap().set_pixel(0, 0, &c);
+        assert_eq!(tex.read_pixels().unwrap().get_pixel(0, 0), c);
     }
 
     #[test]
@@ -1178,8 +1039,8 @@ mod tests {
         let mut tex =
             Texture::new(&mut buf, 1, 1, ColorFormat::BGRA8888).expect("valid pixel storage");
         let c = Color::rgba(100, 200, 50, 255);
-        tex.set_pixel(0, 0, &c);
-        assert_eq!(tex.get_pixel(0, 0), c);
+        tex.pixels_mut().unwrap().set_pixel(0, 0, &c);
+        assert_eq!(tex.read_pixels().unwrap().get_pixel(0, 0), c);
         assert_eq!(buf, [c.b, c.g, c.r, c.a]);
     }
 
@@ -1200,8 +1061,8 @@ mod tests {
         let mut tex =
             Texture::new(&mut buf, 1, 1, ColorFormat::RGB565).expect("valid pixel storage");
         let c = Color::rgb(255, 255, 255);
-        tex.set_pixel(0, 0, &c);
-        let got = tex.get_pixel(0, 0);
+        tex.pixels_mut().unwrap().set_pixel(0, 0, &c);
+        let got = tex.read_pixels().unwrap().get_pixel(0, 0);
         assert_eq!(got.r, c.r);
         assert_eq!(got.g, c.g);
         assert_eq!(got.b, c.b);
@@ -1212,9 +1073,16 @@ mod tests {
         let mut buf = [0u8; 4];
         let mut tex =
             Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage");
-        tex.set_pixel(0, 0, &Color::rgb(0, 0, 0));
-        tex.blend_pixel(Fixed::ZERO, Fixed::ZERO, &Color::rgb(200, 100, 50), 128);
-        let got = tex.get_pixel(0, 0);
+        tex.pixels_mut()
+            .unwrap()
+            .set_pixel(0, 0, &Color::rgb(0, 0, 0));
+        tex.pixels_mut().unwrap().blend_pixel(
+            Fixed::ZERO,
+            Fixed::ZERO,
+            &Color::rgb(200, 100, 50),
+            128,
+        );
+        let got = tex.read_pixels().unwrap().get_pixel(0, 0);
         assert!((got.r as i32 - 100).abs() <= 1);
         assert!((got.g as i32 - 50).abs() <= 1);
         assert!((got.b as i32 - 25).abs() <= 1);
@@ -1226,10 +1094,17 @@ mod tests {
         let mut tex =
             Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage");
         tex.alpha_mode = AlphaMode::Blend;
-        tex.blend_pixel_int(0, 0, &Color::rgba(0, 0, 255, 128), 128);
-        assert_eq!(tex.get_pixel(0, 0), Color::rgba(0, 0, 255, 128));
-        tex.blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 128), 128);
-        let pixel = tex.get_pixel(0, 0);
+        tex.pixels_mut()
+            .unwrap()
+            .blend_pixel_int(0, 0, &Color::rgba(0, 0, 255, 128), 128);
+        assert_eq!(
+            tex.read_pixels().unwrap().get_pixel(0, 0),
+            Color::rgba(0, 0, 255, 128)
+        );
+        tex.pixels_mut()
+            .unwrap()
+            .blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 128), 128);
+        let pixel = tex.read_pixels().unwrap().get_pixel(0, 0);
         assert!((pixel.r as i32 - 170).abs() <= 1);
         assert_eq!(pixel.g, 0);
         assert!((pixel.b as i32 - 85).abs() <= 1);
@@ -1313,9 +1188,15 @@ mod tests {
             let mut tex =
                 Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage");
             tex.alpha_mode = AlphaMode::Blend;
-            tex.composite_pixel_int(0, 0, &Color::rgba(200, 80, 40, 128), 128, mode);
+            tex.pixels_mut().unwrap().composite_pixel_int(
+                0,
+                0,
+                &Color::rgba(200, 80, 40, 128),
+                128,
+                mode,
+            );
             assert_eq!(
-                tex.get_pixel(0, 0),
+                tex.read_pixels().unwrap().get_pixel(0, 0),
                 Color::rgba(200, 80, 40, 128),
                 "{mode:?}"
             );
@@ -1330,15 +1211,17 @@ mod tests {
         let mut tex =
             Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage");
         tex.alpha_mode = AlphaMode::Blend;
-        tex.set_pixel(0, 0, &Color::rgba(255, 0, 0, 128));
-        tex.composite_pixel_int(
+        tex.pixels_mut()
+            .unwrap()
+            .set_pixel(0, 0, &Color::rgba(255, 0, 0, 128));
+        tex.pixels_mut().unwrap().composite_pixel_int(
             0,
             0,
             &Color::rgba(0, 0, 255, 128),
             128,
             CompositeMode::Multiply,
         );
-        let pixel = tex.get_pixel(0, 0);
+        let pixel = tex.read_pixels().unwrap().get_pixel(0, 0);
         assert!((pixel.r as i32 - 85).abs() <= 1);
         assert_eq!(pixel.g, 0);
         assert!((pixel.b as i32 - 85).abs() <= 1);
@@ -1350,9 +1233,16 @@ mod tests {
         let mut buf = [0u8; 2];
         let mut tex =
             Texture::new(&mut buf, 1, 1, ColorFormat::RGB565).expect("valid pixel storage");
-        tex.set_pixel(0, 0, &Color::rgb(0, 0, 0));
-        tex.blend_pixel(Fixed::ZERO, Fixed::ZERO, &Color::rgb(255, 255, 255), 255);
-        let got = tex.get_pixel(0, 0);
+        tex.pixels_mut()
+            .unwrap()
+            .set_pixel(0, 0, &Color::rgb(0, 0, 0));
+        tex.pixels_mut().unwrap().blend_pixel(
+            Fixed::ZERO,
+            Fixed::ZERO,
+            &Color::rgb(255, 255, 255),
+            255,
+        );
+        let got = tex.read_pixels().unwrap().get_pixel(0, 0);
         assert_eq!(got.r, 255);
         assert_eq!(got.g, 255);
         assert_eq!(got.b, 255);
@@ -1364,18 +1254,31 @@ mod tests {
         let mut buf = [0u8; 4 * 4]; // 2x2 RGBA8888
         let mut tex =
             Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
-        tex.set_pixel(0, 0, &Color::rgb(0, 0, 0));
-        tex.set_pixel(1, 0, &Color::rgb(0, 0, 0));
-        tex.set_pixel(0, 1, &Color::rgb(0, 0, 0));
-        tex.set_pixel(1, 1, &Color::rgb(0, 0, 0));
+        tex.pixels_mut()
+            .unwrap()
+            .set_pixel(0, 0, &Color::rgb(0, 0, 0));
+        tex.pixels_mut()
+            .unwrap()
+            .set_pixel(1, 0, &Color::rgb(0, 0, 0));
+        tex.pixels_mut()
+            .unwrap()
+            .set_pixel(0, 1, &Color::rgb(0, 0, 0));
+        tex.pixels_mut()
+            .unwrap()
+            .set_pixel(1, 1, &Color::rgb(0, 0, 0));
 
-        tex.blend_pixel(Fixed::HALF, Fixed::HALF, &Color::rgb(255, 255, 255), 255);
+        tex.pixels_mut().unwrap().blend_pixel(
+            Fixed::HALF,
+            Fixed::HALF,
+            &Color::rgb(255, 255, 255),
+            255,
+        );
 
         // Each pixel should get ~25% coverage
-        let tl = tex.get_pixel(0, 0);
-        let tr = tex.get_pixel(1, 0);
-        let bl = tex.get_pixel(0, 1);
-        let br = tex.get_pixel(1, 1);
+        let tl = tex.read_pixels().unwrap().get_pixel(0, 0);
+        let tr = tex.read_pixels().unwrap().get_pixel(1, 0);
+        let bl = tex.read_pixels().unwrap().get_pixel(0, 1);
+        let br = tex.read_pixels().unwrap().get_pixel(1, 1);
         // All should be non-zero (got some coverage)
         assert!(tl.r > 0, "top-left should have coverage");
         assert!(tr.r > 0, "top-right should have coverage");

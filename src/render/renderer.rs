@@ -728,10 +728,11 @@ pub trait Renderer {
             return Ok(());
         }
         self.modify_target_region(region, &mut |texture| {
+            let bounds = Rect::new(0, 0, texture.width(), texture.height());
             crate::render::backends::sw::blur::iir_blur_inplace(
-                texture,
+                &mut texture.pixels_mut()?,
                 alpha,
-                Rect::new(0, 0, texture.width, texture.height),
+                bounds,
             );
             Ok(())
         })?;

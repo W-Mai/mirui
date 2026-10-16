@@ -1,8 +1,8 @@
-use crate::render::texture::{Texture, TexturePixels};
+use crate::render::texture::{TexturePixels, TexturePixelsMut};
 use crate::types::{Color, Fixed, Point, Rect, Transform};
 
 pub fn fill_rect_transformed(
-    dst: &mut Texture,
+    dst: &mut TexturePixelsMut<'_>,
     phys_rect: Rect,
     phys_clip: Rect,
     tf: &Transform,
@@ -14,7 +14,7 @@ pub fn fill_rect_transformed(
     let Some(draw_area) = bbox.intersect(&phys_clip) else {
         return;
     };
-    let screen = Rect::new(0, 0, dst.width, dst.height);
+    let screen = Rect::new(0, 0, dst.width(), dst.height());
     let Some(draw_area) = draw_area.intersect(&screen) else {
         return;
     };
@@ -46,7 +46,7 @@ pub fn fill_rect_transformed(
 /// semantics so rotating a sprite 0° degenerates to the old output.
 #[allow(clippy::too_many_arguments)]
 pub fn blit_transformed(
-    dst: &mut Texture,
+    dst: &mut TexturePixelsMut<'_>,
     src: &TexturePixels<'_>,
     src_rect: &Rect,
     phys_dst_rect: Rect,
@@ -58,7 +58,7 @@ pub fn blit_transformed(
     let Some(draw_area) = bbox.intersect(&phys_clip) else {
         return;
     };
-    let screen = Rect::new(0, 0, dst.width, dst.height);
+    let screen = Rect::new(0, 0, dst.width(), dst.height());
     let Some(draw_area) = draw_area.intersect(&screen) else {
         return;
     };

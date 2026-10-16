@@ -25,12 +25,21 @@ fn app() -> (TestApp, Entity) {
 }
 
 fn pixel(app: &mut TestApp, x: i32, y: i32) -> Color {
-    app.backend.framebuffer().get_pixel(x, y)
+    app.backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .get_pixel(x, y)
 }
 
 fn pixels(app: &mut TestApp) -> [Color; SIZE * SIZE] {
     let target = app.backend.framebuffer();
-    core::array::from_fn(|index| target.get_pixel((index % SIZE) as i32, (index / SIZE) as i32))
+    core::array::from_fn(|index| {
+        target
+            .read_pixels()
+            .unwrap()
+            .get_pixel((index % SIZE) as i32, (index / SIZE) as i32)
+    })
 }
 
 fn assert_same_pixels(actual: &mut TestApp, reference: &mut TestApp) {
@@ -455,7 +464,13 @@ fn zero_capture_geometry_releases_both_history_planes_before_other_outputs_are_a
     {
         let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
         assert_eq!(
-            outputs.get(retained).unwrap().texture().get_pixel(1, 1),
+            outputs
+                .get(retained)
+                .unwrap()
+                .texture()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(1, 1),
             BLUE
         );
         assert_eq!(
@@ -463,6 +478,8 @@ fn zero_capture_geometry_releases_both_history_planes_before_other_outputs_are_a
                 .previous(retained)
                 .unwrap()
                 .texture()
+                .read_pixels()
+                .unwrap()
                 .get_pixel(1, 1),
             RED
         );
@@ -484,7 +501,10 @@ fn zero_capture_geometry_releases_both_history_planes_before_other_outputs_are_a
             (replacement.texture().width, replacement.texture().height),
             (8, 4)
         );
-        assert_eq!(replacement.texture().get_pixel(7, 1), GREEN);
+        assert_eq!(
+            replacement.texture().read_pixels().unwrap().get_pixel(7, 1),
+            GREEN
+        );
     }
     assert!(app.world.is_alive(retained));
     assert_eq!(pixel(&mut app, 1, 1), BLACK);
@@ -500,7 +520,13 @@ fn zero_capture_geometry_releases_both_history_planes_before_other_outputs_are_a
     app.render_dirty().unwrap();
     let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
     assert_eq!(
-        outputs.get(retained).unwrap().texture().get_pixel(1, 1),
+        outputs
+            .get(retained)
+            .unwrap()
+            .texture()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(1, 1),
         YELLOW
     );
     assert!(outputs.previous(retained).is_none());
@@ -636,7 +662,13 @@ fn missing_capture_dependency_preserves_workspace_for_healthy_inline_fallback() 
         assert!(outputs.get(missing).is_none());
         assert!(outputs.get(capture).is_none());
         assert_eq!(
-            outputs.get(healthy).unwrap().texture().get_pixel(1, 1),
+            outputs
+                .get(healthy)
+                .unwrap()
+                .texture()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(1, 1),
             GREEN
         );
     }

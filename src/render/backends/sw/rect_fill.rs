@@ -1,5 +1,7 @@
 use super::SwRenderer;
-use crate::render::texture::{ColorFormat, Texture};
+#[cfg(test)]
+use crate::render::texture::Texture;
+use crate::render::texture::{ColorFormat, TexturePixelsMut};
 use crate::types::{Color, Fixed, Rect};
 
 impl SwRenderer<'_> {
@@ -17,7 +19,7 @@ impl SwRenderer<'_> {
         let area = &phys_area;
         let clip = &phys_clip;
 
-        let screen = Rect::new(0, 0, self.target.width, self.target.height);
+        let screen = Rect::new(0, 0, self.target.width(), self.target.height());
         let Some(draw_area) = area.intersect(clip) else {
             return;
         };
@@ -47,10 +49,13 @@ impl SwRenderer<'_> {
             return;
         }
 
+        let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
+            return;
+        };
         if area.is_aligned() && r == Fixed::ZERO {
             crate::trace_span!("sw.fill_aligned");
             fill_axis_aligned(
-                &mut self.target,
+                &mut target,
                 px_x0,
                 px_y0,
                 px_x1,
@@ -80,7 +85,7 @@ impl SwRenderer<'_> {
                 let inner_y0 = area_y0 + r_px;
                 let inner_y1 = area_y1 - r_px;
                 fill_axis_aligned(
-                    &mut self.target,
+                    &mut target,
                     inner_x0.max(px_x0),
                     area_y0.max(px_y0),
                     inner_x1.min(px_x1),
@@ -89,7 +94,7 @@ impl SwRenderer<'_> {
                     effective_opa,
                 );
                 fill_axis_aligned(
-                    &mut self.target,
+                    &mut target,
                     inner_x0.max(px_x0),
                     inner_y1.max(px_y0),
                     inner_x1.min(px_x1),
@@ -98,7 +103,7 @@ impl SwRenderer<'_> {
                     effective_opa,
                 );
                 fill_axis_aligned(
-                    &mut self.target,
+                    &mut target,
                     area_x0.max(px_x0),
                     inner_y0.max(px_y0),
                     area_x1.min(px_x1),
@@ -128,7 +133,7 @@ impl SwRenderer<'_> {
                             );
                             let final_opa = (cov * opa_norm).map01(255).to_int() as u8;
                             if final_opa > 0 {
-                                self.target.blend_pixel_int(px, py, color, final_opa);
+                                target.blend_pixel_int(px, py, color, final_opa);
                             }
                         }
                     }
@@ -155,7 +160,7 @@ impl SwRenderer<'_> {
                 if clip_x1 > clip_x0 && clip_mid_y1 > clip_mid_y0 {
                     crate::trace_span!("sw.fill_aa_split_mid");
                     fill_axis_aligned(
-                        &mut self.target,
+                        &mut target,
                         clip_x0,
                         clip_mid_y0,
                         clip_x1,
@@ -170,7 +175,7 @@ impl SwRenderer<'_> {
                     if aa_top_y1 > aa_top_y0 {
                         crate::trace_span!("sw.fill_aa_split_top");
                         fill_aa_band(
-                            &mut self.target,
+                            &mut target,
                             *area,
                             aa_top_y0,
                             aa_top_y1,
@@ -184,7 +189,7 @@ impl SwRenderer<'_> {
                     if aa_bot_y1 > aa_bot_y0 {
                         crate::trace_span!("sw.fill_aa_split_bot");
                         fill_aa_band(
-                            &mut self.target,
+                            &mut target,
                             *area,
                             aa_bot_y0,
                             aa_bot_y1,
@@ -240,7 +245,7 @@ impl SwRenderer<'_> {
                 // Hot path: straight-zone fully-opaque pixel — skip
                 // every Fixed multiply and the SDF call.
                 if row_full_y && col_full_x && in_mid_y && in_mid_x && opa_full {
-                    self.target.set_pixel(px, py, color);
+                    target.set_pixel(px, py, color);
                     continue;
                 }
 
@@ -266,7 +271,7 @@ impl SwRenderer<'_> {
                 let final_opa = (cov_x * cov_y * corner_cov * opa_norm).map01(255).to_int() as u8;
                 if final_opa > 0 {
                     // px/py are integers — skip blend_pixel's is_integer dispatch.
-                    self.target.blend_pixel_int(px, py, color, final_opa);
+                    target.blend_pixel_int(px, py, color, final_opa);
                 }
             }
         }
@@ -288,11 +293,14 @@ impl SwRenderer<'_> {
         let Some(clip_mask) = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice()) else {
             return;
         };
-        let target_w = self.target.width as usize;
+        let target_w = self.target.width() as usize;
         let area_x_end = area.x + area.w;
         let area_y_end = area.y + area.h;
         let has_corners = r > Fixed::ZERO;
 
+        let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
+            return;
+        };
         for py in px_y0..py_y1 {
             let pixel_top = Fixed::from_int(py);
             let pixel_bot = Fixed::from_int(py + 1);
@@ -342,7 +350,7 @@ impl SwRenderer<'_> {
                 }
                 let final_alpha = ((base_alpha as u16 * clip_alpha as u16 + 127) / 255) as u8;
                 if final_alpha > 0 {
-                    self.target.blend_pixel_int(px, py, color, final_alpha);
+                    target.blend_pixel_int(px, py, color, final_alpha);
                 }
             }
         }
@@ -354,7 +362,7 @@ impl SwRenderer<'_> {
 /// 1.0 so only Y coverage and `effective_opa` contribute.
 #[allow(clippy::too_many_arguments)]
 fn fill_aa_band(
-    target: &mut Texture,
+    target: &mut TexturePixelsMut<'_>,
     area: Rect,
     y0: i32,
     y1: i32,
@@ -393,7 +401,7 @@ fn fill_aa_band(
 }
 
 fn fill_axis_aligned(
-    target: &mut Texture,
+    target: &mut TexturePixelsMut<'_>,
     px_x0: i32,
     px_y0: i32,
     px_x1: i32,
@@ -412,14 +420,15 @@ fn fill_axis_aligned(
     // would clobber the destination's existing alpha and break the
     // silhouette for any downstream sampler.
     let blend_aware =
-        target.alpha_mode == crate::render::texture::AlphaMode::Blend && color.a < 255;
+        target.alpha_mode() == crate::render::texture::AlphaMode::Blend && color.a < 255;
     if opa == 255 && !blend_aware {
-        let bpp = target.format.bytes_per_pixel();
-        let stride = target.stride;
+        let bpp = target.format().bytes_per_pixel();
+        let stride = target.stride();
         let row_px = (px_x1 - px_x0) as usize;
         let row_bytes = row_px * bpp;
-        let buf = target.buf.as_mut_slice();
-        match target.format {
+        let format = target.format();
+        let buf = target.bytes_mut();
+        match format {
             ColorFormat::RGBA8888 => {
                 fill_first_row_then_replicate::<4>(
                     buf,
@@ -435,7 +444,7 @@ fn fill_axis_aligned(
                 let px16 = ((color.r as u16 >> 3) << 11)
                     | ((color.g as u16 >> 2) << 5)
                     | (color.b as u16 >> 3);
-                let pixel = if target.format == ColorFormat::RGB565Swapped {
+                let pixel = if format == ColorFormat::RGB565Swapped {
                     [(px16 >> 8) as u8, px16 as u8]
                 } else {
                     [px16 as u8, (px16 >> 8) as u8]
@@ -570,7 +579,8 @@ mod corner_check {
         let mut out = std::vec![std::vec![0u8; w as usize]; h as usize];
         for py in 0..h {
             for px in 0..w {
-                out[py as usize][px as usize] = backend.target.get_pixel(px, py).r;
+                out[py as usize][px as usize] =
+                    backend.target.read_pixels().unwrap().get_pixel(px, py).r;
             }
         }
         out
@@ -700,7 +710,8 @@ mod corner_check {
         let mut out = std::vec![std::vec![0u8; w as usize]; h as usize];
         for py in 0..h {
             for px in 0..w {
-                out[py as usize][px as usize] = backend.target.get_pixel(px, py).r;
+                out[py as usize][px as usize] =
+                    backend.target.read_pixels().unwrap().get_pixel(px, py).r;
             }
         }
         out
@@ -845,7 +856,8 @@ mod corner_check {
         let mut out = std::vec![std::vec![Color::rgba(0,0,0,0); w as usize]; h as usize];
         for py in 0..h {
             for px in 0..w {
-                out[py as usize][px as usize] = backend.target.get_pixel(px, py);
+                out[py as usize][px as usize] =
+                    backend.target.read_pixels().unwrap().get_pixel(px, py);
             }
         }
         out
@@ -881,7 +893,8 @@ mod corner_check {
         let mut out = std::vec![std::vec![Color::rgba(0,0,0,0); w as usize]; h as usize];
         for py in 0..h {
             for px in 0..w {
-                out[py as usize][px as usize] = backend.target.get_pixel(px, py);
+                out[py as usize][px as usize] =
+                    backend.target.read_pixels().unwrap().get_pixel(px, py);
             }
         }
         out
@@ -984,13 +997,13 @@ mod corner_check {
         // in the middle slab band (away from corners); guard must not
         // have eaten it together with the empty top/bottom bands.
         assert_eq!(
-            backend.target.get_pixel(1, 8).a,
+            backend.target.read_pixels().unwrap().get_pixel(1, 8).a,
             255,
             "clipped middle slab pixel (1,8) should be drawn"
         );
         // (2, 4) is inside the TL corner bbox AND inside the clip;
         // SDF coverage should write at least a partial pixel here.
-        let corner = backend.target.get_pixel(2, 4);
+        let corner = backend.target.read_pixels().unwrap().get_pixel(2, 4);
         assert!(
             corner.a > 0,
             "TL corner pixel (2,4) should be at least partially drawn, got a={}",
@@ -998,7 +1011,7 @@ mod corner_check {
         );
         // Outside clip — must remain untouched.
         assert_eq!(
-            backend.target.get_pixel(20, 12).a,
+            backend.target.read_pixels().unwrap().get_pixel(20, 12).a,
             0,
             "pixel outside clip should not be written"
         );
@@ -1011,8 +1024,16 @@ mod corner_check {
             Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         tex.alpha_mode = crate::render::texture::AlphaMode::Blend;
         let folded = ((128u16 * 128) / 255) as u8;
-        super::fill_axis_aligned(&mut tex, 0, 0, 4, 4, &Color::rgba(255, 0, 0, 128), folded);
-        let p = tex.get_pixel(2, 2);
+        super::fill_axis_aligned(
+            &mut tex.pixels_mut().unwrap(),
+            0,
+            0,
+            4,
+            4,
+            &Color::rgba(255, 0, 0, 128),
+            folded,
+        );
+        let p = tex.read_pixels().unwrap().get_pixel(2, 2);
         let expected = folded as i32;
         assert!(
             (p.a as i32 - expected).abs() <= 2,
@@ -1125,20 +1146,20 @@ mod clip_mask_check {
 
         backend.pop_clip();
 
-        let center = backend.target.get_pixel(16, 16);
+        let center = backend.target.read_pixels().unwrap().get_pixel(16, 16);
         assert_eq!(
             center.r, 255,
             "center pixel (inside circle) should be filled red"
         );
 
-        let corner = backend.target.get_pixel(0, 0);
+        let corner = backend.target.read_pixels().unwrap().get_pixel(0, 0);
         assert_eq!(
             corner.r, 0,
             "corner pixel (outside circle) must be untouched, got r={}",
             corner.r
         );
 
-        let edge = backend.target.get_pixel(31, 16);
+        let edge = backend.target.read_pixels().unwrap().get_pixel(31, 16);
         assert_eq!(
             edge.r, 0,
             "right-edge pixel (outside circle) must be untouched, got r={}",
@@ -1164,7 +1185,7 @@ mod clip_mask_check {
             255,
         );
 
-        assert_eq!(backend.target.get_pixel(0, 0).r, 255);
-        assert_eq!(backend.target.get_pixel(7, 7).r, 255);
+        assert_eq!(backend.target.read_pixels().unwrap().get_pixel(0, 0).r, 255);
+        assert_eq!(backend.target.read_pixels().unwrap().get_pixel(7, 7).r, 255);
     }
 }

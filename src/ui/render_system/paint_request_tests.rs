@@ -141,12 +141,26 @@ fn inline_requests_without_outputs_schedule_one_redraw_and_stop_when_unrequested
     app.render().unwrap();
     assert_eq!(probe(&app.world, requester).calls.get(), 1);
     assert!(app.world.has::<VisualDirty>(requester));
-    assert_eq!(app.backend.framebuffer().get_pixel(1, 1), RED);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(1, 1),
+        RED
+    );
 
     probe(&app.world, requester).requests.set(false);
     app.render_dirty().unwrap();
     assert_eq!(probe(&app.world, requester).calls.get(), 2);
-    assert_eq!(app.backend.framebuffer().get_pixel(1, 1), BLUE);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(1, 1),
+        BLUE
+    );
     assert_idle(&mut app);
     assert_eq!(probe(&app.world, requester).calls.get(), 2);
     assert!(app.world.resource::<Outputs<WidgetTexture>>().is_none());
@@ -267,7 +281,16 @@ fn published_capture_requests_survive_parent_capture_and_main_target_failure() {
             Err(RenderError::BackendFailure)
         );
         let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
-        assert_eq!(outputs.get(inner).unwrap().texture().get_pixel(1, 1), RED);
+        assert_eq!(
+            outputs
+                .get(inner)
+                .unwrap()
+                .texture()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(1, 1),
+            RED
+        );
         assert_eq!(outputs.get(outer).is_some(), !fail_parent_capture);
         assert_eq!(probe(&app.world, inner).calls.get(), 1);
         assert_eq!(
@@ -384,7 +407,14 @@ fn capture_requests_rebuild_each_enclosing_output_once_in_the_next_batch() {
     assert_eq!(second_inner, first_outer + 1);
     assert_eq!(second_outer, second_inner + 1);
     assert!(second_inner > first_inner);
-    assert_eq!(app.backend.framebuffer().get_pixel(1, 1), BLUE);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(1, 1),
+        BLUE
+    );
 
     assert_idle(&mut app);
     assert_eq!(probe(&app.world, inner).calls.get(), 2);
@@ -413,7 +443,11 @@ fn request_driven_inline_redraw_is_allocation_free_after_warmup() {
             let expected_calls = warm_calls + frame;
             assert_eq!(probe(&app.world, requester).calls.get(), expected_calls);
             assert_eq!(
-                app.backend.framebuffer().get_pixel(1, 1),
+                app.backend
+                    .framebuffer()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(1, 1),
                 painted_color(expected_calls)
             );
         }

@@ -195,8 +195,11 @@ fn scroll_updates_following_geometry_and_source_clip_before_input() {
     );
     app.render_dirty().unwrap();
     let pixels = app.backend.framebuffer();
-    assert_eq!(pixels.get_pixel(20, 4), Color::rgb(0, 0, 0));
-    assert_eq!(pixels.get_pixel(20, 10), BLUE);
+    assert_eq!(
+        pixels.read_pixels().unwrap().get_pixel(20, 4),
+        Color::rgb(0, 0, 0)
+    );
+    assert_eq!(pixels.read_pixels().unwrap().get_pixel(20, 10), BLUE);
 }
 
 #[test]
@@ -208,7 +211,11 @@ fn hidden_deleted_and_cyclic_sources_cannot_leave_visible_followers() {
     app.render_dirty().unwrap();
     assert!(hidden(&app.world, follower));
     assert_eq!(
-        app.backend.framebuffer().get_pixel(20, 16),
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(20, 16),
         Color::rgb(0, 0, 0)
     );
     app.world.remove::<Hidden>(source);
@@ -243,8 +250,11 @@ fn transformed_offscreen_followers_keep_source_clipping() {
     app.render().unwrap();
     assert!(!hidden(&app.world, follower));
     let pixels = app.backend.framebuffer();
-    assert_eq!(pixels.get_pixel(20, 4), Color::rgb(0, 0, 0));
-    assert_eq!(pixels.get_pixel(20, 12), BLUE);
+    assert_eq!(
+        pixels.read_pixels().unwrap().get_pixel(20, 4),
+        Color::rgb(0, 0, 0)
+    );
+    assert_eq!(pixels.read_pixels().unwrap().get_pixel(20, 12), BLUE);
 }
 
 #[test]

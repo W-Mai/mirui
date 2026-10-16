@@ -108,7 +108,11 @@ fn capture_pixels(world: &World) -> [Color; 16 * 16] {
     let mut pixels = [BLACK; 16 * 16];
     for y in 0..16 {
         for x in 0..16 {
-            pixels[y * 16 + x] = output.texture().get_pixel(x as i32, y as i32);
+            pixels[y * 16 + x] = output
+                .texture()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(x as i32, y as i32);
         }
     }
     pixels
@@ -132,11 +136,21 @@ fn changing_drop_effect_alpha_and_opacity_repaints_without_warm_allocations() {
     let mut app = test_app((0, 0), BUDGET);
     app.render().unwrap();
     let bright = capture_pixels(&app.world);
-    let bright_halo = app.backend.framebuffer().get_pixel(10, 7);
+    let bright_halo = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .get_pixel(10, 7);
     change_alpha_and_opacity(&mut app.world, false);
     app.render_dirty().unwrap();
     let dim = capture_pixels(&app.world);
-    let dim_halo = app.backend.framebuffer().get_pixel(10, 7);
+    let dim_halo = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .get_pixel(10, 7);
     assert_ne!(bright, dim);
     assert!(bright_halo.r > dim_halo.r);
     assert!(bright_halo.g > dim_halo.g);
@@ -187,15 +201,36 @@ fn mirror_shadow_and_glow_share_the_exact_peak_budget_and_clear_reused_pixels() 
     assert_eq!(pixels[17], WHITE);
     assert!(pixels[7 * 16 + 10].r > 0);
     assert!(pixels[7 * 16 + 10].g > 0);
-    assert_eq!(app.backend.framebuffer().get_pixel(22, 0), BLUE);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(22, 0),
+        BLUE
+    );
 
     let source = app.world.find_by_id("source").unwrap();
     app.world.get_mut::<Style>(source).unwrap().bg_color =
         Some(Color::rgba(255, 255, 255, 0).into());
     app.render_dirty().unwrap();
     assert!(capture_pixels(&app.world).iter().all(|pixel| pixel.a == 0));
-    assert_eq!(app.backend.framebuffer().get_pixel(10, 7), BLACK);
-    assert_eq!(app.backend.framebuffer().get_pixel(22, 0), BLUE);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(10, 7),
+        BLACK
+    );
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(22, 0),
+        BLUE
+    );
 }
 
 #[test]
@@ -208,12 +243,32 @@ fn rejected_drop_workspace_keeps_sources_and_independent_outputs_available() {
     for (name, expected) in [("source", WHITE), ("independent", BLUE)] {
         let entity = app.world.find_by_id(name).unwrap();
         assert_eq!(
-            outputs.get(entity).unwrap().texture().get_pixel(0, 0),
+            outputs
+                .get(entity)
+                .unwrap()
+                .texture()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(0, 0),
             expected
         );
     }
-    assert_eq!(app.backend.framebuffer().get_pixel(10, 7), BLACK);
-    assert_eq!(app.backend.framebuffer().get_pixel(22, 0), BLUE);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(10, 7),
+        BLACK
+    );
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(22, 0),
+        BLUE
+    );
 }
 
 #[test]
@@ -229,8 +284,18 @@ fn nonzero_capture_origin_is_removed_once_from_source_anchored_drop_effects() {
     for y in 0..16 {
         for x in 0..16 {
             assert_eq!(
-                shifted.backend.framebuffer().get_pixel(x + 4, y + 4),
-                reference.backend.framebuffer().get_pixel(x, y),
+                shifted
+                    .backend
+                    .framebuffer()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(x + 4, y + 4),
+                reference
+                    .backend
+                    .framebuffer()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(x, y),
             );
         }
     }
@@ -274,7 +339,14 @@ fn oversized_radius_and_offsets_are_rejected_without_poisoning_other_outputs() {
     app.world.get_mut::<DropGlow>(glow).unwrap().blur_radius = Fixed::MAX;
     app.render().unwrap();
     assert_eq!(capture_pixels(&app.world)[7 * 16 + 10].a, 0);
-    assert_eq!(app.backend.framebuffer().get_pixel(22, 0), BLUE);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(22, 0),
+        BLUE
+    );
 
     let effect = app.world.get_mut::<DropShadow>(shadow).unwrap();
     effect.blur_radius = Fixed::ONE;
@@ -289,5 +361,12 @@ fn oversized_radius_and_offsets_are_rejected_without_poisoning_other_outputs() {
             .get(independent)
             .is_some()
     );
-    assert_eq!(app.backend.framebuffer().get_pixel(22, 0), BLUE);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(22, 0),
+        BLUE
+    );
 }

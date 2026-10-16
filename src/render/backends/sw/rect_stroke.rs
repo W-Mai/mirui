@@ -39,6 +39,9 @@ impl SwRenderer<'_> {
         let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
         let target_w = self.target.width as usize;
 
+        let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
+            return;
+        };
         for py in px_y0..px_y1 {
             let row_mask_off = py as usize * target_w;
             for px in px_x0..px_x1 {
@@ -78,12 +81,7 @@ impl SwRenderer<'_> {
                     None => base_opa,
                 };
                 if final_opa > 0 {
-                    self.target.blend_pixel(
-                        Fixed::from_int(px),
-                        Fixed::from_int(py),
-                        color,
-                        final_opa,
-                    );
+                    target.blend_pixel(Fixed::from_int(px), Fixed::from_int(py), color, final_opa);
                 }
             }
         }

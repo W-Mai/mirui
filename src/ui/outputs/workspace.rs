@@ -74,12 +74,12 @@ mod tests {
             assert_eq!(texture.alpha_mode, AlphaMode::Blend);
             assert!(texture.transient);
             assert_eq!(workspace.capacity(), layout.required_bytes());
-            texture.set_pixel(1, 1, &expected);
+            texture.pixels_mut().unwrap().set_pixel(1, 1, &expected);
             assert!(!workspace.with_texture(layout, |_| panic!("nested plane lease")));
         }));
         let allocations = tracked_allocations(|| {
             assert!(workspace.with_texture(layout, |texture| {
-                assert_eq!(texture.get_pixel(1, 1), expected);
+                assert_eq!(texture.read_pixels().unwrap().get_pixel(1, 1), expected);
             }));
         });
         assert_eq!(allocations, 0);

@@ -638,14 +638,24 @@ mod tests {
             app.render_dirty().unwrap();
             let partial: Vec<_> = (0..128)
                 .flat_map(|y| (0..128).map(move |x| (x, y)))
-                .map(|(x, y)| app.backend.framebuffer().get_pixel(x, y))
+                .map(|(x, y)| {
+                    app.backend
+                        .framebuffer()
+                        .read_pixels()
+                        .unwrap()
+                        .get_pixel(x, y)
+                })
                 .collect();
             app.render().unwrap();
             for y in 0..128 {
                 for x in 0..128 {
                     assert_eq!(
                         partial[(y * 128 + x) as usize],
-                        app.backend.framebuffer().get_pixel(x, y),
+                        app.backend
+                            .framebuffer()
+                            .read_pixels()
+                            .unwrap()
+                            .get_pixel(x, y),
                         "pixel ({x}, {y})"
                     );
                 }

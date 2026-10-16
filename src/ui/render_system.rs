@@ -6159,7 +6159,7 @@ mod clip_children_check {
         super::render(&world, root, &viewport, &mut renderer).unwrap();
 
         for x in 0..8 {
-            let c = renderer.target.get_pixel(x, 32);
+            let c = renderer.target.read_pixels().unwrap().get_pixel(x, 32);
             assert_eq!(
                 c.r, 255,
                 "x={x} should be red (inside mask), got rgb({}, {}, {})",
@@ -6167,7 +6167,7 @@ mod clip_children_check {
             );
         }
         for x in 8..64 {
-            let c = renderer.target.get_pixel(x, 32);
+            let c = renderer.target.read_pixels().unwrap().get_pixel(x, 32);
             assert_eq!(
                 c.r, 0,
                 "x={x} should be black (clipped), got rgb({}, {}, {})",
@@ -6230,7 +6230,7 @@ mod clip_children_check {
         super::render(&world, root, &viewport, &mut renderer).unwrap();
 
         for x in 0..64 {
-            let c = renderer.target.get_pixel(x, 32);
+            let c = renderer.target.read_pixels().unwrap().get_pixel(x, 32);
             assert_eq!(c.r, 255, "x={x} should be red (no clip), got r={}", c.r);
         }
     }
@@ -6291,7 +6291,7 @@ mod clip_children_check {
         super::render(&world, root, &viewport, &mut renderer).unwrap();
 
         for x in 0..64 {
-            let c = renderer.target.get_pixel(x, 32);
+            let c = renderer.target.read_pixels().unwrap().get_pixel(x, 32);
             assert_eq!(
                 c.r, 0,
                 "x={x} leaked red ({}), mask width=0 must hide it",
@@ -6595,7 +6595,10 @@ mod clip_children_check {
                 Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             super::render(&world, root, &viewport, &mut renderer).unwrap();
-            assert_eq!(renderer.target.get_pixel(16, 16).b, 255);
+            assert_eq!(
+                renderer.target.read_pixels().unwrap().get_pixel(16, 16).b,
+                255
+            );
         }
         seed_prev_rects(&mut world, root, &viewport);
 
@@ -6615,8 +6618,14 @@ mod clip_children_check {
                 Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
             let mut renderer = SwRenderer::new(tex);
             super::render_region(&world, root, &viewport, &dirty, &mut renderer).unwrap();
-            assert_eq!(renderer.target.get_pixel(16, 16).b, 0);
-            assert_eq!(renderer.target.get_pixel(25, 25).b, 255);
+            assert_eq!(
+                renderer.target.read_pixels().unwrap().get_pixel(16, 16).b,
+                0
+            );
+            assert_eq!(
+                renderer.target.read_pixels().unwrap().get_pixel(25, 25).b,
+                255
+            );
         }
     }
 
@@ -6688,8 +6697,8 @@ mod clip_children_check {
             Texture::new(&mut region, 64, 64, ColorFormat::RGBA8888).expect("valid pixel storage");
         for y in 0..64 {
             for x in 0..64 {
-                let full_blue = full_tex.get_pixel(x, y).b == 255;
-                let region_blue = region_tex.get_pixel(x, y).b == 255;
+                let full_blue = full_tex.read_pixels().unwrap().get_pixel(x, y).b == 255;
+                let region_blue = region_tex.read_pixels().unwrap().get_pixel(x, y).b == 255;
                 assert_eq!(
                     region_blue, full_blue,
                     "dirty render mismatch at ({x},{y}), dirty={:?}",
@@ -6772,7 +6781,7 @@ mod hidden_check {
         super::render(&world, root, &viewport, &mut renderer).unwrap();
 
         for x in 0..32 {
-            let c = renderer.target.get_pixel(x, 16);
+            let c = renderer.target.read_pixels().unwrap().get_pixel(x, 16);
             assert_eq!(
                 c.r, 0,
                 "x={x} should be root bg (black), Hidden child leaked red ({})",
@@ -6847,7 +6856,7 @@ mod disabled_state_check {
         super::render(&world, root, &viewport, &mut renderer).unwrap();
 
         let expected = theme.blend_color_in(red, WidgetState::Disabled);
-        let actual = renderer.target.get_pixel(16, 16);
+        let actual = renderer.target.read_pixels().unwrap().get_pixel(16, 16);
         assert_eq!(
             actual.r, expected.r,
             "r mismatch: got {} want {}",
@@ -6928,7 +6937,10 @@ mod offscreen_render_check {
             .unwrap()
             .get(probe.source)
             .expect("a completed source stays readable while another subtree renders");
-        assert_eq!(source.texture().get_pixel(1, 1), Color::rgb(64, 128, 255));
+        assert_eq!(
+            source.texture().read_pixels().unwrap().get_pixel(1, 1),
+            Color::rgb(64, 128, 255)
+        );
         probe.calls.set(probe.calls.get() + 1);
         if probe.fail {
             paint.fail(RenderError::BackendFailure);
@@ -7004,6 +7016,8 @@ mod offscreen_render_check {
                 .get(consumer)
                 .unwrap()
                 .texture()
+                .read_pixels()
+                .unwrap()
                 .get_pixel(1, 1),
             Color::rgb(64, 128, 255)
         );
@@ -7058,7 +7072,10 @@ mod offscreen_render_check {
             .expect("completed source remains cached");
         let texture = source.texture();
         assert_eq!(texture.cache_revision, revision);
-        assert_eq!(texture.get_pixel(1, 1), Color::rgb(64, 128, 255));
+        assert_eq!(
+            texture.read_pixels().unwrap().get_pixel(1, 1),
+            Color::rgb(64, 128, 255)
+        );
     }
 
     #[test]
@@ -7100,6 +7117,8 @@ mod offscreen_render_check {
                     .get(source)
                     .unwrap()
                     .texture()
+                    .read_pixels()
+                    .unwrap()
                     .get_pixel(1, 1),
                 Color::rgb(64, 128, 255)
             );
@@ -7134,7 +7153,10 @@ mod offscreen_render_check {
         let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
         let output = outputs.get(panel).expect("completed subtree output");
         assert_eq!((output.texture().width, output.texture().height), (32, 32));
-        assert_eq!(output.texture().get_pixel(1, 1), Color::rgb(64, 128, 255));
+        assert_eq!(
+            output.texture().read_pixels().unwrap().get_pixel(1, 1),
+            Color::rgb(64, 128, 255)
+        );
     }
 
     #[test]
@@ -8188,7 +8210,13 @@ mod offscreen_render_check {
                 first_version
             );
             assert_eq!(
-                outputs.get(panel).unwrap().texture().get_pixel(1, 1),
+                outputs
+                    .get(panel)
+                    .unwrap()
+                    .texture()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(1, 1),
                 Color::rgb(0, 255, 0)
             );
         }
@@ -8577,7 +8605,7 @@ mod offscreen_render_check {
                         .expect("source-specific current buffer");
                     assert_eq!(current.texture().format, format);
                     assert_eq!(
-                        current.texture().get_pixel(1, 1),
+                        current.texture().read_pixels().unwrap().get_pixel(1, 1),
                         if entity == transparent {
                             Color::rgb(255, 0, 0)
                         } else {
@@ -8674,7 +8702,10 @@ mod offscreen_render_check {
             render_frame(&mut world, &mut buf);
             let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
             let current = outputs.get(panel).unwrap();
-            assert_eq!(current.texture().get_pixel(1, 1), color);
+            assert_eq!(
+                current.texture().read_pixels().unwrap().get_pixel(1, 1),
+                color
+            );
             assert!(current.texture().cache_revision > prior_revision);
             assert!(!current.texture().transient);
             prior_revision = current.texture().cache_revision;
@@ -8683,7 +8714,10 @@ mod offscreen_render_check {
                 assert!(outputs.previous(panel).is_none());
             } else {
                 let previous = outputs.previous(panel).unwrap();
-                assert_eq!(previous.texture().get_pixel(1, 1), colors[index - 1]);
+                assert_eq!(
+                    previous.texture().read_pixels().unwrap().get_pixel(1, 1),
+                    colors[index - 1]
+                );
                 if index == 1 {
                     assert_eq!(previous.texture().buf.as_slice().as_ptr(), first_pixels);
                     assert_ne!(current.texture().buf.as_slice().as_ptr(), first_pixels);
@@ -9163,12 +9197,17 @@ mod offscreen_render_check {
                 .get(source)
                 .unwrap()
                 .texture()
+                .read_pixels()
+                .unwrap()
                 .get_pixel(1, 1),
             Color::rgb(255, 0, 0)
         );
         let mut backend = app.into_backend();
         let pixels = backend.framebuffer();
-        assert_eq!(pixels.get_pixel(1, 17), Color::rgb(255, 0, 0));
+        assert_eq!(
+            pixels.read_pixels().unwrap().get_pixel(1, 17),
+            Color::rgb(255, 0, 0)
+        );
     }
 
     #[test]

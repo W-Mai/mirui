@@ -273,13 +273,23 @@ mod tests {
         let outputs = Outputs::<WidgetTexture>::with_budget(64 * 1024);
         let key = texture_key(1, 0);
         let mut write = outputs.prepare_texture(key).expect("texture storage");
-        write.texture_mut().set_pixel(0, 0, &Color::rgb(17, 31, 47));
+        write
+            .texture_mut()
+            .pixels_mut()
+            .unwrap()
+            .set_pixel(0, 0, &Color::rgb(17, 31, 47));
         assert!(outputs.get(key.entity).is_none());
         assert!(outputs.previous(key.entity).is_none());
 
         assert!(write.publish());
         assert_eq!(
-            outputs.get(key.entity).unwrap().texture().get_pixel(0, 0),
+            outputs
+                .get(key.entity)
+                .unwrap()
+                .texture()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(0, 0),
             Color::rgb(17, 31, 47)
         );
     }
@@ -497,6 +507,8 @@ mod tests {
             .expect("replacement texture storage");
         write
             .texture_mut()
+            .pixels_mut()
+            .unwrap()
             .set_pixel(0, 0, &Color::rgb(200, 100, 50));
         assert!(outputs.get(key.entity).is_none());
         drop(write);
@@ -561,7 +573,11 @@ mod tests {
         {
             let _batch = outputs.begin_batch();
             let mut write = outputs.prepare_texture(texture_key(1, 2)).unwrap();
-            write.texture_mut().set_pixel(0, 0, &first);
+            write
+                .texture_mut()
+                .pixels_mut()
+                .unwrap()
+                .set_pixel(0, 0, &first);
             assert!(write.publish());
             assert!(outputs.previous(entity).is_none());
         }
@@ -569,17 +585,39 @@ mod tests {
             let _batch = outputs.begin_batch();
             let mut write = outputs.prepare_texture(texture_key(1, 11)).unwrap();
             assert_eq!(
-                outputs.previous(entity).unwrap().texture().get_pixel(0, 0),
+                outputs
+                    .previous(entity)
+                    .unwrap()
+                    .texture()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(0, 0),
                 first
             );
-            write.texture_mut().set_pixel(0, 0, &second);
+            write
+                .texture_mut()
+                .pixels_mut()
+                .unwrap()
+                .set_pixel(0, 0, &second);
             assert!(write.publish());
             assert_eq!(
-                outputs.get(entity).unwrap().texture().get_pixel(0, 0),
+                outputs
+                    .get(entity)
+                    .unwrap()
+                    .texture()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(0, 0),
                 second
             );
             assert_eq!(
-                outputs.previous(entity).unwrap().texture().get_pixel(0, 0),
+                outputs
+                    .previous(entity)
+                    .unwrap()
+                    .texture()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(0, 0),
                 first
             );
             assert!(outputs.prepare_texture(texture_key(2, 0)).is_none());
@@ -590,7 +628,13 @@ mod tests {
             drop(write);
             assert!(outputs.get(entity).is_none());
             assert_eq!(
-                outputs.previous(entity).unwrap().texture().get_pixel(0, 0),
+                outputs
+                    .previous(entity)
+                    .unwrap()
+                    .texture()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(0, 0),
                 second
             );
         }
@@ -707,14 +751,24 @@ mod tests {
                     ..texture_key(0, 7)
                 })
                 .unwrap();
-            write.texture_mut().set_pixel(0, 0, &expected);
+            write
+                .texture_mut()
+                .pixels_mut()
+                .unwrap()
+                .set_pixel(0, 0, &expected);
             assert!(write.publish());
             assert!(outputs.previous(source).is_none());
         }
         {
             let _batch = outputs.begin_batch();
             assert_eq!(
-                outputs.previous(source).unwrap().texture().get_pixel(0, 0),
+                outputs
+                    .previous(source)
+                    .unwrap()
+                    .texture()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(0, 0),
                 expected
             );
         }

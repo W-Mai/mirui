@@ -7,7 +7,7 @@ use crate::render::renderer::{
     DrawRequest, FallbackRegion, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute,
     Renderer,
 };
-use crate::render::texture::{Texture, TexturePixels};
+use crate::render::texture::{Texture, TexturePixels, TexturePixelsMut};
 
 #[cfg(feature = "perf")]
 pub mod perf;
@@ -38,6 +38,22 @@ pub struct SwRenderer<'a> {
     failure: Option<RenderError>,
     #[cfg(feature = "perf")]
     pub perf: Option<PerfCtx>,
+}
+
+fn write_pixels<'a>(
+    target: &'a mut Texture<'_>,
+    failure: &mut Option<RenderError>,
+) -> Option<TexturePixelsMut<'a>> {
+    if failure.is_some() {
+        return None;
+    }
+    match target.pixels_mut() {
+        Ok(pixels) => Some(pixels),
+        Err(error) => {
+            *failure = Some(error);
+            None
+        }
+    }
 }
 
 pub(crate) struct SwScratch {
@@ -224,8 +240,11 @@ impl<'a> SwRenderer<'a> {
             }
             DrawCommand::ApplyBlur { alpha, region } => {
                 let phys_region = self.viewport.rect_to_physical(*region);
+                let Some(mut target) = write_pixels(&mut self.target, &mut self.failure) else {
+                    return;
+                };
                 crate::render::backends::sw::blur::iir_blur_inplace(
-                    &mut self.target,
+                    &mut target,
                     *alpha,
                     phys_region,
                 );
@@ -233,7 +252,10 @@ impl<'a> SwRenderer<'a> {
             DrawCommand::Fill {
                 area, color, opa, ..
             } => {
-                fill_rect_transformed(&mut self.target, *area, phys_clip, &phys_tf, color, *opa);
+                let Some(mut target) = write_pixels(&mut self.target, &mut self.failure) else {
+                    return;
+                };
+                fill_rect_transformed(&mut target, *area, phys_clip, &phys_tf, color, *opa);
             }
             DrawCommand::Blit {
                 pos,
@@ -263,14 +285,10 @@ impl<'a> SwRenderer<'a> {
                     w: size.x,
                     h: size.y,
                 };
-                blit_transformed(
-                    &mut self.target,
-                    &pixels,
-                    &src_rect,
-                    dst,
-                    phys_clip,
-                    &phys_tf,
-                );
+                let Some(mut target) = write_pixels(&mut self.target, &mut self.failure) else {
+                    return;
+                };
+                blit_transformed(&mut target, &pixels, &src_rect, dst, phys_clip, &phys_tf);
             }
             DrawCommand::FillPath {
                 path,
@@ -555,9 +573,12 @@ impl<'a> Canvas for SwRenderer<'a> {
             return;
         };
         let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
+        let Some(mut target) = write_pixels(&mut self.target, &mut self.failure) else {
+            return;
+        };
         for py in px_y0..px_y1 {
             for px in px_x0..px_x1 {
-                self.target.set_pixel(px, py, color);
+                target.set_pixel(px, py, color);
             }
         }
     }
@@ -622,8 +643,11 @@ impl SwRenderer<'_> {
         ];
         let s = self.viewport.scale();
         let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
+        let Some(mut target) = write_pixels(&mut self.target, &mut self.failure) else {
+            return;
+        };
         fill_rect_quad(
-            &mut self.target,
+            &mut target,
             &phys_q,
             phys_clip,
             color,
@@ -663,8 +687,11 @@ impl SwRenderer<'_> {
         ];
         let scale = self.viewport.scale();
         let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
+        let Some(mut target) = write_pixels(&mut self.target, &mut self.failure) else {
+            return;
+        };
         blit_quad(
-            &mut self.target,
+            &mut target,
             &pixels,
             &phys_q,
             phys_clip,
@@ -700,8 +727,11 @@ impl SwRenderer<'_> {
         ];
         let s = self.viewport.scale();
         let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
+        let Some(mut target) = write_pixels(&mut self.target, &mut self.failure) else {
+            return;
+        };
         stroke_rect_quad(
-            &mut self.target,
+            &mut target,
             &phys_q,
             phys_clip,
             color,
@@ -1069,8 +1099,11 @@ impl SwRenderer<'_> {
             DrawCommand::ApplyBlur { alpha, region } => {
                 crate::trace_span!("sw.apply_blur");
                 let phys_region = self.viewport.rect_to_physical(*region);
+                let Some(mut target) = write_pixels(&mut self.target, &mut self.failure) else {
+                    return;
+                };
                 crate::render::backends::sw::blur::iir_blur_inplace(
-                    &mut self.target,
+                    &mut target,
                     *alpha,
                     phys_region,
                 );
@@ -1948,7 +1981,10 @@ mod tests {
             opa: 255,
         };
         renderer.submit(&DrawRequest::new(&fill, clip)).unwrap();
-        assert_eq!(renderer.target.get_pixel(3, 4), Color::rgb(20, 30, 40));
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(3, 4),
+            Color::rgb(20, 30, 40)
+        );
 
         let unsupported = DrawCommand::Fill {
             area: clip,
@@ -1962,7 +1998,10 @@ mod tests {
             renderer.submit(&DrawRequest::new(&unsupported, clip)),
             Err(RenderError::Unsupported(RenderFeature::RoundedFill))
         );
-        assert_eq!(renderer.target.get_pixel(3, 4), Color::rgb(20, 30, 40));
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(3, 4),
+            Color::rgb(20, 30, 40)
+        );
     }
 
     /// Blit dst origin at a negative x — common when an OffscreenRender
@@ -2011,7 +2050,7 @@ mod tests {
 
         for y in 8..40 {
             for x in 0..8 {
-                let p = backend.target.get_pixel(x, y);
+                let p = backend.target.read_pixels().unwrap().get_pixel(x, y);
                 assert_eq!(
                     (p.r, p.g, p.b),
                     (200, 100, 50),
@@ -2030,7 +2069,7 @@ mod tests {
                 if in_visible {
                     continue;
                 }
-                let p = backend.target.get_pixel(x, y);
+                let p = backend.target.read_pixels().unwrap().get_pixel(x, y);
                 assert_eq!(
                     (p.r, p.g, p.b, p.a),
                     (0, 0, 0, 0),
@@ -2084,7 +2123,7 @@ mod tests {
 
         for y in 8..40 {
             for x in 0..8 {
-                let p = backend.target.get_pixel(x, y);
+                let p = backend.target.read_pixels().unwrap().get_pixel(x, y);
                 assert_eq!(p.r, 255, "visible pixel ({},{}) should be red", x, y);
             }
         }
@@ -2120,12 +2159,12 @@ mod tests {
         let clip = Rect::new(0, 0, 16, 16);
         backend.fill_rect(&rect, &clip, &Color::rgb(255, 0, 0), Fixed::ZERO, 255);
 
-        let c = backend.target.get_pixel(3, 3);
+        let c = backend.target.read_pixels().unwrap().get_pixel(3, 3);
         assert_eq!(c.r, 255);
         assert_eq!(c.g, 0);
         assert_eq!(c.b, 0);
 
-        let c = backend.target.get_pixel(0, 0);
+        let c = backend.target.read_pixels().unwrap().get_pixel(0, 0);
         assert_eq!(c.r, 0);
     }
 
@@ -2137,7 +2176,7 @@ mod tests {
 
         backend.clear(&Rect::new(0, 0, 8, 8), &Color::rgb(50, 100, 150));
 
-        let c = backend.target.get_pixel(4, 4);
+        let c = backend.target.read_pixels().unwrap().get_pixel(4, 4);
         assert_eq!(c.r, 50);
         assert_eq!(c.g, 100);
         assert_eq!(c.b, 150);
@@ -2167,10 +2206,10 @@ mod tests {
             crate::render::raster::FillRule::EvenOdd,
         );
 
-        let c = backend.target.get_pixel(5, 5);
+        let c = backend.target.read_pixels().unwrap().get_pixel(5, 5);
         assert_eq!(c.b, 255);
         assert_eq!(c.r, 0);
-        let c = backend.target.get_pixel(0, 0);
+        let c = backend.target.read_pixels().unwrap().get_pixel(0, 0);
         assert_eq!(c.b, 0);
     }
 
@@ -2193,7 +2232,7 @@ mod tests {
 
         for y in 0..4 {
             for x in 0..4 {
-                assert_eq!(backend.target.get_pixel(x, y).r, 0);
+                assert_eq!(backend.target.read_pixels().unwrap().get_pixel(x, y).r, 0);
             }
         }
     }
@@ -2220,7 +2259,7 @@ mod tests {
             crate::render::raster::FillRule::EvenOdd,
         );
 
-        assert_eq!(backend.target.get_pixel(2, 2).r, 0);
+        assert_eq!(backend.target.read_pixels().unwrap().get_pixel(2, 2).r, 0);
     }
 
     #[test]
@@ -2257,8 +2296,8 @@ mod tests {
             crate::render::raster::FillRule::EvenOdd,
         );
 
-        assert_eq!(backend.target.get_pixel(2, 2).g, 200);
-        assert_eq!(backend.target.get_pixel(8, 8).g, 0);
+        assert_eq!(backend.target.read_pixels().unwrap().get_pixel(2, 2).g, 200);
+        assert_eq!(backend.target.read_pixels().unwrap().get_pixel(8, 8).g, 0);
     }
 
     #[test]
@@ -2291,7 +2330,7 @@ mod tests {
         let mut found = false;
         for y in 0..16 {
             for x in 0..32 {
-                if backend.target.get_pixel(x, y).r > 0 {
+                if backend.target.read_pixels().unwrap().get_pixel(x, y).r > 0 {
                     found = true;
                     break;
                 }
@@ -2362,9 +2401,9 @@ mod tests {
             &[],
         );
 
-        assert!(backend.target.get_pixel(8, 8).r > 0);
-        assert_eq!(backend.target.get_pixel(8, 0).r, 0);
-        assert_eq!(backend.target.get_pixel(8, 15).r, 0);
+        assert!(backend.target.read_pixels().unwrap().get_pixel(8, 8).r > 0);
+        assert_eq!(backend.target.read_pixels().unwrap().get_pixel(8, 0).r, 0);
+        assert_eq!(backend.target.read_pixels().unwrap().get_pixel(8, 15).r, 0);
     }
 
     #[test]
@@ -2391,7 +2430,7 @@ mod tests {
         let clip = Rect::new(0, 0, 16, 16);
         backend.submit(&DrawRequest::new(&cmd, clip)).unwrap();
 
-        assert!(backend.target.get_pixel(8, 8).r > 0);
+        assert!(backend.target.read_pixels().unwrap().get_pixel(8, 8).r > 0);
     }
 
     #[test]
@@ -2417,7 +2456,8 @@ mod tests {
         let clip = Rect::new(0, 0, 32, 32);
         backend.submit(&DrawRequest::new(&cmd, clip)).unwrap();
 
-        let hit = backend.target.get_pixel(26, 16).g > 0 || backend.target.get_pixel(25, 16).g > 0;
+        let hit = backend.target.read_pixels().unwrap().get_pixel(26, 16).g > 0
+            || backend.target.read_pixels().unwrap().get_pixel(25, 16).g > 0;
         assert!(hit);
     }
 
@@ -2532,7 +2572,10 @@ mod tests {
 
         // The 0°→90° arc runs from (+radius, 0) to (0, +radius) relative to
         // center. Sample a point on the arc and verify green is present.
-        assert!(backend.target.get_pixel(26, 16).g > 0 || backend.target.get_pixel(25, 16).g > 0);
+        assert!(
+            backend.target.read_pixels().unwrap().get_pixel(26, 16).g > 0
+                || backend.target.read_pixels().unwrap().get_pixel(25, 16).g > 0
+        );
     }
 
     #[test]
@@ -2663,7 +2706,7 @@ mod tests {
 
         for y in 0..8 {
             for x in 0..8 {
-                assert_eq!(backend.target.get_pixel(x, y).r, 0);
+                assert_eq!(backend.target.read_pixels().unwrap().get_pixel(x, y).r, 0);
             }
         }
     }
@@ -2684,7 +2727,7 @@ mod tests {
             painter.fill_rect(&rect, &clip, &Color::rgb(0, 255, 0), Fixed::ZERO, 255);
         }
 
-        let c = backend.target.get_pixel(3, 3);
+        let c = backend.target.read_pixels().unwrap().get_pixel(3, 3);
         assert_eq!(c.r, 0);
         assert_eq!(c.g, 255);
         assert_eq!(c.b, 0);
@@ -2748,12 +2791,12 @@ mod tests {
             );
         }
 
-        assert_eq!(backend.target.get_pixel(8, 8).r, 255);
-        assert!(backend.target.get_pixel(24, 24).g > 0);
+        assert_eq!(backend.target.read_pixels().unwrap().get_pixel(8, 8).r, 255);
+        assert!(backend.target.read_pixels().unwrap().get_pixel(24, 24).g > 0);
         assert!(
-            backend.target.get_pixel(28, 8).b > 0
-                || backend.target.get_pixel(27, 8).b > 0
-                || backend.target.get_pixel(28, 9).b > 0,
+            backend.target.read_pixels().unwrap().get_pixel(28, 8).b > 0
+                || backend.target.read_pixels().unwrap().get_pixel(27, 8).b > 0
+                || backend.target.read_pixels().unwrap().get_pixel(28, 9).b > 0,
         );
     }
 
@@ -2790,7 +2833,7 @@ mod tests {
         let mut found = false;
         for y in 0..16 {
             for x in 0..32 {
-                if backend.target.get_pixel(x, y).r > 0 {
+                if backend.target.read_pixels().unwrap().get_pixel(x, y).r > 0 {
                     found = true;
                     break;
                 }
@@ -2825,7 +2868,7 @@ mod tests {
             let mut tex_a =
                 Texture::new(&mut dst_a, 8, 6, ColorFormat::RGBA8888).expect("valid pixel storage");
             blit_generic_slow(
-                &mut tex_a,
+                &mut tex_a.pixels_mut().unwrap(),
                 &src.read_pixels().unwrap(),
                 0,
                 0,
@@ -2846,7 +2889,7 @@ mod tests {
             let mut tex_b =
                 Texture::new(&mut dst_b, 8, 6, ColorFormat::RGBA8888).expect("valid pixel storage");
             blit_dda(
-                &mut tex_b,
+                &mut tex_b.pixels_mut().unwrap(),
                 &src.read_pixels().unwrap(),
                 0,
                 0,
@@ -2899,7 +2942,7 @@ mod tests {
             let mut tex =
                 Texture::new(&mut dst_a, 6, 6, ColorFormat::RGBA8888).expect("valid pixel storage");
             blit_generic_slow(
-                &mut tex,
+                &mut tex.pixels_mut().unwrap(),
                 &src.read_pixels().unwrap(),
                 0,
                 0,
@@ -2920,7 +2963,7 @@ mod tests {
             let mut tex =
                 Texture::new(&mut dst_b, 6, 6, ColorFormat::RGBA8888).expect("valid pixel storage");
             blit_1to1_fast(
-                &mut tex,
+                &mut tex.pixels_mut().unwrap(),
                 &src.read_pixels().unwrap(),
                 0,
                 0,
@@ -2967,7 +3010,7 @@ mod tests {
             let mut tex = Texture::new(&mut dst_a, 6, 6, ColorFormat::RGB565Swapped)
                 .expect("valid pixel storage");
             blit_generic_slow(
-                &mut tex,
+                &mut tex.pixels_mut().unwrap(),
                 &src.read_pixels().unwrap(),
                 0,
                 0,
@@ -2988,7 +3031,7 @@ mod tests {
             let mut tex = Texture::new(&mut dst_b, 6, 6, ColorFormat::RGB565Swapped)
                 .expect("valid pixel storage");
             blit_1to1_fast(
-                &mut tex,
+                &mut tex.pixels_mut().unwrap(),
                 &src.read_pixels().unwrap(),
                 0,
                 0,
@@ -3024,7 +3067,7 @@ mod tests {
             let mut tex = Texture::new(&mut dst_a, 10, 10, ColorFormat::RGB565Swapped)
                 .expect("valid pixel storage");
             blit_dda(
-                &mut tex,
+                &mut tex.pixels_mut().unwrap(),
                 &src.read_pixels().unwrap(),
                 0,
                 0,
@@ -3046,7 +3089,7 @@ mod tests {
             let mut tex = Texture::new(&mut dst_b, 10, 10, ColorFormat::RGB565Swapped)
                 .expect("valid pixel storage");
             blit_2to2_fast(
-                &mut tex,
+                &mut tex.pixels_mut().unwrap(),
                 &src.read_pixels().unwrap(),
                 0,
                 0,
@@ -3078,7 +3121,7 @@ mod tests {
             Texture::new(&mut dst, 6, 6, ColorFormat::RGB565Swapped).expect("valid pixel storage");
         // Clip starts at odd x=1: fast path 2×2 alignment broken → DDA fallback.
         blit_2to2_fast(
-            &mut tex,
+            &mut tex.pixels_mut().unwrap(),
             &src.read_pixels().unwrap(),
             0,
             0,
@@ -3109,12 +3152,19 @@ mod tests {
             .compose(&Transform::rotate_deg(Fixed::from_int(90)))
             .compose(&Transform::translate(Fixed::ZERO - cx, Fixed::ZERO - cy));
         let red = Color::rgb(255, 0, 0);
-        fill_rect_transformed(&mut dst, rect, Rect::new(0, 0, 16, 16), &tf, &red, 255);
+        fill_rect_transformed(
+            &mut dst.pixels_mut().unwrap(),
+            rect,
+            Rect::new(0, 0, 16, 16),
+            &tf,
+            &red,
+            255,
+        );
 
         let mut painted = 0;
         for y in 0..16 {
             for x in 0..16 {
-                if dst.get_pixel(x, y).r == 255 {
+                if dst.read_pixels().unwrap().get_pixel(x, y).r == 255 {
                     painted += 1;
                 }
             }
@@ -3146,9 +3196,18 @@ mod tests {
             &Rect::new(0, 0, 32, 32),
         );
 
-        assert_eq!(renderer.target.get_pixel(20, 20).r, 255);
-        assert_eq!(renderer.target.get_pixel(10, 10).r, 0);
-        assert_eq!(renderer.target.get_pixel(50, 50).r, 0);
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(20, 20).r,
+            255
+        );
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(10, 10).r,
+            0
+        );
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(50, 50).r,
+            0
+        );
     }
 
     #[test]
@@ -3169,7 +3228,7 @@ mod tests {
             let mut tex =
                 Texture::new(&mut dst_a, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
             blit_generic_slow(
-                &mut tex,
+                &mut tex.pixels_mut().unwrap(),
                 &src.read_pixels().unwrap(),
                 0,
                 0,
@@ -3190,7 +3249,7 @@ mod tests {
             let mut tex =
                 Texture::new(&mut dst_b, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
             blit_1to1_fast(
-                &mut tex,
+                &mut tex.pixels_mut().unwrap(),
                 &src.read_pixels().unwrap(),
                 0,
                 0,
@@ -3227,7 +3286,7 @@ mod tests {
             let mut tex_a = Texture::new(&mut dst_a, 10, 10, ColorFormat::RGBA8888)
                 .expect("valid pixel storage");
             blit_generic_slow(
-                &mut tex_a,
+                &mut tex_a.pixels_mut().unwrap(),
                 &src.read_pixels().unwrap(),
                 0,
                 0,
@@ -3248,7 +3307,7 @@ mod tests {
             let mut tex_b = Texture::new(&mut dst_b, 10, 10, ColorFormat::RGBA8888)
                 .expect("valid pixel storage");
             blit_dda(
-                &mut tex_b,
+                &mut tex_b.pixels_mut().unwrap(),
                 &src.read_pixels().unwrap(),
                 0,
                 0,
@@ -3298,7 +3357,9 @@ mod tests {
             assert_eq!(view.stride, 16 * 4);
             for y in 0..view.height as i32 {
                 for x in 0..view.width as i32 {
-                    view.set_pixel(x, y, &Color::rgb(255, 128, 64));
+                    view.pixels_mut()
+                        .unwrap()
+                        .set_pixel(x, y, &Color::rgb(255, 128, 64));
                 }
             }
             Ok(())
@@ -3308,7 +3369,7 @@ mod tests {
         let target = &backend.target;
         for py in 0..16i32 {
             for px in 0..16i32 {
-                let p = target.get_pixel(px, py);
+                let p = target.read_pixels().unwrap().get_pixel(px, py);
                 let in_rect = (4..10).contains(&px) && (4..9).contains(&py);
                 if in_rect {
                     assert_eq!((p.r, p.g, p.b), (255, 128, 64), "in-rect ({px},{py})");
@@ -3400,6 +3461,76 @@ mod tests {
     }
 
     #[test]
+    fn raster_batches_advance_revision_without_pixel_allocations() {
+        let target = Texture::owned(16, 16, ColorFormat::RGBA8888).unwrap();
+        let mut renderer = SwRenderer::new(target);
+        let area = Rect::new(0, 0, 16, 16);
+        let fill = DrawCommand::Fill {
+            area,
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: Color::rgb(30, 60, 90),
+            radius: Fixed::ZERO,
+            opa: 255,
+        };
+        let blur = DrawCommand::ApplyBlur {
+            alpha: Fixed::ONE / 2,
+            region: area,
+        };
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for revision in 1..=4 {
+                renderer.submit(&DrawRequest::new(&fill, area)).unwrap();
+                assert_eq!(renderer.target.cache_revision, revision * 2 - 1);
+                renderer.submit(&DrawRequest::new(&blur, area)).unwrap();
+                assert_eq!(renderer.target.cache_revision, revision * 2);
+            }
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(8, 8),
+            Color::rgb(30, 60, 90)
+        );
+    }
+
+    #[test]
+    fn raster_writes_reject_readonly_targets_without_copying() {
+        let bytes = [0u8; 16];
+        let area = Rect::new(0, 0, 2, 2);
+        let fill = DrawCommand::Fill {
+            area,
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: Color::rgb(30, 60, 90),
+            radius: Fixed::ZERO,
+            opa: 255,
+        };
+        let blur = DrawCommand::ApplyBlur {
+            alpha: Fixed::ONE / 2,
+            region: area,
+        };
+        for command in [&fill, &blur] {
+            let texture = Texture::from_ref(&bytes, 2, 2, ColorFormat::RGBA8888).unwrap();
+            let mut renderer = SwRenderer::new(texture);
+            let allocations = crate::test_support::tracked_allocations(|| {
+                assert_eq!(
+                    renderer.submit(&DrawRequest::new(command, area)),
+                    Err(RenderError::InvalidTexture)
+                );
+                assert_eq!(
+                    Canvas::flush(&mut renderer),
+                    Err(RenderError::InvalidTexture)
+                );
+            });
+            assert_eq!(allocations, 0);
+            assert_eq!(renderer.target.cache_revision, 0);
+            assert_eq!(
+                renderer.target.read_pixels().unwrap().bytes().as_ptr(),
+                bytes.as_ptr()
+            );
+        }
+    }
+
+    #[test]
     fn target_region_access_rejects_invalid_storage_before_writing() {
         let bytes = [0u8; 16];
         let mut renderer =
@@ -3458,7 +3589,7 @@ mod tests {
         // their post-shift contents are unspecified and not checked.
         for y in 0..6 {
             let src_y_before = y + 2;
-            let p = backend.target.get_pixel(0, y);
+            let p = backend.target.read_pixels().unwrap().get_pixel(0, y);
             assert_eq!(
                 p.r,
                 (src_y_before * 30) as u8,
@@ -3491,7 +3622,7 @@ mod tests {
 
         for y in 2..8 {
             let src_y_before = y - 2;
-            let p = backend.target.get_pixel(0, y);
+            let p = backend.target.read_pixels().unwrap().get_pixel(0, y);
             assert_eq!(
                 p.r,
                 (src_y_before * 30) as u8,
@@ -3578,7 +3709,7 @@ mod tests {
 
         for x in 0..6 {
             let src_x_before = x + 2;
-            let p = backend.target.get_pixel(x, 3);
+            let p = backend.target.read_pixels().unwrap().get_pixel(x, 3);
             assert_eq!(
                 p.r,
                 (src_x_before * 30) as u8,
@@ -3611,7 +3742,7 @@ mod tests {
 
         for x in 2..8 {
             let src_x_before = x - 2;
-            let p = backend.target.get_pixel(x, 3);
+            let p = backend.target.read_pixels().unwrap().get_pixel(x, 3);
             assert_eq!(
                 p.r,
                 (src_x_before * 30) as u8,
@@ -3628,10 +3759,22 @@ mod tests {
         let mut buf = std::vec![0u8; 4 * 4];
         let mut tex =
             Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
-        tex.blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 100), 100);
-        tex.blend_pixel_int(1, 0, &Color::rgba(0, 255, 0, 200), 200);
-        assert_eq!(tex.get_pixel(0, 0).a, 255, "opaque mode: dst.a always 255");
-        assert_eq!(tex.get_pixel(1, 0).a, 255, "opaque mode: dst.a always 255");
+        tex.pixels_mut()
+            .unwrap()
+            .blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 100), 100);
+        tex.pixels_mut()
+            .unwrap()
+            .blend_pixel_int(1, 0, &Color::rgba(0, 255, 0, 200), 200);
+        assert_eq!(
+            tex.read_pixels().unwrap().get_pixel(0, 0).a,
+            255,
+            "opaque mode: dst.a always 255"
+        );
+        assert_eq!(
+            tex.read_pixels().unwrap().get_pixel(1, 0).a,
+            255,
+            "opaque mode: dst.a always 255"
+        );
     }
 
     #[test]
@@ -3642,8 +3785,10 @@ mod tests {
         let mut tex =
             Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
         tex.alpha_mode = AlphaMode::Blend;
-        tex.blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 128), 128);
-        let p = tex.get_pixel(0, 0);
+        tex.pixels_mut()
+            .unwrap()
+            .blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 128), 128);
+        let p = tex.read_pixels().unwrap().get_pixel(0, 0);
         assert_eq!(
             p.a, 128,
             "blend mode + transparent dst: dst.a should equal src.a, got {}",
@@ -3661,9 +3806,13 @@ mod tests {
         let mut tex =
             Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
         tex.alpha_mode = AlphaMode::Blend;
-        tex.blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 100), 100);
-        tex.blend_pixel_int(0, 0, &Color::rgba(0, 0, 255, 100), 100);
-        let p = tex.get_pixel(0, 0);
+        tex.pixels_mut()
+            .unwrap()
+            .blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 100), 100);
+        tex.pixels_mut()
+            .unwrap()
+            .blend_pixel_int(0, 0, &Color::rgba(0, 0, 255, 100), 100);
+        let p = tex.read_pixels().unwrap().get_pixel(0, 0);
         // ±2 tolerance for u8 rounding in two-step source-over.
         let expected = 100 + (100 * 155) / 255;
         assert!(
@@ -3682,8 +3831,10 @@ mod tests {
         let mut tex =
             Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
         tex.alpha_mode = AlphaMode::Blend;
-        tex.blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 255), 255);
-        assert_eq!(tex.get_pixel(0, 0).a, 255);
+        tex.pixels_mut()
+            .unwrap()
+            .blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 255), 255);
+        assert_eq!(tex.read_pixels().unwrap().get_pixel(0, 0).a, 255);
     }
 
     // opa=128, opaque red 4×4 src onto transparent target — dispatch
@@ -3730,7 +3881,7 @@ mod tests {
         // mode by default so dst.a stays out of the compositing eqn.
         for y in 0..4 {
             for x in 0..4 {
-                let p = backend.target.get_pixel(x, y);
+                let p = backend.target.read_pixels().unwrap().get_pixel(x, y);
                 assert!(
                     p.r >= 120 && p.r <= 135,
                     "({x},{y}) red channel {} not in [120,135]",
@@ -3775,7 +3926,7 @@ mod tests {
 
         for y in 0..4 {
             for x in 0..4 {
-                let p = backend.target.get_pixel(x, y);
+                let p = backend.target.read_pixels().unwrap().get_pixel(x, y);
                 assert_eq!((p.r, p.g, p.b, p.a), (0, 0, 0, 0));
             }
         }
@@ -3864,9 +4015,9 @@ mod tests {
         };
         backend.draw(&cmd, &clip);
 
-        let inside = backend.target.get_pixel(8, 8);
+        let inside = backend.target.read_pixels().unwrap().get_pixel(8, 8);
         assert_eq!(inside.g, 255, "scaled rect interior should be green");
-        let outside = backend.target.get_pixel(20, 20);
+        let outside = backend.target.read_pixels().unwrap().get_pixel(20, 20);
         assert_eq!(outside.g, 0, "outside scaled rect must stay zero");
     }
 
@@ -3900,7 +4051,7 @@ mod tests {
             composite,
         };
         backend.draw(&cmd, &Rect::new(0, 0, 1, 1));
-        backend.target.get_pixel(0, 0)
+        backend.target.read_pixels().unwrap().get_pixel(0, 0)
     }
 
     #[test]
@@ -4028,9 +4179,9 @@ mod tests {
         };
         backend.draw(&cmd, &Rect::new(0, 0, 8, 8));
 
-        let corner = backend.target.get_pixel(0, 0);
+        let corner = backend.target.read_pixels().unwrap().get_pixel(0, 0);
         assert_eq!(corner.r, 0, "rounded corner must clip top-left pixel");
-        let center = backend.target.get_pixel(4, 4);
+        let center = backend.target.read_pixels().unwrap().get_pixel(4, 4);
         assert_eq!(center.r, 255, "rect interior unaffected by mask");
     }
 
@@ -4111,7 +4262,7 @@ mod tests {
                             renderer.submit(&DrawRequest::new(&command, Rect::new(0, 0, 3, 3))),
                             Ok(())
                         );
-                        let edge = renderer.target.get_pixel(1, 1);
+                        let edge = renderer.target.read_pixels().unwrap().get_pixel(1, 1);
                         assert_eq!((edge.r, edge.g, edge.b), (240, 80, 20));
                         assert!(edge.a > 0, "turn {turn}, reflected {reflected}");
                         if radius == Fixed::ZERO {
@@ -4122,6 +4273,8 @@ mod tests {
                         let result: [Color; 9] = core::array::from_fn(|index| {
                             renderer
                                 .target
+                                .read_pixels()
+                                .unwrap()
                                 .get_pixel((index % 3) as i32, (index / 3) as i32)
                         });
                         if let Some(expected) = reference {
@@ -4167,11 +4320,14 @@ mod tests {
         let clip = Rect::new(0, 0, 12, 12);
 
         assert_eq!(renderer.submit(&DrawRequest::new(&command, clip)), Ok(()));
-        let corner = renderer.target.get_pixel(2, 2);
-        let center = renderer.target.get_pixel(6, 6);
+        let corner = renderer.target.read_pixels().unwrap().get_pixel(2, 2);
+        let center = renderer.target.read_pixels().unwrap().get_pixel(6, 6);
         assert!(center.r > 0 && center.b > 0);
         assert!(corner.r < center.r);
-        assert_eq!(renderer.target.get_pixel(0, 0), Color::rgb(0, 0, 255));
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(0, 0),
+            Color::rgb(0, 0, 255)
+        );
     }
 
     #[test]
@@ -4201,7 +4357,7 @@ mod tests {
             renderer.submit(&DrawRequest::new(&command, clip).with_projective(projection)),
             Ok(())
         );
-        let center = renderer.target.get_pixel(6, 6);
+        let center = renderer.target.read_pixels().unwrap().get_pixel(6, 6);
         assert!(center.r > 0 && center.b > 0);
     }
 
@@ -4226,7 +4382,7 @@ mod tests {
                 Texture::new(pixels, 24, 24, ColorFormat::RGBA8888).expect("valid pixel storage");
             target.alpha_mode = AlphaMode::Blend;
             blit_quad(
-                &mut target,
+                &mut target.pixels_mut().unwrap(),
                 &texture.read_pixels().unwrap(),
                 &quad,
                 Rect::new(0, 0, 24, 24),
@@ -4271,7 +4427,7 @@ mod tests {
         )
         .expect("valid pixel storage");
         fill_rect_quad(
-            &mut fill_target,
+            &mut fill_target.pixels_mut().unwrap(),
             &quad,
             clip,
             &Color::rgb(220, 20, 30),
@@ -4281,8 +4437,8 @@ mod tests {
             255,
             Some(&mask),
         );
-        assert_eq!(fill_target.get_pixel(4, 4).r, 220);
-        assert_eq!(fill_target.get_pixel(12, 4).a, 0);
+        assert_eq!(fill_target.read_pixels().unwrap().get_pixel(4, 4).r, 220);
+        assert_eq!(fill_target.read_pixels().unwrap().get_pixel(12, 4).a, 0);
 
         let source_pixels = [255u8; WIDTH * HEIGHT * 4];
         let source = Texture::from_ref(
@@ -4301,7 +4457,7 @@ mod tests {
         )
         .expect("valid pixel storage");
         blit_quad(
-            &mut blit_target,
+            &mut blit_target.pixels_mut().unwrap(),
             &source.read_pixels().unwrap(),
             &quad,
             clip,
@@ -4311,8 +4467,8 @@ mod tests {
             CompositeMode::SourceOver,
             Some(&mask),
         );
-        assert_eq!(blit_target.get_pixel(4, 4).a, 255);
-        assert_eq!(blit_target.get_pixel(12, 4).a, 0);
+        assert_eq!(blit_target.read_pixels().unwrap().get_pixel(4, 4).a, 255);
+        assert_eq!(blit_target.read_pixels().unwrap().get_pixel(12, 4).a, 0);
 
         let mut stroke_pixels = [0u8; WIDTH * HEIGHT * 4];
         let mut stroke_target = Texture::new(
@@ -4323,7 +4479,7 @@ mod tests {
         )
         .expect("valid pixel storage");
         stroke_rect_quad(
-            &mut stroke_target,
+            &mut stroke_target.pixels_mut().unwrap(),
             &quad,
             clip,
             &Color::rgb(20, 220, 30),
@@ -4332,8 +4488,8 @@ mod tests {
             255,
             Some(&mask),
         );
-        assert!(stroke_target.get_pixel(4, 0).g > 0);
-        assert_eq!(stroke_target.get_pixel(12, 0).a, 0);
+        assert!(stroke_target.read_pixels().unwrap().get_pixel(4, 0).g > 0);
+        assert_eq!(stroke_target.read_pixels().unwrap().get_pixel(12, 0).a, 0);
     }
 
     #[test]
@@ -4454,8 +4610,14 @@ mod tests {
             ),
             Ok(())
         );
-        assert_eq!(renderer.target.get_pixel(3, 2), Color::rgb(255, 255, 255));
-        assert_eq!(renderer.target.get_pixel(1, 2), Color::rgba(0, 0, 0, 0));
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(3, 2),
+            Color::rgb(255, 255, 255)
+        );
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(1, 2),
+            Color::rgba(0, 0, 0, 0)
+        );
     }
 
     #[test]
@@ -4507,11 +4669,14 @@ mod tests {
         renderer
             .submit(&DrawRequest::new(&command, clip).with_projective(projection))
             .unwrap();
-        let left = renderer.target.get_pixel(4, 3);
-        let right = renderer.target.get_pixel(9, 3);
+        let left = renderer.target.read_pixels().unwrap().get_pixel(4, 3);
+        let right = renderer.target.read_pixels().unwrap().get_pixel(9, 3);
         assert!(left.b > left.r);
         assert!(right.r > right.b);
-        assert_eq!(renderer.target.get_pixel(1, 3), Color::rgba(0, 0, 0, 0));
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(1, 3),
+            Color::rgba(0, 0, 0, 0)
+        );
     }
 
     #[test]
@@ -4540,8 +4705,14 @@ mod tests {
             renderer.draw_projective(&command, &Rect::new(0, 0, 12, 8), &projection),
             Ok(())
         );
-        assert_eq!(renderer.target.get_pixel(5, 3), Color::rgb(240, 120, 40));
-        assert_eq!(renderer.target.get_pixel(1, 3), Color::rgba(0, 0, 0, 0));
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(5, 3),
+            Color::rgb(240, 120, 40)
+        );
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(1, 3),
+            Color::rgba(0, 0, 0, 0)
+        );
     }
 
     #[test]
@@ -4589,8 +4760,8 @@ mod tests {
         renderer
             .submit(&DrawRequest::new(&command, clip).with_projective(projection))
             .unwrap();
-        let left = renderer.target.get_pixel(5, 4);
-        let right = renderer.target.get_pixel(10, 4);
+        let left = renderer.target.read_pixels().unwrap().get_pixel(5, 4);
+        let right = renderer.target.read_pixels().unwrap().get_pixel(10, 4);
         assert!(left.g > left.r);
         assert!(right.r > right.g);
     }
@@ -4620,8 +4791,14 @@ mod tests {
             renderer.submit(&DrawRequest::new(&command, clip).with_projective(projection)),
             Ok(())
         );
-        assert_eq!(renderer.target.get_pixel(5, 3), Color::rgb(80, 180, 250));
-        assert_eq!(renderer.target.get_pixel(1, 3), Color::rgba(0, 0, 0, 0));
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(5, 3),
+            Color::rgb(80, 180, 250)
+        );
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(1, 3),
+            Color::rgba(0, 0, 0, 0)
+        );
     }
 
     #[test]
@@ -4702,8 +4879,17 @@ mod tests {
             .submit(&DrawRequest::new(&DrawCommand::PopClip, clip).with_projective(projection))
             .unwrap();
 
-        assert_eq!(renderer.target.get_pixel(3, 2), Color::rgb(120, 180, 240));
-        assert_eq!(renderer.target.get_pixel(1, 2), Color::rgba(0, 0, 0, 0));
-        assert_eq!(renderer.target.get_pixel(6, 2), Color::rgba(0, 0, 0, 0));
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(3, 2),
+            Color::rgb(120, 180, 240)
+        );
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(1, 2),
+            Color::rgba(0, 0, 0, 0)
+        );
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().get_pixel(6, 2),
+            Color::rgba(0, 0, 0, 0)
+        );
     }
 }

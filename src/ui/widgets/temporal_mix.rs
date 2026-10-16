@@ -169,7 +169,7 @@ mod tests {
         let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
         let output = outputs.get(entity).unwrap();
         (
-            output.texture().get_pixel(1, 1),
+            output.texture().read_pixels().unwrap().get_pixel(1, 1),
             output.texture().cache_revision,
         )
     }
@@ -233,7 +233,13 @@ mod tests {
         {
             let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
             assert_eq!(
-                outputs.get(owner).unwrap().texture().get_pixel(1, 1),
+                outputs
+                    .get(owner)
+                    .unwrap()
+                    .texture()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(1, 1),
                 Color::rgb(255, 0, 0)
             );
             assert!(outputs.previous(owner).is_none());
@@ -247,10 +253,22 @@ mod tests {
             let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
             assert!(outputs.previous(source).is_none());
             assert_eq!(
-                outputs.previous(owner).unwrap().texture().get_pixel(1, 1),
+                outputs
+                    .previous(owner)
+                    .unwrap()
+                    .texture()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(1, 1),
                 Color::rgb(255, 0, 0)
             );
-            let pixel = outputs.get(owner).unwrap().texture().get_pixel(1, 1);
+            let pixel = outputs
+                .get(owner)
+                .unwrap()
+                .texture()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(1, 1);
             assert!((126..=129).contains(&pixel.r));
             assert_eq!(pixel.g, 0);
             assert!((126..=129).contains(&pixel.b));
@@ -261,10 +279,22 @@ mod tests {
         app.render_dirty().unwrap();
         let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
         assert_eq!(
-            outputs.previous(owner).unwrap().texture().get_pixel(1, 1),
+            outputs
+                .previous(owner)
+                .unwrap()
+                .texture()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(1, 1),
             mixed
         );
-        let decayed = outputs.get(owner).unwrap().texture().get_pixel(1, 1);
+        let decayed = outputs
+            .get(owner)
+            .unwrap()
+            .texture()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(1, 1);
         assert!(decayed.r < mixed.r);
         assert!(decayed.b > mixed.b);
     }
@@ -287,14 +317,32 @@ mod tests {
 
         let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
         assert_eq!(
-            outputs.get(source).unwrap().texture().get_pixel(1, 1),
+            outputs
+                .get(source)
+                .unwrap()
+                .texture()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(1, 1),
             Color::rgb(0, 0, 255)
         );
         assert_eq!(
-            outputs.previous(owner).unwrap().texture().get_pixel(1, 1),
+            outputs
+                .previous(owner)
+                .unwrap()
+                .texture()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(1, 1),
             Color::rgb(255, 0, 0)
         );
-        let mixed = outputs.get(owner).unwrap().texture().get_pixel(1, 1);
+        let mixed = outputs
+            .get(owner)
+            .unwrap()
+            .texture()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(1, 1);
         assert!((126..=129).contains(&mixed.r));
         assert!((126..=129).contains(&mixed.b));
     }
@@ -312,7 +360,14 @@ mod tests {
             if mix == 254 {
                 assert_eq!(frames, 255);
             }
-            assert_eq!(app.backend.framebuffer().get_pixel(9, 1), BLUE);
+            assert_eq!(
+                app.backend
+                    .framebuffer()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(9, 1),
+                BLUE
+            );
             let source_version = output(&app, source).1;
             assert_idle(&mut app, owner);
             assert_eq!(output(&app, source).1, source_version);
@@ -402,7 +457,7 @@ mod tests {
             );
             let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
             let texture = outputs.get(owner).unwrap();
-            let right = texture.texture().get_pixel(5, 1);
+            let right = texture.texture().read_pixels().unwrap().get_pixel(5, 1);
             if cover_width == 4 {
                 assert_eq!(right, BLUE);
                 assert!(produced > 1);
@@ -502,7 +557,17 @@ mod tests {
                 let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
                 if budget == BUDGET {
                     assert!(outputs.get(source).is_none());
-                    assert_eq!(outputs.get(owner).unwrap().texture().get_pixel(1, 1).a, 0);
+                    assert_eq!(
+                        outputs
+                            .get(owner)
+                            .unwrap()
+                            .texture()
+                            .read_pixels()
+                            .unwrap()
+                            .get_pixel(1, 1)
+                            .a,
+                        0
+                    );
                 } else {
                     assert!(outputs.get(source).is_some());
                     assert!(outputs.get(owner).is_none());
@@ -533,10 +598,25 @@ mod tests {
             let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
             assert!(outputs.get(owner).is_none());
             assert_eq!(
-                outputs.previous(owner).unwrap().texture().get_pixel(1, 1),
+                outputs
+                    .previous(owner)
+                    .unwrap()
+                    .texture()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(1, 1),
                 RED
             );
-            assert_eq!(outputs.get(source).unwrap().texture().get_pixel(1, 1), BLUE);
+            assert_eq!(
+                outputs
+                    .get(source)
+                    .unwrap()
+                    .texture()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(1, 1),
+                BLUE
+            );
         }
         for _ in 0..3 {
             app.render_dirty().unwrap();

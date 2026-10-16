@@ -24,7 +24,11 @@ fn app(width: u16, height: u16) -> (TestApp, Entity) {
 
 fn pixel(app: &mut TestApp, x: i32, y: i32, expected: Color) {
     assert_eq!(
-        app.backend.framebuffer().get_pixel(x, y),
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(x, y),
         expected,
         "pixel ({x}, {y})"
     );

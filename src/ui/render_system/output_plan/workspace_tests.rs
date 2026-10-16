@@ -42,6 +42,8 @@ fn output_pixel(world: &World, entity: Entity, x: i32, y: i32) -> Color {
         .get(entity)
         .unwrap()
         .texture()
+        .read_pixels()
+        .unwrap()
         .get_pixel(x, y)
 }
 
@@ -84,7 +86,14 @@ fn changing_source_and_rendering_an_inline_mirror_is_allocation_free_after_warmu
             let current_version = version(&app.world, source);
             assert!(current_version > previous_version);
             previous_version = current_version;
-            assert_eq!(app.backend.framebuffer().get_pixel(5, 1), expected);
+            assert_eq!(
+                app.backend
+                    .framebuffer()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(5, 1),
+                expected
+            );
         }
     });
     assert_eq!(allocations, 0);
@@ -170,16 +179,44 @@ fn differently_sized_mirrors_share_one_maximum_plane_at_the_exact_budget() {
         let output = outputs.get(entity).unwrap();
         assert_eq!((output.texture().width, output.texture().height), size);
     }
-    assert_eq!(app.backend.framebuffer().get_pixel(1, 5), RED);
-    assert_eq!(app.backend.framebuffer().get_pixel(9, 5), BLUE);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(1, 5),
+        RED
+    );
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(9, 5),
+        BLUE
+    );
     assert_eq!(output_pixel(&app.world, independent, 1, 1), GREEN);
 
     for (small_color, large_color) in [(BLUE, RED), (GREEN, BLUE), (RED, GREEN)] {
         set_color(&mut app.world, small, small_color);
         set_color(&mut app.world, large, large_color);
         app.render_dirty().unwrap();
-        assert_eq!(app.backend.framebuffer().get_pixel(1, 5), small_color);
-        assert_eq!(app.backend.framebuffer().get_pixel(9, 5), large_color);
+        assert_eq!(
+            app.backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(1, 5),
+            small_color
+        );
+        assert_eq!(
+            app.backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(9, 5),
+            large_color
+        );
         assert_eq!(output_pixel(&app.world, independent, 1, 1), GREEN);
     }
 }
@@ -200,11 +237,11 @@ fn cold_workspace_budget_rejection_skips_effects_but_preserves_independent_outpu
         assert_eq!(output_pixel(&app.world, entity, 1, 1), expected);
     }
     let pixels = app.backend.framebuffer();
-    assert_eq!(pixels.get_pixel(1, 1), RED);
-    assert_eq!(pixels.get_pixel(9, 1), BLUE);
-    assert_eq!(pixels.get_pixel(5, 1), GREEN);
-    assert_eq!(pixels.get_pixel(1, 5), BACKGROUND);
-    assert_eq!(pixels.get_pixel(9, 5), BACKGROUND);
+    assert_eq!(pixels.read_pixels().unwrap().get_pixel(1, 1), RED);
+    assert_eq!(pixels.read_pixels().unwrap().get_pixel(9, 1), BLUE);
+    assert_eq!(pixels.read_pixels().unwrap().get_pixel(5, 1), GREEN);
+    assert_eq!(pixels.read_pixels().unwrap().get_pixel(1, 5), BACKGROUND);
+    assert_eq!(pixels.read_pixels().unwrap().get_pixel(9, 5), BACKGROUND);
 }
 
 #[crate::compose]
@@ -230,7 +267,14 @@ fn removing_a_mirror_releases_workspace_before_its_explicit_source_grows() {
     let mirror = app.world.find_by_id("mirror").unwrap();
     app.render().unwrap();
     assert_eq!(output_pixel(&app.world, source, 3, 1), RED);
-    assert_eq!(app.backend.framebuffer().get_pixel(5, 1), RED);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(5, 1),
+        RED
+    );
     let first_version = version(&app.world, source);
 
     assert!(app.world.remove::<MirrorOf>(mirror).is_some());
@@ -246,9 +290,19 @@ fn removing_a_mirror_releases_workspace_before_its_explicit_source_grows() {
         .get(source)
         .expect("released scratch admits the larger source");
     assert_eq!((current.texture().width, current.texture().height), (8, 4));
-    assert_eq!(current.texture().get_pixel(7, 1), BLUE);
+    assert_eq!(
+        current.texture().read_pixels().unwrap().get_pixel(7, 1),
+        BLUE
+    );
     assert_eq!(version(&app.world, source), first_version + 1);
-    assert_eq!(app.backend.framebuffer().get_pixel(7, 1), BLUE);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(7, 1),
+        BLUE
+    );
 }
 
 #[crate::compose]
@@ -312,8 +366,22 @@ fn inline_mirror_inside_a_capture_uses_the_prepared_workspace() {
         previous_version = version(&app.world, capture);
         assert_eq!(output_pixel(&app.world, capture, 1, 0), bottom_color);
         assert_eq!(output_pixel(&app.world, capture, 1, 3), top_color);
-        assert_eq!(app.backend.framebuffer().get_pixel(5, 0), bottom_color);
-        assert_eq!(app.backend.framebuffer().get_pixel(5, 3), top_color);
+        assert_eq!(
+            app.backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(5, 0),
+            bottom_color
+        );
+        assert_eq!(
+            app.backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(5, 3),
+            top_color
+        );
     }
 
     #[cfg(feature = "std")]
@@ -326,7 +394,14 @@ fn inline_mirror_inside_a_capture_uses_the_prepared_workspace() {
                 assert!(version(&app.world, capture) > previous_version);
                 previous_version = version(&app.world, capture);
                 assert_eq!(output_pixel(&app.world, capture, 1, 3), color);
-                assert_eq!(app.backend.framebuffer().get_pixel(5, 3), color);
+                assert_eq!(
+                    app.backend
+                        .framebuffer()
+                        .read_pixels()
+                        .unwrap()
+                        .get_pixel(5, 3),
+                    color
+                );
             }
         });
         assert_eq!(allocations, 0);
@@ -341,5 +416,13 @@ fn inline_mirror_inside_a_capture_uses_the_prepared_workspace() {
     let outputs = denied.world.resource::<Outputs<WidgetTexture>>().unwrap();
     assert!(outputs.get(source).is_some());
     assert!(outputs.get(capture).is_none());
-    assert_eq!(denied.backend.framebuffer().get_pixel(5, 1), BACKGROUND);
+    assert_eq!(
+        denied
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(5, 1),
+        BACKGROUND
+    );
 }

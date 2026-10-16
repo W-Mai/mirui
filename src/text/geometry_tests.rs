@@ -422,7 +422,14 @@ fn ancestor_visual_geometry_changes_repaint_separate_consumers_before_acknowledg
                 .0
                 .is_empty()
         );
-        assert_eq!(app.backend.framebuffer().get_pixel(72, 28), MARKER_COLOR);
+        assert_eq!(
+            app.backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(72, 28),
+            MARKER_COLOR
+        );
         let previous = version(&app, source);
 
         let next_x = if scrolls {
@@ -446,12 +453,20 @@ fn ancestor_visual_geometry_changes_repaint_separate_consumers_before_acknowledg
         app.render_dirty().unwrap();
         assert!(version(&app, source) > previous);
         assert_eq!(
-            app.backend.framebuffer().get_pixel(next_x, 28),
+            app.backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(next_x, 28),
             MARKER_COLOR,
             "the new publication must repaint its consumer in the same frame; scroll={scrolls}"
         );
         assert_eq!(
-            app.backend.framebuffer().get_pixel(72, 28),
+            app.backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(72, 28),
             MARKER_BACKGROUND,
             "the consumer's previous marker must be cleared; scroll={scrolls}"
         );
@@ -466,7 +481,11 @@ fn ancestor_visual_geometry_changes_repaint_separate_consumers_before_acknowledg
                 .is_empty()
         );
         assert_eq!(
-            app.backend.framebuffer().get_pixel(next_x, 28),
+            app.backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .get_pixel(next_x, 28),
             MARKER_COLOR
         );
     }
