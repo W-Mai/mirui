@@ -42,16 +42,8 @@ const fn checkerboard_pixels() -> [u8; 16 * 16 * 4] {
     buf
 }
 
-const FALLBACK_TEXTURE: Texture<'static> = Texture {
-    buf: crate::render::texture::TexBuf::Ref(&CHECKERBOARD_PIXELS),
-    width: 16,
-    height: 16,
-    format: ColorFormat::RGBA8888,
-    stride: 64,
-    alpha_mode: crate::render::texture::AlphaMode::Opaque,
-    cache_revision: 0,
-    transient: false,
-};
+const FALLBACK_TEXTURE: Texture<'static> =
+    Texture::expect_static(&CHECKERBOARD_PIXELS, 16, 16, ColorFormat::RGBA8888);
 
 const FALLBACK_META: TextureMeta = TextureMeta {
     width: 16,

@@ -1,4 +1,4 @@
-use super::texture::{AlphaMode, ColorFormat, TexBuf, Texture};
+use super::texture::{ColorFormat, Texture};
 
 /// Invalid or insufficient storage for a render plane.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -193,17 +193,7 @@ impl AlignedPlane<'_> {
 
     /// Borrow the plane as a texture without copying its padded rows.
     pub fn texture(&mut self) -> Texture<'_> {
-        let layout = self.layout;
-        Texture {
-            buf: TexBuf::Mut(self.bytes_mut()),
-            width: layout.width,
-            height: layout.height,
-            format: layout.format,
-            stride: layout.stride_bytes,
-            alpha_mode: AlphaMode::Opaque,
-            cache_revision: 0,
-            transient: true,
-        }
+        Texture::from_plane(self)
     }
 }
 
@@ -259,11 +249,17 @@ mod tests {
         assert_eq!(layout.required_bytes(), 256);
         let mut storage = [0u8; 320];
         let offset = (64 - (storage.as_ptr() as usize % 64)) % 64;
+        let address = storage[offset..].as_ptr();
         let mut plane = layout.bind(&mut storage[offset..offset + 256]).unwrap();
-        let texture = plane.texture();
-        assert_eq!(texture.stride, 128);
-        assert_eq!(texture.buf.as_slice().len(), 256);
-        assert!(texture.transient);
+        let allocations = crate::test_support::tracked_allocations(|| {
+            let texture = plane.texture();
+            let pixels = texture.read_pixels().unwrap();
+            assert_eq!(pixels.stride(), 128);
+            assert_eq!(pixels.bytes().len(), 256);
+            assert_eq!(pixels.bytes().as_ptr(), address);
+            assert!(texture.transient);
+        });
+        assert_eq!(allocations, 0);
     }
 
     #[test]

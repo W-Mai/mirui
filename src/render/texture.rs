@@ -215,6 +215,19 @@ impl HasSize for Texture<'_> {
 }
 
 impl Texture<'static> {
+    pub(crate) const fn expect_static(
+        buf: &'static [u8],
+        width: u16,
+        height: u16,
+        format: ColorFormat,
+    ) -> Self {
+        let layout = match Self::checked_layout(buf.len(), width, height, format) {
+            Ok(layout) => layout,
+            Err(_) => panic!("invalid static texture layout"),
+        };
+        Self::from_layout(TexBuf::Ref(buf), layout, false)
+    }
+
     /// Cacheable pixels with static storage.
     pub const fn from_static(
         buf: &'static [u8],
@@ -231,6 +244,11 @@ impl Texture<'static> {
 }
 
 impl<'a> Texture<'a> {
+    pub(super) fn from_plane(plane: &'a mut crate::render::scratch::AlignedPlane<'_>) -> Self {
+        let layout = plane.layout();
+        Self::from_layout(TexBuf::Mut(plane.bytes_mut()), layout, true)
+    }
+
     /// Mutable pixels; GPU uploads bypass pointer-keyed caches by default.
     pub fn new(
         buf: &'a mut [u8],
@@ -327,6 +345,7 @@ impl<'a> Texture<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MirxLoadError {
+    Texture(RenderError),
     Read(mirx::reader::ReadError),
     Image(mirx::image::ImageReadError),
     Surface(mirx::image::ImageEncodeError),
@@ -631,16 +650,15 @@ pub(super) fn texture_from_surface(
     let plane = surface
         .plane(0)
         .ok_or(MirxLoadError::UnsupportedLayout(descriptor.sample_layout()))?;
-    Ok(Texture {
-        buf: TexBuf::Ref(plane.bytes()),
-        width: descriptor.width().try_into()?,
-        height: descriptor.height().try_into()?,
+    Texture::from_ref(
+        plane.bytes(),
+        descriptor.width().try_into()?,
+        descriptor.height().try_into()?,
         format,
-        stride: plane.memory().stride() as usize,
-        alpha_mode: AlphaMode::Opaque,
-        cache_revision: 0,
-        transient: false,
-    })
+    )
+    .and_then(|texture| texture.with_stride(plane.memory().stride() as usize))
+    .map(|texture| texture.with_transient(false))
+    .map_err(MirxLoadError::Texture)
 }
 
 impl Texture<'static> {
@@ -745,22 +763,10 @@ impl Texture<'static> {
         )
         .ok_or(MirxLoadError::AllocationSizeOverflow)?;
         let decoded = plan.decode_into(output.as_mut_slice(), workspace.as_mut_slice())?;
-        let width = decoded.width;
-        let height = decoded.height;
-        let format = decoded.format;
-        let stride = decoded.stride;
+        let layout = decoded.pixel_layout().map_err(MirxLoadError::Texture)?;
         drop(decoded);
         debug_assert_eq!(memory.plane(0).map(|plane| plane.data_offset()), Some(0));
-        Ok(Texture {
-            buf: TexBuf::Aligned(output),
-            width,
-            height,
-            format,
-            stride,
-            alpha_mode: AlphaMode::Opaque,
-            cache_revision: 0,
-            transient: false,
-        })
+        Ok(Self::from_layout(TexBuf::Aligned(output), layout, false))
     }
 }
 
@@ -793,6 +799,7 @@ impl crate::core::resource::HasProbe for Texture<'static> {
 impl From<MirxLoadError> for crate::core::resource::LoadError {
     fn from(err: MirxLoadError) -> Self {
         crate::core::resource::LoadError::Failed(match err {
+            MirxLoadError::Texture(_) => "mirx texture storage is invalid",
             MirxLoadError::Read(_) => "mirx read failed",
             MirxLoadError::Image(_) => "mirx image metadata is invalid",
             MirxLoadError::Surface(_) => "mirx flat surface is invalid",
@@ -876,6 +883,50 @@ impl crate::core::resource::ResourceManager<Texture<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn static_assets_share_checked_layout_without_allocating() {
+        static BYTES: [u8; 16] = [12; 16];
+        const ASSET: Texture<'static> = Texture::expect_static(&BYTES, 2, 2, ColorFormat::RGBA8888);
+        let allocations = crate::test_support::tracked_allocations(|| {
+            let asset = ASSET;
+            assert_eq!(
+                asset.read_pixels().unwrap().bytes().as_ptr(),
+                BYTES.as_ptr()
+            );
+            assert_eq!(asset.width(), 2);
+            assert_eq!(asset.height(), 2);
+            assert!(!asset.transient);
+            for format in [
+                ColorFormat::RGB565,
+                ColorFormat::RGB565Swapped,
+                ColorFormat::RGB888,
+                ColorFormat::RGBA8888,
+                ColorFormat::BGRA8888,
+            ] {
+                let asset = Texture::expect_static(&BYTES, 2, 2, format);
+                let checked = Texture::from_static(&BYTES, 2, 2, format).unwrap();
+                assert_eq!(asset.pixel_layout(), checked.pixel_layout());
+                assert_eq!(
+                    asset.read_pixels().unwrap().bytes().as_ptr(),
+                    BYTES.as_ptr()
+                );
+            }
+        });
+        assert_eq!(allocations, 0);
+        assert!(
+            std::panic::catch_unwind(|| {
+                Texture::expect_static(&BYTES, 0, 2, ColorFormat::RGBA8888)
+            })
+            .is_err()
+        );
+        assert!(
+            std::panic::catch_unwind(|| {
+                Texture::expect_static(&BYTES, 3, 2, ColorFormat::RGBA8888)
+            })
+            .is_err()
+        );
+    }
 
     #[test]
     fn constructors_reject_invalid_storage_before_exposing_pixels() {

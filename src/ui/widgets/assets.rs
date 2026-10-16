@@ -54,13 +54,5 @@ const IMG_THUMBS_UP_DATA: &[u8] = &[
     120, 108, 107, 255, 120, 103, 102, 255, 83, 66, 57, 255, 88, 56, 45, 255, 79, 55, 40, 255,
 ];
 
-pub const IMG_THUMBS_UP: Texture<'static> = Texture {
-    buf: crate::render::texture::TexBuf::Ref(IMG_THUMBS_UP_DATA),
-    width: 16,
-    height: 16,
-    format: ColorFormat::RGBA8888,
-    stride: 64,
-    alpha_mode: crate::render::texture::AlphaMode::Opaque,
-    cache_revision: 0,
-    transient: false,
-};
+pub const IMG_THUMBS_UP: Texture<'static> =
+    Texture::expect_static(IMG_THUMBS_UP_DATA, 16, 16, ColorFormat::RGBA8888);
