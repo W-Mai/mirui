@@ -76,6 +76,7 @@ pub(super) fn plan(layout: PlaneLayout) -> Result<Option<TargetPlan>, RenderErro
         },
         storage_bytes: 4,
         workspace_bytes: 0,
+        readback_bytes: 0,
     }))
 }
 

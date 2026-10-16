@@ -50,6 +50,7 @@ fn native_source_owns_device_and_checks_completed_contents() {
     let layout = PlaneLayout::packed(3, 2, ColorFormat::RGBA8888).unwrap();
     let plan = plan(&context, 1, layout).unwrap().unwrap();
     assert_eq!(plan.storage_bytes, 24);
+    assert_eq!(plan.readback_bytes, 512);
     let target = create(&context, 1, &plan).unwrap();
     assert_eq!(target.allocated_bytes(), plan.storage_bytes);
     assert_eq!(target.descriptor().alpha, TargetAlpha::Premultiplied);
@@ -164,6 +165,12 @@ fn native_target_plan_matches_attachments_and_rejects_invalid_requests() {
         );
         let mut wrong_plan = plan;
         wrong_plan.storage_bytes += 1;
+        assert!(matches!(
+            create(&context, samples, &wrong_plan),
+            Err(RenderError::Unsupported(RenderFeature::Scope))
+        ));
+        let mut wrong_plan = plan;
+        wrong_plan.readback_bytes = 0;
         assert!(matches!(
             create(&context, samples, &wrong_plan),
             Err(RenderError::Unsupported(RenderFeature::Scope))

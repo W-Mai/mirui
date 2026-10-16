@@ -121,6 +121,7 @@ pub(super) fn plan(
             .checked_mul(planes)
             .ok_or(RenderError::ResourceLimit(RenderResource::Target))?,
         workspace_bytes: 0,
+        readback_bytes: Readback::required_bytes(&context.device, layout.width(), layout.height())?,
     }))
 }
 

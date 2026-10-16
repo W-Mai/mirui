@@ -61,9 +61,13 @@ fn layout(texture: &wgpu::Texture, rect: PhysicalRect) -> Result<PlaneLayout, Re
     {
         return Err(RenderError::InvalidGeometry);
     }
+    storage_layout(rect.width(), rect.height())
+}
+
+fn storage_layout(width: u16, height: u16) -> Result<PlaneLayout, RenderError> {
     PlaneLayout::aligned(
-        rect.width(),
-        rect.height(),
+        width,
+        height,
         ColorFormat::RGBA8888,
         PlaneRequirements::new(1, wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize)
             .map_err(|_| RenderError::InvalidTexture)?,
@@ -130,6 +134,16 @@ impl Staging {
 }
 
 impl Readback {
+    pub(super) fn required_bytes(
+        device: &wgpu::Device,
+        width: u16,
+        height: u16,
+    ) -> Result<usize, RenderError> {
+        let layout = storage_layout(width, height)?;
+        Self::check_size(device, layout)?;
+        Ok(layout.required_bytes())
+    }
+
     pub(super) fn read(
         &mut self,
         device: &wgpu::Device,

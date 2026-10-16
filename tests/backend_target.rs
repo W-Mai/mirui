@@ -58,6 +58,7 @@ fn external_target_owns_its_source_and_reads_checked_cpu_storage() {
         descriptor,
         storage_bytes: 8,
         workspace_bytes: 0,
+        readback_bytes: 0,
     };
     assert_eq!(target.descriptor(), plan.descriptor);
     assert_eq!(target.allocated_bytes(), plan.storage_bytes);

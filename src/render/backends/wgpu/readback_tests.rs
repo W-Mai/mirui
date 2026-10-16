@@ -10,6 +10,21 @@ fn readback_reuses_mapping_storage_and_preserves_destination_layout() {
     };
     let (device, queue) =
         pollster::block_on(adapter.request_device(&Default::default())).expect("readback device");
+    for (width, height, bytes) in [(1, 1, 256), (63, 2, 512), (64, 2, 512), (65, 2, 1024)] {
+        assert_eq!(Readback::required_bytes(&device, width, height), Ok(bytes));
+    }
+    assert_eq!(
+        Readback::required_bytes(&device, 0, 1),
+        Err(RenderError::InvalidTexture)
+    );
+    if storage_layout(u16::MAX, u16::MAX).unwrap().required_bytes() as u64
+        > device.limits().max_buffer_size
+    {
+        assert_eq!(
+            Readback::required_bytes(&device, u16::MAX, u16::MAX),
+            Err(RenderError::ResourceLimit(RenderResource::Target))
+        );
+    }
     let mut readback = Readback::default();
     for format in [
         wgpu::TextureFormat::Rgba8Unorm,
@@ -62,6 +77,10 @@ fn readback_reuses_mapping_storage_and_preserves_destination_layout() {
             .unwrap();
         let small_buffer = readback.staging.as_ref().unwrap().buffer.clone();
         let pixels = readback.read(&device, &queue, &target, rect).unwrap();
+        assert_eq!(
+            readback.staging.as_ref().unwrap().buffer.size(),
+            Readback::required_bytes(&device, rect.width(), rect.height()).unwrap() as u64
+        );
         assert_ne!(readback.staging.as_ref().unwrap().buffer, small_buffer);
         assert_eq!(pixels.read_pixels().unwrap().bytes(), expected);
         let buffer = readback.staging.as_ref().unwrap().buffer.clone();

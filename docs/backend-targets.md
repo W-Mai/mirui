@@ -6,7 +6,7 @@
 
 `TargetDescriptor` combines a checked `PlaneLayout` with `TargetAlpha::Straight` or `Premultiplied`. The alpha encoding describes stored channels, independently of the destination blending policy in `AlphaMode`.
 
-`TargetPlan` reports native storage bytes and drawing workspace bytes. Storage includes multisample and resolve attachments. CPU copies and readback staging need separate admission; a plan is not evidence that allocation succeeded. `allocated_bytes()` reports the actual target allocation.
+`TargetPlan` reports native storage bytes, drawing workspace bytes and `readback_bytes`. Storage includes multisample and resolve attachments. Readback bytes bound the backend-owned staging needed to read the complete source, excluding the destination CPU pixels. SDL writes directly into that destination and reports zero; WGPU reports the row-aligned staging buffer size and checks the device buffer limit before allocation. CPU copies need separate admission; a plan is not evidence that allocation succeeded. `allocated_bytes()` reports the actual target allocation.
 
 A target owns the device resources required to sample, read and release its storage. It must not borrow a temporary renderer or require a window frame to remain alive. Validate native handles against device identity and resource generation before using them; matching concrete payload types alone is insufficient.
 

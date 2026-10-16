@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- `TargetPlan::readback_bytes` reports backend staging requirements separately from native storage and drawing workspace.
+
 - Native target scopes and binding hooks accept `TargetUpdate::Rebuild` or `Incremental` to initialize a complete image or preserve successful contents.
 
 - `Renderer` implementations declare `TargetState`; native targets use binding and restoration hooks, while software renderers use `()`. Composed renderers preserve their concrete engines inside target scopes.

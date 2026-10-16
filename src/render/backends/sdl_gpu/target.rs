@@ -122,6 +122,7 @@ pub(super) fn plan<T: RenderTarget>(
         },
         storage_bytes: layout.required_bytes(),
         workspace_bytes: 0,
+        readback_bytes: 0,
     }))
 }
 

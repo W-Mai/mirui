@@ -57,12 +57,13 @@ pub struct TargetDescriptor {
 
 /// Storage requirements for an independent render target.
 ///
-/// Storage includes native attachments such as multisample and resolve planes. Workspace is additional scratch required while binding and drawing. CPU source copies and readback staging are accounted for separately by resource admission.
+/// Storage includes native attachments such as multisample and resolve planes. Workspace is additional scratch required while binding and drawing. Readback bytes bound backend-owned staging used while reading the complete source; the destination CPU pixels are accounted for separately.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TargetPlan {
     pub descriptor: TargetDescriptor,
     pub storage_bytes: usize,
     pub workspace_bytes: usize,
+    pub readback_bytes: usize,
 }
 
 /// Backend-owned storage whose source device remains available independently of a temporary renderer.
