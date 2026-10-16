@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Native output production reuses budgeted binding workspace independently of View paint workspace, with capacity checks before target writes.
+
 - SDL-GPU blits sample compatible same-device native textures directly with premultiplied opacity. Other sources reuse pixel readback and upload caching; active or unfinished targets are rejected before cache lookup.
 
 - WGPU blits sample same-device native textures directly and use the existing upload cache for other sources. Rectangle and projective sampling preserve premultiplied alpha; active or incomplete sources are rejected before cache lookup.

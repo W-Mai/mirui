@@ -79,6 +79,8 @@ impl BackendTarget for Target {
 struct Fixture {
     device: Rc<Device>,
     active: Option<Rc<Contents>>,
+    workspace_bytes: usize,
+    bindings: usize,
 }
 
 impl Renderer for Fixture {
@@ -90,7 +92,7 @@ impl Renderer for Fixture {
                 alpha: TargetAlpha::Straight,
             },
             storage_bytes: layout.required_bytes(),
-            workspace_bytes: 0,
+            workspace_bytes: self.workspace_bytes,
             readback_bytes: 64,
         }))
     }
@@ -107,13 +109,16 @@ impl Renderer for Fixture {
         target: &mut dyn BackendTarget,
         _: Viewport,
         update: TargetUpdate,
-        _: &mut [u8],
+        workspace: &mut [u8],
     ) -> Result<Self::TargetState, RenderError> {
         let target = target
             .as_any()
             .downcast_ref::<Target>()
             .ok_or(RenderError::InvalidTexture)?;
         assert_eq!(update, TargetUpdate::Rebuild);
+        assert_eq!(workspace.len(), self.workspace_bytes);
+        workspace.fill(0x5a);
+        self.bindings += 1;
         target.contents.completed.set(false);
         target.contents.color.set(Color::rgba(0, 0, 0, 0));
         Ok(self.active.replace(Rc::clone(&target.contents)))
@@ -132,6 +137,9 @@ impl Renderer for Fixture {
         Ok(RenderRoute::Native)
     }
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        if self.active.is_none() {
+            return Ok(());
+        }
         let DrawCommand::Fill { color, .. } = request.command else {
             return Err(RenderError::InvalidGeometry);
         };
@@ -141,6 +149,12 @@ impl Renderer for Fixture {
     fn flush(&mut self) -> Result<(), RenderError> {
         Ok(())
     }
+    fn supports_offscreen(&self) -> bool {
+        true
+    }
+    fn offscreen_format(&self) -> Option<ColorFormat> {
+        Some(ColorFormat::RGBA8888)
+    }
 }
 
 fn plan(renderer: &Fixture) -> TargetPlan {
@@ -148,6 +162,100 @@ fn plan(renderer: &Fixture) -> TargetPlan {
         .plan_target(PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap())
         .unwrap()
         .unwrap()
+}
+
+#[test]
+fn output_production_reserves_binding_and_paint_workspaces_together() {
+    use crate::app::App;
+    use crate::ecs::World;
+    use crate::ui::dirty::PaintCoverage;
+    use crate::ui::view::{PaintCtx, PaintMeasurement, SourceGeometry, View};
+
+    fn measure(
+        _: &World,
+        _: Entity,
+        rect: Rect,
+        _: &dyn Fn(Entity) -> Option<SourceGeometry>,
+    ) -> Option<PaintMeasurement> {
+        Some(PaintMeasurement {
+            coverage: PaintCoverage::solid(rect),
+            workspace: Some(PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap()),
+        })
+    }
+    fn paint(_: &World, _: Entity, paint: &mut PaintCtx<'_>) {
+        let layout = PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap();
+        assert!(paint.with_workspace(layout, |texture, paint| {
+            texture.pixels_mut().unwrap().bytes_mut().fill(0xa5);
+            paint.draw(&DrawCommand::Fill {
+                area: paint.rect(),
+                transform: Transform::IDENTITY,
+                quad: None,
+                color: Color::rgb(20, 40, 60),
+                radius: Fixed::ZERO,
+                opa: 255,
+            });
+        }));
+    }
+
+    for budget in [287, 288] {
+        let mut app = App::headless(4, 4);
+        app.with_default_widgets()
+            .with_offscreen_pool_budget(budget);
+        app.with_widget(View::new("Workspace", 90, paint).with_measurement(measure));
+        let root = app.spawn_root().id();
+        let config = crate::ui::OffscreenRender::new();
+        app.world.insert(root, config);
+        let key = BufferKey::for_widget(
+            root,
+            Rect::new(0, 0, 4, 4),
+            Rect::new(0, 0, 4, 4),
+            config,
+            0,
+        );
+        let mut renderer = Fixture {
+            workspace_bytes: 32,
+            ..Fixture::default()
+        };
+        let target_plan = plan(&renderer);
+        let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+        outputs.reserve(1).unwrap();
+        outputs.set_retained(root, true).unwrap();
+        outputs
+            .reserve_texture(key, Some((&mut renderer, target_plan)))
+            .unwrap();
+        crate::ui::render_system::render(
+            &app.world,
+            root,
+            &Viewport::new(4, 4, Fixed::ONE),
+            &mut renderer,
+        )
+        .unwrap();
+        if budget == 287 {
+            assert_eq!(renderer.bindings, 0);
+            assert!(outputs.get(root).is_none());
+        } else {
+            assert_eq!(renderer.bindings, 1);
+            let source = outputs.get(root).unwrap();
+            assert!(source.texture().is_native());
+            assert_eq!(
+                source.texture().read_pixels().unwrap().get_pixel(0, 0),
+                Color::rgb(20, 40, 60)
+            );
+            drop(source);
+            let allocated = outputs.storage().budget.allocated();
+            crate::ui::render_system::render(
+                &app.world,
+                root,
+                &Viewport::new(4, 4, Fixed::ONE),
+                &mut renderer,
+            )
+            .unwrap();
+            assert_eq!(renderer.bindings, 1);
+            assert_eq!(outputs.storage().budget.allocated(), allocated);
+        }
+        outputs.trim_memory();
+        assert_eq!(outputs.storage().budget.available(), budget);
+    }
 }
 
 fn draw(

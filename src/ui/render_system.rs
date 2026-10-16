@@ -2295,24 +2295,29 @@ fn prepare_offscreen(
     let texture = write.texture_mut();
 
     if texture.is_native() {
-        texture.render_native(
-            renderer,
-            Viewport::new(buf_w, buf_h, scale),
-            &mut [],
-            &mut |inner| {
-                draw_output_subtree(
-                    node,
-                    world,
-                    entities,
-                    idx,
-                    inner,
-                    shifted_rect,
-                    key,
-                    output_plan,
-                    &requests,
-                )
-            },
-        )?;
+        let workspace = &output_plan
+            .ok_or(RenderError::MissingWorkspace)?
+            .target_workspace;
+        workspace.with_bytes(texture.target_workspace_bytes(), |bytes| {
+            texture.render_native(
+                renderer,
+                Viewport::new(buf_w, buf_h, scale),
+                bytes,
+                &mut |inner| {
+                    draw_output_subtree(
+                        node,
+                        world,
+                        entities,
+                        idx,
+                        inner,
+                        shifted_rect,
+                        key,
+                        output_plan,
+                        &requests,
+                    )
+                },
+            )
+        })?;
     } else {
         let mut pixels = texture.pixels_mut()?;
         let stride = pixels.stride();

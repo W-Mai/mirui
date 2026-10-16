@@ -107,16 +107,48 @@ pub(crate) struct TexturePlan {
     cycle_reported: bool,
     raster: Option<crate::render::backends::sw::SwScratch>,
     pub(crate) workspace: PaintWorkspace,
+    pub(crate) target_workspace: PaintWorkspace,
 }
 
 impl TexturePlan {
     pub(crate) fn trim_memory(&mut self) {
         self.raster = None;
         self.workspace.release();
+        self.target_workspace.release();
     }
 
     pub(super) fn matches_root(&self, root: Entity) -> bool {
         self.root == Some(root)
+    }
+
+    fn reserve_workspaces(&mut self, outputs: &Outputs<WidgetTexture>) {
+        if self.workspace_bytes != 0 {
+            outputs.reserve_workspace(&mut self.workspace, self.workspace_bytes);
+        }
+        let target_bytes = self
+            .captures
+            .iter()
+            .filter(|capture| matches!(capture.state, CaptureState::Pending | CaptureState::Ready))
+            .map(|capture| outputs.target_workspace_bytes(capture.entity))
+            .max()
+            .unwrap_or(0);
+        outputs.reserve_workspace(&mut self.target_workspace, target_bytes);
+        for position in 0..self.graph.order().len() {
+            let id = self.graph.order()[position];
+            let capture = &self.captures[id];
+            let missing = capture.workspace_bytes > self.workspace.capacity()
+                || (capture.state == CaptureState::Pending
+                    && outputs.target_workspace_bytes(capture.entity)
+                        > self.target_workspace.capacity())
+                || self
+                    .graph
+                    .dependencies(id)
+                    .any(|dependency| self.captures[dependency].state == CaptureState::Missing);
+            if missing {
+                outputs.invalidate(capture.entity);
+                self.captures[id].state = CaptureState::Missing;
+            }
+        }
     }
 
     fn collect(
@@ -549,6 +581,7 @@ pub(super) fn prepare<'a>(
     {
         if let Some(mut plan) = outputs.take_texture_plan() {
             outputs.reserve_workspace(&mut plan.workspace, 0);
+            outputs.reserve_workspace(&mut plan.target_workspace, 0);
             plan.raster = None;
             plan.root = None;
             plan.nodes.clear();
@@ -581,8 +614,7 @@ pub(super) fn prepare<'a>(
             .get::<super::super::OffscreenGeneration>(capture.entity)
             .map_or(0, |g| g.0);
     }
-    let workspace_bytes = plan.workspace_bytes;
-    if workspace_bytes == 0 {
+    if plan.workspace_bytes == 0 {
         outputs.reserve_workspace(&mut plan.workspace, 0);
     }
     plan.batch = outputs.batch_id();
@@ -624,21 +656,7 @@ pub(super) fn prepare<'a>(
         };
         plan.captures[id].state = state;
     }
-    if workspace_bytes != 0 {
-        outputs.reserve_workspace(&mut plan.workspace, workspace_bytes);
-    }
-    for position in 0..plan.graph.order().len() {
-        let id = plan.graph.order()[position];
-        let missing = plan.captures[id].workspace_bytes > plan.workspace.capacity()
-            || plan
-                .graph
-                .dependencies(id)
-                .any(|dependency| plan.captures[dependency].state == CaptureState::Missing);
-        if missing {
-            outputs.invalidate(plan.captures[id].entity);
-            plan.captures[id].state = CaptureState::Missing;
-        }
-    }
+    plan.reserve_workspaces(outputs);
     let mut failure = None;
     for position in 0..plan.graph.order().len() {
         let id = plan.graph.order()[position];

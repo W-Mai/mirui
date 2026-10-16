@@ -1,9 +1,9 @@
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
-use crate::render::PlaneLayout;
 use crate::render::budget::{Allocation, MemoryBudget};
 use crate::render::texture::{AlphaMode, Texture};
+use crate::render::{PlaneLayout, RenderError};
 
 #[derive(Default)]
 pub(crate) struct PaintWorkspace {
@@ -12,6 +12,21 @@ pub(crate) struct PaintWorkspace {
 }
 
 impl PaintWorkspace {
+    pub(crate) fn with_bytes<T>(
+        &self,
+        required: usize,
+        body: impl FnOnce(&mut [u8]) -> Result<T, RenderError>,
+    ) -> Result<T, RenderError> {
+        let mut bytes = self
+            .bytes
+            .try_borrow_mut()
+            .map_err(|_| RenderError::InvalidScope)?;
+        let bytes = bytes
+            .get_mut(..required)
+            .ok_or(RenderError::MissingWorkspace)?;
+        body(bytes)
+    }
+
     pub(crate) fn with_texture(
         &self,
         layout: PlaneLayout,
@@ -106,5 +121,54 @@ mod tests {
         }));
         assert!(failure.is_err());
         assert!(workspace.with_texture(layout, |_| {}));
+    }
+
+    #[test]
+    fn target_bytes_and_paint_planes_share_budget_without_sharing_borrows() {
+        let mut target = PaintWorkspace::default();
+        let mut paint = PaintWorkspace::default();
+        let layout = PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap();
+        let budget = MemoryBudget::new(96);
+        assert!(target.allocate(32, &budget));
+        assert!(!paint.allocate(65, &budget));
+        assert!(paint.allocate(64, &budget));
+        assert_eq!(budget.available(), 0);
+        assert_eq!(
+            target.with_bytes(33, |_| panic!("insufficient workspace")),
+            Err::<(), _>(RenderError::MissingWorkspace)
+        );
+        assert_eq!(
+            tracked_allocations(|| {
+                for _ in 0..8 {
+                    target
+                        .with_bytes(32, |bytes| {
+                            bytes.fill(0x5a);
+                            assert!(paint.with_texture(layout, |texture| {
+                                texture.pixels_mut().unwrap().bytes_mut().fill(0xa5);
+                            }));
+                            assert!(bytes.iter().all(|byte| *byte == 0x5a));
+                            assert_eq!(
+                                target.with_bytes(1, |_| Ok(())),
+                                Err(RenderError::InvalidScope)
+                            );
+                            Ok(())
+                        })
+                        .unwrap();
+                }
+            }),
+            0
+        );
+        let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = target.with_bytes(32, |_| -> Result<(), RenderError> {
+                panic!("binding failed")
+            });
+        }));
+        assert!(failure.is_err());
+        target.with_bytes(32, |_| Ok(())).unwrap();
+        target.release();
+        paint.release();
+        assert_eq!(budget.available(), 96);
+        assert_eq!(target.with_bytes(0, |_| Ok(())), Ok(()));
+        assert_eq!(budget.allocated(), 0);
     }
 }

@@ -20,6 +20,7 @@ pub(super) struct NativeTexture {
     #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
     identity: Rc<()>,
     layout: PlaneLayout,
+    workspace_bytes: usize,
     completed: bool,
 }
 
@@ -95,6 +96,7 @@ impl NativeTexture {
             #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
             identity: Rc::new(()),
             layout,
+            workspace_bytes: plan.workspace_bytes,
             completed: false,
         })
     }
@@ -233,6 +235,13 @@ impl Texture<'_> {
         matches!(self.buf, TexBuf::Native(_))
     }
 
+    pub(crate) fn target_workspace_bytes(&self) -> usize {
+        match &self.buf {
+            TexBuf::Native(native) => native.workspace_bytes,
+            _ => 0,
+        }
+    }
+
     pub(crate) fn render_native(
         &mut self,
         renderer: &mut dyn Renderer,
@@ -243,6 +252,9 @@ impl Texture<'_> {
         let TexBuf::Native(native) = &mut self.buf else {
             return Err(RenderError::InvalidTexture);
         };
+        if workspace.len() < native.workspace_bytes {
+            return Err(RenderError::MissingWorkspace);
+        }
         native.completed = false;
         native.mirror.get_mut().revision = None;
         renderer.with_target(

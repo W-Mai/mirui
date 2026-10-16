@@ -44,6 +44,8 @@ Output publication retains an already valid CPU copy under the published revisio
 
 An output read pins its storage. Memory trimming preserves borrowed output pixels, their records and their budget charge; a later trim can reclaim them after the reads are dropped. Active write and workspace leases keep their existing release-on-return behavior.
 
+Output production reserves native binding workspace separately from View paint workspace in the same output budget. Sequential targets reuse the largest required binding buffer; both buffers can be borrowed during one drawing scope. Insufficient capacity prevents native production before binding. Memory trimming releases both buffers through the output plan. These storage hooks do not enable automatic native output selection.
+
 ## Renderer scopes
 
 Each `Renderer` declares `type TargetState`; renderers without native target support use `()`. Native backends implement `plan_target`, `create_target`, `bind_target` and `restore_target`. Planning returns `None` when native storage is unsupported. The binding state must not borrow the renderer or the supplied workspace.
