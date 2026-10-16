@@ -150,8 +150,9 @@ fn large_phone_scroll_repaints_the_destination_content() {
     let painted = app
         .backend
         .framebuffer()
-        .buf
-        .as_slice()
+        .read_pixels()
+        .unwrap()
+        .bytes()
         .chunks_exact(4)
         .filter(|pixel| pixel[..3] != [background.r, background.g, background.b])
         .count();

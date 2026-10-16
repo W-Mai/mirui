@@ -587,8 +587,9 @@ fn renders_curved_text_and_guides() {
     let texture = app.backend.framebuffer();
     let background = Theme::default().resolve(BACKGROUND);
     let non_background = texture
-        .buf
-        .as_slice()
+        .read_pixels()
+        .unwrap()
+        .bytes()
         .chunks_exact(4)
         .filter(|pixel| pixel[..3] != [background.r, background.g, background.b])
         .count();
@@ -603,7 +604,7 @@ fn shell_and_custom_stage_resolve_the_active_theme() {
 
     let surface = Theme::light().resolve(BACKGROUND);
     assert_eq!(
-        &app.backend.framebuffer().buf.as_slice()[..3],
+        &app.backend.framebuffer().read_pixels().unwrap().bytes()[..3],
         &[surface.r, surface.g, surface.b]
     );
 }

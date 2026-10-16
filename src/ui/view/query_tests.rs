@@ -231,7 +231,13 @@ fn text_changes_stay_local_and_cache_replacement_still_rebuilds_layout() {
     let fixed = app.world.find_by_id("fixed").unwrap();
     let changing = app.world.find_by_id("changing").unwrap();
     app.render_dirty().unwrap();
-    let before = app.backend.framebuffer().buf.as_slice().to_vec();
+    let before = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .bytes()
+        .to_vec();
     let fixed_handle = *app
         .world
         .get::<crate::text::TextLayoutHandle>(fixed)
@@ -245,10 +251,19 @@ fn text_changes_stay_local_and_cache_replacement_still_rebuilds_layout() {
     assert!(!app.world.has::<Dirty>(fixed));
     assert!(!app.world.has::<VisualDirty>(fixed));
     app.render_dirty().unwrap();
-    let changed = app.backend.framebuffer().buf.as_slice().to_vec();
+    let changed = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .bytes()
+        .to_vec();
     assert_ne!(before, changed);
     app.render().unwrap();
-    assert_eq!(changed, app.backend.framebuffer().buf.as_slice());
+    assert_eq!(
+        changed,
+        app.backend.framebuffer().read_pixels().unwrap().bytes()
+    );
     assert_eq!(
         app.world.get::<crate::text::TextLayoutHandle>(fixed),
         Some(&fixed_handle)
@@ -268,7 +283,10 @@ fn text_changes_stay_local_and_cache_replacement_still_rebuilds_layout() {
         assert!(app.world.has::<Dirty>(fixed));
         assert!(app.world.has::<Dirty>(changing));
         app.render_dirty().unwrap();
-        assert_eq!(changed, app.backend.framebuffer().buf.as_slice());
+        assert_eq!(
+            changed,
+            app.backend.framebuffer().read_pixels().unwrap().bytes()
+        );
         let outputs = app
             .world
             .resource::<crate::ui::Outputs<crate::text::TextGeometry>>()

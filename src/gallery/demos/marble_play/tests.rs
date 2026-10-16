@@ -307,8 +307,9 @@ fn first_page_switch_keeps_dirty_storage_capacity_and_updates_output() {
     let play_pixels = app
         .backend
         .framebuffer()
-        .buf
-        .as_slice()
+        .read_pixels()
+        .unwrap()
+        .bytes()
         .iter()
         .fold(0u64, |hash, byte| {
             hash.wrapping_mul(16777619) ^ *byte as u64
@@ -334,8 +335,9 @@ fn first_page_switch_keeps_dirty_storage_capacity_and_updates_output() {
     let edit_pixels = app
         .backend
         .framebuffer()
-        .buf
-        .as_slice()
+        .read_pixels()
+        .unwrap()
+        .bytes()
         .iter()
         .fold(0u64, |hash, byte| {
             hash.wrapping_mul(16777619) ^ *byte as u64
@@ -489,7 +491,7 @@ fn marble_board_pixels_follow_only_their_bound_model() {
     app.render().unwrap();
     app.world.clear_subtree_dirty(root);
     let texture = app.backend.framebuffer();
-    let initial = board_pixels(texture.buf.as_slice(), texture.stride);
+    let initial = board_pixels(texture.read_pixels().unwrap().bytes(), texture.stride);
     assert!(
         initial[0] == initial[1],
         "shared boards start with equal pixels"
@@ -507,7 +509,7 @@ fn marble_board_pixels_follow_only_their_bound_model() {
     shared.set_page(Page::Scenes);
     app.render_dirty().unwrap();
     let texture = app.backend.framebuffer();
-    let after_shared = board_pixels(texture.buf.as_slice(), texture.stride);
+    let after_shared = board_pixels(texture.read_pixels().unwrap().bytes(), texture.stride);
     assert!(
         after_shared[0] != initial[0],
         "shared model repaints its boards"
@@ -524,7 +526,7 @@ fn marble_board_pixels_follow_only_their_bound_model() {
     separate.reset_scene(1);
     app.render_dirty().unwrap();
     let texture = app.backend.framebuffer();
-    let after_separate = board_pixels(texture.buf.as_slice(), texture.stride);
+    let after_separate = board_pixels(texture.read_pixels().unwrap().bytes(), texture.stride);
     assert!(
         after_separate[0] == after_shared[0],
         "shared board stays untouched"
@@ -606,7 +608,7 @@ fn independent_marble_boards_repaint_for_a_shared_selection_source() {
     app.render().unwrap();
     app.world.clear_subtree_dirty(root);
     let texture = app.backend.framebuffer();
-    let initial = board_pixels(texture.buf.as_slice(), texture.stride);
+    let initial = board_pixels(texture.read_pixels().unwrap().bytes(), texture.stride);
     assert!(
         initial[0] == initial[1],
         "equal models start with equal pixels"
@@ -615,7 +617,7 @@ fn independent_marble_boards_repaint_for_a_shared_selection_source() {
     selection.set_marker(1);
     app.render_dirty().unwrap();
     let texture = app.backend.framebuffer();
-    let selected = board_pixels(texture.buf.as_slice(), texture.stride);
+    let selected = board_pixels(texture.read_pixels().unwrap().bytes(), texture.stride);
     assert!(
         selected[0] != initial[0],
         "shared selection repaints first board"
@@ -632,7 +634,7 @@ fn independent_marble_boards_repaint_for_a_shared_selection_source() {
     first.set_page(Page::Scenes);
     app.render_dirty().unwrap();
     let texture = app.backend.framebuffer();
-    let after_first_game = board_pixels(texture.buf.as_slice(), texture.stride);
+    let after_first_game = board_pixels(texture.read_pixels().unwrap().bytes(), texture.stride);
     assert!(
         after_first_game[0] != selected[0],
         "first game repaints first board"
@@ -645,7 +647,7 @@ fn independent_marble_boards_repaint_for_a_shared_selection_source() {
     second.set_page(Page::Settings);
     app.render_dirty().unwrap();
     let texture = app.backend.framebuffer();
-    let after_second_game = board_pixels(texture.buf.as_slice(), texture.stride);
+    let after_second_game = board_pixels(texture.read_pixels().unwrap().bytes(), texture.stride);
     assert!(
         after_second_game[0] == after_first_game[0],
         "first board stays untouched"

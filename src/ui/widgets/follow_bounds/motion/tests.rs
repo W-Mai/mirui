@@ -37,9 +37,18 @@ fn position_motion_reuses_layout_without_losing_children_or_painted_damage() {
             );
             assert_eq!(rect(&app, child), rect(&app, follower));
             app.render_dirty().unwrap();
-            let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+            let pixels = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
             app.render().unwrap();
-            assert_eq!(pixels, app.backend.framebuffer().buf.as_slice());
+            assert_eq!(
+                pixels,
+                app.backend.framebuffer().read_pixels().unwrap().bytes()
+            );
         }
         assert_ne!(rect(&app, follower), start);
         assert_eq!(rect(&app, follower), rect(&app, source));
@@ -97,9 +106,18 @@ fn tween_following_preserves_progress_across_layout_preparations_and_reconfigura
             rect(&app, follower).x,
             expected.value() + Fixed::from_int(70)
         );
-        let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+        let dirty = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         app.render().unwrap();
-        assert_eq!(dirty, app.backend.framebuffer().buf.as_slice());
+        assert_eq!(
+            dirty,
+            app.backend.framebuffer().read_pixels().unwrap().bytes()
+        );
     }
     assert!(expected.is_finished());
     assert_eq!(rect(&app, follower), rect(&app, source));
@@ -202,9 +220,18 @@ fn retarget_keeps_velocity_and_dirty_pixels_match_full_frames() {
             rect(&app, follower).x,
             expected.value() + Fixed::from_int(70)
         );
-        let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+        let dirty = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         app.render().unwrap();
-        assert_eq!(app.backend.framebuffer().buf.as_slice(), dirty);
+        assert_eq!(
+            app.backend.framebuffer().read_pixels().unwrap().bytes(),
+            dirty
+        );
     }
     assert!(expected.is_settled());
 }

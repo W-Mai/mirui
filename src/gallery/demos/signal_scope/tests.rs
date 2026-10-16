@@ -10,7 +10,7 @@ use super::state::{ScopeControl, ScopeModel, TriggerEdge};
 use crate::ecs::SystemScheduler;
 use crate::gallery::play::change::ChangeSet;
 use crate::prelude::*;
-use crate::render::texture::{TexBuf, Texture};
+use crate::render::texture::Texture;
 use crate::ui::ComputedRect;
 use crate::ui::dirty::VisualDirty;
 use crate::ui::view::ViewRegistry;
@@ -337,5 +337,11 @@ fn housing_art_uses_lossless_lz4_storage() {
     assert!(HOUSING_ART.len() < 200 * 1024);
 
     let texture = Texture::from_mirx_with(HOUSING_ART, housing_texture_options()).unwrap();
-    assert!(matches!(&texture.buf, TexBuf::Aligned(_)));
+    let pixels = texture.read_pixels().unwrap();
+    assert_eq!((pixels.width(), pixels.height()), (800, 480));
+    let encoded_start = HOUSING_ART.as_ptr() as usize;
+    assert!(
+        !(encoded_start..encoded_start + HOUSING_ART.len())
+            .contains(&(pixels.bytes().as_ptr() as usize))
+    );
 }

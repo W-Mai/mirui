@@ -120,7 +120,14 @@ fn surface_failures_preserve_the_accepted_baseline_and_retry_latest_state() {
         for failure in ["begin", "flush", "end"] {
             let (mut app, node) = fixture();
             let baseline = app.world.get::<PaintedCoverage>(node).unwrap().0.outer;
-            let pixels = app.backend.pixels.framebuffer().buf.as_slice().to_vec();
+            let pixels = app
+                .backend
+                .pixels
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
             crate::ui::set_position(&mut app.world, node, 16, 0);
             app.backend.fail = Some(failure);
             for _ in 0..3 {
@@ -144,7 +151,15 @@ fn surface_failures_preserve_the_accepted_baseline_and_retry_latest_state() {
             assert_eq!(app.needs_full_redraw, failure != "begin");
             if failure == "begin" {
                 assert_eq!(&app.backend.trace, &["begin", "abort"]);
-                assert_eq!(app.backend.pixels.framebuffer().buf.as_slice(), pixels);
+                assert_eq!(
+                    app.backend
+                        .pixels
+                        .framebuffer()
+                        .read_pixels()
+                        .unwrap()
+                        .bytes(),
+                    pixels
+                );
             }
             crate::ui::set_position(&mut app.world, node, 20, 0);
             app.backend.fail = None;
@@ -156,9 +171,24 @@ fn surface_failures_preserve_the_accepted_baseline_and_retry_latest_state() {
                 Fixed::from_int(20)
             );
             assert!(app.dirty_regions().unwrap().is_empty());
-            let accepted = app.backend.pixels.framebuffer().buf.as_slice().to_vec();
+            let accepted = app
+                .backend
+                .pixels
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
             app.render().unwrap();
-            assert_eq!(app.backend.pixels.framebuffer().buf.as_slice(), accepted);
+            assert_eq!(
+                app.backend
+                    .pixels
+                    .framebuffer()
+                    .read_pixels()
+                    .unwrap()
+                    .bytes(),
+                accepted
+            );
         }
     }
 }

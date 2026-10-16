@@ -719,7 +719,8 @@ mod tests {
                 ),
                 unfinished
             );
-            let pixels = dst.buf.as_slice();
+            let read = dst.read_pixels().unwrap();
+            let pixels = read.bytes();
             for y in 0..2 {
                 for x in 0..2 {
                     assert_eq!(&pixels[y * 20 + x * 4..][..4], &expected);

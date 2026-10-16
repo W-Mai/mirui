@@ -39,8 +39,9 @@ fn compact_widgets_fit_and_render_at_native_size() {
     assert!(
         app.backend
             .framebuffer()
-            .buf
-            .as_slice()
+            .read_pixels()
+            .unwrap()
+            .bytes()
             .iter()
             .any(|byte| *byte != 0),
     );

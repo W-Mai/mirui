@@ -56,7 +56,7 @@ impl PaintWorkspace {
 mod tests {
     use super::*;
     use crate::render::PlaneRequirements;
-    use crate::render::texture::{ColorFormat, TexBuf};
+    use crate::render::texture::ColorFormat;
     use crate::test_support::tracked_allocations;
     use crate::types::Color;
 
@@ -69,7 +69,6 @@ mod tests {
         assert!(workspace.allocate(layout.required_bytes()));
         let expected = Color::rgba(11, 29, 47, 61);
         assert!(workspace.with_texture(layout, |texture| {
-            assert!(matches!(texture.buf, TexBuf::Mut(_)));
             assert_eq!(texture.stride, 16);
             assert_eq!(texture.alpha_mode, AlphaMode::Blend);
             assert!(texture.transient);

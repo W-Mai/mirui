@@ -241,8 +241,9 @@ mod tests {
         assert!(
             app.backend
                 .framebuffer()
-                .buf
-                .as_slice()
+                .read_pixels()
+                .unwrap()
+                .bytes()
                 .iter()
                 .any(|byte| *byte != 0),
         );

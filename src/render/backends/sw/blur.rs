@@ -312,7 +312,7 @@ mod tests {
             );
             iir_blur_inplace(&mut tex.pixels_mut().unwrap(), Fixed::ZERO, r);
         }
-        assert_eq!(tex.buf.as_slice(), original.as_slice());
+        assert_eq!(tex.read_pixels().unwrap().bytes(), original.as_slice());
     }
 
     #[test]
@@ -341,7 +341,7 @@ mod tests {
                 r,
             );
         }
-        for px in tex.buf.as_slice().chunks_exact(4) {
+        for px in tex.read_pixels().unwrap().bytes().chunks_exact(4) {
             assert!((px[0] as i32 - 200).abs() <= 1, "r drifted: {}", px[0]);
             assert!((px[1] as i32 - 100).abs() <= 1, "g drifted: {}", px[1]);
             assert!((px[2] as i32 - 50).abs() <= 1, "b drifted: {}", px[2]);
@@ -375,7 +375,8 @@ mod tests {
                 r,
             );
         }
-        let after = tex.buf.as_slice();
+        let pixels = tex.read_pixels().unwrap();
+        let after = pixels.bytes();
         let centre_after = after[centre] as i32;
         assert!(centre_after < 255, "centre should have dimmed");
         let total_after: u64 = after
@@ -411,7 +412,7 @@ mod tests {
                 r,
             );
         }
-        for px in tex.buf.as_slice().chunks_exact(2) {
+        for px in tex.read_pixels().unwrap().bytes().chunks_exact(2) {
             let pixel = ((px[1] as u16) << 8) | (px[0] as u16);
             let r5 = (pixel >> 11) & 0x1F;
             let g6 = (pixel >> 5) & 0x3F;
@@ -446,7 +447,8 @@ mod tests {
                 r,
             );
         }
-        let after = tex.buf.as_slice();
+        let pixels = tex.read_pixels().unwrap();
+        let after = pixels.bytes();
         let centre_pixel = ((after[i + 1] as u16) << 8) | (after[i] as u16);
         let centre_r5 = (centre_pixel >> 11) & 0x1F;
         assert!(

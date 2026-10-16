@@ -70,9 +70,15 @@ fn shared_ancestor_motion_preserves_local_bounds_and_updates_clipping_without_la
             Rect::new(offset, 0, 70, 60).intersect(&Rect::new(0, 0, 128, 96))
         );
         app.render_dirty().unwrap();
-        let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+        let pixels = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         app.render().unwrap();
-        assert!(pixels == app.backend.framebuffer().buf.as_slice());
+        assert!(pixels == app.backend.framebuffer().read_pixels().unwrap().bytes());
     }
 }
 
@@ -321,9 +327,18 @@ fn prepared_motion_reuses_storage_and_dirty_frames_match_full_frames() {
         app.world.get_mut::<Style>(source).unwrap().layout.left = Dimension::px(x);
         app.world.invalidate(source);
         app.render_dirty().unwrap();
-        let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+        let dirty = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         app.render().unwrap();
-        assert_eq!(app.backend.framebuffer().buf.as_slice(), dirty);
+        assert_eq!(
+            app.backend.framebuffer().read_pixels().unwrap().bytes(),
+            dirty
+        );
     }
 }
 

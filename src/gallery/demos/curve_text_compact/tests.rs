@@ -138,7 +138,14 @@ fn embedded_layout_uses_bitmap_text_and_constant_path_window() {
         current.end().unwrap() - current.offset(),
         Fixed::from_int(TEXT_WINDOW)
     );
-    assert!(!app.backend.framebuffer().buf.as_slice().is_empty());
+    assert!(
+        !app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -155,7 +162,7 @@ fn compact_shell_resolves_the_active_theme() {
 
     let surface = crate::gallery::showcase_theme::light().resolve(BACKGROUND);
     assert_eq!(
-        &app.backend.framebuffer().buf.as_slice()[..3],
+        &app.backend.framebuffer().read_pixels().unwrap().bytes()[..3],
         &[surface.r, surface.g, surface.b]
     );
 }

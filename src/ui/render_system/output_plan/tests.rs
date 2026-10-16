@@ -114,7 +114,13 @@ fn repeated_queries_do_not_republish_or_reinvalidate_prepared_textures() {
     let capture = app.world.find_by_id("capture").unwrap();
     let source = app.world.find_by_id("external_source").unwrap();
     let published = output_version(&app.world, "capture");
-    let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+    let pixels = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .bytes()
+        .to_vec();
     for color in [Color::rgb(220, 40, 80), Color::rgb(40, 80, 220)] {
         app.world.get_mut::<Style>(source).unwrap().bg_color = Some(color.into());
         app.dirty_regions().unwrap();
@@ -133,11 +139,20 @@ fn repeated_queries_do_not_republish_or_reinvalidate_prepared_textures() {
                 generation
             );
             assert_eq!(output_version(&app.world, "capture"), published);
-            assert_eq!(app.backend.framebuffer().buf.as_slice(), pixels);
+            assert_eq!(
+                app.backend.framebuffer().read_pixels().unwrap().bytes(),
+                pixels
+            );
         }
     }
     app.render_dirty().unwrap();
-    let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+    let dirty = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .bytes()
+        .to_vec();
     assert_eq!(
         app.backend
             .framebuffer()
@@ -148,7 +163,10 @@ fn repeated_queries_do_not_republish_or_reinvalidate_prepared_textures() {
     );
     assert!(app.dirty_regions().unwrap().is_empty());
     app.render().unwrap();
-    assert_eq!(app.backend.framebuffer().buf.as_slice(), dirty);
+    assert_eq!(
+        app.backend.framebuffer().read_pixels().unwrap().bytes(),
+        dirty
+    );
 }
 
 #[test]

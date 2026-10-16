@@ -930,8 +930,8 @@ mod tests {
                         });
                         assert_eq!(allocations, 0);
                         assert_eq!(
-                            actual.buf.as_slice(),
-                            reference.buf.as_slice(),
+                            actual.read_pixels().unwrap().bytes(),
+                            reference.read_pixels().unwrap().bytes(),
                             "scale={scale}, source_alpha={source_alpha}, destination_alpha={destination_alpha}, cropped={cropped}"
                         );
                     }

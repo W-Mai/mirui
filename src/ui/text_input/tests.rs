@@ -749,9 +749,18 @@ fn preedit_partial_and_full_frames_match_and_caret_tracks_display_layout() {
         run(&mut app, preview(session, text));
         app.tick();
         app.render_dirty().unwrap();
-        let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+        let dirty = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         app.render().unwrap();
-        assert_eq!(dirty.as_slice(), app.backend.framebuffer().buf.as_slice());
+        assert_eq!(
+            dirty.as_slice(),
+            app.backend.framebuffer().read_pixels().unwrap().bytes()
+        );
         assert!(
             super::super::widgets::text_editing::geometry::caret_rect(&app.world, editor).is_some()
         );

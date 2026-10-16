@@ -2262,9 +2262,18 @@ mod app_invariant_tests {
                 app.world.get::<PaintedCoverage>(marker).unwrap().0.outer,
                 Rect::new(8, 16 - offset, 8, 8)
             );
-            let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+            let dirty = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
             app.render().unwrap();
-            assert_eq!(app.backend.framebuffer().buf.as_slice(), dirty);
+            assert_eq!(
+                app.backend.framebuffer().read_pixels().unwrap().bytes(),
+                dirty
+            );
         }
     }
 
@@ -2331,9 +2340,18 @@ mod app_invariant_tests {
                     .len(),
                 2
             );
-            let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+            let dirty = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
             app.render().unwrap();
-            assert_eq!(app.backend.framebuffer().buf.as_slice(), dirty);
+            assert_eq!(
+                app.backend.framebuffer().read_pixels().unwrap().bytes(),
+                dirty
+            );
         }
     }
 
@@ -2395,7 +2413,13 @@ mod app_invariant_tests {
             assert_eq!(app.dirty_region().unwrap(), Some(Rect::new(0, 0, 48, 32)));
         }
         app.render_dirty().unwrap();
-        let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+        let pixels = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         crate::ui::set_position(&mut app.world, marker, 24, 16);
         let first = app.dirty_regions().unwrap().bounding_rect();
         let plan_ptr = app.dirty_regions().unwrap().rects.as_ptr();
@@ -2406,14 +2430,26 @@ mod app_invariant_tests {
             }
         });
         assert_eq!(allocations, 0);
-        assert_eq!(app.backend.framebuffer().buf.as_slice(), pixels);
+        assert_eq!(
+            app.backend.framebuffer().read_pixels().unwrap().bytes(),
+            pixels
+        );
         crate::ui::set_position(&mut app.world, marker, 12, 16);
         assert_eq!(app.dirty_region().unwrap(), Some(Rect::new(8, 16, 12, 8)));
         app.render_dirty().unwrap();
         assert!(app.dirty_regions().unwrap().is_empty());
-        let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+        let dirty = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         app.render().unwrap();
-        assert_eq!(app.backend.framebuffer().buf.as_slice(), dirty);
+        assert_eq!(
+            app.backend.framebuffer().read_pixels().unwrap().bytes(),
+            dirty
+        );
     }
 
     #[test]
@@ -2454,9 +2490,18 @@ mod app_invariant_tests {
                 .len(),
             2
         );
-        let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+        let dirty = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         app.render().unwrap();
-        assert_eq!(app.backend.framebuffer().buf.as_slice(), dirty);
+        assert_eq!(
+            app.backend.framebuffer().read_pixels().unwrap().bytes(),
+            dirty
+        );
         assert!(app.dirty_regions().unwrap().is_empty());
     }
 
@@ -2483,10 +2528,16 @@ mod app_invariant_tests {
             app.world.invalidate(marker);
             assert_eq!(app.dirty_regions().unwrap().shifts.len(), 2);
             app.render_dirty().unwrap();
-            let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+            let dirty = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
             app.render().unwrap();
             assert!(
-                app.backend.framebuffer().buf.as_slice() == dirty,
+                app.backend.framebuffer().read_pixels().unwrap().bytes() == dirty,
                 "offsets {outer_y}/{inner_y}"
             );
         }
@@ -2514,9 +2565,15 @@ mod app_invariant_tests {
                 app.world.get::<PaintedCoverage>(marker).unwrap().0.outer,
                 expected
             );
-            let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+            let dirty = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
             app.render().unwrap();
-            assert!(app.backend.framebuffer().buf.as_slice() == dirty);
+            assert!(app.backend.framebuffer().read_pixels().unwrap().bytes() == dirty);
         }
     }
 
@@ -2549,10 +2606,16 @@ mod app_invariant_tests {
             assert_eq!(plan.shifts.len(), 2);
             assert!(!plan.rects.contains(&Rect::new(0, 0, 64, 64)));
             app.render_dirty().unwrap();
-            let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+            let dirty = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
             app.render().unwrap();
             assert!(
-                app.backend.framebuffer().buf.as_slice() == dirty,
+                app.backend.framebuffer().read_pixels().unwrap().bytes() == dirty,
                 "retire={retire}"
             );
             assert!(app.dirty_regions().unwrap().is_empty());
@@ -2580,7 +2643,13 @@ mod app_invariant_tests {
             let scroll = app.world.find_by_id("scroll").unwrap();
             let marker = app.world.find_by_id("marker").unwrap();
             app.render().unwrap();
-            let before = app.backend.framebuffer().buf.as_slice().to_vec();
+            let before = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
             let painted = app.world.get::<PaintedCoverage>(marker).unwrap().0.outer;
 
             app.world
@@ -2596,7 +2665,10 @@ mod app_invariant_tests {
                 app.render_dirty()
             };
             assert_eq!(result, Err(crate::render::RenderError::BackendFailure));
-            assert_ne!(app.backend.framebuffer().buf.as_slice(), before);
+            assert_ne!(
+                app.backend.framebuffer().read_pixels().unwrap().bytes(),
+                before
+            );
             assert_eq!(
                 app.world.get::<PaintedCoverage>(marker).unwrap().0.outer,
                 painted
@@ -2616,9 +2688,18 @@ mod app_invariant_tests {
                 "failed drawing leaves no reusable pixel baseline"
             );
             assert_eq!(plan.rects, [Rect::new(0, 0, 48, 32)]);
-            let recovered = app.backend.framebuffer().buf.as_slice().to_vec();
+            let recovered = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
             app.render().unwrap();
-            assert_eq!(app.backend.framebuffer().buf.as_slice(), recovered);
+            assert_eq!(
+                app.backend.framebuffer().read_pixels().unwrap().bytes(),
+                recovered
+            );
             app.render_dirty().unwrap();
             assert!(
                 app.world
@@ -3418,7 +3499,13 @@ mod app_invariant_tests {
         app.world.get_mut::<Children>(root).unwrap().0.push(label);
 
         app.render().unwrap();
-        let before = app.backend.framebuffer().buf.as_slice().to_vec();
+        let before = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         let snapshot_ptr = app.world.resource::<LayoutSnapshot>().unwrap() as *const LayoutSnapshot;
 
         app.world
@@ -3426,7 +3513,10 @@ mod app_invariant_tests {
             .unwrap()
             .set_content("LONG");
         assert_eq!(app.render(), Err(crate::render::RenderError::TextLayout));
-        assert_eq!(app.backend.framebuffer().buf.as_slice(), before);
+        assert_eq!(
+            app.backend.framebuffer().read_pixels().unwrap().bytes(),
+            before
+        );
         assert_eq!(
             app.last_text_layout_failure(),
             Some(crate::ui::render_system::TextLayoutFailure {
@@ -3455,12 +3545,21 @@ mod app_invariant_tests {
             .unwrap()
             .set_content("LONG");
         app.world.insert(root, Dirty);
-        let before = app.backend.framebuffer().buf.as_slice().to_vec();
+        let before = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         assert_eq!(
             app.render_dirty(),
             Err(crate::render::RenderError::TextLayout)
         );
-        assert_eq!(app.backend.framebuffer().buf.as_slice(), before);
+        assert_eq!(
+            app.backend.framebuffer().read_pixels().unwrap().bytes(),
+            before
+        );
         assert!(app.world.has::<Dirty>(root));
         assert_eq!(app.last_text_layout_failure().unwrap().entity, label);
 
@@ -3487,12 +3586,21 @@ mod app_invariant_tests {
             .unwrap()
             .set_content("LONG");
         app.world.insert(root, Dirty);
-        let before = app.backend.framebuffer().buf.as_slice().to_vec();
+        let before = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         assert_eq!(
             app.render_dirty(),
             Err(crate::render::RenderError::TextLayout)
         );
-        assert_eq!(app.backend.framebuffer().buf.as_slice(), before);
+        assert_eq!(
+            app.backend.framebuffer().read_pixels().unwrap().bytes(),
+            before
+        );
         assert_eq!(app.last_text_layout_failure().unwrap().entity, label);
 
         app.world.get_mut::<Text>(label).unwrap().set_content("OK");
@@ -3522,7 +3630,13 @@ mod app_invariant_tests {
         app.world.get_mut::<Children>(root).unwrap().0.push(label);
         app.render().unwrap();
         assert_eq!(app.dirty_region(), Ok(None));
-        let before = app.backend.framebuffer().buf.as_slice().to_vec();
+        let before = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
 
         app.world
             .get_mut::<Text>(label)
@@ -3552,14 +3666,20 @@ mod app_invariant_tests {
         );
         assert_eq!(app.last_text_layout_failure(), Some(failure));
         assert!(app.world.has::<Dirty>(root));
-        assert_eq!(app.backend.framebuffer().buf.as_slice(), before);
+        assert_eq!(
+            app.backend.framebuffer().read_pixels().unwrap().bytes(),
+            before
+        );
 
         app.world.get_mut::<Text>(label).unwrap().set_content("OK");
         assert!(app.dirty_region().unwrap().is_some());
         assert_eq!(app.last_text_layout_failure(), None);
         assert!(!app.world.has::<Dirty>(root));
         assert!(app.dirty_region().unwrap().is_some());
-        assert_eq!(app.backend.framebuffer().buf.as_slice(), before);
+        assert_eq!(
+            app.backend.framebuffer().read_pixels().unwrap().bytes(),
+            before
+        );
         app.render_dirty().unwrap();
         assert_eq!(app.dirty_region(), Ok(None));
         assert_eq!(
@@ -3571,7 +3691,10 @@ mod app_invariant_tests {
                 .unwrap()
                 .is_empty()
         );
-        assert_eq!(app.backend.framebuffer().buf.as_slice(), before);
+        assert_eq!(
+            app.backend.framebuffer().read_pixels().unwrap().bytes(),
+            before
+        );
     }
 
     #[test]
@@ -3774,7 +3897,10 @@ mod app_invariant_tests {
         );
         let texture = app.backend.framebuffer();
         let pixel = (4 * 64 + 24) * 4;
-        assert_eq!(&texture.buf.as_slice()[pixel..pixel + 3], &[20, 200, 80]);
+        assert_eq!(
+            &texture.read_pixels().unwrap().bytes()[pixel..pixel + 3],
+            &[20, 200, 80]
+        );
         assert!(app.dirty_regions().unwrap().is_empty());
     }
 
@@ -3794,7 +3920,7 @@ mod app_invariant_tests {
         app.world.insert(root, Dirty);
         app.render_dirty().unwrap();
         assert_eq!(
-            &app.backend.framebuffer().buf.as_slice()[..4],
+            &app.backend.framebuffer().read_pixels().unwrap().bytes()[..4],
             &[240, 20, 30, 255]
         );
 
@@ -3806,7 +3932,7 @@ mod app_invariant_tests {
             .unwrap()
             .resolve(crate::ui::theme::ColorToken::Surface);
         assert_eq!(
-            &app.backend.framebuffer().buf.as_slice()[..4],
+            &app.backend.framebuffer().read_pixels().unwrap().bytes()[..4],
             &[surface.r, surface.g, surface.b, surface.a]
         );
         assert_eq!(
@@ -3827,14 +3953,14 @@ mod app_invariant_tests {
         app.world.insert(root, Dirty);
         app.render_dirty().unwrap();
         assert_eq!(
-            &app.backend.framebuffer().buf.as_slice()[..3],
+            &app.backend.framebuffer().read_pixels().unwrap().bytes()[..3],
             &[240, 20, 30]
         );
 
         app.world.insert(root, Hidden);
         app.render().unwrap();
         assert_eq!(
-            &app.backend.framebuffer().buf.as_slice()[..4],
+            &app.backend.framebuffer().read_pixels().unwrap().bytes()[..4],
             &[surface.r, surface.g, surface.b, surface.a]
         );
     }
@@ -4099,7 +4225,13 @@ mod queued_surface {
         let root = app.spawn_root().id();
         let editor = app.compose(root, panel());
         app.render().unwrap();
-        let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+        let pixels = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         app.backend.events.extend([
             InputEvent::PointerDown {
                 kind: crate::surface::PointerKind::Mouse,
@@ -4121,7 +4253,10 @@ mod queued_surface {
         app.world.get::<TextEditing>(editor).unwrap().read(|text| {
             assert_eq!(text, "abc");
         });
-        assert_eq!(app.backend.framebuffer().buf.as_slice(), pixels);
+        assert_eq!(
+            app.backend.framebuffer().read_pixels().unwrap().bytes(),
+            pixels
+        );
         assert!(!app.dispatch_pending_input());
         assert_eq!(app.world.get::<TextEditing>(editor).unwrap().len(), 3);
     }

@@ -395,7 +395,7 @@ mod tests {
         let first = resolve_image(image, cache, manager).unwrap();
         let second = resolve_image(image, cache, manager).unwrap();
         assert!(alloc::rc::Rc::ptr_eq(&first, &second));
-        assert_eq!(first.buf.as_slice(), &BLUE);
+        assert_eq!(first.read_pixels().unwrap().bytes(), &BLUE);
 
         world.get_mut::<Image>(entity).unwrap().src = ImageSource::from("missing");
         let image = world.get::<Image>(entity).unwrap();
@@ -405,7 +405,7 @@ mod tests {
             world.resource::<ResourceManager<Texture<'static>>>(),
         )
         .unwrap();
-        assert_eq!(fallback.buf.as_slice(), &RED);
+        assert_eq!(fallback.read_pixels().unwrap().bytes(), &RED);
         assert_eq!(
             world
                 .get::<ImageResource>(entity)
@@ -449,8 +449,9 @@ mod tests {
                 world.resource::<ResourceManager<Texture<'static>>>(),
             )
             .unwrap()
-            .buf
-            .as_slice(),
+            .read_pixels()
+            .unwrap()
+            .bytes(),
             &BLUE
         );
     }
@@ -474,7 +475,7 @@ mod tests {
         let cache = ImageResource(RefCell::new(Some(original.load("blue"))));
         assert!(resolve_image(&image, Some(&cache), None).is_none());
         let first = resolve_image(&image, Some(&cache), Some(&original)).unwrap();
-        assert_eq!(first.buf.as_slice(), &BLUE);
+        assert_eq!(first.read_pixels().unwrap().bytes(), &BLUE);
         assert!(alloc::rc::Rc::ptr_eq(
             &first,
             &resolve_image(&image, Some(&cache), None).unwrap()
@@ -487,23 +488,26 @@ mod tests {
         assert_eq!(
             resolve_image(&image, Some(&cache), Some(&replacement))
                 .unwrap()
-                .buf
-                .as_slice(),
+                .read_pixels()
+                .unwrap()
+                .bytes(),
             &BLUE
         );
         drop(original);
         assert_eq!(
             resolve_image(&image, Some(&cache), None)
                 .unwrap()
-                .buf
-                .as_slice(),
+                .read_pixels()
+                .unwrap()
+                .bytes(),
             &BLUE
         );
         assert_eq!(
             resolve_image(&image, None, Some(&replacement))
                 .unwrap()
-                .buf
-                .as_slice(),
+                .read_pixels()
+                .unwrap()
+                .bytes(),
             &RED
         );
         image.src = ImageSource::from("other");
@@ -511,8 +515,9 @@ mod tests {
         assert_eq!(
             resolve_image(&image, Some(&cache), Some(&replacement))
                 .unwrap()
-                .buf
-                .as_slice(),
+                .read_pixels()
+                .unwrap()
+                .bytes(),
             &RED
         );
         assert_eq!(cache.0.borrow().as_ref().unwrap().token(), "other");
@@ -561,7 +566,7 @@ mod tests {
                     composite,
                     opa,
                 } => Request::Texture {
-                    ptr: texture.buf.as_slice().as_ptr(),
+                    ptr: texture.read_pixels().unwrap().bytes().as_ptr(),
                     pos,
                     size,
                     transform,
@@ -795,18 +800,33 @@ mod tests {
         let root = app.spawn_root().id();
         app.world.insert(root, Image::new("blue"));
         app.render_dirty().unwrap();
-        assert_eq!(&app.backend.framebuffer().buf.as_slice()[..4], &BLUE);
+        assert_eq!(
+            &app.backend.framebuffer().read_pixels().unwrap().bytes()[..4],
+            &BLUE
+        );
         app.world.get_mut::<Image>(root).unwrap().src = ImageSource::from("red");
         app.render_dirty().unwrap();
-        assert_eq!(&app.backend.framebuffer().buf.as_slice()[..4], &RED);
+        assert_eq!(
+            &app.backend.framebuffer().read_pixels().unwrap().bytes()[..4],
+            &RED
+        );
         view().auto_attach().unwrap().invoke(&mut app.world, root);
         app.render_dirty().unwrap();
-        assert_eq!(&app.backend.framebuffer().buf.as_slice()[..4], &RED);
+        assert_eq!(
+            &app.backend.framebuffer().read_pixels().unwrap().bytes()[..4],
+            &RED
+        );
         app.world.get_mut::<Image>(root).unwrap().src = ImageSource::from("blue");
         app.render_dirty().unwrap();
-        assert_eq!(&app.backend.framebuffer().buf.as_slice()[..4], &BLUE);
+        assert_eq!(
+            &app.backend.framebuffer().read_pixels().unwrap().bytes()[..4],
+            &BLUE
+        );
         app.world.remove::<ImageResource>(root);
         app.render_dirty().unwrap();
-        assert_eq!(&app.backend.framebuffer().buf.as_slice()[..4], &BLUE);
+        assert_eq!(
+            &app.backend.framebuffer().read_pixels().unwrap().bytes()[..4],
+            &BLUE
+        );
     }
 }

@@ -39,8 +39,11 @@ fn snapshot_copy_owns_packed_rows_without_source_padding() {
         let copy = clone_texture_owned(&source).unwrap();
         assert_eq!(copy.alpha_mode, source.alpha_mode);
         assert_eq!(copy.stride, packed);
-        assert_eq!(copy.buf.as_slice().len(), packed * 2);
-        assert_ne!(copy.buf.as_slice().as_ptr(), source.buf.as_slice().as_ptr());
+        assert_eq!(copy.read_pixels().unwrap().bytes().len(), packed * 2);
+        assert_ne!(
+            copy.read_pixels().unwrap().bytes().as_ptr(),
+            source.read_pixels().unwrap().bytes().as_ptr()
+        );
         source
             .pixels_mut()
             .unwrap()
@@ -108,8 +111,8 @@ fn snapshot_preserves_target_pixels_format_and_scale_without_offscreen_request()
                 Color::rgb(255, 0, 0)
             );
             assert_eq!(
-                image.buf.as_slice(),
-                app.backend.framebuffer().buf.as_slice()
+                image.read_pixels().unwrap().bytes(),
+                app.backend.framebuffer().read_pixels().unwrap().bytes()
             );
             assert_eq!(&*trace.borrow(), &["prepare", "present", "complete"]);
             assert!(app.world.get::<crate::ui::OffscreenRender>(root).is_none());
@@ -203,9 +206,15 @@ fn snapshot_baseline_supports_subsequent_dirty_rendering() {
     let captured = app.snapshot().unwrap().unwrap();
     app.world.get_mut::<Style>(root).unwrap().bg_color = Some(Color::rgb(0, 0, 255).into());
     app.render_dirty().unwrap();
-    let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+    let dirty = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .bytes()
+        .to_vec();
     let full = app.snapshot().unwrap().unwrap();
-    assert_eq!(full.buf.as_slice(), dirty);
+    assert_eq!(full.read_pixels().unwrap().bytes(), dirty);
     assert_eq!(
         captured.read_pixels().unwrap().get_pixel(0, 0),
         Color::rgb(255, 0, 0)
@@ -229,8 +238,8 @@ fn hidden_root_snapshot_contains_the_same_clear_as_render() {
     assert_eq!(image.read_pixels().unwrap().get_pixel(23, 17), expected);
     app.render().unwrap();
     assert_eq!(
-        image.buf.as_slice(),
-        app.backend.framebuffer().buf.as_slice()
+        image.read_pixels().unwrap().bytes(),
+        app.backend.framebuffer().read_pixels().unwrap().bytes()
     );
 }
 

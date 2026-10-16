@@ -1879,7 +1879,15 @@ mod tests {
                     renderer.submit(&DrawRequest::new(&command, clip)),
                     Err(RenderError::InvalidTexture)
                 );
-                assert!(renderer.target.buf.as_slice().iter().all(|byte| *byte == 0));
+                assert!(
+                    renderer
+                        .target
+                        .read_pixels()
+                        .unwrap()
+                        .bytes()
+                        .iter()
+                        .all(|byte| *byte == 0)
+                );
                 assert_eq!(
                     Canvas::flush(&mut renderer),
                     Err(RenderError::InvalidTexture)
@@ -1911,7 +1919,15 @@ mod tests {
             Canvas::flush(&mut renderer),
             Err(RenderError::InvalidTexture)
         );
-        assert!(renderer.target.buf.as_slice().iter().all(|byte| *byte == 0));
+        assert!(
+            renderer
+                .target
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .iter()
+                .all(|byte| *byte == 0)
+        );
     }
 
     #[test]
@@ -2136,8 +2152,8 @@ mod tests {
                 let off = (y as usize * 64 + x as usize) * 2;
                 assert_eq!(
                     (
-                        backend.target.buf.as_slice()[off],
-                        backend.target.buf.as_slice()[off + 1]
+                        backend.target.read_pixels().unwrap().bytes()[off],
+                        backend.target.read_pixels().unwrap().bytes()[off + 1]
                     ),
                     (0, 0),
                     "out-of-visible pixel ({},{}) was written",
@@ -2502,8 +2518,8 @@ mod tests {
                 &[],
             );
             assert_eq!(
-                line.target.buf.as_slice(),
-                path_renderer.target.buf.as_slice()
+                line.target.read_pixels().unwrap().bytes(),
+                path_renderer.target.read_pixels().unwrap().bytes()
             );
         }
     }
@@ -2618,7 +2634,10 @@ mod tests {
                 &[],
             );
 
-            assert_eq!(actual.target.buf.as_slice(), expected.target.buf.as_slice());
+            assert_eq!(
+                actual.target.read_pixels().unwrap().bytes(),
+                expected.target.read_pixels().unwrap().bytes()
+            );
         }
     }
 
@@ -2665,7 +2684,10 @@ mod tests {
             Fixed::from_int(4),
             &[],
         );
-        assert_eq!(actual.target.buf.as_slice(), expected.target.buf.as_slice());
+        assert_eq!(
+            actual.target.read_pixels().unwrap().bytes(),
+            expected.target.read_pixels().unwrap().bytes()
+        );
 
         let capacity = actual.scratch.primitive_path.command_capacity();
         assert!(capacity >= path.commands().len());
@@ -3540,10 +3562,10 @@ mod tests {
             renderer.modify_target_region(&area, &mut |_| panic!("read-only target")),
             Err(RenderError::InvalidTexture)
         );
-        assert!(matches!(
-            renderer.target.buf,
-            crate::render::texture::TexBuf::Ref(_)
-        ));
+        assert_eq!(
+            renderer.target.read_pixels().unwrap().bytes().as_ptr(),
+            bytes.as_ptr()
+        );
         let mut destination = Texture::owned(2, 2, ColorFormat::RGBA8888).unwrap();
         renderer.target.stride = 16;
         assert_eq!(
@@ -3648,7 +3670,7 @@ mod tests {
         backend
             .scroll_target_region(&area, Fixed::ZERO, half)
             .unwrap();
-        for px in backend.target.buf.as_slice() {
+        for px in backend.target.read_pixels().unwrap().bytes() {
             assert_eq!(*px, 1);
         }
     }
@@ -3679,7 +3701,7 @@ mod tests {
             .scroll_target_region(&area, Fixed::ZERO, neg_half)
             .unwrap();
         assert_eq!(
-            backend.target.buf.as_slice(),
+            backend.target.read_pixels().unwrap().bytes(),
             snapshot.as_slice(),
             "negative sub-pixel dy must not modify the buffer"
         );
@@ -4829,8 +4851,9 @@ mod tests {
         assert!(
             renderer
                 .target
-                .buf
-                .as_slice()
+                .read_pixels()
+                .unwrap()
+                .bytes()
                 .chunks_exact(4)
                 .any(|pixel| pixel[3] != 0)
         );

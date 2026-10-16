@@ -97,12 +97,18 @@ fn incremental_scroll_preserves_the_stationary_list_frame() {
                 !crate::ui::dirty::has_visible_dirty::<crate::ui::dirty::Dirty>(&app.world, root),
                 "scrolling must consume offscreen row dirtiness"
             );
-            let incremental = app.backend.framebuffer().buf.as_slice().to_vec();
+            let incremental = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
             app.render().unwrap();
             let full = app.backend.framebuffer();
             let mismatch = incremental
                 .iter()
-                .zip(full.buf.as_slice())
+                .zip(full.read_pixels().unwrap().bytes())
                 .position(|(a, b)| a != b);
             assert_eq!(
                 mismatch, None,

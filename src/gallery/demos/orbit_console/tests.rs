@@ -341,7 +341,7 @@ fn shell_and_instruments_resolve_the_active_theme() {
         app.set_root(root);
         app.set_theme(theme_id).unwrap();
         app.render().unwrap();
-        <[u8; 3]>::try_from(&app.backend.framebuffer().buf.as_slice()[..3]).unwrap()
+        <[u8; 3]>::try_from(&app.backend.framebuffer().read_pixels().unwrap().bytes()[..3]).unwrap()
     };
 
     let light = render(crate::gallery::showcase_theme::LIGHT_ID);

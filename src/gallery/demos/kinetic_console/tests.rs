@@ -176,7 +176,7 @@ fn compact_console_resolves_the_active_theme() {
 
     let surface = crate::gallery::showcase_theme::light().resolve(BACKGROUND);
     assert_eq!(
-        &app.backend.framebuffer().buf.as_slice()[..3],
+        &app.backend.framebuffer().read_pixels().unwrap().bytes()[..3],
         &[surface.r, surface.g, surface.b]
     );
 }

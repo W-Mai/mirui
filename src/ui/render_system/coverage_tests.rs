@@ -101,10 +101,16 @@ fn hiding_and_retirement_preserve_border_gaps_and_erase_visible_pixels() {
             );
         }
         app.render_dirty().unwrap();
-        let partial = app.backend.framebuffer().buf.as_slice().to_vec();
+        let partial = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         app.render().unwrap();
         assert!(
-            partial == app.backend.framebuffer().buf.as_slice(),
+            partial == app.backend.framebuffer().read_pixels().unwrap().bytes(),
             "operation={operation}"
         );
         if operation != 2 {

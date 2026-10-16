@@ -260,10 +260,16 @@ fn collection_scrolls_after_navigation() {
     )]));
     assert!(!app.tick());
     assert!(app.world.get::<ScrollOffset>(list).unwrap().y > Fixed::ZERO);
-    let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+    let pixels = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .bytes()
+        .to_vec();
     app.render().unwrap();
     assert!(
-        pixels == app.backend.framebuffer().buf.as_slice(),
+        pixels == app.backend.framebuffer().read_pixels().unwrap().bytes(),
         "scroll damage must match full rendering"
     );
     let before = app.world.get::<ScrollOffset>(list).unwrap().y;
@@ -289,9 +295,15 @@ fn collection_scrolls_after_navigation() {
     ] {
         app.add_resource(SimulatedInput::new(alloc::vec![SimCommand::at(0, event)]));
         assert!(!app.tick());
-        let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+        let pixels = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         app.render().unwrap();
-        assert!(pixels == app.backend.framebuffer().buf.as_slice());
+        assert!(pixels == app.backend.framebuffer().read_pixels().unwrap().bytes());
     }
     assert!(app.world.get::<ScrollOffset>(list).unwrap().y > before);
     assert_eq!(path.len(), 1, "scrolling must not open a card");

@@ -123,7 +123,7 @@ impl ColorFormat {
     }
 }
 
-pub(crate) enum TexBuf<'a> {
+enum TexBuf<'a> {
     Ref(&'a [u8]),
     Mut(&'a mut [u8]),
     Owned(Vec<u8>),
@@ -195,7 +195,7 @@ pub(crate) fn blend_straight_source_over(source: &Color, destination: &Color, al
 /// requires_clone::<Texture<'static>>();
 /// ```
 pub struct Texture<'a> {
-    pub(crate) buf: TexBuf<'a>,
+    buf: TexBuf<'a>,
     pub(crate) width: u16,
     pub(crate) height: u16,
     pub(crate) format: ColorFormat,

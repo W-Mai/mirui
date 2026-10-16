@@ -26,9 +26,21 @@ fn dirty_text_inside_slots_matches_full_render() {
     for entity in texts {
         app.world.invalidate(entity);
         app.render_dirty().unwrap();
-        let partial = app.backend.framebuffer().buf.as_slice().to_vec();
+        let partial = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         app.render().unwrap();
-        let full = app.backend.framebuffer().buf.as_slice().to_vec();
+        let full = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         let mismatches = partial.iter().zip(&full).filter(|(a, b)| a != b).count();
         assert_eq!(
             mismatches, 0,

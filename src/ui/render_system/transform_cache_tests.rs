@@ -56,9 +56,15 @@ fn ancestor_motion_reuses_local_content_and_internal_motion_invalidates_only_its
         );
         assert_eq!(generation(&app.world, inner), inner_generation);
         app.render_dirty().unwrap();
-        let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+        let dirty = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         app.render().unwrap();
-        assert!(dirty == app.backend.framebuffer().buf.as_slice());
+        assert!(dirty == app.backend.framebuffer().read_pixels().unwrap().bytes());
     }
     apply_to_world::<prop::Transform>(
         &mut app.world,
@@ -81,9 +87,15 @@ fn ancestor_motion_reuses_local_content_and_internal_motion_invalidates_only_its
     app.render_dirty().unwrap();
     assert!(generation(&app.world, cached) > outer_generation + 1);
     assert!(generation(&app.world, inner) > inner_generation);
-    let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+    let dirty = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .bytes()
+        .to_vec();
     app.render().unwrap();
-    assert!(dirty == app.backend.framebuffer().buf.as_slice());
+    assert!(dirty == app.backend.framebuffer().read_pixels().unwrap().bytes());
 }
 
 #[test]

@@ -601,15 +601,21 @@ fn fade_reverses_without_reallocation_and_matches_dirty_composition() {
             }),
             0
         );
-        let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+        let dirty = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         app.render().unwrap();
         let full = app.backend.framebuffer();
         assert!(
-            dirty == full.buf.as_slice(),
+            dirty == full.read_pixels().unwrap().bytes(),
             "first mismatch: {:?}",
             dirty
                 .iter()
-                .zip(full.buf.as_slice())
+                .zip(full.read_pixels().unwrap().bytes())
                 .enumerate()
                 .find(|(_, (a, b))| a != b)
         );
@@ -675,15 +681,21 @@ fn slide_is_clipped_and_dirty_frames_match_full_frames() {
             app.render_dirty().unwrap();
             assert_eq!(pixel(&mut app, 5, 35), Color::rgb(0, 0, 0));
             assert_eq!(pixel(&mut app, 95, 35), Color::rgb(0, 0, 0));
-            let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+            let dirty = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
             app.render().unwrap();
             let full = app.backend.framebuffer();
             assert!(
-                dirty == full.buf.as_slice(),
+                dirty == full.read_pixels().unwrap().bytes(),
                 "first mismatch: {:?}",
                 dirty
                     .iter()
-                    .zip(full.buf.as_slice())
+                    .zip(full.read_pixels().unwrap().bytes())
                     .enumerate()
                     .find(|(_, (a, b))| a != b)
             );

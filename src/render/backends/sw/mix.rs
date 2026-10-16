@@ -134,7 +134,7 @@ mod tests {
         let mut a =
             Texture::new(&mut a_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         mix_inplace(&mut a.pixels_mut().unwrap(), &b.read_pixels().unwrap(), 0);
-        assert_eq!(a.buf.as_slice(), original.as_slice());
+        assert_eq!(a.read_pixels().unwrap().bytes(), original.as_slice());
     }
 
     #[test]
@@ -145,7 +145,7 @@ mod tests {
         let mut a =
             Texture::new(&mut a_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         mix_inplace(&mut a.pixels_mut().unwrap(), &b.read_pixels().unwrap(), 255);
-        for px in a.buf.as_slice().chunks_exact(4) {
+        for px in a.read_pixels().unwrap().bytes().chunks_exact(4) {
             assert_eq!(px, &[200, 50, 75, 255]);
         }
     }
@@ -158,7 +158,7 @@ mod tests {
         let mut a =
             Texture::new(&mut a_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         mix_inplace(&mut a.pixels_mut().unwrap(), &b.read_pixels().unwrap(), 128);
-        for px in a.buf.as_slice().chunks_exact(4) {
+        for px in a.read_pixels().unwrap().bytes().chunks_exact(4) {
             // Integer mix: (127 * a + 128 * b) / 255. Tolerance ±1 for
             // truncation; b is identical-rgb so all three channels
             // land at the same expected value modulo a/b values.
@@ -177,6 +177,6 @@ mod tests {
         let mut a =
             Texture::new(&mut a_buf, 4, 4, ColorFormat::RGBA8888).expect("valid pixel storage");
         mix_inplace(&mut a.pixels_mut().unwrap(), &b.read_pixels().unwrap(), 128);
-        assert_eq!(a.buf.as_slice(), original.as_slice());
+        assert_eq!(a.read_pixels().unwrap().bytes(), original.as_slice());
     }
 }

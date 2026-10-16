@@ -188,7 +188,13 @@ fn retired_overflow_is_erased_by_dirty_render() {
             .get(source)
             .is_some()
     );
-    let before = app.backend.framebuffer().buf.as_slice().to_vec();
+    let before = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .bytes()
+        .to_vec();
     despawn_subtree(&mut app.world, target);
     app.render_dirty().unwrap();
     assert!(app.world.is_alive(mirror));
@@ -199,8 +205,17 @@ fn retired_overflow_is_erased_by_dirty_render() {
             .get(source)
             .is_none()
     );
-    let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+    let dirty = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .bytes()
+        .to_vec();
     assert_ne!(before, dirty);
     app.render().unwrap();
-    assert_eq!(dirty, app.backend.framebuffer().buf.as_slice());
+    assert_eq!(
+        dirty,
+        app.backend.framebuffer().read_pixels().unwrap().bytes()
+    );
 }

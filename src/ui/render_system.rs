@@ -3808,7 +3808,8 @@ mod layout_snapshot_reuse_check {
         ) -> [u8; 3] {
             let framebuffer = app.backend.framebuffer();
             let offset = (2 * 64 + 2) * 4;
-            let bytes = framebuffer.buf.as_slice();
+            let pixels = framebuffer.read_pixels().unwrap();
+            let bytes = pixels.bytes();
             [bytes[offset], bytes[offset + 1], bytes[offset + 2]]
         }
 
@@ -8469,8 +8470,9 @@ mod offscreen_render_check {
             .get(panel)
             .unwrap()
             .texture()
-            .buf
-            .as_slice()
+            .read_pixels()
+            .unwrap()
+            .bytes()
             .as_ptr();
         super::render(&world, panel, &viewport, &mut renderer).unwrap();
         assert_eq!(
@@ -8482,8 +8484,9 @@ mod offscreen_render_check {
                 .get(panel)
                 .unwrap()
                 .texture()
-                .buf
-                .as_slice()
+                .read_pixels()
+                .unwrap()
+                .bytes()
                 .as_ptr(),
             pixels
         );
@@ -8713,7 +8716,7 @@ mod offscreen_render_check {
             assert!(!current.texture().transient);
             prior_revision = current.texture().cache_revision;
             if index == 0 {
-                first_pixels = current.texture().buf.as_slice().as_ptr();
+                first_pixels = current.texture().read_pixels().unwrap().bytes().as_ptr();
                 assert!(outputs.previous(panel).is_none());
             } else {
                 let previous = outputs.previous(panel).unwrap();
@@ -8722,10 +8725,19 @@ mod offscreen_render_check {
                     colors[index - 1]
                 );
                 if index == 1 {
-                    assert_eq!(previous.texture().buf.as_slice().as_ptr(), first_pixels);
-                    assert_ne!(current.texture().buf.as_slice().as_ptr(), first_pixels);
+                    assert_eq!(
+                        previous.texture().read_pixels().unwrap().bytes().as_ptr(),
+                        first_pixels
+                    );
+                    assert_ne!(
+                        current.texture().read_pixels().unwrap().bytes().as_ptr(),
+                        first_pixels
+                    );
                 } else {
-                    assert_eq!(current.texture().buf.as_slice().as_ptr(), first_pixels);
+                    assert_eq!(
+                        current.texture().read_pixels().unwrap().bytes().as_ptr(),
+                        first_pixels
+                    );
                 }
             }
         }
@@ -9249,7 +9261,13 @@ mod offscreen_render_check {
 
         let outputs = world.resource::<Outputs<WidgetTexture>>().unwrap();
         let output = outputs.get(panel).unwrap();
-        for px in output.texture().buf.as_slice().chunks_exact(4) {
+        for px in output
+            .texture()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .chunks_exact(4)
+        {
             assert_eq!(px[3], 0, "alpha-clear buffer pixel must stay alpha=0");
         }
     }

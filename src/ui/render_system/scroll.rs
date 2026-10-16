@@ -185,10 +185,16 @@ mod damage_tests {
                     }
                 }
                 app.render_dirty().unwrap();
-                let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+                let dirty = app
+                    .backend
+                    .framebuffer()
+                    .read_pixels()
+                    .unwrap()
+                    .bytes()
+                    .to_vec();
                 app.render().unwrap();
                 assert!(
-                    dirty == app.backend.framebuffer().buf.as_slice(),
+                    dirty == app.backend.framebuffer().read_pixels().unwrap().bytes(),
                     "radius={radius}, offset={offset:?}"
                 );
                 assert_eq!(
@@ -218,9 +224,15 @@ mod damage_tests {
             app.world.remove::<ScrollOffset>(list);
             app.world.invalidate_visual(list);
             app.render_dirty().unwrap();
-            let dirty = app.backend.framebuffer().buf.as_slice().to_vec();
+            let dirty = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
             app.render().unwrap();
-            assert!(dirty == app.backend.framebuffer().buf.as_slice());
+            assert!(dirty == app.backend.framebuffer().read_pixels().unwrap().bytes());
             assert!(!app.world.has::<PaintedScroll>(list));
         }
     }

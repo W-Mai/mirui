@@ -158,9 +158,18 @@ fn page_transitions_animate_but_session_progress_retains_the_mounted_page() {
     assert_eq!(frames(&app).len(), 2);
     for _ in 0..8 {
         app.tick();
-        let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+        let pixels = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         app.render().unwrap();
-        assert_eq!(pixels, app.backend.framebuffer().buf.as_slice());
+        assert_eq!(
+            pixels,
+            app.backend.framebuffer().read_pixels().unwrap().bytes()
+        );
     }
     finish_transition(&mut app);
     assert!(!app.world.is_alive(initial_frame));
@@ -221,9 +230,18 @@ fn discovery_refresh_and_rapid_return_do_not_replace_the_wrong_page() {
     finish_transition(&mut app);
     assert_eq!(state.snapshot().page, Page::Rooms);
     assert_eq!(frames(&app).len(), 1);
-    let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+    let pixels = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .bytes()
+        .to_vec();
     app.render().unwrap();
-    assert_eq!(pixels, app.backend.framebuffer().buf.as_slice());
+    assert_eq!(
+        pixels,
+        app.backend.framebuffer().read_pixels().unwrap().bytes()
+    );
 }
 
 #[test]
@@ -490,11 +508,17 @@ fn all_pages_render_through_one_registered_model() {
         }
         app.prepare_text_layout().unwrap();
         app.render_dirty().unwrap();
-        let pixels = app.backend.framebuffer().buf.as_slice().to_vec();
+        let pixels = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
         app.render().unwrap();
         assert_eq!(
             pixels,
-            app.backend.framebuffer().buf.as_slice(),
+            app.backend.framebuffer().read_pixels().unwrap().bytes(),
             "{:?}",
             state.snapshot().page
         );

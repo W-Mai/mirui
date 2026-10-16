@@ -96,7 +96,7 @@ pub(crate) fn texture_scroll_in_place(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::texture::{ColorFormat, TexBuf};
+    use crate::render::texture::ColorFormat;
 
     #[test]
     fn mirror_copies_pixels_across_padded_rows_without_allocating() {
@@ -143,7 +143,10 @@ mod tests {
             texture_scroll_in_place(&mut readonly, area, 0, 1),
             Err(RenderError::InvalidTexture)
         );
-        assert!(matches!(readonly.buf, TexBuf::Ref(_)));
+        assert_eq!(
+            readonly.read_pixels().unwrap().bytes().as_ptr(),
+            bytes.as_ptr()
+        );
         assert_eq!(readonly.cache_revision, 0);
 
         let mut target = Texture::owned(2, 2, ColorFormat::RGBA8888).unwrap();

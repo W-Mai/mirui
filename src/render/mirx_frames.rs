@@ -326,15 +326,24 @@ mod tests {
         let first_ptr = {
             let texture = session.present(0).unwrap();
             assert_eq!(texture.stride, 192);
-            assert_eq!(texture.buf.as_slice().as_ptr() as usize % 64, 0);
-            assert_eq!(&texture.buf.as_slice()[..6], &[10, 20, 30, 40, 50, 60]);
-            texture.buf.as_slice().as_ptr()
+            assert_eq!(
+                texture.read_pixels().unwrap().bytes().as_ptr() as usize % 64,
+                0
+            );
+            assert_eq!(
+                &texture.read_pixels().unwrap().bytes()[..6],
+                &[10, 20, 30, 40, 50, 60]
+            );
+            texture.read_pixels().unwrap().bytes().as_ptr()
         };
         let (position, second) = session.present_at(40).unwrap().unwrap();
         assert_eq!(position.frame(), 1);
         assert_eq!(position.elapsed_ticks(), 0);
-        assert_eq!(second.buf.as_slice().as_ptr(), first_ptr);
-        assert_eq!(&second.buf.as_slice()[..6], &[10, 20, 30, 41, 52, 63]);
+        assert_eq!(second.read_pixels().unwrap().bytes().as_ptr(), first_ptr);
+        assert_eq!(
+            &second.read_pixels().unwrap().bytes()[..6],
+            &[10, 20, 30, 41, 52, 63]
+        );
         assert_eq!(session.current_frame(), Some(1));
     }
 

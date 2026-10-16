@@ -216,11 +216,17 @@ mod tests {
                 );
             }
 
-            let incremental = app.backend.framebuffer().buf.as_slice().to_vec();
+            let incremental = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
             app.render().unwrap();
             assert_eq!(
                 incremental.as_slice(),
-                app.backend.framebuffer().buf.as_slice(),
+                app.backend.framebuffer().read_pixels().unwrap().bytes(),
                 "rotation {rotation}: dirty rendering must match full rendering"
             );
         }
