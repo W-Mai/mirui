@@ -1,8 +1,11 @@
 use std::any::Any;
 use std::rc::Rc;
 
+use mirui::app::RendererFactory;
 use mirui::render::texture::TexturePixelsMut;
 use mirui::render::{BackendTarget, PlaneLayout, TargetAlpha, TargetDescriptor, TargetPlan};
+use mirui::surface::{DisplayInfo, InputEvent, Surface};
+use mirui::types::PhysicalRect;
 use mirui::types::Viewport;
 
 use super::*;
@@ -234,4 +237,96 @@ fn foreign_target_rejection_keeps_the_composed_parent_usable() {
     assert_eq!(count.get(), 1);
     assert!(renderer.target.active.is_none());
     assert_eq!(screen[0], 1);
+}
+
+struct NativeSurface {
+    device: Rc<()>,
+    screen: [u8; 4],
+}
+
+impl mirui::core::cache::InspectCaches for NativeSurface {}
+
+impl Surface for NativeSurface {
+    fn display_info(&self) -> DisplayInfo {
+        DisplayInfo {
+            width: 1,
+            height: 1,
+            scale: Fixed::ONE,
+            format: ColorFormat::RGBA8888,
+        }
+    }
+
+    fn flush(&mut self, _: PhysicalRect) -> Result<(), RenderError> {
+        Ok(())
+    }
+
+    fn poll_event(&mut self) -> Option<InputEvent> {
+        None
+    }
+}
+
+#[derive(Default)]
+struct NativeFactory {
+    inner_count: Cell<u32>,
+    outer_count: Cell<u32>,
+}
+
+impl RendererFactory<NativeSurface> for NativeFactory {
+    type Renderer<'a> = NativeOuter<NativeInner<BorrowedDummy<'a>, Inner<'a>>, Outer<'a>>;
+
+    fn make<'a>(&'a mut self, surface: &'a mut NativeSurface, _: &Viewport) -> Self::Renderer<'a> {
+        let target = BorrowedDummy {
+            buf: &mut surface.screen,
+            fills: Cell::new(0),
+            device: Rc::clone(&surface.device),
+            active: None,
+        };
+        NativeOuter::new(
+            NativeInner::new(target, Inner(&self.inner_count)),
+            Outer(&self.outer_count),
+        )
+    }
+}
+
+#[test]
+fn factory_frames_keep_concrete_engine_borrows_and_source_device_lifetime() {
+    let mut surface = NativeSurface {
+        device: Rc::new(()),
+        screen: [0; 4],
+    };
+    let owner = Rc::downgrade(&surface.device);
+    let viewport = surface.viewport();
+    let target = {
+        let mut factory = NativeFactory::default();
+        let mut target = {
+            let mut renderer = factory.make(&mut surface, &viewport);
+            let plan = renderer
+                .plan_target(PlaneLayout::packed(1, 1, ColorFormat::RGBA8888).unwrap())
+                .unwrap()
+                .unwrap();
+            let mut target = renderer.create_target(&plan).unwrap();
+            renderer
+                .with_target(&mut *target, viewport, &mut [], &mut draw)
+                .unwrap();
+            draw(&mut renderer).unwrap();
+            target
+        };
+        assert_eq!(read(&*target), Ok(1));
+        {
+            let mut renderer = factory.make(&mut surface, &viewport);
+            renderer
+                .with_target(&mut *target, viewport, &mut [], &mut draw)
+                .unwrap();
+            draw(&mut renderer).unwrap();
+        }
+        assert_eq!(factory.inner_count.get(), 4);
+        assert_eq!(factory.outer_count.get(), 4);
+        target
+    };
+    assert_eq!(surface.screen[0], 2);
+    drop(surface);
+    assert!(owner.upgrade().is_some());
+    assert_eq!(read(&*target), Ok(2));
+    drop(target);
+    assert!(owner.upgrade().is_none());
 }
