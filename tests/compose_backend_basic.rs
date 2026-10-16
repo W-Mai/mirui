@@ -11,6 +11,9 @@ use mirui::render::texture::{ColorFormat, Texture};
 use mirui::types::{Color, Fixed, Point, Rect, Transform};
 use mirui_macros::compose_backend;
 
+#[path = "compose_backend_basic/native_targets.rs"]
+mod native_targets;
+
 #[derive(Default)]
 struct Counts {
     fill_path: Cell<u32>,
@@ -474,6 +477,8 @@ fn canvas_helpers_preserve_shared_target_overrides() {
 struct BorrowedDummy<'fb> {
     buf: &'fb mut [u8],
     fills: Cell<u32>,
+    device: std::rc::Rc<()>,
+    active: Option<std::rc::Rc<native_targets::Slot>>,
 }
 
 impl<'fb> BorrowedDummy<'fb> {
@@ -481,6 +486,8 @@ impl<'fb> BorrowedDummy<'fb> {
         Self {
             buf,
             fills: Cell::new(0),
+            device: std::rc::Rc::new(()),
+            active: None,
         }
     }
 }
@@ -497,7 +504,9 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
         // Touch the borrowed buffer so the lifetime actually matters at the
         // call site — otherwise `'fb` could be optimised away and the test
         // would be vacuous.
-        if !self.buf.is_empty() {
+        if let Some(slot) = &self.active {
+            slot.value.set(slot.value.get().wrapping_add(1));
+        } else if !self.buf.is_empty() {
             self.buf[0] = self.buf[0].wrapping_add(1);
         }
         self.fills.set(self.fills.get() + 1);
@@ -554,7 +563,42 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
 }
 
 impl Renderer for BorrowedDummy<'_> {
-    type TargetState = ();
+    type TargetState = Option<std::rc::Rc<native_targets::Slot>>;
+
+    fn plan_target(
+        &self,
+        layout: mirui::render::PlaneLayout,
+    ) -> Result<Option<mirui::render::TargetPlan>, RenderError> {
+        native_targets::plan(layout)
+    }
+
+    fn create_target(
+        &mut self,
+        plan: &mirui::render::TargetPlan,
+    ) -> Result<Box<dyn mirui::render::BackendTarget>, RenderError> {
+        native_targets::create(self, plan)
+    }
+
+    fn bind_target(
+        &mut self,
+        target: &mut dyn mirui::render::BackendTarget,
+        _: mirui::types::Viewport,
+        _: &mut [u8],
+    ) -> Result<Self::TargetState, RenderError> {
+        native_targets::bind(self, target)
+    }
+
+    fn restore_target(
+        &mut self,
+        saved: Self::TargetState,
+        completed: bool,
+    ) -> Result<(), RenderError> {
+        if let Some(child) = self.active.take() {
+            child.completed.set(completed);
+        }
+        self.active = saved;
+        Ok(())
+    }
 
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate()?;
