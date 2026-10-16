@@ -709,55 +709,19 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             .projective_fallback
             .as_deref_mut()
             .ok_or(ProjectiveDrawError::MissingFallbackStorage)?;
-        let target = fallback.target_mut(plan);
-        readback::rgba8(
-            &*self.device.canvas()?,
-            plan.region().rect(),
-            target,
-            plan.region().stride_bytes(),
-        )?;
-        readback::convert_alpha(
-            target,
-            plan.width(),
-            plan.height(),
-            plan.region().stride_bytes(),
-            alpha,
-            crate::render::TargetAlpha::Straight,
-        )?;
-
-        fallback.render(plan, command, projective, self.viewport)?;
-        readback::convert_alpha(
+        let requirements = fallback.requirements();
+        readback::edit(
+            self.device,
+            plan.region(),
             fallback.target_mut(plan),
-            plan.width(),
-            plan.height(),
-            plan.region().stride_bytes(),
-            crate::render::TargetAlpha::Straight,
             alpha,
-        )?;
-        let target = fallback.target(plan);
-        let mut canvas = self.device.canvas()?;
-        let mut texture = self
-            .device
-            .creator
-            .create_texture_streaming(
-                sdl2::pixels::PixelFormatEnum::RGBA32,
-                u32::from(plan.width()),
-                u32::from(plan.height()),
-            )
-            .map_err(|_| RenderError::BackendFailure)?;
-        texture
-            .update(None, target, plan.region().stride_bytes())
-            .map_err(|_| RenderError::BackendFailure)?;
-        texture.set_blend_mode(sdl2::render::BlendMode::None);
-        let dst = sdl2::rect::Rect::new(
-            i32::from(plan.x()),
-            i32::from(plan.y()),
-            u32::from(plan.width()),
-            u32::from(plan.height()),
-        );
-        canvas
-            .copy(&texture, None, Some(dst))
-            .map_err(|_| RenderError::BackendFailure)
+            &mut |texture| {
+                let mut pixels = texture.pixels_mut()?;
+                ProjectiveFallback::borrowed_with(pixels.bytes_mut(), requirements)
+                    .map_err(|_| RenderError::InvalidGeometry)?
+                    .render(plan, command, projective, self.viewport)
+            },
+        )
     }
 }
 
@@ -1254,44 +1218,24 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         src: &Rect,
         f: &mut dyn FnMut(&mut crate::render::texture::Texture) -> Result<(), RenderError>,
     ) -> Result<bool, RenderError> {
-        let Some(mut tex) = self.sample_target_region(src)? else {
-            return Ok(false);
-        };
-        f(&mut tex)?;
         let Some(phys) = self.physical_clip_rect(src) else {
             return Ok(false);
         };
-        let w = tex.width as u32;
-        let h = tex.height as u32;
-        if self.native_target {
-            let mut pixels = tex.pixels_mut()?;
-            let stride = pixels.stride();
-            readback::convert_alpha(
-                pixels.bytes_mut(),
-                w as u16,
-                h as u16,
-                stride,
-                crate::render::TargetAlpha::Straight,
-                crate::render::TargetAlpha::Premultiplied,
-            )?;
+        let alpha = self.target_alpha();
+        let fallback = self
+            .projective_fallback
+            .as_deref_mut()
+            .ok_or(RenderError::MissingWorkspace)?;
+        let region = FallbackRegion::rgba8(phys, fallback.requirements())?;
+        if region.required_bytes() > fallback.capacity() {
+            return Err(RenderError::InsufficientWorkspace {
+                required_bytes: region.required_bytes(),
+                capacity_bytes: fallback.capacity(),
+            });
         }
-        let pixels = tex.read_pixels()?;
-        let bytes = pixels.bytes();
-        let stride = pixels.stride();
-        let mut canvas = self.device.canvas()?;
-        let mut sdl_tex = self
-            .device
-            .creator
-            .create_texture_streaming(sdl2::pixels::PixelFormatEnum::RGBA32, w, h)
-            .map_err(|_| RenderError::BackendFailure)?;
-        sdl_tex
-            .update(None, bytes, stride)
-            .map_err(|_| RenderError::BackendFailure)?;
-        sdl_tex.set_blend_mode(sdl2::render::BlendMode::None);
-        let dst_rect = sdl2::rect::Rect::new(i32::from(phys.x()), i32::from(phys.y()), w, h);
-        canvas
-            .copy(&sdl_tex, None, Some(dst_rect))
-            .map_err(|_| RenderError::BackendFailure)?;
+        let plan =
+            ProjectiveFallbackPlan::from_region(region, self.viewport, fallback.requirements())?;
+        readback::edit(self.device, region, fallback.target_mut(plan), alpha, f)?;
         Ok(true)
     }
 }

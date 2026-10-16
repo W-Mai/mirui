@@ -3,6 +3,74 @@ use crate::render::{PlaneLayout, PlaneRequirements, RenderError, TargetAlpha};
 use crate::types::PhysicalRect;
 use sdl2::render::{Canvas, RenderTarget};
 
+pub(super) fn edit<T: RenderTarget>(
+    device: &super::Device<T>,
+    region: crate::render::renderer::FallbackRegion,
+    bytes: &mut [u8],
+    alpha: TargetAlpha,
+    body: &mut dyn FnMut(&mut Texture<'_>) -> Result<(), RenderError>,
+) -> Result<(), RenderError> {
+    let area = region.rect();
+    let stride = region.stride_bytes();
+    let mut texture = Texture::new(bytes, area.width(), area.height(), ColorFormat::RGBA8888)?
+        .with_stride(stride)?;
+    texture.alpha_mode = crate::render::texture::AlphaMode::Blend;
+    {
+        let mut pixels = texture.pixels_mut()?;
+        rgba8(&*device.canvas()?, area, pixels.bytes_mut(), stride)?;
+        convert_alpha(
+            pixels.bytes_mut(),
+            area.width(),
+            area.height(),
+            stride,
+            alpha,
+            TargetAlpha::Straight,
+        )?;
+    }
+    // Device access ends before the callback can read another source on it.
+    body(&mut texture)?;
+    if (texture.width(), texture.height(), texture.format())
+        != (area.width(), area.height(), ColorFormat::RGBA8888)
+    {
+        return Err(RenderError::InvalidTexture);
+    }
+    let mut pixels = texture.pixels_mut()?;
+    let stride = pixels.stride();
+    convert_alpha(
+        pixels.bytes_mut(),
+        area.width(),
+        area.height(),
+        stride,
+        TargetAlpha::Straight,
+        alpha,
+    )?;
+    let mut canvas = device.canvas()?;
+    let mut uploaded = device
+        .creator
+        .create_texture_streaming(
+            sdl2::pixels::PixelFormatEnum::RGBA32,
+            u32::from(area.width()),
+            u32::from(area.height()),
+        )
+        .map_err(|_| RenderError::BackendFailure)?;
+    uploaded
+        .update(None, pixels.bytes(), stride)
+        .map_err(|_| RenderError::BackendFailure)?;
+    uploaded.set_blend_mode(sdl2::render::BlendMode::None);
+    canvas
+        .copy(
+            &uploaded,
+            None,
+            Some(sdl2::rect::Rect::new(
+                i32::from(area.x()),
+                i32::from(area.y()),
+                u32::from(area.width()),
+                u32::from(area.height()),
+            )),
+        )
+        .map_err(|_| RenderError::BackendFailure)
+}
+
 pub(super) fn region_into<T: RenderTarget>(
     canvas: &Canvas<T>,
     area: PhysicalRect,
@@ -162,6 +230,98 @@ fn read_rows<T: RenderTarget>(
 mod tests {
     use super::*;
     use crate::test_support::tracked_allocations;
+
+    #[test]
+    fn edits_reuse_borrowed_storage_and_release_device_access_before_callbacks() {
+        let mut canvas = sdl2::surface::Surface::new(4, 3, sdl2::pixels::PixelFormatEnum::RGBA32)
+            .unwrap()
+            .into_canvas()
+            .unwrap();
+        canvas.set_draw_color(sdl2::pixels::Color::RGBA(32, 64, 16, 128));
+        canvas.clear();
+        let creator = canvas.texture_creator();
+        let device = super::super::Device::new(canvas, creator);
+        let region = crate::render::renderer::FallbackRegion::from_parts(1, 1, 2, 2, 16);
+        let mut bytes = [0xa5; 32];
+        let address = bytes.as_ptr();
+        let mut source = [0u8; 4];
+        let allocations = tracked_allocations(|| {
+            edit(
+                &device,
+                region,
+                &mut bytes,
+                TargetAlpha::Premultiplied,
+                &mut |texture| {
+                    assert_eq!(texture.read_pixels()?.bytes().as_ptr(), address);
+                    assert_eq!(
+                        texture.read_pixels()?.get_pixel(0, 0),
+                        crate::types::Color::rgba(64, 128, 32, 128)
+                    );
+                    rgba8(
+                        &*device.canvas()?,
+                        PhysicalRect::from_size(1, 1),
+                        &mut source,
+                        4,
+                    )?;
+                    texture.pixels_mut()?.set_pixel(
+                        1,
+                        1,
+                        &crate::types::Color::rgba(200, 100, 50, 128),
+                    );
+                    Ok(())
+                },
+            )
+            .unwrap();
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(source, [32, 64, 16, 128]);
+        assert_eq!(&bytes[8..16], &[0xa5; 8]);
+        assert_eq!(&bytes[24..], &[0xa5; 8]);
+        let image = texture(
+            &*device.canvas().unwrap(),
+            PhysicalRect::from_size(4, 3),
+            TargetAlpha::Straight,
+        )
+        .unwrap();
+        let pixels = image.read_pixels().unwrap();
+        assert_eq!(
+            pixels.get_pixel(2, 2),
+            crate::types::Color::rgba(100, 50, 25, 128)
+        );
+        assert_eq!(
+            pixels.get_pixel(0, 0),
+            crate::types::Color::rgba(32, 64, 16, 128)
+        );
+
+        let error = edit(
+            &device,
+            region,
+            &mut bytes,
+            TargetAlpha::Straight,
+            &mut |texture| {
+                texture.pixels_mut()?.bytes_mut().fill(0);
+                Err(RenderError::InvalidGeometry)
+            },
+        );
+        assert_eq!(error, Err(RenderError::InvalidGeometry));
+        let after = texture(
+            &*device.canvas().unwrap(),
+            PhysicalRect::from_size(4, 3),
+            TargetAlpha::Straight,
+        )
+        .unwrap();
+        assert_eq!(after.read_pixels().unwrap().bytes(), pixels.bytes());
+        assert_eq!(
+            edit(
+                &device,
+                region,
+                &mut [],
+                TargetAlpha::Straight,
+                &mut |_| panic!("invalid storage")
+            ),
+            Err(RenderError::InvalidTexture)
+        );
+    }
 
     #[test]
     fn alpha_conversion_preserves_valid_premultiplied_values_and_row_padding() {

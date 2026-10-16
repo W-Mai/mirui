@@ -412,7 +412,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
         &mut self.target.as_mut()[..plan.required_bytes()]
     }
 
-    #[cfg(any(feature = "sdl-gpu", test))]
+    #[cfg(test)]
     pub(crate) fn target(&self, plan: ProjectiveFallbackPlan) -> &[u8] {
         &self.target.as_ref()[..plan.required_bytes()]
     }
