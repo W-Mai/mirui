@@ -48,16 +48,8 @@ pub(super) fn convert_alpha(
     }
     for y in 0..usize::from(height) {
         for pixel in bytes[y * stride..][..usize::from(width) * 4].chunks_exact_mut(4) {
-            let alpha = u32::from(pixel[3]);
-            for channel in &mut pixel[..3] {
-                *channel = match to {
-                    TargetAlpha::Premultiplied => ((u32::from(*channel) * alpha + 127) / 255) as u8,
-                    TargetAlpha::Straight if alpha == 0 => 0,
-                    TargetAlpha::Straight => {
-                        ((u32::from(*channel) * 255 + alpha / 2) / alpha).min(255) as u8
-                    }
-                };
-            }
+            let converted = from.convert_rgba8(to, [pixel[0], pixel[1], pixel[2], pixel[3]]);
+            pixel.copy_from_slice(&converted);
         }
     }
     Ok(())

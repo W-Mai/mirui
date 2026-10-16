@@ -1544,7 +1544,7 @@ fn wgpu_readback_rgba8(
     h: u32,
 ) -> Result<alloc::vec::Vec<u8>, RenderError> {
     use crate::render::texture::ColorFormat;
-    use crate::render::{PlaneLayout, RenderResource};
+    use crate::render::{PlaneLayout, RenderResource, TargetAlpha};
 
     if texture.format() != format
         || texture.dimension() != wgpu::TextureDimension::D2
@@ -1644,32 +1644,23 @@ fn wgpu_readback_rgba8(
         if swap_rb {
             let src = &data[start..end];
             for px in src.chunks_exact(4) {
-                out.extend_from_slice(&straight_rgba8([px[2], px[1], px[0], px[3]]));
+                out.extend_from_slice(
+                    &TargetAlpha::Premultiplied
+                        .convert_rgba8(TargetAlpha::Straight, [px[2], px[1], px[0], px[3]]),
+                );
             }
         } else {
             for px in data[start..end].chunks_exact(4) {
-                out.extend_from_slice(&straight_rgba8([px[0], px[1], px[2], px[3]]));
+                out.extend_from_slice(
+                    &TargetAlpha::Premultiplied
+                        .convert_rgba8(TargetAlpha::Straight, [px[0], px[1], px[2], px[3]]),
+                );
             }
         }
     }
     drop(data);
     staging.unmap();
     Ok(out)
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn straight_rgba8(pixel: [u8; 4]) -> [u8; 4] {
-    let alpha = u32::from(pixel[3]);
-    if alpha == 0 {
-        return [0; 4];
-    }
-    let channel = |value: u8| ((u32::from(value) * 255 + alpha / 2) / alpha).min(255) as u8;
-    [
-        channel(pixel[0]),
-        channel(pixel[1]),
-        channel(pixel[2]),
-        pixel[3],
-    ]
 }
 
 impl<B: WgpuTarget> WgpuRenderer<'_, B> {
@@ -2901,10 +2892,7 @@ mod route_tests {
     }
 
     #[test]
-    fn readback_restores_straight_alpha_and_target_edits_replace_pixels() {
-        assert_eq!(straight_rgba8([64, 32, 0, 128]), [128, 64, 0, 128]);
-        assert_eq!(straight_rgba8([255, 20, 10, 0]), [0, 0, 0, 0]);
-        assert_eq!(straight_rgba8([12, 34, 56, 255]), [12, 34, 56, 255]);
+    fn target_edits_replace_pixels() {
         assert_eq!(
             crate::render::backends::wgpu::pipeline::blend_state_for(
                 ShaderKind::BlitReplace,
