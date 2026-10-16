@@ -1,4 +1,5 @@
 pub mod backends;
+pub(crate) mod budget;
 pub mod canvas;
 pub mod command;
 pub mod engine;

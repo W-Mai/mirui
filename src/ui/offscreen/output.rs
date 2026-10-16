@@ -2,6 +2,7 @@ use super::BufferKey;
 use crate::core::cache::HasSize;
 use crate::ecs::Entity;
 use crate::render::RenderError;
+use crate::render::budget::{Allocation, MemoryBudget};
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::Rect;
 use crate::ui::outputs::{
@@ -47,17 +48,21 @@ pub struct WidgetTextureRecord {
 }
 
 struct TextureSlots {
-    planes: [Option<Texture<'static>>; 2],
+    planes: [Option<OutputPlane>; 2],
     shape: (u16, u16, ColorFormat),
     writing: bool,
     discard: bool,
 }
 
+struct OutputPlane {
+    texture: Texture<'static>,
+    _allocation: Allocation,
+}
+
 #[doc(hidden)]
 pub struct WidgetTextureStorage {
     textures: HashMap<Entity, TextureSlots>,
-    budget: usize,
-    allocated: usize,
+    budget: MemoryBudget,
     pub(crate) plan: Option<crate::ui::render_system::output_plan::TexturePlan>,
     deferred_workspace_trim: bool,
 }
@@ -82,7 +87,11 @@ impl Output for WidgetTexture {
 
     fn read<'a>(storage: Ref<'a, Self::Storage>, record: Self::Record) -> Option<Self::Read<'a>> {
         Ref::filter_map(storage, |storage| {
-            storage.textures.get(&record.entity)?.planes[record.slot].as_ref()
+            Some(
+                &storage.textures.get(&record.entity)?.planes[record.slot]
+                    .as_ref()?
+                    .texture,
+            )
         })
         .ok()
         .map(|texture| WidgetTextureRead {
@@ -100,8 +109,7 @@ impl Outputs<WidgetTexture> {
     pub fn with_budget(budget: usize) -> Self {
         Self::new(WidgetTextureStorage {
             textures: HashMap::new(),
-            budget,
-            allocated: 0,
+            budget: MemoryBudget::new(budget),
             plan: Some(Default::default()),
             deferred_workspace_trim: false,
         })
@@ -120,7 +128,7 @@ impl Outputs<WidgetTexture> {
         let mut storage = self.storage_mut();
         assert!(storage.plan.is_none(), "texture plan is already stored");
         if storage.deferred_workspace_trim {
-            storage.allocated -= plan.trim_memory();
+            plan.trim_memory();
             storage.deferred_workspace_trim = false;
         }
         storage.plan = Some(plan);
@@ -131,17 +139,13 @@ impl Outputs<WidgetTexture> {
         workspace: &mut PaintWorkspace,
         required_bytes: usize,
     ) -> bool {
-        let mut storage = self.storage_mut();
+        let storage = self.storage();
         if storage.plan.is_some() {
             return false;
         }
         let previous_capacity = workspace.capacity();
-        let Some(without_workspace) = storage.allocated.checked_sub(previous_capacity) else {
-            return false;
-        };
         if required_bytes == 0 {
             workspace.release();
-            storage.allocated = without_workspace;
             return true;
         }
         if storage.deferred_workspace_trim {
@@ -150,24 +154,13 @@ impl Outputs<WidgetTexture> {
         if required_bytes <= previous_capacity {
             return true;
         }
-        let available = storage.budget.saturating_sub(without_workspace);
+        let available = storage.budget.available().saturating_add(previous_capacity);
         if required_bytes > available {
             return false;
         }
         // No old allocation remains live while the larger buffer is allocated.
         workspace.release();
-        storage.allocated = without_workspace;
-        if !workspace.allocate(required_bytes) {
-            workspace.release();
-            return false;
-        }
-        let actual_capacity = workspace.capacity();
-        if actual_capacity > available {
-            workspace.release();
-            return false;
-        }
-        storage.allocated += actual_capacity;
-        true
+        workspace.allocate(required_bytes, &storage.budget)
     }
 
     pub(crate) fn texture_matches(&self, key: BufferKey) -> bool {
@@ -227,13 +220,7 @@ impl Outputs<WidgetTexture> {
             .get(&key.entity)
             .is_some_and(|slots| slots.shape != shape);
         if pixel_shape_changed {
-            let old = storage.textures.remove(&key.entity)?;
-            storage.allocated -= old
-                .planes
-                .iter()
-                .flatten()
-                .map(|plane| plane.cache_size())
-                .sum::<usize>();
+            storage.textures.remove(&key.entity)?;
         }
         if pixel_shape_changed || local_mapping_changed {
             self.reset(key.entity);
@@ -256,10 +243,7 @@ impl Outputs<WidgetTexture> {
         if reserved {
             return Some(());
         }
-        let total = storage.allocated.checked_add(bytes)?;
-        if total > storage.budget {
-            return None;
-        }
+        let reservation = storage.budget.reserve(bytes)?;
         if !storage.textures.contains_key(&key.entity) {
             storage.textures.try_reserve(1).ok()?;
         }
@@ -272,8 +256,12 @@ impl Outputs<WidgetTexture> {
                 writing: false,
                 discard: false,
             });
-        slots.planes[slot] = Some(Texture::owned(key.w, key.h, key.format).ok()?);
-        storage.allocated = total;
+        let texture = Texture::owned(key.w, key.h, key.format).ok()?;
+        let allocation = reservation.commit(texture.cache_size()).ok()?;
+        slots.planes[slot] = Some(OutputPlane {
+            texture,
+            _allocation: allocation,
+        });
         Some(())
     }
 
@@ -326,36 +314,27 @@ impl Outputs<WidgetTexture> {
         let Some(slots) = storage.textures.get_mut(&entity) else {
             return;
         };
-        let mut released = 0;
         for plane in &mut slots.planes {
-            if let Some(plane) = plane.take() {
-                released += plane.cache_size();
-            }
+            *plane = None;
         }
         slots.discard = true;
         if !slots.writing {
             storage.textures.remove(&entity);
         }
-        storage.allocated -= released;
     }
 
     pub(crate) fn trim_memory(&self) {
         let mut storage = self.storage_mut();
-        let mut released = 0;
         storage.textures.retain(|entity, slots| {
             self.reset(*entity);
             for plane in &mut slots.planes {
-                if let Some(plane) = plane.take() {
-                    released += plane.cache_size();
-                }
+                *plane = None;
             }
             slots.discard = true;
             slots.writing
         });
-        storage.allocated -= released;
         if let Some(plan) = storage.plan.as_mut() {
-            let released = plan.trim_memory();
-            storage.allocated -= released;
+            plan.trim_memory();
         } else {
             storage.deferred_workspace_trim = true;
         }
@@ -367,7 +346,6 @@ impl Outputs<WidgetTexture> {
         visible: impl Fn(Entity) -> bool,
     ) {
         let mut storage = self.storage_mut();
-        let mut released = 0;
         storage.textures.retain(|entity, slots| {
             let demanded = self.is_requested(*entity) || requested(*entity);
             if demanded && visible(*entity) {
@@ -377,21 +355,13 @@ impl Outputs<WidgetTexture> {
                 {
                     let keep = state.current.map(|current| current.record.slot);
                     for (index, plane) in slots.planes.iter_mut().enumerate() {
-                        if keep != Some(index)
-                            && let Some(plane) = plane.take()
-                        {
-                            released += plane.cache_size();
+                        if keep != Some(index) {
+                            *plane = None;
                         }
                     }
                 }
                 return true;
             }
-            released += slots
-                .planes
-                .iter()
-                .flatten()
-                .map(|plane| plane.cache_size())
-                .sum::<usize>();
             slots.planes = [None, None];
             slots.discard = true;
             if demanded {
@@ -401,7 +371,6 @@ impl Outputs<WidgetTexture> {
             }
             slots.writing
         });
-        storage.allocated -= released;
         self.retain_entities(requested);
     }
 }
@@ -415,12 +384,12 @@ impl Default for Outputs<WidgetTexture> {
 pub(crate) struct TextureWrite<'a> {
     outputs: &'a Outputs<WidgetTexture>,
     record: WidgetTextureRecord,
-    texture: Option<Texture<'static>>,
+    texture: Option<OutputPlane>,
 }
 
 impl TextureWrite<'_> {
     pub(crate) fn texture_mut(&mut self) -> &mut Texture<'static> {
-        self.texture.as_mut().expect("active output write")
+        &mut self.texture.as_mut().expect("active output write").texture
     }
 
     pub(crate) fn differs_from_previous(&self) -> Result<bool, RenderError> {
@@ -428,7 +397,7 @@ impl TextureWrite<'_> {
             return Ok(false);
         };
         let previous = previous.texture();
-        let current = self.texture.as_ref().expect("active output write");
+        let current = &self.texture.as_ref().expect("active output write").texture;
         if current.width != previous.width
             || current.height != previous.height
             || current.format != previous.format
@@ -458,7 +427,6 @@ impl TextureWrite<'_> {
             .get(&self.record.entity)
             .is_some_and(|slots| slots.discard)
         {
-            storage.allocated -= texture.cache_size();
             storage.textures.remove(&self.record.entity);
             return false;
         }
@@ -472,13 +440,13 @@ impl TextureWrite<'_> {
                 )
                 .is_ok();
         if published {
-            texture.cache_revision = self
+            texture.texture.cache_revision = self
                 .outputs
                 .state(self.record.entity)
                 .and_then(|state| state.current)
                 .expect("published output")
                 .version;
-            texture.transient = false;
+            texture.texture.transient = false;
         }
         let slots = storage
             .textures
@@ -506,6 +474,47 @@ mod tests {
     const TEXTURE_BYTES: usize = 4 * 4 * 4;
 
     #[test]
+    fn budget_changes_do_not_require_exclusive_output_storage_access() {
+        let outputs = Outputs::<WidgetTexture>::with_budget(3 * TEXTURE_BYTES);
+        let source = key(1, 1);
+        assert!(outputs.prepare_texture(source).unwrap().publish());
+        let mut plan = outputs.take_texture_plan().unwrap();
+        let read = outputs.get(source.entity).unwrap();
+        let budget = outputs.storage().budget.clone();
+        let pending = budget.reserve(TEXTURE_BYTES).unwrap();
+        assert!(outputs.reserve_workspace(&mut plan.workspace, TEXTURE_BYTES));
+        assert_eq!(budget.available(), 0);
+        let allocation = pending.commit(TEXTURE_BYTES).unwrap();
+        assert!(!outputs.reserve_workspace(&mut plan.workspace, 2 * TEXTURE_BYTES));
+        assert_eq!(budget.allocated(), 3 * TEXTURE_BYTES);
+        drop(allocation);
+        assert!(outputs.reserve_workspace(&mut plan.workspace, 2 * TEXTURE_BYTES));
+        assert_eq!(
+            read.texture().read_pixels().unwrap().bytes().len(),
+            TEXTURE_BYTES
+        );
+        drop(read);
+        outputs.put_texture_plan(plan);
+        outputs.trim_memory();
+        assert_eq!(budget.allocated(), 0);
+        assert_eq!(budget.available(), 3 * TEXTURE_BYTES);
+    }
+
+    #[test]
+    fn detached_workspaces_keep_their_charge_until_storage_is_dropped() {
+        let outputs = Outputs::<WidgetTexture>::with_budget(2 * TEXTURE_BYTES);
+        assert!(outputs.prepare_texture(key(1, 1)).unwrap().publish());
+        let budget = outputs.storage().budget.clone();
+        let mut plan = outputs.take_texture_plan().unwrap();
+        assert!(outputs.reserve_workspace(&mut plan.workspace, TEXTURE_BYTES));
+        drop(outputs);
+        assert_eq!(budget.allocated(), TEXTURE_BYTES);
+        drop(plan);
+        assert_eq!(budget.allocated(), 0);
+        assert_eq!(budget.available(), 2 * TEXTURE_BYTES);
+    }
+
+    #[test]
     fn rejected_write_returns_storage_without_copying_or_leaking_the_slot() {
         static BYTES: [u8; TEXTURE_BYTES] = [17; TEXTURE_BYTES];
         let outputs = Outputs::<WidgetTexture>::with_budget(TEXTURE_BYTES);
@@ -514,8 +523,10 @@ mod tests {
         let writable = {
             let mut storage = outputs.storage_mut();
             let slot = &mut storage.textures.get_mut(&source.entity).unwrap().planes[0];
-            slot.replace(Texture::from_static(&BYTES, 4, 4, ColorFormat::RGBA8888).unwrap())
-                .unwrap()
+            core::mem::replace(
+                &mut slot.as_mut().unwrap().texture,
+                Texture::from_static(&BYTES, 4, 4, ColorFormat::RGBA8888).unwrap(),
+            )
         };
         let allocations = tracked_allocations(|| {
             assert!(outputs.prepare_texture(source).is_none());
@@ -524,13 +535,18 @@ mod tests {
         assert!(outputs.get(source.entity).is_none());
         {
             let mut storage = outputs.storage_mut();
-            assert_eq!(storage.allocated, TEXTURE_BYTES);
+            assert_eq!(storage.budget.allocated(), TEXTURE_BYTES);
             let slots = storage.textures.get_mut(&source.entity).unwrap();
             assert!(!slots.writing);
-            let pixels = slots.planes[0].as_ref().unwrap().read_pixels().unwrap();
+            let pixels = slots.planes[0]
+                .as_ref()
+                .unwrap()
+                .texture
+                .read_pixels()
+                .unwrap();
             assert_eq!(pixels.bytes().as_ptr(), BYTES.as_ptr());
             assert_eq!(pixels.bytes(), &BYTES);
-            slots.planes[0] = Some(writable);
+            slots.planes[0].as_mut().unwrap().texture = writable;
         }
         assert!(outputs.prepare_texture(source).unwrap().publish());
     }
@@ -556,7 +572,7 @@ mod tests {
         assert!(outputs.get(source.entity).is_none());
         assert!(outputs.previous(source.entity).is_some());
         assert!(!outputs.storage().textures[&source.entity].writing);
-        assert_eq!(outputs.storage().allocated, 2 * TEXTURE_BYTES);
+        assert_eq!(outputs.storage().budget.allocated(), 2 * TEXTURE_BYTES);
     }
 
     fn key(id: u32, generation: u32) -> BufferKey {
@@ -676,7 +692,7 @@ mod tests {
             previous.texture().read_pixels().unwrap().get_pixel(0, 0),
             original_color
         );
-        assert_eq!(outputs.storage().allocated, 2 * texture_bytes);
+        assert_eq!(outputs.storage().budget.allocated(), 2 * texture_bytes);
     }
 
     #[test]
@@ -752,7 +768,7 @@ mod tests {
                 assert!(outputs.previous(entity).is_none());
             });
             assert_eq!(allocations, 0);
-            assert_eq!(outputs.storage().allocated, 2 * texture_bytes);
+            assert_eq!(outputs.storage().budget.allocated(), 2 * texture_bytes);
         }
     }
 
@@ -811,7 +827,7 @@ mod tests {
                 assert!(outputs.previous(entity).is_none());
             });
             assert_eq!(allocations, 0);
-            assert_eq!(outputs.storage().allocated, 2 * TEXTURE_BYTES);
+            assert_eq!(outputs.storage().budget.allocated(), 2 * TEXTURE_BYTES);
         }
     }
 
@@ -870,7 +886,7 @@ mod tests {
             assert!(outputs.previous(entity).is_none());
         });
         assert_eq!(allocations, 0);
-        assert_eq!(outputs.storage().allocated, 2 * TEXTURE_BYTES);
+        assert_eq!(outputs.storage().budget.allocated(), 2 * TEXTURE_BYTES);
     }
 
     #[test]
@@ -881,22 +897,22 @@ mod tests {
         let mut plan = outputs.take_texture_plan().unwrap();
         assert!(outputs.reserve_workspace(&mut plan.workspace, TEXTURE_BYTES));
         assert_eq!(
-            outputs.storage().allocated,
+            outputs.storage().budget.allocated(),
             TEXTURE_BYTES + plan.workspace.capacity()
         );
 
         assert!(outputs.reserve_workspace(&mut plan.workspace, 2 * TEXTURE_BYTES));
         assert_eq!(plan.workspace.capacity(), 2 * TEXTURE_BYTES);
-        assert_eq!(outputs.storage().allocated, 3 * TEXTURE_BYTES);
+        assert_eq!(outputs.storage().budget.allocated(), 3 * TEXTURE_BYTES);
         assert!(!outputs.reserve_workspace(&mut plan.workspace, 3 * TEXTURE_BYTES));
         assert_eq!(plan.workspace.capacity(), 2 * TEXTURE_BYTES);
-        assert_eq!(outputs.storage().allocated, 3 * TEXTURE_BYTES);
+        assert_eq!(outputs.storage().budget.allocated(), 3 * TEXTURE_BYTES);
         assert!(outputs.get(source.entity).is_some());
         assert!(!outputs.reserve_texture(key(2, 1)));
 
         assert!(outputs.reserve_workspace(&mut plan.workspace, 0));
         assert_eq!(plan.workspace.capacity(), 0);
-        assert_eq!(outputs.storage().allocated, TEXTURE_BYTES);
+        assert_eq!(outputs.storage().budget.allocated(), TEXTURE_BYTES);
         assert!(
             outputs
                 .prepare_texture(BufferKey { w: 8, ..key(2, 1) })
@@ -904,7 +920,7 @@ mod tests {
                 .publish()
         );
         outputs.put_texture_plan(plan);
-        assert_eq!(outputs.storage().allocated, 3 * TEXTURE_BYTES);
+        assert_eq!(outputs.storage().budget.allocated(), 3 * TEXTURE_BYTES);
     }
 
     #[test]
@@ -943,7 +959,7 @@ mod tests {
             }
         });
         assert_eq!(allocations, 0);
-        assert_eq!(outputs.storage().allocated, 2 * TEXTURE_BYTES);
+        assert_eq!(outputs.storage().budget.allocated(), 2 * TEXTURE_BYTES);
     }
 
     #[test]
@@ -956,7 +972,7 @@ mod tests {
         let layout = PlaneLayout::packed(input.w, input.h, input.format).unwrap();
         assert!(plan.workspace.with_texture(layout, |texture| {
             outputs.trim_memory();
-            assert_eq!(outputs.storage().allocated, 2 * TEXTURE_BYTES);
+            assert_eq!(outputs.storage().budget.allocated(), 2 * TEXTURE_BYTES);
             assert_eq!(plan.workspace.capacity(), TEXTURE_BYTES);
             assert!(!outputs.reserve_texture(key(2, 1)));
             texture
@@ -966,9 +982,9 @@ mod tests {
         }));
         assert!(!outputs.reserve_workspace(&mut plan.workspace, TEXTURE_BYTES));
         drop(pending);
-        assert_eq!(outputs.storage().allocated, TEXTURE_BYTES);
+        assert_eq!(outputs.storage().budget.allocated(), TEXTURE_BYTES);
         outputs.put_texture_plan(plan);
-        assert_eq!(outputs.storage().allocated, 0);
+        assert_eq!(outputs.storage().budget.allocated(), 0);
 
         let plan = outputs.take_texture_plan().unwrap();
         assert_eq!(plan.workspace.capacity(), 0);
@@ -982,9 +998,9 @@ mod tests {
         let mut plan = outputs.take_texture_plan().unwrap();
         assert!(outputs.reserve_workspace(&mut plan.workspace, TEXTURE_BYTES));
         outputs.put_texture_plan(plan);
-        assert_eq!(outputs.storage().allocated, TEXTURE_BYTES);
+        assert_eq!(outputs.storage().budget.allocated(), TEXTURE_BYTES);
         outputs.trim_memory();
-        assert_eq!(outputs.storage().allocated, 0);
+        assert_eq!(outputs.storage().budget.allocated(), 0);
         let plan = outputs.take_texture_plan().unwrap();
         assert_eq!(plan.workspace.capacity(), 0);
         outputs.put_texture_plan(plan);
@@ -1028,6 +1044,7 @@ mod tests {
                 slots.planes[0]
                     .as_ref()
                     .unwrap()
+                    .texture
                     .read_pixels()
                     .unwrap()
                     .get_pixel(0, 0),
@@ -1070,7 +1087,7 @@ mod tests {
         let _batch = outputs.begin_batch();
         assert!(outputs.reserve_texture(source));
         assert!(outputs.reserve_texture(key(2, 2)));
-        assert_eq!(outputs.storage().allocated, 3 * TEXTURE_BYTES);
+        assert_eq!(outputs.storage().budget.allocated(), 3 * TEXTURE_BYTES);
         assert!(!outputs.reserve_texture(key(3, 1)));
         assert!(
             outputs
@@ -1116,7 +1133,7 @@ mod tests {
                 .get_pixel(0, 0),
             previous
         );
-        assert_eq!(outputs.storage().allocated, 3 * TEXTURE_BYTES);
+        assert_eq!(outputs.storage().budget.allocated(), 3 * TEXTURE_BYTES);
     }
 
     #[test]
@@ -1152,17 +1169,17 @@ mod tests {
             }
             assert!(outputs.get(entity).is_some());
             assert!(outputs.previous(entity).is_some());
-            assert_eq!(outputs.storage().allocated, 2 * TEXTURE_BYTES);
+            assert_eq!(outputs.storage().budget.allocated(), 2 * TEXTURE_BYTES);
 
             assert!(!outputs.reserve_texture(BufferKey { w, h, ..key(1, 3) }));
             assert!(outputs.get(entity).is_none());
             assert!(outputs.previous(entity).is_none());
             assert!(outputs.state(entity).unwrap().retained);
-            assert_eq!(outputs.storage().allocated, 0);
+            assert_eq!(outputs.storage().budget.allocated(), 0);
 
             let replacement = BufferKey { w: 8, ..key(2, 1) };
             assert!(outputs.prepare_texture(replacement).unwrap().publish());
-            assert_eq!(outputs.storage().allocated, 2 * TEXTURE_BYTES);
+            assert_eq!(outputs.storage().budget.allocated(), 2 * TEXTURE_BYTES);
             assert!(
                 outputs
                     .prepare_texture(BufferKey {
@@ -1171,7 +1188,7 @@ mod tests {
                     })
                     .is_none()
             );
-            assert_eq!(outputs.storage().allocated, 0);
+            assert_eq!(outputs.storage().budget.allocated(), 0);
 
             let _batch = outputs.begin_batch();
             assert!(outputs.reserve_texture(key(1, 4)));
@@ -1194,11 +1211,11 @@ mod tests {
             }
             let _batch = outputs.begin_batch();
             let pending = outputs.prepare_texture(key(1, 2)).unwrap();
-            assert_eq!(outputs.storage().allocated, 2 * TEXTURE_BYTES);
+            assert_eq!(outputs.storage().budget.allocated(), 2 * TEXTURE_BYTES);
             assert!(!outputs.reserve_texture(BufferKey { w: 0, ..key(1, 3) }));
             assert!(outputs.get(input.entity).is_none());
             assert!(outputs.previous(input.entity).is_none());
-            assert_eq!(outputs.storage().allocated, TEXTURE_BYTES);
+            assert_eq!(outputs.storage().budget.allocated(), TEXTURE_BYTES);
             assert!(!outputs.reserve_texture(key(1, 4)));
             assert!(outputs.prepare_texture(key(2, 1)).unwrap().publish());
             assert!(!outputs.reserve_texture(key(3, 1)));
@@ -1257,7 +1274,7 @@ mod tests {
         assert!(outputs.previous(entity).is_none());
         assert!(outputs.prepare_texture(key(2, 1)).unwrap().publish());
         assert!(outputs.prepare_texture(key(1, 3)).unwrap().publish());
-        assert_eq!(outputs.storage().allocated, 2 * TEXTURE_BYTES);
+        assert_eq!(outputs.storage().budget.allocated(), 2 * TEXTURE_BYTES);
     }
 
     #[test]

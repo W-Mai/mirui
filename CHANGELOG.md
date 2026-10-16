@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Widget output pixels and paint workspaces share reserved and allocated memory accounting. Live write and workspace leases retain their charge until storage is released; owned textures report their full backing capacity to caches.
 - Output clearing, history comparisons and owned snapshots use checked pixel borrows. Failed output preparation returns its reserved slot without publishing pixels; snapshots preserve the source alpha mode.
 - GPU uploads use checked source pixel borrows and retain upload errors through submission and flush. Packed RGBA uploads avoid a temporary CPU copy in WGPU; Web Canvas shares the common texture cache key.
 - Target readback copies and software scopes use checked writable pixels. Software scopes flush before accepting their result.

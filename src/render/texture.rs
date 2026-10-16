@@ -210,7 +210,12 @@ pub struct Texture<'a> {
 
 impl HasSize for Texture<'_> {
     fn cache_size(&self) -> usize {
-        self.buf.as_slice().len()
+        match &self.buf {
+            TexBuf::Ref(bytes) => bytes.len(),
+            TexBuf::Mut(bytes) => bytes.len(),
+            TexBuf::Owned(bytes) => bytes.capacity(),
+            TexBuf::Aligned(bytes) => bytes.storage.capacity(),
+        }
     }
 }
 
@@ -883,6 +888,24 @@ impl crate::core::resource::ResourceManager<Texture<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cache_charges_owning_capacity_including_alignment_storage() {
+        let mut bytes = Vec::with_capacity(64);
+        bytes.resize(4, 0);
+        let capacity = bytes.capacity();
+        let texture = Texture::from_vec(bytes, 1, 1, ColorFormat::RGBA8888).unwrap();
+        assert_eq!(texture.cache_size(), capacity);
+        assert_eq!(texture.read_pixels().unwrap().bytes().len(), 4);
+
+        let bytes = AlignedBytes::zeroed(4, 64).unwrap();
+        let capacity = bytes.storage.capacity();
+        let layout = PlaneLayout::packed(1, 1, ColorFormat::RGBA8888).unwrap();
+        let texture = Texture::from_layout(TexBuf::Aligned(bytes), layout, false);
+        assert_eq!(texture.cache_size(), capacity);
+        assert!(capacity >= 67);
+        assert_eq!(texture.read_pixels().unwrap().bytes().len(), 4);
+    }
 
     #[test]
     fn static_assets_share_checked_layout_without_allocating() {

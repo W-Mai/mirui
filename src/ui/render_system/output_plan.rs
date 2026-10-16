@@ -110,9 +110,9 @@ pub(crate) struct TexturePlan {
 }
 
 impl TexturePlan {
-    pub(crate) fn trim_memory(&mut self) -> usize {
+    pub(crate) fn trim_memory(&mut self) {
         self.raster = None;
-        self.workspace.release()
+        self.workspace.release();
     }
 
     pub(super) fn matches_root(&self, root: Entity) -> bool {

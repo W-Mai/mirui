@@ -130,6 +130,8 @@ MIRX loading and built-in static assets use the same checked texture layout as C
 
 Pixel storage variants are private to the texture module. Renderer, widget, snapshot and demo checks use the pixel borrow interface rather than inspecting the storage representation.
 
+The widget output budget accounts for reservations and live allocations in one ledger. Current pixels, history slots and paint workspaces retain their charge while borrowed or detached for rendering; releasing storage returns the charge automatically. A zero budget allocates no ledger. Owned texture cache sizes include unused vector capacity and alignment storage, not only visible pixel bytes.
+
 Widget snapshots borrow the completed source and copy its active rows into an independent CPU texture, preserving its format and alpha mode. Output preparation clears a writable slot through checked pixel access; failed access returns the slot without publishing it. History comparison propagates read failures instead of treating unavailable pixels as unchanged content. Raw texture storage is internal and has no copy-on-write mutation path.
 
 Use `texture.width()`, `height()`, and `format()` for resource metadata. `texture.pixels()` returns `Result<Option<TexturePixels>, RenderError>` without performing device work; `read_pixels()` returns a readable pixel borrow. The borrow exposes `bytes()`, `stride()`, and `get_pixel()`. Writable CPU storage uses `pixels_mut()` and its `bytes_mut()` / `set_pixel()` methods. `pixels_mut()` rejects read-only storage without allocating a copy. Each writable borrow advances the upload revision once; revision exhaustion disables caching. Padded CPU sources use checked `with_stride(stride)` construction.

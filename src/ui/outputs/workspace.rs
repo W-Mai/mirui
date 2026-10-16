@@ -2,12 +2,13 @@ use alloc::vec::Vec;
 use core::cell::RefCell;
 
 use crate::render::PlaneLayout;
+use crate::render::budget::{Allocation, MemoryBudget};
 use crate::render::texture::{AlphaMode, Texture};
 
 #[derive(Default)]
 pub(crate) struct PaintWorkspace {
     bytes: RefCell<Vec<u8>>,
-    capacity: usize,
+    allocation: Option<Allocation>,
 }
 
 impl PaintWorkspace {
@@ -28,26 +29,33 @@ impl PaintWorkspace {
         true
     }
 
-    pub(crate) const fn capacity(&self) -> usize {
-        self.capacity
+    pub(crate) fn capacity(&self) -> usize {
+        self.allocation.as_ref().map_or(0, Allocation::bytes)
     }
 
     pub(crate) fn release(&mut self) -> usize {
         let bytes = self.bytes.get_mut();
         let released = bytes.capacity();
         *bytes = Vec::new();
-        self.capacity = 0;
+        self.allocation = None;
         released
     }
 
-    pub(crate) fn allocate(&mut self, required_bytes: usize) -> bool {
+    pub(crate) fn allocate(&mut self, required_bytes: usize, budget: &MemoryBudget) -> bool {
+        let Some(reservation) = budget.reserve(required_bytes) else {
+            return false;
+        };
         let bytes = self.bytes.get_mut();
         debug_assert_eq!(bytes.capacity(), 0);
         if bytes.try_reserve_exact(required_bytes).is_err() {
             return false;
         }
-        self.capacity = bytes.capacity();
-        bytes.resize(self.capacity, 0);
+        let Ok(allocation) = reservation.commit(bytes.capacity()) else {
+            *bytes = Vec::new();
+            return false;
+        };
+        bytes.resize(bytes.capacity(), 0);
+        self.allocation = Some(allocation);
         true
     }
 }
@@ -66,7 +74,8 @@ mod tests {
         let layout =
             PlaneLayout::new(2, 2, ColorFormat::RGBA8888, 16, PlaneRequirements::CPU).unwrap();
         assert!(!workspace.with_texture(layout, |_| panic!("unreserved plane")));
-        assert!(workspace.allocate(layout.required_bytes()));
+        let budget = MemoryBudget::new(layout.required_bytes());
+        assert!(workspace.allocate(layout.required_bytes(), &budget));
         let expected = Color::rgba(11, 29, 47, 61);
         assert!(workspace.with_texture(layout, |texture| {
             assert_eq!(texture.stride, 16);
@@ -90,7 +99,8 @@ mod tests {
     fn unwinding_a_plane_callback_restores_the_borrow() {
         let mut workspace = PaintWorkspace::default();
         let layout = PlaneLayout::packed(1, 1, ColorFormat::RGBA8888).unwrap();
-        assert!(workspace.allocate(layout.required_bytes()));
+        let budget = MemoryBudget::new(layout.required_bytes());
+        assert!(workspace.allocate(layout.required_bytes(), &budget));
         let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             workspace.with_texture(layout, |_| panic!("paint callback failed"));
         }));
