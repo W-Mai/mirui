@@ -543,7 +543,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
         texture.alpha_mode = crate::render::texture::AlphaMode::Blend;
         let mut renderer = SwRenderer::new(texture);
         renderer.viewport = Viewport::new(plan.width(), plan.height(), scale);
-        if matches!(command, DrawCommand::Line { .. } | DrawCommand::Arc { .. }) {
+        if matches!(command, DrawCommand::Line { .. } | DrawCommand::Arc { .. })
+            || (!projective.is_identity()
+                && matches!(
+                    command,
+                    DrawCommand::FillPath { .. } | DrawCommand::StrokePath { .. }
+                ))
+        {
             if projective.is_identity() {
                 let mut local = crate::render::renderer::RegionRenderer::new(
                     &mut renderer,
@@ -1041,6 +1047,7 @@ mod tests {
         };
         assert!(pixel(11)[0] > pixel(11)[2]);
         assert!(pixel(28)[2] > pixel(28)[0]);
+        matches_software_on_its_projected_region(&command, 1);
     }
 
     #[test]
@@ -1106,6 +1113,7 @@ mod tests {
                 .any(|pixel| pixel[3] > 0)
         );
         assert!(plan.required_bytes() < fallback.capacity());
+        matches_software_on_its_projected_region(&command, 1);
     }
 
     #[test]

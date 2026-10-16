@@ -46,7 +46,7 @@ Native output reservations check the selected writable slot against its producer
 
 An output read pins its storage. Memory trimming preserves borrowed output pixels, their records and their budget charge; a later trim can reclaim them after the reads are dropped. Active write and workspace leases keep their existing release-on-return behavior.
 
-Output production reserves native binding workspace separately from View paint workspace in the same output budget. Sequential targets reuse the largest required binding buffer; both buffers can be borrowed during one drawing scope. Insufficient capacity prevents native production before binding. Memory trimming releases both buffers through the output plan. These storage hooks do not enable automatic native output selection.
+Output production automatically selects native targets when the backend plan and complete storage/workspace requirements fit. Otherwise it selects software pixels before invoking the View. Native binding workspace is separate from View paint workspace in the same output budget; sequential targets reuse the largest required binding buffer. Rejected native admission preserves reusable CPU storage and frozen history. Backend failures propagate without replaying the View. Memory trimming releases both workspaces through the output plan.
 
 ## Renderer scopes
 

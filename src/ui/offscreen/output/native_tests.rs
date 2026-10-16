@@ -204,6 +204,7 @@ fn output_production_reserves_binding_and_paint_workspaces_together() {
     use crate::ecs::World;
     use crate::ui::dirty::PaintCoverage;
     use crate::ui::view::{PaintCtx, PaintMeasurement, SourceGeometry, View};
+    struct Calls(Cell<usize>);
 
     fn measure(
         _: &World,
@@ -216,7 +217,9 @@ fn output_production_reserves_binding_and_paint_workspaces_together() {
             workspace: Some(PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap()),
         })
     }
-    fn paint(_: &World, _: Entity, paint: &mut PaintCtx<'_>) {
+    fn paint(world: &World, _: Entity, paint: &mut PaintCtx<'_>) {
+        let calls = &world.resource::<Calls>().unwrap().0;
+        calls.set(calls.get() + 1);
         let layout = PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap();
         assert!(paint.with_workspace(layout, |texture, paint| {
             texture.pixels_mut().unwrap().bytes_mut().fill(0xa5);
@@ -233,30 +236,20 @@ fn output_production_reserves_binding_and_paint_workspaces_together() {
 
     for budget in [287, 288] {
         let mut app = App::headless(4, 4);
+        app.world.insert_resource(Calls(Cell::new(0)));
         app.with_default_widgets()
             .with_offscreen_pool_budget(budget);
         app.with_widget(View::new("Workspace", 90, paint).with_measurement(measure));
         let root = app.spawn_root().id();
         let config = crate::ui::OffscreenRender::new();
         app.world.insert(root, config);
-        let key = BufferKey::for_widget(
-            root,
-            Rect::new(0, 0, 4, 4),
-            Rect::new(0, 0, 4, 4),
-            config,
-            0,
-        );
         let mut renderer = Fixture {
             workspace_bytes: 32,
             ..Fixture::default()
         };
-        let target_plan = plan(&renderer);
         let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
         outputs.reserve(1).unwrap();
         outputs.set_retained(root, true).unwrap();
-        outputs
-            .reserve_texture(key, Some((&mut renderer, target_plan)))
-            .unwrap();
         crate::ui::render_system::render(
             &app.world,
             root,
@@ -264,9 +257,16 @@ fn output_production_reserves_binding_and_paint_workspaces_together() {
             &mut renderer,
         )
         .unwrap();
+        assert_eq!(app.world.resource::<Calls>().unwrap().0.get(), 1);
         if budget == 287 {
             assert_eq!(renderer.bindings, 0);
-            assert!(outputs.get(root).is_none());
+            assert_eq!(renderer.device.creates.get(), 0);
+            let source = outputs.get(root).unwrap();
+            assert!(!source.texture().is_native());
+            assert_eq!(
+                source.texture().read_pixels().unwrap().get_pixel(0, 0),
+                Color::rgb(20, 40, 60)
+            );
         } else {
             assert_eq!(renderer.bindings, 1);
             let source = outputs.get(root).unwrap();
@@ -290,6 +290,162 @@ fn output_production_reserves_binding_and_paint_workspaces_together() {
         outputs.trim_memory();
         assert_eq!(outputs.storage().budget.available(), budget);
     }
+}
+
+#[test]
+fn automatic_admission_preserves_cpu_slots_and_shared_workspace_at_budget_boundaries() {
+    for budget in [223, 224] {
+        let outputs = Outputs::<WidgetTexture>::with_budget(budget);
+        let mut working = outputs.take_texture_plan().unwrap();
+        let key = super::tests::key(1, 1);
+        let mut renderer = Fixture {
+            workspace_bytes: 32,
+            ..Fixture::default()
+        };
+        outputs.reserve(1).unwrap();
+        assert!(
+            outputs
+                .reserve_render_texture(key, &mut renderer, &mut working.target_workspace, 0)
+                .unwrap()
+        );
+        let native = outputs.storage().textures[&key.entity].planes[0]
+            .as_ref()
+            .unwrap()
+            .texture
+            .is_native();
+        assert_eq!(native, budget == 224);
+        let creates = renderer.device.creates.get();
+        assert_eq!(
+            tracked_allocations(|| {
+                for _ in 0..8 {
+                    assert!(
+                        outputs
+                            .reserve_render_texture(
+                                key,
+                                &mut renderer,
+                                &mut working.target_workspace,
+                                0
+                            )
+                            .unwrap()
+                    );
+                }
+            }),
+            0
+        );
+        assert_eq!(renderer.device.creates.get(), creates);
+        if native {
+            assert_eq!(working.target_workspace.capacity(), 32);
+            renderer.device.access_failure.set(true);
+            assert_eq!(
+                outputs.reserve_render_texture(
+                    key,
+                    &mut renderer,
+                    &mut working.target_workspace,
+                    0
+                ),
+                Err(RenderError::InvalidScope)
+            );
+            assert_eq!(renderer.device.creates.get(), creates);
+        }
+        outputs.put_texture_plan(working);
+    }
+}
+
+#[test]
+fn automatic_cpu_selection_keeps_frozen_native_history() {
+    let outputs = Outputs::<WidgetTexture>::with_budget(256);
+    let mut working = outputs.take_texture_plan().unwrap();
+    let key = super::tests::key(1, 1);
+    outputs.reserve(1).unwrap();
+    outputs.set_retained(key.entity, true).unwrap();
+    let mut renderer = Fixture::default();
+    let color = Color::rgb(15, 35, 75);
+    {
+        let _batch = outputs.begin_batch();
+        assert!(
+            outputs
+                .reserve_render_texture(key, &mut renderer, &mut working.target_workspace, 0)
+                .unwrap()
+        );
+        let mut write = outputs.prepare_texture(key).unwrap();
+        assert!(write.texture_mut().is_native());
+        draw(write.texture_mut(), &mut renderer, color, false).unwrap();
+        assert!(write.publish());
+    }
+    let _batch = outputs.begin_batch();
+    let changed = BufferKey {
+        generation: 2,
+        ..key
+    };
+    assert!(
+        outputs
+            .reserve_render_texture(changed, &mut renderer, &mut working.target_workspace, 0)
+            .unwrap()
+    );
+    let mut write = outputs.prepare_texture(changed).unwrap();
+    assert!(!write.texture_mut().is_native());
+    write
+        .texture_mut()
+        .pixels_mut()
+        .unwrap()
+        .bytes_mut()
+        .fill(0);
+    assert!(write.publish());
+    let previous = outputs.previous(key.entity).unwrap();
+    assert!(previous.texture().is_native());
+    assert_eq!(
+        previous.texture().read_pixels().unwrap().get_pixel(0, 0),
+        color
+    );
+    assert_eq!(renderer.device.creates.get(), 1);
+    drop(previous);
+    outputs.put_texture_plan(working);
+}
+
+#[test]
+fn automatic_native_failure_runs_the_view_once_and_does_not_publish_or_retry_in_software() {
+    use crate::app::App;
+    use crate::ecs::World;
+    use crate::ui::view::{PaintCtx, View};
+    struct Calls(Cell<usize>);
+    fn paint(world: &World, _: Entity, paint: &mut PaintCtx<'_>) {
+        let calls = &world.resource::<Calls>().unwrap().0;
+        calls.set(calls.get() + 1);
+        paint.draw(&DrawCommand::Line {
+            p1: crate::types::Point::ZERO,
+            p2: crate::types::Point::new(2, 2),
+            transform: Transform::IDENTITY,
+            color: Color::rgb(20, 30, 40),
+            width: Fixed::ONE,
+            opa: 255,
+        });
+    }
+    let mut app = App::headless(4, 4);
+    app.with_default_widgets().with_offscreen_pool_budget(192);
+    app.world.insert_resource(Calls(Cell::new(0)));
+    app.with_widget(View::new("FailingNative", 90, paint));
+    let root = app.spawn_root().id();
+    app.world.insert(root, crate::ui::OffscreenRender::new());
+    let mut renderer = Fixture::default();
+    assert_eq!(
+        crate::ui::render_system::render(
+            &app.world,
+            root,
+            &Viewport::new(4, 4, Fixed::ONE),
+            &mut renderer
+        ),
+        Err(RenderError::InvalidGeometry)
+    );
+    assert_eq!(app.world.resource::<Calls>().unwrap().0.get(), 1);
+    assert_eq!(renderer.bindings, 1);
+    assert!(renderer.active.is_none());
+    assert!(
+        app.world
+            .resource::<Outputs<WidgetTexture>>()
+            .unwrap()
+            .get(root)
+            .is_none()
+    );
 }
 
 fn draw(

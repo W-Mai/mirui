@@ -649,7 +649,13 @@ pub(super) fn prepare<'a>(
             CaptureState::Missing
         } else if outputs.texture_matches(capture.key)? {
             CaptureState::Ready
-        } else if outputs.reserve_texture(capture.key, None)? {
+        } else if outputs.reserve_render_texture(
+            capture.key,
+            renderer,
+            &mut plan.target_workspace,
+            plan.workspace_bytes
+                .saturating_sub(plan.workspace.capacity()),
+        )? {
             CaptureState::Pending
         } else {
             CaptureState::Missing

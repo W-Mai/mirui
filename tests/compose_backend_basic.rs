@@ -573,6 +573,13 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
 impl Renderer for BorrowedDummy<'_> {
     type TargetState = Option<std::rc::Rc<native_targets::Slot>>;
 
+    fn supports_offscreen(&self) -> bool {
+        true
+    }
+    fn offscreen_format(&self) -> Option<ColorFormat> {
+        Some(ColorFormat::RGBA8888)
+    }
+
     fn plan_target(
         &self,
         layout: mirui::render::PlaneLayout,

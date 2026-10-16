@@ -779,6 +779,17 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         )
     }
 
+    fn needs_geometry_fallback(request: &DrawRequest<'_, '_>) -> bool {
+        crate::render::projective_fallback::transformed_stroke(request)
+            || (matches!(
+                request.command,
+                DrawCommand::Fill { quad: None, .. } | DrawCommand::Border { quad: None, .. }
+            ) && !matches!(
+                request.command.transform().classify(),
+                crate::types::TransformClass::Identity | crate::types::TransformClass::Translate
+            ))
+    }
+
     fn classify_request(request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         use crate::types::TransformClass;
 
@@ -805,7 +816,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         };
         if !supports_affine
             && !Self::needs_blit_fallback(request, false)
-            && !crate::render::projective_fallback::transformed_stroke(request)
+            && !Self::needs_geometry_fallback(request)
             && !matches!(
                 request.command.transform().classify(),
                 TransformClass::Identity | TransformClass::Translate
@@ -840,13 +851,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         }
         Self::classify_request(request)?;
         let paint_fallback = Self::needs_paint_fallback(request);
-        if paint_fallback && !request.projective.is_identity() {
-            return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
-        }
         if request.projective.is_identity()
             && !Self::needs_blit_fallback(request, self.native_target)
             && !paint_fallback
-            && !crate::render::projective_fallback::transformed_stroke(request)
+            && !Self::needs_geometry_fallback(request)
         {
             return Ok(RenderRoute::Native);
         }
@@ -886,13 +894,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         }
         Self::classify_request(request)?;
         let paint_fallback = Self::needs_paint_fallback(request);
-        if paint_fallback && !request.projective.is_identity() {
-            return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
-        }
         let needs_fallback = !request.projective.is_identity()
             || Self::needs_blit_fallback(request, self.native_target)
             || paint_fallback
-            || crate::render::projective_fallback::transformed_stroke(request);
+            || Self::needs_geometry_fallback(request);
         if !needs_fallback {
             if route != RenderRoute::Native {
                 return Err(RenderError::InvalidGeometry);

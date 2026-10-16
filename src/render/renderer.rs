@@ -744,12 +744,9 @@ pub trait Renderer: super::target::__private::TargetScopeDispatch {
         Fixed::ONE
     }
 
-    /// Whether this backend serves
-    /// [`crate::ui::OffscreenRender`] entities through the SW
-    /// pipeline: an inner `SwRenderer` over an owned buffer, blit'd
-    /// back through [`Self::submit`] with `DrawCommand::Blit`. Returning
-    /// `false` makes the render walker skip the offscreen path
-    /// entirely and inline-render the subtree.
+    /// Whether this backend hosts [`crate::ui::OffscreenRender`] output.
+    /// Production selects a native target when its plan and complete working set fit; otherwise it uses software pixels. Both results use `DrawCommand::Blit`.
+    /// Returning `false` makes the render walker inline-render the subtree.
     fn supports_offscreen(&self) -> bool {
         false
     }

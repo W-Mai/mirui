@@ -908,7 +908,13 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         &self,
         request: &DrawRequest<'_, '_>,
     ) -> Result<bool, RenderError> {
-        if crate::render::projective_fallback::transformed_stroke(request) {
+        if crate::render::projective_fallback::transformed_stroke(request)
+            || (!request.projective.is_identity()
+                && matches!(
+                    request.command,
+                    DrawCommand::FillPath { .. } | DrawCommand::StrokePath { .. }
+                ))
+        {
             return Ok(true);
         }
         let needs_fallback = match request.command {
@@ -933,8 +939,6 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             } => {
                 if matches!(paint, Paint::Color(_)) {
                     false
-                } else if !request.projective.is_identity() {
-                    return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
                 } else {
                     match path_paint_uniform(path, *transform, paint, *opa) {
                         Ok(_) => false,
@@ -944,13 +948,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                 }
             }
             DrawCommand::StrokePath { paint, .. } => {
-                if !matches!(paint, Paint::LinearGradient(_) | Paint::RadialGradient(_)) {
-                    false
-                } else if !request.projective.is_identity() {
-                    return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
-                } else {
-                    true
-                }
+                matches!(paint, Paint::LinearGradient(_) | Paint::RadialGradient(_))
             }
             _ => false,
         };

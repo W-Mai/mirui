@@ -474,6 +474,50 @@ impl RendererFactory<NativeSurface> for NativeFactory {
     }
 }
 
+#[mirui_macros::component]
+struct OutputMarker;
+
+#[mirui_macros::view(component = OutputMarker)]
+fn output_paint(paint: paint!()) {
+    let path = Path::rect(0.into(), 0.into(), 1.into(), 1.into());
+    paint.draw(&mirui::render::DrawCommand::FillPath {
+        path: &path,
+        paint: &Paint::Color(Color::rgb(1, 0, 0).into()),
+        transform: Transform::IDENTITY,
+        opa: 255,
+        fill_rule: mirui::render::raster::FillRule::NonZero,
+    });
+    paint.set_background_handled(true);
+}
+
+#[test]
+fn automatic_output_production_preserves_both_concrete_engine_routes() {
+    let surface = NativeSurface {
+        device: Rc::new(()),
+        screen: [0; 4],
+    };
+    let mut app = mirui::app::App::with_factory(surface, NativeFactory::default());
+    app.with_default_widgets()
+        .with_offscreen_pool_budget(8)
+        .with_widget(output_paint::view());
+    let root = app.spawn_root().id();
+    app.world.insert(root, OutputMarker);
+    app.world.insert(root, mirui::ui::OffscreenRender::new());
+    app.render().unwrap();
+    assert_eq!(app.factory.inner_count.get(), 1);
+    assert_eq!(app.factory.outer_count.get(), 1);
+    let outputs = app
+        .world
+        .resource::<mirui::ui::Outputs<mirui::ui::WidgetTexture>>()
+        .unwrap();
+    let image = outputs.get(root).unwrap();
+    assert!(image.texture().backend_target().unwrap().is_some());
+    assert_eq!(
+        image.texture().read_pixels().unwrap().get_pixel(0, 0),
+        Color::rgb(1, 0, 0)
+    );
+}
+
 #[test]
 fn factory_frames_keep_concrete_engine_borrows_and_source_device_lifetime() {
     let mut surface = NativeSurface {
