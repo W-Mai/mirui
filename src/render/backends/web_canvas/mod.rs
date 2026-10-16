@@ -1068,7 +1068,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         plan: ProjectiveFallbackPlan,
         command: &DrawCommand,
         projective: &Transform3D,
-    ) -> Result<(), ProjectiveDrawError> {
+    ) -> Result<(), RenderError> {
         if plan.width() == 0 || plan.height() == 0 {
             return Ok(());
         }
@@ -1080,7 +1080,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 f64::from(plan.width()),
                 f64::from(plan.height()),
             )
-            .map_err(|_| ProjectiveDrawError::BackendFailure)?;
+            .map_err(|_| RenderError::BackendFailure)?;
         let source = image.data();
         let fallback = self
             .factory
@@ -1094,10 +1094,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
             u32::from(plan.width()),
             u32::from(plan.height()),
         )
-        .map_err(|_| ProjectiveDrawError::BackendFailure)?;
+        .map_err(|_| RenderError::BackendFailure)?;
         self.ctx()
             .put_image_data(&output, f64::from(plan.x()), f64::from(plan.y()))
-            .map_err(|_| ProjectiveDrawError::BackendFailure)
+            .map_err(|_| RenderError::BackendFailure)
     }
 
     fn classify_gradient_fill(paint: &Paint, bbox: Option<Rect>) -> Result<(), RenderError> {
@@ -1246,7 +1246,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         let plan = ProjectiveFallbackPlan::from_region(region, self.viewport, requirements)
             .map_err(RenderError::from)?;
         self.draw_projective_plan(plan, request.command, &request.projective)
-            .map_err(RenderError::from)
     }
 
     fn output_scale(&self) -> Fixed {

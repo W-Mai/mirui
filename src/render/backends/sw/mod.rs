@@ -7,7 +7,7 @@ use crate::render::renderer::{
     DrawRequest, FallbackRegion, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute,
     Renderer,
 };
-use crate::render::texture::Texture;
+use crate::render::texture::{Texture, TexturePixels};
 
 #[cfg(feature = "perf")]
 pub mod perf;
@@ -35,6 +35,7 @@ pub struct SwRenderer<'a> {
     pub target: Texture<'a>,
     pub viewport: Viewport,
     pub(super) scratch: ScratchStorage<'a>,
+    failure: Option<RenderError>,
     #[cfg(feature = "perf")]
     pub perf: Option<PerfCtx>,
 }
@@ -170,6 +171,7 @@ impl<'a> SwRenderer<'a> {
             target,
             viewport,
             scratch,
+            failure: None,
             #[cfg(feature = "perf")]
             perf: None,
         }
@@ -185,6 +187,19 @@ impl<'a> SwRenderer<'a> {
     pub fn with_alpha_mode(mut self, mode: AlphaMode) -> Self {
         self.target.alpha_mode = mode;
         self
+    }
+
+    fn source_pixels<'s>(&mut self, source: &'s Texture<'_>) -> Option<TexturePixels<'s>> {
+        if self.failure.is_some() {
+            return None;
+        }
+        match source.read_pixels() {
+            Ok(pixels) => Some(pixels),
+            Err(error) => {
+                self.failure = Some(error);
+                None
+            }
+        }
     }
 }
 
@@ -238,7 +253,10 @@ impl<'a> SwRenderer<'a> {
                         "sw backend: composite {composite:?} under non-axis-aligned transform not yet implemented",
                     );
                 }
-                let src_rect = Rect::new(0, 0, texture.width, texture.height);
+                let Some(pixels) = self.source_pixels(texture) else {
+                    return;
+                };
+                let src_rect = Rect::new(0, 0, pixels.width(), pixels.height());
                 let dst = Rect {
                     x: pos.x,
                     y: pos.y,
@@ -247,7 +265,7 @@ impl<'a> SwRenderer<'a> {
                 };
                 blit_transformed(
                     &mut self.target,
-                    texture,
+                    &pixels,
                     &src_rect,
                     dst,
                     phys_clip,
@@ -578,7 +596,7 @@ impl<'a> Canvas for SwRenderer<'a> {
     }
 
     fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
-        Ok(())
+        self.failure.map_or(Ok(()), Err)
     }
 }
 
@@ -631,6 +649,9 @@ impl SwRenderer<'_> {
         opa: u8,
         composite: CompositeMode,
     ) {
+        let Some(pixels) = self.source_pixels(texture) else {
+            return;
+        };
         #[cfg(feature = "perf")]
         let t0 = quad_perf::now();
         let phys_clip = self.viewport.rect_to_physical(*clip);
@@ -644,7 +665,7 @@ impl SwRenderer<'_> {
         let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
         blit_quad(
             &mut self.target,
-            texture,
+            &pixels,
             &phys_q,
             phys_clip,
             Point {
@@ -933,12 +954,11 @@ impl SwRenderer<'_> {
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         use crate::types::TransformClass;
 
+        self.flush()?;
         request.validate_projection()?;
         request.validate_texture()?;
         if !request.projective.is_identity() {
-            return self
-                .draw_projective(request.command, &request.clip, &request.projective)
-                .map_err(RenderError::from);
+            return self.draw_projective(request.command, &request.clip, &request.projective);
         }
         if matches!(
             request.command.transform().classify(),
@@ -956,12 +976,12 @@ impl SwRenderer<'_> {
             )
         {
             self.draw(request.command, &request.clip);
-            return Ok(());
+            return self.flush();
         }
 
         self.route(request)?;
         self.draw(request.command, &request.clip);
-        Ok(())
+        self.flush()
     }
 
     fn output_scale(&self) -> Fixed {
@@ -975,6 +995,9 @@ impl SwRenderer<'_> {
     pub(crate) fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
         use crate::types::TransformClass;
 
+        if self.failure.is_some() {
+            return;
+        }
         // Quad fast paths short-circuit before the translate/transform branch.
         if let DrawCommand::Fill {
             area,
@@ -1223,11 +1246,12 @@ impl SwRenderer<'_> {
         cmd: &DrawCommand,
         clip: &Rect,
         projective: &Transform3D,
-    ) -> Result<(), ProjectiveDrawError> {
+    ) -> Result<(), RenderError> {
+        self.flush()?;
         self.preflight_projective(cmd, clip, projective)?;
         if projective.is_identity() {
             self.draw(cmd, clip);
-            return Ok(());
+            return self.flush();
         }
         let logical = projective.compose(&Transform3D::from_affine(cmd.transform()));
         match cmd {
@@ -1427,9 +1451,9 @@ impl SwRenderer<'_> {
                 self.push_clip_projective(path, &physical, *fill_rule)?;
             }
             DrawCommand::PopClip => self.pop_clip(),
-            DrawCommand::ApplyBlur { .. } => return Err(ProjectiveDrawError::Unsupported),
+            DrawCommand::ApplyBlur { .. } => return Err(ProjectiveDrawError::Unsupported.into()),
         }
-        Ok(())
+        self.flush()
     }
 
     pub(crate) fn preflight_projective(
@@ -1784,6 +1808,84 @@ mod tests {
     use crate::render::RenderResource;
     use crate::render::texture::ColorFormat;
     use alloc::vec;
+
+    #[test]
+    fn unreadable_blits_preserve_the_target_and_fail_the_frame() {
+        let source_bytes = [255u8; 16];
+        let mut source = Texture::from_ref(&source_bytes, 2, 2, ColorFormat::RGBA8888).unwrap();
+        source.stride = 16;
+        let clip = Rect::new(0, 0, 8, 8);
+        for transform in [
+            Transform::IDENTITY,
+            Transform::rotate_deg(Fixed::from_int(15)),
+        ] {
+            for quad in [
+                None,
+                Some([
+                    Point::new(0, 0),
+                    Point::new(8, 0),
+                    Point::new(8, 8),
+                    Point::new(0, 8),
+                ]),
+            ] {
+                let mut renderer =
+                    SwRenderer::new(Texture::owned(8, 8, ColorFormat::RGBA8888).unwrap());
+                let command = DrawCommand::Blit {
+                    pos: Point::ZERO,
+                    size: Point {
+                        x: Fixed::from_int(4),
+                        y: Fixed::from_int(4),
+                    },
+                    transform,
+                    quad,
+                    texture: &source,
+                    opa: 255,
+                    radius: Fixed::ZERO,
+                    composite: CompositeMode::SourceOver,
+                };
+                renderer.draw(&command, &clip);
+                assert_eq!(
+                    Canvas::flush(&mut renderer),
+                    Err(RenderError::InvalidTexture)
+                );
+                assert_eq!(
+                    renderer.submit(&DrawRequest::new(&command, clip)),
+                    Err(RenderError::InvalidTexture)
+                );
+                assert!(renderer.target.buf.as_slice().iter().all(|byte| *byte == 0));
+                assert_eq!(
+                    Canvas::flush(&mut renderer),
+                    Err(RenderError::InvalidTexture)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn direct_canvas_blit_reports_invalid_source_on_flush() {
+        let bytes = [0u8; 4];
+        let mut source = Texture::from_ref(&bytes, 1, 1, ColorFormat::RGBA8888).unwrap();
+        source.width = 2;
+        let mut renderer = SwRenderer::new(Texture::owned(4, 4, ColorFormat::RGBA8888).unwrap());
+        renderer.blit(
+            &source,
+            &Rect::new(0, 0, 2, 1),
+            Point::ZERO,
+            Point {
+                x: Fixed::from_int(2),
+                y: Fixed::ONE,
+            },
+            &Rect::new(0, 0, 4, 4),
+            255,
+            Fixed::ZERO,
+            CompositeMode::SourceOver,
+        );
+        assert_eq!(
+            Canvas::flush(&mut renderer),
+            Err(RenderError::InvalidTexture)
+        );
+        assert!(renderer.target.buf.as_slice().iter().all(|byte| *byte == 0));
+    }
 
     #[test]
     fn route_rejects_software_draws_that_drop_requested_semantics() {
@@ -2728,13 +2830,44 @@ mod tests {
         {
             let mut tex_a =
                 Texture::new(&mut dst_a, 8, 6, ColorFormat::RGBA8888).expect("valid pixel storage");
-            blit_generic_slow(&mut tex_a, &src, 0, 0, 4, 4, 0, 0, 7, 5, 0, 0, 8, 6, 255);
+            blit_generic_slow(
+                &mut tex_a,
+                &src.read_pixels().unwrap(),
+                0,
+                0,
+                4,
+                4,
+                0,
+                0,
+                7,
+                5,
+                0,
+                0,
+                8,
+                6,
+                255,
+            );
         }
         {
             let mut tex_b =
                 Texture::new(&mut dst_b, 8, 6, ColorFormat::RGBA8888).expect("valid pixel storage");
             blit_dda(
-                &mut tex_b, &src, 0, 0, 4, 4, 0, 0, 7, 5, 0, 0, 8, 6, 255, None,
+                &mut tex_b,
+                &src.read_pixels().unwrap(),
+                0,
+                0,
+                4,
+                4,
+                0,
+                0,
+                7,
+                5,
+                0,
+                0,
+                8,
+                6,
+                255,
+                None,
             );
         }
 
@@ -2771,12 +2904,41 @@ mod tests {
         {
             let mut tex =
                 Texture::new(&mut dst_a, 6, 6, ColorFormat::RGBA8888).expect("valid pixel storage");
-            blit_generic_slow(&mut tex, &src, 0, 0, 4, 4, 1, 1, 4, 4, 0, 0, 6, 6, 255);
+            blit_generic_slow(
+                &mut tex,
+                &src.read_pixels().unwrap(),
+                0,
+                0,
+                4,
+                4,
+                1,
+                1,
+                4,
+                4,
+                0,
+                0,
+                6,
+                6,
+                255,
+            );
         }
         {
             let mut tex =
                 Texture::new(&mut dst_b, 6, 6, ColorFormat::RGBA8888).expect("valid pixel storage");
-            blit_1to1_fast(&mut tex, &src, 0, 0, 4, 4, 1, 1, 0, 0, 6, 6);
+            blit_1to1_fast(
+                &mut tex,
+                &src.read_pixels().unwrap(),
+                0,
+                0,
+                4,
+                4,
+                1,
+                1,
+                0,
+                0,
+                6,
+                6,
+            );
         }
         for (i, (&a, &b)) in dst_a.iter().zip(dst_b.iter()).enumerate() {
             assert!(
@@ -2810,12 +2972,41 @@ mod tests {
         {
             let mut tex = Texture::new(&mut dst_a, 6, 6, ColorFormat::RGB565Swapped)
                 .expect("valid pixel storage");
-            blit_generic_slow(&mut tex, &src, 0, 0, 4, 4, 1, 1, 4, 4, 0, 0, 6, 6, 255);
+            blit_generic_slow(
+                &mut tex,
+                &src.read_pixels().unwrap(),
+                0,
+                0,
+                4,
+                4,
+                1,
+                1,
+                4,
+                4,
+                0,
+                0,
+                6,
+                6,
+                255,
+            );
         }
         {
             let mut tex = Texture::new(&mut dst_b, 6, 6, ColorFormat::RGB565Swapped)
                 .expect("valid pixel storage");
-            blit_1to1_fast(&mut tex, &src, 0, 0, 4, 4, 1, 1, 0, 0, 6, 6);
+            blit_1to1_fast(
+                &mut tex,
+                &src.read_pixels().unwrap(),
+                0,
+                0,
+                4,
+                4,
+                1,
+                1,
+                0,
+                0,
+                6,
+                6,
+            );
         }
         assert_eq!(dst_a, dst_b);
     }
@@ -2839,13 +3030,41 @@ mod tests {
             let mut tex = Texture::new(&mut dst_a, 10, 10, ColorFormat::RGB565Swapped)
                 .expect("valid pixel storage");
             blit_dda(
-                &mut tex, &src, 0, 0, 3, 3, 1, 1, 6, 6, 0, 0, 10, 10, 255, None,
+                &mut tex,
+                &src.read_pixels().unwrap(),
+                0,
+                0,
+                3,
+                3,
+                1,
+                1,
+                6,
+                6,
+                0,
+                0,
+                10,
+                10,
+                255,
+                None,
             );
         }
         {
             let mut tex = Texture::new(&mut dst_b, 10, 10, ColorFormat::RGB565Swapped)
                 .expect("valid pixel storage");
-            blit_2to2_fast(&mut tex, &src, 0, 0, 3, 3, 1, 1, 0, 0, 10, 10);
+            blit_2to2_fast(
+                &mut tex,
+                &src.read_pixels().unwrap(),
+                0,
+                0,
+                3,
+                3,
+                1,
+                1,
+                0,
+                0,
+                10,
+                10,
+            );
         }
         assert_eq!(dst_a, dst_b);
     }
@@ -2864,7 +3083,20 @@ mod tests {
         let mut tex =
             Texture::new(&mut dst, 6, 6, ColorFormat::RGB565Swapped).expect("valid pixel storage");
         // Clip starts at odd x=1: fast path 2×2 alignment broken → DDA fallback.
-        blit_2to2_fast(&mut tex, &src, 0, 0, 2, 2, 0, 0, 1, 0, 6, 6);
+        blit_2to2_fast(
+            &mut tex,
+            &src.read_pixels().unwrap(),
+            0,
+            0,
+            2,
+            2,
+            0,
+            0,
+            1,
+            0,
+            6,
+            6,
+        );
         // Should not panic; column 0 stays zero, column 1+ has pixels.
         assert_eq!(dst[0], 0);
         assert_eq!(dst[1], 0);
@@ -2942,12 +3174,41 @@ mod tests {
         {
             let mut tex =
                 Texture::new(&mut dst_a, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
-            blit_generic_slow(&mut tex, &src, 0, 0, 4, 4, 1, 1, 4, 4, 3, 0, 8, 8, 255);
+            blit_generic_slow(
+                &mut tex,
+                &src.read_pixels().unwrap(),
+                0,
+                0,
+                4,
+                4,
+                1,
+                1,
+                4,
+                4,
+                3,
+                0,
+                8,
+                8,
+                255,
+            );
         }
         {
             let mut tex =
                 Texture::new(&mut dst_b, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
-            blit_1to1_fast(&mut tex, &src, 0, 0, 4, 4, 1, 1, 3, 0, 8, 8);
+            blit_1to1_fast(
+                &mut tex,
+                &src.read_pixels().unwrap(),
+                0,
+                0,
+                4,
+                4,
+                1,
+                1,
+                3,
+                0,
+                8,
+                8,
+            );
         }
         assert_eq!(dst_a, dst_b);
     }
@@ -2971,13 +3232,44 @@ mod tests {
         {
             let mut tex_a = Texture::new(&mut dst_a, 10, 10, ColorFormat::RGBA8888)
                 .expect("valid pixel storage");
-            blit_generic_slow(&mut tex_a, &src, 0, 0, 4, 4, 1, 1, 8, 8, 2, 0, 7, 10, 255);
+            blit_generic_slow(
+                &mut tex_a,
+                &src.read_pixels().unwrap(),
+                0,
+                0,
+                4,
+                4,
+                1,
+                1,
+                8,
+                8,
+                2,
+                0,
+                7,
+                10,
+                255,
+            );
         }
         {
             let mut tex_b = Texture::new(&mut dst_b, 10, 10, ColorFormat::RGBA8888)
                 .expect("valid pixel storage");
             blit_dda(
-                &mut tex_b, &src, 0, 0, 4, 4, 1, 1, 8, 8, 2, 0, 7, 10, 255, None,
+                &mut tex_b,
+                &src.read_pixels().unwrap(),
+                0,
+                0,
+                4,
+                4,
+                1,
+                1,
+                8,
+                8,
+                2,
+                0,
+                7,
+                10,
+                255,
+                None,
             );
         }
         assert_eq!(dst_a, dst_b);
@@ -3844,7 +4136,7 @@ mod tests {
             target.alpha_mode = AlphaMode::Blend;
             blit_quad(
                 &mut target,
-                &texture,
+                &texture.read_pixels().unwrap(),
                 &quad,
                 Rect::new(0, 0, 24, 24),
                 size,
@@ -3919,7 +4211,7 @@ mod tests {
         .expect("valid pixel storage");
         blit_quad(
             &mut blit_target,
-            &source,
+            &source.read_pixels().unwrap(),
             &quad,
             clip,
             Point::new(WIDTH as i32, HEIGHT as i32),
@@ -4010,7 +4302,7 @@ mod tests {
 
         assert_eq!(
             renderer.draw_projective(&command, &Rect::new(0, 0, 16, 16), &projective),
-            Err(ProjectiveDrawError::InvalidProjection)
+            Err(RenderError::InvalidGeometry)
         );
         assert_eq!(pixels, before);
     }
@@ -4037,7 +4329,7 @@ mod tests {
 
         assert_eq!(
             renderer.draw_projective(&command, &Rect::new(0, 0, 8, 8), &projective),
-            Err(ProjectiveDrawError::InvalidProjection)
+            Err(RenderError::InvalidGeometry)
         );
         assert_eq!(pixels, before);
     }

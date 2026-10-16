@@ -684,7 +684,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         plan: ProjectiveFallbackPlan,
         command: &DrawCommand,
         projective: &Transform3D,
-    ) -> Result<(), ProjectiveDrawError> {
+    ) -> Result<(), RenderError> {
         if plan.width() == 0 || plan.height() == 0 {
             return Ok(());
         }
@@ -710,7 +710,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             )
         };
         if read_result != 0 {
-            return Err(ProjectiveDrawError::BackendFailure);
+            return Err(RenderError::BackendFailure);
         }
 
         fallback.render(plan, command, projective, self.viewport)?;
@@ -743,7 +743,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         if uploaded {
             Ok(())
         } else {
-            Err(ProjectiveDrawError::BackendFailure)
+            Err(RenderError::BackendFailure)
         }
     }
 }
@@ -940,7 +940,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let plan = ProjectiveFallbackPlan::from_region(region, self.viewport, requirements)
             .map_err(RenderError::from)?;
         self.draw_projective_plan(plan, request.command, &request.projective)
-            .map_err(RenderError::from)
     }
 
     fn output_scale(&self) -> Fixed {

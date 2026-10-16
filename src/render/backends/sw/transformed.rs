@@ -1,4 +1,4 @@
-use crate::render::texture::Texture;
+use crate::render::texture::{Texture, TexturePixels};
 use crate::types::{Color, Fixed, Point, Rect, Transform};
 
 pub fn fill_rect_transformed(
@@ -47,7 +47,7 @@ pub fn fill_rect_transformed(
 #[allow(clippy::too_many_arguments)]
 pub fn blit_transformed(
     dst: &mut Texture,
-    src: &Texture,
+    src: &TexturePixels<'_>,
     src_rect: &Rect,
     phys_dst_rect: Rect,
     phys_clip: Rect,

@@ -1,4 +1,6 @@
-use crate::render::texture::{AlphaMode, ColorFormat, Texture, blend_straight_source_over};
+use crate::render::texture::{
+    AlphaMode, ColorFormat, Texture, TexturePixels, blend_straight_source_over,
+};
 use crate::types::Color;
 
 #[inline(always)]
@@ -16,7 +18,7 @@ fn blend_rgba_pixel(destination: &mut [u8], index: usize, source: &Color) {
 #[allow(clippy::too_many_arguments)]
 pub fn blit_generic_slow(
     dst: &mut Texture,
-    src: &Texture,
+    src: &TexturePixels<'_>,
     sx0: i32,
     sy0: i32,
     sw: u16,
@@ -66,7 +68,7 @@ pub fn blit_generic_slow(
 #[allow(clippy::too_many_arguments)]
 pub fn blit_1to1_fast(
     dst: &mut Texture,
-    src: &Texture,
+    src: &TexturePixels<'_>,
     sx0: i32,
     sy0: i32,
     sw: u16,
@@ -93,7 +95,7 @@ pub fn blit_1to1_fast(
     let run_w = (vx1 - vx0) as usize;
     let run_h = (vy1 - vy0) as usize;
 
-    match (src.format, dst.format) {
+    match (src.format(), dst.format) {
         (ColorFormat::RGBA8888, ColorFormat::RGBA8888) => {
             blit_1to1_argb_to_argb(dst, src, src_x0, src_y0, vx0, vy0, run_w, run_h)
         }
@@ -129,7 +131,7 @@ pub fn blit_1to1_fast(
 #[allow(clippy::too_many_arguments)]
 fn blit_1to1_argb_to_argb(
     dst: &mut Texture,
-    src: &Texture,
+    src: &TexturePixels<'_>,
     sx0: i32,
     sy0: i32,
     dx0: i32,
@@ -137,10 +139,10 @@ fn blit_1to1_argb_to_argb(
     run_w: usize,
     run_h: usize,
 ) {
-    let src_stride = src.stride;
+    let src_stride = src.stride();
     let dst_stride = dst.stride;
     let blend_aware = dst.alpha_mode == AlphaMode::Blend;
-    let src_buf = src.buf.as_slice();
+    let src_buf = src.bytes();
     let dst_buf = dst.buf.as_mut_slice();
     for row in 0..run_h {
         let src_row_off = (sy0 as usize + row) * src_stride + sx0 as usize * 4;
@@ -180,7 +182,7 @@ fn blit_1to1_argb_to_argb(
 #[allow(clippy::too_many_arguments)]
 fn blit_1to1_argb_to_565sw(
     dst: &mut Texture,
-    src: &Texture,
+    src: &TexturePixels<'_>,
     sx0: i32,
     sy0: i32,
     dx0: i32,
@@ -188,9 +190,9 @@ fn blit_1to1_argb_to_565sw(
     run_w: usize,
     run_h: usize,
 ) {
-    let src_stride = src.stride;
+    let src_stride = src.stride();
     let dst_stride = dst.stride;
-    let src_buf = src.buf.as_slice();
+    let src_buf = src.bytes();
     let dst_buf = dst.buf.as_mut_slice();
     for row in 0..run_h {
         let src_row_off = (sy0 as usize + row) * src_stride + sx0 as usize * 4;
@@ -230,7 +232,7 @@ fn blit_1to1_argb_to_565sw(
 #[allow(clippy::too_many_arguments)]
 fn blit_1to1_565sw_to_565sw(
     dst: &mut Texture,
-    src: &Texture,
+    src: &TexturePixels<'_>,
     sx0: i32,
     sy0: i32,
     dx0: i32,
@@ -241,9 +243,9 @@ fn blit_1to1_565sw_to_565sw(
     // 565 has no alpha channel — always fully opaque copy. Use
     // copy_from_slice per row for the best chance of memcpy in
     // release builds.
-    let src_stride = src.stride;
+    let src_stride = src.stride();
     let dst_stride = dst.stride;
-    let src_buf = src.buf.as_slice();
+    let src_buf = src.bytes();
     let dst_buf = dst.buf.as_mut_slice();
     for row in 0..run_h {
         let src_row_off = (sy0 as usize + row) * src_stride + sx0 as usize * 2;
@@ -256,7 +258,7 @@ fn blit_1to1_565sw_to_565sw(
 #[allow(clippy::too_many_arguments)]
 fn blit_1to1_argb_to_565(
     dst: &mut Texture,
-    src: &Texture,
+    src: &TexturePixels<'_>,
     sx0: i32,
     sy0: i32,
     dx0: i32,
@@ -267,9 +269,9 @@ fn blit_1to1_argb_to_565(
     // Identical logic to 565sw variant except low/high byte order is
     // swapped on encode. Separate functions so the format is a
     // compile-time constant within each.
-    let src_stride = src.stride;
+    let src_stride = src.stride();
     let dst_stride = dst.stride;
-    let src_buf = src.buf.as_slice();
+    let src_buf = src.bytes();
     let dst_buf = dst.buf.as_mut_slice();
     for row in 0..run_h {
         let src_row_off = (sy0 as usize + row) * src_stride + sx0 as usize * 4;
@@ -312,7 +314,7 @@ fn blit_1to1_argb_to_565(
 #[allow(clippy::too_many_arguments)]
 pub fn blit_2to2_fast(
     dst: &mut Texture,
-    src: &Texture,
+    src: &TexturePixels<'_>,
     sx0: i32,
     sy0: i32,
     sw: u16,
@@ -367,7 +369,7 @@ pub fn blit_2to2_fast(
     let block_w = (vx1 - vx0) as usize / 2;
     let block_h = (vy1 - vy0) as usize / 2;
 
-    match (src.format, dst.format) {
+    match (src.format(), dst.format) {
         (ColorFormat::RGBA8888, ColorFormat::RGBA8888) => {
             blit_2to2_argb_to_argb(dst, src, src_x0, src_y0, vx0, vy0, block_w, block_h)
         }
@@ -404,7 +406,7 @@ pub fn blit_2to2_fast(
 #[allow(clippy::too_many_arguments)]
 fn blit_2to2_argb_to_argb(
     dst: &mut Texture,
-    src: &Texture,
+    src: &TexturePixels<'_>,
     sx0: i32,
     sy0: i32,
     dx0: i32,
@@ -412,10 +414,10 @@ fn blit_2to2_argb_to_argb(
     block_w: usize,
     block_h: usize,
 ) {
-    let src_stride = src.stride;
+    let src_stride = src.stride();
     let dst_stride = dst.stride;
     let blend_aware = dst.alpha_mode == AlphaMode::Blend;
-    let src_buf = src.buf.as_slice();
+    let src_buf = src.bytes();
     let dst_buf = dst.buf.as_mut_slice();
     for block_row in 0..block_h {
         let src_row_off = (sy0 as usize + block_row) * src_stride + sx0 as usize * 4;
@@ -473,7 +475,7 @@ fn blit_2to2_argb_to_argb(
 #[allow(clippy::too_many_arguments)]
 fn blit_2to2_argb_to_565sw(
     dst: &mut Texture,
-    src: &Texture,
+    src: &TexturePixels<'_>,
     sx0: i32,
     sy0: i32,
     dx0: i32,
@@ -481,9 +483,9 @@ fn blit_2to2_argb_to_565sw(
     block_w: usize,
     block_h: usize,
 ) {
-    let src_stride = src.stride;
+    let src_stride = src.stride();
     let dst_stride = dst.stride;
-    let src_buf = src.buf.as_slice();
+    let src_buf = src.bytes();
     let dst_buf = dst.buf.as_mut_slice();
     for block_row in 0..block_h {
         let src_row_off = (sy0 as usize + block_row) * src_stride + sx0 as usize * 4;
@@ -548,7 +550,7 @@ fn blit_2to2_argb_to_565sw(
 #[allow(clippy::too_many_arguments)]
 fn blit_2to2_565sw_to_565sw(
     dst: &mut Texture,
-    src: &Texture,
+    src: &TexturePixels<'_>,
     sx0: i32,
     sy0: i32,
     dx0: i32,
@@ -556,9 +558,9 @@ fn blit_2to2_565sw_to_565sw(
     block_w: usize,
     block_h: usize,
 ) {
-    let src_stride = src.stride;
+    let src_stride = src.stride();
     let dst_stride = dst.stride;
-    let src_buf = src.buf.as_slice();
+    let src_buf = src.bytes();
     let dst_buf = dst.buf.as_mut_slice();
     for block_row in 0..block_h {
         let src_row_off = (sy0 as usize + block_row) * src_stride + sx0 as usize * 2;
@@ -585,7 +587,7 @@ fn blit_2to2_565sw_to_565sw(
 #[allow(clippy::too_many_arguments)]
 fn blit_2to2_argb_to_565(
     dst: &mut Texture,
-    src: &Texture,
+    src: &TexturePixels<'_>,
     sx0: i32,
     sy0: i32,
     dx0: i32,
@@ -593,9 +595,9 @@ fn blit_2to2_argb_to_565(
     block_w: usize,
     block_h: usize,
 ) {
-    let src_stride = src.stride;
+    let src_stride = src.stride();
     let dst_stride = dst.stride;
-    let src_buf = src.buf.as_slice();
+    let src_buf = src.bytes();
     let dst_buf = dst.buf.as_mut_slice();
     for block_row in 0..block_h {
         let src_row_off = (sy0 as usize + block_row) * src_stride + sx0 as usize * 4;
@@ -663,7 +665,7 @@ fn blit_2to2_argb_to_565(
 #[allow(clippy::too_many_arguments)]
 pub fn blit_dda(
     dst: &mut Texture,
-    src: &Texture,
+    src: &TexturePixels<'_>,
     sx0: i32,
     sy0: i32,
     sw: u16,
@@ -733,7 +735,7 @@ pub fn blit_dda(
 #[allow(clippy::too_many_arguments)]
 pub fn blit_composite_dda(
     dst: &mut Texture,
-    src: &Texture,
+    src: &TexturePixels<'_>,
     sx0: i32,
     sy0: i32,
     sw: u16,
@@ -906,7 +908,7 @@ mod tests {
                             };
                             blit(
                                 &mut actual,
-                                &source,
+                                &source.read_pixels().unwrap(),
                                 1,
                                 1,
                                 2,
@@ -955,7 +957,20 @@ mod tests {
                 } else {
                     blit_2to2_fast
                 };
-                blit(&mut destination, &source, 0, 0, 1, 1, 0, 0, 0, 0, 2, 2);
+                blit(
+                    &mut destination,
+                    &source.read_pixels().unwrap(),
+                    0,
+                    0,
+                    1,
+                    1,
+                    0,
+                    0,
+                    0,
+                    0,
+                    2,
+                    2,
+                );
                 let expected = match source_alpha {
                     0 => destination_color,
                     128 => Color::rgba(109, 68, 120, 255),

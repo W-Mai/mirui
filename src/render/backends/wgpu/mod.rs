@@ -821,9 +821,12 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         if pixels.len() != plan.required_bytes() {
             return Err(RenderError::BackendFailure);
         }
-        ProjectiveFallback::borrowed(&mut pixels)
-            .render(plan, request.command, &request.projective, self.viewport)
-            .map_err(RenderError::from)?;
+        ProjectiveFallback::borrowed(&mut pixels).render(
+            plan,
+            request.command,
+            &request.projective,
+            self.viewport,
+        )?;
         let texture = Texture::from_ref(
             &pixels,
             plan.width(),

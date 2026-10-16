@@ -1,7 +1,7 @@
 use crate::types::{Color, Fixed, Fixed64, Point, Rect};
 
 use crate::render::command::CompositeMode;
-use crate::render::texture::Texture;
+use crate::render::texture::{Texture, TexturePixels};
 
 #[cfg(feature = "perf")]
 use super::perf::quad_perf;
@@ -13,7 +13,7 @@ pub fn quad_bbox(q: &[Point; 4]) -> Rect {
 #[allow(clippy::too_many_arguments)]
 pub fn blit_quad(
     dst: &mut Texture,
-    src: &Texture,
+    src: &TexturePixels<'_>,
     q: &[Point; 4],
     phys_clip: Rect,
     local_size: Point,
@@ -35,7 +35,7 @@ pub fn blit_quad(
         .max(Fixed::ZERO)
         .min(local_size.x / 2)
         .min(local_size.y / 2);
-    let src_rect = Rect::new(0, 0, src.width, src.height);
+    let src_rect = Rect::new(0, 0, src.width(), src.height());
     let Some(forward) = Transform3D::from_quad(src_rect, q) else {
         return;
     };
@@ -55,8 +55,8 @@ pub fn blit_quad(
         return;
     };
     let (px_x0, px_y0, px_x1, px_y1) = area.pixel_bounds();
-    let sw = src.width as i32;
-    let sh = src.height as i32;
+    let sw = src.width() as i32;
+    let sh = src.height() as i32;
     let local_scale_x = Fixed64::from_fixed(local_size.x) / Fixed64::from_int(i64::from(sw));
     let local_scale_y = Fixed64::from_fixed(local_size.y) / Fixed64::from_int(i64::from(sh));
     let half = Fixed64::from_ratio(1, 2);

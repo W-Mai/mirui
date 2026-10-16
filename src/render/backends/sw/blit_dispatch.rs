@@ -46,6 +46,11 @@ impl SwRenderer<'_> {
             return;
         }
 
+        let Some(pixels) = self.source_pixels(src) else {
+            return;
+        };
+        let src = &pixels;
+
         let needs_composite_path =
             !matches!(composite, CompositeMode::SourceOver) || phys_radius != Fixed::ZERO;
         let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());

@@ -21,7 +21,7 @@ use crate::render::command::DrawCommand;
     all(feature = "web-canvas", target_arch = "wasm32"),
     test
 ))]
-use crate::render::renderer::{ProjectiveDrawError, Renderer};
+use crate::render::renderer::{ProjectiveDrawError, RenderError, Renderer};
 use crate::render::texture::AlignedBytes;
 #[cfg(any(
     feature = "sdl-gpu",
@@ -474,7 +474,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
         command: &DrawCommand<'_>,
         projective: &Transform3D,
         viewport: Viewport,
-    ) -> Result<(), ProjectiveDrawError> {
+    ) -> Result<(), RenderError> {
         if plan.required_bytes() == 0 {
             return Ok(());
         }
@@ -528,7 +528,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
                 },
                 &local_clip,
             );
-            Ok(())
+            Renderer::flush(&mut renderer)
         } else if let DrawCommand::FillPath {
             path,
             transform,
@@ -541,23 +541,16 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
                 .compose(projective)
                 .compose(&Transform3D::from_affine(*transform));
             let affine = affine_from_homography(local).ok_or(ProjectiveDrawError::Unsupported)?;
-            renderer
-                .submit(&crate::render::renderer::DrawRequest::new(
-                    &DrawCommand::FillPath {
-                        path,
-                        transform: affine,
-                        paint,
-                        opa: *opa,
-                        fill_rule: *fill_rule,
-                    },
-                    local_clip,
-                ))
-                .map_err(|error| match error {
-                    crate::render::renderer::RenderError::InvalidGeometry => {
-                        ProjectiveDrawError::InvalidProjection
-                    }
-                    _ => ProjectiveDrawError::Unsupported,
-                })
+            renderer.submit(&crate::render::renderer::DrawRequest::new(
+                &DrawCommand::FillPath {
+                    path,
+                    transform: affine,
+                    paint,
+                    opa: *opa,
+                    fill_rule: *fill_rule,
+                },
+                local_clip,
+            ))
         } else if let DrawCommand::StrokePath {
             path,
             transform,
@@ -574,27 +567,20 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
                 .compose(projective)
                 .compose(&Transform3D::from_affine(*transform));
             let affine = affine_from_homography(local).ok_or(ProjectiveDrawError::Unsupported)?;
-            renderer
-                .submit(&crate::render::renderer::DrawRequest::new(
-                    &DrawCommand::StrokePath {
-                        path,
-                        transform: affine,
-                        paint,
-                        width: *width,
-                        opa: *opa,
-                        line_cap: *line_cap,
-                        line_join: *line_join,
-                        miter_limit: *miter_limit,
-                        dash,
-                    },
-                    local_clip,
-                ))
-                .map_err(|error| match error {
-                    crate::render::renderer::RenderError::InvalidGeometry => {
-                        ProjectiveDrawError::InvalidProjection
-                    }
-                    _ => ProjectiveDrawError::Unsupported,
-                })
+            renderer.submit(&crate::render::renderer::DrawRequest::new(
+                &DrawCommand::StrokePath {
+                    path,
+                    transform: affine,
+                    paint,
+                    width: *width,
+                    opa: *opa,
+                    line_cap: *line_cap,
+                    line_join: *line_join,
+                    miter_limit: *miter_limit,
+                    dash,
+                },
+                local_clip,
+            ))
         } else {
             renderer.draw_projective(command, &local_clip, &local_projective)
         }
@@ -615,6 +601,50 @@ mod tests {
     use textflow::placement::GlyphFrame;
     use textflow::shaping::{FlowPoint, GlyphId, PositionedGlyph};
 
+    #[test]
+    fn source_read_errors_survive_software_fallback_execution() {
+        let source_bytes = [255u8; 16];
+        let mut source = Texture::from_ref(&source_bytes, 2, 2, ColorFormat::RGBA8888).unwrap();
+        source.stride = 16;
+        let viewport = Viewport::new(8, 8, Fixed::ONE);
+        let plan = ProjectiveFallbackPlan::from_region(
+            crate::render::renderer::FallbackRegion::from_parts(0, 0, 8, 8, 32),
+            viewport,
+            PlaneRequirements::CPU,
+        )
+        .unwrap();
+        for quad in [
+            None,
+            Some([
+                Point::new(0, 0),
+                Point::new(4, 0),
+                Point::new(4, 4),
+                Point::new(0, 4),
+            ]),
+        ] {
+            let command = DrawCommand::Blit {
+                pos: Point::ZERO,
+                size: Point::new(4, 4),
+                transform: Transform::IDENTITY,
+                quad,
+                texture: &source,
+                opa: 255,
+                radius: Fixed::ZERO,
+                composite: CompositeMode::SourceOver,
+            };
+            for projection in [
+                Transform3D::IDENTITY,
+                Transform3D::translate(Fixed::ONE, Fixed::ZERO),
+            ] {
+                let mut fallback = ProjectiveFallback::new(alloc::vec![0x35; 256]);
+                assert_eq!(
+                    fallback.render(plan, &command, &projection, viewport),
+                    Err(RenderError::InvalidTexture)
+                );
+                assert!(fallback.target(plan).iter().all(|byte| *byte == 0x35));
+            }
+        }
+    }
     #[test]
     fn fallback_region_reconstructs_the_same_plane() {
         let region = crate::render::renderer::FallbackRegion::from_parts(3, 5, 7, 11, 32);

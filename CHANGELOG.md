@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Software Blit sampling borrows validated source pixels before rasterization. Source-read failures propagate through renderer submission and software fallback without accepting the frame.
 - Resource managers and handles accept non-`Clone` values and share their existing reference-counted storage.
 - Render plane layouts reject empty dimensions and support checked construction in constant expressions. Texture storage validation shares the plane layout calculation and accepts omitted padding after the last pixel.
 
