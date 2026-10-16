@@ -411,7 +411,7 @@ impl<B: WgpuTarget> RendererFactory<B> for WgpuRendererFactory {
             surface: backend,
             viewport: *transform,
             frame: None,
-            draw_failed: false,
+            failure: None,
         }
     }
 
@@ -436,7 +436,7 @@ pub struct WgpuRenderer<'a, B: WgpuTarget> {
     surface: &'a mut B,
     viewport: Viewport,
     frame: Option<Frame>,
-    draw_failed: bool,
+    failure: Option<RenderError>,
 }
 
 struct Frame {
@@ -721,7 +721,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             }),
             _ => return Err(ProjectiveDrawError::Unsupported),
         }
-        if self.draw_failed {
+        if self.failure.is_some() {
             Err(ProjectiveDrawError::BackendFailure)
         } else {
             Ok(())
@@ -858,8 +858,8 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                 u32::from(plan.height()),
             ],
         );
-        if self.draw_failed {
-            Err(RenderError::BackendFailure)
+        if let Some(error) = self.failure {
+            Err(error)
         } else {
             Ok(())
         }
@@ -1121,7 +1121,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     fn push_uniform<T: bytemuck::Pod>(&mut self, value: &T) -> Option<u32> {
         if uniform_arena_full(self.frame.as_ref()?.uniform_cursor) {
             if !self.frame.as_ref()?.ops.is_empty() && self.flush_ops_to_swapchain().is_err() {
-                self.draw_failed = true;
+                self.failure.get_or_insert(RenderError::BackendFailure);
                 return None;
             }
             self.frame.as_mut()?.uniform_cursor = 0;
@@ -1159,7 +1159,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             radius_pad: [radius.to_f32(), 0.0, 0.0, 0.0],
         };
         let Some(offset) = self.push_uniform(&rect_uniform) else {
-            self.draw_failed = true;
+            self.failure.get_or_insert(RenderError::BackendFailure);
             return;
         };
 
@@ -1224,42 +1224,54 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     }
 
     fn blit_source_view(&mut self, src: &Texture) -> Option<wgpu::TextureView> {
-        let view = self.blit_source_view_checked(src);
-        self.draw_failed |= view.is_none();
-        view
+        if self.failure.is_some() {
+            return None;
+        }
+        match self.blit_source_view_checked(src) {
+            Ok(view) => Some(view),
+            Err(error) => {
+                self.failure.get_or_insert(error);
+                None
+            }
+        }
     }
 
-    fn blit_source_view_checked(&mut self, src: &Texture) -> Option<wgpu::TextureView> {
-        let state = self.surface.state()?;
+    fn blit_source_view_checked(
+        &mut self,
+        src: &Texture,
+    ) -> Result<wgpu::TextureView, RenderError> {
+        let state = self
+            .surface
+            .state()
+            .ok_or(RenderError::SurfaceUnavailable)?;
         let key = TextureKey::cacheable(src).filter(|_| {
             usize::from(src.width) * usize::from(src.height) * 4
                 <= self.factory.texture_cache_budget
         });
         let Some(key) = key else {
-            let rgba = src.rgba8_pixels()?;
+            let pixels = src.read_pixels()?;
+            let rgba = pixels.rgba8_upload_pixels()?;
             let texture = upload_blit_source(&state.device, &state.queue, src, &rgba);
-            return Some(texture.create_view(&wgpu::TextureViewDescriptor::default()));
+            return Ok(texture.create_view(&wgpu::TextureViewDescriptor::default()));
         };
 
         let handle = self
             .factory
             .texture_pool
             .entry(key)
-            .or_try_insert_with::<_, ()>(|| {
-                let rgba = src.rgba8_pixels().ok_or(())?;
+            .or_try_insert_with::<_, RenderError>(|| {
+                let pixels = src.read_pixels()?;
+                let rgba = pixels.rgba8_upload_pixels()?;
                 Ok(CachedTexture(upload_blit_source(
                     &state.device,
                     &state.queue,
                     src,
                     &rgba,
                 )))
-            })
-            .ok()?;
-        Some(
-            handle
-                .0
-                .create_view(&wgpu::TextureViewDescriptor::default()),
-        )
+            })?;
+        Ok(handle
+            .0
+            .create_view(&wgpu::TextureViewDescriptor::default()))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1486,7 +1498,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         fill_rule: FillRule,
     ) {
         let Ok(paint_uniform) = path_paint_uniform(path, *cmd_tf, paint, opa) else {
-            self.draw_failed = true;
+            self.failure.get_or_insert(RenderError::BackendFailure);
             return;
         };
         self.factory.tessellator.fill(path, Some(cmd_tf), fill_rule);
@@ -1626,7 +1638,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         fill_rule: FillRule,
     ) {
         let Ok(paint_uniform) = path_paint_uniform(path, Transform::IDENTITY, paint, opa) else {
-            self.draw_failed = true;
+            self.failure.get_or_insert(RenderError::BackendFailure);
             return;
         };
         self.factory.tessellator.fill(path, None, fill_rule);
@@ -1711,7 +1723,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         }
 
         let Some(offset) = self.push_uniform(paint_uniform) else {
-            self.draw_failed = true;
+            self.failure.get_or_insert(RenderError::BackendFailure);
             return;
         };
 
@@ -1891,7 +1903,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             radius_stroke: [radius.to_f32(), stroke_width.to_f32(), 0.0, 0.0],
         };
         let Some(offset) = self.push_uniform(&uniform) else {
-            self.draw_failed = true;
+            self.failure.get_or_insert(RenderError::BackendFailure);
             return;
         };
 
@@ -2315,20 +2327,20 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         if !self.factory.glyph_buffers.can_fit(glyph_count) {
             if self.flush_ops_to_swapchain().is_err() {
                 self.factory.glyph_instances.clear();
-                self.draw_failed = true;
+                self.failure.get_or_insert(RenderError::BackendFailure);
                 return;
             }
             self.factory.glyph_buffers.reset();
         }
         if !self.factory.glyph_buffers.can_fit(glyph_count) {
             self.factory.glyph_instances.clear();
-            self.draw_failed = true;
+            self.failure.get_or_insert(RenderError::BackendFailure);
             return;
         }
         let uniform = glyph_uniform(*color, opa, batch.key.spread, projective);
         let Some(offset) = self.push_uniform(&uniform) else {
             self.factory.glyph_instances.clear();
-            self.draw_failed = true;
+            self.failure.get_or_insert(RenderError::BackendFailure);
             return;
         };
         let texture_view = {
@@ -2368,7 +2380,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                 Ok(handle) => handle,
                 Err(_) => {
                     self.factory.glyph_instances.clear();
-                    self.draw_failed = true;
+                    self.failure.get_or_insert(RenderError::BackendFailure);
                     return;
                 }
             };
@@ -2386,7 +2398,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             &self.factory.glyph_instances,
         ) else {
             self.factory.glyph_instances.clear();
-            self.draw_failed = true;
+            self.failure.get_or_insert(RenderError::BackendFailure);
             return;
         };
         let frame = self
@@ -2500,6 +2512,60 @@ mod route_tests {
     use mirx::scene::{GradientStop, GradientUnits, LinearGradient, RadialGradient, SpreadMode};
 
     static GPU: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    impl WgpuTarget for crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)> {
+        fn state(&self) -> Option<&crate::surface::wgpu_surface::WgpuState> {
+            None
+        }
+
+        fn state_mut(&mut self) -> Option<&mut crate::surface::wgpu_surface::WgpuState> {
+            None
+        }
+
+        fn frame_texture(&self) -> Option<&wgpu::SurfaceTexture> {
+            None
+        }
+    }
+
+    #[test]
+    fn source_preparation_error_survives_later_draw_submission_and_flush() {
+        let mut target = crate::surface::framebuf::FramebufSurface::new(
+            2,
+            2,
+            (|_, _| {}) as fn(&[u8], PhysicalRect),
+        );
+        let mut factory = WgpuRendererFactory::new();
+        let mut renderer = WgpuRenderer {
+            factory: &mut factory,
+            surface: &mut target,
+            viewport: Viewport::new(2, 2, Fixed::ONE),
+            frame: None,
+            failure: None,
+        };
+        let source = Texture::owned(1, 1, ColorFormat::RGBA8888).unwrap();
+        assert!(renderer.blit_source_view(&source).is_none());
+        assert_eq!(renderer.failure, Some(RenderError::SurfaceUnavailable));
+        let clip = Rect::new(0, 0, 2, 2);
+        let command = DrawCommand::Fill {
+            area: clip,
+            transform: Transform::IDENTITY,
+            quad: None,
+            color: Color::rgb(20, 30, 40),
+            radius: Fixed::ZERO,
+            opa: 255,
+        };
+        renderer.draw(&command, &clip);
+        let request = DrawRequest::new(&command, clip);
+        assert_eq!(
+            renderer.submit_with_route(&request, RenderRoute::Native),
+            Err(RenderError::SurfaceUnavailable)
+        );
+        assert_eq!(
+            Renderer::flush(&mut renderer),
+            Err(RenderError::SurfaceUnavailable)
+        );
+        assert!(renderer.frame.is_none());
+    }
 
     fn render_radial_path() -> Option<alloc::vec::Vec<u8>> {
         const SIZE: u32 = 64;
@@ -2697,13 +2763,26 @@ mod route_tests {
                 .expect("valid pixel storage");
         native.stride = 4;
         assert_eq!(
-            native.rgba8_pixels(),
-            Some(alloc::vec![255, 0, 0, 255, 0, 255, 0, 255])
+            native
+                .read_pixels()
+                .unwrap()
+                .rgba8_upload_pixels()
+                .unwrap()
+                .as_ref(),
+            &[255, 0, 0, 255, 0, 255, 0, 255]
         );
 
         let swapped = Texture::from_ref(&[0xf8, 0x00], 1, 1, ColorFormat::RGB565Swapped)
             .expect("valid pixel storage");
-        assert_eq!(swapped.rgba8_pixels(), Some(alloc::vec![255, 0, 0, 255]));
+        assert_eq!(
+            swapped
+                .read_pixels()
+                .unwrap()
+                .rgba8_upload_pixels()
+                .unwrap()
+                .as_ref(),
+            &[255, 0, 0, 255]
+        );
 
         assert!(matches!(
             Texture::from_ref(&[0xf8], 1, 1, ColorFormat::RGB565Swapped),
@@ -3984,7 +4063,9 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,
     ) -> Result<(), RenderError> {
-        self.draw_failed = false;
+        if let Some(error) = self.failure {
+            return Err(error);
+        }
         request.validate_projection()?;
         request.validate_texture()?;
         if Self::needs_non_native_fallback(request)? {
@@ -4036,14 +4117,18 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         }
         if request.projective.is_identity() {
             self.draw(request.command, &request.clip);
-            return if self.draw_failed {
-                Err(RenderError::BackendFailure)
+            return if let Some(error) = self.failure {
+                Err(error)
             } else {
                 Ok(())
             };
         }
-        self.draw_projective_validated(request.command, &request.clip, &request.projective)
-            .map_err(RenderError::from)
+        let result =
+            self.draw_projective_validated(request.command, &request.clip, &request.projective);
+        match self.failure {
+            Some(error) => Err(error),
+            None => result.map_err(RenderError::from),
+        }
     }
 
     fn output_scale(&self) -> Fixed {
@@ -4051,6 +4136,9 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     }
 
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
+        if self.failure.is_some() {
+            return;
+        }
         use crate::types::TransformClass;
 
         // Explicit leaf quads short-circuit before affine dispatch.
@@ -4376,8 +4464,8 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     }
 
     fn flush(&mut self) -> Result<(), RenderError> {
-        if self.draw_failed {
-            return Err(RenderError::BackendFailure);
+        if let Some(error) = self.failure {
+            return Err(error);
         }
         self.flush_ops_to_swapchain()
     }

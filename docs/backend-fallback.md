@@ -132,6 +132,8 @@ Software rasterization acquires a writable borrow before each raster batch, not 
 
 `mix_inplace(&mut destination, &source, amount)` also takes pixel borrows. Prepare source reads before borrowing the destination for writing. Target readback copies advance the destination revision, and software scopes validate writable storage before invoking their body and flush before returning success.
 
+SDL, WGPU and Web Canvas uploads read through validated pixel borrows on cache misses. Packed RGBA uploads borrow the existing bytes; other formats and padded rows use the shared conversion. Upload failures remain available through submission and flush instead of being cleared by another draw. Web Canvas shares the texture identity and revision key used by the other GPU upload caches.
+
 In a View, `paint.read_pixels(texture)` borrows the source pixels and retains read errors for the render walker. A `None` result means the paint has failed, not that an output is absent; check `outputs.get(entity)` separately. The pixel borrow does not borrow the paint context, so the callback can continue drawing while reading it. Temporal, reflection and drop effects use this access path with their existing workspace and history.
 
 ```rust

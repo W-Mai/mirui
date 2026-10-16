@@ -18,36 +18,10 @@ use crate::render::backends::web_raster_budget::RasterScratchPlan;
 use crate::render::canvas::Canvas;
 use crate::render::font::{Font, RasterRunBounds, RasterRunKey};
 use crate::render::renderer::{RenderError, RenderResource, TextRunIdentity};
-use crate::render::texture::{AlphaMode, ColorFormat, Texture};
+use crate::render::texture::{AlphaMode, ColorFormat, Texture, TextureKey};
 use crate::types::{Color, Fixed, Point, Rect, Viewport};
 
 use super::WebScratchResourceUsage;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct TextureKey {
-    ptr: usize,
-    len: usize,
-    width: u16,
-    height: u16,
-    format: ColorFormat,
-    stride: usize,
-    revision: u64,
-}
-
-impl TextureKey {
-    pub fn from(src: &Texture) -> Self {
-        let buf = src.buf.as_slice();
-        Self {
-            ptr: buf.as_ptr() as usize,
-            len: buf.len(),
-            width: src.width,
-            height: src.height,
-            format: src.format,
-            stride: src.stride,
-            revision: src.cache_revision,
-        }
-    }
-}
 
 /// Newtype so `HasSize` can be impl'd — `OffscreenCanvas` is foreign.
 pub struct CachedOffscreen {
@@ -362,22 +336,26 @@ impl BoundedGlyphScratch {
     }
 }
 
-pub fn upload(src: &Texture) -> Option<CachedOffscreen> {
-    let rgba = src.rgba8_upload_pixels()?;
-    let canvas = OffscreenCanvas::new(src.width as u32, src.height as u32).ok()?;
+pub fn upload(src: &Texture) -> Result<CachedOffscreen, RenderError> {
+    let pixels = src.read_pixels()?;
+    let rgba = pixels.rgba8_upload_pixels()?;
+    let canvas = OffscreenCanvas::new(src.width as u32, src.height as u32)
+        .map_err(|_| RenderError::BackendFailure)?;
     let ctx = canvas
         .get_context("2d")
-        .ok()??
+        .map_err(|_| RenderError::BackendFailure)?
+        .ok_or(RenderError::BackendFailure)?
         .dyn_into::<OffscreenCanvasRenderingContext2d>()
-        .ok()?;
+        .map_err(|_| RenderError::BackendFailure)?;
     let image_data = ImageData::new_with_u8_clamped_array_and_sh(
         Clamped(rgba.as_ref()),
         src.width as u32,
         src.height as u32,
     )
-    .ok()?;
-    ctx.put_image_data(&image_data, 0.0, 0.0).ok()?;
-    Some(CachedOffscreen {
+    .map_err(|_| RenderError::BackendFailure)?;
+    ctx.put_image_data(&image_data, 0.0, 0.0)
+        .map_err(|_| RenderError::BackendFailure)?;
+    Ok(CachedOffscreen {
         canvas,
         width: src.width,
         height: src.height,

@@ -1,5 +1,6 @@
 use super::{SdlGpuRenderer, apply_solid_color, sdl_pixel_rect};
 use crate::render::path::Path;
+use crate::render::renderer::RenderError;
 use crate::types::{Color, Fixed, Rect};
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
@@ -19,7 +20,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             if let Some(sdl_rect) = sdl_pixel_rect(&phys_area, &phys_clip) {
                 apply_solid_color(self.canvas, color, opa);
                 if self.canvas.draw_rect(sdl_rect).is_err() {
-                    self.draw_failed = true;
+                    self.failure.get_or_insert(RenderError::BackendFailure);
                 }
             }
             return;

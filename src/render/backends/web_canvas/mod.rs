@@ -13,7 +13,7 @@ use web_sys::{CanvasGradient, CanvasRenderingContext2d, CanvasWindingRule};
 
 use self::texture_pool::{
     BoundedGlyphRunKey, BoundedGlyphScratch, GlyphPool, SCRATCH_RESIZE_RUST_REQUEST_BUDGET,
-    TextureKey, TexturePool, new_glyph_pool, new_pool, scratch_plan,
+    TexturePool, new_glyph_pool, new_pool, scratch_plan,
 };
 use crate::render::PlaneRequirements;
 use crate::render::PosedGlyphs;
@@ -27,10 +27,12 @@ use crate::render::factory::RendererFactory;
 use crate::render::path::{Path, PathCmd};
 use crate::render::projective_fallback::{ProjectiveFallback, ProjectiveFallbackPlan};
 use crate::render::raster::{LineCap, LineJoin};
+use crate::render::renderer::RenderResource;
 use crate::render::renderer::{
     DrawRequest, FallbackRegion, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute,
     Renderer, TextRunIdentity,
 };
+use crate::render::texture::TextureKey;
 use crate::render::texture::{AlphaMode, ColorFormat, Texture};
 use crate::surface::web_canvas::WebCanvasSurface;
 use crate::types::{Color, Fixed, PhysicalRect, Point, Rect, Transform, Transform3D, Viewport};
@@ -387,7 +389,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<WebCanvasSurface>
             factory: self,
             surface: backend,
             viewport: *transform,
-            draw_failed: false,
+            failure: None,
             known_transform: None,
             current_text_run: None,
         }
@@ -422,7 +424,7 @@ pub struct WebCanvasRenderer<'a, S = Box<[u8]>> {
     factory: &'a mut WebCanvasRendererFactory<S>,
     surface: &'a mut WebCanvasSurface,
     viewport: Viewport,
-    draw_failed: bool,
+    failure: Option<RenderError>,
     // Only command draws track their transform; direct Canvas calls may inherit external state.
     known_transform: Option<[f64; 6]>,
     current_text_run: Option<TextRunIdentity>,
@@ -532,6 +534,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,
     ) -> Result<(), RenderError> {
+        if let Some(error) = self.failure {
+            return Err(error);
+        }
         WebCanvasRenderer::submit_with_route(self, request, route)
     }
 
@@ -922,34 +927,33 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
 
         let transient_up;
         let pooled_handle;
-        let canvas_ref: &web_sys::OffscreenCanvas = if src.transient {
-            transient_up = match texture_pool::upload(src) {
-                Some(up) => up,
-                None => {
-                    self.draw_failed = true;
-                    return;
-                }
-            };
-            &transient_up.canvas
-        } else {
-            let key = TextureKey::from(src);
+        let canvas_ref: &web_sys::OffscreenCanvas = if let Some(key) = TextureKey::cacheable(src) {
             pooled_handle = match self
                 .factory
                 .texture_pool
                 .entry(key)
-                .or_try_insert_with::<_, ()>(|| texture_pool::upload(src).ok_or(()))
+                .or_try_insert_with(|| texture_pool::upload(src))
             {
                 Ok(h) => h,
-                Err(_) => {
-                    self.draw_failed = true;
+                Err(error) => {
+                    self.failure.get_or_insert(error);
                     return;
                 }
             };
             if pooled_handle.is_invalid() {
-                self.draw_failed = true;
+                self.failure.get_or_insert(RenderError::BackendFailure);
                 return;
             }
             &pooled_handle.canvas
+        } else {
+            transient_up = match texture_pool::upload(src) {
+                Ok(up) => up,
+                Err(error) => {
+                    self.failure.get_or_insert(error);
+                    return;
+                }
+            };
+            &transient_up.canvas
         };
 
         self.push_rect_clip(clip);
@@ -974,7 +978,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 .is_err();
             ctx.set_global_alpha(prev_alpha);
             self.pop_rect_clip();
-            self.draw_failed |= failed;
+            if failed {
+                self.failure.get_or_insert(RenderError::BackendFailure);
+            }
             return;
         }
         // Quad index order matches `apply_rect`: 0=TL, 1=TR, 2=BR, 3=BL.
@@ -1021,7 +1027,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         }
         ctx.set_global_alpha(prev_alpha);
         self.pop_rect_clip();
-        self.draw_failed |= failed;
+        if failed {
+            self.failure.get_or_insert(RenderError::BackendFailure);
+        }
     }
 
     /// Walk a `Path` and translate it into Canvas 2D path operations.
@@ -1215,10 +1223,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
             if route != RenderRoute::Native {
                 return Err(RenderError::InvalidGeometry);
             }
-            self.draw_failed = false;
             self.draw(request.command, &request.clip);
-            return if self.draw_failed {
-                Err(RenderError::BackendFailure)
+            return if let Some(error) = self.failure {
+                Err(error)
             } else {
                 Ok(())
             };
@@ -1315,8 +1322,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         let Some(phys) = self.physical_clip_rect(src) else {
             return Ok(false);
         };
+        let pixels = tex.read_pixels()?;
+        let rgba = pixels.rgba8_upload_pixels()?;
         let Ok(img) = web_sys::ImageData::new_with_u8_clamped_array_and_sh(
-            wasm_bindgen::Clamped(tex.buf.as_mut_slice()),
+            wasm_bindgen::Clamped(rgba.as_ref()),
             tex.width as u32,
             tex.height as u32,
         ) else {
@@ -1329,6 +1338,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
     }
 
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
+        if self.failure.is_some() {
+            return;
+        }
         let dpr = self.dpr();
 
         match cmd {
@@ -1670,7 +1682,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
             .checked_mul(usize::from(ph))
             .and_then(|pixels| pixels.checked_mul(4))
         else {
-            self.draw_failed = true;
+            self.failure.get_or_insert(RenderError::BackendFailure);
             return;
         };
         if self.current_text_run.is_some() {
@@ -1732,7 +1744,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                         self.factory.bounded_scratch_draws =
                             self.factory.bounded_scratch_draws.saturating_add(1);
                     } else {
-                        self.draw_failed = true;
+                        self.failure.get_or_insert(RenderError::BackendFailure);
                     }
                     return;
                 }
@@ -1753,13 +1765,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
 
         let entry = self.factory.glyph_pool.entry(key);
         let new_upload = matches!(&entry, crate::core::cache::Entry::Vacant(_));
-        let handle = match entry.or_try_insert_with::<_, ()>(|| {
+        let handle = match entry.or_try_insert_with::<_, RenderError>(|| {
             let mut buf = Vec::new();
-            buf.try_reserve_exact(raster_bytes).map_err(|_| ())?;
+            buf.try_reserve_exact(raster_bytes)
+                .map_err(|_| RenderError::ResourceLimit(RenderResource::Texture))?;
             buf.resize(raster_bytes, 0);
             {
-                let mut texture =
-                    Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888).map_err(|_| ())?;
+                let mut texture = Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888)?;
                 texture.alpha_mode = AlphaMode::Blend;
                 let mut sw = SwRenderer::new(texture);
                 sw.viewport = Viewport::new(pw, ph, scale);
@@ -1776,12 +1788,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 let raster_color = Color { a: 255, ..*color };
                 sw.draw_glyph_run(&origin, glyphs, font, &full, &raster_color, 255);
             }
-            let texture = Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888).map_err(|_| ())?;
-            texture_pool::upload(&texture).ok_or(())
+            let texture = Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888)?;
+            texture_pool::upload(&texture)
         }) {
             Ok(handle) => handle,
-            Err(_) => {
-                self.draw_failed = true;
+            Err(error) => {
+                self.failure.get_or_insert(error);
                 return;
             }
         };
@@ -1793,7 +1805,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 .saturating_add(raster_bytes as u64);
         }
         if !self.blit_glyph_canvas(&handle.get().canvas, bounds, pos, clip, color, opacity) {
-            self.draw_failed = true;
+            self.failure.get_or_insert(RenderError::BackendFailure);
         }
     }
 }
@@ -1902,34 +1914,33 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
         // cached OffscreenCanvas. Upload fresh, skip the pool.
         let transient_up;
         let pooled_handle;
-        let canvas_ref: &web_sys::OffscreenCanvas = if src.transient {
-            transient_up = match texture_pool::upload(src) {
-                Some(up) => up,
-                None => {
-                    self.draw_failed = true;
-                    return;
-                }
-            };
-            &transient_up.canvas
-        } else {
-            let key = TextureKey::from(src);
+        let canvas_ref: &web_sys::OffscreenCanvas = if let Some(key) = TextureKey::cacheable(src) {
             pooled_handle = match self
                 .factory
                 .texture_pool
                 .entry(key)
-                .or_try_insert_with::<_, ()>(|| texture_pool::upload(src).ok_or(()))
+                .or_try_insert_with(|| texture_pool::upload(src))
             {
                 Ok(h) => h,
-                Err(_) => {
-                    self.draw_failed = true;
+                Err(error) => {
+                    self.failure.get_or_insert(error);
                     return;
                 }
             };
             if pooled_handle.is_invalid() {
-                self.draw_failed = true;
+                self.failure.get_or_insert(RenderError::BackendFailure);
                 return;
             }
             &pooled_handle.canvas
+        } else {
+            transient_up = match texture_pool::upload(src) {
+                Ok(up) => up,
+                Err(error) => {
+                    self.failure.get_or_insert(error);
+                    return;
+                }
+            };
+            &transient_up.canvas
         };
 
         self.push_rect_clip(clip);
@@ -2007,7 +2018,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
         let _ = ctx.set_global_composite_operation(&prev_composite);
         self.pop_rect_clip();
         if result.is_err() {
-            self.draw_failed = true;
+            self.failure.get_or_insert(RenderError::BackendFailure);
         }
     }
 
@@ -2087,8 +2098,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
     }
 
     fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
-        if self.draw_failed {
-            return Err(RenderError::BackendFailure);
+        if let Some(error) = self.failure {
+            return Err(error);
         }
         Ok(())
     }

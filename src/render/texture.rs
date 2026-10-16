@@ -4,17 +4,19 @@ use crate::core::cache::HasSize;
 
 mod access;
 mod pixels;
+#[cfg(any(feature = "wgpu", target_arch = "wasm32", test))]
+mod upload;
 pub use access::{TexturePixels, TexturePixelsMut};
 
-#[cfg(any(feature = "sdl-gpu", feature = "wgpu"))]
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
 mod cache_key;
 use crate::types::Color;
 #[cfg(test)]
 use crate::types::Fixed;
-#[cfg(any(target_arch = "wasm32", test))]
+#[cfg(test)]
 use alloc::borrow::Cow;
 use alloc::vec::Vec;
-#[cfg(any(feature = "sdl-gpu", feature = "wgpu"))]
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
 pub(crate) use cache_key::TextureKey;
 
 /// Owned byte storage whose visible start satisfies a requested alignment.
@@ -335,67 +337,6 @@ impl<'a> Texture<'a> {
 
     pub(crate) fn valid_storage(&self) -> bool {
         self.pixel_layout().is_ok()
-    }
-
-    #[cfg(any(target_arch = "wasm32", test))]
-    pub(crate) fn rgba8_upload_pixels(&self) -> Option<Cow<'_, [u8]>> {
-        if !self.valid_storage() {
-            return None;
-        }
-        let packed_len = usize::from(self.width)
-            .checked_mul(usize::from(self.height))?
-            .checked_mul(4)?;
-        if self.format == ColorFormat::RGBA8888 && self.stride == usize::from(self.width) * 4 {
-            return Some(Cow::Borrowed(&self.buf.as_slice()[..packed_len]));
-        }
-        self.rgba8_pixels().map(Cow::Owned)
-    }
-
-    #[cfg(any(feature = "wgpu", target_arch = "wasm32", test))]
-    pub(crate) fn rgba8_pixels(&self) -> Option<Vec<u8>> {
-        if !self.valid_storage() {
-            return None;
-        }
-        let pixels = self.read_pixels().ok()?;
-        let width = usize::from(pixels.width());
-        let height = usize::from(pixels.height());
-        let output_bytes = width.checked_mul(height)?.checked_mul(4)?;
-        let mut rgba = Vec::new();
-        rgba.try_reserve_exact(output_bytes).ok()?;
-        let bytes = self.buf.as_slice();
-        match self.format {
-            ColorFormat::RGBA8888 => {
-                for y in 0..height {
-                    let offset = y * self.stride;
-                    rgba.extend_from_slice(&bytes[offset..offset + width * 4]);
-                }
-            }
-            ColorFormat::BGRA8888 => {
-                for y in 0..height {
-                    let offset = y * self.stride;
-                    for pixel in bytes[offset..offset + width * 4].chunks_exact(4) {
-                        rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
-                    }
-                }
-            }
-            ColorFormat::RGB888 => {
-                for y in 0..height {
-                    let offset = y * self.stride;
-                    for pixel in bytes[offset..offset + width * 3].chunks_exact(3) {
-                        rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
-                    }
-                }
-            }
-            ColorFormat::RGB565 | ColorFormat::RGB565Swapped => {
-                for y in 0..height {
-                    for x in 0..width {
-                        let color = pixels.get_pixel(x as i32, y as i32);
-                        rgba.extend_from_slice(&[color.r, color.g, color.b, 255]);
-                    }
-                }
-            }
-        }
-        Some(rgba)
     }
 }
 
@@ -1122,8 +1063,12 @@ mod tests {
         .expect("valid pixel storage");
         rgba.stride = 8;
         assert_eq!(
-            rgba.rgba8_pixels(),
-            Some(alloc::vec![1, 2, 3, 4, 5, 6, 7, 8])
+            rgba.read_pixels()
+                .unwrap()
+                .rgba8_upload_pixels()
+                .unwrap()
+                .as_ref(),
+            &[1, 2, 3, 4, 5, 6, 7, 8]
         );
 
         let mut bgra = Texture::from_ref(
@@ -1134,18 +1079,28 @@ mod tests {
         )
         .expect("valid pixel storage");
         bgra.stride = 8;
-        assert_eq!(bgra.rgba8_pixels(), rgba.rgba8_pixels());
+        assert_eq!(
+            bgra.read_pixels().unwrap().rgba8_upload_pixels(),
+            rgba.read_pixels().unwrap().rgba8_upload_pixels()
+        );
 
         let mut rgb = Texture::from_ref(&[1, 2, 3, 99, 5, 6, 7], 1, 2, ColorFormat::RGB888)
             .expect("valid pixel storage");
         rgb.stride = 4;
         assert_eq!(
-            rgb.rgba8_pixels(),
-            Some(alloc::vec![1, 2, 3, 255, 5, 6, 7, 255])
+            rgb.read_pixels()
+                .unwrap()
+                .rgba8_upload_pixels()
+                .unwrap()
+                .as_ref(),
+            &[1, 2, 3, 255, 5, 6, 7, 255]
         );
 
         rgb.stride = 2;
-        assert!(rgb.rgba8_pixels().is_none());
+        assert!(matches!(
+            rgb.read_pixels(),
+            Err(RenderError::InvalidTexture)
+        ));
     }
 
     #[test]
@@ -1153,10 +1108,14 @@ mod tests {
         let pixels = [1, 2, 3, 4, 5, 6, 7, 8];
         let packed =
             Texture::from_ref(&pixels, 1, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
-        assert!(matches!(
-            packed.rgba8_upload_pixels(),
-            Some(Cow::Borrowed(bytes)) if bytes.as_ptr() == pixels.as_ptr()
-        ));
+        let allocations = crate::test_support::tracked_allocations(|| {
+            let source = packed.read_pixels().unwrap();
+            assert!(matches!(
+                source.rgba8_upload_pixels(),
+                Ok(Cow::Borrowed(bytes)) if bytes.as_ptr() == pixels.as_ptr()
+            ));
+        });
+        assert_eq!(allocations, 0);
 
         let mut padded = Texture::from_ref(
             &[1, 2, 3, 4, 99, 99, 99, 99, 5, 6, 7, 8],
@@ -1167,8 +1126,8 @@ mod tests {
         .expect("valid pixel storage");
         padded.stride = 8;
         assert!(matches!(
-            padded.rgba8_upload_pixels(),
-            Some(Cow::Owned(bytes)) if bytes == pixels
+            padded.read_pixels().unwrap().rgba8_upload_pixels(),
+            Ok(Cow::Owned(bytes)) if bytes == pixels
         ));
     }
 

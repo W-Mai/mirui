@@ -619,7 +619,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFact
             projective_fallback: self.projective_fallback.as_mut(),
             stroke_scratch: &mut self.stroke_scratch,
             viewport,
-            draw_failed: false,
+            failure: None,
         }
     }
 
@@ -637,7 +637,7 @@ pub struct SdlGpuRenderer<'a, S = Box<[u8]>> {
     projective_fallback: Option<&'a mut ProjectiveFallback<S>>,
     stroke_scratch: &'a mut StrokeScratch,
     viewport: Viewport,
-    draw_failed: bool,
+    failure: Option<RenderError>,
 }
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
@@ -674,7 +674,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             )
         };
         if result != 0 {
-            self.draw_failed = true;
+            self.failure.get_or_insert(RenderError::BackendFailure);
         }
         self.canvas.set_clip_rect(None);
     }
@@ -894,6 +894,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,
     ) -> Result<(), RenderError> {
+        if let Some(error) = self.failure {
+            return Err(error);
+        }
         request.validate_projection()?;
         request.validate_texture()?;
         if let DrawCommand::ApplyBlur { alpha, region } = request.command {
@@ -911,10 +914,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             if route != RenderRoute::Native {
                 return Err(RenderError::InvalidGeometry);
             }
-            self.draw_failed = false;
             self.draw(request.command, &request.clip);
-            return if self.draw_failed {
-                Err(RenderError::BackendFailure)
+            return if let Some(error) = self.failure {
+                Err(error)
             } else {
                 Ok(())
             };
@@ -947,6 +949,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     }
 
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
+        if self.failure.is_some() {
+            return;
+        }
         use crate::types::TransformClass;
 
         // Explicit leaf quads short-circuit before affine dispatch.
@@ -1185,8 +1190,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     }
 
     fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
-        if self.draw_failed {
-            return Err(RenderError::BackendFailure);
+        if let Some(error) = self.failure {
+            return Err(error);
         }
         Ok(())
     }
@@ -1263,11 +1268,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         };
         let w = tex.width as u32;
         let h = tex.height as u32;
-        if !tex.valid_storage() {
-            return Err(RenderError::InvalidTexture);
-        }
-        let bytes = tex.buf.as_slice();
-        let stride = tex.stride;
+        let pixels = tex.read_pixels()?;
+        let bytes = pixels.bytes();
+        let stride = pixels.stride();
         let canvas = &mut *self.canvas;
         self.label_cache
             .with_creator(|creator| -> Result<(), RenderError> {

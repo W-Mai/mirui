@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- GPU uploads use checked source pixel borrows and retain upload errors through submission and flush. Packed RGBA uploads avoid a temporary CPU copy in WGPU; Web Canvas shares the common texture cache key.
 - Target readback copies and software scopes use checked writable pixels. Software scopes flush before accepting their result.
 - `PaintCtx::read_pixels` retains source-read failures and borrows pixels independently of the paint context. Temporal, reflection, shadow and glow effects read sources before modifying their reusable workspace.
 - Software raster batches use exclusive pixel borrows for fills, paths, glyphs, blits and blur. Write failures propagate through submission or `Canvas::flush`; blending retains the existing pixel arithmetic.

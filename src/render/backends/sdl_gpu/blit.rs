@@ -1,5 +1,6 @@
 use super::{SdlGpuRenderer, sdl_pixel_rect};
-use crate::render::texture::{ColorFormat, Texture};
+use crate::render::renderer::RenderError;
+use crate::render::texture::{ColorFormat, Texture, TexturePixels};
 use crate::types::{Point, Rect};
 
 use crate::render::command::CompositeMode;
@@ -16,43 +17,48 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         }
     }
 
-    pub(super) fn upload_texture(dst: &mut SdlTexture, src: &Texture) -> bool {
-        if !src.valid_storage() {
-            return false;
-        }
-        let swap = matches!(src.format, ColorFormat::RGB565 | ColorFormat::RGB565Swapped)
-            && (src.format == ColorFormat::RGB565Swapped) != cfg!(target_endian = "big");
+    pub(super) fn upload_texture(
+        dst: &mut SdlTexture,
+        src: &TexturePixels<'_>,
+    ) -> Result<(), RenderError> {
+        let swap = matches!(
+            src.format(),
+            ColorFormat::RGB565 | ColorFormat::RGB565Swapped
+        ) && (src.format() == ColorFormat::RGB565Swapped) != cfg!(target_endian = "big");
         let complete_pitch = src
-            .stride
-            .checked_mul(usize::from(src.height))
-            .is_some_and(|len| len <= src.buf.as_slice().len());
+            .stride()
+            .checked_mul(usize::from(src.height()))
+            .is_some_and(|len| len <= src.bytes().len());
         if swap || !complete_pitch {
             dst.with_lock(None, |pixels, pitch| {
                 Self::write_rows(src, pixels, pitch, swap)
             })
-            .unwrap_or(false)
+            .map_err(|_| RenderError::BackendFailure)?
         } else {
-            dst.update(None, src.buf.as_slice(), src.stride).is_ok()
+            dst.update(None, src.bytes(), src.stride())
+                .map_err(|_| RenderError::BackendFailure)
         }
     }
 
-    fn write_rows(src: &Texture, dst: &mut [u8], pitch: usize, swap: bool) -> bool {
-        if !src.valid_storage() {
-            return false;
-        }
-        let row_bytes = usize::from(src.width) * src.format.bytes_per_pixel();
-        let height = usize::from(src.height);
+    fn write_rows(
+        src: &TexturePixels<'_>,
+        dst: &mut [u8],
+        pitch: usize,
+        swap: bool,
+    ) -> Result<(), RenderError> {
+        let row_bytes = usize::from(src.width()) * src.format().bytes_per_pixel();
+        let height = usize::from(src.height());
         if pitch < row_bytes
             || pitch
                 .checked_mul(height - 1)
                 .and_then(|start| start.checked_add(row_bytes))
                 .is_none_or(|required| required > dst.len())
         {
-            return false;
+            return Err(RenderError::InvalidTexture);
         }
-        let source = src.buf.as_slice();
+        let source = src.bytes();
         for y in 0..height {
-            let input = &source[y * src.stride..][..row_bytes];
+            let input = &source[y * src.stride()..][..row_bytes];
             let output = &mut dst[y * pitch..][..row_bytes];
             if swap {
                 for (input, output) in input.chunks_exact(2).zip(output.chunks_exact_mut(2)) {
@@ -62,7 +68,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 output.copy_from_slice(input);
             }
         }
-        true
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -130,8 +136,14 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             canvas.set_clip_rect(None);
             copied
         });
-        if !matches!(uploaded, Ok(true)) {
-            self.draw_failed = true;
+        match uploaded {
+            Ok(true) => {}
+            Ok(false) => {
+                self.failure.get_or_insert(RenderError::BackendFailure);
+            }
+            Err(error) => {
+                self.failure.get_or_insert(error);
+            }
         }
     }
 }
@@ -148,10 +160,9 @@ mod tests {
         let mut src = Texture::from_ref(&bytes, 3, 2, ColorFormat::RGB565Swapped)
             .expect("valid pixel storage");
         src.stride = 8;
+        let src = src.read_pixels().unwrap();
         let mut dst = [0xcc; 20];
-        assert!(SdlGpuRenderer::<Box<[u8]>>::write_rows(
-            &src, &mut dst, 10, true
-        ));
+        assert!(SdlGpuRenderer::<Box<[u8]>>::write_rows(&src, &mut dst, 10, true).is_ok());
         assert_eq!(
             &dst[..10],
             &[0x00, 0xf8, 0xe0, 0x07, 0x1f, 0x00, 0xcc, 0xcc, 0xcc, 0xcc]
@@ -160,15 +171,8 @@ mod tests {
             &dst[10..],
             &[0xe0, 0xff, 0xff, 0x07, 0x1f, 0xf8, 0xcc, 0xcc, 0xcc, 0xcc]
         );
-        assert!(!SdlGpuRenderer::<Box<[u8]>>::write_rows(
-            &src,
-            &mut dst[..15],
-            10,
-            true
-        ));
-        assert!(SdlGpuRenderer::<Box<[u8]>>::write_rows(
-            &src, &mut dst, 10, false
-        ));
+        assert!(SdlGpuRenderer::<Box<[u8]>>::write_rows(&src, &mut dst[..15], 10, true).is_err());
+        assert!(SdlGpuRenderer::<Box<[u8]>>::write_rows(&src, &mut dst, 10, false).is_ok());
         assert_eq!(&dst[..6], &bytes[..6]);
         assert_eq!(&dst[10..16], &bytes[8..14]);
     }

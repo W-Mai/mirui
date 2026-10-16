@@ -79,16 +79,15 @@ fn upload<'a>(
     creator: &'a TextureCreator<WindowContext>,
     src: &Texture,
 ) -> Result<SdlTexture<'a>, RenderError> {
+    let pixels = src.read_pixels()?;
     let mut texture = creator
         .create_texture_streaming(
-            SdlGpuRenderer::<Box<[u8]>>::texture_format(src.format),
-            u32::from(src.width),
-            u32::from(src.height),
+            SdlGpuRenderer::<Box<[u8]>>::texture_format(pixels.format()),
+            u32::from(pixels.width()),
+            u32::from(pixels.height()),
         )
         .map_err(|_| RenderError::BackendFailure)?;
-    if !SdlGpuRenderer::<Box<[u8]>>::upload_texture(&mut texture, src) {
-        return Err(RenderError::BackendFailure);
-    }
+    SdlGpuRenderer::<Box<[u8]>>::upload_texture(&mut texture, &pixels)?;
     // SDL retains no Rust references; the texture is live for this call.
     if unsafe {
         sdl2_sys::SDL_SetTextureScaleMode(

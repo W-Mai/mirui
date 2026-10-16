@@ -12,6 +12,7 @@
 
 use super::{SdlGpuRenderer, sdl_pixel_rect};
 use crate::render::path::Path;
+use crate::render::renderer::RenderError;
 use crate::render::texture::Texture;
 use crate::types::{Color, Fixed, Point, Rect};
 
@@ -162,8 +163,14 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             canvas.set_clip_rect(None);
             rendered
         });
-        if !matches!(uploaded, Ok(true)) {
-            self.draw_failed = true;
+        match uploaded {
+            Ok(true) => {}
+            Ok(false) => {
+                self.failure.get_or_insert(RenderError::BackendFailure);
+            }
+            Err(error) => {
+                self.failure.get_or_insert(error);
+            }
         }
     }
 }

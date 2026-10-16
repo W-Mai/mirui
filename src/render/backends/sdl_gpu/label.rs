@@ -1,5 +1,6 @@
 use super::SdlGpuRenderer;
 use crate::render::font::Font;
+use crate::render::renderer::RenderError;
 use crate::types::{Color, Point, Rect, Transform};
 
 pub(super) struct GlyphRunDraw<'a> {
@@ -49,7 +50,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             )
             .is_err()
         {
-            self.draw_failed = true;
+            self.failure.get_or_insert(RenderError::BackendFailure);
         }
     }
 
@@ -70,7 +71,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             )
             .is_err()
         {
-            self.draw_failed = true;
+            self.failure.get_or_insert(RenderError::BackendFailure);
         }
     }
 }
