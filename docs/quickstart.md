@@ -347,7 +347,7 @@ cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/andr
 cargo generate --git https://github.com/W-Mai/mirui-templates.git templates/ios --name hello-mirui-ios
 ```
 
-Android uses a NativeActivity entry point and builds for `aarch64-linux-android` through `cargo-apk`. iOS generates a Rust static library plus a minimal Xcode application host for simulator and device targets. The generated READMEs contain the required Rust targets and launch commands.
+Android uses a NativeActivity entry point, builds Rust through `cargo-ndk`, and packages the application with the included Gradle wrapper. iOS generates a Rust static library plus a minimal Xcode application host for simulator and device targets. The generated READMEs contain the required Rust targets and launch commands.
 
 iOS builds require iOS 14 or newer. Set the application's deployment target accordingly; standalone Cargo builds can use `IPHONEOS_DEPLOYMENT_TARGET=14.0`.
 
