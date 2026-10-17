@@ -18,6 +18,7 @@ use web_sys::{
 };
 
 use super::backbuffer_invalidation::BackbufferInvalidation;
+use super::web_input::KeyboardSource;
 use super::{BackbufferPersistence, DisplayInfo, InputEvent, PointerKind, Surface};
 use crate::core::cache::InspectCaches;
 use crate::render::texture::ColorFormat;
@@ -282,6 +283,7 @@ fn attach_listeners(
         "keydown",
         true,
         None,
+        KeyboardSource::Canvas,
     ));
     listeners.push(keyboard_listener(
         canvas.clone().into(),
@@ -289,6 +291,7 @@ fn attach_listeners(
         "keyup",
         false,
         None,
+        KeyboardSource::Canvas,
     ));
     let window = web_sys::window().expect("no global window");
     let document = canvas.owner_document().expect("canvas document");
@@ -536,11 +539,13 @@ fn keyboard_listener(
     name: &str,
     pressed: bool,
     composing: Option<Rc<Cell<bool>>>,
+    source: KeyboardSource,
 ) -> Listener {
     let q = queue.clone();
     let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
         let evt: KeyboardEvent = raw.unchecked_into();
         if let Some(input) = super::web_input::keyboard_input(
+            source,
             evt.key(),
             pressed,
             crate::input::event::input::KeyModifiers {
@@ -554,9 +559,7 @@ fn keyboard_listener(
                 || evt.key_code() == 229
                 || composing.as_ref().is_some_and(|state| state.get()),
         ) {
-            if matches!(input, InputEvent::Key { .. }) {
-                evt.prevent_default();
-            }
+            evt.prevent_default();
             q.borrow_mut().push_back(input);
         }
     });

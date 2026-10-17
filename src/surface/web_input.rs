@@ -12,6 +12,12 @@ pub(super) enum TextInputAction {
     Ignore,
 }
 
+#[derive(Clone, Copy)]
+pub(super) enum KeyboardSource {
+    Canvas,
+    TextInput,
+}
+
 pub(super) fn text_input_action(composing: bool, input_type: &str) -> TextInputAction {
     if input_type == "insertFromPaste" {
         TextInputAction::Ignore
@@ -25,6 +31,7 @@ pub(super) fn text_input_action(composing: bool, input_type: &str) -> TextInputA
 }
 
 pub(super) fn keyboard_input(
+    source: KeyboardSource,
     key: String,
     pressed: bool,
     modifiers: KeyModifiers,
@@ -46,12 +53,22 @@ pub(super) fn keyboard_input(
         "Escape" => Some(KEY_ESCAPE),
         _ => shortcut,
     };
-    code.map(|code| InputEvent::Key {
-        code,
-        pressed,
-        modifiers: Some(modifiers),
-        repeat: Some(repeat),
-    })
+    if let Some(code) = code {
+        return Some(InputEvent::Key {
+            code,
+            pressed,
+            modifiers: Some(modifiers),
+            repeat: Some(repeat),
+        });
+    }
+    if matches!(source, KeyboardSource::Canvas) && pressed && !modifiers.control && !modifiers.meta
+    {
+        let mut chars = key.chars();
+        if chars.next().is_some_and(|ch| !ch.is_control()) && chars.next().is_none() {
+            return Some(crate::input::event::input::TextCommitted::new(key).into());
+        }
+    }
+    None
 }
 
 #[derive(Clone, Copy)]
@@ -230,7 +247,7 @@ mod tests {
                 for composing in [false, true] {
                     for pressed in [false, true] {
                         assert!(
-                            matches!(keyboard_input(key.into(), pressed, modifiers, true, composing), Some(InputEvent::Key { code, pressed: actual, modifiers: Some(actual_modifiers), repeat: Some(true) }) if code == expected && actual == pressed && actual_modifiers == modifiers)
+                            matches!(keyboard_input(KeyboardSource::TextInput, key.into(), pressed, modifiers, true, composing), Some(InputEvent::Key { code, pressed: actual, modifiers: Some(actual_modifiers), repeat: Some(true) }) if code == expected && actual == pressed && actual_modifiers == modifiers)
                         );
                     }
                 }
@@ -248,7 +265,17 @@ mod tests {
                     ..Default::default()
                 },
             ] {
-                assert!(keyboard_input(key.into(), true, modifiers, false, false).is_none());
+                assert!(
+                    keyboard_input(
+                        KeyboardSource::TextInput,
+                        key.into(),
+                        true,
+                        modifiers,
+                        false,
+                        false
+                    )
+                    .is_none()
+                );
             }
         }
     }
@@ -270,8 +297,15 @@ mod tests {
         ] {
             for pressed in [false, true] {
                 assert!(
-                    keyboard_input(key.into(), pressed, KeyModifiers::default(), false, true)
-                        .is_none()
+                    keyboard_input(
+                        KeyboardSource::TextInput,
+                        key.into(),
+                        pressed,
+                        KeyModifiers::default(),
+                        false,
+                        true
+                    )
+                    .is_none()
                 );
             }
         }
@@ -285,14 +319,115 @@ mod tests {
         };
         for pressed in [false, true] {
             assert!(
-                matches!(keyboard_input("Enter".into(), pressed, modifiers, true, false),
+                matches!(keyboard_input(KeyboardSource::TextInput, "Enter".into(), pressed, modifiers, true, false),
                 Some(InputEvent::Key { code: KEY_RETURN, pressed: actual, modifiers: Some(actual_modifiers), repeat: Some(true) })
                 if actual == pressed && actual_modifiers == modifiers)
             );
         }
         for key in ["a", "中", "Dead", "Process", "Unidentified"] {
             for pressed in [false, true] {
-                assert!(keyboard_input(key.into(), pressed, modifiers, false, false).is_none());
+                assert!(
+                    keyboard_input(
+                        KeyboardSource::TextInput,
+                        key.into(),
+                        pressed,
+                        modifiers,
+                        false,
+                        false
+                    )
+                    .is_none()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn canvas_commits_characters_without_copying_the_platform_string() {
+        for text in ["a", "A", " ", "中", "🙂", "é"] {
+            for repeat in [false, true] {
+                let key = String::from(text);
+                let original = key.as_ptr();
+                assert_eq!(
+                    crate::test_support::tracked_allocations(|| {
+                        let input = keyboard_input(
+                            KeyboardSource::Canvas,
+                            key,
+                            true,
+                            KeyModifiers::default(),
+                            repeat,
+                            false,
+                        );
+                        let Some(InputEvent::TextCommitted(input)) = input else {
+                            panic!("missing canvas text")
+                        };
+                        assert_eq!(input.text(), text);
+                        assert_eq!(input.text().as_ptr(), original);
+                    }),
+                    0
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn canvas_does_not_commit_composition_control_keys_or_shortcut_text() {
+        for text in ["", "Dead", "Process", "Unidentified", "Shift", "\n", "\t"] {
+            assert!(
+                keyboard_input(
+                    KeyboardSource::Canvas,
+                    text.into(),
+                    true,
+                    KeyModifiers::default(),
+                    false,
+                    false
+                )
+                .is_none()
+            );
+        }
+        for text in ["a", " ", "中"] {
+            assert!(
+                keyboard_input(
+                    KeyboardSource::Canvas,
+                    text.into(),
+                    false,
+                    KeyModifiers::default(),
+                    false,
+                    false
+                )
+                .is_none()
+            );
+            assert!(
+                keyboard_input(
+                    KeyboardSource::Canvas,
+                    text.into(),
+                    true,
+                    KeyModifiers::default(),
+                    false,
+                    true
+                )
+                .is_none()
+            );
+            for modifiers in [
+                KeyModifiers {
+                    control: true,
+                    ..Default::default()
+                },
+                KeyModifiers {
+                    meta: true,
+                    ..Default::default()
+                },
+            ] {
+                assert!(!matches!(
+                    keyboard_input(
+                        KeyboardSource::Canvas,
+                        text.into(),
+                        true,
+                        modifiers,
+                        false,
+                        false
+                    ),
+                    Some(InputEvent::TextCommitted(_))
+                ));
             }
         }
     }

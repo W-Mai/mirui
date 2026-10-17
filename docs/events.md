@@ -148,6 +148,8 @@ Focused keyboard handlers and default text editing run before App key and charac
 
 Atlas Restoration, Echo Walker, Pocket Post, Twin Beacons, and Folding Ark bind keyboard controls with `#[event]`, `event!(TextCommitted)`, and `model!` parameters. Their shortcuts match a complete single-key string at App fallback, without splitting pasted text into game actions. Registered instances are shared with the rest of each game; input consumed by a focused editor does not trigger the shortcut.
 
+On Web, a focused canvas delivers non-composing character key presses as `TextCommitted`, including Space. A focused text editor receives its text through DOM input instead, so keyboard input is not committed twice. Control and Command combinations do not produce character commits.
+
 Twin Beacons and Folding Ark install their hint services with `App::add_resource` before binding the keyboard callbacks, which borrow them through `res!` on each invocation. At setup, each game's keyboard and hint controls share the same search workspace; subsequent keyboard calls read the current installed service.
 
 `Started` follows the startup hooks once, including applications driven directly by `tick`. Suspend and resume notify only after an actual state change and their plugin hooks; suspension and quit cancel active pointer, scroll, and gesture state. Memory warnings and host interactions notify after their hooks. Quit hooks and notifications run once even if `tick` is called again. These notifications join the same FIFO as previously submitted widget notifications.

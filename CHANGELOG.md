@@ -115,6 +115,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Web canvas keyboard input delivers character shortcuts to App callbacks without duplicating DOM editor text.
+
 - Software fallback preserves rounded fills under affine transforms, including scaled blur groups and clipped scene replay.
 
 - Read-only output history does not reserve native binding workspace. Software production reclaims unused binding storage without disturbing pending native writes.

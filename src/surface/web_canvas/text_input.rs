@@ -233,6 +233,7 @@ impl Transport {
             "keydown",
             true,
             Some(composing.clone()),
+            super::KeyboardSource::TextInput,
         ));
         listeners.push(keyboard_listener(
             input.clone().into(),
@@ -240,6 +241,7 @@ impl Transport {
             "keyup",
             false,
             Some(composing),
+            super::KeyboardSource::TextInput,
         ));
         Self {
             input,
