@@ -95,6 +95,16 @@ For platforms that supply a complete paste payload, `ClipboardInput::paste(data)
 
 ## Native contract checks
 
+The Android host library in `platform/android` supplies a non-exported, URI-grant-enabled clipboard provider. Its private snapshot files preserve each item's MIME representations across process recreation. Replacement retires old files without changing already-open streams; failed or interrupted publication retains prepared data until a successful replacement. The provider does not expose application directories or allow writes. This library alone does not enable an Android Surface clipboard bridge.
+
+Run its storage contracts and Android lint with JDK 17, Android SDK 35, and Gradle 8.11.1:
+
+```bash
+gradle -p platform/android testDebugUnitTest lintDebug assembleDebug
+```
+
+The storage contracts exercise actual temporary files, snapshot replacement, process-independent reopening, binary lengths, and path rejection. They do not verify Android URI grants, a system clipboard, or another application.
+
 The Wayland bridge unit tests deliver protocol results through actual App cut/paste requests. They check selection guards, single-operation admission, window-close failures, and exactly-once acknowledgments. WGPU suspension tests check that queued clipboard results survive native-window retirement. These checks do not require or replace a real compositor.
 
 The Wayland session checks also cover host-driven queue dispatch, write synchronization and cancellation, selection replacement during reads, independent seat ownership, expired callbacks, and connection-preserving cleanup. Transfers share a rotating byte and syscall budget. Protocol synchronization acknowledges request processing, not a future consumer's read or clipboard-manager persistence.

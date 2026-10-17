@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <provider
+            android:name="rs.mirui.android.ClipboardProvider"
+            android:authorities="${applicationId}.mirui.clipboard"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+    </application>
+</manifest>

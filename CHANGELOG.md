@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The Android host library provides read-only clipboard snapshot URIs with independent MIME representations and file lifetimes.
+
 - macOS SDL software and GPU windows route native clipboard menu actions through window-scoped SDL events.
 
 - macOS WGPU windows deliver native clipboard and Select All menu actions through the host event loop and detach their responder registration when the window retires.
