@@ -223,6 +223,9 @@ wasm-bindgen-futures = { version = "0.4.72", optional = true }
 crc32fast = "1"
 trybuild = "1"
 
+[target.'cfg(any(target_os = "linux", target_os = "macos"))'.dev-dependencies]
+x11rb = "0.13.2"
+
 [[test]]
 name = "native_clipboard"
 harness = false
