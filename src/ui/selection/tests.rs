@@ -78,7 +78,13 @@ fn fixture() -> (TestApp, Entity) {
     let mut app = App::headless(32, 32);
     app.with_widget(paper_view::view());
     let root = app.spawn_root().id();
-    let node = app.compose(root, |cx| ui! { View () [Paper::default()] });
+    let node = app.compose(root, |cx| {
+        ui! {
+            View () [
+                Paper::default(),
+            ]
+        }
+    });
     app.add_resource(FocusState {
         focused: Some(node),
     });
@@ -155,7 +161,13 @@ fn cut_and_paste_shortcuts_use_captured_component_capabilities() {
             let (mut app, original) = fixture();
             app.world.get_mut::<Paper>(original).unwrap().selected = true;
             let root = app.root.unwrap();
-            let other = app.compose(root, |cx| ui! { View () [Paper::default()] });
+            let other = app.compose(root, |cx| {
+                ui! {
+                    View () [
+                        Paper::default(),
+                    ]
+                }
+            });
             if redirect_focus {
                 crate::input::event::runtime::install_entity(
                     &mut app.world,
@@ -186,6 +198,9 @@ fn cut_and_paste_shortcuts_use_captured_component_capabilities() {
                 clipboard::ClipboardRequest::Read(read) => {
                     assert_eq!(code, KEY_V);
                     read.complete(ClipboardData::text("new"))
+                }
+                clipboard::ClipboardRequest::DeferredRead(_, _) => {
+                    panic!("unexpected native paste")
                 }
             };
             clipboard::complete(&mut app.world, &response);
@@ -274,7 +289,13 @@ fn redirect(_event: event!(Key), target: Entity, focus: res!(mut FocusState)) ->
 fn focus_changes_in_key_callbacks_do_not_redirect_the_default_request() {
     let (mut app, original) = fixture();
     let root = app.root.unwrap();
-    let other = app.compose(root, |cx| ui! { View () [Paper::default()] });
+    let other = app.compose(root, |cx| {
+        ui! {
+            View () [
+                Paper::default(),
+            ]
+        }
+    });
     crate::input::event::runtime::install_entity(
         &mut app.world,
         original,

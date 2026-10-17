@@ -1377,6 +1377,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             let dispatch = match request {
                 ClipboardRequest::Write(request) => self.backend.write_clipboard(request),
                 ClipboardRequest::Read(request) => self.backend.read_clipboard(request),
+                #[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
+                ClipboardRequest::DeferredRead(request, source) => source(request),
             };
             match dispatch {
                 crate::ui::clipboard::ClipboardDispatch::Complete(response) => {

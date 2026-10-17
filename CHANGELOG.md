@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Web native paste imports file payloads through the acknowledged clipboard queue, preserves the original target selection, and rejects incomplete transfers without partial edits.
+
 - macOS SDL and WGPU surfaces share native multi-item clipboard transfer for text, HTML, RTF, images, URI items and custom MIME data. Invalid writes preserve existing clipboard contents; reads verify the pasteboard generation. Native access stays on the main thread.
 
 - SDL GPU coverage text shares uploaded font surfaces and retains ordered run geometry across translation and color changes. Geometry and raster fallback entries share the existing text cache budget; full glyph signatures guard cache hits.

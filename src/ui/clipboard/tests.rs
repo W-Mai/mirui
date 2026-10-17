@@ -11,7 +11,7 @@ mod paste;
 pub(crate) fn take_write(world: &mut World) -> Option<ClipboardWrite> {
     take_request(world).map(|request| match request {
         ClipboardRequest::Write(write) => write,
-        ClipboardRequest::Read(_) => panic!("expected a clipboard write"),
+        _ => panic!("expected a clipboard write"),
     })
 }
 

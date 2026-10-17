@@ -95,6 +95,7 @@ fn clipboard_shortcuts_use_the_focused_shared_editors_selection() {
                 assert_eq!(code, KEY_V);
                 read.complete(clipboard::ClipboardData::text(&original))
             }
+            clipboard::ClipboardRequest::DeferredRead(_, _) => panic!("unexpected native paste"),
         };
         clipboard::complete(&mut app.world, &response);
         crate::ui::delivery::flush(&mut app.world).unwrap();

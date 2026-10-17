@@ -40,7 +40,8 @@ pub(super) fn attach(
                 let input = match name {
                     "copy" => ClipboardInput::copy(),
                     "cut" => ClipboardInput::cut(),
-                    _ => ClipboardInput::paste(read_native(&event)),
+                    _ => read_native(&event, queue.clone())
+                        .unwrap_or_else(|error| ClipboardInput::paste(Err(error))),
                 };
                 queue
                     .borrow_mut()
@@ -50,26 +51,100 @@ pub(super) fn attach(
     }
 }
 
-fn read_native(event: &web_sys::ClipboardEvent) -> Result<ClipboardData, ClipboardError> {
+fn read_native(
+    event: &web_sys::ClipboardEvent,
+    queue: EventQueue,
+) -> Result<ClipboardInput, ClipboardError> {
     let source = event.clipboard_data().ok_or(ClipboardError::InvalidData)?;
     let types = source.types();
-    if types.iter().any(|mime| {
-        mime.as_string()
-            .is_some_and(|mime| mime.eq_ignore_ascii_case("Files"))
-    }) {
-        return Err(ClipboardError::Unsupported);
+    let files = source.files();
+    let count = files.as_ref().map_or(0, web_sys::FileList::length) as usize;
+    let mut blobs = Vec::new();
+    blobs
+        .try_reserve_exact(count)
+        .map_err(|_| ClipboardError::Capacity)?;
+    if let Some(files) = files {
+        for index in 0..files.length() {
+            let file = files.get(index).ok_or(ClipboardError::InvalidData)?;
+            blobs.push(file.unchecked_into::<web_sys::Blob>());
+        }
     }
     let mut item = ClipboardItem::with_capacity(types.length() as usize)?;
     for mime in types.iter() {
         let mime = mime.as_string().ok_or(ClipboardError::InvalidData)?;
+        if mime.eq_ignore_ascii_case("Files") {
+            if blobs.is_empty() {
+                return Err(ClipboardError::Unsupported);
+            }
+            continue;
+        }
         let text = source.get_data(&mime).map_err(failure)?;
         let mime = alloc::string::String::from(web_clipboard_format::decode(&mime));
         item.push(ClipboardFormat::new(mime, text.into_bytes()))?;
     }
-    let mut data = ClipboardData::with_capacity(1, usize::MAX)?;
-    data.push(item)?;
+    let capacity = count.checked_add(1).ok_or(ClipboardError::Capacity)?;
+    let mut data = ClipboardData::with_capacity(capacity, usize::MAX)?;
+    if !item.formats().is_empty() {
+        data.push(item)?;
+    }
+    if blobs.is_empty() {
+        data.validate()?;
+        return Ok(ClipboardInput::paste(Ok(data)));
+    }
+    let (sender, receiver) = futures_channel::oneshot::channel::<ClipboardRead>();
+    let queue = Rc::downgrade(&queue);
+    wasm_bindgen_futures::spawn_local(async move {
+        let Ok(request) = receiver.await else { return };
+        let result = read_files(data, blobs).await;
+        if let Some(queue) = queue.upgrade() {
+            queue
+                .borrow_mut()
+                .push_back(InputEvent::Clipboard(request.complete(result)));
+        }
+    });
+    Ok(ClipboardInput::paste_deferred(
+        move |request| match sender.send(request) {
+            Ok(()) => ClipboardDispatch::Pending,
+            Err(request) => {
+                ClipboardDispatch::Complete(request.complete(Err(ClipboardError::Unavailable)))
+            }
+        },
+    ))
+}
+
+async fn read_files(
+    mut data: ClipboardData,
+    blobs: Vec<web_sys::Blob>,
+) -> Result<ClipboardData, ClipboardError> {
+    for blob in blobs {
+        let mime = blob.type_();
+        let mime = if mime.is_empty() {
+            "application/octet-stream"
+        } else {
+            &mime
+        };
+        let mut item = ClipboardItem::with_capacity(1)?;
+        item.push(ClipboardFormat::new(
+            alloc::string::String::from(web_clipboard_format::decode(mime)),
+            read_blob(&blob).await?,
+        ))?;
+        data.push(item)?;
+    }
     data.validate()?;
     Ok(data)
+}
+
+async fn read_blob(blob: &web_sys::Blob) -> Result<Vec<u8>, ClipboardError> {
+    let buffer = JsFuture::from(blob.array_buffer()).await.map_err(failure)?;
+    let source = js_sys::Uint8Array::new(&buffer);
+    let mut bytes = Vec::new();
+    let len = source.length() as usize;
+    bytes
+        .try_reserve_exact(len)
+        .map_err(|_| ClipboardError::Capacity)?;
+    bytes.resize(len, 0);
+    source.copy_to(&mut bytes);
+    Ok(bytes)
 }
 
 pub(super) fn read(request: ClipboardRead, queue: EventQueue) -> ClipboardDispatch {
@@ -185,15 +260,7 @@ async fn read_data(promise: js_sys::Promise) -> Result<ClipboardData, ClipboardE
                 .map_err(failure)?
                 .dyn_into::<web_sys::Blob>()
                 .map_err(|_| ClipboardError::InvalidData)?;
-            let buffer = JsFuture::from(blob.array_buffer()).await.map_err(failure)?;
-            let source = js_sys::Uint8Array::new(&buffer);
-            let mut bytes = Vec::new();
-            let len = source.length() as usize;
-            bytes
-                .try_reserve_exact(len)
-                .map_err(|_| ClipboardError::Capacity)?;
-            bytes.resize(len, 0);
-            source.copy_to(&mut bytes);
+            let bytes = read_blob(&blob).await?;
             let mime = alloc::string::String::from(web_clipboard_format::decode(&mime));
             item.push(ClipboardFormat::new(mime, bytes))?;
         }

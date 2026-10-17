@@ -11,6 +11,8 @@ use crate::input::event::{
 };
 
 mod data;
+#[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
+mod deferred;
 pub use data::{ClipboardData, ClipboardFormat, ClipboardItem};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -172,12 +174,16 @@ impl ClipboardRead {
 pub(crate) enum ClipboardRequest {
     Write(ClipboardWrite),
     Read(ClipboardRead),
+    #[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
+    DeferredRead(ClipboardRead, deferred::ReadSource),
 }
 impl ClipboardRequest {
     fn operation(&self) -> ClipboardOperationId {
         match self {
             Self::Write(request) => request.operation,
             Self::Read(request) => request.operation,
+            #[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
+            Self::DeferredRead(request, _) => request.operation,
         }
     }
 }
@@ -196,6 +202,8 @@ enum ClipboardIntent {
     Copy,
     Cut,
     Paste(Result<PasteSelection, ClipboardError>),
+    #[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
+    DeferredPaste(deferred::DeferredRead),
 }
 
 impl ClipboardInput {
@@ -214,10 +222,27 @@ impl ClipboardInput {
         ))
     }
 
+    #[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
+    pub(crate) fn paste_deferred(
+        source: impl FnOnce(ClipboardRead) -> ClipboardDispatch + Send + 'static,
+    ) -> Self {
+        Self(ClipboardIntent::DeferredPaste(deferred::DeferredRead::new(
+            source,
+        )))
+    }
+
     pub(crate) fn deliver(&self, world: &mut World, target: Entity) {
         match &self.0 {
             ClipboardIntent::Copy => copy(world, target),
             ClipboardIntent::Cut => cut(world, target),
+            #[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
+            ClipboardIntent::DeferredPaste(source) => {
+                if let Some(source) = source.take() {
+                    paste_with(world, target, |request| {
+                        ClipboardRequest::DeferredRead(request, source)
+                    });
+                }
+            }
             ClipboardIntent::Paste(data) => {
                 let completion_target = CompletionTarget::capture(world, target);
                 let operation = match operation(world) {
@@ -496,6 +521,14 @@ fn enqueue(world: &mut World, pending: Pending) {
 }
 
 pub(crate) fn paste(world: &mut World, target: Entity) {
+    paste_with(world, target, ClipboardRequest::Read);
+}
+
+fn paste_with(
+    world: &mut World,
+    target: Entity,
+    source: impl FnOnce(ClipboardRead) -> ClipboardRequest,
+) {
     let completion_target = CompletionTarget::capture(world, target);
     let operation = match operation(world) {
         Ok(operation) => operation,
@@ -509,7 +542,7 @@ pub(crate) fn paste(world: &mut World, target: Entity) {
             world,
             Pending {
                 target: completion_target,
-                request: ClipboardRequest::Read(ClipboardRead { operation }),
+                request: source(ClipboardRead { operation }),
                 completion: Completion::Paste(guard),
             },
         ),
