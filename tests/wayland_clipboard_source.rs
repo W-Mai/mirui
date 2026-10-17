@@ -23,6 +23,10 @@ mod seat;
 mod seat_contracts;
 #[path = "wayland_clipboard/server.rs"]
 mod server;
+#[path = "../src/surface/host_clipboard/wayland/session.rs"]
+mod session;
+#[path = "wayland_clipboard/session.rs"]
+mod session_contracts;
 #[path = "../src/surface/host_clipboard/wayland/source.rs"]
 mod source;
 #[path = "../src/surface/host_clipboard/wayland/transfer.rs"]

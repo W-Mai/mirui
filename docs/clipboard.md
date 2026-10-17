@@ -85,6 +85,8 @@ For a native menu action, enqueue `InputEvent::ClipboardInput(ClipboardInput::co
 
 ## Native contract checks
 
+The Wayland session checks also cover host-driven queue dispatch, write synchronization and cancellation, selection replacement during reads, independent seat ownership, expired callbacks, and connection-preserving cleanup. Transfers share a rotating byte and syscall budget. Protocol synchronization acknowledges request processing, not a future consumer's read or clipboard-manager persistence.
+
 The `wayland_clipboard_transfer` tests use private pipes to check binary EOF, shared snapshot ownership, bounded nonblocking progress, absolute deadlines, and descriptor cleanup. They do not access the system clipboard or exercise a Wayland compositor, seat authorization, or a Surface's event loop.
 
 The `wayland_clipboard_source` tests use the Wayland client and server bindings over private Unix sockets. They check MIME announcements, descriptor transfer, source replacement and cancellation, bounded concurrent transfers, complete multi-format reads, and source cleanup. Accepted transfers retain their original snapshot even after selection replacement. Reads bind to one offer and reject invalidated offers, malformed text, and expired transfers without delivering partial data. Input subscriptions restrict serials to the focused target, retire on capability removal, and invalidate selected offers on focus loss. Destroying these subscriptions leaves host surfaces intact. These checks use constructed protocol events, not a compositor's authorization policy or a Surface's event loop.

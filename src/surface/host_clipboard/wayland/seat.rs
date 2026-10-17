@@ -22,6 +22,20 @@ pub(super) struct Seat {
 }
 
 impl Seat {
+    pub(super) fn proxy(&self) -> &wl_seat::WlSeat {
+        &self.proxy
+    }
+
+    pub(super) fn id(&self) -> ObjectId {
+        self.proxy.id()
+    }
+
+    pub(super) fn owns_input(&self, id: &ObjectId) -> bool {
+        self.keyboard.as_ref().is_some_and(|p| p.id() == *id)
+            || self.pointer.as_ref().is_some_and(|p| p.id() == *id)
+            || self.touch.as_ref().is_some_and(|p| p.id() == *id)
+    }
+
     pub(super) fn new(proxy: wl_seat::WlSeat, target: ObjectId) -> Self {
         Self {
             proxy,
@@ -198,7 +212,7 @@ impl Drop for Seat {
     }
 }
 
-fn retire<P: Proxy>(proxy: P, since: u32, release: impl FnOnce(&P)) {
+pub(super) fn retire<P: Proxy>(proxy: P, since: u32, release: impl FnOnce(&P)) {
     if proxy.version() >= since {
         release(&proxy);
     } else if let Some(backend) = proxy.backend().upgrade() {

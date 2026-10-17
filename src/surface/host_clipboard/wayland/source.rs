@@ -43,6 +43,10 @@ impl Default for Source {
 }
 
 impl Source {
+    pub(super) fn current(&self) -> Option<&WlDataSource> {
+        self.offer.as_ref().map(|offer| &offer.proxy)
+    }
+
     pub(super) fn claim<State>(
         &mut self,
         manager: &WlDataDeviceManager,
