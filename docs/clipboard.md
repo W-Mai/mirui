@@ -81,7 +81,7 @@ For a native menu action, enqueue `InputEvent::ClipboardInput(ClipboardInput::co
 
 ## Native contract checks
 
-The `x11_clipboard_source` and `x11_clipboard_transfer` tests check selection ownership, multi-format reads, snapshot replacement, and chunk boundaries through an in-memory X11 protocol fixture. They use x11rb request encoding and reply parsing without accessing the system clipboard, including incremental transfers between the source and reader. These checks do not exercise a live X server or a Surface's input loop.
+The `x11_clipboard_source` and `x11_clipboard_transfer` tests check selection ownership, multi-format reads, snapshot replacement, chunk boundaries, and request-window cleanup through an in-memory X11 protocol fixture. They use x11rb request encoding and reply parsing without accessing the system clipboard, including incremental transfers between the source and reader. Completion, rejection, and timeout retire the read window without discarding the active copy source; stale window events cannot complete another read. These checks do not exercise a live X server or a Surface's input loop.
 
 The `x11_clipboard_stream` tests use private Unix socket pairs to check cancellation during the x11rb handshake, reply waits, and write backpressure. They also check absolute I/O deadlines, connection isolation, and descriptor transfer. They do not connect to an X server or validate desktop clipboard integration.
 

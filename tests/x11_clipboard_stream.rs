@@ -160,3 +160,10 @@ fn closing_one_owned_connection_does_not_cancel_another() {
     assert_eq!(live.read(&mut message, &mut Vec::new()).unwrap(), 4);
     assert_eq!(&message, b"live");
 }
+
+#[test]
+fn connection_teardown_closes_the_socket_even_when_cancellation_is_retained() {
+    let (stream, _cancel, mut peer) = pair();
+    drop(stream);
+    assert_eq!(peer.read(&mut [0; 1]).unwrap(), 0);
+}

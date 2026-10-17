@@ -29,6 +29,12 @@ pub(super) struct BoundedStream {
     failure: Cell<Option<io::ErrorKind>>,
 }
 
+impl Drop for BoundedStream {
+    fn drop(&mut self) {
+        let _ = shutdown(&self.inner, Shutdown::Both);
+    }
+}
+
 impl BoundedStream {
     pub(super) fn new(inner: DefaultStream) -> io::Result<(Self, Cancel)> {
         let cancel = Cancel(inner.as_fd().try_clone_to_owned()?);

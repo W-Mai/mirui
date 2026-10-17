@@ -3,15 +3,14 @@ use std::time::Instant;
 
 use x11rb::{
     connection::Connection,
-    errors::ReplyError,
-    protocol::{ErrorKind, Event, xproto::*},
+    protocol::{Event, xproto::*},
     wrapper::ConnectionExt as _,
 };
 
 use crate::ui::clipboard::{ClipboardData, ClipboardError};
 
 use super::{
-    protocol::{Atoms, TIMEOUT, platform},
+    protocol::{Atoms, TIMEOUT, forget_destroyed, platform},
     transfer::Outgoing,
 };
 
@@ -42,13 +41,6 @@ pub(super) struct Source {
     chunk: usize,
 }
 
-fn forget_destroyed(result: Result<(), ReplyError>) -> Result<(), ClipboardError> {
-    match result {
-        Err(ReplyError::X11Error(error)) if error.error_kind == ErrorKind::Window => Ok(()),
-        result => platform(result),
-    }
-}
-
 fn precedes(time: Timestamp, reference: Timestamp) -> bool {
     time != x11rb::CURRENT_TIME && (time.wrapping_sub(reference) as i32) < 0
 }
@@ -66,6 +58,17 @@ fn timestamp_order_wraps_and_transfer_metadata_stays_bounded() {
 }
 
 impl Source {
+    pub(super) fn deadline(&self) -> Option<Instant> {
+        self.transfers
+            .iter()
+            .map(|transfer| transfer.deadline)
+            .min()
+    }
+
+    pub(super) fn forget_window(&mut self, window: Window) {
+        self.transfers.retain(|transfer| transfer.window != window);
+    }
+
     pub(super) fn new(
         connection: &impl Connection,
         window: Window,
@@ -254,8 +257,7 @@ impl Source {
                 }
             }
             Event::DestroyNotify(destroy) => {
-                self.transfers
-                    .retain(|transfer| transfer.window != destroy.window);
+                self.forget_window(destroy.window);
             }
             _ => {}
         }

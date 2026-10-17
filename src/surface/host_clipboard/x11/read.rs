@@ -98,6 +98,10 @@ impl Read {
         now >= self.deadline
     }
 
+    pub(super) fn deadline(&self) -> Instant {
+        self.deadline
+    }
+
     fn target(&self) -> Result<Atom, ClipboardError> {
         match self.phase {
             Phase::Timestamp | Phase::Verify => Ok(self.atoms.TIMESTAMP),

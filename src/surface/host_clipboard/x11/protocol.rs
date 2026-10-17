@@ -1,6 +1,10 @@
 use std::time::Duration;
 
-use x11rb::{connection::Connection, protocol::xproto::*};
+use x11rb::{
+    connection::Connection,
+    errors::ReplyError,
+    protocol::{ErrorKind, xproto::*},
+};
 
 use crate::ui::clipboard::ClipboardError;
 
@@ -23,6 +27,13 @@ x11rb::atom_manager! {
 
 pub(super) fn platform<T, E>(result: Result<T, E>) -> Result<T, ClipboardError> {
     result.map_err(|_| ClipboardError::Platform)
+}
+
+pub(super) fn forget_destroyed(result: Result<(), ReplyError>) -> Result<(), ClipboardError> {
+    match result {
+        Err(ReplyError::X11Error(error)) if error.error_kind == ErrorKind::Window => Ok(()),
+        result => platform(result),
+    }
 }
 
 pub(super) fn read_property(

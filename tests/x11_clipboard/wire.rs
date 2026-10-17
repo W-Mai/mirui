@@ -23,6 +23,8 @@ pub struct State {
     pub owner: u32,
     pub conversions: Vec<(u32, u32, u32, u32, u32)>,
     pub events: VecDeque<Event>,
+    pub windows: Vec<u32>,
+    pub destroyed: Vec<u32>,
 }
 
 fn u32_at(bytes: &[u8], offset: usize) -> u32 {
@@ -59,6 +61,30 @@ impl State {
         self.sequence = self.sequence.wrapping_add(1);
         let sequence = self.sequence;
         match request[0] {
+            CREATE_WINDOW_REQUEST => {
+                let window = u32_at(request, 4);
+                assert_eq!(u32_at(request, 8), 1);
+                assert_eq!(request[1], 0);
+                assert_eq!(u16::from_ne_bytes(request[22..24].try_into().unwrap()), 2);
+                assert_eq!(u32_at(request, 28), u32::from(CW::EVENT_MASK));
+                assert!(!self.windows.contains(&window));
+                self.windows.push(window);
+                self.masks.insert(window, u32_at(request, 32));
+            }
+            DESTROY_WINDOW_REQUEST => {
+                let window = u32_at(request, 4);
+                self.windows.retain(|id| *id != window);
+                self.destroyed.push(window);
+                self.masks.remove(&window);
+                self.properties.retain(|(id, _), _| *id != window);
+                self.events
+                    .push_back(Event::DestroyNotify(DestroyNotifyEvent {
+                        response_type: DESTROY_NOTIFY_EVENT,
+                        sequence,
+                        event: window,
+                        window,
+                    }));
+            }
             INTERN_ATOM_REQUEST => {
                 let length = u16::from_ne_bytes(request[4..6].try_into().unwrap()) as usize;
                 let next = 1000 + self.atoms.len() as u32;

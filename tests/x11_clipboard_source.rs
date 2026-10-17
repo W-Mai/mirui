@@ -21,6 +21,12 @@ mod protocol;
 #[path = "../src/surface/host_clipboard/x11/read.rs"]
 mod read;
 
+#[path = "../src/surface/host_clipboard/x11/session.rs"]
+mod session;
+
+#[path = "x11_clipboard/session.rs"]
+mod session_contracts;
+
 #[path = "x11_clipboard/read.rs"]
 mod read_contracts;
 
