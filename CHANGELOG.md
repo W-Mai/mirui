@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - The Android host library provides read-only clipboard snapshot URIs with independent MIME representations and file lifetimes.
+- Android host clipboard operations preserve ClipData item grouping, reject malformed text, and read typed streams with cancellation and complete-result validation.
 
 - macOS SDL software and GPU windows route native clipboard menu actions through window-scoped SDL events.
 
