@@ -231,6 +231,8 @@ trybuild = "1"
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dev-dependencies]
 x11rb = "0.13.2"
 rustix = { version = "1", features = ["event", "net", "fs", "pipe"] }
+wayland-client = "0.31.15"
+wayland-server = "0.31"
 
 [[test]]
 name = "native_clipboard"
