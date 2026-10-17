@@ -6,11 +6,16 @@ use lyon::tessellation::{
     VertexBuffers,
 };
 
-use crate::render::backends::lyon_path::to_lyon_path;
-use crate::render::path::Path;
 use crate::render::raster::{FillRule, LineCap, LineJoin, StrokeSpec};
 use crate::render::renderer::{RenderError, RenderResource};
-use crate::types::{Fixed, Transform};
+#[cfg(any(test, feature = "wgpu"))]
+use crate::render::{backends::lyon_path::to_lyon_path, path::Path};
+use crate::types::Fixed;
+#[cfg(any(test, feature = "wgpu"))]
+use crate::types::Transform;
+
+#[cfg(feature = "sdl-gpu")]
+pub(super) mod geometry;
 
 pub(super) struct FillTessellator {
     tessellator: LyonFillTessellator,
@@ -25,17 +30,26 @@ impl FillTessellator {
         }
     }
 
+    #[cfg(any(test, feature = "wgpu"))]
     pub(super) fn fill(
         &mut self,
         path: &Path,
         transform: Option<&Transform>,
         fill_rule: FillRule,
     ) -> Result<(&[LyonPoint], &[u32]), RenderError> {
+        let path = to_lyon_path(path, transform);
+        self.fill_lyon(&path, fill_rule)
+    }
+
+    pub(super) fn fill_lyon(
+        &mut self,
+        path: &lyon::path::Path,
+        fill_rule: FillRule,
+    ) -> Result<(&[LyonPoint], &[u32]), RenderError> {
         self.buffers.vertices.clear();
         self.buffers.indices.clear();
-        let path = to_lyon_path(path, transform);
         let result = self.tessellator.tessellate_path(
-            &path,
+            path,
             &FillOptions::tolerance(TOLERANCE).with_fill_rule(match fill_rule {
                 FillRule::EvenOdd => LyonFillRule::EvenOdd,
                 FillRule::NonZero => LyonFillRule::NonZero,
@@ -75,15 +89,24 @@ impl StrokeTessellator {
         }
     }
 
+    #[cfg(any(test, feature = "wgpu"))]
     pub(super) fn stroke(
         &mut self,
         path: &Path,
         transform: Option<&Transform>,
         spec: StrokeSpec<'_>,
     ) -> Result<(&[LyonPoint], &[u32]), RenderError> {
+        let path = to_lyon_path(path, transform);
+        self.stroke_lyon(&path, spec)
+    }
+
+    pub(super) fn stroke_lyon(
+        &mut self,
+        path: &lyon::path::Path,
+        spec: StrokeSpec<'_>,
+    ) -> Result<(&[LyonPoint], &[u32]), RenderError> {
         self.buffers.vertices.clear();
         self.buffers.indices.clear();
-        let path = to_lyon_path(path, transform);
         let options = StrokeOptions::tolerance(TOLERANCE)
             .with_line_width(spec.width.to_f32())
             .with_line_cap(match spec.cap {
@@ -98,7 +121,7 @@ impl StrokeTessellator {
             })
             .with_miter_limit(spec.miter_limit.max(Fixed::ONE).to_f32());
         let result = self.tessellator.tessellate_path(
-            &path,
+            path,
             &options,
             &mut BuffersBuilder::new(&mut self.buffers, |vertex: StrokeVertex<'_, '_>| {
                 vertex.position()

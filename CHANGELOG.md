@@ -33,6 +33,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- SDL-GPU retains bounded tessellated path meshes across translation and color changes, verifies complete geometry signatures on cache hits, and exposes geometry limits and cache statistics through the renderer factory.
+
 - Widget outputs automatically select native targets within the existing output and backend workspace budgets, retain software fallback and history, and never replay failed View callbacks. Projected paths reuse bounded software rendering on SDL-GPU and native WGPU.
 
 - SDL-GPU and native WGPU check complete target fallback capacity before native production and prepare reusable WGPU edit storage before drawing.

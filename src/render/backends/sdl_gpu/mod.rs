@@ -564,6 +564,12 @@ impl SdlGpuFactory<Box<[u8]>> {
 }
 
 impl<S> SdlGpuFactory<S> {
+    /// Limits retained path signatures and tessellated meshes. Defaults to 1 MiB; zero disables retention.
+    pub fn with_geometry_cache_budget(mut self, bytes: usize) -> Self {
+        self.tessellator.geometry = super::tessellation::geometry::GeometryCache::new(bytes);
+        self
+    }
+
     /// Limits retained image uploads in estimated pixel bytes. Zero disables retention.
     /// Defaults to 16 MiB; entries are allocated only when used.
     pub fn with_texture_cache_budget(mut self, bytes: usize) -> Self {
@@ -578,6 +584,10 @@ impl<S> InspectCaches for SdlGpuFactory<S> {
         self.texture_cache
             .iter()
             .map(|cache| ("sdl_gpu/texture", cache.inspect()))
+            .chain(core::iter::once((
+                "sdl_gpu/geometry",
+                self.tessellator.geometry.inspect(),
+            )))
     }
 }
 
@@ -624,7 +634,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFact
 
     fn trim_memory(&mut self) {
         self.texture_cache = None;
+        let budget = self.tessellator.geometry.budget;
         self.tessellator = TessellationCache::new();
+        self.tessellator.geometry = super::tessellation::geometry::GeometryCache::new(budget);
         self.stroke_scratch = StrokeScratch::new();
     }
 }

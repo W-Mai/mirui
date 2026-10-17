@@ -181,7 +181,11 @@ fn factory_configuration_retains_geometry_and_trim_releases_it() {
     assert_eq!(factory.tessellator.verts.as_ptr(), vertices);
     assert_eq!(factory.tessellator.indices.as_ptr(), indices);
     assert_eq!(factory.texture_cache_budget, 1234);
+    let geometry_budget = factory.tessellator.geometry.budget;
+    assert!(factory.tessellator.geometry.inspect().cache_len() > 0);
     RendererFactory::<SdlGpuSurface>::trim_memory(&mut factory);
+    assert_eq!(factory.tessellator.geometry.budget, geometry_budget);
+    assert_eq!(factory.tessellator.geometry.inspect().cache_len(), 0);
     assert_eq!(factory.tessellator.verts.capacity(), 0);
     assert_eq!(factory.tessellator.indices.capacity(), 0);
     assert_eq!(

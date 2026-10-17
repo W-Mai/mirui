@@ -8,16 +8,19 @@ use lyon::math::Point as LyonPoint;
 use lyon::tessellation::VertexBuffers;
 use sdl2_sys::{SDL_Color, SDL_FPoint, SDL_Vertex};
 
+use crate::render::backends::lyon_path::commands_to_lyon;
+use crate::render::backends::tessellation::geometry::{GeometryCache, ShapeRequest, ShapeStyle};
 use crate::render::backends::tessellation::{
     FillTessellator, StrokeTessellator as SharedStrokeTessellator,
 };
 use crate::render::path::Path;
 use crate::render::raster::{FillRule, StrokeSpec};
 use crate::render::renderer::RenderError;
-use crate::types::{Color, Transform};
+use crate::types::{Color, Point, Transform};
 
 /// Reusable tessellators and output buffers owned by the renderer factory.
 pub struct TessellationCache {
+    pub(super) geometry: GeometryCache,
     fill_tess: FillTessellator,
     stroke_tess: SharedStrokeTessellator,
     pub(super) verts: Vec<SDL_Vertex>,
@@ -27,6 +30,7 @@ pub struct TessellationCache {
 impl TessellationCache {
     pub fn new() -> Self {
         Self {
+            geometry: GeometryCache::new(1024 * 1024),
             fill_tess: FillTessellator::new(),
             stroke_tess: SharedStrokeTessellator::new(),
             verts: Vec::new(),
@@ -44,9 +48,16 @@ impl TessellationCache {
     ) -> Result<(), RenderError> {
         self.verts.clear();
         self.indices.clear();
-        self.fill_tess.fill(path, transform, fill_rule)?;
+        let request = ShapeRequest::new(path, transform, ShapeStyle::Fill(fill_rule))?;
+        if let Some(hit) = self.geometry.find(&request) {
+            self.bake(&hit.get().mesh, request.origin, color, opa);
+            return Ok(());
+        }
+        self.fill_tess
+            .fill_lyon(&commands_to_lyon(request.commands(), None), fill_rule)?;
         let mesh = self.fill_tess.take_mesh();
-        self.bake(&mesh, color, opa);
+        self.bake(&mesh, request.origin, color, opa);
+        self.geometry.retain(&request, &mesh);
         self.fill_tess.restore_mesh(mesh);
         Ok(())
     }
@@ -61,14 +72,27 @@ impl TessellationCache {
     ) -> Result<(), RenderError> {
         self.verts.clear();
         self.indices.clear();
-        self.stroke_tess.stroke(path, transform, spec)?;
+        let request = ShapeRequest::new(path, transform, ShapeStyle::Stroke(spec))?;
+        if let Some(hit) = self.geometry.find(&request) {
+            self.bake(&hit.get().mesh, request.origin, color, opa);
+            return Ok(());
+        }
+        self.stroke_tess
+            .stroke_lyon(&commands_to_lyon(request.commands(), None), spec)?;
         let mesh = self.stroke_tess.take_mesh();
-        self.bake(&mesh, color, opa);
+        self.bake(&mesh, request.origin, color, opa);
+        self.geometry.retain(&request, &mesh);
         self.stroke_tess.restore_mesh(mesh);
         Ok(())
     }
 
-    fn bake(&mut self, mesh: &VertexBuffers<LyonPoint, u32>, color: &Color, opa: u8) {
+    fn bake(
+        &mut self,
+        mesh: &VertexBuffers<LyonPoint, u32>,
+        origin: Point,
+        color: &Color,
+        opa: u8,
+    ) {
         let a = ((color.a as u16) * (opa as u16) / 255) as u8;
         let sdl_color = SDL_Color {
             r: color.r,
@@ -80,7 +104,10 @@ impl TessellationCache {
         self.verts.reserve(mesh.vertices.len());
         for p in &mesh.vertices {
             self.verts.push(SDL_Vertex {
-                position: SDL_FPoint { x: p.x, y: p.y },
+                position: SDL_FPoint {
+                    x: p.x + origin.x.to_f32(),
+                    y: p.y + origin.y.to_f32(),
+                },
                 color: sdl_color,
                 tex_coord: SDL_FPoint { x: 0.0, y: 0.0 },
             });
@@ -96,5 +123,75 @@ impl TessellationCache {
 impl Default for TessellationCache {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Fixed;
+
+    #[test]
+    fn translated_recolored_mesh_hits_without_allocation_or_tessellation() {
+        let path = Path::rounded_rect(0.into(), 0.into(), 40.into(), 20.into(), 3.into());
+        let mut cache = TessellationCache::new();
+        cache
+            .fill(
+                &path,
+                None,
+                &Color::rgb(100, 20, 30),
+                255,
+                FillRule::NonZero,
+            )
+            .unwrap();
+        let positions: Vec<_> = cache
+            .verts
+            .iter()
+            .map(|v| (v.position.x, v.position.y))
+            .collect();
+        let translate = Transform {
+            tx: Fixed::from_ratio(13, 2),
+            ty: Fixed::from_int(-7),
+            ..Transform::IDENTITY
+        };
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                cache
+                    .fill(
+                        &path,
+                        Some(&translate),
+                        &Color::rgb(10, 80, 30),
+                        128,
+                        FillRule::NonZero,
+                    )
+                    .unwrap();
+            }),
+            0
+        );
+        assert_eq!(cache.geometry.inspect().cache_stats().hit_count, 1);
+        for (vertex, original) in cache.verts.iter().zip(positions) {
+            assert_eq!(vertex.position.x, original.0 + 6.5);
+            assert_eq!(vertex.position.y, original.1 - 7.0);
+            assert_eq!(
+                (vertex.color.r, vertex.color.g, vertex.color.a),
+                (10, 80, 128)
+            );
+        }
+        let mut uncached = TessellationCache::new();
+        uncached.geometry = GeometryCache::new(0);
+        uncached
+            .fill(
+                &path,
+                Some(&translate),
+                &Color::rgb(10, 80, 30),
+                128,
+                FillRule::NonZero,
+            )
+            .unwrap();
+        assert_eq!(cache.indices, uncached.indices);
+        for (a, b) in cache.verts.iter().zip(&uncached.verts) {
+            assert_eq!((a.position.x, a.position.y), (b.position.x, b.position.y));
+        }
+        assert_eq!(uncached.geometry.inspect().cache_len(), 0);
     }
 }
