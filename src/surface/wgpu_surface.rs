@@ -320,6 +320,8 @@ pub(crate) struct WgpuRuntime {
     native_touches: NativeTouchMap<MAX_NATIVE_TOUCHES>,
     modifiers: Option<crate::input::event::input::KeyModifiers>,
     text_input: NativeTextInput,
+    #[cfg(target_os = "linux")]
+    clipboard: super::host_clipboard::linux::Clipboard,
     reconfigure_before_acquire: bool,
     frame_texture: Option<wgpu::SurfaceTexture>,
     needs_redraw: bool,
@@ -339,7 +341,10 @@ impl WgpuRuntime {
 
     pub(crate) fn poll_event(&mut self) -> Option<InputEvent> {
         self.flush_pointer_move();
-        self.event_queue.pop_front()
+        let event = self.event_queue.pop_front();
+        #[cfg(target_os = "linux")]
+        let event = event.or_else(|| self.clipboard.poll().map(InputEvent::Clipboard));
+        event
     }
 
     pub(crate) fn set_text_input(&mut self, state: Option<crate::ui::text_input::TextInputState>) {
@@ -426,6 +431,8 @@ impl WgpuRuntime {
             native_touches: NativeTouchMap::new(),
             modifiers: None,
             text_input: NativeTextInput::default(),
+            #[cfg(target_os = "linux")]
+            clipboard: Default::default(),
             reconfigure_before_acquire: false,
             frame_texture: None,
             needs_redraw: true,
@@ -1074,7 +1081,7 @@ impl Surface for WgpuSurface {
         self.handler.runtime.set_text_input(state);
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     fn write_clipboard(
         &mut self,
         request: crate::ui::clipboard::ClipboardWrite,
@@ -1092,14 +1099,37 @@ impl Surface for WgpuSurface {
             };
             super::host_clipboard::write(state.window.as_ref(), request)
         }
+        #[cfg(target_os = "linux")]
+        {
+            let runtime = &mut self.handler.runtime;
+            let Some(state) = runtime.state.as_ref() else {
+                return crate::ui::clipboard::ClipboardDispatch::Complete(
+                    request.complete(Err(crate::ui::clipboard::ClipboardError::Unavailable)),
+                );
+            };
+            runtime.clipboard.write(state.window.as_ref(), request)
+        }
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     fn read_clipboard(
         &mut self,
         request: crate::ui::clipboard::ClipboardRead,
     ) -> crate::ui::clipboard::ClipboardDispatch {
-        super::host_clipboard::read(request)
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            super::host_clipboard::read(request)
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let runtime = &mut self.handler.runtime;
+            let Some(state) = runtime.state.as_ref() else {
+                return crate::ui::clipboard::ClipboardDispatch::Complete(
+                    request.complete(Err(crate::ui::clipboard::ClipboardError::Unavailable)),
+                );
+            };
+            runtime.clipboard.read(state.window.as_ref(), request)
+        }
     }
 
     fn persistence(&self) -> BackbufferPersistence {

@@ -11,7 +11,6 @@ use x11rb::{
 use super::{
     session::Session,
     ui::clipboard::{ClipboardData, ClipboardError},
-    wire,
 };
 
 fn denied(request: (u32, u32, u32, u32, u32)) -> Event {
@@ -29,7 +28,7 @@ fn denied(request: (u32, u32, u32, u32, u32)) -> Event {
 
 #[test]
 fn read_windows_retire_on_rejection_timeout_and_initialization_failure() {
-    let (connection, state) = wire::connection();
+    let (connection, state) = super::connection();
     let mut session = Session::new(connection, 0).unwrap();
     assert_eq!(state.lock().unwrap().windows.len(), 1);
     let atom_count = state.lock().unwrap().atoms.len();
@@ -85,7 +84,7 @@ fn read_windows_retire_on_rejection_timeout_and_initialization_failure() {
 
 #[test]
 fn invalid_screen_does_not_create_a_window() {
-    let (connection, state) = wire::connection();
+    let (connection, state) = super::connection();
     assert!(matches!(
         Session::new(connection, 1),
         Err(ClipboardError::Unavailable)
@@ -95,7 +94,7 @@ fn invalid_screen_does_not_create_a_window() {
 
 #[test]
 fn complete_reads_keep_the_source_and_destroy_only_their_request_window() {
-    let (connection, state) = wire::connection();
+    let (connection, state) = super::connection();
     let mut session = Session::new(connection, 0).unwrap();
     let owner = state.lock().unwrap().windows[0];
     session.request_time().unwrap();
@@ -197,7 +196,7 @@ fn complete_reads_keep_the_source_and_destroy_only_their_request_window() {
 
 #[test]
 fn request_window_destruction_completes_the_read_once() {
-    let (connection, state) = wire::connection();
+    let (connection, state) = super::connection();
     let mut session = Session::new(connection, 0).unwrap();
     state.lock().unwrap().owner = 42;
     let now = Instant::now();

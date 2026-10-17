@@ -98,6 +98,8 @@ pub struct SdlGpuSurface {
     video: sdl2::VideoSubsystem,
     _event_pump: EventPump,
     text_input: crate::surface::sdl_events::NativeTextInput,
+    #[cfg(target_os = "linux")]
+    clipboard: crate::surface::host_clipboard::linux::Clipboard,
     viewport: Viewport,
     needs_redraw: bool,
     last_mouse_x: i32,
@@ -187,6 +189,8 @@ impl SdlGpuSurface {
             video,
             _event_pump: event_pump,
             text_input,
+            #[cfg(target_os = "linux")]
+            clipboard: Default::default(),
             viewport,
             needs_redraw: true,
             last_mouse_x: 0,
@@ -368,6 +372,17 @@ impl Surface for SdlGpuSurface {
         &mut self,
         request: crate::ui::clipboard::ClipboardWrite,
     ) -> crate::ui::clipboard::ClipboardDispatch {
+        #[cfg(target_os = "linux")]
+        {
+            let Ok(canvas) = self.device.canvas() else {
+                return crate::ui::clipboard::ClipboardDispatch::Complete(
+                    request.complete(Err(crate::ui::clipboard::ClipboardError::Unavailable)),
+                );
+            };
+            if crate::surface::host_clipboard::linux::is_x11(canvas.window()) {
+                return self.clipboard.write(canvas.window(), request);
+            }
+        }
         #[cfg(target_os = "macos")]
         {
             crate::surface::host_clipboard::write(request)
@@ -391,6 +406,17 @@ impl Surface for SdlGpuSurface {
         &mut self,
         request: crate::ui::clipboard::ClipboardRead,
     ) -> crate::ui::clipboard::ClipboardDispatch {
+        #[cfg(target_os = "linux")]
+        {
+            let Ok(canvas) = self.device.canvas() else {
+                return crate::ui::clipboard::ClipboardDispatch::Complete(
+                    request.complete(Err(crate::ui::clipboard::ClipboardError::Unavailable)),
+                );
+            };
+            if crate::surface::host_clipboard::linux::is_x11(canvas.window()) {
+                return self.clipboard.read(canvas.window(), request);
+            }
+        }
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
             crate::surface::host_clipboard::read(request)
@@ -404,6 +430,10 @@ impl Surface for SdlGpuSurface {
     fn poll_event(&mut self) -> Option<InputEvent> {
         if let Some(e) = self.pending.pop_front() {
             return Some(e);
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(response) = self.clipboard.poll() {
+            return Some(InputEvent::Clipboard(response));
         }
         if self.multi.active {
             if let Some(t) = self.multi.last_event {

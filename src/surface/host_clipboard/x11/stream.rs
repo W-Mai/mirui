@@ -29,6 +29,12 @@ pub(super) struct BoundedStream {
     failure: Cell<Option<io::ErrorKind>>,
 }
 
+impl AsFd for BoundedStream {
+    fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+        self.inner.as_fd()
+    }
+}
+
 impl Drop for BoundedStream {
     fn drop(&mut self) {
         let _ = shutdown(&self.inner, Shutdown::Both);

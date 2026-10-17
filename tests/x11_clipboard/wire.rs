@@ -3,7 +3,7 @@ use std::io;
 use std::sync::{Arc, Mutex};
 use x11rb::protocol::Event;
 use x11rb::protocol::xproto::*;
-use x11rb::rust_connection::{PollMode, RustConnection, Stream};
+use x11rb::rust_connection::{PollMode, Stream};
 use x11rb::utils::RawFdContainer;
 use x11rb::x11_utils::{Serialize, TryParse};
 
@@ -25,6 +25,8 @@ pub struct State {
     pub events: VecDeque<Event>,
     pub windows: Vec<u32>,
     pub destroyed: Vec<u32>,
+    pub socket_events: bool,
+    pub time: Option<u32>,
 }
 
 fn u32_at(bytes: &[u8], offset: usize) -> u32 {
@@ -32,21 +34,37 @@ fn u32_at(bytes: &[u8], offset: usize) -> u32 {
 }
 
 impl State {
+    fn emit(&mut self, event: Event) {
+        if self.socket_events {
+            let mut bytes = [0; 32];
+            let mut copy = |event: &[u8]| bytes[..event.len()].copy_from_slice(event);
+            match event {
+                Event::PropertyNotify(event) => copy(&event.serialize()),
+                Event::SelectionNotify(event) => copy(&event.serialize()),
+                Event::SelectionRequest(event) => copy(&event.serialize()),
+                Event::DestroyNotify(event) => copy(&event.serialize()),
+                _ => panic!("unsupported fixture event"),
+            }
+            bytes[2..4].copy_from_slice(&self.sequence.to_ne_bytes());
+            self.output.extend(bytes);
+        } else {
+            self.events.push_back(event);
+        }
+    }
     fn property_event(&mut self, window: u32, atom: u32, state: Property) {
         if self
             .masks
             .get(&window)
             .is_some_and(|mask| mask & u32::from(EventMask::PROPERTY_CHANGE) != 0)
         {
-            self.events
-                .push_back(Event::PropertyNotify(PropertyNotifyEvent {
-                    response_type: PROPERTY_NOTIFY_EVENT,
-                    sequence: self.sequence,
-                    window,
-                    atom,
-                    time: 2000,
-                    state,
-                }));
+            self.emit(Event::PropertyNotify(PropertyNotifyEvent {
+                response_type: PROPERTY_NOTIFY_EVENT,
+                sequence: self.sequence,
+                window,
+                atom,
+                time: self.time.unwrap_or(2000),
+                state,
+            }));
         }
     }
     fn reply(&mut self, bytes: impl AsRef<[u8]>) {
@@ -77,13 +95,12 @@ impl State {
                 self.destroyed.push(window);
                 self.masks.remove(&window);
                 self.properties.retain(|(id, _), _| *id != window);
-                self.events
-                    .push_back(Event::DestroyNotify(DestroyNotifyEvent {
-                        response_type: DESTROY_NOTIFY_EVENT,
-                        sequence,
-                        event: window,
-                        window,
-                    }));
+                self.emit(Event::DestroyNotify(DestroyNotifyEvent {
+                    response_type: DESTROY_NOTIFY_EVENT,
+                    sequence,
+                    event: window,
+                    window,
+                }));
             }
             INTERN_ATOM_REQUEST => {
                 let length = u16::from_ne_bytes(request[4..6].try_into().unwrap()) as usize;
@@ -140,6 +157,18 @@ impl State {
                     u32_at(request, 16),
                     u32_at(request, 20),
                 ));
+                if self.socket_events {
+                    self.emit(Event::SelectionRequest(SelectionRequestEvent {
+                        response_type: SELECTION_REQUEST_EVENT,
+                        sequence,
+                        owner: self.owner,
+                        requestor: u32_at(request, 4),
+                        selection: u32_at(request, 8),
+                        target: u32_at(request, 12),
+                        property: u32_at(request, 16),
+                        time: u32_at(request, 20),
+                    }));
+                }
             }
             GET_INPUT_FOCUS_REQUEST => self.reply(
                 GetInputFocusReply {
@@ -205,7 +234,7 @@ impl State {
             }
             SEND_EVENT_REQUEST => {
                 self.notifications.push(request[12..44].try_into().unwrap());
-                self.events.push_back(Event::SelectionNotify(
+                self.emit(Event::SelectionNotify(
                     SelectionNotifyEvent::try_parse(&request[12..44]).unwrap().0,
                 ));
             }
@@ -272,8 +301,7 @@ impl Stream for Wire {
     }
 }
 
-pub fn connection() -> (RustConnection<Wire>, Arc<Mutex<State>>) {
+pub fn transport() -> (Wire, Arc<Mutex<State>>) {
     let state = Arc::new(Mutex::new(State::default()));
-    let connection = RustConnection::connect_to_stream(Wire(state.clone()), 0).unwrap();
-    (connection, state)
+    (Wire(state.clone()), state)
 }

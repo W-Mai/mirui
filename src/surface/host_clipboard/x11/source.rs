@@ -404,7 +404,7 @@ impl Source {
         if reply.type_ != self.atoms.ATOM_PAIR
             || reply.format != 32
             || reply.bytes_after != 0
-            || !reply.value_len.is_multiple_of(2)
+            || reply.value_len % 2 != 0
         {
             return Err(ClipboardError::InvalidData);
         }

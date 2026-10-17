@@ -33,6 +33,17 @@ mod read_contracts;
 #[path = "x11_clipboard/wire.rs"]
 mod wire;
 
+fn connection() -> (
+    x11rb::rust_connection::RustConnection<wire::Wire>,
+    std::sync::Arc<std::sync::Mutex<wire::State>>,
+) {
+    let (wire, state) = wire::transport();
+    (
+        x11rb::rust_connection::RustConnection::connect_to_stream(wire, 0).unwrap(),
+        state,
+    )
+}
+
 #[test]
 fn source_wire_protocol() {
     use std::{
@@ -42,7 +53,7 @@ fn source_wire_protocol() {
     use x11rb::protocol::{Event, xproto::*};
     use x11rb::x11_utils::TryParse;
 
-    let (connection, state) = wire::connection();
+    let (connection, state) = connection();
     let previous_mask = u32::from(EventMask::PROPERTY_CHANGE | EventMask::FOCUS_CHANGE);
     state.lock().unwrap().masks.insert(200, previous_mask);
     let atoms = protocol::Atoms::new(&connection).unwrap().reply().unwrap();
@@ -185,7 +196,7 @@ fn ownership_changes_keep_transfers_bounded_and_release_peer_observation() {
     use x11rb::protocol::{Event, xproto::*};
     use x11rb::x11_utils::TryParse;
 
-    let (connection, state) = wire::connection();
+    let (connection, state) = connection();
     let atoms = protocol::Atoms::new(&connection).unwrap().reply().unwrap();
     let mut source = source::Source::new(&connection, 100, atoms).unwrap();
     let now = Instant::now();

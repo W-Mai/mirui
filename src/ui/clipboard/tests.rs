@@ -33,7 +33,9 @@ fn fixture() -> (TestApp, Entity) {
     let editor = TextEditing::default().with_text("A中🙂Z").unwrap();
     let node = app.compose(root, |cx| {
         ui! {
-            TextInput () [editor] on ClipboardFinished(finished::callback())
+            TextInput () [
+                editor,
+            ] on ClipboardFinished(finished::callback())
         }
     });
     (app, node)
@@ -60,7 +62,15 @@ fn reversed_utf8_selection_is_owned_and_survives_source_changes() {
     assert_eq!(write.data().plain_text(), Ok("中🙂"));
     app.world.insert(node, TextEditing::default());
     assert_eq!(write.data().plain_text(), Ok("中🙂"));
-    complete(&mut app.world, &write.complete(Ok(())));
+    let bytes = write.data().items()[0].formats()[0].bytes().as_ptr();
+    let mut retained = None;
+    let response = write.complete_with(|data| {
+        assert_eq!(data.items()[0].formats()[0].bytes().as_ptr(), bytes);
+        retained = Some(data);
+        Ok(())
+    });
+    complete(&mut app.world, &response);
+    assert_eq!(retained.unwrap().plain_text(), Ok("中🙂"));
     flush(&mut app);
     assert_eq!(
         app.world.resource::<Results>().unwrap().0[0].result,
@@ -342,9 +352,7 @@ fn platform_writes_do_not_require_notification_storage_or_a_flush_budget() {
     let root = app.spawn_root().id();
     let node = app.compose(root, |cx| {
         ui! {
-            View ()
-            on InspectSelection(|_: &InspectSelection| Ok(SelectionState::new(true, 0u64)))
-            on CopySelection(|_: &CopySelection| ClipboardData::text("payload"))
+            View () on InspectSelection(|_: &InspectSelection| Ok(SelectionState::new(true, 0u64))) on CopySelection(|_: &CopySelection| ClipboardData::text("payload"))
         }
     });
     copy(&mut app.world, node);

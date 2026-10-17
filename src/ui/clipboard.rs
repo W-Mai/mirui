@@ -13,7 +13,13 @@ use crate::input::event::{
 mod data;
 #[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
 mod deferred;
-#[cfg(all(target_os = "windows", any(feature = "sdl", feature = "wgpu")))]
+#[cfg(any(
+    all(test, target_os = "macos"),
+    all(
+        any(target_os = "windows", target_os = "linux"),
+        any(feature = "sdl", feature = "wgpu")
+    )
+))]
 pub(crate) use data::validate_mime;
 pub use data::{ClipboardData, ClipboardFormat, ClipboardItem};
 
@@ -141,9 +147,16 @@ impl ClipboardWrite {
         &self.data
     }
     pub fn complete(self, result: Result<(), ClipboardError>) -> ClipboardResponse {
+        self.complete_with(|_| result)
+    }
+
+    pub(crate) fn complete_with(
+        self,
+        write: impl FnOnce(ClipboardData) -> Result<(), ClipboardError>,
+    ) -> ClipboardResponse {
         ClipboardResponse {
             operation: self.operation,
-            result: result.map(|()| Response::Written),
+            result: write(self.data).map(|()| Response::Written),
         }
     }
 }

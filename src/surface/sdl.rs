@@ -58,6 +58,8 @@ pub struct SdlSurface {
     needs_redraw: bool,
     _event_pump: EventPump,
     text_input: super::sdl_events::NativeTextInput,
+    #[cfg(target_os = "linux")]
+    clipboard: super::host_clipboard::linux::Clipboard,
     buf: Vec<u8>,
     width: u16,
     height: u16,
@@ -125,6 +127,8 @@ impl SdlSurface {
             needs_redraw: true,
             _event_pump: event_pump,
             text_input,
+            #[cfg(target_os = "linux")]
+            clipboard: Default::default(),
             buf,
             width: phys_w,
             height: phys_h,
@@ -339,6 +343,10 @@ impl Surface for SdlSurface {
         &mut self,
         request: crate::ui::clipboard::ClipboardWrite,
     ) -> crate::ui::clipboard::ClipboardDispatch {
+        #[cfg(target_os = "linux")]
+        if super::host_clipboard::linux::is_x11(self.canvas.window()) {
+            return self.clipboard.write(self.canvas.window(), request);
+        }
         #[cfg(target_os = "macos")]
         {
             super::host_clipboard::write(request)
@@ -357,6 +365,10 @@ impl Surface for SdlSurface {
         &mut self,
         request: crate::ui::clipboard::ClipboardRead,
     ) -> crate::ui::clipboard::ClipboardDispatch {
+        #[cfg(target_os = "linux")]
+        if super::host_clipboard::linux::is_x11(self.canvas.window()) {
+            return self.clipboard.read(self.canvas.window(), request);
+        }
         #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
             super::host_clipboard::read(request)
@@ -370,6 +382,10 @@ impl Surface for SdlSurface {
     fn poll_event(&mut self) -> Option<InputEvent> {
         if let Some(e) = self.pending.pop_front() {
             return Some(e);
+        }
+        #[cfg(target_os = "linux")]
+        if let Some(response) = self.clipboard.poll() {
+            return Some(InputEvent::Clipboard(response));
         }
         if self.multi.active {
             if let Some(t) = self.multi.last_event {

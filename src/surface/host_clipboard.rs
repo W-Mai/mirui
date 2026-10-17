@@ -1,4 +1,10 @@
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 use crate::ui::clipboard::{ClipboardDispatch, ClipboardRead, ClipboardWrite};
+
+#[cfg(target_os = "linux")]
+pub(crate) mod linux;
+#[cfg(target_os = "linux")]
+mod x11;
 
 #[cfg(target_os = "macos")]
 mod macos;
@@ -25,6 +31,7 @@ pub(crate) fn write(
     ClipboardDispatch::Complete(request.complete(result))
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub(crate) fn read(request: ClipboardRead) -> ClipboardDispatch {
     ClipboardDispatch::Complete(request.complete(platform::read()))
 }

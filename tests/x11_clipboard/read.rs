@@ -10,7 +10,7 @@ use x11rb::{
 use super::{
     read::Read,
     ui::clipboard::{ClipboardData, ClipboardError},
-    wire::{self, State, Wire},
+    wire::{State, Wire},
 };
 
 struct Reader {
@@ -22,7 +22,7 @@ struct Reader {
 
 impl Reader {
     fn new() -> Self {
-        let (connection, state) = wire::connection();
+        let (connection, state) = super::connection();
         state.lock().unwrap().owner = 100;
         let now = Instant::now();
         let atoms = super::protocol::Atoms::new(&connection)
@@ -262,7 +262,7 @@ fn source_and_reader_exchange_multiple_incr_formats_on_one_protocol_connection()
         ui::clipboard::{ClipboardFormat, ClipboardItem},
     };
 
-    let (connection, state) = wire::connection();
+    let (connection, state) = super::connection();
     let mask = u32::from(EventMask::PROPERTY_CHANGE);
     state.lock().unwrap().masks.insert(200, mask);
     let atoms = super::protocol::Atoms::new(&connection)

@@ -4,7 +4,7 @@ pub(crate) mod backbuffer_invalidation;
 mod buffer_rotation;
 pub mod framebuf;
 #[cfg(all(
-    any(target_os = "macos", target_os = "windows"),
+    any(target_os = "macos", target_os = "windows", target_os = "linux"),
     any(feature = "sdl", feature = "wgpu")
 ))]
 pub(crate) mod host_clipboard;
@@ -55,6 +55,9 @@ mod web_input;
 pub mod wgpu_surface;
 #[cfg(all(feature = "wgpu", any(target_os = "android", target_os = "ios")))]
 pub mod wgpu_upload;
+#[cfg(all(test, target_os = "macos"))]
+#[path = "host_clipboard/x11/mod.rs"]
+mod x11_clipboard_contracts;
 
 use crate::render::texture::Texture;
 use crate::types::{Fixed, PhysicalRect, Rect, Viewport};

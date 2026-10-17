@@ -238,7 +238,7 @@ impl Read {
             Phase::Targets => {
                 if value.kind != u32::from(AtomEnum::ATOM)
                     || value.format != 32
-                    || !value.bytes.len().is_multiple_of(4)
+                    || value.bytes.len() % 4 != 0
                 {
                     return Err(ClipboardError::InvalidData);
                 }

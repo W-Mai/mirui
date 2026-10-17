@@ -108,7 +108,7 @@ impl PropertyReader {
             .checked_mul(u32::from(format / 8))
             .ok_or(ClipboardError::Capacity)?;
         if bytes.len() != length as usize
-            || !remaining.is_multiple_of(u32::from(format / 8))
+            || remaining % u32::from(format / 8) != 0
             || (remaining != 0 && (length == 0 || length % 4 != 0))
         {
             return Err(ClipboardError::InvalidData);
