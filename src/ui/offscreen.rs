@@ -4,11 +4,11 @@
 //!
 //! A texture becomes readable only after its subtree renders successfully. Preparing a referenced source does not composite it into the parent target; the main tree traversal determines composition order. An unfinished or failed write is unavailable through `get`, and failure of another output does not discard an already completed result.
 //!
-//! Typed callbacks read the resource with `textures: res!(Outputs<WidgetTexture>)`. `textures.get(entity)` returns a borrowed [`WidgetTextureRead`] with the completed CPU texture, source layout rectangle, and local logical bounds from the same publication. The layout rectangle excludes scrolling and external transforms; local bounds include the prepared paint extent relative to that layout origin, rounded outward to cover the pixel footprint. Reads do not produce pixels or register a source dependency. [`App::snapshot_widget`](crate::app::App::snapshot_widget) provides an owned pixel copy when a result must outlive that borrow.
+//! Typed callbacks read the resource with `textures: res!(Outputs<WidgetTexture>)`. `textures.get(entity)` returns a borrowed [`WidgetTextureRead`] with the completed texture, source layout rectangle, and local logical bounds from the same publication. The texture can hold CPU pixels or native backend storage. The layout rectangle excludes scrolling and external transforms; local bounds include the prepared paint extent relative to that layout origin, rounded outward to cover the pixel footprint. Reading the output record does not produce pixels, read back native storage, or register a source dependency. [`Texture::read_pixels`](crate::render::texture::Texture::read_pixels) prepares and borrows CPU pixels through the texture's source; [`App::snapshot_widget`](crate::app::App::snapshot_widget) provides an independent owned copy.
 //!
 //! Outputs use one pixel slot by default. An owner that explicitly requests history, such as [`TemporalMix`](crate::ui::widgets::TemporalMix), uses two slots and reads its own frozen result through `previous(entity)`. History is the last successful output at the start of the drawing batch, remains fixed across dirty regions, and is independent of input-generation gaps. A first output or an owner without history has no previous result; changed logical dimensions, local footprint, effective scale, pixel dimensions, or format clear old history. Moving the source preserves its local history.
 //!
-//! The pixel budget includes retained slots, detached in-progress write buffers, and the shared Mirror/Shadow/Glow/TemporalMix workspace. A request that exceeds it is rejected before allocating pixels, and other outputs remain resident. Metadata and other filters' scratch storage are additional costs. The default budget is zero; [`App::with_offscreen_pool_budget`](crate::app::App::with_offscreen_pool_budget) configures it before widget construction.
+//! The output budget includes retained slots, in-progress writes, source CPU copies and staging, and shared paint and native-binding workspace. Native admission checks storage and workspace before executing the View; insufficient native capacity selects software production without replaying the View. Backend destination-fallback buffers and upload caches retain their renderer-factory limits; metadata and other filters' scratch storage are additional costs. The default output budget is zero; [`App::with_offscreen_pool_budget`](crate::app::App::with_offscreen_pool_budget) configures it before widget construction.
 //!
 //! # Usage
 //!
@@ -40,7 +40,7 @@
 //!
 //! # Rendering constraints
 //!
-//! The outer renderer must provide an offscreen pixel format and accept texture composition. Subtree production uses the CPU software renderer, including when the outer backend uses a GPU. An explicit `OffscreenRender` node renders inline when output storage is unavailable.
+//! The outer renderer must provide an offscreen pixel format and accept texture composition. Subtree production uses native targets when the backend supports the required operations and the storage and workspace fit; otherwise it selects the CPU software renderer before drawing. Backend execution errors propagate without retrying the View on another renderer. An explicit `OffscreenRender` node renders inline when output storage is unavailable.
 //!
 //! Outputs contain local transparent pixels, independently of the parent framebuffer. Nested outputs and current dependencies are prepared in dependency order before composition; cyclic output dependencies are unavailable.
 
