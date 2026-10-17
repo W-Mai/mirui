@@ -113,6 +113,14 @@ cargo test --test x11_clipboard_source --no-default-features --features std nati
 
 This contract uses independent connections to check consecutive incremental transfers, empty and trailing-zero binary data, snapshot replacement, ownership changes, and read-window retirement. An unavailable Xvfb or unusable socket directory fails explicitly; ordinary test runs leave this contract ignored. It does not validate SDL/WGPU window integration or another application's format handling.
 
+The production X11 worker also has an isolated-server contract covering connection setup, background transfers, App cut/paste receipts, and shutdown. It verifies that cutting waits for the write receipt and that a closed source fails a later paste without editing the destination. Run it on macOS or Linux with:
+
+```bash
+cargo test --lib --no-default-features --features sdl native_worker_preserves_app_receipts_and_releases_server_resources -- --ignored
+```
+
+This contract does not create an SDL window or access the desktop clipboard.
+
 The `x11_clipboard_stream` tests use private Unix socket pairs to check cancellation during the x11rb handshake, reply waits, and write backpressure. They also check absolute I/O deadlines, connection isolation, and descriptor transfer. They do not connect to an X server or validate desktop clipboard integration.
 
 The X11 worker unit tests connect the production worker to the protocol fixture through private Unix sockets. They exercise existing App cut/paste requests and completion notifications, binary payload ownership, repeated-copy timestamps, initialization failure, single-operation admission, and shutdown during setup. These checks do not replace live X server or SDL/WGPU window verification.

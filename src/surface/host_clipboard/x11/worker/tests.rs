@@ -6,6 +6,8 @@ use crate::ui::clipboard::{
 };
 use x11rb::rust_connection::Stream;
 
+mod native;
+
 mod wire {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
