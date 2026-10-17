@@ -35,6 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- SDL GPU coverage text shares uploaded font surfaces and retains ordered run geometry across translation and color changes. Geometry and raster fallback entries share the existing text cache budget; full glyph signatures guard cache hits.
+
 - SDL GPU text caches and staging buffers belong to the renderer factory, follow device generations, and release their storage on memory trimming.
 
 - SDL-GPU retains bounded tessellated path meshes across translation and color changes, verifies complete geometry signatures on cache hits, and exposes geometry limits and cache statistics through the renderer factory.

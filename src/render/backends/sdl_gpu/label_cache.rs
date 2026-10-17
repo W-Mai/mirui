@@ -1,9 +1,6 @@
 //! Positioned-glyph texture cache for the SDL GPU backend.
 //!
-//! SDL2 has no GPU text renderer on the accelerated path, so each glyph run
-//! still has to be rasterised by the CPU on first draw. The cache keeps
-//! the resulting `SDL_Texture` around so the next frame only needs a
-//! single textured quad. Entries are keyed by placement, font and color.
+//! Coverage runs retain geometry and share uploaded font surfaces. Other representations retain rasterized run textures.
 //!
 //! Cached SDL textures are private. Both pools drop before their shared device owner, which retains the renderer and texture creator.
 
@@ -24,6 +21,9 @@ use crate::render::font::{Font, GlyphSurface, RasterRunBounds, RasterRunKey};
 use crate::render::renderer::RenderError;
 use crate::render::texture::{AlphaMode, ColorFormat, Texture as MiruiTexture};
 use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
+
+mod coverage;
+use coverage::CoverageRun;
 
 /// SdlTexture wrapper carrying the rasterised byte count so the cache
 /// framework can read its size. Newtype-only because `SdlTexture` is
@@ -68,13 +68,36 @@ struct ScalarRasterCtx<'a> {
 
 const RUN_BUDGET: usize = 4 * 1024 * 1024;
 const SURFACE_BUDGET: usize = 4 * 1024 * 1024;
+const MAX_BATCH_INDICES: usize = 12_288;
 
-type LabelCtor = fn(&RasterRunKey, RasterCtx<'_>) -> Result<SizedSdlTexture, RenderError>;
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+enum RunKey {
+    Raster(RasterRunKey),
+    Coverage(RasterRunKey),
+}
+
+enum CachedRun {
+    Raster(SizedSdlTexture),
+    Coverage(CoverageRun),
+}
+
+impl HasSize for CachedRun {
+    fn cache_size(&self) -> usize {
+        match self {
+            Self::Raster(texture) => texture.cache_size(),
+            Self::Coverage(run) => run.cache_size() + COVERAGE_ENTRY_OVERHEAD,
+        }
+    }
+}
+
+const COVERAGE_ENTRY_OVERHEAD: usize =
+    core::mem::size_of::<CachedRun>() - core::mem::size_of::<CoverageRun>();
+
 type ScalarCtor =
     fn(&ScalarSurfaceKey, ScalarRasterCtx<'_>) -> Result<SizedSdlTexture, RenderError>;
 
 pub struct LabelCache {
-    cache: WithFactory<LruCache<RasterRunKey, SizedSdlTexture>, LabelCtor>,
+    cache: LruCache<RunKey, CachedRun>,
     scalar_cache: WithFactory<LruCache<ScalarSurfaceKey, SizedSdlTexture>, ScalarCtor>,
     device: Rc<Device>,
     generation: u64,
@@ -95,7 +118,7 @@ impl LabelCache {
             .name("sdl_gpu/glyph_surface")
             .build();
         Self {
-            cache: WithFactory::new(cache, rasterize_label as LabelCtor),
+            cache,
             scalar_cache: WithFactory::new(scalar_cache, rasterize_scalar_surface as ScalarCtor),
             generation: device.generation(),
             device,
@@ -107,7 +130,7 @@ impl LabelCache {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn draw_glyph_run(
+    fn draw_raster_run(
         &mut self,
         pos: &Point,
         glyphs: &[textflow::shaping::PositionedGlyph],
@@ -153,6 +176,121 @@ impl LabelCache {
     }
 
     #[allow(clippy::too_many_arguments)]
+    pub fn draw_glyph_run(
+        &mut self,
+        pos: &Point,
+        glyphs: &[textflow::shaping::PositionedGlyph],
+        font: &Font,
+        transform: &Transform,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+        viewport: Viewport,
+    ) -> Result<(), RenderError> {
+        if glyphs.is_empty() {
+            return Ok(());
+        }
+        if !self.draw_coverage_run(*pos, glyphs, font, *transform, *clip, *color, opa, viewport)? {
+            self.draw_raster_run(pos, glyphs, font, transform, clip, color, opa, viewport)?;
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn draw_coverage_run(
+        &mut self,
+        pos: Point,
+        glyphs: &[textflow::shaping::PositionedGlyph],
+        font: &Font,
+        transform: Transform,
+        clip: Rect,
+        color: Color,
+        opa: u8,
+        viewport: Viewport,
+    ) -> Result<bool, RenderError> {
+        let scale = viewport.scale() * transform.raster_scale();
+        if scale <= Fixed::ZERO {
+            return Ok(true);
+        }
+        let key = RunKey::Coverage(font.raster_run_key(glyphs, &Color::rgb(255, 255, 255), scale));
+        let cached = self
+            .cache
+            .acquire(&key)
+            .filter(|entry| matches!(&**entry, CachedRun::Coverage(run) if run.matches(glyphs)));
+        let handle = match cached {
+            Some(handle) => handle,
+            None => {
+                self.cache.drop(&key);
+                let Some(run) =
+                    CoverageRun::prepare(glyphs, font, scale, self.device.max_texture_size)?
+                else {
+                    return Ok(false);
+                };
+                self.cache
+                    .entry(key)
+                    .or_insert_with(|| CachedRun::Coverage(run))
+            }
+        };
+        let CachedRun::Coverage(run) = &*handle else {
+            unreachable!("coverage cache key");
+        };
+        let output = crate::render::font::output_ppem(font.size, scale);
+        let logical = Point {
+            x: pos.x + run.offset.x,
+            y: pos.y + run.offset.y,
+        };
+        let origin = viewport.point_to_physical(transform.apply_point(logical));
+        let factor = viewport.scale().to_f32() / scale.to_f32();
+        let (xx, xy, yx, yy) = (
+            transform.m00.to_f32() * factor,
+            transform.m01.to_f32() * factor,
+            transform.m10.to_f32() * factor,
+            transform.m11.to_f32() * factor,
+        );
+        let tint = SDL_Color {
+            r: color.r,
+            g: color.g,
+            b: color.b,
+            a: glyph_opacity(color.a, opa),
+        };
+        for batch in &run.batches {
+            let raster = font
+                .raster_for_output(batch.glyph, font.size.max(1), output)
+                .ok_or(RenderError::InvalidTexture)?;
+            if batch.key != ScalarSurfaceKey::new(font.face_id(), font.revision(), raster.surface) {
+                return Err(RenderError::InvalidTexture);
+            }
+            self.glyph_vertices.clear();
+            self.glyph_vertices
+                .extend(
+                    run.vertices[batch.vertices.clone()]
+                        .iter()
+                        .map(|vertex| SDL_Vertex {
+                            position: SDL_FPoint {
+                                x: origin.x.to_f32()
+                                    + vertex.position.x * xx
+                                    + vertex.position.y * xy,
+                                y: origin.y.to_f32()
+                                    + vertex.position.x * yx
+                                    + vertex.position.y * yy,
+                            },
+                            color: tint,
+                            tex_coord: vertex.tex_coord,
+                        }),
+                );
+            self.draw_scalar_batch(
+                batch.key,
+                raster.surface,
+                &run.indices[batch.indices.clone()],
+                clip,
+                viewport,
+            )?;
+        }
+        self.glyph_vertices.clear();
+        Ok(true)
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn draw_posed_glyph_run(
         &mut self,
         pos: Point,
@@ -165,8 +303,6 @@ impl LabelCache {
         opa: u8,
         viewport: Viewport,
     ) -> Result<(), RenderError> {
-        const MAX_BATCH_INDICES: usize = 12_288;
-
         let requested_size = font.size.max(1);
         let raster_scale = viewport.scale() * transform.raster_scale();
         let output_ppem = crate::render::font::output_ppem(requested_size, raster_scale);
@@ -186,14 +322,7 @@ impl LabelCache {
             else {
                 continue;
             };
-            let coverage = match raster.representation.kind() {
-                mirx::font::FontRepresentationKind::Coverage { bits } => {
-                    crate::render::font::scalar::alpha_bits(raster.surface.sample_layout())
-                        == Some(bits)
-                }
-                _ => false,
-            };
-            if !coverage {
+            if !scalar_admitted(raster, self.device.max_texture_size) {
                 if let Some((key, surface)) = active.take() {
                     self.flush_scalar_batch(key, surface, clip, viewport)?;
                 }
@@ -213,7 +342,7 @@ impl LabelCache {
                     positioned.glyph_id(),
                     textflow::shaping::FlowPoint { x: 0, y: 0 },
                 )];
-                self.draw_glyph_run(
+                self.draw_raster_run(
                     &font.line_origin_for_baseline(Point::ZERO),
                     &glyph,
                     font,
@@ -294,7 +423,7 @@ impl LabelCache {
             r: color.r,
             g: color.g,
             b: color.b,
-            a: ((u16::from(color.a) * u16::from(opa) + 127) / 255) as u8,
+            a: glyph_opacity(color.a, opa),
         };
         // Split at texel centers: interpolate at the original scale, then clamp the edge strips.
         let columns = [
@@ -346,13 +475,27 @@ impl LabelCache {
         clip: Rect,
         viewport: Viewport,
     ) -> Result<(), RenderError> {
-        if self.glyph_indices.is_empty() {
+        let mut indices = core::mem::take(&mut self.glyph_indices);
+        let result = self.draw_scalar_batch(key, surface, &indices, clip, viewport);
+        indices.clear();
+        self.glyph_indices = indices;
+        self.glyph_vertices.clear();
+        result
+    }
+
+    fn draw_scalar_batch(
+        &mut self,
+        key: ScalarSurfaceKey,
+        surface: GlyphSurface<'_>,
+        indices: &[i32],
+        clip: Rect,
+        viewport: Viewport,
+    ) -> Result<(), RenderError> {
+        if indices.is_empty() {
             return Ok(());
         }
         let physical_clip = viewport.rect_to_physical(clip);
         let Some(clip) = sdl_pixel_rect(&physical_clip, &physical_clip) else {
-            self.glyph_vertices.clear();
-            self.glyph_indices.clear();
             return Ok(());
         };
         let device = &self.device;
@@ -379,13 +522,11 @@ impl LabelCache {
                 handle.tex.raw(),
                 self.glyph_vertices.as_ptr(),
                 self.glyph_vertices.len() as _,
-                self.glyph_indices.as_ptr(),
-                self.glyph_indices.len() as _,
+                indices.as_ptr(),
+                indices.len() as _,
             ) == 0
         };
         canvas.set_clip_rect(None);
-        self.glyph_vertices.clear();
-        self.glyph_indices.clear();
         rendered.then_some(()).ok_or(RenderError::BackendFailure)
     }
 
@@ -405,14 +546,14 @@ impl LabelCache {
         let Some(clip_rect) = sdl_pixel_rect(clip, clip) else {
             return Ok(());
         };
-        let a = ((color.a as u16) * (opa as u16) / 255) as u8;
+        let a = glyph_opacity(color.a, opa);
 
         let device = &self.device;
         let raster_buf = &mut self.raster_buf;
         let handle = self
             .cache
-            .entry(key)
-            .or_insert_with(|ctor, k| {
+            .entry(RunKey::Raster(key))
+            .or_try_insert_with(|| {
                 let ctx = RasterCtx {
                     content,
                     font,
@@ -422,9 +563,12 @@ impl LabelCache {
                     device,
                     raster_buf,
                 };
-                ctor(k, ctx)
-            })
-            .map_err(cache_error)?;
+                rasterize_label(&key, ctx).map(CachedRun::Raster)
+            })?;
+
+        let CachedRun::Raster(handle) = &*handle else {
+            unreachable!("raster cache key");
+        };
 
         let mut canvas = device.canvas()?;
         canvas.set_clip_rect(clip_rect);
@@ -468,12 +612,34 @@ impl LabelCache {
     }
 
     pub(super) fn as_inspect(&self) -> &dyn crate::core::cache::CacheInspect {
-        self.cache.cache()
+        &self.cache
     }
 
     pub(super) fn scalar_inspect(&self) -> &dyn crate::core::cache::CacheInspect {
         self.scalar_cache.cache()
     }
+}
+
+fn glyph_opacity(alpha: u8, opacity: u8) -> u8 {
+    ((u16::from(alpha) * u16::from(opacity)) / 255) as u8
+}
+
+fn surface_fits(surface: GlyphSurface<'_>, limit: (u32, u32)) -> bool {
+    let (width, height) = (surface.width(), surface.height());
+    width > 0
+        && height > 0
+        && (limit.0 == 0 || width <= limit.0)
+        && (limit.1 == 0 || height <= limit.1)
+        && (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|n| n.checked_mul(4))
+            .is_some_and(|bytes| bytes <= SURFACE_BUDGET)
+}
+
+fn scalar_admitted(raster: crate::render::font::RasterGlyph<'_>, limit: (u32, u32)) -> bool {
+    matches!(raster.representation.kind(), mirx::font::FontRepresentationKind::Coverage { bits }
+        if crate::render::font::scalar::alpha_bits(raster.surface.sample_layout()) == Some(bits))
+        && surface_fits(raster.surface, limit)
 }
 
 fn cache_error(error: crate::core::cache::CacheError<RenderError>) -> RenderError {
@@ -489,6 +655,11 @@ fn rasterize_scalar_surface(
     _key: &ScalarSurfaceKey,
     ctx: ScalarRasterCtx<'_>,
 ) -> Result<SizedSdlTexture, RenderError> {
+    if !surface_fits(ctx.surface, ctx.device.max_texture_size) {
+        return Err(RenderError::ResourceLimit(
+            crate::render::RenderResource::Texture,
+        ));
+    }
     crate::render::font::scalar::unpack_surface(ctx.surface, ctx.raster_buf)
         .ok_or(RenderError::InvalidTexture)?;
     let pixels = usize::try_from(ctx.surface.width())
@@ -543,6 +714,15 @@ fn rasterize_label(
     let height = ctx.bounds.height;
     let byte_stride = usize::from(width) * 4;
     let byte_len = byte_stride * usize::from(height);
+    let (max_width, max_height) = ctx.device.max_texture_size;
+    if byte_len > RUN_BUDGET
+        || (max_width > 0 && u32::from(width) > max_width)
+        || (max_height > 0 && u32::from(height) > max_height)
+    {
+        return Err(RenderError::ResourceLimit(
+            crate::render::RenderResource::Texture,
+        ));
+    }
     rasterize_run_pixels(
         ctx.content,
         ctx.font,
@@ -613,6 +793,54 @@ fn rasterize_run_pixels(
 mod tests {
     use super::*;
     use crate::render::font::FontSurfaceId;
+
+    #[test]
+    fn scalar_admission_checks_actual_representation_and_surface_budget() {
+        let font = Font::bitmap_8x8();
+        let mut raster = font
+            .raster_for_output(font.map_char('A').unwrap(), 8, 8)
+            .unwrap();
+        assert!(scalar_admitted(raster, (8, 760)));
+        assert!(!scalar_admitted(raster, (7, 760)));
+        assert!(!scalar_admitted(raster, (8, 759)));
+        let bytes = alloc::vec![0; 1024 * 1025];
+        raster.surface = GlyphSurface::new(
+            &bytes,
+            1024,
+            1025,
+            1024,
+            mirx::image::SampleLayout::A8,
+            mirx::types::ByteAlignment::ONE,
+            FontSurfaceId::new(99),
+        )
+        .unwrap();
+        assert!(!scalar_admitted(raster, (4096, 4096)));
+        let sdf = Font::from_mirx(
+            "Play",
+            24,
+            include_bytes!("../../../gallery/demos/assets/play_ui.mirx"),
+            &mirx::reader::PayloadLimits::HOST,
+        )
+        .unwrap();
+        assert!(!scalar_admitted(
+            sdf.raster_for_output(sdf.map_char('A').unwrap(), 24, 48)
+                .unwrap(),
+            (4096, 4096)
+        ));
+    }
+
+    #[test]
+    fn glyph_opacity_preserves_run_rounding_and_low_alpha() {
+        for (alpha, opacity, expected) in [
+            (0, 255, 0),
+            (1, 128, 0),
+            (127, 128, 63),
+            (128, 255, 128),
+            (255, 255, 255),
+        ] {
+            assert_eq!(glyph_opacity(alpha, opacity), expected);
+        }
+    }
 
     #[test]
     fn cached_runs_preserve_coverage_and_filterable_rgb() {

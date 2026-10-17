@@ -160,7 +160,9 @@ SDL GPU and WGPU share checked path tessellation. Invalid geometry, vertex limit
 
 SDL GPU tessellation scratch storage belongs to `SdlGpuFactory`. Factory configuration preserves the prepared buffers; `trim_memory()` releases them alongside other factory-owned drawing caches, and subsequent draws prepare them again.
 
-SDL GPU run textures, glyph surfaces and text staging buffers also belong to `SdlGpuFactory`. They are reused only for the same device and generation, replaced after device reset or reassignment, and released by `trim_memory()`. Factory `InspectCaches` reports `sdl_gpu/label` and `sdl_gpu/glyph_surface`, each with a 4 MiB retained texture limit; staging capacity is separate.
+SDL GPU text runs, glyph surfaces and text staging buffers also belong to `SdlGpuFactory`. They are reused only for the same device and generation, replaced after device reset or reassignment, and released by `trim_memory()`. Factory `InspectCaches` reports `sdl_gpu/label` and `sdl_gpu/glyph_surface`, each with a 4 MiB retention limit; staging capacity is separate.
+
+Coverage text uses uploaded font surfaces and retained run geometry. Run entries verify the full shaped-glyph signature, preserve glyph order and reuse geometry across translation, color and opacity changes. Geometry storage and rasterized SDF run textures share the label budget; coverage surfaces use the separate surface budget. Unsupported representations and runs exceeding geometry or surface limits use rasterized run textures, subject to the same label and device limits. Ordinary glyph placement retains software raster rounding, while path-placed text uses continuous glyph frames. Both routes clamp sampling to each glyph region.
 
 `RendererFactory` requires `InspectCaches`; factories without inspectable caches use its empty default implementation. App frame statistics collect both surface and factory caches into the existing `CacheRegistry`.
 
