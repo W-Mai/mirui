@@ -16,6 +16,10 @@ pub mod ui {
     }
 }
 
+#[cfg(all(target_os = "macos", feature = "wgpu"))]
+#[path = "native_clipboard/menu.rs"]
+mod native_menu;
+
 #[cfg(all(target_os = "windows", any(feature = "sdl", feature = "wgpu")))]
 #[allow(
     dead_code,
@@ -107,6 +111,11 @@ mod native {
 }
 
 fn main() {
+    #[cfg(all(target_os = "macos", feature = "wgpu"))]
+    if std::env::args().any(|arg| arg == "--menu-window") {
+        native_menu::verify();
+        return;
+    }
     if !std::env::args().any(|arg| arg == "--ignored") {
         println!("native clipboard contracts skipped; run with --ignored on a desktop session");
         return;

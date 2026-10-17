@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- macOS WGPU windows deliver native clipboard and Select All menu actions through the host event loop and detach their responder registration when the window retires.
+
 - Native clipboard inputs support payload-free paste requests and Select All through the existing component capabilities.
 
 - iOS clipboard transfer preserves native items and MIME representations across mobile WGPU, software upload, and SDL surfaces, including binary payloads, URI items, and oriented images.

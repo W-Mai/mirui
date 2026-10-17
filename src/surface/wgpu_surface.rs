@@ -299,10 +299,60 @@ pub trait WgpuTarget: Surface {
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 struct WgpuHandler {
+    #[cfg(target_os = "macos")]
+    // Detach native responders before Runtime releases its window.
+    menu: Option<super::native_menu::Registration>,
     title: String,
     requested_size: (u32, u32),
     runtime: WgpuRuntime,
     error: Option<WgpuSurfaceError>,
+    #[cfg(target_os = "macos")]
+    menu_generation: u64,
+    #[cfg(target_os = "macos")]
+    proxy: winit::event_loop::EventLoopProxy<HostEvent>,
+}
+
+#[cfg(target_os = "macos")]
+struct HostEvent {
+    generation: u64,
+    action: super::native_menu::Action,
+}
+#[cfg(not(any(target_os = "macos", target_os = "android", target_os = "ios")))]
+type HostEvent = ();
+
+#[cfg(target_os = "macos")]
+impl WgpuHandler {
+    fn attach_menu(&mut self) -> Result<(), WgpuSurfaceError> {
+        use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+        let error = || WgpuSurfaceError::Backend("native menu window unavailable".into());
+        let mtm = objc2::MainThreadMarker::new().ok_or_else(error)?;
+        let window = &self.runtime.state.as_ref().ok_or_else(error)?.window;
+        let handle = window.window_handle().map_err(|_| error())?;
+        let RawWindowHandle::AppKit(handle) = handle.as_raw() else {
+            return Err(error());
+        };
+        // The window owns this live NSView; Registration retains and detaches it before teardown.
+        let view = unsafe {
+            objc2::rc::Retained::<objc2_app_kit::NSResponder>::retain(
+                handle.ns_view.as_ptr().cast(),
+            )
+        }
+        .ok_or_else(error)?;
+        self.menu_generation = self.menu_generation.checked_add(1).ok_or_else(error)?;
+        let generation = self.menu_generation;
+        let proxy = self.proxy.clone();
+        self.menu = Some(super::native_menu::Registration::new(
+            &view,
+            move |action| {
+                if proxy.send_event(HostEvent { generation, action }).is_err() {
+                    crate::warn!(target: "mirui::clipboard", "native menu event loop unavailable");
+                }
+            },
+            mtm,
+        ));
+        Ok(())
+    }
 }
 
 pub(crate) struct WgpuRuntime {
@@ -745,7 +795,7 @@ impl WgpuRuntime {
 }
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-impl ApplicationHandler for WgpuHandler {
+impl ApplicationHandler<HostEvent> for WgpuHandler {
     fn about_to_wait(&mut self, _: &ActiveEventLoop) {
         self.runtime.finish_input_batch();
     }
@@ -765,6 +815,8 @@ impl ApplicationHandler for WgpuHandler {
             .create_window(attrs)
             .map_err(|error| WgpuSurfaceError::Backend(error.to_string()))
             .and_then(|window| self.runtime.resume(Arc::new(window)));
+        #[cfg(target_os = "macos")]
+        let result = result.and_then(|()| self.attach_menu());
         if let Err(error) = result {
             self.error = Some(error);
             event_loop.exit();
@@ -772,7 +824,19 @@ impl ApplicationHandler for WgpuHandler {
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        #[cfg(target_os = "macos")]
+        self.menu.take();
         self.runtime.suspend();
+    }
+
+    #[cfg(target_os = "macos")]
+    fn user_event(&mut self, _: &ActiveEventLoop, event: HostEvent) {
+        if self.menu.is_some() && event.generation == self.menu_generation {
+            self.runtime.flush_pointer_move();
+            self.runtime
+                .event_queue
+                .push_back(InputEvent::ClipboardInput(event.action.input()));
+        }
     }
 
     fn window_event(
@@ -890,7 +954,7 @@ fn configure_wgpu_state(
 
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub struct WgpuSurface {
-    event_loop: EventLoop<()>,
+    event_loop: EventLoop<HostEvent>,
     handler: WgpuHandler,
     /// macOS `pump_app_events(Duration::ZERO)` costs ~6 ms per call
     /// (it spins NSApp internally even with no events). mirui calls
@@ -924,9 +988,12 @@ impl WgpuSurface {
         config: WgpuConfig,
     ) -> Result<Self, WgpuSurfaceError> {
         config.validate()?;
-        let event_loop =
-            EventLoop::new().map_err(|error| WgpuSurfaceError::Backend(error.to_string()))?;
+        let event_loop = EventLoop::<HostEvent>::with_user_event()
+            .build()
+            .map_err(|error| WgpuSurfaceError::Backend(error.to_string()))?;
         event_loop.set_control_flow(ControlFlow::Poll);
+        #[cfg(target_os = "macos")]
+        let proxy = event_loop.create_proxy();
 
         let mut this = Self {
             event_loop,
@@ -935,6 +1002,12 @@ impl WgpuSurface {
                 requested_size: (width as u32, height as u32),
                 runtime: WgpuRuntime::new(config),
                 error: None,
+                #[cfg(target_os = "macos")]
+                menu: None,
+                #[cfg(target_os = "macos")]
+                menu_generation: 0,
+                #[cfg(target_os = "macos")]
+                proxy,
             },
             pumped_this_frame: false,
         };
