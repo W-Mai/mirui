@@ -69,18 +69,6 @@ where
 {
     app.with_default_widgets().with_default_systems();
     app.with_widget(texture_parity_render::view());
-    let font = Font::from_mirx(
-        "MiSans UI",
-        16,
-        FONT_BYTES,
-        &mirx::reader::PayloadLimits::HOST,
-    )
-    .expect("parse production UI font");
-    app.world
-        .resource::<FontManager>()
-        .expect("FontManager")
-        .add_static(FONT.cache_key(), font);
-
     let root = app
         .spawn_root()
         .ignore_safe_area()
@@ -100,6 +88,16 @@ where
 
 #[compose]
 fn parity_content() {
+    res!(FontManager).with(|manager| {
+        let font = Font::from_mirx(
+            "MiSans UI",
+            16,
+            FONT_BYTES,
+            &mirx::reader::PayloadLimits::HOST,
+        )
+        .expect("parse production UI font");
+        manager.add_static(FONT.cache_key(), font);
+    });
     ui! {
         Column (grow: 1.0, row_gap: 10) {
             Text (
