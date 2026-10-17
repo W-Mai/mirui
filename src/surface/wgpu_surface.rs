@@ -306,6 +306,8 @@ struct WgpuHandler {
 }
 
 pub(crate) struct WgpuRuntime {
+    #[cfg(target_os = "linux")]
+    clipboard: super::host_clipboard::linux::Clipboard,
     config: WgpuConfig,
     context: Option<Arc<WgpuDeviceContext>>,
     pub(crate) state: Option<WgpuState>,
@@ -320,8 +322,6 @@ pub(crate) struct WgpuRuntime {
     native_touches: NativeTouchMap<MAX_NATIVE_TOUCHES>,
     modifiers: Option<crate::input::event::input::KeyModifiers>,
     text_input: NativeTextInput,
-    #[cfg(target_os = "linux")]
-    clipboard: super::host_clipboard::linux::Clipboard,
     reconfigure_before_acquire: bool,
     frame_texture: Option<wgpu::SurfaceTexture>,
     needs_redraw: bool,
@@ -341,10 +341,11 @@ impl WgpuRuntime {
 
     pub(crate) fn poll_event(&mut self) -> Option<InputEvent> {
         self.flush_pointer_move();
-        let event = self.event_queue.pop_front();
         #[cfg(target_os = "linux")]
-        let event = event.or_else(|| self.clipboard.poll().map(InputEvent::Clipboard));
-        event
+        if let Some(response) = self.clipboard.poll() {
+            self.event_queue.push_back(InputEvent::Clipboard(response));
+        }
+        self.event_queue.pop_front()
     }
 
     pub(crate) fn set_text_input(&mut self, state: Option<crate::ui::text_input::TextInputState>) {
@@ -448,6 +449,11 @@ impl WgpuRuntime {
             None => create_wgpu_state(window, self.config),
         }?;
         self.context = Some(state.context.clone());
+        #[cfg(target_os = "linux")]
+        // Runtime drops/detaches the clipboard before releasing the native window.
+        unsafe {
+            self.clipboard.attach(state.window.as_ref());
+        }
         self.state = Some(state);
         self.needs_redraw = true;
         Ok(())
@@ -457,8 +463,11 @@ impl WgpuRuntime {
         self.frame_texture = None;
         self.set_text_input(None);
         self.modifiers = None;
+        #[cfg(target_os = "linux")]
+        self.clipboard.detach();
         self.state = None;
-        self.event_queue.clear();
+        self.event_queue
+            .retain(|event| matches!(event, InputEvent::Clipboard(_)));
         self.pending_move = None;
         self.native_touches.clear();
         self.reconfigure_before_acquire = false;
@@ -1975,6 +1984,26 @@ mod tests {
 
         assert!(runtime.event_queue.is_empty());
         assert!(runtime.pending_move.is_none());
+    }
+
+    #[test]
+    fn suspend_retains_clipboard_receipts_until_the_app_consumes_them() {
+        use crate::ui::clipboard::{self, ClipboardData, ClipboardRequest};
+        let (mut app, editor, mut runtime) = native_fixture();
+        clipboard::paste(&mut app.world, editor);
+        let Some(ClipboardRequest::Read(request)) = clipboard::take_request(&mut app.world) else {
+            panic!("expected pending clipboard read");
+        };
+        runtime.event_queue.push_back(InputEvent::Clipboard(
+            request.complete(ClipboardData::text("retained")),
+        ));
+        runtime.suspend();
+        let Some(InputEvent::Clipboard(response)) = runtime.poll_event() else {
+            panic!("lost clipboard receipt");
+        };
+        clipboard::complete(&mut app.world, &response);
+        display(&app, editor, "retained");
+        assert!(runtime.poll_event().is_none());
     }
 
     #[test]

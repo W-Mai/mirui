@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Linux Wayland clipboard transfer shares native input seats and the host event loop across SDL and WGPU, preserves MIME representations, and cancels stale reads and window-bound transfers.
+
 ### Breaking
 
 - macOS SDL and WGPU builds require macOS 11 or newer for native clipboard type mapping.

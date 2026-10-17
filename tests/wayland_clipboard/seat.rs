@@ -1,4 +1,4 @@
-use super::{Fixture, read::Read, seat::Seat, transfer::Budget, ui::clipboard::ClipboardError};
+use super::{Fixture, read::Read, seat::Seat, ui::clipboard::ClipboardError};
 use std::{rc::Rc, time::Instant};
 use wayland_client::Proxy;
 use wayland_server::{
@@ -89,7 +89,7 @@ fn only_target_focused_input_authorizes_selection_and_zero_serial_is_valid() {
 }
 
 #[test]
-fn losing_focus_permanently_invalidates_read_even_when_focus_immediately_returns() {
+fn returning_within_the_client_preserves_offer_but_changes_read_generation() {
     let mut f = Fixture::new();
     f.enable_input();
     let target = f.server.surfaces[0].clone();
@@ -104,33 +104,23 @@ fn losing_focus_permanently_invalidates_read_even_when_focus_immediately_returns
         Err(ClipboardError::PermissionDenied)
     ));
     f.enter(1, &target);
-    let mut read = Read::begin(
-        f.client.input.as_ref().unwrap().read_offer().unwrap(),
-        Instant::now(),
-    )
-    .unwrap();
+    let generation = f.client.input.as_ref().unwrap().focus_generation().unwrap();
     f.pump();
     let keyboard = f.server.keyboard.as_ref().unwrap();
     keyboard.leave(2, &target);
     keyboard.enter(3, &target, Vec::new());
     f.pump();
     f.pump();
-    assert!(!proxy.is_alive());
+    assert!(proxy.is_alive());
     assert_eq!(f.serial(), Ok(3));
-    assert!(matches!(
-        f.client.input.as_ref().unwrap().read_offer(),
-        Err(ClipboardError::Unavailable)
+    assert_ne!(
+        f.client.input.as_ref().unwrap().focus_generation().unwrap(),
+        generation
+    );
+    assert!(Rc::ptr_eq(
+        &offer,
+        &f.client.input.as_ref().unwrap().read_offer().unwrap()
     ));
-    assert!(matches!(
-        read.poll(Instant::now(), &mut Budget::new(65536, 32)),
-        Err(ClipboardError::Unavailable)
-    ));
-    assert!(matches!(
-        Read::begin(offer, Instant::now()),
-        Err(ClipboardError::Unavailable)
-    ));
-    let fd = f.server.pending.pop().unwrap();
-    assert_eq!(rustix::io::write(&fd, b"old"), Err(rustix::io::Errno::PIPE));
     let (next, proxy) = f.offer(&["text/plain"], false);
     f.client
         .input

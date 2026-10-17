@@ -167,6 +167,16 @@ pub struct ClipboardResponse {
     operation: ClipboardOperationId,
     result: Result<Response, ClipboardError>,
 }
+impl ClipboardResponse {
+    #[cfg(any(
+        all(test, target_os = "macos"),
+        all(target_os = "linux", any(feature = "sdl", feature = "wgpu"))
+    ))]
+    pub(crate) fn reject(mut self, error: ClipboardError) -> Self {
+        self.result = Err(error);
+        self
+    }
+}
 #[derive(Clone, Debug)]
 enum Response {
     Written,

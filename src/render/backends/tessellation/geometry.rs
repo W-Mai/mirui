@@ -122,6 +122,111 @@ impl<'a> ShapeRequest<'a> {
     }
 }
 
+fn hash_command(cmd: &PathCmd, hash: &mut impl Hasher) {
+    let mut point = |tag: u8, p: Point| {
+        tag.hash(hash);
+        p.x.hash(hash);
+        p.y.hash(hash);
+    };
+    match cmd {
+        PathCmd::MoveTo(p) => point(0, *p),
+        PathCmd::LineTo(p) => point(1, *p),
+        PathCmd::QuadTo { ctrl, end } => {
+            point(2, *ctrl);
+            point(3, *end);
+        }
+        PathCmd::CubicTo { ctrl1, ctrl2, end } => {
+            point(4, *ctrl1);
+            point(5, *ctrl2);
+            point(6, *end);
+        }
+        PathCmd::Close => 7_u8.hash(hash),
+    }
+}
+
+pub(crate) struct ShapeMesh {
+    commands: Vec<PathCmd>,
+    style: [u64; 7],
+    dash: Vec<Fixed>,
+    pub mesh: VertexBuffers<LyonPoint, u32>,
+}
+
+impl HasSize for ShapeMesh {
+    fn cache_size(&self) -> usize {
+        self.commands.capacity() * size_of::<PathCmd>()
+            + self.dash.capacity() * size_of::<Fixed>()
+            + self.mesh.vertices.capacity() * size_of::<LyonPoint>()
+            + self.mesh.indices.capacity() * size_of::<u32>()
+            + size_of::<Self>()
+    }
+}
+
+pub(crate) struct GeometryCache {
+    entries: LruCache<u64, ShapeMesh>,
+    pub budget: usize,
+}
+
+impl GeometryCache {
+    pub fn new(budget: usize) -> Self {
+        Self {
+            entries: LruCache::builder()
+                .max_size(MaxSize::Bytes(budget))
+                .name("sdl_gpu/geometry")
+                .build(),
+            budget,
+        }
+    }
+
+    pub fn inspect(&self) -> &dyn CacheInspect {
+        &self.entries
+    }
+
+    pub fn find(&mut self, request: &ShapeRequest<'_>) -> Option<Handle<ShapeMesh>> {
+        if self.budget == 0 {
+            return None;
+        }
+        let handle = self.entries.acquire(&request.key)?;
+        let item = handle.get();
+        let dash = match request.style {
+            ShapeStyle::Fill(_) => &[][..],
+            ShapeStyle::Stroke(spec) => spec.dash,
+        };
+        if item.style == request.style.words()
+            && item.dash == dash
+            && item.commands.iter().cloned().eq(request.commands())
+        {
+            Some(handle)
+        } else {
+            self.entries.drop(&request.key);
+            None
+        }
+    }
+
+    pub fn retain(&mut self, request: &ShapeRequest<'_>, mesh: &VertexBuffers<LyonPoint, u32>) {
+        let dash = match request.style {
+            ShapeStyle::Fill(_) => &[][..],
+            ShapeStyle::Stroke(spec) => spec.dash,
+        };
+        let bytes = size_of::<ShapeMesh>()
+            + size_of_val(request.path)
+            + size_of_val(dash)
+            + mesh.vertices.len() * size_of::<LyonPoint>()
+            + mesh.indices.len() * size_of::<u32>();
+        if bytes > self.budget {
+            return;
+        }
+        let entry = ShapeMesh {
+            commands: request.commands().collect(),
+            style: request.style.words(),
+            dash: dash.to_vec(),
+            mesh: mesh.clone(),
+        };
+        if entry.cache_size() <= self.budget {
+            self.entries.entry(request.key).or_insert_with(|| entry);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -263,110 +368,5 @@ mod tests {
             ShapeRequest::new(path.commands(), None, ShapeStyle::Fill(FillRule::NonZero)),
             Err(RenderError::InvalidGeometry)
         ));
-    }
-}
-
-fn hash_command(cmd: &PathCmd, hash: &mut impl Hasher) {
-    let mut point = |tag: u8, p: Point| {
-        tag.hash(hash);
-        p.x.hash(hash);
-        p.y.hash(hash);
-    };
-    match cmd {
-        PathCmd::MoveTo(p) => point(0, *p),
-        PathCmd::LineTo(p) => point(1, *p),
-        PathCmd::QuadTo { ctrl, end } => {
-            point(2, *ctrl);
-            point(3, *end);
-        }
-        PathCmd::CubicTo { ctrl1, ctrl2, end } => {
-            point(4, *ctrl1);
-            point(5, *ctrl2);
-            point(6, *end);
-        }
-        PathCmd::Close => 7_u8.hash(hash),
-    }
-}
-
-pub(crate) struct ShapeMesh {
-    commands: Vec<PathCmd>,
-    style: [u64; 7],
-    dash: Vec<Fixed>,
-    pub mesh: VertexBuffers<LyonPoint, u32>,
-}
-
-impl HasSize for ShapeMesh {
-    fn cache_size(&self) -> usize {
-        self.commands.capacity() * size_of::<PathCmd>()
-            + self.dash.capacity() * size_of::<Fixed>()
-            + self.mesh.vertices.capacity() * size_of::<LyonPoint>()
-            + self.mesh.indices.capacity() * size_of::<u32>()
-            + size_of::<Self>()
-    }
-}
-
-pub(crate) struct GeometryCache {
-    entries: LruCache<u64, ShapeMesh>,
-    pub budget: usize,
-}
-
-impl GeometryCache {
-    pub fn new(budget: usize) -> Self {
-        Self {
-            entries: LruCache::builder()
-                .max_size(MaxSize::Bytes(budget))
-                .name("sdl_gpu/geometry")
-                .build(),
-            budget,
-        }
-    }
-
-    pub fn inspect(&self) -> &dyn CacheInspect {
-        &self.entries
-    }
-
-    pub fn find(&mut self, request: &ShapeRequest<'_>) -> Option<Handle<ShapeMesh>> {
-        if self.budget == 0 {
-            return None;
-        }
-        let handle = self.entries.acquire(&request.key)?;
-        let item = handle.get();
-        let dash = match request.style {
-            ShapeStyle::Fill(_) => &[][..],
-            ShapeStyle::Stroke(spec) => spec.dash,
-        };
-        if item.style == request.style.words()
-            && item.dash == dash
-            && item.commands.iter().cloned().eq(request.commands())
-        {
-            Some(handle)
-        } else {
-            self.entries.drop(&request.key);
-            None
-        }
-    }
-
-    pub fn retain(&mut self, request: &ShapeRequest<'_>, mesh: &VertexBuffers<LyonPoint, u32>) {
-        let dash = match request.style {
-            ShapeStyle::Fill(_) => &[][..],
-            ShapeStyle::Stroke(spec) => spec.dash,
-        };
-        let bytes = size_of::<ShapeMesh>()
-            + size_of_val(request.path)
-            + size_of_val(dash)
-            + mesh.vertices.len() * size_of::<LyonPoint>()
-            + mesh.indices.len() * size_of::<u32>();
-        if bytes > self.budget {
-            return;
-        }
-        let entry = ShapeMesh {
-            commands: request.commands().collect(),
-            style: request.style.words(),
-            dash: dash.to_vec(),
-            mesh: mesh.clone(),
-        };
-        if entry.cache_size() <= self.budget {
-            self.entries.entry(request.key).or_insert_with(|| entry);
-        }
     }
 }

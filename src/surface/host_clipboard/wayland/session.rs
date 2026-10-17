@@ -39,7 +39,11 @@ struct PendingOffer {
 }
 
 enum Operation {
-    Read(Read),
+    Read {
+        read: Read,
+        seat: ObjectId,
+        generation: u64,
+    },
     Write {
         source: wl_data_source::WlDataSource,
         sync: wl_callback::WlCallback,
@@ -154,7 +158,11 @@ impl Session {
             .iter()
             .find(|input| input.seat.id() == *active)
             .ok_or(ClipboardError::Unavailable)?;
-        self.state.pending = Some(Operation::Read(Read::begin(input.seat.read_offer()?, now)?));
+        self.state.pending = Some(Operation::Read {
+            generation: input.seat.focus_generation()?,
+            seat: input.seat.id(),
+            read: Read::begin(input.seat.read_offer()?, now)?,
+        });
         Ok(())
     }
 
@@ -176,8 +184,20 @@ impl Session {
             let index = (self.state.next + step) % count;
             if index < self.state.inputs.len() {
                 let _ = self.state.inputs[index].source.poll(now, &mut budget);
-            } else if let Some(Operation::Read(read)) = &mut self.state.pending {
-                completion = match read.poll(now, &mut budget) {
+            } else if let Some(Operation::Read {
+                read,
+                seat,
+                generation,
+            }) = &mut self.state.pending
+            {
+                let valid = self.state.inputs.iter().any(|input| {
+                    input.seat.id() == *seat && input.seat.focus_generation() == Ok(*generation)
+                });
+                completion = match if valid {
+                    read.poll(now, &mut budget)
+                } else {
+                    Err(ClipboardError::Unavailable)
+                } {
                     Ok(Some(data)) => Some(Ok(Completion::Read(data))),
                     Ok(None) => None,
                     Err(error) => Some(Err(error)),

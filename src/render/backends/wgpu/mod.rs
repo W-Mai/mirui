@@ -2889,7 +2889,7 @@ mod route_tests {
                 &device,
                 &queue,
                 &target,
-                PhysicalRect::new(0 as u16, 0 as u16, SIZE as u16, SIZE as u16).unwrap(),
+                PhysicalRect::new(0, 0, SIZE as u16, SIZE as u16).unwrap(),
             )
             .expect("path target readback must succeed after rendering"),
         )
@@ -3490,7 +3490,7 @@ mod blit_tests {
             &device,
             &queue,
             &target,
-            PhysicalRect::new(0 as u16, 0 as u16, SIZE as u16, SIZE as u16).unwrap(),
+            PhysicalRect::new(0, 0, SIZE as u16, SIZE as u16).unwrap(),
         )
         .expect("rounded blit target could not be read");
         let alpha = |x: usize, y: usize| bytes[(y * SIZE as usize + x) * 4 + 3];
@@ -3540,7 +3540,7 @@ mod blit_tests {
             &device,
             &queue,
             &target,
-            PhysicalRect::new(16 as u16, 16 as u16, 1 as u16, 1 as u16).unwrap(),
+            PhysicalRect::new(16, 16, 1, 1).unwrap(),
         )
         .expect("replacement pixel should be readable");
         assert!((i16::from(replaced[3]) - expected_alpha).abs() <= 1);
@@ -3644,7 +3644,7 @@ mod blit_tests {
             &device,
             &queue,
             &target,
-            PhysicalRect::new(0 as u16, 0 as u16, SIZE as u16, SIZE as u16).unwrap(),
+            PhysicalRect::new(0, 0, SIZE as u16, SIZE as u16).unwrap(),
         )
         .expect("translucent quad target could not be read");
         let center = &bytes[(16 * SIZE as usize + 16) * 4..][..4];
@@ -3863,7 +3863,7 @@ mod glyph_tests {
                 &device,
                 &queue,
                 &target,
-                PhysicalRect::new(0 as u16, 0 as u16, WIDTH as u16, HEIGHT as u16).unwrap(),
+                PhysicalRect::new(0, 0, WIDTH as u16, HEIGHT as u16).unwrap(),
             )
             .expect("glyph target readback must succeed after rendering"),
         )
@@ -4075,7 +4075,7 @@ mod glyph_tests {
             &device,
             &queue,
             &target,
-            PhysicalRect::new(0 as u16, 0 as u16, SIZE as u16, SIZE as u16).unwrap(),
+            PhysicalRect::new(0, 0, SIZE as u16, SIZE as u16).unwrap(),
         )
         .unwrap();
         let alpha = |x: usize, y: usize| pixels[(y * SIZE as usize + x) * 4 + 3];

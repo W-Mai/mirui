@@ -41,6 +41,8 @@ struct MultiGestureState {
 }
 
 pub struct SdlSurface {
+    #[cfg(target_os = "linux")]
+    clipboard: super::host_clipboard::linux::Clipboard,
     /// Streaming texture sized to the framebuffer; `flush` updates
     /// per-rect, `end_flush` does the single copy + present. `'static`
     /// because the backing `TextureCreator` is `Box::leak`ed in `new`
@@ -58,8 +60,6 @@ pub struct SdlSurface {
     needs_redraw: bool,
     _event_pump: EventPump,
     text_input: super::sdl_events::NativeTextInput,
-    #[cfg(target_os = "linux")]
-    clipboard: super::host_clipboard::linux::Clipboard,
     buf: Vec<u8>,
     width: u16,
     height: u16,
@@ -118,6 +118,16 @@ impl SdlSurface {
             .create_texture_streaming(PixelFormatEnum::RGBA32, phys_w as u32, phys_h as u32)
             .expect("texture creation failed");
 
+        #[cfg(target_os = "linux")]
+        let clipboard = {
+            let mut clipboard = super::host_clipboard::linux::Clipboard::default();
+            // The clipboard field is dropped before the canvas and its native window.
+            unsafe {
+                clipboard.attach(canvas.window());
+            }
+            clipboard
+        };
+
         Self {
             tex,
             texture_creator,
@@ -128,7 +138,7 @@ impl SdlSurface {
             _event_pump: event_pump,
             text_input,
             #[cfg(target_os = "linux")]
-            clipboard: Default::default(),
+            clipboard,
             buf,
             width: phys_w,
             height: phys_h,
@@ -344,7 +354,7 @@ impl Surface for SdlSurface {
         request: crate::ui::clipboard::ClipboardWrite,
     ) -> crate::ui::clipboard::ClipboardDispatch {
         #[cfg(target_os = "linux")]
-        if super::host_clipboard::linux::is_x11(self.canvas.window()) {
+        if super::host_clipboard::linux::is_native(self.canvas.window()) {
             return self.clipboard.write(self.canvas.window(), request);
         }
         #[cfg(target_os = "macos")]
@@ -366,7 +376,7 @@ impl Surface for SdlSurface {
         request: crate::ui::clipboard::ClipboardRead,
     ) -> crate::ui::clipboard::ClipboardDispatch {
         #[cfg(target_os = "linux")]
-        if super::host_clipboard::linux::is_x11(self.canvas.window()) {
+        if super::host_clipboard::linux::is_native(self.canvas.window()) {
             return self.clipboard.read(self.canvas.window(), request);
         }
         #[cfg(any(target_os = "macos", target_os = "windows"))]
@@ -396,7 +406,15 @@ impl Surface for SdlSurface {
             }
         }
 
-        while let Some(event) = super::sdl_events::poll() {
+        loop {
+            let event = super::sdl_events::poll();
+            #[cfg(target_os = "linux")]
+            if let Some(response) = self.clipboard.poll() {
+                self.pending.push_back(InputEvent::Clipboard(response));
+            }
+            let Some(event) = event else {
+                break;
+            };
             match event {
                 Event::Quit { .. } => self.pending.push_back(InputEvent::Quit),
                 Event::RenderDeviceReset { .. } => {
@@ -497,7 +515,7 @@ impl Surface for SdlSurface {
                 return Some(input);
             }
         }
-        self.text_input.idle()
+        self.pending.pop_front().or_else(|| self.text_input.idle())
     }
 }
 

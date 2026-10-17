@@ -93,13 +93,13 @@ struct MultiGestureState {
 }
 
 pub struct SdlGpuSurface {
+    #[cfg(target_os = "linux")]
+    clipboard: crate::surface::host_clipboard::linux::Clipboard,
     device: Rc<Device>,
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     video: sdl2::VideoSubsystem,
     _event_pump: EventPump,
     text_input: crate::surface::sdl_events::NativeTextInput,
-    #[cfg(target_os = "linux")]
-    clipboard: crate::surface::host_clipboard::linux::Clipboard,
     viewport: Viewport,
     needs_redraw: bool,
     last_mouse_x: i32,
@@ -182,6 +182,15 @@ impl SdlGpuSurface {
             &video,
             sdl.event().map_err(|e| backend_error("SDL events", e))?,
         );
+        #[cfg(target_os = "linux")]
+        let clipboard = {
+            let mut clipboard = crate::surface::host_clipboard::linux::Clipboard::default();
+            // The clipboard field is dropped before the device and its native window.
+            unsafe {
+                clipboard.attach(canvas.window());
+            }
+            clipboard
+        };
         let device = Rc::new(Device::new(canvas, texture_creator));
         Ok(Self {
             device,
@@ -190,7 +199,7 @@ impl SdlGpuSurface {
             _event_pump: event_pump,
             text_input,
             #[cfg(target_os = "linux")]
-            clipboard: Default::default(),
+            clipboard,
             viewport,
             needs_redraw: true,
             last_mouse_x: 0,
@@ -379,7 +388,7 @@ impl Surface for SdlGpuSurface {
                     request.complete(Err(crate::ui::clipboard::ClipboardError::Unavailable)),
                 );
             };
-            if crate::surface::host_clipboard::linux::is_x11(canvas.window()) {
+            if crate::surface::host_clipboard::linux::is_native(canvas.window()) {
                 return self.clipboard.write(canvas.window(), request);
             }
         }
@@ -413,7 +422,7 @@ impl Surface for SdlGpuSurface {
                     request.complete(Err(crate::ui::clipboard::ClipboardError::Unavailable)),
                 );
             };
-            if crate::surface::host_clipboard::linux::is_x11(canvas.window()) {
+            if crate::surface::host_clipboard::linux::is_native(canvas.window()) {
                 return self.clipboard.read(canvas.window(), request);
             }
         }
@@ -443,7 +452,15 @@ impl Surface for SdlGpuSurface {
                 }
             }
         }
-        while let Some(event) = crate::surface::sdl_events::poll() {
+        loop {
+            let event = crate::surface::sdl_events::poll();
+            #[cfg(target_os = "linux")]
+            if let Some(response) = self.clipboard.poll() {
+                self.pending.push_back(InputEvent::Clipboard(response));
+            }
+            let Some(event) = event else {
+                break;
+            };
             match event {
                 Event::Quit { .. } => self.pending.push_back(InputEvent::Quit),
                 Event::RenderTargetsReset { .. } | Event::RenderDeviceReset { .. } => {
@@ -560,7 +577,7 @@ impl Surface for SdlGpuSurface {
                 return Some(input);
             }
         }
-        self.text_input.idle()
+        self.pending.pop_front().or_else(|| self.text_input.idle())
     }
 
     fn persistence(&self) -> crate::surface::BackbufferPersistence {

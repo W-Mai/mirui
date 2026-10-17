@@ -45,6 +45,9 @@ pub mod slow;
     all(feature = "web-canvas", target_arch = "wasm32")
 ))]
 mod text_input_range;
+#[cfg(all(test, target_os = "macos"))]
+#[path = "host_clipboard/wayland/mod.rs"]
+mod wayland_clipboard_contracts;
 #[cfg(all(feature = "web-canvas", target_arch = "wasm32"))]
 pub mod web_canvas;
 #[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]

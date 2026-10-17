@@ -268,3 +268,46 @@ fn session_drop_cancels_transfers_without_closing_host_connection() {
     f.pump();
     assert_eq!(f.server.surfaces.len(), 2);
 }
+
+#[test]
+fn focus_round_trip_cancels_old_read_without_requiring_a_repeated_selection() {
+    let mut f = Fixture::new();
+    let mut session = f.session();
+    let _other = f
+        .client
+        .compositor
+        .as_ref()
+        .unwrap()
+        .create_surface(&f.queue.handle(), ());
+    f.pump();
+    let offer = f.selection(&["text/plain"], false);
+    f.session_pump(&mut session);
+    session.read(Instant::now()).unwrap();
+    session.poll(Instant::now()).unwrap();
+    f.pump();
+    let old_pipe = f.server.pending.pop().unwrap();
+    let keyboard = f.server.keyboard.as_ref().unwrap();
+    keyboard.leave(80, &f.server.surfaces[0]);
+    keyboard.enter(81, &f.server.surfaces[1], Vec::new());
+    keyboard.leave(82, &f.server.surfaces[1]);
+    keyboard.enter(83, &f.server.surfaces[0], Vec::new());
+    assert!(matches!(
+        f.session_pump(&mut session),
+        Some(Err(ClipboardError::Unavailable))
+    ));
+    assert_eq!(
+        rustix::io::write(&old_pipe, b"stale"),
+        Err(rustix::io::Errno::PIPE)
+    );
+    assert!(offer.is_alive());
+    session.read(Instant::now()).unwrap();
+    session.poll(Instant::now()).unwrap();
+    f.pump();
+    let pipe = f.server.pending.pop().unwrap();
+    assert_eq!(rustix::io::write(&pipe, b"current").unwrap(), 7);
+    drop(pipe);
+    let Some(Ok(Completion::Read(data))) = f.session_pump(&mut session) else {
+        panic!("missing read after focus return");
+    };
+    assert_eq!(data.plain_text(), Ok("current"));
+}

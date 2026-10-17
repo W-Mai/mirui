@@ -4,6 +4,8 @@ use crate::ui::clipboard::{ClipboardDispatch, ClipboardRead, ClipboardWrite};
 #[cfg(target_os = "linux")]
 pub(crate) mod linux;
 #[cfg(target_os = "linux")]
+mod wayland;
+#[cfg(target_os = "linux")]
 mod x11;
 
 #[cfg(target_os = "macos")]

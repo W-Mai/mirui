@@ -16,6 +16,7 @@ pub(super) struct Seat {
     pointer: Option<wl_pointer::WlPointer>,
     touch: Option<wl_touch::WlTouch>,
     keyboard_focus: bool,
+    generation: u64,
     pointer_focus: bool,
     serial: Option<u32>,
     offer: Option<Rc<Offer>>,
@@ -44,6 +45,7 @@ impl Seat {
             pointer: None,
             touch: None,
             keyboard_focus: false,
+            generation: 0,
             pointer_focus: false,
             serial: None,
             offer: None,
@@ -66,6 +68,7 @@ impl Seat {
             }
         } else {
             self.lose_focus();
+            self.select(None);
             if let Some(keyboard) = self.keyboard.take() {
                 retire(keyboard, 3, wl_keyboard::WlKeyboard::release);
             }
@@ -161,9 +164,21 @@ impl Seat {
     }
 
     fn lose_focus(&mut self) {
+        if self.keyboard_focus {
+            self.generation = self.generation.saturating_add(1);
+        }
         self.keyboard_focus = false;
         self.serial = None;
-        self.select(None);
+    }
+
+    pub(super) fn focus_generation(&self) -> Result<u64, ClipboardError> {
+        if !self.keyboard_focus {
+            return Err(ClipboardError::PermissionDenied);
+        }
+        if self.generation == u64::MAX {
+            return Err(ClipboardError::Unavailable);
+        }
+        Ok(self.generation)
     }
 
     pub(super) fn select(&mut self, offer: Option<Rc<Offer>>) {
@@ -199,6 +214,7 @@ impl Seat {
 impl Drop for Seat {
     fn drop(&mut self) {
         self.lose_focus();
+        self.select(None);
         if let Some(keyboard) = self.keyboard.take() {
             retire(keyboard, 3, wl_keyboard::WlKeyboard::release);
         }
