@@ -2033,6 +2033,43 @@ mod tests {
         assert!(runtime.event_queue.is_empty());
     }
 
+    #[derive(Default)]
+    struct Received(alloc::string::String);
+
+    #[crate::event]
+    fn receive(
+        input: event!(crate::input::event::input::TextCommitted),
+        received: res!(mut Received),
+    ) -> bool {
+        received.0.push_str(input.text());
+        true
+    }
+
+    #[test]
+    fn keyboard_text_reaches_app_callbacks_without_an_editor() {
+        use crate::input::event::{contract::Event, input::TextCommitted};
+        let mut app = App::headless(200, 100);
+        app.add_resource(Received::default());
+        app.on_event(TextCommitted::EVENT, receive::callback());
+        let mut runtime = WgpuRuntime::new(WgpuConfig::default());
+        for text in ["w", " ", "A中🙂"] {
+            runtime.keyboard_input(
+                &Key::Character(text.into()),
+                ElementState::Pressed,
+                Some(text),
+                false,
+            );
+            runtime.keyboard_input(
+                &Key::Character(text.into()),
+                ElementState::Released,
+                Some(text),
+                false,
+            );
+        }
+        deliver(&mut app, &mut runtime);
+        assert_eq!(app.world.resource::<Received>().unwrap().0, "w A中🙂");
+    }
+
     #[test]
     fn keyboard_metadata_is_captured_in_event_order_and_cleared_on_focus_loss() {
         use crate::input::event::input::KeyModifiers;
@@ -2356,14 +2393,23 @@ mod tests {
         runtime.window_event(WindowEvent::Ime(Ime::Commit("new".into())));
         deliver(&mut app, &mut runtime);
         display(&app, editor, "new");
-        runtime.set_text_input(None);
+        app.world.resource_mut::<FocusState>().unwrap().focused = None;
+        runtime.set_text_input(crate::ui::text_input::native_state(&mut app.world, 0));
+        app.add_resource(Received::default());
+        app.on_event(
+            <crate::input::event::input::TextCommitted as crate::input::event::contract::Event>::EVENT,
+            receive::callback(),
+        );
+        runtime.window_event(WindowEvent::Ime(Ime::Commit("retired".into())));
         runtime.keyboard_input(
             &Key::Character("x".into()),
             ElementState::Pressed,
             Some("x"),
             false,
         );
-        assert!(runtime.poll_event().is_none());
+        deliver(&mut app, &mut runtime);
+        display(&app, editor, "new");
+        assert_eq!(app.world.resource::<Received>().unwrap().0, "x");
     }
 
     #[test]

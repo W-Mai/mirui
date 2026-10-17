@@ -47,12 +47,15 @@ impl NativeTextInput {
     }
 
     pub fn keyboard_text(&mut self, text: &str) -> Option<InputEvent> {
-        let session = self.requested?.session;
         if self.composing || text.is_empty() {
             return None;
         }
         self.pending_clear = None;
-        Some(session.commit(alloc::string::String::from(text)))
+        let text = alloc::string::String::from(text);
+        Some(match self.requested {
+            Some(state) => state.session.commit(text),
+            None => crate::input::event::input::TextCommitted::new(text).into(),
+        })
     }
 
     pub fn ime(&mut self, event: Ime) -> Option<InputEvent> {

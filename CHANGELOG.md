@@ -115,6 +115,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- WGPU keyboard text reaches App callbacks without an active editor while retired IME commits retain their original session.
+
 - Web canvas keyboard input delivers character shortcuts to App callbacks without duplicating DOM editor text.
 
 - Software fallback preserves rounded fills under affine transforms, including scaled blur groups and clipped scene replay.
