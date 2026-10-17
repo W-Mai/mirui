@@ -226,6 +226,8 @@ pub struct ClipboardInput(ClipboardIntent);
 enum ClipboardIntent {
     Copy,
     Cut,
+    PasteRequested,
+    SelectAll,
     Paste(Result<PasteSelection, ClipboardError>),
     #[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
     DeferredPaste(deferred::DeferredRead),
@@ -238,6 +240,18 @@ impl ClipboardInput {
 
     pub fn cut() -> Self {
         Self(ClipboardIntent::Cut)
+    }
+
+    /// Request a platform read when this input is delivered to the focused component.
+    ///
+    /// Use this for native actions without a payload. Platforms that already provide a paste snapshot use [`Self::paste`] instead, without reading the clipboard again.
+    pub fn paste_requested() -> Self {
+        Self(ClipboardIntent::PasteRequested)
+    }
+
+    /// Select the focused component's content without accessing the platform clipboard.
+    pub fn select_all() -> Self {
+        Self(ClipboardIntent::SelectAll)
     }
 
     /// Own the complete native paste payload before the platform event expires.
@@ -260,6 +274,8 @@ impl ClipboardInput {
         match &self.0 {
             ClipboardIntent::Copy => copy(world, target),
             ClipboardIntent::Cut => cut(world, target),
+            ClipboardIntent::PasteRequested => paste(world, target),
+            ClipboardIntent::SelectAll => super::selection::select_all(world, target),
             #[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
             ClipboardIntent::DeferredPaste(source) => {
                 if let Some(source) = source.take() {

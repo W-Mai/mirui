@@ -47,13 +47,16 @@ impl SelectionCommands<'_, '_> {
     /// Select the target's complete content without changing keyboard focus.
     pub fn select_all(&mut self, target: Entity) {
         self.commands.apply(target, (), |world, target, ()| {
-            let result = crate::input::event::request::invoke(world, target, &SelectAll)
-                .and_then(core::convert::identity);
-            if let Err(error) = result {
-                crate::warn!(target: "mirui::selection", "select-all skipped: {:?}", error);
-            }
+            select_all(world, target);
             Ok(())
         });
+    }
+}
+
+pub(crate) fn select_all(world: &mut crate::ecs::World, target: Entity) {
+    let result = request::invoke(world, target, &SelectAll).and_then(core::convert::identity);
+    if let Err(error) = result {
+        crate::warn!(target: "mirui::selection", "select-all skipped: {:?}", error);
     }
 }
 

@@ -1,6 +1,17 @@
 use super::*;
 use crate::input::event::{focus::FocusState, input::InputEvent};
 
+struct Selected(usize);
+
+#[crate::event]
+fn select_all(
+    _event: event!(crate::ui::selection::SelectAll),
+    selected: res!(mut Selected),
+) -> Result<(), crate::ui::selection::RequestError> {
+    selected.0 += 1;
+    Ok(())
+}
+
 fn deliver(app: &mut TestApp, input: ClipboardInput) {
     assert!(
         crate::ui::delivery::dispatch_input(
@@ -13,6 +24,82 @@ fn deliver(app: &mut TestApp, input: ClipboardInput) {
         .unwrap()
     );
     flush(app);
+}
+
+#[test]
+fn requested_native_paste_keeps_the_original_target_and_selection_guard() {
+    for changed in [false, true] {
+        let (mut app, node) = fixture();
+        app.add_resource(FocusState {
+            focused: Some(node),
+        });
+        select(&mut app, node, 8, 1);
+        deliver(&mut app, ClipboardInput::paste_requested());
+        let Some(ClipboardRequest::Read(read)) = take_request(&mut app.world) else {
+            panic!("expected the existing platform read protocol");
+        };
+        assert!(take_request(&mut app.world).is_none());
+        app.world.resource_mut::<FocusState>().unwrap().focused = app.root;
+        if changed {
+            select(&mut app, node, 1, 1);
+        }
+        let response = read.complete(ClipboardData::text("new"));
+        complete(&mut app.world, &response);
+        complete(&mut app.world, &response);
+        flush(&mut app);
+        app.world.get::<TextEditing>(node).unwrap().read(|text| {
+            assert_eq!(text, if changed { "A中🙂Z" } else { "AnewZ" });
+        });
+        let results = &app.world.resource::<Results>().unwrap().0;
+        assert_eq!(results.len(), 1);
+        assert_eq!(
+            results[0].result,
+            if changed {
+                Err(ClipboardError::Unavailable)
+            } else {
+                Ok(ClipboardOutcome::Pasted)
+            }
+        );
+    }
+}
+
+#[test]
+fn native_selection_does_not_access_the_clipboard_or_require_text() {
+    let (mut app, editor) = fixture();
+    app.add_resource(Selected(0));
+    let target = app.compose(app.root.unwrap(), |cx| {
+        ui! { View () on SelectAll(select_all::callback()) }
+    });
+    app.add_resource(FocusState {
+        focused: Some(target),
+    });
+    deliver(&mut app, ClipboardInput::select_all());
+    assert_eq!(app.world.resource::<Selected>().unwrap().0, 1);
+    assert!(take_request(&mut app.world).is_none());
+    assert!(app.world.resource::<Results>().unwrap().0.is_empty());
+    app.world.resource_mut::<FocusState>().unwrap().focused = Some(editor);
+    deliver(&mut app, ClipboardInput::select_all());
+    assert_eq!(
+        app.world.get::<TextEditing>(editor).unwrap().selection(),
+        TextSelection {
+            anchor: 0,
+            cursor: "A中🙂Z".len(),
+        }
+    );
+    assert!(take_request(&mut app.world).is_none());
+}
+
+#[test]
+fn payload_free_native_actions_without_focus_do_not_start_operations() {
+    let (mut app, _) = fixture();
+    for input in [
+        ClipboardInput::paste_requested(),
+        ClipboardInput::select_all(),
+    ] {
+        deliver(&mut app, input);
+    }
+    assert!(take_request(&mut app.world).is_none());
+    assert!(app.world.resource::<Results>().unwrap().0.is_empty());
 }
 
 #[test]

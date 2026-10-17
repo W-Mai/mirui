@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Native clipboard inputs support payload-free paste requests and Select All through the existing component capabilities.
+
 - iOS clipboard transfer preserves native items and MIME representations across mobile WGPU, software upload, and SDL surfaces, including binary payloads, URI items, and oriented images.
 
 - Linux Wayland clipboard transfer shares native input seats and the host event loop across SDL and WGPU, preserves MIME representations, and cancels stale reads and window-bound transfers.

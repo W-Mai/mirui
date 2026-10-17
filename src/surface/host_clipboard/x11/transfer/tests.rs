@@ -37,9 +37,9 @@ fn accepted_transfers_keep_their_original_snapshot_without_copying_bytes() {
     assert_eq!(a.next().unwrap(), &[0, 0]);
     assert_eq!(b.next().unwrap(), &[0, 255]);
     assert_eq!(a.next().unwrap(), &[255]);
-    assert_eq!(a.next().unwrap(), &[]);
+    assert!(a.next().unwrap().is_empty());
     assert!(a.next().is_none());
-    assert_eq!(b.next().unwrap(), &[]);
+    assert!(b.next().unwrap().is_empty());
     assert!(b.next().is_none());
     assert_eq!(current.items()[0].formats()[0].bytes(), &[9]);
 }
