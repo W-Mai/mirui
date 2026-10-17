@@ -1,10 +1,11 @@
 use std::collections::{HashMap, VecDeque};
 use std::io;
 use std::sync::{Arc, Mutex};
+use x11rb::protocol::Event;
 use x11rb::protocol::xproto::*;
 use x11rb::rust_connection::{PollMode, RustConnection, Stream};
 use x11rb::utils::RawFdContainer;
-use x11rb::x11_utils::Serialize;
+use x11rb::x11_utils::{Serialize, TryParse};
 
 #[derive(Clone)]
 pub struct Wire(Arc<Mutex<State>>);
@@ -20,6 +21,8 @@ pub struct State {
     pub notifications: Vec<[u8; 32]>,
     pub masks: HashMap<u32, u32>,
     pub owner: u32,
+    pub conversions: Vec<(u32, u32, u32, u32, u32)>,
+    pub events: VecDeque<Event>,
 }
 
 fn u32_at(bytes: &[u8], offset: usize) -> u32 {
@@ -27,6 +30,23 @@ fn u32_at(bytes: &[u8], offset: usize) -> u32 {
 }
 
 impl State {
+    fn property_event(&mut self, window: u32, atom: u32, state: Property) {
+        if self
+            .masks
+            .get(&window)
+            .is_some_and(|mask| mask & u32::from(EventMask::PROPERTY_CHANGE) != 0)
+        {
+            self.events
+                .push_back(Event::PropertyNotify(PropertyNotifyEvent {
+                    response_type: PROPERTY_NOTIFY_EVENT,
+                    sequence: self.sequence,
+                    window,
+                    atom,
+                    time: 2000,
+                    state,
+                }));
+        }
+    }
     fn reply(&mut self, bytes: impl AsRef<[u8]>) {
         let bytes = bytes.as_ref();
         self.output.extend(bytes);
@@ -63,6 +83,38 @@ impl State {
                 }
                 .serialize(),
             ),
+            GET_ATOM_NAME_REQUEST => {
+                let id = u32_at(request, 4);
+                let name = self
+                    .atoms
+                    .iter()
+                    .find_map(|(name, atom)| (*atom == id).then_some(name.clone()))
+                    .unwrap();
+                self.reply(
+                    GetAtomNameReply {
+                        sequence,
+                        length: name.len().div_ceil(4) as u32,
+                        name,
+                    }
+                    .serialize(),
+                );
+            }
+            DELETE_PROPERTY_REQUEST => {
+                let window = u32_at(request, 4);
+                let atom = u32_at(request, 8);
+                if self.properties.remove(&(window, atom)).is_some() {
+                    self.property_event(window, atom, Property::DELETE);
+                }
+            }
+            CONVERT_SELECTION_REQUEST => {
+                self.conversions.push((
+                    u32_at(request, 4),
+                    u32_at(request, 8),
+                    u32_at(request, 12),
+                    u32_at(request, 16),
+                    u32_at(request, 20),
+                ));
+            }
             GET_INPUT_FOCUS_REQUEST => self.reply(
                 GetInputFocusReply {
                     sequence,
@@ -82,6 +134,18 @@ impl State {
             CHANGE_WINDOW_ATTRIBUTES_REQUEST => {
                 self.masks.insert(u32_at(request, 4), u32_at(request, 12));
             }
+            GET_WINDOW_ATTRIBUTES_REQUEST => {
+                self.reply(
+                    GetWindowAttributesReply {
+                        sequence,
+                        length: 3,
+                        your_event_mask: (*self.masks.get(&u32_at(request, 4)).unwrap_or(&0))
+                            .into(),
+                        ..Default::default()
+                    }
+                    .serialize(),
+                );
+            }
             CHANGE_PROPERTY_REQUEST => {
                 assert_eq!(request[1], u8::from(PropMode::REPLACE));
                 let format = request[16];
@@ -90,6 +154,7 @@ impl State {
                     (u32_at(request, 4), u32_at(request, 8)),
                     (u32_at(request, 12), format, request[24..24 + size].to_vec()),
                 );
+                self.property_event(u32_at(request, 4), u32_at(request, 8), Property::NEW_VALUE);
             }
             GET_PROPERTY_REQUEST => {
                 let value = self
@@ -112,7 +177,12 @@ impl State {
                     .serialize(),
                 );
             }
-            SEND_EVENT_REQUEST => self.notifications.push(request[12..44].try_into().unwrap()),
+            SEND_EVENT_REQUEST => {
+                self.notifications.push(request[12..44].try_into().unwrap());
+                self.events.push_back(Event::SelectionNotify(
+                    SelectionNotifyEvent::try_parse(&request[12..44]).unwrap().0,
+                ));
+            }
             opcode => panic!("unexpected request {opcode}"),
         }
     }

@@ -8,12 +8,21 @@ pub mod ui {
         mod data {
             include!("../src/ui/clipboard/data.rs");
         }
+        pub(crate) use data::validate_mime;
         pub use data::{ClipboardData, ClipboardFormat, ClipboardItem};
     }
 }
 
 #[path = "../src/surface/host_clipboard/x11/source.rs"]
 mod source;
+
+#[path = "../src/surface/host_clipboard/x11/protocol.rs"]
+mod protocol;
+#[path = "../src/surface/host_clipboard/x11/read.rs"]
+mod read;
+
+#[path = "x11_clipboard/read.rs"]
+mod read_contracts;
 
 #[path = "x11_clipboard/wire.rs"]
 mod wire;
@@ -28,7 +37,10 @@ fn source_wire_protocol() {
     use x11rb::x11_utils::TryParse;
 
     let (connection, state) = wire::connection();
-    let mut source = source::Source::new(&connection, 100).unwrap();
+    let previous_mask = u32::from(EventMask::PROPERTY_CHANGE | EventMask::FOCUS_CHANGE);
+    state.lock().unwrap().masks.insert(200, previous_mask);
+    let atoms = protocol::Atoms::new(&connection).unwrap().reply().unwrap();
+    let mut source = source::Source::new(&connection, 100, atoms).unwrap();
     let now = Instant::now();
     source
         .claim(
@@ -152,7 +164,7 @@ fn source_wire_protocol() {
     }
     assert_eq!(copied, old.as_bytes());
     assert!(state.lock().unwrap().properties[&(200, 510)].2.is_empty());
-    assert_eq!(state.lock().unwrap().masks[&200], 0);
+    assert_eq!(state.lock().unwrap().masks[&200], previous_mask);
     source
         .expire(&connection, now + Duration::from_secs(11))
         .unwrap();
@@ -168,7 +180,8 @@ fn ownership_changes_keep_transfers_bounded_and_release_peer_observation() {
     use x11rb::x11_utils::TryParse;
 
     let (connection, state) = wire::connection();
-    let mut source = source::Source::new(&connection, 100).unwrap();
+    let atoms = protocol::Atoms::new(&connection).unwrap().reply().unwrap();
+    let mut source = source::Source::new(&connection, 100, atoms).unwrap();
     let now = Instant::now();
     let data = Arc::new(ui::clipboard::ClipboardData::text(&"x".repeat(100_000)).unwrap());
     source.claim(&connection, data.clone(), 1000).unwrap();

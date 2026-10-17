@@ -1,5 +1,5 @@
 use alloc::{sync::Arc, vec::Vec};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use x11rb::{
     connection::Connection,
@@ -10,24 +10,13 @@ use x11rb::{
 
 use crate::ui::clipboard::{ClipboardData, ClipboardError};
 
-use super::transfer::Outgoing;
+use super::{
+    protocol::{Atoms, TIMEOUT, platform},
+    transfer::Outgoing,
+};
 
 const TRANSFERS: usize = 16;
 const MULTIPLE_PAIRS: u32 = 256;
-const TIMEOUT: Duration = Duration::from_secs(10);
-
-x11rb::atom_manager! {
-    pub(super) Atoms: AtomsCookie {
-        CLIPBOARD,
-        TARGETS,
-        TIMESTAMP,
-        MULTIPLE,
-        ATOM_PAIR,
-        INCR,
-        UTF8_STRING,
-        TEXT,
-    }
-}
 
 struct Offer {
     data: Arc<ClipboardData>,
@@ -40,6 +29,7 @@ struct Transfer {
     window: Window,
     property: Atom,
     kind: Atom,
+    previous_mask: EventMask,
     bytes: Outgoing,
     deadline: Instant,
 }
@@ -50,10 +40,6 @@ pub(super) struct Source {
     offer: Option<Offer>,
     transfers: Vec<Transfer>,
     chunk: usize,
-}
-
-fn platform<T, E>(result: Result<T, E>) -> Result<T, ClipboardError> {
-    result.map_err(|_| ClipboardError::Platform)
 }
 
 fn forget_destroyed(result: Result<(), ReplyError>) -> Result<(), ClipboardError> {
@@ -83,8 +69,8 @@ impl Source {
     pub(super) fn new(
         connection: &impl Connection,
         window: Window,
+        atoms: Atoms,
     ) -> Result<Self, ClipboardError> {
-        let atoms = platform(platform(Atoms::new(connection))?.reply())?;
         let chunk = connection
             .maximum_request_bytes()
             .checked_sub(32)
@@ -345,14 +331,24 @@ impl Source {
             return Err(ClipboardError::Capacity);
         }
         let bytes = Outgoing::new(offer.data.clone(), index, self.chunk)?;
+        let previous_mask = match self
+            .transfers
+            .iter()
+            .find(|transfer| transfer.window == window)
+        {
+            Some(transfer) => transfer.previous_mask,
+            None => {
+                platform(platform(connection.get_window_attributes(window))?.reply())?
+                    .your_event_mask
+            }
+        };
         platform(
-            platform(
-                connection.change_window_attributes(
-                    window,
-                    &ChangeWindowAttributesAux::new()
-                        .event_mask(EventMask::PROPERTY_CHANGE | EventMask::STRUCTURE_NOTIFY),
+            platform(connection.change_window_attributes(
+                window,
+                &ChangeWindowAttributesAux::new().event_mask(
+                    previous_mask | EventMask::PROPERTY_CHANGE | EventMask::STRUCTURE_NOTIFY,
                 ),
-            )?
+            ))?
             .check(),
         )?;
         let result = platform(
@@ -369,6 +365,7 @@ impl Source {
             window,
             property,
             kind,
+            previous_mask,
             bytes,
             deadline: now + TIMEOUT,
         });
@@ -462,7 +459,7 @@ impl Source {
             forget_destroyed(
                 platform(connection.change_window_attributes(
                     transfer.window,
-                    &ChangeWindowAttributesAux::new().event_mask(EventMask::NO_EVENT),
+                    &ChangeWindowAttributesAux::new().event_mask(transfer.previous_mask),
                 ))?
                 .check(),
             )?;
