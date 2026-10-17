@@ -6,6 +6,9 @@ use mirui::surface::framebuf::FramebufSurface;
 use mirui::surface::{DisplayInfo, FramebufferAccess, InputEvent};
 use std::collections::VecDeque;
 
+#[path = "retirement_authoring/navigation.rs"]
+mod navigation;
+
 struct QueuedSurface {
     pixels: FramebufSurface<fn(&[u8], PhysicalRect)>,
     events: VecDeque<InputEvent>,
