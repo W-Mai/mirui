@@ -17,6 +17,10 @@ pub mod ui {
 mod read;
 #[path = "wayland_clipboard/read.rs"]
 mod read_contracts;
+#[path = "../src/surface/host_clipboard/wayland/seat.rs"]
+mod seat;
+#[path = "wayland_clipboard/seat.rs"]
+mod seat_contracts;
 #[path = "wayland_clipboard/server.rs"]
 mod server;
 #[path = "../src/surface/host_clipboard/wayland/source.rs"]
@@ -34,7 +38,10 @@ use transfer::{Budget, Incoming};
 use ui::clipboard::{ClipboardData, ClipboardError, ClipboardFormat, ClipboardItem};
 use wayland_client::{
     Connection, Dispatch, EventQueue, QueueHandle,
-    protocol::{wl_data_device, wl_data_device_manager, wl_data_source, wl_registry, wl_seat},
+    protocol::{
+        wl_compositor, wl_data_device, wl_data_device_manager, wl_data_source, wl_keyboard,
+        wl_pointer, wl_registry, wl_seat, wl_surface, wl_touch,
+    },
 };
 use wayland_server::{Display, Resource};
 
@@ -42,6 +49,9 @@ use wayland_server::{Display, Resource};
 struct Client {
     manager: Option<wl_data_device_manager::WlDataDeviceManager>,
     seat: Option<wl_seat::WlSeat>,
+    compositor: Option<wl_compositor::WlCompositor>,
+    input: Option<seat::Seat>,
+    authorizations: usize,
     source: source::Source,
     errors: Vec<ClipboardError>,
     offers: Vec<(
@@ -70,6 +80,9 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Client {
                     state.manager = Some(registry.bind(name, version.min(3), queue, ()))
                 }
                 "wl_seat" => state.seat = Some(registry.bind(name, version.min(7), queue, ())),
+                "wl_compositor" => {
+                    state.compositor = Some(registry.bind(name, version.min(6), queue, ()))
+                }
                 _ => (),
             }
         }
@@ -92,7 +105,50 @@ impl Dispatch<wl_data_source::WlDataSource, ()> for Client {
 }
 
 wayland_client::delegate_noop!(Client: ignore wl_data_device_manager::WlDataDeviceManager);
-wayland_client::delegate_noop!(Client: ignore wl_seat::WlSeat);
+wayland_client::delegate_noop!(Client: ignore wl_compositor::WlCompositor);
+wayland_client::delegate_noop!(Client: ignore wl_surface::WlSurface);
+impl Dispatch<wl_seat::WlSeat, ()> for Client {
+    fn event(
+        state: &mut Self,
+        _: &wl_seat::WlSeat,
+        event: wl_seat::Event,
+        _: &(),
+        _: &Connection,
+        queue: &QueueHandle<Self>,
+    ) {
+        if let wl_seat::Event::Capabilities {
+            capabilities: wayland_client::WEnum::Value(capabilities),
+        } = event
+            && let Some(input) = &mut state.input
+        {
+            input.capabilities(capabilities, queue);
+        }
+    }
+}
+
+macro_rules! input_dispatch {
+    ($module:ident, $proxy:ident, $method:ident) => {
+        impl Dispatch<$module::$proxy, ()> for Client {
+            fn event(
+                state: &mut Self,
+                proxy: &$module::$proxy,
+                event: $module::Event,
+                _: &(),
+                _: &Connection,
+                _: &QueueHandle<Self>,
+            ) {
+                if let Some(input) = &mut state.input
+                    && input.$method(proxy, event)
+                {
+                    state.authorizations += 1;
+                }
+            }
+        }
+    };
+}
+input_dispatch!(wl_keyboard, WlKeyboard, keyboard);
+input_dispatch!(wl_pointer, WlPointer, pointer);
+input_dispatch!(wl_touch, WlTouch, touch);
 impl Dispatch<wl_data_device::WlDataDevice, ()> for Client {
     fn event(
         state: &mut Self,
@@ -144,6 +200,7 @@ impl Fixture {
         let mut handle = display.handle();
         handle.create_global::<server::Server, wayland_server::protocol::wl_data_device_manager::WlDataDeviceManager, _>(3, ());
         handle.create_global::<server::Server, wayland_server::protocol::wl_seat::WlSeat, _>(7, ());
+        handle.create_global::<server::Server, wayland_server::protocol::wl_compositor::WlCompositor, _>(6, ());
         let (client, server) = UnixStream::pair().unwrap();
         handle.insert_client(server, Arc::new(())).unwrap();
         let connection = Connection::from_socket(client).unwrap();

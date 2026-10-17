@@ -1,7 +1,10 @@
 use std::os::fd::{AsFd, OwnedFd};
 use wayland_server::{
     Client, DataInit, Dispatch, DisplayHandle, GlobalDispatch, New, Resource,
-    protocol::{wl_data_device, wl_data_device_manager, wl_data_offer, wl_data_source, wl_seat},
+    protocol::{
+        wl_compositor, wl_data_device, wl_data_device_manager, wl_data_offer, wl_data_source,
+        wl_keyboard, wl_pointer, wl_seat, wl_surface, wl_touch,
+    },
 };
 
 #[derive(Default)]
@@ -12,6 +15,11 @@ pub(super) struct Server {
     pub(super) device: Option<wl_data_device::WlDataDevice>,
     pub(super) received: Vec<String>,
     pub(super) pending: Vec<OwnedFd>,
+    pub(super) globals: Vec<(String, wayland_server::backend::ObjectId)>,
+    pub(super) surfaces: Vec<wl_surface::WlSurface>,
+    pub(super) keyboard: Option<wl_keyboard::WlKeyboard>,
+    pub(super) pointer: Option<wl_pointer::WlPointer>,
+    pub(super) touch: Option<wl_touch::WlTouch>,
 }
 
 impl<I: Resource + 'static> GlobalDispatch<I, ()> for Server
@@ -19,14 +27,17 @@ where
     Self: Dispatch<I, ()>,
 {
     fn bind(
-        _: &mut Self,
+        state: &mut Self,
         _: &DisplayHandle,
         _: &Client,
         resource: New<I>,
         _: &(),
         init: &mut DataInit<'_, Self>,
     ) {
-        init.init(resource, ());
+        let resource = init.init(resource, ());
+        state
+            .globals
+            .push((I::interface().name.to_owned(), resource.id()));
     }
 }
 
@@ -118,14 +129,59 @@ impl Dispatch<wl_data_source::WlDataSource, ()> for Server {
 
 impl Dispatch<wl_seat::WlSeat, ()> for Server {
     fn request(
-        _: &mut Self,
+        state: &mut Self,
         _: &Client,
         _: &wl_seat::WlSeat,
         request: wl_seat::Request,
         _: &(),
         _: &DisplayHandle,
-        _: &mut DataInit<'_, Self>,
+        init: &mut DataInit<'_, Self>,
     ) {
-        assert!(matches!(request, wl_seat::Request::Release));
+        match request {
+            wl_seat::Request::GetKeyboard { id } => state.keyboard = Some(init.init(id, ())),
+            wl_seat::Request::GetPointer { id } => state.pointer = Some(init.init(id, ())),
+            wl_seat::Request::GetTouch { id } => state.touch = Some(init.init(id, ())),
+            wl_seat::Request::Release => (),
+            _ => panic!("unexpected seat request"),
+        }
     }
 }
+
+impl Dispatch<wl_compositor::WlCompositor, ()> for Server {
+    fn request(
+        state: &mut Self,
+        _: &Client,
+        _: &wl_compositor::WlCompositor,
+        request: wl_compositor::Request,
+        _: &(),
+        _: &DisplayHandle,
+        init: &mut DataInit<'_, Self>,
+    ) {
+        match request {
+            wl_compositor::Request::CreateSurface { id } => state.surfaces.push(init.init(id, ())),
+            _ => panic!("unexpected compositor request"),
+        }
+    }
+}
+
+macro_rules! destroy_only {
+    ($module:ident, $proxy:ident, $request:ident) => {
+        impl Dispatch<$module::$proxy, ()> for Server {
+            fn request(
+                _: &mut Self,
+                _: &Client,
+                _: &$module::$proxy,
+                request: $module::Request,
+                _: &(),
+                _: &DisplayHandle,
+                _: &mut DataInit<'_, Self>,
+            ) {
+                assert!(matches!(request, $module::Request::$request));
+            }
+        }
+    };
+}
+destroy_only!(wl_keyboard, WlKeyboard, Release);
+destroy_only!(wl_pointer, WlPointer, Release);
+destroy_only!(wl_touch, WlTouch, Release);
+destroy_only!(wl_surface, WlSurface, Destroy);

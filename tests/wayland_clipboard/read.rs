@@ -11,7 +11,7 @@ use std::{
 use wayland_server::{Resource, protocol::wl_data_offer::WlDataOffer};
 
 impl Fixture {
-    fn offer(&mut self, names: &[&str], relay: bool) -> (Rc<Offer>, WlDataOffer) {
+    pub(super) fn offer(&mut self, names: &[&str], relay: bool) -> (Rc<Offer>, WlDataOffer) {
         let device = self.server.device.as_ref().unwrap();
         let source = relay.then(|| self.server.selection.clone().unwrap());
         let proxy = device
