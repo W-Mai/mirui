@@ -6,6 +6,7 @@ use sdl2::event::Event;
 mod text_input;
 pub(crate) use text_input::NativeTextInput;
 
+#[cfg(not(target_os = "macos"))]
 pub(crate) fn write_clipboard(
     video: &sdl2::VideoSubsystem,
     request: crate::ui::clipboard::ClipboardWrite,
@@ -23,6 +24,7 @@ pub(crate) fn write_clipboard(
     ClipboardDispatch::Complete(request.complete(result))
 }
 
+#[cfg(not(target_os = "macos"))]
 pub(crate) fn read_clipboard(
     video: &sdl2::VideoSubsystem,
     request: crate::ui::clipboard::ClipboardRead,

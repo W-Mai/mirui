@@ -55,10 +55,24 @@ Explicit clipboard operations may allocate snapshots, context values, and platfo
 
 Web uses the asynchronous Clipboard API and reports its acknowledgment or rejection. It writes one item with all its MIME representations; multiple-item writes return Unsupported instead of discarding items. Plain text, HTML, and PNG use standard browser formats. Other MIME types use Web custom formats when supported by the browser, with the platform prefix removed on import. Reads retain all returned items and representations for the target component to inspect. Browser clipboard access remains subject to user activation, format support, and platform permissions.
 
-SDL software and GPU surfaces read and write plain text through the SDL clipboard. Writes accept exactly one `text/plain` representation and explicitly reject other items or representations instead of silently discarding them; SDL also rejects embedded NUL bytes. Surfaces without a clipboard bridge return Unsupported.
+On macOS 11 or newer, SDL software, SDL GPU, and WGPU surfaces share the native pasteboard bridge. It preserves multiple items and MIME representations, including plain text, HTML, RTF, PNG, file/URL items, and custom binary data. System type identifiers are translated through UniformTypeIdentifiers. TIFF imports retain their original representation and provide PNG. The system may supply additional representations, such as plain text for RTF. A changed pasteboard generation rejects the read instead of mixing snapshots.
+
+Native file transfer uses one URI per item. Several files are several ClipboardItems, each with a `text/uri-list` representation. A single item containing multiple URIs returns Unsupported before writing; the bridge does not silently change item grouping. Invalid UTF-8, invalid PNG, relative URIs, and conflicting native type mappings are rejected before clearing the pasteboard. A failure during the native write preserves the source of a cut but cannot guarantee rollback of the system clipboard.
+
+macOS pasteboard operations run on the window's main thread and return synchronous Surface completions; calls from another thread return Unavailable. No worker, clipboard watcher, or additional per-surface queue is installed. Native calls may wait for another application's data provider; synchronous completion does not imply bounded latency. Snapshot and image conversion storage is allocated only for explicit clipboard operations.
+
+On other platforms, SDL software and GPU surfaces read and write plain text through the SDL clipboard. Writes accept exactly one `text/plain` representation and explicitly reject other items or representations instead of silently discarding them; SDL also rejects embedded NUL bytes. WGPU surfaces outside macOS and other surfaces without a clipboard bridge return Unsupported.
 
 Web native Copy, Cut, and Paste events use the focused component's same capabilities without synthesizing keys. Copy and cut require an acknowledged asynchronous write. Native paste owns all string MIME representations from the event and does not perform a second platform read or insert hidden-textarea content. Native paste containing files returns Unsupported rather than discarding them; the Paste command and keyboard shortcut use the asynchronous bridge for supported binary formats. Events belonging to another DOM control are left alone.
 
 A custom Surface implements `write_clipboard(ClipboardWrite)` and `read_clipboard(ClipboardRead)`. The write request owns its immutable data; a read completion takes ownership of `Result<ClipboardData, ClipboardError>`. Return `ClipboardDispatch::Complete(request.complete(result))` for synchronous operations; for asynchronous operations, retain the request, return Pending, and enqueue `InputEvent::Clipboard(request.complete(result))` when finished. Every pending request must produce one completion, including failures. An App serializes platform reads and writes together and accepts completion while suspended.
 
 For a native menu action, enqueue `InputEvent::ClipboardInput(ClipboardInput::copy())`, `ClipboardInput::cut()`, or `ClipboardInput::paste(data)`. Paste takes `Result<ClipboardData, ClipboardError>` and owns the data before the native event expires. These actions target the focus at their input-delivery position, use the same component validation and ClipboardFinished notification, and do not deliver a fabricated Key event. Paste supplied this way is synchronous and does not wait for unrelated platform transfers; changing the selection can invalidate an earlier pending cut or paste.
+
+## Native contract checks
+
+The macOS format checks run on the process main thread and use isolated named pasteboards, not the general clipboard. Run them explicitly in a desktop session; ordinary test runs skip this platform check.
+
+```bash
+cargo test --test native_clipboard --features sdl -- --ignored
+```

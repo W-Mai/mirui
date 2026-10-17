@@ -3,6 +3,8 @@ pub(crate) mod backbuffer_invalidation;
 #[cfg(any(test, all(feature = "linux-drm", target_os = "linux")))]
 mod buffer_rotation;
 pub mod framebuf;
+#[cfg(all(target_os = "macos", any(feature = "sdl", feature = "wgpu")))]
+pub(crate) mod host_clipboard;
 #[cfg(any(
     test,
     all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"),

@@ -339,14 +339,28 @@ impl Surface for SdlSurface {
         &mut self,
         request: crate::ui::clipboard::ClipboardWrite,
     ) -> crate::ui::clipboard::ClipboardDispatch {
-        super::sdl_events::write_clipboard(self.canvas.window().subsystem(), request)
+        #[cfg(target_os = "macos")]
+        {
+            super::host_clipboard::write(request)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            super::sdl_events::write_clipboard(self.canvas.window().subsystem(), request)
+        }
     }
 
     fn read_clipboard(
         &mut self,
         request: crate::ui::clipboard::ClipboardRead,
     ) -> crate::ui::clipboard::ClipboardDispatch {
-        super::sdl_events::read_clipboard(self.canvas.window().subsystem(), request)
+        #[cfg(target_os = "macos")]
+        {
+            super::host_clipboard::read(request)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            super::sdl_events::read_clipboard(self.canvas.window().subsystem(), request)
+        }
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {

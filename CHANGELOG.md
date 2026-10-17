@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- macOS SDL and WGPU builds require macOS 11 or newer for native clipboard type mapping.
+
 - `RendererFactory` implements the existing `InspectCaches` protocol. App cache snapshots include both surface-owned and factory-owned caches.
 
 - Native WGPU target edits require the configured edit budget and reuse a bounded CPU plane across region edits and composite fallbacks.
@@ -34,6 +36,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Texture::new`, `from_ref`, `from_static`, `owned`, and `from_vec` return `Result<Texture, RenderError>`, rejecting empty dimensions and insufficient pixel storage before use. Owned allocations report capacity failures through the same error path.
 
 ### Changed
+
+- macOS SDL and WGPU surfaces share native multi-item clipboard transfer for text, HTML, RTF, images, URI items and custom MIME data. Invalid writes preserve existing clipboard contents; reads verify the pasteboard generation. Native access stays on the main thread.
 
 - SDL GPU coverage text shares uploaded font surfaces and retains ordered run geometry across translation and color changes. Geometry and raster fallback entries share the existing text cache budget; full glyph signatures guard cache hits.
 

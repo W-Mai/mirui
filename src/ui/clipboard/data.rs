@@ -178,7 +178,7 @@ impl ClipboardData {
         Self::text_bytes(bytes)
     }
 
-    #[cfg(any(feature = "sdl", feature = "sdl-gpu"))]
+    #[cfg(all(not(target_os = "macos"), any(feature = "sdl", feature = "sdl-gpu")))]
     pub(crate) fn owned_text(text: alloc::string::String) -> Result<Self, ClipboardError> {
         Self::text_bytes(text.into_bytes())
     }

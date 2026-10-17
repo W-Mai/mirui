@@ -1074,6 +1074,22 @@ impl Surface for WgpuSurface {
         self.handler.runtime.set_text_input(state);
     }
 
+    #[cfg(target_os = "macos")]
+    fn write_clipboard(
+        &mut self,
+        request: crate::ui::clipboard::ClipboardWrite,
+    ) -> crate::ui::clipboard::ClipboardDispatch {
+        super::host_clipboard::write(request)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn read_clipboard(
+        &mut self,
+        request: crate::ui::clipboard::ClipboardRead,
+    ) -> crate::ui::clipboard::ClipboardDispatch {
+        super::host_clipboard::read(request)
+    }
+
     fn persistence(&self) -> BackbufferPersistence {
         BackbufferPersistence::Transient
     }

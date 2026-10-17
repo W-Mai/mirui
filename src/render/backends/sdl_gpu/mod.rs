@@ -94,6 +94,7 @@ struct MultiGestureState {
 
 pub struct SdlGpuSurface {
     device: Rc<Device>,
+    #[cfg(not(target_os = "macos"))]
     video: sdl2::VideoSubsystem,
     _event_pump: EventPump,
     text_input: crate::surface::sdl_events::NativeTextInput,
@@ -182,6 +183,7 @@ impl SdlGpuSurface {
         let device = Rc::new(Device::new(canvas, texture_creator));
         Ok(Self {
             device,
+            #[cfg(not(target_os = "macos"))]
             video,
             _event_pump: event_pump,
             text_input,
@@ -366,14 +368,28 @@ impl Surface for SdlGpuSurface {
         &mut self,
         request: crate::ui::clipboard::ClipboardWrite,
     ) -> crate::ui::clipboard::ClipboardDispatch {
-        crate::surface::sdl_events::write_clipboard(&self.video, request)
+        #[cfg(target_os = "macos")]
+        {
+            crate::surface::host_clipboard::write(request)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            crate::surface::sdl_events::write_clipboard(&self.video, request)
+        }
     }
 
     fn read_clipboard(
         &mut self,
         request: crate::ui::clipboard::ClipboardRead,
     ) -> crate::ui::clipboard::ClipboardDispatch {
-        crate::surface::sdl_events::read_clipboard(&self.video, request)
+        #[cfg(target_os = "macos")]
+        {
+            crate::surface::host_clipboard::read(request)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            crate::surface::sdl_events::read_clipboard(&self.video, request)
+        }
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
