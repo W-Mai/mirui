@@ -250,8 +250,23 @@ impl<'a> SwRenderer<'a> {
                 );
             }
             DrawCommand::Fill {
-                area, color, opa, ..
+                area,
+                color,
+                radius,
+                opa,
+                ..
             } => {
+                if *radius != Fixed::ZERO {
+                    self.dispatch_fill_quad(
+                        &tf.apply_rect(*area),
+                        area,
+                        color,
+                        *radius,
+                        *opa,
+                        clip,
+                    );
+                    return;
+                }
                 let Some(mut target) = write_pixels(&mut self.target, &mut self.failure) else {
                     return;
                 };
@@ -951,11 +966,6 @@ impl SwRenderer<'_> {
                 if crate::render::paint::GradientPaint::new(paint, draw, bbox).is_none() {
                     return Err(RenderError::InvalidGeometry);
                 }
-            }
-            DrawCommand::Fill {
-                quad: None, radius, ..
-            } if affine && *radius != Fixed::ZERO => {
-                return Err(RenderError::Unsupported(RenderFeature::RoundedFill));
             }
             DrawCommand::Blit {
                 quad,
@@ -1939,19 +1949,6 @@ mod tests {
         );
         let clip = Rect::new(0, 0, 16, 16);
         let affine = Transform::rotate_deg(Fixed::from_int(20));
-        let fill = DrawCommand::Fill {
-            area: clip,
-            transform: affine,
-            quad: None,
-            color: Color::rgb(20, 30, 40),
-            radius: Fixed::from_int(3),
-            opa: 255,
-        };
-        assert_eq!(
-            renderer.route(&DrawRequest::new(&fill, clip)),
-            Err(RenderError::Unsupported(RenderFeature::RoundedFill))
-        );
-
         let texture = Texture::owned(2, 2, ColorFormat::RGBA8888).expect("valid pixel storage");
         let blit = DrawCommand::Blit {
             pos: Point::ZERO,
@@ -1985,7 +1982,7 @@ mod tests {
     }
 
     #[test]
-    fn submit_draws_plain_commands_and_checks_exceptional_semantics() {
+    fn submit_draws_plain_commands() {
         let mut renderer = SwRenderer::new(
             Texture::owned(16, 16, ColorFormat::RGBA8888).expect("valid pixel storage"),
         );
@@ -2003,23 +2000,83 @@ mod tests {
             renderer.target.read_pixels().unwrap().get_pixel(3, 4),
             Color::rgb(20, 30, 40)
         );
+    }
 
-        let unsupported = DrawCommand::Fill {
-            area: clip,
-            transform: Transform::rotate_deg(Fixed::from_int(20)),
-            quad: None,
-            color: Color::rgb(200, 10, 10),
-            radius: Fixed::from_int(3),
-            opa: 255,
-        };
-        assert_eq!(
-            renderer.submit(&DrawRequest::new(&unsupported, clip)),
-            Err(RenderError::Unsupported(RenderFeature::RoundedFill))
-        );
-        assert_eq!(
-            renderer.target.read_pixels().unwrap().get_pixel(3, 4),
-            Color::rgb(20, 30, 40)
-        );
+    #[test]
+    fn affine_rounded_fills_preserve_quad_semantics_in_region_scopes() {
+        use crate::render::Renderer;
+
+        let clip = Rect::new(4, 4, 24, 24);
+        let area = Rect::new(0, 0, 12, 8);
+        for scale in [Fixed::ONE, Fixed::from_int(2)] {
+            for transform in [
+                Transform::translate(Fixed::from_int(8), Fixed::from_int(8)).compose(
+                    &Transform::scale(Fixed::from_ratio(3, 2), Fixed::from_ratio(5, 4)),
+                ),
+                Transform::translate(Fixed::from_int(12), Fixed::from_int(8))
+                    .compose(&Transform::rotate_deg(Fixed::from_int(25))),
+            ] {
+                for opacity in [128, 255] {
+                    let command = DrawCommand::Fill {
+                        area,
+                        transform,
+                        quad: None,
+                        color: Color::rgba(200, 80, 40, 180),
+                        radius: Fixed::from_int(3),
+                        opa: opacity,
+                    };
+                    let mut expected =
+                        SwRenderer::new(Texture::owned(64, 64, ColorFormat::RGBA8888).unwrap());
+                    expected.viewport = Viewport::new(64, 64, scale);
+                    let mut explicit = command;
+                    if let DrawCommand::Fill {
+                        transform: tf,
+                        quad,
+                        ..
+                    } = &mut explicit
+                    {
+                        *tf = Transform::IDENTITY;
+                        *quad = Some(transform.apply_rect(area));
+                    }
+                    expected.submit(&DrawRequest::new(&explicit, clip)).unwrap();
+                    assert!(
+                        expected
+                            .target
+                            .read_pixels()
+                            .unwrap()
+                            .bytes()
+                            .iter()
+                            .any(|b| *b != 0)
+                    );
+                    for scoped in [false, true] {
+                        let mut actual =
+                            SwRenderer::new(Texture::owned(64, 64, ColorFormat::RGBA8888).unwrap());
+                        actual.viewport = expected.viewport;
+                        assert_eq!(
+                            actual.route(&DrawRequest::new(&command, clip)),
+                            Ok(RenderRoute::Native)
+                        );
+                        if scoped {
+                            let region = actual.plan_scope(&clip).unwrap();
+                            actual
+                                .render_scope(region, &mut |local| {
+                                    local.submit(&DrawRequest::new(&command, clip))
+                                })
+                                .unwrap();
+                        } else {
+                            let allocations = crate::test_support::tracked_allocations(|| {
+                                actual.submit(&DrawRequest::new(&command, clip)).unwrap();
+                            });
+                            assert_eq!(allocations, 0);
+                        }
+                        assert_eq!(
+                            actual.target.read_pixels().unwrap().bytes(),
+                            expected.target.read_pixels().unwrap().bytes()
+                        );
+                    }
+                }
+            }
+        }
     }
 
     /// Blit dst origin at a negative x — common when an OffscreenRender

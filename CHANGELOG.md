@@ -115,6 +115,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Software fallback preserves rounded fills under affine transforms, including scaled blur groups and clipped scene replay.
+
 - Read-only output history does not reserve native binding workspace. Software production reclaims unused binding storage without disturbing pending native writes.
 
 - Output memory trimming preserves borrowed pixels and their budget charge instead of conflicting with active readers.

@@ -9,6 +9,8 @@ else either enters an exact bounded fallback or returns a typed error.
 
 ## Route contract
 
+Software affine rounded fills use the existing quad raster path, preserving the local corner radius, opacity, viewport scale and clip mask in direct draws and region scopes. Plain affine fills retain their rectangle path.
+
 SDL-GPU and native WGPU use bounded destination-region fallback for affine and projective lines and arcs. Planning includes stroke extent and clipping before device access. Affine requests retain the software affine raster path; projected strokes are rebased in physical coordinates to avoid scaling a fractional region offset twice.
 
 `PaintCtx::with_clip_path` uses native clipping when supported and otherwise executes its complete body through `plan_scope` and `render_scope`. Planning failure skips the body; successful entry executes it once, preserves nested clip order and drawing context, and retains drawing failures before writeback failures. Region rebasing preserves affine commands as affine operations instead of selecting a projective raster path for a translation.
