@@ -1297,6 +1297,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
         // Publish after FrameTimings so a single post_render sees both.
         let snapshots = crate::core::cache::InspectCaches::inspect_caches(&self.backend)
+            .chain(crate::core::cache::InspectCaches::inspect_caches(
+                &self.factory,
+            ))
             .map(|(_, c)| crate::core::cache::CacheStatsSnapshot::capture(c))
             .collect();
         self.world
@@ -2206,6 +2209,56 @@ mod app_invariant_tests {
     use crate::ui::widgets::text::Text;
     use crate::ui::{Children, HitTarget, Parent};
 
+    #[test]
+    fn frame_cache_registry_includes_factory_owned_caches() {
+        use crate::core::cache::{CacheInspect, CacheRegistry, InspectCaches, LruCache};
+        use crate::types::Viewport;
+
+        struct CachedFactory {
+            software: SwRendererFactory,
+            cache: LruCache<u32, u32>,
+        }
+        impl InspectCaches for CachedFactory {
+            fn inspect_caches(&self) -> impl Iterator<Item = (&'static str, &dyn CacheInspect)> {
+                core::iter::once(("factory/test", &self.cache as &dyn CacheInspect))
+            }
+        }
+        impl<B: FramebufferAccess> RendererFactory<B> for CachedFactory {
+            type Renderer<'a>
+                = crate::render::SwRenderer<'a>
+            where
+                B: 'a;
+
+            fn make<'a>(
+                &'a mut self,
+                backend: &'a mut B,
+                viewport: &Viewport,
+            ) -> Self::Renderer<'a> {
+                self.software.make(backend, viewport)
+            }
+        }
+        let mut factory = CachedFactory {
+            software: SwRendererFactory::new(),
+            cache: LruCache::builder()
+                .max_size(crate::core::cache::MaxSize::Count(1))
+                .name("factory/test")
+                .build(),
+        };
+        factory.cache.entry(1).or_insert_with(|| 7);
+        let mut app = App::with_factory(App::headless(8, 8).backend, factory);
+        app.pending_frame = Some(PendingFrame {
+            frame_start: 0,
+            input_end: 0,
+            systems_end: 0,
+        });
+        app.finalize_frame_stats();
+        let registry = app.world.resource::<CacheRegistry>().unwrap();
+        assert_eq!(registry.snapshots().len(), 1);
+        assert_eq!(registry.snapshots()[0].name, "factory/test");
+        assert_eq!(registry.snapshots()[0].len, 1);
+        assert_eq!(registry.snapshots()[0].stats.insert_count, 1);
+    }
+
     #[crate::compose]
     fn painted_bounds_scene() {
         crate::ui! {
@@ -2879,6 +2932,8 @@ mod app_invariant_tests {
         fail: bool,
         requested_runs: usize,
     }
+
+    impl crate::core::cache::InspectCaches for FailingScratchFactory {}
 
     impl<B: FramebufferAccess> RendererFactory<B> for FailingScratchFactory {
         type Renderer<'a>

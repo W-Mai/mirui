@@ -94,7 +94,6 @@ struct MultiGestureState {
 
 pub struct SdlGpuSurface {
     device: Rc<Device>,
-    label_cache: LabelCache,
     video: sdl2::VideoSubsystem,
     _event_pump: EventPump,
     text_input: crate::surface::sdl_events::NativeTextInput,
@@ -182,7 +181,6 @@ impl SdlGpuSurface {
         );
         let device = Rc::new(Device::new(canvas, texture_creator));
         Ok(Self {
-            label_cache: LabelCache::new(Rc::clone(&device)),
             device,
             video,
             _event_pump: event_pump,
@@ -395,7 +393,6 @@ impl Surface for SdlGpuSurface {
                 Event::Quit { .. } => self.pending.push_back(InputEvent::Quit),
                 Event::RenderTargetsReset { .. } | Event::RenderDeviceReset { .. } => {
                     self.needs_redraw = true;
-                    self.label_cache.clear();
                     self.device.invalidate();
                 }
                 event @ (Event::KeyDown { .. } | Event::KeyUp { .. }) => {
@@ -518,26 +515,14 @@ impl Surface for SdlGpuSurface {
 
 // NOTE: no `impl FramebufferAccess for SdlGpuSurface` — by design.
 
-type CacheAccessor = fn(&SdlGpuSurface) -> &dyn CacheInspect;
-
-impl InspectCaches for SdlGpuSurface {
-    fn inspect_caches(&self) -> impl Iterator<Item = (&'static str, &dyn CacheInspect)> + '_ {
-        const ENTRIES: &[CacheAccessor] = &[
-            |s: &SdlGpuSurface| s.label_cache.as_inspect(),
-            |s: &SdlGpuSurface| s.label_cache.scalar_inspect(),
-        ];
-        ENTRIES.iter().map(move |f| {
-            let c = f(self);
-            (c.cache_name(), c)
-        })
-    }
-}
+impl InspectCaches for SdlGpuSurface {}
 
 pub struct SdlGpuFactory<S = Box<[u8]>> {
     projective_fallback: Option<ProjectiveFallback<S>>,
     tessellator: TessellationCache,
     stroke_scratch: StrokeScratch,
     texture_cache: Option<TextureCache>,
+    label_cache: Option<LabelCache>,
     texture_cache_budget: usize,
 }
 
@@ -548,6 +533,7 @@ impl SdlGpuFactory<Box<[u8]>> {
             tessellator: TessellationCache::new(),
             stroke_scratch: StrokeScratch::new(),
             texture_cache: None,
+            label_cache: None,
             texture_cache_budget: texture_cache::DEFAULT_BUDGET,
         }
     }
@@ -558,6 +544,7 @@ impl SdlGpuFactory<Box<[u8]>> {
             tessellator: self.tessellator,
             stroke_scratch: self.stroke_scratch,
             texture_cache: self.texture_cache,
+            label_cache: self.label_cache,
             texture_cache_budget: self.texture_cache_budget,
         }
     }
@@ -584,6 +571,12 @@ impl<S> InspectCaches for SdlGpuFactory<S> {
         self.texture_cache
             .iter()
             .map(|cache| ("sdl_gpu/texture", cache.inspect()))
+            .chain(self.label_cache.iter().flat_map(|cache| {
+                [
+                    ("sdl_gpu/label", cache.as_inspect()),
+                    ("sdl_gpu/glyph_surface", cache.scalar_inspect()),
+                ]
+            }))
             .chain(core::iter::once((
                 "sdl_gpu/geometry",
                 self.tessellator.geometry.inspect(),
@@ -619,9 +612,16 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFact
                 self.texture_cache_budget,
             ));
         }
+        if self
+            .label_cache
+            .as_ref()
+            .is_none_or(|cache| !cache.matches(&backend.device))
+        {
+            self.label_cache = Some(LabelCache::new(Rc::clone(&backend.device)));
+        }
         SdlGpuRenderer {
             device: &backend.device,
-            label_cache: &mut backend.label_cache,
+            label_cache: self.label_cache.as_mut().expect("prepared label cache"),
             tessellator: &mut self.tessellator,
             texture_cache: self.texture_cache.as_mut().expect("prepared texture cache"),
             projective_fallback: self.projective_fallback.as_mut(),
@@ -634,6 +634,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFact
 
     fn trim_memory(&mut self) {
         self.texture_cache = None;
+        self.label_cache = None;
         let budget = self.tessellator.geometry.budget;
         self.tessellator = TessellationCache::new();
         self.tessellator.geometry = super::tessellation::geometry::GeometryCache::new(budget);

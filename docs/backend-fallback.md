@@ -160,6 +160,10 @@ SDL GPU and WGPU share checked path tessellation. Invalid geometry, vertex limit
 
 SDL GPU tessellation scratch storage belongs to `SdlGpuFactory`. Factory configuration preserves the prepared buffers; `trim_memory()` releases them alongside other factory-owned drawing caches, and subsequent draws prepare them again.
 
+SDL GPU run textures, glyph surfaces and text staging buffers also belong to `SdlGpuFactory`. They are reused only for the same device and generation, replaced after device reset or reassignment, and released by `trim_memory()`. Factory `InspectCaches` reports `sdl_gpu/label` and `sdl_gpu/glyph_surface`, each with a 4 MiB retained texture limit; staging capacity is separate.
+
+`RendererFactory` requires `InspectCaches`; factories without inspectable caches use its empty default implementation. App frame statistics collect both surface and factory caches into the existing `CacheRegistry`.
+
 `SdlGpuFactory::with_geometry_cache_budget(bytes)` limits retained path signatures and tessellated meshes (default 1 MiB; zero disables retention). Physical path content, fill rule and stroke parameters determine reuse; translation, color and clipping do not. Cache hits verify complete signatures and reuse the mesh without tessellation or dashed-stroke expansion. Rounded rectangles, quads and lines provide stack-backed commands without temporary heap paths. Oversized entries draw through scratch storage without retention. `InspectCaches` exposes `sdl_gpu/geometry`; trimming releases retained meshes and scratch buffers while preserving the configured limit.
 
 In a View, `paint.read_pixels(texture)` borrows the source pixels and retains read errors for the render walker. A `None` result means the paint has failed, not that an output is absent; check `outputs.get(entity)` separately. The pixel borrow does not borrow the paint context, so the callback can continue drawing while reading it. Temporal, reflection and drop effects use this access path with their existing workspace and history.

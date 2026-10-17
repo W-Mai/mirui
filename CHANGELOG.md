@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- `RendererFactory` implements the existing `InspectCaches` protocol. App cache snapshots include both surface-owned and factory-owned caches.
+
 - Native WGPU target edits require the configured edit budget and reuse a bounded CPU plane across region edits and composite fallbacks.
 
 - SDL GPU region edits use the configured projective fallback storage and reject insufficient capacity before callbacks. Region edits and projected draws share readback, alpha conversion and replacement.
@@ -32,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Texture::new`, `from_ref`, `from_static`, `owned`, and `from_vec` return `Result<Texture, RenderError>`, rejecting empty dimensions and insufficient pixel storage before use. Owned allocations report capacity failures through the same error path.
 
 ### Changed
+
+- SDL GPU text caches and staging buffers belong to the renderer factory, follow device generations, and release their storage on memory trimming.
 
 - SDL-GPU retains bounded tessellated path meshes across translation and color changes, verifies complete geometry signatures on cache hits, and exposes geometry limits and cache statistics through the renderer factory.
 - SDL-GPU rounded primitives and lines avoid temporary heap paths; cached dashed strokes skip outline expansion.

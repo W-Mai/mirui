@@ -13,7 +13,7 @@ use crate::types::Viewport;
 /// resources (SDL canvas, wgpu device, VG-Lite context). CPU-raster
 /// factories (like [`SwRendererFactory`]) use the [`FramebufferAccess`]
 /// sub-trait bound to obtain a `Texture<'_>` from any compatible backend.
-pub trait RendererFactory<B: Surface> {
+pub trait RendererFactory<B: Surface>: crate::core::cache::InspectCaches {
     type Renderer<'a>: Renderer + Canvas
     where
         Self: 'a,
@@ -67,6 +67,8 @@ impl Default for SwRendererFactory {
         Self::new()
     }
 }
+
+impl crate::core::cache::InspectCaches for SwRendererFactory {}
 
 impl<B: FramebufferAccess> RendererFactory<B> for SwRendererFactory {
     type Renderer<'a>

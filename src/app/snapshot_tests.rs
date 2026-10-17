@@ -253,6 +253,8 @@ struct SubmissionRenderer {
     fail: Rc<Cell<bool>>,
 }
 
+impl crate::core::cache::InspectCaches for SubmissionFactory {}
+
 impl RendererFactory<TestSurface> for SubmissionFactory {
     type Renderer<'a> = SubmissionRenderer;
 

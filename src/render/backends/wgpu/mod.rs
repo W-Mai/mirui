@@ -413,6 +413,8 @@ impl Default for WgpuRendererFactory {
     }
 }
 
+impl crate::core::cache::InspectCaches for WgpuRendererFactory {}
+
 impl<B: WgpuTarget> RendererFactory<B> for WgpuRendererFactory {
     type Renderer<'a>
         = WgpuRenderer<'a, B>

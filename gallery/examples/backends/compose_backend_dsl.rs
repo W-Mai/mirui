@@ -55,6 +55,8 @@ impl HybridFactory {
     }
 }
 
+impl mirui::core::cache::InspectCaches for HybridFactory {}
+
 impl<B: mirui::surface::FramebufferAccess> RendererFactory<B> for HybridFactory {
     type Renderer<'a>
         = Hybrid<SwRenderer<'a>, Logging>

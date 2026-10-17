@@ -455,6 +455,8 @@ struct NativeFactory {
     outer_count: Cell<u32>,
 }
 
+impl mirui::core::cache::InspectCaches for NativeFactory {}
+
 impl RendererFactory<NativeSurface> for NativeFactory {
     type Renderer<'a> = NativeOuter<NativeInner<BorrowedDummy<'a>, Inner<'a>>, Outer<'a>>;
 

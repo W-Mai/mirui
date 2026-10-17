@@ -77,6 +77,7 @@ pub struct LabelCache {
     cache: WithFactory<LruCache<RasterRunKey, SizedSdlTexture>, LabelCtor>,
     scalar_cache: WithFactory<LruCache<ScalarSurfaceKey, SizedSdlTexture>, ScalarCtor>,
     device: Rc<Device>,
+    generation: u64,
     raster_buf: Vec<u8>,
     scalar_buf: Vec<u8>,
     glyph_vertices: Vec<SDL_Vertex>,
@@ -96,6 +97,7 @@ impl LabelCache {
         Self {
             cache: WithFactory::new(cache, rasterize_label as LabelCtor),
             scalar_cache: WithFactory::new(scalar_cache, rasterize_scalar_surface as ScalarCtor),
+            generation: device.generation(),
             device,
             raster_buf: Vec::new(),
             scalar_buf: Vec::new(),
@@ -461,14 +463,10 @@ impl LabelCache {
         rendered.then_some(()).ok_or(RenderError::BackendFailure)
     }
 
-    pub fn clear(&mut self) {
-        self.cache.cache_mut().clear();
-        self.scalar_cache.cache_mut().clear();
+    pub(super) fn matches(&self, device: &Rc<Device>) -> bool {
+        Rc::ptr_eq(&self.device, device) && self.generation == device.generation()
     }
 
-    /// Read-only `CacheInspect` view onto the underlying cache. Used by
-    /// `SdlGpuSurface` to surface label-cache stats without exposing
-    /// the cached texture type.
     pub(super) fn as_inspect(&self) -> &dyn crate::core::cache::CacheInspect {
         self.cache.cache()
     }

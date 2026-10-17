@@ -372,6 +372,8 @@ impl Default for WebCanvasRendererFactory<Box<[u8]>> {
     }
 }
 
+impl<S> crate::core::cache::InspectCaches for WebCanvasRendererFactory<S> {}
+
 impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<WebCanvasSurface>
     for WebCanvasRendererFactory<S>
 {
