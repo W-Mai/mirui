@@ -174,151 +174,185 @@ impl Path {
     /// gracefully: the radius is clamped to half the shortest edge, so
     /// adjacent arcs meet at the edge midpoint rather than overlapping.
     pub fn rounded_quad(q: &[Point; 4], r: Fixed) -> Self {
-        // Clamp radius to half the shortest edge so rounded corners
-        // from adjacent edges never overlap.
-        let mut min_edge = Fixed::MAX;
-        let edges: [(Point, Point); 4] = [(q[0], q[1]), (q[1], q[2]), (q[2], q[3]), (q[3], q[0])];
-        let mut edge_lens = [Fixed::ZERO; 4];
-        let mut edge_dirs = [Point::ZERO; 4];
-        for i in 0..4 {
-            let (a, b) = edges[i];
-            let dx = b.x - a.x;
-            let dy = b.y - a.y;
-            let len = (dx * dx + dy * dy).sqrt();
-            edge_lens[i] = len;
-            if len > Fixed::ZERO {
-                edge_dirs[i] = Point {
-                    x: dx / len,
-                    y: dy / len,
-                };
-            }
-            if len < min_edge {
-                min_edge = len;
-            }
-        }
-        let r = r.min(min_edge / 2).max(Fixed::ZERO);
-
-        if r == Fixed::ZERO {
-            // Degenerate: plain quad polygon.
-            let mut p = Self::new();
-            p.move_to(q[0]);
-            p.line_to(q[1]);
-            p.line_to(q[2]);
-            p.line_to(q[3]);
-            p.close();
-            return p;
-        }
-
-        // k: bezier control offset for a 90° arc (~0.03% radius error).
-        let k = r * Fixed::from_f32(0.552_284_8);
-
-        // Per-edge start/end points, offset r from the corners.
-        let mut seg_start = [Point::ZERO; 4];
-        let mut seg_end = [Point::ZERO; 4];
-        for i in 0..4 {
-            let (a, b) = edges[i];
-            let ue = edge_dirs[i];
-            seg_start[i] = Point {
-                x: a.x + ue.x * r,
-                y: a.y + ue.y * r,
-            };
-            seg_end[i] = Point {
-                x: b.x - ue.x * r,
-                y: b.y - ue.y * r,
-            };
-        }
-
-        let mut p = Self::new();
-        p.move_to(seg_start[0]);
-        for i in 0..4 {
-            // Straight part of edge i.
-            p.line_to(seg_end[i]);
-            // Rounded corner at q[(i+1) % 4]: arc from edge i's end to
-            // edge (i+1)'s start. Control points extend along the
-            // incoming / outgoing edge tangents by k.
-            let ue_in = edge_dirs[i];
-            let j = (i + 1) & 3;
-            let ue_out = edge_dirs[j];
-            let c1 = Point {
-                x: seg_end[i].x + ue_in.x * k,
-                y: seg_end[i].y + ue_in.y * k,
-            };
-            let c2 = Point {
-                x: seg_start[j].x - ue_out.x * k,
-                y: seg_start[j].y - ue_out.y * k,
-            };
-            p.cubic_to(c1, c2, seg_start[j]);
-        }
-        p.close();
-        p
+        Self::from_owned(rounded_quad_commands(q, r).commands().to_vec())
     }
 
     pub fn rounded_rect(x: Fixed, y: Fixed, w: Fixed, h: Fixed, r: Fixed) -> Self {
-        if r == Fixed::ZERO {
-            return Self::rect(x, y, w, h);
-        }
-        let r = r.min(w / 2).min(h / 2);
-        // k = 4/3 · tan(22.5°) ≈ 0.5523 — cubic-bezier control offset that
-        // approximates a 90° circular arc to within ~0.03% of the true radius.
-        // Much rounder than the old quad approximation (which was off by ~27%).
-        let k = r * Fixed::from_f32(0.552_284_8);
-        let mut p = Self::new();
-
-        let x1 = x + r;
-        let x2 = x + w - r;
-        let y1 = y + r;
-        let y2 = y + h - r;
-
-        p.move_to(Point { x: x1, y });
-        p.line_to(Point { x: x2, y });
-        // Top-right corner: tangents +X at start, +Y at end.
-        p.cubic_to(
-            Point { x: x2 + k, y },
-            Point {
-                x: x + w,
-                y: y1 - k,
-            },
-            Point { x: x + w, y: y1 },
-        );
-        p.line_to(Point { x: x + w, y: y2 });
-        // Bottom-right corner: tangents +Y at start, -X at end.
-        p.cubic_to(
-            Point {
-                x: x + w,
-                y: y2 + k,
-            },
-            Point {
-                x: x2 + k,
-                y: y + h,
-            },
-            Point { x: x2, y: y + h },
-        );
-        p.line_to(Point { x: x1, y: y + h });
-        // Bottom-left corner: tangents -X at start, -Y at end.
-        p.cubic_to(
-            Point {
-                x: x1 - k,
-                y: y + h,
-            },
-            Point { x, y: y2 + k },
-            Point { x, y: y2 },
-        );
-        p.line_to(Point { x, y: y1 });
-        // Top-left corner: tangents -Y at start, +X at end.
-        p.cubic_to(
-            Point { x, y: y1 - k },
-            Point { x: x1 - k, y },
-            Point { x: x1, y },
-        );
-        p.close();
-
-        p
+        Self::from_owned(rounded_rect_commands(x, y, w, h, r).commands().to_vec())
     }
 
     /// Conservative bounding box (includes Bezier control points, not the
     /// true curve extrema). Returns None for empty paths.
     pub fn bbox(&self) -> Option<Rect> {
         bbox_of_cmds(&self.cmds)
+    }
+}
+
+pub(crate) struct PrimitivePath {
+    commands: [PathCmd; 10],
+    len: usize,
+}
+
+impl PrimitivePath {
+    pub fn commands(&self) -> &[PathCmd] {
+        &self.commands[..self.len]
+    }
+}
+
+fn polygon_commands(q: &[Point; 4]) -> PrimitivePath {
+    PrimitivePath {
+        commands: [
+            PathCmd::MoveTo(q[0]),
+            PathCmd::LineTo(q[1]),
+            PathCmd::LineTo(q[2]),
+            PathCmd::LineTo(q[3]),
+            PathCmd::Close,
+            PathCmd::Close,
+            PathCmd::Close,
+            PathCmd::Close,
+            PathCmd::Close,
+            PathCmd::Close,
+        ],
+        len: 5,
+    }
+}
+
+pub(crate) fn rounded_quad_commands(q: &[Point; 4], r: Fixed) -> PrimitivePath {
+    // Clamp radius to half the shortest edge so rounded corners
+    // from adjacent edges never overlap.
+    let mut min_edge = Fixed::MAX;
+    let edges: [(Point, Point); 4] = [(q[0], q[1]), (q[1], q[2]), (q[2], q[3]), (q[3], q[0])];
+    let mut edge_lens = [Fixed::ZERO; 4];
+    let mut edge_dirs = [Point::ZERO; 4];
+    for i in 0..4 {
+        let (a, b) = edges[i];
+        let dx = b.x - a.x;
+        let dy = b.y - a.y;
+        let len = (dx * dx + dy * dy).sqrt();
+        edge_lens[i] = len;
+        if len > Fixed::ZERO {
+            edge_dirs[i] = Point {
+                x: dx / len,
+                y: dy / len,
+            };
+        }
+        if len < min_edge {
+            min_edge = len;
+        }
+    }
+    let r = r.min(min_edge / 2).max(Fixed::ZERO);
+
+    if r == Fixed::ZERO {
+        return polygon_commands(q);
+    }
+
+    // k: bezier control offset for a 90° arc (~0.03% radius error).
+    let k = r * Fixed::from_f32(0.552_284_8);
+
+    // Per-edge start/end points, offset r from the corners.
+    let mut seg_start = [Point::ZERO; 4];
+    let mut seg_end = [Point::ZERO; 4];
+    for i in 0..4 {
+        let (a, b) = edges[i];
+        let ue = edge_dirs[i];
+        seg_start[i] = Point {
+            x: a.x + ue.x * r,
+            y: a.y + ue.y * r,
+        };
+        seg_end[i] = Point {
+            x: b.x - ue.x * r,
+            y: b.y - ue.y * r,
+        };
+    }
+
+    PrimitivePath {
+        commands: core::array::from_fn(|index| match index {
+            0 => PathCmd::MoveTo(seg_start[0]),
+            9 => PathCmd::Close,
+            index if index % 2 == 1 => PathCmd::LineTo(seg_end[(index - 1) / 2]),
+            index => {
+                let i = (index - 2) / 2;
+                let j = (i + 1) & 3;
+                PathCmd::CubicTo {
+                    ctrl1: Point {
+                        x: seg_end[i].x + edge_dirs[i].x * k,
+                        y: seg_end[i].y + edge_dirs[i].y * k,
+                    },
+                    ctrl2: Point {
+                        x: seg_start[j].x - edge_dirs[j].x * k,
+                        y: seg_start[j].y - edge_dirs[j].y * k,
+                    },
+                    end: seg_start[j],
+                }
+            }
+        }),
+        len: 10,
+    }
+}
+
+pub(crate) fn rounded_rect_commands(
+    x: Fixed,
+    y: Fixed,
+    w: Fixed,
+    h: Fixed,
+    r: Fixed,
+) -> PrimitivePath {
+    if r == Fixed::ZERO {
+        return polygon_commands(&[
+            Point { x, y },
+            Point { x: x + w, y },
+            Point { x: x + w, y: y + h },
+            Point { x, y: y + h },
+        ]);
+    }
+    let r = r.min(w / 2).min(h / 2);
+    let k = r * Fixed::from_f32(0.552_284_8);
+    let x1 = x + r;
+    let x2 = x + w - r;
+    let y1 = y + r;
+    let y2 = y + h - r;
+    PrimitivePath {
+        commands: [
+            PathCmd::MoveTo(Point { x: x1, y }),
+            PathCmd::LineTo(Point { x: x2, y }),
+            PathCmd::CubicTo {
+                ctrl1: Point { x: x2 + k, y },
+                ctrl2: Point {
+                    x: x + w,
+                    y: y1 - k,
+                },
+                end: Point { x: x + w, y: y1 },
+            },
+            PathCmd::LineTo(Point { x: x + w, y: y2 }),
+            PathCmd::CubicTo {
+                ctrl1: Point {
+                    x: x + w,
+                    y: y2 + k,
+                },
+                ctrl2: Point {
+                    x: x2 + k,
+                    y: y + h,
+                },
+                end: Point { x: x2, y: y + h },
+            },
+            PathCmd::LineTo(Point { x: x1, y: y + h }),
+            PathCmd::CubicTo {
+                ctrl1: Point {
+                    x: x1 - k,
+                    y: y + h,
+                },
+                ctrl2: Point { x, y: y2 + k },
+                end: Point { x, y: y2 },
+            },
+            PathCmd::LineTo(Point { x, y: y1 }),
+            PathCmd::CubicTo {
+                ctrl1: Point { x, y: y1 - k },
+                ctrl2: Point { x: x1 - k, y },
+                end: Point { x: x1, y },
+            },
+            PathCmd::Close,
+        ],
+        len: 10,
     }
 }
 

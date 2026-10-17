@@ -4,7 +4,9 @@ use core::hash::{Hash, Hasher};
 use lyon::{math::Point as LyonPoint, tessellation::VertexBuffers};
 
 use crate::core::cache::{CacheInspect, Handle, HasSize, LruCache, MaxSize};
-use crate::render::path::{Path, PathCmd};
+#[cfg(test)]
+use crate::render::path::Path;
+use crate::render::path::PathCmd;
 use crate::render::raster::{FillRule, StrokeSpec};
 use crate::render::renderer::RenderError;
 use crate::types::{Fixed, Fixed64, Point, Transform};
@@ -34,7 +36,7 @@ impl ShapeStyle<'_> {
 }
 
 pub(crate) struct ShapeRequest<'a> {
-    path: &'a Path,
+    path: &'a [PathCmd],
     transform: Option<Transform>,
     pub origin: Point,
     style: ShapeStyle<'a>,
@@ -43,16 +45,25 @@ pub(crate) struct ShapeRequest<'a> {
 
 impl<'a> ShapeRequest<'a> {
     pub fn new(
-        path: &'a Path,
+        path: &'a [PathCmd],
         transform: Option<&Transform>,
         style: ShapeStyle<'a>,
     ) -> Result<Self, RenderError> {
-        let first = path.commands().iter().find_map(|cmd| match cmd {
+        let first = path.iter().find_map(|cmd| match cmd {
             PathCmd::MoveTo(p) | PathCmd::LineTo(p) => Some(*p),
             PathCmd::QuadTo { end, .. } | PathCmd::CubicTo { end, .. } => Some(*end),
             PathCmd::Close => None,
         });
         let origin = first.map_or(Point::ZERO, |p| transform.map_or(p, |tf| tf.apply_point(p)));
+        Self::at_origin(path, transform, style, origin)
+    }
+
+    pub fn at_origin(
+        path: &'a [PathCmd],
+        transform: Option<&Transform>,
+        style: ShapeStyle<'a>,
+        origin: Point,
+    ) -> Result<Self, RenderError> {
         let mut request = Self {
             path,
             transform: transform.copied(),
@@ -65,7 +76,7 @@ impl<'a> ShapeRequest<'a> {
         if let ShapeStyle::Stroke(spec) = style {
             spec.dash.hash(&mut hash);
         }
-        for cmd in path.commands() {
+        for cmd in path {
             hash_command(&request.map(cmd)?, &mut hash);
         }
         request.key = hash.finish();
@@ -106,7 +117,6 @@ impl<'a> ShapeRequest<'a> {
 
     pub fn commands(&self) -> impl Iterator<Item = PathCmd> + '_ {
         self.path
-            .commands()
             .iter()
             .map(|cmd| self.map(cmd).expect("validated normalized path"))
     }
@@ -135,7 +145,8 @@ mod tests {
     #[test]
     fn normalized_lookup_is_exact_and_allocation_free() {
         let path = triangle(10);
-        let request = ShapeRequest::new(&path, None, ShapeStyle::Fill(FillRule::NonZero)).unwrap();
+        let request =
+            ShapeRequest::new(path.commands(), None, ShapeStyle::Fill(FillRule::NonZero)).unwrap();
         let mut cache = GeometryCache::new(4096);
         cache.retain(&request, &mesh());
         let translate = Transform {
@@ -143,8 +154,12 @@ mod tests {
             ty: Fixed::from_int(-17),
             ..Transform::IDENTITY
         };
-        let moved = ShapeRequest::new(&path, Some(&translate), ShapeStyle::Fill(FillRule::NonZero))
-            .unwrap();
+        let moved = ShapeRequest::new(
+            path.commands(),
+            Some(&translate),
+            ShapeStyle::Fill(FillRule::NonZero),
+        )
+        .unwrap();
         assert_eq!(moved.key, request.key);
         assert_eq!(
             crate::test_support::tracked_allocations(|| {
@@ -156,7 +171,7 @@ mod tests {
         );
         let other = triangle(11);
         let mut collision =
-            ShapeRequest::new(&other, None, ShapeStyle::Fill(FillRule::NonZero)).unwrap();
+            ShapeRequest::new(other.commands(), None, ShapeStyle::Fill(FillRule::NonZero)).unwrap();
         collision.key = request.key;
         assert!(cache.find(&collision).is_none());
         assert!(cache.entries.is_empty());
@@ -165,7 +180,8 @@ mod tests {
     #[test]
     fn capacity_counts_signature_and_mesh_and_zero_disables_retention() {
         let path = triangle(10);
-        let request = ShapeRequest::new(&path, None, ShapeStyle::Fill(FillRule::NonZero)).unwrap();
+        let request =
+            ShapeRequest::new(path.commands(), None, ShapeStyle::Fill(FillRule::NonZero)).unwrap();
         for budget in [0, 1, 4096] {
             let mut cache = GeometryCache::new(budget);
             cache.retain(&request, &mesh());
@@ -178,7 +194,11 @@ mod tests {
     fn fill_rule_scale_and_stroke_semantics_change_signature() {
         use crate::render::raster::{LineCap, LineJoin};
         let path = triangle(10);
-        let signature = |style, transform| ShapeRequest::new(&path, transform, style).unwrap().key;
+        let signature = |style, transform| {
+            ShapeRequest::new(path.commands(), transform, style)
+                .unwrap()
+                .key
+        };
         let fill = ShapeStyle::Fill(FillRule::NonZero);
         assert_ne!(
             signature(fill, None),
@@ -240,7 +260,7 @@ mod tests {
             y: Fixed::ONE,
         });
         assert!(matches!(
-            ShapeRequest::new(&path, None, ShapeStyle::Fill(FillRule::NonZero)),
+            ShapeRequest::new(path.commands(), None, ShapeStyle::Fill(FillRule::NonZero)),
             Err(RenderError::InvalidGeometry)
         ));
     }
@@ -332,7 +352,7 @@ impl GeometryCache {
             ShapeStyle::Stroke(spec) => spec.dash,
         };
         let bytes = size_of::<ShapeMesh>()
-            + size_of_val(request.path.commands())
+            + size_of_val(request.path)
             + size_of_val(dash)
             + mesh.vertices.len() * size_of::<LyonPoint>()
             + mesh.indices.len() * size_of::<u32>();

@@ -11,7 +11,7 @@
 //! correct shader path can come later.
 
 use super::{SdlGpuRenderer, sdl_pixel_rect};
-use crate::render::path::Path;
+use crate::render::path::rounded_quad_commands;
 use crate::render::renderer::RenderError;
 use crate::render::texture::Texture;
 use crate::types::{Color, Fixed, Point, Rect};
@@ -37,9 +37,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             self.viewport.point_to_physical(q[3]),
         ];
         let phys_radius = radius * self.viewport.scale();
-        let path = Path::rounded_quad(&phys_q, phys_radius);
+        let path = rounded_quad_commands(&phys_q, phys_radius);
         if let Err(error) = self.tessellator.fill(
-            &path,
+            path.commands(),
             None,
             color,
             opa,
@@ -69,9 +69,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         ];
         let phys_radius = radius * self.viewport.scale();
         let phys_width = (width * self.viewport.scale()).max(Fixed::ONE);
-        let path = Path::rounded_quad(&phys_q, phys_radius);
+        let path = rounded_quad_commands(&phys_q, phys_radius);
         if let Err(error) = self.tessellator.stroke(
-            &path,
+            path.commands(),
             None,
             crate::render::raster::StrokeSpec {
                 width: phys_width,

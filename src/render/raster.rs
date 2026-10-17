@@ -84,7 +84,7 @@ impl StrokeScratch {
 
     pub fn outline(
         &mut self,
-        path: &Path,
+        path: &[PathCmd],
         transform: Option<&Transform>,
         spec: StrokeSpec<'_>,
     ) -> &Path {
@@ -97,7 +97,7 @@ impl StrokeScratch {
             &self.dash_lengths
         };
         offset_polygon_into(
-            &path.cmds,
+            path,
             transform,
             spec.width,
             spec.cap,
@@ -1581,9 +1581,12 @@ mod tests {
                 .filter(|cmd| matches!(cmd, PathCmd::MoveTo(_)))
                 .count()
         };
-        assert_eq!(contours(scratch.outline(&path, None, spec(Fixed::ONE))), 4);
         assert_eq!(
-            contours(scratch.outline(&path, None, spec(Fixed::from_int(2)))),
+            contours(scratch.outline(path.commands(), None, spec(Fixed::ONE))),
+            4
+        );
+        assert_eq!(
+            contours(scratch.outline(path.commands(), None, spec(Fixed::from_int(2)))),
             2
         );
     }

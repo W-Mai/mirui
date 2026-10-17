@@ -1,12 +1,12 @@
 use super::SdlGpuRenderer;
-use crate::render::path::Path;
+use crate::render::path::{Path, PathCmd};
 use crate::render::raster::{FillRule, LineCap, LineJoin, StrokeSpec};
 use crate::types::{Color, Fixed, Rect, Transform};
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     pub(super) fn fill_path_inner(
         &mut self,
-        path: &Path,
+        path: &[PathCmd],
         clip: &Rect,
         color: &Color,
         opa: u8,
@@ -35,9 +35,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     ) {
         let phys_tf = self.viewport.as_transform().compose(cmd_tf);
         let phys_clip = self.viewport.rect_to_physical(*clip);
-        if let Err(error) = self
-            .tessellator
-            .fill(path, Some(&phys_tf), color, opa, fill_rule)
+        if let Err(error) =
+            self.tessellator
+                .fill(path.commands(), Some(&phys_tf), color, opa, fill_rule)
         {
             self.failure.get_or_insert(error);
             return;
@@ -47,7 +47,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
 
     pub(super) fn stroke_path_inner(
         &mut self,
-        path: &Path,
+        path: &[PathCmd],
         clip: &Rect,
         width: Fixed,
         color: &Color,
@@ -72,7 +72,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
 
     pub(super) fn stroke_path_styled_inner(
         &mut self,
-        path: &Path,
+        path: &[PathCmd],
         clip: &Rect,
         cmd_tf: &Transform,
         spec: StrokeSpec<'_>,
@@ -107,7 +107,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             self.submit_geometry(&phys_clip, physical_opacity != 255 || color.a != 255);
             return;
         }
-        let outline = self.stroke_scratch.outline(
+        if let Err(error) = self.tessellator.dashed_stroke(
             path,
             Some(&phys_tf),
             StrokeSpec {
@@ -115,11 +115,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 dash_scale: scale,
                 ..spec
             },
-        );
-        if let Err(error) = self
-            .tessellator
-            .fill(outline, None, color, opa, FillRule::NonZero)
-        {
+            self.stroke_scratch,
+            color,
+            opa,
+        ) {
             self.failure.get_or_insert(error);
             return;
         }

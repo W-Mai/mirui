@@ -1,5 +1,5 @@
 use super::{SdlGpuRenderer, apply_solid_color, sdl_pixel_rect};
-use crate::render::path::Path;
+use crate::render::path::PathCmd;
 use crate::render::renderer::RenderError;
 use crate::types::{Color, Fixed, Point, Rect};
 
@@ -42,8 +42,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             canvas.set_clip_rect(None);
             return;
         }
-        let mut path = Path::new();
-        path.move_to(p1).line_to(p2);
+        let path = [PathCmd::MoveTo(p1), PathCmd::LineTo(p2)];
         self.stroke_path_inner(&path, clip, width, color, opa);
     }
 }

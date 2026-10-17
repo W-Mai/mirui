@@ -1729,7 +1729,10 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             self.factory.stroke_tessellator.restore_mesh(mesh);
             return;
         }
-        let outline = self.factory.stroke_scratch.outline(path, transform, spec);
+        let outline = self
+            .factory
+            .stroke_scratch
+            .outline(path.commands(), transform, spec);
         if let Err(error) = self
             .factory
             .tessellator
@@ -3081,7 +3084,7 @@ mod route_tests {
         path.move_to(Point::new(0, 0)).line_to(Point::new(40, 0));
         let mut scratch = StrokeScratch::new();
         let outline = scratch.outline(
-            &path,
+            path.commands(),
             None,
             StrokeSpec {
                 width: Fixed::from_int(8),
@@ -3112,7 +3115,7 @@ mod route_tests {
         );
         let mut scratch = StrokeScratch::new();
         let outline = scratch.outline(
-            &path,
+            path.commands(),
             None,
             StrokeSpec {
                 width: Fixed::from_int(4),

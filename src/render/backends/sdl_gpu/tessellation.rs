@@ -13,8 +13,10 @@ use crate::render::backends::tessellation::geometry::{GeometryCache, ShapeReques
 use crate::render::backends::tessellation::{
     FillTessellator, StrokeTessellator as SharedStrokeTessellator,
 };
+#[cfg(test)]
 use crate::render::path::Path;
-use crate::render::raster::{FillRule, StrokeSpec};
+use crate::render::path::PathCmd;
+use crate::render::raster::{FillRule, StrokeScratch, StrokeSpec};
 use crate::render::renderer::RenderError;
 use crate::types::{Color, Point, Transform};
 
@@ -40,7 +42,7 @@ impl TessellationCache {
 
     pub fn fill(
         &mut self,
-        path: &Path,
+        path: &[PathCmd],
         transform: Option<&Transform>,
         color: &Color,
         opa: u8,
@@ -64,7 +66,7 @@ impl TessellationCache {
 
     pub fn stroke(
         &mut self,
-        path: &Path,
+        path: &[PathCmd],
         transform: Option<&Transform>,
         spec: StrokeSpec<'_>,
         color: &Color,
@@ -83,6 +85,40 @@ impl TessellationCache {
         self.bake(&mesh, request.origin, color, opa);
         self.geometry.retain(&request, &mesh);
         self.stroke_tess.restore_mesh(mesh);
+        Ok(())
+    }
+
+    pub fn dashed_stroke(
+        &mut self,
+        path: &[PathCmd],
+        transform: Option<&Transform>,
+        spec: StrokeSpec<'_>,
+        scratch: &mut StrokeScratch,
+        color: &Color,
+        opa: u8,
+    ) -> Result<(), RenderError> {
+        self.verts.clear();
+        self.indices.clear();
+        let request = ShapeRequest::new(path, transform, ShapeStyle::Stroke(spec))?;
+        if let Some(hit) = self.geometry.find(&request) {
+            self.bake(&hit.get().mesh, request.origin, color, opa);
+            return Ok(());
+        }
+        let outline = scratch.outline(path, transform, spec);
+        let normalized = ShapeRequest::at_origin(
+            outline.commands(),
+            None,
+            ShapeStyle::Fill(FillRule::NonZero),
+            request.origin,
+        )?;
+        self.fill_tess.fill_lyon(
+            &commands_to_lyon(normalized.commands(), None),
+            FillRule::NonZero,
+        )?;
+        let mesh = self.fill_tess.take_mesh();
+        self.bake(&mesh, request.origin, color, opa);
+        self.geometry.retain(&request, &mesh);
+        self.fill_tess.restore_mesh(mesh);
         Ok(())
     }
 
@@ -132,12 +168,69 @@ mod tests {
     use crate::types::Fixed;
 
     #[test]
+    fn primitive_and_dashed_cache_hits_skip_construction_workspaces() {
+        use crate::render::path::{rounded_quad_commands, rounded_rect_commands};
+        use crate::render::raster::{LineCap, LineJoin};
+        let quad = [
+            Point::new(0, 0),
+            Point::new(80, 0),
+            Point::new(80, 40),
+            Point::new(0, 40),
+        ];
+        let mut cache = TessellationCache::new();
+        let mut scratch = StrokeScratch::new();
+        let spec = StrokeSpec {
+            width: 2.into(),
+            cap: LineCap::Round,
+            join: LineJoin::Round,
+            miter_limit: 4.into(),
+            dash: &[5.into(), 3.into()],
+            dash_scale: Fixed::ONE,
+        };
+        let color = Color::rgb(30, 80, 120);
+        let mut draw = |scratch: &mut StrokeScratch| {
+            let rect = rounded_rect_commands(0.into(), 0.into(), 80.into(), 40.into(), 6.into());
+            cache
+                .fill(rect.commands(), None, &color, 255, FillRule::NonZero)
+                .unwrap();
+            let rounded = rounded_quad_commands(&quad, 6.into());
+            cache
+                .fill(rounded.commands(), None, &color, 255, FillRule::NonZero)
+                .unwrap();
+            cache
+                .dashed_stroke(rounded.commands(), None, spec, scratch, &color, 255)
+                .unwrap();
+        };
+        draw(&mut scratch);
+        // A fresh scratch has no flattened paths or stroke buffers to reuse.
+        let mut untouched = StrokeScratch::new();
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| draw(&mut untouched)),
+            0
+        );
+        let mut uncached = TessellationCache::new();
+        uncached.geometry = GeometryCache::new(0);
+        let rounded = rounded_quad_commands(&quad, 6.into());
+        uncached
+            .dashed_stroke(rounded.commands(), None, spec, &mut scratch, &color, 255)
+            .unwrap();
+        assert_eq!(cache.indices, uncached.indices);
+        assert_eq!(cache.verts.len(), uncached.verts.len());
+        for (cached, direct) in cache.verts.iter().zip(&uncached.verts) {
+            assert_eq!(
+                (cached.position.x, cached.position.y),
+                (direct.position.x, direct.position.y)
+            );
+        }
+    }
+
+    #[test]
     fn translated_recolored_mesh_hits_without_allocation_or_tessellation() {
         let path = Path::rounded_rect(0.into(), 0.into(), 40.into(), 20.into(), 3.into());
         let mut cache = TessellationCache::new();
         cache
             .fill(
-                &path,
+                path.commands(),
                 None,
                 &Color::rgb(100, 20, 30),
                 255,
@@ -158,7 +251,7 @@ mod tests {
             crate::test_support::tracked_allocations(|| {
                 cache
                     .fill(
-                        &path,
+                        path.commands(),
                         Some(&translate),
                         &Color::rgb(10, 80, 30),
                         128,
@@ -181,7 +274,7 @@ mod tests {
         uncached.geometry = GeometryCache::new(0);
         uncached
             .fill(
-                &path,
+                path.commands(),
                 Some(&translate),
                 &Color::rgb(10, 80, 30),
                 128,

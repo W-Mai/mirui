@@ -1052,7 +1052,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             } => {
                 let color = paint_color(paint);
                 self.stroke_path_styled_inner(
-                    path,
+                    path.commands(),
                     clip,
                     transform,
                     StrokeSpec {
@@ -1177,7 +1177,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             } => {
                 let color = paint_color(paint);
                 if tx == Fixed::ZERO && ty == Fixed::ZERO {
-                    self.fill_path_inner(path, clip, &color, *opa, *fill_rule);
+                    self.fill_path_inner(path.commands(), clip, &color, *opa, *fill_rule);
                 } else {
                     let translate = Transform::translate(tx, ty);
                     self.fill_path_transformed_inner(
@@ -1512,7 +1512,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for SdlGpuRenderer<'_, S> {
         fill_rule: crate::render::raster::FillRule,
     ) {
         let color = paint_color(paint);
-        self.fill_path_inner(path, clip, &color, opa, fill_rule);
+        self.fill_path_inner(path.commands(), clip, &color, opa, fill_rule);
     }
 
     fn stroke_path(
@@ -1529,7 +1529,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for SdlGpuRenderer<'_, S> {
     ) {
         let color = paint_color(paint);
         self.stroke_path_styled_inner(
-            path,
+            path.commands(),
             clip,
             &Transform::IDENTITY,
             StrokeSpec {

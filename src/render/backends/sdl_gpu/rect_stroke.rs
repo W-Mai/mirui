@@ -1,5 +1,5 @@
 use super::{SdlGpuRenderer, apply_solid_color, sdl_pixel_rect};
-use crate::render::path::Path;
+use crate::render::path::rounded_rect_commands;
 use crate::render::renderer::RenderError;
 use crate::types::{Color, Fixed, Rect};
 
@@ -33,13 +33,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             return;
         }
         // Center stroke on the geometric rect edge, so outer edge stays at `area`.
-        let path = Path::rounded_rect(
+        let path = rounded_rect_commands(
             area.x + width / 2,
             area.y + width / 2,
             area.w - width,
             area.h - width,
             (radius - width / 2).max(Fixed::ZERO),
         );
-        self.stroke_path_inner(&path, clip, width, color, opa);
+        self.stroke_path_inner(path.commands(), clip, width, color, opa);
     }
 }

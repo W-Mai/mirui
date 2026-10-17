@@ -161,7 +161,7 @@ fn factory_configuration_retains_geometry_and_trim_releases_it() {
     let color = Color::rgb(20, 80, 120);
     factory
         .tessellator
-        .fill(&path, None, &color, 255, FillRule::NonZero)
+        .fill(path.commands(), None, &color, 255, FillRule::NonZero)
         .unwrap();
     let vertices = factory.tessellator.verts.as_ptr();
     let indices = factory.tessellator.indices.as_ptr();
@@ -195,7 +195,7 @@ fn factory_configuration_retains_geometry_and_trim_releases_it() {
     assert_eq!(factory.texture_cache_budget, 1234);
     factory
         .tessellator
-        .fill(&path, None, &color, 255, FillRule::NonZero)
+        .fill(path.commands(), None, &color, 255, FillRule::NonZero)
         .unwrap();
     assert_eq!(
         (

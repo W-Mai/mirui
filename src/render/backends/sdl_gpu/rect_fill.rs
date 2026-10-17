@@ -1,5 +1,5 @@
 use super::{SdlGpuRenderer, apply_solid_color, sdl_pixel_rect};
-use crate::render::path::Path;
+use crate::render::path::rounded_rect_commands;
 use crate::render::renderer::RenderError;
 use crate::types::{Color, Fixed, Rect};
 
@@ -32,9 +32,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             }
             return;
         }
-        let path = Path::rounded_rect(area.x, area.y, area.w, area.h, radius);
+        let path = rounded_rect_commands(area.x, area.y, area.w, area.h, radius);
         self.fill_path_inner(
-            &path,
+            path.commands(),
             clip,
             color,
             opa,
