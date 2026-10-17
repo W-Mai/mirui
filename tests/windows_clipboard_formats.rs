@@ -4,3 +4,6 @@ pub use mirui::ui;
 
 #[path = "../src/surface/host_clipboard/windows/html.rs"]
 mod html;
+
+#[path = "../src/surface/host_clipboard/windows/unicode.rs"]
+mod unicode;
