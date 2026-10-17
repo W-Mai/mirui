@@ -63,11 +63,15 @@ target/release/examples/perf_collect --sdl-gpu page_studio 300 gl 0
 target/release/examples/perf_collect --sdl-gpu shapes 300 gl 0
 target/release/examples/perf_collect --sdl-gpu text 300 gl 0
 target/release/examples/perf_collect --sdl-gpu digits 300 gl 0
+target/release/examples/perf_collect --sdl-gpu coverage_text 300 gl 0
+target/release/examples/perf_collect --sdl-gpu coverage_digits 300 gl 0
 ```
 
 Arguments are scene, measured frame count (default 300), driver (`gl`, `gles2`, or `auto`; default `gl`), and requested MSAA samples (default 0). `auto` accepts only 0 because it does not request GL multisampling. Vsync is disabled. Each invocation opens one native window, reports the first rendered frame separately, warms 30 frames, then reports wall-time mean, P50, P95, P99 and maximum. Driver, logical/physical size, scale, configuration, build debug assertions and the SDL batching hint are printed with the results. Record the source commit and build flags alongside the output when comparing runs.
 
 These samples call `App::render()` on every frame, including layout preparation and presentation, without advancing systems or dispatching user input. Scene clocks are fixed. `digits` changes its Model before each render; its timing includes that update and reactive text formatting. `text` holds the same content fixed. The other scenes use existing Demo compositions. This measures full-frame submission and presentation wall time, not idle scheduling, page animation, input responsiveness or isolated GPU execution time. No readback or explicit GPU completion wait is inserted; queued GPU work may complete after a call returns. Compare identical scene/configuration/physical-size runs on the same device, and inspect snapshots separately.
+
+`text` and `digits` use Play distance-field glyphs. `coverage_text` and `coverage_digits` use the 14 px coverage representation in MiSans; the latter updates the counter while keeping the surrounding paragraphs unchanged. Compare each scene against itself when checking a representation-specific path.
 
 Existing `InspectCaches` statistics are printed after warmup and after measurement, outside the timed region. Counters are cumulative; subtract the warm values to obtain measured-frame hits, misses and evictions. Cache limits are not measured GPU memory usage. Closing the window aborts collection rather than reporting an incomplete sample set. The tool does not modify global SDL settings or the library's default backend configuration.
 

@@ -1,7 +1,7 @@
 use super::SwRenderer;
 use crate::render::font::scalar::ScalarField;
 use crate::render::font::sdf::SignedDistanceField;
-use crate::render::font::{Font, Glyph, GlyphKind};
+use crate::render::font::{Font, Glyph, GlyphKind, raster_glyph_origin, raster_glyph_rect};
 use crate::types::{Color, Fixed, Fixed64, Point, Rect, Transform, Transform3D, fixed::storage};
 
 #[derive(Clone, Copy)]
@@ -131,8 +131,6 @@ impl SwRenderer<'_> {
         let requested_size = font.size.max(1);
         let output_ppem = crate::render::font::output_ppem(requested_size, viewport_scale);
         let metrics = font.metrics(requested_size);
-        let (base_x, base_y) = phys_pos.floor();
-        let base_baseline = base_y + (metrics.ascender * viewport_scale).to_int();
         let context = GlyphRasterContext {
             requested_size,
             viewport_scale,
@@ -146,26 +144,15 @@ impl SwRenderer<'_> {
             else {
                 continue;
             };
-            let Some(dx) = positioned
-                .origin
-                .x
-                .checked_sub(first.origin.x)
-                .and_then(|value| value.checked_add(positioned.offset.x))
-            else {
+            let Some((x, baseline)) = raster_glyph_origin(
+                phys_pos,
+                first.origin,
+                positioned,
+                metrics.ascender,
+                viewport_scale,
+            ) else {
                 continue;
             };
-            let Some(dy) = positioned
-                .origin
-                .y
-                .checked_sub(first.origin.y)
-                .and_then(|value| value.checked_add(positioned.offset.y))
-            else {
-                continue;
-            };
-            let dx = crate::types::fixed::from_textflow(dx);
-            let dy = crate::types::fixed::from_textflow(dy);
-            let x = base_x + (dx * viewport_scale).to_int();
-            let baseline = base_baseline + (dy * viewport_scale).to_int();
             let mono_y = baseline - (metrics.ascender * viewport_scale).to_int();
             self.draw_glyph_at(&glyph, x, mono_y, baseline, context, color, opa);
         }
@@ -911,14 +898,17 @@ impl SwRenderer<'_> {
                 if region.width() == 0 || region.height() == 0 {
                     return;
                 }
-                let design = representation.design_ppem().max(1);
-                let glyph_scale = Fixed::from_int(i32::from(context.requested_size))
-                    / Fixed::from_int(i32::from(design))
-                    * context.viewport_scale;
-                let raster_x = x + (*bearing_x * context.viewport_scale).to_int();
-                let raster_y = baseline - (*bearing_y * context.viewport_scale).to_int();
-                let width = scaled_extent(region.width(), glyph_scale);
-                let height = scaled_extent(region.height(), glyph_scale);
+                let (raster_x, raster_y, width, height) = raster_glyph_rect(
+                    (x, baseline),
+                    Point {
+                        x: *bearing_x,
+                        y: *bearing_y,
+                    },
+                    *region,
+                    context.requested_size,
+                    representation.design_ppem(),
+                    context.viewport_scale,
+                );
                 match representation.kind() {
                     mirx::font::FontRepresentationKind::Coverage { bits } => self
                         .blit_coverage_region(
@@ -1185,12 +1175,6 @@ fn splat_coverage_pixel(
             target.blend_pixel_int(px, py, color, alpha);
         }
     }
-}
-
-fn scaled_extent(extent: u32, scale: Fixed) -> u16 {
-    let raw_scale = u64::try_from(storage::to_i32(scale)).unwrap_or(0);
-    let pixels = (u64::from(extent) * raw_scale).div_ceil(256);
-    pixels.clamp(1, u64::from(u16::MAX)) as u16
 }
 
 #[cfg(test)]

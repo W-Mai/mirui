@@ -383,6 +383,57 @@ pub struct FontMetrics {
     pub line_height: crate::types::Fixed,
 }
 
+pub(crate) fn raster_glyph_origin(
+    physical_pos: Point,
+    first: textflow::shaping::FlowPoint,
+    glyph: &textflow::shaping::PositionedGlyph,
+    ascender: Fixed,
+    scale: Fixed,
+) -> Option<(i32, i32)> {
+    let dx = glyph
+        .origin
+        .x
+        .checked_sub(first.x)?
+        .checked_add(glyph.offset.x)?;
+    let dy = glyph
+        .origin
+        .y
+        .checked_sub(first.y)?
+        .checked_add(glyph.offset.y)?;
+    Some((
+        physical_pos.x.floor().to_int() + (crate::types::fixed::from_textflow(dx) * scale).to_int(),
+        physical_pos.y.floor().to_int()
+            + (ascender * scale).to_int()
+            + (crate::types::fixed::from_textflow(dy) * scale).to_int(),
+    ))
+}
+
+pub(crate) fn raster_glyph_rect(
+    origin: (i32, i32),
+    bearing: Point,
+    region: ::mirx::image::Region,
+    requested_size: u16,
+    design_ppem: u16,
+    scale: Fixed,
+) -> (i32, i32, u16, u16) {
+    let glyph_scale = Fixed::from_int(i32::from(requested_size))
+        / Fixed::from_int(i32::from(design_ppem.max(1)))
+        * scale;
+    let extent = |value: u32| {
+        let raw_scale =
+            u64::try_from(crate::types::fixed::storage::to_i32(glyph_scale)).unwrap_or(0);
+        (u64::from(value) * raw_scale)
+            .div_ceil(256)
+            .clamp(1, u64::from(u16::MAX)) as u16
+    };
+    (
+        origin.0 + (bearing.x * scale).to_int(),
+        origin.1 - (bearing.y * scale).to_int(),
+        extent(region.width()),
+        extent(region.height()),
+    )
+}
+
 /// Format adapter used by both paragraph layout and render backends.
 pub trait FontProvider: 'static {
     fn face_id(&self) -> FontFaceId;
@@ -1207,6 +1258,54 @@ pub(crate) fn resolve_or_default(world: &World, token: &FontToken) -> Option<Rc<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raster_pixel_geometry_preserves_fractional_origin_and_negative_bearing() {
+        use textflow::shaping::{FlowPoint, PositionedGlyph};
+
+        let first = FlowPoint { x: 256, y: 512 };
+        let glyph = PositionedGlyph::new(GlyphId::new(65), FlowPoint { x: 640, y: 384 });
+        let scale = Fixed::from_ratio(3, 2);
+        let allocations = crate::test_support::tracked_allocations(|| {
+            let origin = raster_glyph_origin(
+                Point {
+                    x: Fixed::from_ratio(-1, 2),
+                    y: Fixed::from_ratio(11, 4),
+                },
+                first,
+                &glyph,
+                Fixed::from_ratio(11, 2),
+                scale,
+            )
+            .unwrap();
+            assert_eq!(origin, (1, 9));
+            assert_eq!(
+                raster_glyph_rect(
+                    origin,
+                    Point {
+                        x: Fixed::from_ratio(-3, 2),
+                        y: Fixed::from_ratio(7, 2),
+                    },
+                    ::mirx::image::Region::new(0, 0, 3, 5).unwrap(),
+                    8,
+                    8,
+                    scale,
+                ),
+                (-2, 4, 5, 8)
+            );
+            assert!(
+                raster_glyph_origin(
+                    Point::ZERO,
+                    FlowPoint { x: i32::MIN, y: 0 },
+                    &glyph,
+                    Fixed::ONE,
+                    scale,
+                )
+                .is_none()
+            );
+        });
+        assert_eq!(allocations, 0);
+    }
 
     #[test]
     fn positioned_raster_preserves_baseline_offsets_and_representation_scale() {

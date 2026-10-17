@@ -8,7 +8,7 @@ use mirui::surface::sdl_gpu::{SdlGpuConfig, SdlGpuDriver, SdlGpuFactory, SdlGpuS
 use mirui::ui::widgets::Text;
 
 const WARMUP: usize = 30;
-const USAGE: &str = "usage: perf_collect --sdl-gpu <nearby|page_studio|shapes|text|digits> [frames=300] [auto|gl|gles2] [samples=0]";
+const USAGE: &str = "usage: perf_collect --sdl-gpu <nearby|page_studio|shapes|text|digits|coverage_text|coverage_digits> [frames=300] [auto|gl|gles2] [samples=0]";
 
 #[model]
 #[derive(Default)]
@@ -29,13 +29,17 @@ impl Counter {
 }
 
 #[compose]
-fn text_scene(counter: model!(Counter), dynamic: bool) -> Entity {
+fn text_scene(counter: model!(Counter), dynamic: bool, coverage: bool) -> Entity {
     ui! {
         Column (grow: 1.0, padding: Padding::all(20), row_gap: 12) {
-            Text ("Coverage text / 0123456789", font_size: 24, height: 36)
+            Text (
+                "Coverage text / 0123456789",
+                font_size: if coverage { 14 } else { 24 },
+                height: 36
+            )
             Text (
                 text: ${ if dynamic { format!("{:04}", counter.value()) } else { String::from("0123") } },
-                font_size: 24,
+                font_size: if coverage { 14 } else { 24 },
                 height: 36
             )
             walk 0..12 with _row {
@@ -63,7 +67,13 @@ impl Options {
         let scene = args.next().ok_or(USAGE)?;
         if !matches!(
             scene.as_str(),
-            "nearby" | "page_studio" | "shapes" | "text" | "digits"
+            "nearby"
+                | "page_studio"
+                | "shapes"
+                | "text"
+                | "digits"
+                | "coverage_text"
+                | "coverage_digits"
         ) {
             return Err(USAGE.into());
         }
@@ -128,6 +138,8 @@ pub(super) fn run() -> Result<(), String> {
     app.add_resource(MonoClock::new(|| 0));
     let root = app.spawn_root().ignore_safe_area().id();
     let mut counter = None;
+    let dynamic = matches!(options.scene.as_str(), "digits" | "coverage_digits");
+    let coverage = matches!(options.scene.as_str(), "coverage_text" | "coverage_digits");
     match options.scene.as_str() {
         "nearby" => {
             nearby::setup_app(&mut app, root);
@@ -141,16 +153,23 @@ pub(super) fn run() -> Result<(), String> {
             let font = Font::from_mirx(
                 "MIRUI Play",
                 12,
-                include_bytes!(concat!(
-                    env!("CARGO_MANIFEST_DIR"),
-                    "/../src/gallery/demos/assets/play_ui.mirx"
-                )),
+                if coverage {
+                    include_bytes!(concat!(
+                        env!("CARGO_MANIFEST_DIR"),
+                        "/../src/gallery/demos/assets/misans_ui.mirx"
+                    ))
+                } else {
+                    include_bytes!(concat!(
+                        env!("CARGO_MANIFEST_DIR"),
+                        "/../src/gallery/demos/assets/play_ui.mirx"
+                    ))
+                },
                 &mirx::reader::PayloadLimits::HOST,
             )
             .map_err(|error| format!("font: {error:?}"))?;
             app.with_fonts(FontManager::new(mirui::core::cache::MaxSize::Unbound, font));
             let model = app.add_model(Counter::default()).finish();
-            app.compose(root, text_scene(model.clone(), options.scene == "digits"));
+            app.compose(root, text_scene(model.clone(), dynamic, coverage));
             counter = Some(model);
         }
     }
@@ -183,7 +202,7 @@ pub(super) fn run() -> Result<(), String> {
             }
         }
         let start = Instant::now();
-        if options.scene == "digits" {
+        if dynamic {
             counter.as_ref().expect("digits model").advance();
         }
         app.render()
