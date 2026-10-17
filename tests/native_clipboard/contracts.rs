@@ -1,4 +1,5 @@
 use super::*;
+use objc2_foundation::NSURL;
 
 fn one(mime: &'static str, bytes: &[u8]) -> ClipboardData {
     let mut item = ClipboardItem::with_capacity(1).unwrap();

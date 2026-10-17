@@ -44,6 +44,10 @@ mod native {
 }
 
 #[cfg(all(target_os = "macos", any(feature = "sdl", feature = "wgpu")))]
+#[path = "../src/surface/host_clipboard/apple.rs"]
+mod apple;
+
+#[cfg(all(target_os = "macos", any(feature = "sdl", feature = "wgpu")))]
 mod native {
     include!("../src/surface/host_clipboard/macos.rs");
 
