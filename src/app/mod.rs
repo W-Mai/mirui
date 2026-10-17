@@ -1594,7 +1594,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         plugins::frame_rate::complete(&mut self.world, blocking);
     }
 
-    #[cfg(any(target_os = "android", target_os = "ios", test))]
+    #[cfg(any(
+        test,
+        all(feature = "wgpu", any(target_os = "android", target_os = "ios"))
+    ))]
     pub(crate) fn tick_wait_ns(&self) -> Option<u64> {
         plugins::frame_rate::remaining(&self.world)
     }

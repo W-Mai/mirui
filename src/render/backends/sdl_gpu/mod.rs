@@ -96,7 +96,7 @@ pub struct SdlGpuSurface {
     #[cfg(target_os = "linux")]
     clipboard: crate::surface::host_clipboard::linux::Clipboard,
     device: Rc<Device>,
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
     video: sdl2::VideoSubsystem,
     _event_pump: EventPump,
     text_input: crate::surface::sdl_events::NativeTextInput,
@@ -194,7 +194,7 @@ impl SdlGpuSurface {
         let device = Rc::new(Device::new(canvas, texture_creator));
         Ok(Self {
             device,
-            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+            #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
             video,
             _event_pump: event_pump,
             text_input,
@@ -392,7 +392,7 @@ impl Surface for SdlGpuSurface {
                 return self.clipboard.write(canvas.window(), request);
             }
         }
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
         {
             crate::surface::host_clipboard::write(request)
         }
@@ -405,7 +405,7 @@ impl Surface for SdlGpuSurface {
             };
             crate::surface::host_clipboard::write(canvas.window(), request)
         }
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
         {
             crate::surface::sdl_events::write_clipboard(&self.video, request)
         }
@@ -426,11 +426,11 @@ impl Surface for SdlGpuSurface {
                 return self.clipboard.read(canvas.window(), request);
             }
         }
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        #[cfg(any(target_os = "macos", target_os = "ios", target_os = "windows"))]
         {
             crate::surface::host_clipboard::read(request)
         }
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
         {
             crate::surface::sdl_events::read_clipboard(&self.video, request)
         }

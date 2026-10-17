@@ -29,9 +29,11 @@ pub(super) fn native_type(mime: &str) -> Result<Retained<NSString>, ClipboardErr
 
 pub(super) fn mime_type(native: &str) -> Option<String> {
     match native {
-        "public.utf8-plain-text" | "public.utf16-external-plain-text" | "public.plain-text" => {
-            Some("text/plain".into())
-        }
+        "public.utf8-plain-text"
+        | "public.utf16-plain-text"
+        | "public.utf16-external-plain-text"
+        | "public.plain-text"
+        | "public.text" => Some("text/plain".into()),
         "public.html" => Some("text/html".into()),
         "public.rtf" => Some("text/rtf".into()),
         "public.png" => Some("image/png".into()),

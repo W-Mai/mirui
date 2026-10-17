@@ -40,9 +40,9 @@ log-max-level-info = []
 log-max-level-debug = []
 log-max-level-trace = []
 log-web-console = ["web-canvas"]
-sdl = ["dep:sdl2", "dep:objc2", "dep:objc2-foundation", "dep:objc2-app-kit", "dep:objc2-uniform-type-identifiers", "dep:windows", "dep:windows-sys", "dep:raw-window-handle", "dep:url", "dep:x11rb", "dep:x11-dl", "dep:rustix", "dep:wayland-client", "std"]
+sdl = ["dep:sdl2", "dep:objc2", "dep:objc2-foundation", "dep:objc2-app-kit", "dep:objc2-uniform-type-identifiers", "dep:objc2-ui-kit", "dep:objc2-core-foundation", "dep:block2", "dep:windows", "dep:windows-sys", "dep:raw-window-handle", "dep:url", "dep:x11rb", "dep:x11-dl", "dep:rustix", "dep:wayland-client", "std"]
 sdl-gpu = ["sdl", "dep:sdl2-sys", "dep:lyon"]
-wgpu = ["dep:wgpu", "dep:winit", "dep:bytemuck", "dep:lyon", "dep:pollster", "dep:objc2", "dep:objc2-foundation", "dep:objc2-app-kit", "dep:objc2-uniform-type-identifiers", "dep:windows", "dep:windows-sys", "dep:raw-window-handle", "dep:url", "dep:x11rb", "dep:x11-dl", "dep:rustix", "dep:wayland-client", "std"]
+wgpu = ["dep:wgpu", "dep:winit", "dep:bytemuck", "dep:lyon", "dep:pollster", "dep:objc2", "dep:objc2-foundation", "dep:objc2-app-kit", "dep:objc2-uniform-type-identifiers", "dep:objc2-ui-kit", "dep:objc2-core-foundation", "dep:block2", "dep:windows", "dep:windows-sys", "dep:raw-window-handle", "dep:url", "dep:x11rb", "dep:x11-dl", "dep:rustix", "dep:wayland-client", "std"]
 wgpu-android = ["wgpu", "winit/android-native-activity"]
 web-canvas = [
     "dep:web-sys",
@@ -99,11 +99,18 @@ optional = true
 version = "0.4"
 optional = true
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = { version = "0.6", optional = true }
 objc2-foundation = { version = "0.3", optional = true, default-features = false, features = ["std", "NSArray", "NSData", "NSDictionary", "NSEnumerator", "NSString", "NSObject", "NSURL"] }
-objc2-app-kit = { version = "0.3", optional = true, default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem", "NSBitmapImageRep", "NSImageRep"] }
 objc2-uniform-type-identifiers = { version = "0.3", optional = true, default-features = false, features = ["std", "UTType"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-app-kit = { version = "0.3", optional = true, default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem", "NSBitmapImageRep", "NSImageRep"] }
+
+[target.'cfg(target_os = "ios")'.dependencies]
+objc2-ui-kit = { version = "0.3", optional = true, default-features = false, features = ["std", "UIPasteboard", "UIImage", "UIGraphicsImageRenderer", "UIGraphicsRenderer", "objc2-core-foundation", "objc2-core-graphics", "block2"] }
+objc2-core-foundation = { version = "0.3", optional = true, default-features = false, features = ["std"] }
+block2 = { version = "0.6", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 sdl2 = { version = "0.37", optional = true, features = ["raw-window-handle"] }
@@ -228,6 +235,10 @@ wasm-bindgen-futures = { version = "0.4.72", optional = true }
 [dev-dependencies]
 crc32fast = "1"
 trybuild = "1"
+
+[target.'cfg(target_os = "ios")'.dev-dependencies]
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGBitmapContext", "CGContext", "CGColorSpace", "CGImage"] }
+objc2-ui-kit = { version = "0.3", default-features = false, features = ["UIGraphics"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dev-dependencies]
 x11rb = "0.13.2"

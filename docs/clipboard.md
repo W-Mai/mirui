@@ -75,7 +75,9 @@ On Linux Wayland, SDL software, SDL GPU, and WGPU use the window's native displa
 
 Wayland writes complete after server synchronization, unless the source is cancelled or the operation fails. This acknowledges processing, not a future consumer's read. The private queue and subscriptions are retired before their native window. Window suspension preserves failure acknowledgments while discarding stale input. Actual compositor and cross-application interoperability still require native validation; private protocol tests do not establish that result.
 
-On other platforms, SDL software and GPU surfaces read and write plain text through the SDL clipboard. Writes accept exactly one `text/plain` representation and explicitly reject other items or representations instead of silently discarding them; SDL also rejects embedded NUL bytes. WGPU surfaces outside macOS, Windows, and Linux X11/Wayland, and other surfaces without a clipboard bridge, return Unsupported.
+On iOS 14 or newer, mobile WGPU, software upload, and SDL surfaces use the same UIKit bridge. It prepares every item and representation before a single native write. Reads capture all items once, preserving UTF-8 text, HTML, RTF, PNG, URI items, and custom binary data; native UIImage values become PNG with their display orientation applied. URI transfer uses one URI per item and does not open files. Native access stays on the main thread and remains subject to system privacy restrictions. A completed write means the synchronous UIKit submission returned, not that another application read the data. UIKit updates changeCount at the end of the event loop; it is not an immediate write acknowledgment.
+
+On other platforms, SDL software and GPU surfaces read and write plain text through the SDL clipboard. Writes accept exactly one `text/plain` representation and explicitly reject other items or representations instead of silently discarding them; SDL also rejects embedded NUL bytes. WGPU surfaces outside macOS, iOS, Windows, and Linux X11/Wayland, and other surfaces without a clipboard bridge, return Unsupported.
 
 Web native Copy, Cut, and Paste events use the focused component's same capabilities without synthesizing keys. Copy and cut require an acknowledged asynchronous write. Native paste owns the event's string representations and File objects before the event expires; it does not read the system clipboard again or insert hidden-textarea content. Events belonging to another DOM control are left alone.
 
@@ -104,6 +106,8 @@ The `x11_clipboard_stream` tests use private Unix socket pairs to check cancella
 The X11 worker unit tests connect the production worker to the protocol fixture through private Unix sockets. They exercise existing App cut/paste requests and completion notifications, binary payload ownership, repeated-copy timestamps, initialization failure, single-operation admission, and shutdown during setup. These checks do not replace live X server or SDL/WGPU window verification.
 
 The macOS format checks run on the process main thread and use isolated named pasteboards, not the general clipboard. Run them explicitly in a desktop session; ordinary test runs skip this platform check.
+
+The same `native_clipboard` target supports iOS. Build it for an installed iOS Simulator target and execute the resulting binary in that simulator with `--ignored`. It checks item grouping, native data bridging, UTF-16, all UIImage orientations, invalid-write preservation, and isolated named pasteboards. It does not access the general clipboard. These contracts do not validate cross-application privacy prompts, native menus, or a physical device.
 
 ```bash
 cargo test --test native_clipboard --features sdl -- --ignored

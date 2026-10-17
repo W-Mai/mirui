@@ -357,7 +357,7 @@ impl Surface for SdlSurface {
         if super::host_clipboard::linux::is_native(self.canvas.window()) {
             return self.clipboard.write(self.canvas.window(), request);
         }
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
         {
             super::host_clipboard::write(request)
         }
@@ -365,7 +365,7 @@ impl Surface for SdlSurface {
         {
             super::host_clipboard::write(self.canvas.window(), request)
         }
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
         {
             super::sdl_events::write_clipboard(self.canvas.window().subsystem(), request)
         }
@@ -379,11 +379,11 @@ impl Surface for SdlSurface {
         if super::host_clipboard::linux::is_native(self.canvas.window()) {
             return self.clipboard.read(self.canvas.window(), request);
         }
-        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        #[cfg(any(target_os = "macos", target_os = "ios", target_os = "windows"))]
         {
             super::host_clipboard::read(request)
         }
-        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
         {
             super::sdl_events::read_clipboard(self.canvas.window().subsystem(), request)
         }

@@ -9,11 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- iOS clipboard transfer preserves native items and MIME representations across mobile WGPU, software upload, and SDL surfaces, including binary payloads, URI items, and oriented images.
+
 - Linux Wayland clipboard transfer shares native input seats and the host event loop across SDL and WGPU, preserves MIME representations, and cancels stale reads and window-bound transfers.
 
 ### Breaking
 
-- macOS SDL and WGPU builds require macOS 11 or newer for native clipboard type mapping.
+- Apple SDL and WGPU builds require macOS 11 or iOS 14 or newer for native clipboard type mapping.
 
 - `RendererFactory` implements the existing `InspectCaches` protocol. App cache snapshots include both surface-owned and factory-owned caches.
 

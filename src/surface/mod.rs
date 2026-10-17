@@ -4,7 +4,12 @@ pub(crate) mod backbuffer_invalidation;
 mod buffer_rotation;
 pub mod framebuf;
 #[cfg(all(
-    any(target_os = "macos", target_os = "windows", target_os = "linux"),
+    any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows",
+        target_os = "linux"
+    ),
     any(feature = "sdl", feature = "wgpu")
 ))]
 pub(crate) mod host_clipboard;

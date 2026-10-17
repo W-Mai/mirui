@@ -1,4 +1,4 @@
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "windows"))]
 use crate::ui::clipboard::{ClipboardDispatch, ClipboardRead, ClipboardWrite};
 
 #[cfg(target_os = "linux")]
@@ -8,19 +8,23 @@ mod wayland;
 #[cfg(target_os = "linux")]
 mod x11;
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 mod apple;
+#[cfg(target_os = "ios")]
+mod ios;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
 
+#[cfg(target_os = "ios")]
+use ios as platform;
 #[cfg(target_os = "macos")]
 use macos as platform;
 #[cfg(target_os = "windows")]
 use windows as platform;
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub(crate) fn write(request: ClipboardWrite) -> ClipboardDispatch {
     let result = platform::write(request.data());
     ClipboardDispatch::Complete(request.complete(result))
@@ -35,7 +39,7 @@ pub(crate) fn write(
     ClipboardDispatch::Complete(request.complete(result))
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "windows"))]
 pub(crate) fn read(request: ClipboardRead) -> ClipboardDispatch {
     ClipboardDispatch::Complete(request.complete(platform::read()))
 }

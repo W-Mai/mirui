@@ -37,7 +37,10 @@ impl FramePacing {
     }
 }
 
-#[cfg(any(target_os = "android", target_os = "ios", test))]
+#[cfg(any(
+    test,
+    all(feature = "wgpu", any(target_os = "android", target_os = "ios"))
+))]
 pub(crate) fn remaining(world: &crate::ecs::World) -> Option<u64> {
     let now = world.resource::<MonoClock>()?.now_ns();
     Some(world.resource::<FramePacing>()?.remaining(now))

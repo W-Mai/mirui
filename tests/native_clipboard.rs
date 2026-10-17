@@ -1,7 +1,7 @@
 extern crate alloc;
 
 #[cfg(all(
-    any(target_os = "macos", target_os = "windows"),
+    any(target_os = "macos", target_os = "ios", target_os = "windows"),
     any(feature = "sdl", feature = "wgpu")
 ))]
 pub mod ui {
@@ -43,7 +43,10 @@ mod native {
     }
 }
 
-#[cfg(all(target_os = "macos", any(feature = "sdl", feature = "wgpu")))]
+#[cfg(all(
+    any(target_os = "macos", target_os = "ios"),
+    any(feature = "sdl", feature = "wgpu")
+))]
 #[path = "../src/surface/host_clipboard/apple.rs"]
 mod apple;
 
@@ -76,19 +79,46 @@ mod native {
     }
 }
 
+#[cfg(all(target_os = "ios", any(feature = "sdl", feature = "wgpu")))]
+mod native {
+    include!("../src/surface/host_clipboard/ios.rs");
+
+    mod contracts {
+        include!("native_clipboard/ios.rs");
+    }
+
+    pub fn verify() {
+        let mtm = MainThreadMarker::new().expect("UIKit contracts run on the main thread");
+        assert_eq!(
+            std::thread::spawn(|| write(&ClipboardData::text("unused").unwrap()))
+                .join()
+                .unwrap(),
+            Err(ClipboardError::Unavailable)
+        );
+        assert!(matches!(
+            std::thread::spawn(read).join().unwrap(),
+            Err(ClipboardError::Unavailable)
+        ));
+        objc2::rc::autoreleasepool(|_| contracts::verify(mtm));
+        println!(
+            "iOS clipboard: main-thread, item, representation, image and named-board contracts passed"
+        );
+    }
+}
+
 fn main() {
     if !std::env::args().any(|arg| arg == "--ignored") {
         println!("native clipboard contracts skipped; run with --ignored on a desktop session");
         return;
     }
     #[cfg(all(
-        any(target_os = "macos", target_os = "windows"),
+        any(target_os = "macos", target_os = "ios", target_os = "windows"),
         any(feature = "sdl", feature = "wgpu")
     ))]
     native::verify();
     #[cfg(not(all(
-        any(target_os = "macos", target_os = "windows"),
+        any(target_os = "macos", target_os = "ios", target_os = "windows"),
         any(feature = "sdl", feature = "wgpu")
     )))]
-    panic!("native clipboard contracts require macOS or Windows and the sdl or wgpu feature");
+    panic!("native clipboard contracts require macOS, iOS or Windows and the sdl or wgpu feature");
 }
