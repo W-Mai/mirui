@@ -178,7 +178,10 @@ impl ClipboardData {
         Self::text_bytes(bytes)
     }
 
-    #[cfg(all(not(target_os = "macos"), any(feature = "sdl", feature = "sdl-gpu")))]
+    #[cfg(all(
+        not(any(target_os = "macos", target_os = "windows")),
+        any(feature = "sdl", feature = "sdl-gpu")
+    ))]
     pub(crate) fn owned_text(text: alloc::string::String) -> Result<Self, ClipboardError> {
         Self::text_bytes(text.into_bytes())
     }
@@ -224,7 +227,7 @@ impl ClipboardData {
     }
 }
 
-fn validate_mime(mime: &str) -> Result<(), ClipboardError> {
+pub(crate) fn validate_mime(mime: &str) -> Result<(), ClipboardError> {
     let Some((kind, subtype)) = mime.split_once('/') else {
         return Err(ClipboardError::InvalidData);
     };

@@ -40,9 +40,9 @@ log-max-level-info = []
 log-max-level-debug = []
 log-max-level-trace = []
 log-web-console = ["web-canvas"]
-sdl = ["dep:sdl2", "dep:objc2", "dep:objc2-foundation", "dep:objc2-app-kit", "dep:objc2-uniform-type-identifiers", "std"]
+sdl = ["dep:sdl2", "dep:objc2", "dep:objc2-foundation", "dep:objc2-app-kit", "dep:objc2-uniform-type-identifiers", "dep:windows", "dep:windows-sys", "dep:raw-window-handle", "dep:url", "std"]
 sdl-gpu = ["sdl", "dep:sdl2-sys", "dep:lyon"]
-wgpu = ["dep:wgpu", "dep:winit", "dep:bytemuck", "dep:lyon", "dep:pollster", "dep:objc2", "dep:objc2-foundation", "dep:objc2-app-kit", "dep:objc2-uniform-type-identifiers", "std"]
+wgpu = ["dep:wgpu", "dep:winit", "dep:bytemuck", "dep:lyon", "dep:pollster", "dep:objc2", "dep:objc2-foundation", "dep:objc2-app-kit", "dep:objc2-uniform-type-identifiers", "dep:windows", "dep:windows-sys", "dep:raw-window-handle", "dep:url", "std"]
 wgpu-android = ["wgpu", "winit/android-native-activity"]
 web-canvas = [
     "dep:web-sys",
@@ -104,6 +104,16 @@ objc2 = { version = "0.6", optional = true }
 objc2-foundation = { version = "0.3", optional = true, default-features = false, features = ["std", "NSArray", "NSData", "NSDictionary", "NSEnumerator", "NSString", "NSObject", "NSURL"] }
 objc2-app-kit = { version = "0.3", optional = true, default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem", "NSBitmapImageRep", "NSImageRep"] }
 objc2-uniform-type-identifiers = { version = "0.3", optional = true, default-features = false, features = ["std", "UTType"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+sdl2 = { version = "0.37", optional = true, features = ["raw-window-handle"] }
+raw-window-handle = { version = "0.6", optional = true }
+url = { version = "2.5", optional = true }
+windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_Globalization", "Win32_UI_Shell"] }
+windows = { version = "0.62", optional = true, default-features = false, features = ["std", "Win32_Foundation", "Win32_Graphics_Imaging", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_UI_Shell"] }
+
+[target.'cfg(target_os = "windows")'.dev-dependencies]
+windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging"] }
 
 # Drop-in replacement for `std::time` on `wasm32-unknown-unknown` —
 # native targets re-export `std::time` at zero cost; wasm reads

@@ -32,7 +32,13 @@ pub(super) fn decode(bytes: &[u8]) -> Result<Vec<u8>, ClipboardError> {
     let end = units()
         .position(|unit| unit == 0)
         .ok_or(ClipboardError::InvalidData)?;
-    let decoded = || char::decode_utf16(units().take(end));
+    decode_units(units().take(end))
+}
+
+pub(super) fn decode_units(
+    units: impl Iterator<Item = u16> + Clone,
+) -> Result<Vec<u8>, ClipboardError> {
+    let decoded = || char::decode_utf16(units.clone());
     let length = decoded().try_fold(0usize, |bytes, character| {
         bytes
             .checked_add(

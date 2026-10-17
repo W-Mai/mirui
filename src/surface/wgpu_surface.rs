@@ -1074,15 +1074,27 @@ impl Surface for WgpuSurface {
         self.handler.runtime.set_text_input(state);
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn write_clipboard(
         &mut self,
         request: crate::ui::clipboard::ClipboardWrite,
     ) -> crate::ui::clipboard::ClipboardDispatch {
-        super::host_clipboard::write(request)
+        #[cfg(target_os = "macos")]
+        {
+            super::host_clipboard::write(request)
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let Some(state) = self.handler.runtime.state.as_ref() else {
+                return crate::ui::clipboard::ClipboardDispatch::Complete(
+                    request.complete(Err(crate::ui::clipboard::ClipboardError::Unavailable)),
+                );
+            };
+            super::host_clipboard::write(state.window.as_ref(), request)
+        }
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     fn read_clipboard(
         &mut self,
         request: crate::ui::clipboard::ClipboardRead,

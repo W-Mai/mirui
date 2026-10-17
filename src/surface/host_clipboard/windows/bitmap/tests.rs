@@ -1,5 +1,19 @@
 use super::*;
 
+#[test]
+fn native_bgra_storage_declares_straight_alpha_and_top_down_rows() {
+    let dib = bgra_storage(3, 2).unwrap();
+    assert_eq!(dib.len(), V5_HEADER + 3 * 2 * 4);
+    assert_eq!(word(&dib, 8).unwrap() as i32, -2);
+    assert_eq!(word(&dib, 52).unwrap(), 0xff00_0000);
+    assert_eq!(word(&dib, 56).unwrap(), 0x7352_4742);
+    assert_eq!(Layout::read(&dib).unwrap().pixels, V5_HEADER);
+    assert!(dib[V5_HEADER..].iter().all(|byte| *byte == 0));
+    assert!(bgra_storage(0, 1).is_err());
+    assert!(bgra_storage(1, u32::MAX).is_err());
+    assert!(bgra_storage(i32::MAX as u32, i32::MAX as u32).is_err());
+}
+
 fn dib(header: usize, width: i32, height: i32, depth: u16, compression: u32) -> Vec<u8> {
     let mut data = vec![0; header];
     data[0..4].copy_from_slice(&(header as u32).to_le_bytes());

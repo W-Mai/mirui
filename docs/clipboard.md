@@ -57,11 +57,17 @@ Web uses the asynchronous Clipboard API and reports its acknowledgment or reject
 
 On macOS 11 or newer, SDL software, SDL GPU, and WGPU surfaces share the native pasteboard bridge. It preserves multiple items and MIME representations, including plain text, HTML, RTF, PNG, file/URL items, and custom binary data. System type identifiers are translated through UniformTypeIdentifiers. TIFF imports retain their original representation and provide PNG. The system may supply additional representations, such as plain text for RTF. A changed pasteboard generation rejects the read instead of mixing snapshots.
 
-Native file transfer uses one URI per item. Several files are several ClipboardItems, each with a `text/uri-list` representation. A single item containing multiple URIs returns Unsupported before writing; the bridge does not silently change item grouping. Invalid UTF-8, invalid PNG, relative URIs, and conflicting native type mappings are rejected before clearing the pasteboard. A failure during the native write preserves the source of a cut but cannot guarantee rollback of the system clipboard.
+macOS native file transfer uses one URI per item. Several files are several ClipboardItems, each with a `text/uri-list` representation. A single item containing multiple URIs returns Unsupported before writing; the bridge does not silently change item grouping. Invalid UTF-8, invalid PNG, relative URIs, and conflicting native type mappings are rejected before clearing the pasteboard. A failure during the native write preserves the source of a cut but cannot guarantee rollback of the system clipboard.
 
 macOS pasteboard operations run on the window's main thread and return synchronous Surface completions; calls from another thread return Unavailable. No worker, clipboard watcher, or additional per-surface queue is installed. Native calls may wait for another application's data provider; synchronous completion does not imply bounded latency. Snapshot and image conversion storage is allocated only for explicit clipboard operations.
 
-On other platforms, SDL software and GPU surfaces read and write plain text through the SDL clipboard. Writes accept exactly one `text/plain` representation and explicitly reject other items or representations instead of silently discarding them; SDL also rejects embedded NUL bytes. WGPU surfaces outside macOS and other surfaces without a clipboard bridge return Unsupported.
+On Windows, SDL software, SDL GPU, and WGPU share the native clipboard bridge. One item can contain multiple representations: Unicode text, HTML fragments, RTF, PNG, file URI lists, and registered MIME data. Multiple items return Unsupported before writing. PNG also supplies a native BGRA bitmap; native bitmaps are imported as PNG through Windows Imaging Component. File URI lists also supply native file paths without opening the files. Non-file URIs retain their MIME representation. Alpha or color profiles that the system codec cannot preserve return an error rather than being silently discarded.
+
+Windows writes prepare formats and storage before clearing the clipboard, using the surface's own window handle. Reads copy a single open-clipboard snapshot and close it before image conversion. An occupied clipboard returns Unavailable without a retry loop. Explicit operations allocate conversion storage; no worker or watcher is installed. Synchronous native calls may wait for another application's data provider. Native write or close failures reject the operation, so a cut retains its source; system contents are not transactionally rolled back.
+
+Windows registered opaque formats use the system's global-memory block size. Writes reject empty opaque payloads or allocations whose size differs from the payload, before changing clipboard contents. Reads retain the entire native block and never guess a shorter length by trimming zero bytes. Self-delimiting native formats, including Unicode text, HTML, PNG, RTF, and file lists, exclude allocation padding according to their format boundaries. Embedded NUL is rejected in Unicode text; it remains valid in opaque binary data.
+
+On other platforms, SDL software and GPU surfaces read and write plain text through the SDL clipboard. Writes accept exactly one `text/plain` representation and explicitly reject other items or representations instead of silently discarding them; SDL also rejects embedded NUL bytes. WGPU surfaces outside macOS and Windows, and other surfaces without a clipboard bridge, return Unsupported.
 
 Web native Copy, Cut, and Paste events use the focused component's same capabilities without synthesizing keys. Copy and cut require an acknowledged asynchronous write. Native paste owns the event's string representations and File objects before the event expires; it does not read the system clipboard again or insert hidden-textarea content. Events belonging to another DOM control are left alone.
 
@@ -79,4 +85,10 @@ The macOS format checks run on the process main thread and use isolated named pa
 
 ```bash
 cargo test --test native_clipboard --features sdl -- --ignored
+```
+
+On Windows the same command checks WIC image conversion and file URI mapping without opening the system clipboard. System-exchange checks require an additional explicit flag. The following command **replaces the Windows clipboard contents** and leaves a test message there; it does not restore the previous contents. Run it only in a disposable desktop session.
+
+```bash
+cargo test --test native_clipboard --features wgpu -- --ignored --replace-system-clipboard
 ```

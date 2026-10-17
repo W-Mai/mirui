@@ -343,7 +343,11 @@ impl Surface for SdlSurface {
         {
             super::host_clipboard::write(request)
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
+        {
+            super::host_clipboard::write(self.canvas.window(), request)
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
             super::sdl_events::write_clipboard(self.canvas.window().subsystem(), request)
         }
@@ -353,11 +357,11 @@ impl Surface for SdlSurface {
         &mut self,
         request: crate::ui::clipboard::ClipboardRead,
     ) -> crate::ui::clipboard::ClipboardDispatch {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
         {
             super::host_clipboard::read(request)
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         {
             super::sdl_events::read_clipboard(self.canvas.window().subsystem(), request)
         }

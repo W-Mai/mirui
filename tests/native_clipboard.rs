@@ -1,13 +1,45 @@
 extern crate alloc;
 
-#[cfg(all(target_os = "macos", any(feature = "sdl", feature = "wgpu")))]
+#[cfg(all(
+    any(target_os = "macos", target_os = "windows"),
+    any(feature = "sdl", feature = "wgpu")
+))]
 pub mod ui {
     pub mod clipboard {
         pub use mirui::ui::clipboard::ClipboardError;
         mod data {
             include!("../src/ui/clipboard/data.rs");
         }
+        #[cfg(target_os = "windows")]
+        pub(crate) use data::validate_mime;
         pub use data::{ClipboardData, ClipboardFormat, ClipboardItem};
+    }
+}
+
+#[cfg(all(target_os = "windows", any(feature = "sdl", feature = "wgpu")))]
+#[allow(
+    dead_code,
+    unused_imports,
+    reason = "the main-thread harness does not register included libtest cases"
+)]
+mod native {
+    include!("../src/surface/host_clipboard/windows/mod.rs");
+
+    mod contracts {
+        include!("native_clipboard/windows.rs");
+    }
+
+    pub fn verify() {
+        contracts::image_and_file_conversions();
+        println!("Windows clipboard: native image and file conversion contracts passed");
+        if std::env::args().any(|arg| arg == "--replace-system-clipboard") {
+            contracts::system_exchange();
+            println!("Windows clipboard: system exchange contracts passed; clipboard replaced");
+        } else {
+            println!(
+                "system exchange skipped; --replace-system-clipboard replaces existing contents"
+            );
+        }
     }
 }
 
@@ -45,8 +77,14 @@ fn main() {
         println!("native clipboard contracts skipped; run with --ignored on a desktop session");
         return;
     }
-    #[cfg(all(target_os = "macos", any(feature = "sdl", feature = "wgpu")))]
+    #[cfg(all(
+        any(target_os = "macos", target_os = "windows"),
+        any(feature = "sdl", feature = "wgpu")
+    ))]
     native::verify();
-    #[cfg(not(all(target_os = "macos", any(feature = "sdl", feature = "wgpu"))))]
-    panic!("native clipboard contracts require macOS and the sdl or wgpu feature");
+    #[cfg(not(all(
+        any(target_os = "macos", target_os = "windows"),
+        any(feature = "sdl", feature = "wgpu")
+    )))]
+    panic!("native clipboard contracts require macOS or Windows and the sdl or wgpu feature");
 }

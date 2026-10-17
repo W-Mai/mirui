@@ -5,9 +5,42 @@ use crate::ui::clipboard::ClipboardError;
 const FILE_HEADER: usize = 14;
 const INFO_HEADER: usize = 40;
 const V4_HEADER: usize = 108;
-const V5_HEADER: usize = 124;
+pub(super) const V5_HEADER: usize = 124;
 const PROFILE_LINKED: u32 = 0x4c49_4e4b;
 const PROFILE_EMBEDDED: u32 = 0x4d42_4544;
+
+pub(super) fn bgra_storage(width: u32, height: u32) -> Result<Vec<u8>, ClipboardError> {
+    if width == 0 || height == 0 || width > i32::MAX as u32 || height > i32::MAX as u32 {
+        return Err(ClipboardError::InvalidData);
+    }
+    let image = width
+        .checked_mul(4)
+        .and_then(|stride| stride.checked_mul(height))
+        .ok_or(ClipboardError::Capacity)?;
+    let length = (image as usize)
+        .checked_add(V5_HEADER)
+        .ok_or(ClipboardError::Capacity)?;
+    let mut dib = Vec::new();
+    dib.try_reserve_exact(length)
+        .map_err(|_| ClipboardError::Capacity)?;
+    dib.resize(length, 0);
+    dib[..4].copy_from_slice(&(V5_HEADER as u32).to_le_bytes());
+    dib[4..8].copy_from_slice(&width.to_le_bytes());
+    dib[8..12].copy_from_slice(&(-(height as i32)).to_le_bytes());
+    dib[12..14].copy_from_slice(&1u16.to_le_bytes());
+    dib[14..16].copy_from_slice(&32u16.to_le_bytes());
+    dib[16..20].copy_from_slice(&3u32.to_le_bytes());
+    dib[20..24].copy_from_slice(&image.to_le_bytes());
+    for (index, mask) in [0x00ff_0000u32, 0x0000_ff00, 0x0000_00ff, 0xff00_0000]
+        .iter()
+        .enumerate()
+    {
+        dib[40 + index * 4..44 + index * 4].copy_from_slice(&mask.to_le_bytes());
+    }
+    dib[56..60].copy_from_slice(&0x7352_4742u32.to_le_bytes());
+    dib[108..112].copy_from_slice(&4u32.to_le_bytes());
+    Ok(dib)
+}
 
 pub(super) fn to_bmp(dib: &[u8]) -> Result<Vec<u8>, ClipboardError> {
     let layout = Layout::read(dib)?;

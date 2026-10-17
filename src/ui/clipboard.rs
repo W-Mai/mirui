@@ -13,6 +13,8 @@ use crate::input::event::{
 mod data;
 #[cfg(any(test, all(feature = "web-canvas", target_arch = "wasm32")))]
 mod deferred;
+#[cfg(all(target_os = "windows", any(feature = "sdl", feature = "wgpu")))]
+pub(crate) use data::validate_mime;
 pub use data::{ClipboardData, ClipboardFormat, ClipboardItem};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
