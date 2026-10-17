@@ -97,6 +97,8 @@ For platforms that supply a complete paste payload, `ClipboardInput::paste(data)
 
 The Android host library in `platform/android` supplies a non-exported, URI-grant-enabled clipboard provider. Its private snapshot files preserve each item's MIME representations across process recreation. Replacement retires old files without changing already-open streams; failed or interrupted publication retains prepared data until a successful replacement. The provider does not expose application directories or allow writes. Android packages must include this library from their resolved Mirui dependency; a missing host class returns `Unsupported` rather than a text-only fallback.
 
+Include the library as a Gradle application dependency so its manifest and consumer rules are merged into the APK. The application supplies the Android Gradle plugin; the library's standalone settings select a version only for independent builds. Its source-level instrumentation checks use AndroidX, so set `android.useAndroidX=true` when running them from an enclosing project.
+
 Run its storage contracts and Android lint with JDK 17, Android SDK 35, and Gradle 8.11.1:
 
 ```bash

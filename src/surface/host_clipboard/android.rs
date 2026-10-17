@@ -1,7 +1,9 @@
+#[cfg(feature = "sdl")]
+use jni::refs::IntoAuto;
 use jni::{
     Env, JValue, JavaVM, jni_sig, jni_str,
     objects::{JClass, JObject},
-    refs::{Global, IntoAuto},
+    refs::Global,
 };
 
 use crate::ui::clipboard::{
