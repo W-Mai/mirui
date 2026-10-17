@@ -7,6 +7,7 @@ pub mod framebuf;
     any(
         target_os = "macos",
         target_os = "ios",
+        target_os = "android",
         target_os = "windows",
         target_os = "linux"
     ),

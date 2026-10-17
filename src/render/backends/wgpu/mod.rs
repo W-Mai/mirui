@@ -2539,6 +2539,7 @@ mod route_tests {
     use mirx::scene::{GradientStop, GradientUnits, LinearGradient, RadialGradient, SpreadMode};
 
     static GPU: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    type TestSurface = crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>;
 
     #[test]
     #[cfg(not(target_arch = "wasm32"))]
@@ -2640,7 +2641,7 @@ mod route_tests {
         let mut factory = factory.with_target_edit_budget(64);
         assert_eq!(factory.target_edit_bytes.capacity(), 0);
         factory.reserve_target_edit(64).unwrap();
-        <WgpuRendererFactory as RendererFactory<crate::surface::wgpu_surface::WgpuSurface>>::trim_memory(&mut factory);
+        <WgpuRendererFactory as RendererFactory<TestSurface>>::trim_memory(&mut factory);
         assert_eq!(factory.target_edit_bytes.capacity(), 0);
         assert_eq!(factory.target_edit_budget_bytes, Some(64));
         factory.reserve_target_edit(64).unwrap();
@@ -3044,9 +3045,7 @@ mod route_tests {
             opa: 255,
         };
         assert_eq!(
-            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
-                &DrawRequest::new(&fill, area),
-            ),
+            WgpuRenderer::<TestSurface>::classify_request(&DrawRequest::new(&fill, area)),
             Err(RenderError::InvalidGeometry)
         );
     }
@@ -3073,9 +3072,10 @@ mod route_tests {
             dash: &dash,
         };
         assert_eq!(
-            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
-                &DrawRequest::new(&stroke, Rect::new(0, 0, 32, 32)),
-            ),
+            WgpuRenderer::<TestSurface>::classify_request(&DrawRequest::new(
+                &stroke,
+                Rect::new(0, 0, 32, 32)
+            )),
             Ok(RenderRoute::Native)
         );
     }
@@ -3163,9 +3163,7 @@ mod route_tests {
             fill_rule: FillRule::EvenOdd,
         };
         assert_eq!(
-            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
-                &DrawRequest::new(&push, clip),
-            ),
+            WgpuRenderer::<TestSurface>::classify_request(&DrawRequest::new(&push, clip)),
             Err(RenderError::Unsupported(RenderFeature::PathClip))
         );
 
@@ -3177,9 +3175,7 @@ mod route_tests {
             fill_rule: FillRule::NonZero,
         };
         assert_eq!(
-            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
-                &DrawRequest::new(&fill, clip),
-            ),
+            WgpuRenderer::<TestSurface>::classify_request(&DrawRequest::new(&fill, clip)),
             Ok(RenderRoute::Native)
         );
 
@@ -3209,9 +3205,7 @@ mod route_tests {
             fill_rule: FillRule::EvenOdd,
         };
         assert_eq!(
-            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
-                &DrawRequest::new(&gradient_fill, clip),
-            ),
+            WgpuRenderer::<TestSurface>::classify_request(&DrawRequest::new(&gradient_fill, clip)),
             Ok(RenderRoute::Native)
         );
 
@@ -3227,16 +3221,14 @@ mod route_tests {
             composite: CompositeMode::SourceOver,
         };
         assert_eq!(
-            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
-                &DrawRequest::new(&blit, clip),
-            ),
+            WgpuRenderer::<TestSurface>::classify_request(&DrawRequest::new(&blit, clip)),
             Ok(RenderRoute::Native)
         );
         let projected = DrawRequest::new(&blit, clip).with_projective(
             Transform3D::rotate_y_perspective(Fixed::from_int(20), Fixed::from_int(120)),
         );
         assert_eq!(
-            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(&projected),
+            WgpuRenderer::<TestSurface>::classify_request(&projected),
             Ok(RenderRoute::Native)
         );
 
@@ -3256,9 +3248,7 @@ mod route_tests {
             composite: CompositeMode::SourceOver,
         };
         assert_eq!(
-            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
-                &DrawRequest::new(&rounded_quad, clip),
-            ),
+            WgpuRenderer::<TestSurface>::classify_request(&DrawRequest::new(&rounded_quad, clip)),
             Ok(RenderRoute::Native)
         );
 
@@ -3273,9 +3263,7 @@ mod route_tests {
             composite: CompositeMode::Difference,
         };
         assert_eq!(
-            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
-                &DrawRequest::new(&difference, clip),
-            ),
+            WgpuRenderer::<TestSurface>::classify_request(&DrawRequest::new(&difference, clip)),
             Err(RenderError::Unsupported(RenderFeature::Composite(
                 CompositeMode::Difference
             )))
@@ -3294,9 +3282,7 @@ mod route_tests {
             opa: 255,
         };
         assert_eq!(
-            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
-                &DrawRequest::new(&fill, clip),
-            ),
+            WgpuRenderer::<TestSurface>::classify_request(&DrawRequest::new(&fill, clip)),
             Ok(RenderRoute::Native)
         );
 
@@ -3309,9 +3295,7 @@ mod route_tests {
             opa: 255,
         };
         assert_eq!(
-            WgpuRenderer::<crate::surface::wgpu_surface::WgpuSurface>::classify_request(
-                &DrawRequest::new(&line, clip),
-            ),
+            WgpuRenderer::<TestSurface>::classify_request(&DrawRequest::new(&line, clip)),
             Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
         );
     }

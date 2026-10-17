@@ -95,7 +95,7 @@ For platforms that supply a complete paste payload, `ClipboardInput::paste(data)
 
 ## Native contract checks
 
-The Android host library in `platform/android` supplies a non-exported, URI-grant-enabled clipboard provider. Its private snapshot files preserve each item's MIME representations across process recreation. Replacement retires old files without changing already-open streams; failed or interrupted publication retains prepared data until a successful replacement. The provider does not expose application directories or allow writes. This library alone does not enable an Android Surface clipboard bridge.
+The Android host library in `platform/android` supplies a non-exported, URI-grant-enabled clipboard provider. Its private snapshot files preserve each item's MIME representations across process recreation. Replacement retires old files without changing already-open streams; failed or interrupted publication retains prepared data until a successful replacement. The provider does not expose application directories or allow writes. Android packages must include this library from their resolved Mirui dependency; a missing host class returns `Unsupported` rather than a text-only fallback.
 
 Run its storage contracts and Android lint with JDK 17, Android SDK 35, and Gradle 8.11.1:
 
@@ -105,9 +105,11 @@ gradle -p platform/android testDebugUnitTest lintDebug assembleDebug
 
 The storage contracts exercise actual temporary files, snapshot replacement, process-independent reopening, binary lengths, and path rejection. They do not verify Android URI grants, a system clipboard, or another application.
 
-The Java host bridge publishes direct text/HTML and typed snapshot streams in one ClipData. Reads keep one ClipData snapshot and enumerate each item's actual URI representations instead of using the clip-wide MIME union. Content transport URIs are not imported as source data. Cancellation uses Android's CancellationSignal; stream reads poll with a shared transfer deadline, while provider discovery and system IPC remain subject to platform latency. The host bridge requires native Surface integration before application use.
+The Java host bridge publishes direct text/HTML and typed snapshot streams in one ClipData. Reads keep one ClipData snapshot and enumerate each item's actual URI representations instead of using the clip-wide MIME union. Content transport URIs are not imported as source data. Cancellation uses Android's CancellationSignal; stream reads poll with a shared transfer deadline, while provider discovery and system IPC remain subject to platform latency.
 
-`gradle -p platform/android connectedDebugAndroidTest` runs the resolver contracts on a connected Android device. These use the test application's own provider, not the system clipboard; cross-application grants and clipboard publication require separate native checks.
+Android WGPU, software upload, SDL, and SDL-GPU share one asynchronous bridge. Each Surface retains its original request until a single completion; host work runs on a lazily started Java worker using the application context. Suspension cancels pending work without joining the worker or keeping an Activity alive. A cancelled write cannot authorize cutting the source selection, although an already-running system write may have copied its snapshot. JNI transfers allocate only for explicit clipboard operations; idle polling does not read the system clipboard.
+
+`gradle -p platform/android connectedDebugAndroidTest` runs the resolver and session lifecycle contracts on a connected Android device. These use the test application's own provider and isolated service failures, not the system clipboard; cross-application grants and clipboard publication require separate native checks.
 
 The Wayland bridge unit tests deliver protocol results through actual App cut/paste requests. They check selection guards, single-operation admission, window-close failures, and exactly-once acknowledgments. WGPU suspension tests check that queued clipboard results survive native-window retirement. These checks do not require or replace a real compositor.
 

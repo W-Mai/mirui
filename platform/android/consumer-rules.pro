@@ -1,2 +1,3 @@
 -keep class rs.mirui.android.ClipboardBridge { public static *; }
 -keep class rs.mirui.android.ClipboardPayload { public *; }
+-keep class rs.mirui.android.ClipboardSession { public *; }

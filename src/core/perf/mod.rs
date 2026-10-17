@@ -22,6 +22,7 @@ mod imp {
 
     thread_local! {
         static EVENTS: RefCell<Vec<PerfEvent>> = RefCell::new(Vec::with_capacity(2048));
+        #[cfg_attr(target_os = "android", expect(clippy::missing_const_for_thread_local, reason = "Rust 1.97 Android TLS expansion flags an explicit const initializer"))]
         static DEPTH: RefCell<u8> = const { RefCell::new(0) };
     }
 

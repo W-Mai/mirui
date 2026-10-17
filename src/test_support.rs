@@ -6,7 +6,9 @@ use std::cell::Cell;
 struct CountingAllocator;
 
 std::thread_local! {
+    #[cfg_attr(target_os = "android", expect(clippy::missing_const_for_thread_local, reason = "Rust 1.97 Android TLS expansion flags an explicit const initializer"))]
     static TRACK: Cell<bool> = const { Cell::new(false) };
+    #[cfg_attr(target_os = "android", expect(clippy::missing_const_for_thread_local, reason = "Rust 1.97 Android TLS expansion flags an explicit const initializer"))]
     static ALLOCATIONS: Cell<usize> = const { Cell::new(0) };
 }
 

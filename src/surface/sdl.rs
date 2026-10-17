@@ -41,6 +41,8 @@ struct MultiGestureState {
 }
 
 pub struct SdlSurface {
+    #[cfg(target_os = "android")]
+    clipboard: super::host_clipboard::android::Clipboard,
     #[cfg(target_os = "macos")]
     menu: Option<super::native_menu::SdlMenu>,
     #[cfg(target_os = "linux")]
@@ -149,6 +151,8 @@ impl SdlSurface {
             text_input,
             #[cfg(target_os = "linux")]
             clipboard,
+            #[cfg(target_os = "android")]
+            clipboard: Default::default(),
             buf,
             width: phys_w,
             height: phys_h,
@@ -375,7 +379,16 @@ impl Surface for SdlSurface {
         {
             super::host_clipboard::write(self.canvas.window(), request)
         }
-        #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
+        #[cfg(target_os = "android")]
+        {
+            self.clipboard.write_sdl(request)
+        }
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows",
+            target_os = "android"
+        )))]
         {
             super::sdl_events::write_clipboard(self.canvas.window().subsystem(), request)
         }
@@ -393,7 +406,16 @@ impl Surface for SdlSurface {
         {
             super::host_clipboard::read(request)
         }
-        #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
+        #[cfg(target_os = "android")]
+        {
+            self.clipboard.read_sdl(request)
+        }
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows",
+            target_os = "android"
+        )))]
         {
             super::sdl_events::read_clipboard(self.canvas.window().subsystem(), request)
         }
@@ -403,7 +425,7 @@ impl Surface for SdlSurface {
         if let Some(e) = self.pending.pop_front() {
             return Some(e);
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         if let Some(response) = self.clipboard.poll() {
             return Some(InputEvent::Clipboard(response));
         }
@@ -418,7 +440,11 @@ impl Surface for SdlSurface {
 
         loop {
             let event = super::sdl_events::poll();
-            #[cfg(target_os = "linux")]
+            #[cfg(target_os = "android")]
+            if let Some(event) = &event {
+                self.clipboard.observe_sdl_event(event);
+            }
+            #[cfg(any(target_os = "linux", target_os = "android"))]
             if let Some(response) = self.clipboard.poll() {
                 self.pending.push_back(InputEvent::Clipboard(response));
             }

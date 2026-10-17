@@ -206,7 +206,9 @@ fn idle_and_failed_ticks_still_run_surface_maintenance() {
 }
 
 std::thread_local! {
+    #[cfg_attr(target_os = "android", expect(clippy::missing_const_for_thread_local, reason = "Rust 1.97 Android TLS expansion flags an explicit const initializer"))]
     static NOW: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
+    #[cfg_attr(target_os = "android", expect(clippy::missing_const_for_thread_local, reason = "Rust 1.97 Android TLS expansion flags an explicit const initializer"))]
     static SLEEPS: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
 }
 

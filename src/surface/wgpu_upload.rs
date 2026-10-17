@@ -435,6 +435,22 @@ impl MobileSurface for SoftwareUploadSurface {
 }
 
 impl Surface for SoftwareUploadSurface {
+    #[cfg(target_os = "android")]
+    fn write_clipboard(
+        &mut self,
+        request: crate::ui::clipboard::ClipboardWrite,
+    ) -> crate::ui::clipboard::ClipboardDispatch {
+        self.runtime.clipboard.write(request)
+    }
+
+    #[cfg(target_os = "android")]
+    fn read_clipboard(
+        &mut self,
+        request: crate::ui::clipboard::ClipboardRead,
+    ) -> crate::ui::clipboard::ClipboardDispatch {
+        self.runtime.clipboard.read(request)
+    }
+
     #[cfg(target_os = "ios")]
     fn write_clipboard(
         &mut self,

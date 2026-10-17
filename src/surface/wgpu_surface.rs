@@ -356,6 +356,8 @@ impl WgpuHandler {
 }
 
 pub(crate) struct WgpuRuntime {
+    #[cfg(target_os = "android")]
+    pub(crate) clipboard: super::host_clipboard::android::Clipboard,
     #[cfg(target_os = "linux")]
     clipboard: super::host_clipboard::linux::Clipboard,
     config: WgpuConfig,
@@ -391,7 +393,7 @@ impl WgpuRuntime {
 
     pub(crate) fn poll_event(&mut self) -> Option<InputEvent> {
         self.flush_pointer_move();
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         if let Some(response) = self.clipboard.poll() {
             self.event_queue.push_back(InputEvent::Clipboard(response));
         }
@@ -482,7 +484,7 @@ impl WgpuRuntime {
             native_touches: NativeTouchMap::new(),
             modifiers: None,
             text_input: NativeTextInput::default(),
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "android"))]
             clipboard: Default::default(),
             reconfigure_before_acquire: false,
             frame_texture: None,
@@ -513,7 +515,7 @@ impl WgpuRuntime {
         self.frame_texture = None;
         self.set_text_input(None);
         self.modifiers = None;
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         self.clipboard.detach();
         self.state = None;
         self.event_queue
@@ -1457,6 +1459,22 @@ impl MobileSurface for MobileWgpuSurface {
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
 impl Surface for MobileWgpuSurface {
+    #[cfg(target_os = "android")]
+    fn write_clipboard(
+        &mut self,
+        request: crate::ui::clipboard::ClipboardWrite,
+    ) -> crate::ui::clipboard::ClipboardDispatch {
+        self.runtime.clipboard.write(request)
+    }
+
+    #[cfg(target_os = "android")]
+    fn read_clipboard(
+        &mut self,
+        request: crate::ui::clipboard::ClipboardRead,
+    ) -> crate::ui::clipboard::ClipboardDispatch {
+        self.runtime.clipboard.read(request)
+    }
+
     #[cfg(target_os = "ios")]
     fn write_clipboard(
         &mut self,

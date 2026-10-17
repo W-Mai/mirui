@@ -97,8 +97,15 @@ pub struct SdlGpuSurface {
     menu: Option<crate::surface::native_menu::SdlMenu>,
     #[cfg(target_os = "linux")]
     clipboard: crate::surface::host_clipboard::linux::Clipboard,
+    #[cfg(target_os = "android")]
+    clipboard: crate::surface::host_clipboard::android::Clipboard,
     device: Rc<Device>,
-    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "windows",
+        target_os = "android"
+    )))]
     video: sdl2::VideoSubsystem,
     _event_pump: EventPump,
     text_input: crate::surface::sdl_events::NativeTextInput,
@@ -204,12 +211,19 @@ impl SdlGpuSurface {
             #[cfg(target_os = "macos")]
             menu,
             device,
-            #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
+            #[cfg(not(any(
+                target_os = "macos",
+                target_os = "ios",
+                target_os = "windows",
+                target_os = "android"
+            )))]
             video,
             _event_pump: event_pump,
             text_input,
             #[cfg(target_os = "linux")]
             clipboard,
+            #[cfg(target_os = "android")]
+            clipboard: Default::default(),
             viewport,
             needs_redraw: true,
             last_mouse_x: 0,
@@ -415,7 +429,16 @@ impl Surface for SdlGpuSurface {
             };
             crate::surface::host_clipboard::write(canvas.window(), request)
         }
-        #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
+        #[cfg(target_os = "android")]
+        {
+            self.clipboard.write_sdl(request)
+        }
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows",
+            target_os = "android"
+        )))]
         {
             crate::surface::sdl_events::write_clipboard(&self.video, request)
         }
@@ -440,7 +463,16 @@ impl Surface for SdlGpuSurface {
         {
             crate::surface::host_clipboard::read(request)
         }
-        #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
+        #[cfg(target_os = "android")]
+        {
+            self.clipboard.read_sdl(request)
+        }
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows",
+            target_os = "android"
+        )))]
         {
             crate::surface::sdl_events::read_clipboard(&self.video, request)
         }
@@ -450,7 +482,7 @@ impl Surface for SdlGpuSurface {
         if let Some(e) = self.pending.pop_front() {
             return Some(e);
         }
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         if let Some(response) = self.clipboard.poll() {
             return Some(InputEvent::Clipboard(response));
         }
@@ -464,7 +496,11 @@ impl Surface for SdlGpuSurface {
         }
         loop {
             let event = crate::surface::sdl_events::poll();
-            #[cfg(target_os = "linux")]
+            #[cfg(target_os = "android")]
+            if let Some(event) = &event {
+                self.clipboard.observe_sdl_event(event);
+            }
+            #[cfg(any(target_os = "linux", target_os = "android"))]
             if let Some(response) = self.clipboard.poll() {
                 self.pending.push_back(InputEvent::Clipboard(response));
             }

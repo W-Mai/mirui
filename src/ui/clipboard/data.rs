@@ -179,7 +179,12 @@ impl ClipboardData {
     }
 
     #[cfg(all(
-        not(any(target_os = "macos", target_os = "ios", target_os = "windows")),
+        not(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows",
+            target_os = "android"
+        )),
         any(feature = "sdl", feature = "sdl-gpu")
     ))]
     pub(crate) fn owned_text(text: alloc::string::String) -> Result<Self, ClipboardError> {

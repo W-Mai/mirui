@@ -158,6 +158,7 @@ fn reserve_queue_total<T>(queue: &mut VecDeque<T>, total: usize) {
 // — std uses a per-thread cell (tests isolate, no lock), no_std a critical_section.
 #[cfg(feature = "std")]
 std::thread_local! {
+    #[cfg_attr(target_os = "android", expect(clippy::missing_const_for_thread_local, reason = "Rust 1.97 Android TLS expansion flags an explicit const initializer"))]
     static RT: RefCell<Reactive> = const { RefCell::new(Reactive::new()) };
 }
 

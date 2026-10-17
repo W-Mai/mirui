@@ -94,7 +94,10 @@ where
 mod tests {
     use super::*;
     use core::cell::Cell;
-    std::thread_local! { static SLEPT: Cell<u64> = const { Cell::new(0) }; }
+    std::thread_local! {
+        #[cfg_attr(target_os = "android", expect(clippy::missing_const_for_thread_local, reason = "Rust 1.97 Android TLS expansion flags an explicit const initializer"))]
+        static SLEPT: Cell<u64> = const { Cell::new(0) };
+    }
 
     #[test]
     fn blocking_and_host_scheduling_share_deadlines_and_reanchor_after_stalls() {

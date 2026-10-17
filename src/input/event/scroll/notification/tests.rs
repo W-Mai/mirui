@@ -317,6 +317,7 @@ fn storage_is_prepared_only_for_listened_nodes() {
 }
 
 std::thread_local! {
+    #[cfg_attr(target_os = "android", expect(clippy::missing_const_for_thread_local, reason = "Rust 1.97 Android TLS expansion flags an explicit const initializer"))]
     static TIME: core::cell::Cell<u64> = const { core::cell::Cell::new(0) };
 }
 

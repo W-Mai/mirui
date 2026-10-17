@@ -40,9 +40,9 @@ log-max-level-info = []
 log-max-level-debug = []
 log-max-level-trace = []
 log-web-console = ["web-canvas"]
-sdl = ["dep:sdl2", "dep:objc2", "dep:objc2-foundation", "dep:objc2-app-kit", "dep:objc2-uniform-type-identifiers", "dep:objc2-ui-kit", "dep:objc2-core-foundation", "dep:block2", "dep:windows", "dep:windows-sys", "dep:raw-window-handle", "dep:url", "dep:x11rb", "dep:x11-dl", "dep:rustix", "dep:wayland-client", "std"]
+sdl = ["dep:sdl2", "dep:objc2", "dep:objc2-foundation", "dep:objc2-app-kit", "dep:objc2-uniform-type-identifiers", "dep:objc2-ui-kit", "dep:objc2-core-foundation", "dep:block2", "dep:windows", "dep:windows-sys", "dep:raw-window-handle", "dep:url", "dep:x11rb", "dep:x11-dl", "dep:rustix", "dep:wayland-client", "dep:jni", "std"]
 sdl-gpu = ["sdl", "dep:sdl2-sys", "dep:lyon"]
-wgpu = ["dep:wgpu", "dep:winit", "dep:bytemuck", "dep:lyon", "dep:pollster", "dep:objc2", "dep:objc2-foundation", "dep:objc2-app-kit", "dep:objc2-uniform-type-identifiers", "dep:objc2-ui-kit", "dep:objc2-core-foundation", "dep:block2", "dep:windows", "dep:windows-sys", "dep:raw-window-handle", "dep:url", "dep:x11rb", "dep:x11-dl", "dep:rustix", "dep:wayland-client", "std"]
+wgpu = ["dep:wgpu", "dep:winit", "dep:bytemuck", "dep:lyon", "dep:pollster", "dep:objc2", "dep:objc2-foundation", "dep:objc2-app-kit", "dep:objc2-uniform-type-identifiers", "dep:objc2-ui-kit", "dep:objc2-core-foundation", "dep:block2", "dep:windows", "dep:windows-sys", "dep:raw-window-handle", "dep:url", "dep:x11rb", "dep:x11-dl", "dep:rustix", "dep:wayland-client", "dep:jni", "dep:ndk-context", "std"]
 wgpu-android = ["wgpu", "winit/android-native-activity"]
 web-canvas = [
     "dep:web-sys",
@@ -112,6 +112,10 @@ objc2-app-kit = { version = "0.3", optional = true, default-features = false, fe
 objc2-ui-kit = { version = "0.3", optional = true, default-features = false, features = ["std", "UIPasteboard", "UIImage", "UIGraphicsImageRenderer", "UIGraphicsRenderer", "objc2-core-foundation", "objc2-core-graphics", "block2"] }
 objc2-core-foundation = { version = "0.3", optional = true, default-features = false, features = ["std"] }
 block2 = { version = "0.6", optional = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "0.22.4", optional = true }
+ndk-context = { version = "0.1.1", optional = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 sdl2 = { version = "0.37", optional = true, features = ["raw-window-handle"] }
