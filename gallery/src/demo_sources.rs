@@ -615,8 +615,15 @@ split_demo_sources! {
 mod tests {
     #[test]
     fn source_catalog_covers_split_module_files() {
+        use std::collections::BTreeSet;
+
         let demos = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../src/gallery/demos");
+        let mut registered = BTreeSet::new();
         for &(demo, parts, _, source) in super::CASES {
+            assert!(
+                registered.insert(demo.to_owned()),
+                "duplicate source: {demo}"
+            );
             for file in std::fs::read_dir(demos.join(demo)).expect("split demo directory") {
                 let path = file.expect("split demo file").path();
                 if path.extension().is_none_or(|extension| extension != "rs") {
@@ -631,5 +638,26 @@ mod tests {
                 );
             }
         }
+        let split_directories: BTreeSet<_> = std::fs::read_dir(&demos)
+            .expect("demo directory")
+            .filter_map(|entry| {
+                let path = entry.expect("demo entry").path();
+                if !path.is_dir() {
+                    return None;
+                }
+                let has_modules =
+                    std::fs::read_dir(&path)
+                        .expect("demo child directory")
+                        .any(|file| {
+                            let path = file.expect("demo child").path();
+                            path.is_file() && path.extension().is_some_and(|ext| ext == "rs")
+                        });
+                has_modules.then(|| path.file_name().unwrap().to_str().unwrap().to_owned())
+            })
+            .collect();
+        assert_eq!(
+            registered, split_directories,
+            "split demo source catalog differs from module directories"
+        );
     }
 }
