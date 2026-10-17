@@ -5,6 +5,11 @@ use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_se
 use objc2_app_kit::NSResponder;
 use objc2_foundation::NSObjectProtocol;
 
+#[cfg(feature = "sdl")]
+mod sdl;
+#[cfg(feature = "sdl")]
+pub(crate) use sdl::SdlMenu;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Action {
     Copy,

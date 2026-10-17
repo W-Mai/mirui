@@ -16,7 +16,7 @@ pub mod ui {
     }
 }
 
-#[cfg(all(target_os = "macos", feature = "wgpu"))]
+#[cfg(all(target_os = "macos", any(feature = "sdl", feature = "wgpu")))]
 #[path = "native_clipboard/menu.rs"]
 mod native_menu;
 
@@ -113,7 +113,17 @@ mod native {
 fn main() {
     #[cfg(all(target_os = "macos", feature = "wgpu"))]
     if std::env::args().any(|arg| arg == "--menu-window") {
-        native_menu::verify();
+        native_menu::verify_wgpu();
+        return;
+    }
+    #[cfg(all(target_os = "macos", feature = "sdl"))]
+    if std::env::args().any(|arg| arg == "--menu-sdl" || arg == "--menu-sdl-responder") {
+        native_menu::verify_sdl(!std::env::args().any(|arg| arg == "--menu-sdl-responder"));
+        return;
+    }
+    #[cfg(all(target_os = "macos", feature = "sdl-gpu"))]
+    if std::env::args().any(|arg| arg == "--menu-sdl-gpu" || arg == "--menu-sdl-gpu-responder") {
+        native_menu::verify_sdl_gpu(!std::env::args().any(|arg| arg == "--menu-sdl-gpu-responder"));
         return;
     }
     if !std::env::args().any(|arg| arg == "--ignored") {

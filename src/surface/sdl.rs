@@ -41,6 +41,8 @@ struct MultiGestureState {
 }
 
 pub struct SdlSurface {
+    #[cfg(target_os = "macos")]
+    menu: Option<super::native_menu::SdlMenu>,
     #[cfg(target_os = "linux")]
     clipboard: super::host_clipboard::linux::Clipboard,
     /// Streaming texture sized to the framebuffer; `flush` updates
@@ -102,6 +104,12 @@ impl SdlSurface {
             &video,
             sdl.event().expect("SDL2 event subsystem failed"),
         );
+        #[cfg(target_os = "macos")]
+        let menu = super::native_menu::SdlMenu::new(
+            canvas.window(),
+            sdl.event().expect("SDL2 event subsystem failed"),
+        )
+        .expect("SDL2 native menu registration failed");
 
         let (draw_w, _) = canvas.output_size().unwrap();
         let scale_int = (draw_w as u16) / width;
@@ -129,6 +137,8 @@ impl SdlSurface {
         };
 
         Self {
+            #[cfg(target_os = "macos")]
+            menu,
             tex,
             texture_creator,
             texture_lost: false,
@@ -415,6 +425,11 @@ impl Surface for SdlSurface {
             let Some(event) = event else {
                 break;
             };
+            #[cfg(target_os = "macos")]
+            if let Some(input) = self.menu.as_ref().and_then(|menu| menu.input(&event)) {
+                self.pending.push_back(input);
+                continue;
+            }
             match event {
                 Event::Quit { .. } => self.pending.push_back(InputEvent::Quit),
                 Event::RenderDeviceReset { .. } => {

@@ -105,6 +105,7 @@ objc2-foundation = { version = "0.3", optional = true, default-features = false,
 objc2-uniform-type-identifiers = { version = "0.3", optional = true, default-features = false, features = ["std", "UTType"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+sdl2 = { version = "0.37", optional = true, features = ["raw-window-handle"] }
 objc2-app-kit = { version = "0.3", optional = true, default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem", "NSBitmapImageRep", "NSImageRep", "NSResponder"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]

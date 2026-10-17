@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- macOS SDL software and GPU windows route native clipboard menu actions through window-scoped SDL events.
+
 - macOS WGPU windows deliver native clipboard and Select All menu actions through the host event loop and detach their responder registration when the window retires.
 
 - Native clipboard inputs support payload-free paste requests and Select All through the existing component capabilities.

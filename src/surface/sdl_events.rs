@@ -159,11 +159,29 @@ pub(crate) fn poll() -> Option<Event> {
             return None;
         }
         let raw = unsafe { raw.assume_init() };
-        let kind = unsafe { raw.type_ };
-        if supported_event_type(kind) {
-            return Some(Event::from_ll(raw));
+        if let Some(event) = decode_event(raw) {
+            return Some(event);
         }
     }
+}
+
+fn decode_event(raw: sdl2::sys::SDL_Event) -> Option<Event> {
+    let kind = unsafe { raw.type_ };
+    let user = sdl2::sys::SDL_EventType::SDL_USEREVENT as u32;
+    let last = sdl2::sys::SDL_EventType::SDL_LASTEVENT as u32;
+    if (user..last).contains(&kind) {
+        // Registered IDs are a numeric range, not SDL_EventType enum discriminants.
+        let event = unsafe { raw.user };
+        return Some(Event::User {
+            timestamp: event.timestamp,
+            window_id: event.windowID,
+            type_: kind,
+            code: event.code,
+            data1: event.data1,
+            data2: event.data2,
+        });
+    }
+    supported_event_type(kind).then(|| Event::from_ll(raw))
 }
 
 #[cfg(test)]
@@ -171,6 +189,25 @@ mod tests {
     use super::*;
     use crate::input::event::input::*;
     use sdl2::keyboard::{Keycode, Mod};
+
+    #[test]
+    fn registered_user_event_ids_preserve_window_and_payload_without_enum_conversion() {
+        for kind in [0x8000, 0x8001, 0xfffe] {
+            let raw = sdl2::sys::SDL_Event {
+                user: sdl2::sys::SDL_UserEvent {
+                    type_: kind,
+                    timestamp: 17,
+                    windowID: 42,
+                    code: -7,
+                    data1: core::ptr::dangling_mut(),
+                    data2: core::ptr::null_mut(),
+                },
+            };
+            assert!(matches!(decode_event(raw), Some(Event::User {
+                type_, timestamp: 17, window_id: 42, code: -7, data1, data2,
+            }) if type_ == kind && data1 == core::ptr::dangling_mut() && data2.is_null()));
+        }
+    }
 
     fn key_event(keycode: Keycode, pressed: bool) -> Event {
         if pressed {

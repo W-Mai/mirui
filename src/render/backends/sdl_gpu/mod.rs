@@ -93,6 +93,8 @@ struct MultiGestureState {
 }
 
 pub struct SdlGpuSurface {
+    #[cfg(target_os = "macos")]
+    menu: Option<crate::surface::native_menu::SdlMenu>,
     #[cfg(target_os = "linux")]
     clipboard: crate::surface::host_clipboard::linux::Clipboard,
     device: Rc<Device>,
@@ -182,6 +184,12 @@ impl SdlGpuSurface {
             &video,
             sdl.event().map_err(|e| backend_error("SDL events", e))?,
         );
+        #[cfg(target_os = "macos")]
+        let menu = crate::surface::native_menu::SdlMenu::new(
+            canvas.window(),
+            sdl.event().map_err(|e| backend_error("SDL events", e))?,
+        )
+        .map_err(|e| backend_error("SDL native menu", e))?;
         #[cfg(target_os = "linux")]
         let clipboard = {
             let mut clipboard = crate::surface::host_clipboard::linux::Clipboard::default();
@@ -193,6 +201,8 @@ impl SdlGpuSurface {
         };
         let device = Rc::new(Device::new(canvas, texture_creator));
         Ok(Self {
+            #[cfg(target_os = "macos")]
+            menu,
             device,
             #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "windows")))]
             video,
@@ -461,6 +471,11 @@ impl Surface for SdlGpuSurface {
             let Some(event) = event else {
                 break;
             };
+            #[cfg(target_os = "macos")]
+            if let Some(input) = self.menu.as_ref().and_then(|menu| menu.input(&event)) {
+                self.pending.push_back(input);
+                continue;
+            }
             match event {
                 Event::Quit { .. } => self.pending.push_back(InputEvent::Quit),
                 Event::RenderTargetsReset { .. } | Event::RenderDeviceReset { .. } => {

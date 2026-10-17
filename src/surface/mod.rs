@@ -22,8 +22,8 @@ pub(crate) mod input_state;
 #[cfg(all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"))]
 pub mod linux;
 pub(crate) mod mirror;
-#[cfg(all(target_os = "macos", feature = "wgpu"))]
-mod native_menu;
+#[cfg(all(target_os = "macos", any(feature = "sdl", feature = "wgpu")))]
+pub(crate) mod native_menu;
 #[cfg(all(feature = "nuttx", target_os = "nuttx"))]
 pub mod nuttx;
 #[cfg(any(
