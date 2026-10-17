@@ -53,4 +53,22 @@ cargo run -p gallery --example perf_collect --features sdl,perf
 
 The input demo repeatedly taps and drags its composed targets. In the lifecycle demo, Enter toggles suspension and Escape exits. The z-order diagnostic displays overlapping squares and reports their child order. The performance collector drives list scrolling and writes `/tmp/mirui-perf.ndjson`; it is a host-side diagnostic, not a hardware performance measurement.
 
+### SDL-GPU rendering samples
+
+The same collector can measure native SDL-GPU full-frame rendering without the simulated transfer delay:
+
+```sh
+cargo run --release -p gallery --example perf_collect --features sdl-gpu -- --sdl-gpu nearby 300 gl 0
+target/release/examples/perf_collect --sdl-gpu page_studio 300 gl 0
+target/release/examples/perf_collect --sdl-gpu shapes 300 gl 0
+target/release/examples/perf_collect --sdl-gpu text 300 gl 0
+target/release/examples/perf_collect --sdl-gpu digits 300 gl 0
+```
+
+Arguments are scene, measured frame count (default 300), driver (`gl`, `gles2`, or `auto`; default `gl`), and requested MSAA samples (default 0). `auto` accepts only 0 because it does not request GL multisampling. Vsync is disabled. Each invocation opens one native window, reports the first rendered frame separately, warms 30 frames, then reports wall-time mean, P50, P95, P99 and maximum. Driver, logical/physical size, scale, configuration, build debug assertions and the SDL batching hint are printed with the results. Record the source commit and build flags alongside the output when comparing runs.
+
+These samples call `App::render()` on every frame, including layout preparation and presentation, without advancing systems or dispatching user input. Scene clocks are fixed. `digits` changes its Model before each render; its timing includes that update and reactive text formatting. `text` holds the same content fixed. The other scenes use existing Demo compositions. This measures full-frame submission and presentation wall time, not idle scheduling, page animation, input responsiveness or isolated GPU execution time. No readback or explicit GPU completion wait is inserted; queued GPU work may complete after a call returns. Compare identical scene/configuration/physical-size runs on the same device, and inspect snapshots separately.
+
+Existing `InspectCaches` statistics are printed after warmup and after measurement, outside the timed region. Counters are cumulative; subtract the warm values to obtain measured-frame hits, misses and evictions. Cache limits are not measured GPU memory usage. Closing the window aborts collection rather than reporting an incomplete sample set. The tool does not modify global SDL settings or the library's default backend configuration.
+
 `widget_demo` constructs and renders through a headless App, then presents the framebuffer in an SDL texture. `perf_bench` builds image and solid-color tile scenes through the same construction path; run it with `cargo run -p gallery --example perf_bench --no-default-features --features snapshot,perf --release` to collect host-side rendering and resource lookup timings.

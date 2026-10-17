@@ -7,6 +7,10 @@
 //! Run:
 //!   cargo run --release -p gallery --example perf_collect
 
+#[cfg(feature = "sdl-gpu")]
+#[path = "perf_collect/gpu.rs"]
+mod gpu;
+
 use mirui::anim::ease;
 use mirui::app::plugins::{PerfReportPlugin, StdInstantClockPlugin};
 use mirui::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
@@ -58,6 +62,21 @@ fn scroll_list() -> Entity {
 }
 
 fn main() {
+    if std::env::args_os().len() > 1 {
+        #[cfg(feature = "sdl-gpu")]
+        {
+            gpu::run().unwrap_or_else(|error| {
+                eprintln!("{error}");
+                std::process::exit(1);
+            });
+            return;
+        }
+        #[cfg(not(feature = "sdl-gpu"))]
+        {
+            eprintln!("GPU collection requires --features sdl-gpu");
+            std::process::exit(1);
+        }
+    }
     // SDL window with flush throttled. 50 ns/px keeps wall-clock
     // turnaround fast; raise toward 200 (~SPI 80 MHz RGB565) for
     // closer-to-device timing.
