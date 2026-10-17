@@ -33,6 +33,9 @@ mod read_contracts;
 #[path = "x11_clipboard/wire.rs"]
 mod wire;
 
+#[path = "x11_clipboard/native.rs"]
+mod native_contracts;
+
 fn connection() -> (
     x11rb::rust_connection::RustConnection<wire::Wire>,
     std::sync::Arc<std::sync::Mutex<wire::State>>,

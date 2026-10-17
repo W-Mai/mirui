@@ -1,0 +1,259 @@
+use std::{
+    io::{ErrorKind, Read as _},
+    process::{Child, Command, Stdio},
+    sync::Arc,
+    time::{Duration, Instant},
+};
+
+use x11rb::{
+    connection::Connection, protocol::xproto::ConnectionExt, rust_connection::RustConnection,
+};
+
+use super::{
+    session::Session,
+    ui::clipboard::{ClipboardData, ClipboardError, ClipboardFormat, ClipboardItem},
+};
+
+const WAIT: Duration = Duration::from_secs(10);
+type NativeSession = Session<RustConnection>;
+
+struct Server(Child);
+
+impl Server {
+    fn start() -> (Self, String) {
+        let mut server = Self(
+            Command::new("Xvfb")
+                .args([
+                    "-displayfd",
+                    "1",
+                    "-nolisten",
+                    "tcp",
+                    "-noreset",
+                    "-screen",
+                    "0",
+                    "64x64x24",
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .spawn()
+                .expect("install Xvfb to run the isolated X11 server contract"),
+        );
+        let mut output = server.0.stdout.take().unwrap();
+        let flags = rustix::fs::fcntl_getfl(&output).unwrap();
+        rustix::fs::fcntl_setfl(&output, flags | rustix::fs::OFlags::NONBLOCK).unwrap();
+        let deadline = Instant::now() + WAIT;
+        let mut number = String::new();
+        loop {
+            let mut byte = [0];
+            match output.read(&mut byte) {
+                Ok(1) if byte[0] == b'\n' => break,
+                Ok(1) => {
+                    assert!(byte[0].is_ascii_digit() && number.len() < 10);
+                    number.push(char::from(byte[0]));
+                }
+                Err(error)
+                    if matches!(error.kind(), ErrorKind::WouldBlock | ErrorKind::Interrupted) => {}
+                result => panic!("Xvfb did not publish a display number: {result:?}"),
+            }
+            assert!(
+                server.0.try_wait().unwrap().is_none(),
+                "Xvfb exited during startup"
+            );
+            assert!(Instant::now() < deadline, "Xvfb startup timed out");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(!number.is_empty());
+        (server, format!(":{number}"))
+    }
+}
+
+impl Drop for Server {
+    fn drop(&mut self) {
+        if matches!(self.0.try_wait(), Ok(Some(_))) {
+            return;
+        }
+        let _ = rustix::process::kill_process(
+            rustix::process::Pid::from_child(&self.0),
+            rustix::process::Signal::TERM,
+        );
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while Instant::now() < deadline {
+            if matches!(self.0.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn session(display: &str) -> NativeSession {
+    let (connection, screen) = x11rb::connect(Some(display)).unwrap();
+    Session::new(connection, screen).unwrap()
+}
+
+fn timestamp(session: &mut NativeSession, previous: u32) -> u32 {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        session.request_time().unwrap();
+        loop {
+            if let Some(event) = session.connection().poll_for_event().unwrap() {
+                let time = session.timestamp(&event);
+                assert!(session.event(&event, Instant::now()).unwrap().is_none());
+                if let Some(time) = time {
+                    if time != previous {
+                        return time;
+                    }
+                    break;
+                }
+            }
+            assert!(Instant::now() < deadline, "server timestamp timed out");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+fn finish_read(
+    source: &mut NativeSession,
+    reader: &mut NativeSession,
+) -> Result<ClipboardData, ClipboardError> {
+    let deadline = Instant::now() + WAIT;
+    loop {
+        while let Some(event) = source.connection().poll_for_event().unwrap() {
+            assert!(source.event(&event, Instant::now()).unwrap().is_none());
+        }
+        while let Some(event) = reader.connection().poll_for_event().unwrap() {
+            if let Some(result) = reader.event(&event, Instant::now()).unwrap() {
+                return result;
+            }
+        }
+        let now = Instant::now();
+        assert!(source.expire(now).unwrap().is_none());
+        if let Some(result) = reader.expire(now).unwrap() {
+            return result;
+        }
+        assert!(now < deadline, "selection exchange timed out");
+        std::thread::sleep(Duration::from_millis(1));
+    }
+}
+
+fn exchange(source: &mut NativeSession, reader: &mut NativeSession) -> ClipboardData {
+    let time = timestamp(reader, 0);
+    reader.begin_read(time, Instant::now()).unwrap();
+    finish_read(source, reader).unwrap()
+}
+
+fn assert_data(actual: &ClipboardData, expected: &ClipboardData) {
+    assert_eq!(actual.items().len(), expected.items().len());
+    for (actual, expected) in actual.items().iter().zip(expected.items()) {
+        assert_eq!(actual.formats().len(), expected.formats().len());
+        for expected in expected.formats() {
+            let actual = actual
+                .formats()
+                .iter()
+                .find(|format| format.mime() == expected.mime())
+                .unwrap();
+            assert_eq!(actual.bytes(), expected.bytes(), "{}", expected.mime());
+        }
+    }
+}
+
+fn window_count(session: &NativeSession) -> usize {
+    let root = session.connection().setup().roots[0].root;
+    session
+        .connection()
+        .query_tree(root)
+        .unwrap()
+        .reply()
+        .unwrap()
+        .children
+        .len()
+}
+
+#[test]
+#[ignore = "requires Xvfb; starts an isolated server with TCP disabled"]
+fn isolated_server_preserves_snapshots_and_retires_read_windows() {
+    let (_server, display) = Server::start();
+    let mut source = session(&display);
+    let mut reader = session(&display);
+    let baseline_windows = window_count(&reader);
+
+    let mut item = ClipboardItem::with_capacity(4).unwrap();
+    item.push(ClipboardFormat::borrowed(
+        "text/plain",
+        "native 雪\n".as_bytes(),
+    ))
+    .unwrap();
+    item.push(ClipboardFormat::new(
+        "application/x-first",
+        vec![0x83; 200_001],
+    ))
+    .unwrap();
+    let mut bytes = vec![0x42; 131_075];
+    bytes[131_074] = 0;
+    item.push(ClipboardFormat::new("application/x-second", bytes))
+        .unwrap();
+    item.push(ClipboardFormat::borrowed("application/x-empty", b""))
+        .unwrap();
+    let mut data = ClipboardData::with_capacity(1, 400_000).unwrap();
+    data.push(item).unwrap();
+    let data = Arc::new(data);
+    let time = timestamp(&mut source, 0);
+    source.write(data.clone(), time).unwrap();
+    for _ in 0..3 {
+        assert_data(&exchange(&mut source, &mut reader), &data);
+        assert_eq!(window_count(&reader), baseline_windows);
+        assert!(source.deadline().is_none());
+        assert!(reader.deadline().is_none());
+    }
+
+    // A replacement on the same owner cannot complete a pending older snapshot.
+    let read_time = timestamp(&mut reader, 0);
+    reader.begin_read(read_time, Instant::now()).unwrap();
+    let next_time = timestamp(&mut source, time);
+    let replacement = Arc::new(ClipboardData::text("replacement").unwrap());
+    source.write(replacement.clone(), next_time).unwrap();
+    assert!(finish_read(&mut source, &mut reader).is_err());
+    assert_eq!(window_count(&reader), baseline_windows);
+    assert_data(&exchange(&mut source, &mut reader), &replacement);
+
+    let mut successor = session(&display);
+    let next_time = timestamp(&mut successor, next_time);
+    successor.write(data.clone(), next_time).unwrap();
+    while let Some(event) = source.connection().poll_for_event().unwrap() {
+        assert!(source.event(&event, Instant::now()).unwrap().is_none());
+    }
+    assert_data(&exchange(&mut successor, &mut reader), &data);
+    drop(successor);
+    let clipboard = reader
+        .connection()
+        .intern_atom(false, b"CLIPBOARD")
+        .unwrap()
+        .reply()
+        .unwrap()
+        .atom;
+    let deadline = Instant::now() + WAIT;
+    while reader
+        .connection()
+        .get_selection_owner(clipboard)
+        .unwrap()
+        .reply()
+        .unwrap()
+        .owner
+        != x11rb::NONE
+    {
+        assert!(
+            Instant::now() < deadline,
+            "closed source retained ownership"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    let time = timestamp(&mut reader, 0);
+    assert_eq!(
+        reader.begin_read(time, Instant::now()),
+        Err(ClipboardError::Unavailable)
+    );
+    assert_eq!(window_count(&reader), baseline_windows);
+}

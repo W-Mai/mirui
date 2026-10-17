@@ -105,6 +105,14 @@ The `wayland_clipboard_source` tests use the Wayland client and server bindings 
 
 The `x11_clipboard_source` and `x11_clipboard_transfer` tests check selection ownership, multi-format reads, snapshot replacement, chunk boundaries, and request-window cleanup through an in-memory X11 protocol fixture. They use x11rb request encoding and reply parsing without accessing the system clipboard, including incremental transfers between the source and reader. Completion, rejection, and timeout retire the read window without discarding the active copy source; stale window events cannot complete another read. These checks do not exercise a live X server or a Surface's input loop.
 
+The optional native X11 contract starts its own Xvfb server with TCP disabled and shuts it down on completion or failure. It does not use the desktop's `DISPLAY` or clipboard. Install `Xvfb` on `PATH` and run:
+
+```bash
+cargo test --test x11_clipboard_source --no-default-features --features std native_contracts -- --ignored
+```
+
+This contract uses independent connections to check consecutive incremental transfers, empty and trailing-zero binary data, snapshot replacement, ownership changes, and read-window retirement. An unavailable Xvfb or unusable socket directory fails explicitly; ordinary test runs leave this contract ignored. It does not validate SDL/WGPU window integration or another application's format handling.
+
 The `x11_clipboard_stream` tests use private Unix socket pairs to check cancellation during the x11rb handshake, reply waits, and write backpressure. They also check absolute I/O deadlines, connection isolation, and descriptor transfer. They do not connect to an X server or validate desktop clipboard integration.
 
 The X11 worker unit tests connect the production worker to the protocol fixture through private Unix sockets. They exercise existing App cut/paste requests and completion notifications, binary payload ownership, repeated-copy timestamps, initialization failure, single-operation admission, and shutdown during setup. These checks do not replace live X server or SDL/WGPU window verification.
