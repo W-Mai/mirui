@@ -1,8 +1,4 @@
-use std::{
-    os::fd::OwnedFd,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{os::fd::OwnedFd, sync::Arc, time::Instant};
 
 use wayland_client::{
     Dispatch, QueueHandle,
@@ -13,11 +9,10 @@ use wayland_client::{
     },
 };
 
-use super::transfer::{Budget, Outgoing};
+use super::transfer::{Budget, Outgoing, TIMEOUT};
 use crate::ui::clipboard::{ClipboardData, ClipboardError};
 
 const TRANSFERS: usize = 16;
-const TIMEOUT: Duration = Duration::from_secs(10);
 const UTF8: &str = "text/plain;charset=utf-8";
 
 struct Offer {

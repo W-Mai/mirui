@@ -1,4 +1,8 @@
-use std::{os::fd::OwnedFd, sync::Arc, time::Instant};
+use std::{
+    os::fd::OwnedFd,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use rustix::{
     fs::{OFlags, fcntl_getfl, fcntl_setfl},
@@ -6,6 +10,8 @@ use rustix::{
 };
 
 use crate::ui::clipboard::{ClipboardData, ClipboardError};
+
+pub(super) const TIMEOUT: Duration = Duration::from_secs(10);
 
 pub(super) struct Budget {
     bytes: usize,

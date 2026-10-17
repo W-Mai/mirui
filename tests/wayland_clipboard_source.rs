@@ -8,10 +8,15 @@ pub mod ui {
         mod data {
             include!("../src/ui/clipboard/data.rs");
         }
+        pub(crate) use data::validate_mime;
         pub use data::{ClipboardData, ClipboardFormat, ClipboardItem};
     }
 }
 
+#[path = "../src/surface/host_clipboard/wayland/read.rs"]
+mod read;
+#[path = "wayland_clipboard/read.rs"]
+mod read_contracts;
 #[path = "wayland_clipboard/server.rs"]
 mod server;
 #[path = "../src/surface/host_clipboard/wayland/source.rs"]
@@ -39,6 +44,10 @@ struct Client {
     seat: Option<wl_seat::WlSeat>,
     source: source::Source,
     errors: Vec<ClipboardError>,
+    offers: Vec<(
+        wayland_client::protocol::wl_data_offer::WlDataOffer,
+        read::Offer,
+    )>,
 }
 
 impl Dispatch<wl_registry::WlRegistry, ()> for Client {
@@ -84,7 +93,41 @@ impl Dispatch<wl_data_source::WlDataSource, ()> for Client {
 
 wayland_client::delegate_noop!(Client: ignore wl_data_device_manager::WlDataDeviceManager);
 wayland_client::delegate_noop!(Client: ignore wl_seat::WlSeat);
-wayland_client::delegate_noop!(Client: ignore wl_data_device::WlDataDevice);
+impl Dispatch<wl_data_device::WlDataDevice, ()> for Client {
+    fn event(
+        state: &mut Self,
+        _: &wl_data_device::WlDataDevice,
+        event: wl_data_device::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let wl_data_device::Event::DataOffer { id } = event {
+            state.offers.push((id.clone(), read::Offer::new(id)));
+        }
+    }
+    wayland_client::event_created_child!(Client, wl_data_device::WlDataDevice, [
+        0 => (wayland_client::protocol::wl_data_offer::WlDataOffer, ())
+    ]);
+}
+
+impl Dispatch<wayland_client::protocol::wl_data_offer::WlDataOffer, ()> for Client {
+    fn event(
+        state: &mut Self,
+        proxy: &wayland_client::protocol::wl_data_offer::WlDataOffer,
+        event: wayland_client::protocol::wl_data_offer::Event,
+        _: &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        if let wayland_client::protocol::wl_data_offer::Event::Offer { mime_type } = event {
+            let offer = &mut state.offers.iter_mut().find(|(p, _)| p == proxy).unwrap().1;
+            if let Err(error) = offer.advertise(mime_type) {
+                state.errors.push(error);
+            }
+        }
+    }
+}
 
 struct Fixture {
     display: Display<server::Server>,

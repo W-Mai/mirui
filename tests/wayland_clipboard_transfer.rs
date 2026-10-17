@@ -34,7 +34,7 @@ fn nonblocking(fd: &OwnedFd) {
 }
 
 fn deadline() -> Instant {
-    Instant::now() + Duration::from_secs(10)
+    Instant::now() + transfer::TIMEOUT
 }
 
 #[test]
