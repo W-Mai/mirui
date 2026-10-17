@@ -79,7 +79,13 @@ Wayland writes complete after server synchronization, unless the source is cance
 
 On iOS 14 or newer, mobile WGPU, software upload, and SDL surfaces use the same UIKit bridge. It prepares every item and representation before a single native write. Reads capture all items once, preserving UTF-8 text, HTML, RTF, PNG, URI items, and custom binary data; native UIImage values become PNG with their display orientation applied. URI transfer uses one URI per item and does not open files. Native access stays on the main thread and remains subject to system privacy restrictions. A completed write means the synchronous UIKit submission returned, not that another application read the data. UIKit updates changeCount at the end of the event loop; it is not an immediate write acknowledgment.
 
-On other platforms, SDL software and GPU surfaces read and write plain text through the SDL clipboard. Writes accept exactly one `text/plain` representation and explicitly reject other items or representations instead of silently discarding them; SDL also rejects embedded NUL bytes. WGPU surfaces outside macOS, iOS, Windows, and Linux X11/Wayland, and other surfaces without a clipboard bridge, return Unsupported.
+Android WGPU, software upload, SDL, and SDL-GPU share one asynchronous bridge. Each Surface retains its original request until a single completion; host work runs on a lazily started Java worker using the application context. Suspension cancels pending work without joining the worker or keeping an Activity alive. A cancelled write cannot authorize cutting the source selection, although an already-running system write may have copied its snapshot. JNI transfers allocate only for explicit clipboard operations; idle polling does not read the system clipboard.
+
+The Java host bridge publishes direct text/HTML and typed snapshot streams in one ClipData. Reads keep one ClipData snapshot and enumerate each item's actual URI representations instead of using the clip-wide MIME union. Content transport URIs are not imported as source data. Cancellation uses Android's CancellationSignal; stream reads poll with a shared transfer deadline, while provider discovery and system IPC remain subject to platform latency.
+
+The Android host library in `platform/android` supplies a non-exported, URI-grant-enabled clipboard provider. Its private snapshot files preserve each item's MIME representations across process recreation. Replacement retires old files without changing already-open streams; failed or interrupted publication retains prepared data until a successful replacement. The provider does not expose application directories or allow writes. Android packages must include this library from their resolved Mirui dependency; a missing host class returns `Unsupported` rather than a text-only fallback.
+
+On other platforms, SDL software and GPU surfaces read and write plain text through the SDL clipboard. Writes accept exactly one `text/plain` representation and explicitly reject other items or representations instead of silently discarding them; SDL also rejects embedded NUL bytes. WGPU surfaces outside macOS, iOS, Android, Windows, and Linux X11/Wayland, and other surfaces without a clipboard bridge, return Unsupported.
 
 Web native Copy, Cut, and Paste events use the focused component's same capabilities without synthesizing keys. Copy and cut require an acknowledged asynchronous write. Native paste owns the event's string representations and File objects before the event expires; it does not read the system clipboard again or insert hidden-textarea content. Events belonging to another DOM control are left alone.
 
@@ -95,9 +101,7 @@ For platforms that supply a complete paste payload, `ClipboardInput::paste(data)
 
 ## Native contract checks
 
-The Android host library in `platform/android` supplies a non-exported, URI-grant-enabled clipboard provider. Its private snapshot files preserve each item's MIME representations across process recreation. Replacement retires old files without changing already-open streams; failed or interrupted publication retains prepared data until a successful replacement. The provider does not expose application directories or allow writes. Android packages must include this library from their resolved Mirui dependency; a missing host class returns `Unsupported` rather than a text-only fallback.
-
-Include the library as a Gradle application dependency so its manifest and consumer rules are merged into the APK. The application supplies the Android Gradle plugin; the library's standalone settings select a version only for independent builds. Its source-level instrumentation checks use AndroidX, so set `android.useAndroidX=true` when running them from an enclosing project.
+Include the Android host library as a Gradle application dependency so its manifest and consumer rules are merged into the APK. The application supplies the Android Gradle plugin; the library's standalone settings select a version only for independent builds. Its source-level instrumentation checks use AndroidX, so set `android.useAndroidX=true` when running them from an enclosing project.
 
 Run its storage contracts and Android lint with JDK 17, Android SDK 35, and Gradle 8.11.1:
 
@@ -106,10 +110,6 @@ gradle -p platform/android testDebugUnitTest lintDebug assembleDebug
 ```
 
 The storage contracts exercise actual temporary files, snapshot replacement, process-independent reopening, binary lengths, and path rejection. They do not verify Android URI grants, a system clipboard, or another application.
-
-The Java host bridge publishes direct text/HTML and typed snapshot streams in one ClipData. Reads keep one ClipData snapshot and enumerate each item's actual URI representations instead of using the clip-wide MIME union. Content transport URIs are not imported as source data. Cancellation uses Android's CancellationSignal; stream reads poll with a shared transfer deadline, while provider discovery and system IPC remain subject to platform latency.
-
-Android WGPU, software upload, SDL, and SDL-GPU share one asynchronous bridge. Each Surface retains its original request until a single completion; host work runs on a lazily started Java worker using the application context. Suspension cancels pending work without joining the worker or keeping an Activity alive. A cancelled write cannot authorize cutting the source selection, although an already-running system write may have copied its snapshot. JNI transfers allocate only for explicit clipboard operations; idle polling does not read the system clipboard.
 
 `gradle -p platform/android connectedDebugAndroidTest` runs the resolver and session lifecycle contracts on a connected Android device. These use the test application's own provider and isolated service failures, not the system clipboard; cross-application grants and clipboard publication require separate native checks.
 
