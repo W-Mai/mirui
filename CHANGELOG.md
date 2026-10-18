@@ -60,6 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Widget output plans retain dependency structure across content changes and retry failed batch preparation without repainting successful outputs.
+
 - Retained layout trees skip parked-branch maintenance while structure is unchanged and retire nodes whose layout components are removed.
 
 - FollowBounds publishes changed subtree geometry in dependency order without republishing unrelated branches for each follower.

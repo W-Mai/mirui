@@ -12,6 +12,7 @@ use super::{OutputDependency, OutputDescriptor};
 pub(crate) struct OutputRelations {
     active_registry: Option<u64>,
     next_registry: u64,
+    structure_revision: u64,
     bindings: Vec<Binding>,
     demands: Vec<Demand>,
     descriptors: Vec<&'static OutputDescriptor>,
@@ -76,6 +77,17 @@ impl Binding {
 }
 
 impl OutputRelations {
+    pub(crate) fn structure_revision(&self) -> u64 {
+        self.structure_revision
+    }
+
+    fn changed_structure(&mut self) {
+        self.structure_revision = self
+            .structure_revision
+            .checked_add(1)
+            .expect("output relationship revision exhausted");
+    }
+
     pub(crate) fn activate(&mut self, world: &mut World, registry: &mut Option<u64>) -> bool {
         if registry.is_some() && *registry == self.active_registry {
             return false;
@@ -91,6 +103,7 @@ impl OutputRelations {
     }
 
     pub(crate) fn clear(&mut self, world: &mut World) {
+        let changed = self.bindings.iter().any(|binding| binding.active);
         for binding in &mut self.bindings {
             if binding.active {
                 if binding.dependency.retain_previous {
@@ -103,6 +116,9 @@ impl OutputRelations {
             binding.active = false;
         }
         self.active_registry = None;
+        if changed {
+            self.changed_structure();
+        }
     }
 
     pub(crate) fn register(&mut self, descriptor: &'static OutputDescriptor) {
@@ -139,6 +155,7 @@ impl OutputRelations {
                 binding.source = source;
                 binding.visible = false;
                 binding.version.set(None);
+                self.changed_structure();
             }
             return;
         }
@@ -158,13 +175,22 @@ impl OutputRelations {
         } else {
             self.bindings.push(binding);
         }
+        self.changed_structure();
     }
 
     pub(crate) fn remove(&mut self, consumer: Entity, registration: u64) {
+        let mut changed = false;
         for binding in &mut self.bindings {
-            if binding.consumer == consumer && binding.registration == registration {
+            if binding.active
+                && binding.consumer == consumer
+                && binding.registration == registration
+            {
                 binding.active = false;
+                changed = true;
             }
+        }
+        if changed {
+            self.changed_structure();
         }
     }
 
@@ -219,14 +245,16 @@ impl OutputRelations {
     }
 
     fn reconcile_demands(&mut self, world: &mut World) {
+        let mut changed = false;
         // Apply final aggregate counts before any producer releases storage.
         for demand in &mut self.demands {
             demand.current = 0;
             demand.history = 0;
         }
         for binding in &mut self.bindings {
-            if !world.is_alive(binding.consumer) {
+            if binding.active && !world.is_alive(binding.consumer) {
                 binding.active = false;
+                changed = true;
             }
             if !binding.active {
                 continue;
@@ -261,6 +289,7 @@ impl OutputRelations {
         for demand in &mut self.demands {
             (demand.descriptor.set_demand)(world, demand.source, demand.current, demand.history);
             let requested = demand.current != 0 || demand.history != 0;
+            changed |= requested != demand.requested;
             if requested != demand.requested && world.is_alive(demand.source) {
                 world.invalidate_visual(demand.source);
             }
@@ -270,6 +299,9 @@ impl OutputRelations {
             .retain(|demand| demand.current != 0 || demand.history != 0);
         for descriptor in &self.descriptors {
             (descriptor.reconcile)(world);
+        }
+        if changed {
+            self.changed_structure();
         }
     }
 
@@ -285,6 +317,7 @@ impl OutputRelations {
 
     fn propagate_sources(&mut self, world: &mut World, check_dirty: bool) -> bool {
         let mut propagated = false;
+        let mut changed = false;
         for demand in &self.demands {
             if demand.current == 0 || !world.is_alive(demand.source) {
                 continue;
@@ -306,6 +339,7 @@ impl OutputRelations {
                 {
                     continue;
                 }
+                changed |= binding.visible != visible;
                 propagated |= binding.update(world, visible, version, dirty);
             }
         }
@@ -315,8 +349,12 @@ impl OutputRelations {
                 && world.is_alive(binding.consumer)
                 && binding.source.is_none_or(|source| !world.is_alive(source))
             {
+                changed |= binding.visible;
                 propagated |= binding.update(world, false, None, false);
             }
+        }
+        if changed {
+            self.changed_structure();
         }
         propagated
     }

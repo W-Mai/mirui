@@ -100,9 +100,13 @@ pub(crate) struct TexturePlan {
     graph: OutputGraph,
     captures: Vec<Capture>,
     nodes: Vec<NodeGeometry>,
+    structure_valid: bool,
+    relations_revision: u64,
+    geometry_valid: bool,
     geometry_ready: bool,
     workspace_bytes: usize,
     batch: u64,
+    batch_complete: bool,
     root: Option<Entity>,
     cycle_reported: bool,
     raster: Option<crate::render::backends::sw::SwScratch>,
@@ -115,10 +119,25 @@ impl TexturePlan {
         self.raster = None;
         self.workspace.release();
         self.target_workspace.release();
+        self.batch_complete = false;
     }
 
     pub(super) fn matches_root(&self, root: Entity) -> bool {
-        self.root == Some(root)
+        self.geometry_valid && self.root == Some(root)
+    }
+
+    fn invalidate_geometry(&mut self) {
+        self.geometry_valid = false;
+        self.geometry_ready = false;
+        self.batch_complete = false;
+    }
+
+    fn invalidate_structure(&mut self) {
+        self.invalidate_geometry();
+        self.structure_valid = false;
+        self.nodes.clear();
+        self.captures.clear();
+        self.root = None;
     }
 
     fn reserve_workspaces(&mut self, outputs: &Outputs<WidgetTexture>) {
@@ -210,13 +229,33 @@ impl TexturePlan {
     }
 
     fn build(&mut self, world: &World, node: &LayoutNode, entities: &[Entity]) {
+        crate::trace_span!("outputs.build_plan");
         self.graph.clear();
         self.captures.clear();
         self.nodes.clear();
         self.collect(node, world, entities, &mut 0, None);
+        self.reconcile_dependencies(world, entities, true);
+        self.graph.resolve();
+        let blocked = (0..self.captures.len()).any(|index| self.graph.is_blocked(index));
+        if blocked && !self.cycle_reported {
+            crate::warn!(target: "mirui::outputs", "cyclic output dependencies are unavailable");
+        }
+        self.cycle_reported = blocked;
+        self.relations_revision = world
+            .resource::<OutputRelations>()
+            .map_or(0, OutputRelations::structure_revision);
+        self.root = entities.first().copied();
+        self.structure_valid = true;
+    }
+
+    fn reconcile_dependencies(&mut self, world: &World, entities: &[Entity], build_graph: bool) {
         if let Some(relations) = world.resource::<OutputRelations>() {
             relations.visit_current_dependencies(|consumer, source, descriptor| {
                 if (descriptor.kind)() != TypeId::of::<WidgetTexture>() {
+                    return;
+                }
+                let producer = self.captures.iter().position(|c| c.entity == source);
+                if producer.is_some() && !build_graph {
                     return;
                 }
                 let Some(position) = entities.iter().position(|e| *e == consumer) else {
@@ -226,35 +265,52 @@ impl TexturePlan {
                     .captures
                     .iter()
                     .rposition(|c| c.start <= position && position < c.end);
-                match self.captures.iter().position(|c| c.entity == source) {
+                match producer {
                     Some(producer) => {
-                        if let Some(owner) = owner {
+                        if let Some(owner) = owner.filter(|_| build_graph) {
                             self.graph.add_dependency(producer, owner);
                         }
                     }
-                    None => {
+                    None if !build_graph => {
                         (descriptor.reset)(world, source);
-                        if let Some(owner) = owner {
+                        if let Some(owner) = owner.filter(|&id| !self.graph.is_blocked(id)) {
                             self.captures[owner].state = CaptureState::Missing;
                         }
                     }
+                    None => {}
                 }
             });
         }
-        self.graph.resolve();
-        for (index, capture) in self.captures.iter_mut().enumerate() {
-            if self.graph.is_blocked(index) {
-                capture.state = CaptureState::Blocked;
+    }
+
+    fn refresh_structure(&mut self, world: &World, tree: &LayoutNode, entities: &[Entity]) {
+        let revision = world
+            .resource::<OutputRelations>()
+            .map_or(0, OutputRelations::structure_revision);
+        let mut current = self.structure_valid
+            && self.root == entities.first().copied()
+            && self.nodes.len() == entities.len()
+            && self.relations_revision == revision;
+        if current {
+            for (position, &entity) in entities.iter().enumerate() {
+                match (
+                    self.nodes[position].capture,
+                    super::super::offscreen::config(world, entity),
+                ) {
+                    (Some(id), Some(config)) if self.captures[id].entity == entity => {
+                        self.captures[id].config = config;
+                    }
+                    (None, None) => {}
+                    _ => {
+                        current = false;
+                        break;
+                    }
+                }
             }
         }
-        let blocked = self
-            .captures
-            .iter()
-            .any(|c| c.state == CaptureState::Blocked);
-        if blocked && !self.cycle_reported {
-            crate::warn!(target: "mirui::outputs", "cyclic output dependencies are unavailable");
+        if !current {
+            self.build(world, tree, entities);
         }
-        self.cycle_reported = blocked;
     }
 
     pub(super) fn blocked(&self, entity: Entity) -> bool {
@@ -270,6 +326,11 @@ impl TexturePlan {
     }
 
     pub(super) fn output_layout(&self, entity: Entity) -> Option<SourceGeometry> {
+        self.geometry_valid.then_some(())?;
+        self.measured_output_layout(entity)
+    }
+
+    fn measured_output_layout(&self, entity: Entity) -> Option<SourceGeometry> {
         let capture = self
             .captures
             .iter()
@@ -309,8 +370,9 @@ impl TexturePlan {
             {
                 continue;
             }
-            let Some(measured) = measure(world, entity, rect, &|source| self.output_layout(source))
-            else {
+            let Some(measured) = measure(world, entity, rect, &|source| {
+                self.measured_output_layout(source)
+            }) else {
                 continue;
             };
             if !measured.coverage.is_empty() {
@@ -334,6 +396,11 @@ impl TexturePlan {
     }
 
     pub(super) fn local_paint_bounds(&self, position: usize, rect: Rect) -> Option<Rect> {
+        self.geometry_valid.then_some(())?;
+        self.measured_paint_bounds(position, rect)
+    }
+
+    fn measured_paint_bounds(&self, position: usize, rect: Rect) -> Option<Rect> {
         let node = self.nodes.get(position)?;
         let bounds = match node.capture {
             Some(capture) => self.captures[capture].key.local_bounds,
@@ -379,7 +446,7 @@ impl TexturePlan {
                 if self.captures[id].state == CaptureState::Blocked {
                     return Ok(None);
                 }
-                let local = self.local_paint_bounds(position, rect).ok_or(())?;
+                let local = self.measured_paint_bounds(position, rect).ok_or(())?;
                 let bounds = transformed_clip_bounds(local, affine, projective).ok_or(())?;
                 return geometry_clip(bounds, clip);
             }
@@ -442,7 +509,20 @@ impl TexturePlan {
     }
 
     fn measure(&mut self, world: &World, tree: &LayoutNode, entities: &[Entity]) {
-        self.build(world, tree, entities);
+        self.invalidate_geometry();
+        self.refresh_structure(world, tree, entities);
+        for node in &mut self.nodes {
+            node.extra = None;
+        }
+        for (index, capture) in self.captures.iter_mut().enumerate() {
+            capture.workspace_bytes = 0;
+            capture.state = if self.graph.is_blocked(index) {
+                CaptureState::Blocked
+            } else {
+                CaptureState::Pending
+            };
+        }
+        self.reconcile_dependencies(world, entities, false);
         self.workspace_bytes = 0;
         for position in 0..self.graph.order().len() {
             let id = self.graph.order()[position];
@@ -516,6 +596,7 @@ impl TexturePlan {
             Fixed::ONE,
         );
         self.root = entities.first().copied();
+        self.geometry_valid = true;
         self.geometry_ready = true;
     }
 }
@@ -553,10 +634,17 @@ pub(super) fn invalidate_geometry(world: &World) {
         return;
     };
     if let Some(mut plan) = outputs.take_texture_plan() {
-        plan.nodes.clear();
-        plan.captures.clear();
-        plan.root = None;
-        plan.geometry_ready = false;
+        plan.invalidate_geometry();
+        outputs.put_texture_plan(plan);
+    }
+}
+
+pub(super) fn invalidate_structure(world: &World) {
+    let Some(outputs) = world.resource::<Outputs<WidgetTexture>>() else {
+        return;
+    };
+    if let Some(mut plan) = outputs.take_texture_plan() {
+        plan.invalidate_structure();
         outputs.put_texture_plan(plan);
     }
 }
@@ -591,10 +679,7 @@ pub(super) fn prepare<'a>(
             outputs.reserve_workspace(&mut plan.workspace, 0);
             outputs.reserve_workspace(&mut plan.target_workspace, 0);
             plan.raster = None;
-            plan.root = None;
-            plan.nodes.clear();
-            plan.captures.clear();
-            plan.geometry_ready = false;
+            plan.invalidate_structure();
             outputs.put_texture_plan(plan);
         }
         return Ok(None);
@@ -608,6 +693,7 @@ pub(super) fn prepare<'a>(
     let mut prepared = PreparedTextures { outputs, plan };
     let plan = &mut prepared.plan;
     if !plan.geometry_ready
+        && plan.batch_complete
         && plan.batch == outputs.batch_id()
         && plan.root == entities.first().copied()
     {
@@ -617,6 +703,7 @@ pub(super) fn prepare<'a>(
         plan.measure(world, tree, entities);
     }
     plan.geometry_ready = false;
+    plan.batch_complete = false;
     for capture in &mut plan.captures {
         capture.key.generation = world
             .get::<super::super::OffscreenGeneration>(capture.entity)
@@ -731,7 +818,10 @@ pub(super) fn prepare<'a>(
     }
     match failure {
         Some(error) => Err(error),
-        None => Ok(Some(prepared)),
+        None => {
+            plan.batch_complete = true;
+            Ok(Some(prepared))
+        }
     }
 }
 
@@ -776,6 +866,7 @@ mod geometry_arithmetic_tests {
             extra: Some(geometry_translate(rect, origin, Point::ZERO).unwrap()),
             capture: None,
         });
+        plan.geometry_valid = true;
         assert_eq!(
             core::mem::size_of::<NodeGeometry>(),
             if core::mem::size_of::<usize>() == 8 {

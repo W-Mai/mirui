@@ -852,12 +852,18 @@ fn prune_parked_layout_nodes(
     }
 }
 
+#[derive(Default)]
+struct LayoutTreeChanges {
+    parked: bool,
+    structure: bool,
+}
+
 fn refresh_layout_tree(
     world: &mut World,
     entity: Entity,
     node: &mut LayoutNode,
     parked: &mut Vec<LayoutNode>,
-    parked_changed: &mut bool,
+    changes: &mut LayoutTreeChanges,
 ) -> Result<bool, TextLayoutFailure> {
     if node.entity != Some(entity)
         || world.get::<Widget>(entity).is_none()
@@ -891,39 +897,39 @@ fn refresh_layout_tree(
                 .iter()
                 .position(|candidate| candidate.entity == Some(child))
             {
+                changes.structure |= index != 0;
                 node.children.swap(used, used + index);
             } else {
-                let replacement = match take_parked_layout_node(parked, child, parked_changed) {
+                let replacement = match take_parked_layout_node(parked, child, &mut changes.parked)
+                {
                     Some(node) => Some(node),
-                    None => build_retained_layout_tree(world, child, true, parked, parked_changed)?,
+                    None => {
+                        build_retained_layout_tree(world, child, true, parked, &mut changes.parked)?
+                    }
                 };
                 let Some(replacement) = replacement else {
                     continue;
                 };
+                changes.structure = true;
                 if used < node.children.len() {
                     let displaced = core::mem::replace(&mut node.children[used], replacement);
-                    park_layout_node(world, parked, displaced, parked_changed);
+                    park_layout_node(world, parked, displaced, &mut changes.parked);
                 } else {
                     node.children.push(replacement);
                 }
             }
-            if refresh_layout_tree(
-                world,
-                child,
-                &mut node.children[used],
-                parked,
-                parked_changed,
-            )? {
+            if refresh_layout_tree(world, child, &mut node.children[used], parked, changes)? {
                 used += 1;
             }
         }
     }
     while node.children.len() > used {
+        changes.structure = true;
         park_layout_node(
             world,
             parked,
             node.children.pop().expect("trailing layout child"),
-            parked_changed,
+            &mut changes.parked,
         );
     }
     Ok(true)
@@ -1332,6 +1338,7 @@ fn compute_layout_snapshot(
     output_plan::invalidate_geometry(world);
     let mut previous = world.take_resource_box::<LayoutSnapshot>();
     if super::branch::is_authored_hidden(world, root) {
+        output_plan::invalidate_structure(world);
         if let Some(cache) = world.resource::<Outputs<TextGeometry>>() {
             cache
                 .storage_mut()
@@ -1406,7 +1413,7 @@ fn compute_layout_snapshot(
             .begin_frame_with_owner_filter(|owner| visible_text_owner(world, &entities, owner));
     }
     entities.clear();
-    let mut parked_changed = false;
+    let mut changes = LayoutTreeChanges::default();
     let mut snapshot = crate::trace_span!("layout.build_tree", {
         match previous {
             Some(mut snapshot) if snapshot.root == root => {
@@ -1415,8 +1422,11 @@ fn compute_layout_snapshot(
                     root,
                     &mut snapshot.layout_tree,
                     &mut snapshot.parked,
-                    &mut parked_changed,
+                    &mut changes,
                 );
+                if changes.structure || !matches!(refreshed, Ok(true)) {
+                    output_plan::invalidate_structure(world);
+                }
                 match refreshed {
                     Ok(true) => {}
                     Ok(false) => return Ok(None),
@@ -1431,6 +1441,7 @@ fn compute_layout_snapshot(
                 snapshot
             }
             _ => {
+                output_plan::invalidate_structure(world);
                 let node_count = initial_demand.as_ref().map_or(0, |demand| demand.nodes);
                 let parked_capacity = initial_demand
                     .as_ref()
@@ -1441,7 +1452,7 @@ fn compute_layout_snapshot(
                     root,
                     true,
                     &mut parked,
-                    &mut parked_changed,
+                    &mut changes.parked,
                 )?
                 else {
                     return Ok(None);
@@ -1475,7 +1486,7 @@ fn compute_layout_snapshot(
         snapshot.entities.clear();
         collect_entities_preorder(world, root, &mut snapshot.entities);
     });
-    if !snapshot.maintenance_current(world) || parked_changed {
+    if !snapshot.maintenance_current(world) || changes.parked {
         crate::trace_span!("layout.prune_parked", {
             prune_parked_layout_nodes(world, root, &snapshot.entities, &mut snapshot.parked);
         });
@@ -2613,6 +2624,7 @@ pub fn render(
             renderer,
         );
     }
+    output_plan::invalidate_structure(world);
     let Some(mut layout_tree) =
         build_layout_tree(world, root).map_err(|_| RenderError::TextLayout)?
     else {
@@ -2975,6 +2987,7 @@ pub(crate) fn render_region_in_batch(
             physical_clip,
         );
     }
+    output_plan::invalidate_structure(world);
     let Some(mut layout_tree) =
         build_layout_tree(world, root).map_err(|_| RenderError::TextLayout)?
     else {
@@ -4020,7 +4033,7 @@ mod layout_snapshot_reuse_check {
         world.insert(first, Hidden);
         world.remove::<Hidden>(second);
         let mut snapshot = world.take_resource_box::<LayoutSnapshot>().unwrap();
-        let mut parked_changed = false;
+        let mut changes = LayoutTreeChanges::default();
         let count = snapshot.parked.len();
         assert!(
             refresh_layout_tree(
@@ -4028,11 +4041,11 @@ mod layout_snapshot_reuse_check {
                 root,
                 &mut snapshot.layout_tree,
                 &mut snapshot.parked,
-                &mut parked_changed,
+                &mut changes,
             )
             .unwrap()
         );
-        assert!(parked_changed);
+        assert!(changes.parked);
         assert_eq!(snapshot.parked.len(), count);
         assert_eq!(snapshot.parked[0].entity, Some(first));
         assert_eq!(snapshot.layout_tree.children[0].entity, Some(second));

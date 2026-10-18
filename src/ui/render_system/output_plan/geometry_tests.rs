@@ -827,3 +827,31 @@ fn layout_reorder_invalidates_seed_geometry_and_reuses_plan_capacity() {
     assert!(previous.w > capture_rect.w);
     assert_eq!(pixel(&mut app, 5, 5), RED);
 }
+
+#[test]
+fn stable_layout_preserves_structure_without_exposing_unmeasured_geometry() {
+    let (mut app, capture) = overflow_app(true);
+    app.render().unwrap();
+    let root = app.world.resource::<crate::ui::WidgetRoot>().unwrap().0;
+    let viewport = crate::types::Viewport::new(SIZE as u16, SIZE as u16, Fixed::ONE);
+    for _ in 0..2 {
+        crate::ui::render_system::try_update_layout(&mut app.world, root, &viewport).unwrap();
+        let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+        let plan = outputs.take_texture_plan().unwrap();
+        assert!(plan.structure_valid);
+        assert!(!plan.geometry_valid);
+        assert!(plan.output_layout(capture).is_none());
+        for position in 0..plan.nodes.len() {
+            assert!(
+                plan.local_paint_bounds(position, Rect::new(0, 0, 4, 4))
+                    .is_none()
+            );
+            assert!(
+                plan.captured_paint_bounds(position, Rect::new(0, 0, 4, 4))
+                    .is_none()
+            );
+        }
+        outputs.put_texture_plan(plan);
+        app.render().unwrap();
+    }
+}

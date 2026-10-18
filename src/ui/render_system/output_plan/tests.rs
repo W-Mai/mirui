@@ -348,6 +348,181 @@ fn current_cycle_runs_no_affected_views_and_preserves_independent_outputs() {
 }
 
 #[crate::compose]
+fn missing_inline_source(source: Entity) {
+    ui!(View(width: 1, height: 1) [MirrorOf::new(source)]);
+}
+
+#[test]
+fn missing_external_source_does_not_enable_a_cyclic_capture() {
+    let mut app = app(12, 4);
+    register_counter(&mut app);
+    let root = app.spawn_root().id();
+    app.compose(root, cyclic_captures());
+    let detached = app.world.spawn(Widget);
+    app.world.insert(detached, Style::default());
+    let cycle = app.world.find_by_id("cycle_a").unwrap();
+    app.compose(cycle, missing_inline_source(detached));
+
+    for _ in 0..2 {
+        app.render().unwrap();
+        assert_eq!(paint_calls(&app.world, "cycle_a"), 0);
+        assert_eq!(paint_calls(&app.world, "cycle_b"), 0);
+        let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+        let plan = outputs.take_texture_plan().unwrap();
+        assert!(plan.blocked(cycle));
+        outputs.put_texture_plan(plan);
+    }
+}
+
+#[test]
+fn relationship_topology_ignores_publications_and_reconciles_registry_lifetimes() {
+    let mut app = app(12, 4);
+    let root = app.spawn_root().id();
+    app.compose(root, reversed_mirror_chain());
+    app.render().unwrap();
+    let source = app.world.find_by_id("chain_source").unwrap();
+    let middle = app.world.find_by_id("chain_middle").unwrap();
+    let last = app.world.find_by_id("chain_last").unwrap();
+    let revision = |world: &World| {
+        world
+            .resource::<OutputRelations>()
+            .unwrap()
+            .structure_revision()
+    };
+    let stable = revision(&app.world);
+    app.world.get_mut::<Style>(source).unwrap().bg_color = Some(Color::rgb(12, 34, 56).into());
+    app.render().unwrap();
+    assert_eq!(revision(&app.world), stable);
+
+    app.world.insert(source, crate::ui::Hidden);
+    app.render().unwrap();
+    assert!(revision(&app.world) > stable);
+    app.world.remove::<crate::ui::Hidden>(source);
+    app.render().unwrap();
+    let visible = revision(&app.world);
+    app.world.insert(middle, MirrorOf::new(last));
+    app.render().unwrap();
+    assert!(revision(&app.world) > visible);
+    assert!(
+        app.world
+            .resource::<Outputs<WidgetTexture>>()
+            .unwrap()
+            .get(last)
+            .is_none()
+    );
+    app.world.insert(middle, MirrorOf::new(source));
+    app.render().unwrap();
+    assert!(
+        app.world
+            .resource::<Outputs<WidgetTexture>>()
+            .unwrap()
+            .get(last)
+            .is_some()
+    );
+
+    let registered = revision(&app.world);
+    let registry = app.world.remove_resource::<ViewRegistry>().unwrap();
+    ViewRegistry::reconcile_observations(&mut app.world);
+    assert!(revision(&app.world) > registered);
+    app.render().unwrap();
+    app.world.insert_resource(registry);
+    ViewRegistry::reconcile_observations(&mut app.world);
+    app.render().unwrap();
+    assert!(
+        app.world
+            .resource::<Outputs<WidgetTexture>>()
+            .unwrap()
+            .get(last)
+            .is_some()
+    );
+}
+
+#[crate::component]
+struct RetryPaint {
+    fail: Cell<bool>,
+    calls: Cell<usize>,
+}
+
+#[crate::view(component = RetryPaint)]
+fn retry_paint(sample: component!(), paint: paint!()) {
+    sample.calls.set(sample.calls.get() + 1);
+    if sample.fail.get() {
+        paint.fail(RenderError::BackendFailure);
+    }
+}
+
+#[crate::compose]
+fn retry_captures() {
+    ui! {
+        Row (width: 8, height: 4) {
+            View (id: "failed", width: 4, height: 4) [
+                OffscreenRender::new(),
+                RetryPaint {
+                    fail: Cell::new(true),
+                    calls: Cell::new(0),
+                },
+            ]
+            View (id: "healthy", width: 4, height: 4) [
+                OffscreenRender::new(),
+                RetryPaint {
+                    fail: Cell::new(false),
+                    calls: Cell::new(0),
+                },
+            ]
+        }
+    };
+}
+
+#[test]
+fn failed_preparation_retries_in_the_same_batch_without_replaying_successes() {
+    let mut app = app(8, 4);
+    app.with_widget(retry_paint::view());
+    let root = app.spawn_root().id();
+    app.compose(root, retry_captures());
+    app.dirty_regions().unwrap();
+    let failed = app.world.find_by_id("failed").unwrap();
+    let healthy = app.world.find_by_id("healthy").unwrap();
+    let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+    let snapshot = app.world.resource::<LayoutSnapshot>().unwrap();
+    let mut pixels = [0_u8; 8 * 4 * 4];
+    let mut renderer = crate::render::sw::SwRenderer::new(
+        Texture::new(&mut pixels, 8, 4, ColorFormat::RGBA8888).unwrap(),
+    );
+    let _batch = outputs.begin_batch();
+    assert!(matches!(
+        prepare(
+            &app.world,
+            &snapshot.layout_tree,
+            &snapshot.entities,
+            &mut renderer
+        ),
+        Err(RenderError::BackendFailure)
+    ));
+    let plan = outputs.take_texture_plan().unwrap();
+    assert!(!plan.batch_complete);
+    outputs.put_texture_plan(plan);
+    let healthy_version = output_version(&app.world, "healthy");
+    app.world.get::<RetryPaint>(failed).unwrap().fail.set(false);
+
+    for _ in 0..2 {
+        let prepared = prepare(
+            &app.world,
+            &snapshot.layout_tree,
+            &snapshot.entities,
+            &mut renderer,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(prepared.plan.batch_complete);
+        assert!(prepared.plan.ready(failed));
+        assert!(prepared.plan.ready(healthy));
+        assert_eq!(output_version(&app.world, "healthy"), healthy_version);
+    }
+    assert_eq!(app.world.get::<RetryPaint>(failed).unwrap().calls.get(), 2);
+    assert_eq!(app.world.get::<RetryPaint>(healthy).unwrap().calls.get(), 1);
+}
+
+#[crate::compose]
 fn ancestor_cycle() {
     ui! {
         Row (width: 8, height: 4) {
