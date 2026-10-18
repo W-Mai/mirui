@@ -21,16 +21,27 @@ pub(crate) struct Clipboard {
 }
 
 #[cfg(feature = "sdl")]
-pub(crate) fn is_native(window: &impl HasDisplayHandle) -> bool {
-    window.display_handle().is_ok_and(|handle| {
-        matches!(
-            handle.as_raw(),
-            RawDisplayHandle::Xlib(_) | RawDisplayHandle::Wayland(_)
-        )
-    })
+pub(crate) fn is_native(window: &sdl2::video::Window) -> bool {
+    sdl_native_driver(window.subsystem().current_video_driver())
+}
+
+#[cfg(feature = "sdl")]
+fn sdl_native_driver(driver: &str) -> bool {
+    matches!(driver, "x11" | "wayland")
 }
 
 impl Clipboard {
+    /// The window must outlive this clipboard or a call to `detach`.
+    #[cfg(feature = "sdl")]
+    pub(crate) unsafe fn attach_sdl(&mut self, window: &sdl2::video::Window) {
+        if is_native(window) {
+            // SDL raw handles are only queried for supported desktop drivers.
+            unsafe { self.attach(window) };
+        } else {
+            self.detach();
+        }
+    }
+
     /// The window and display must outlive this clipboard or a call to `detach`.
     pub(crate) unsafe fn attach(&mut self, window: &(impl HasDisplayHandle + HasWindowHandle)) {
         self.detach();
@@ -136,5 +147,27 @@ impl Clipboard {
             .take()
             .or_else(|| self.wayland.as_mut().and_then(super::wayland::Bridge::poll))
             .or_else(|| self.bridge.as_mut().and_then(Bridge::poll))
+    }
+}
+
+#[cfg(all(test, feature = "sdl"))]
+mod tests {
+    #[test]
+    fn sdl_native_clipboard_requires_a_supported_display_protocol() {
+        for driver in ["x11", "wayland"] {
+            assert!(super::sdl_native_driver(driver));
+        }
+        for driver in [
+            "KMSDRM",
+            "kmsdrm",
+            "directfb",
+            "vivante",
+            "dummy",
+            "offscreen",
+            "",
+            "unknown",
+        ] {
+            assert!(!super::sdl_native_driver(driver));
+        }
     }
 }

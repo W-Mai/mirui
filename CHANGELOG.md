@@ -121,6 +121,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Linux SDL software and GPU surfaces skip native clipboard handles on unsupported video drivers, including KMSDRM.
+
 - App frame write scopes preserve background sampling and target readback.
 
 - App redraws reconstruct their owned pixels before painting, preventing retained alpha and fractional viewport edges from accumulating across frames. Physical clear, drawing, submission, and buffer mirroring share non-overlapping regions while preserving scroll transfers.

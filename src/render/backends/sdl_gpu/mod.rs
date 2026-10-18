@@ -202,7 +202,7 @@ impl SdlGpuSurface {
             let mut clipboard = crate::surface::host_clipboard::linux::Clipboard::default();
             // The clipboard field is dropped before the device and its native window.
             unsafe {
-                clipboard.attach(canvas.window());
+                clipboard.attach_sdl(canvas.window());
             }
             clipboard
         };
