@@ -1,4 +1,4 @@
-use core::ptr;
+use core::ptr::{self, NonNull};
 use sdl2::render::{Canvas, RenderTarget};
 use sdl2_sys::*;
 
@@ -101,7 +101,7 @@ impl DriverState {
 pub(super) fn select<T: RenderTarget>(
     canvas: &Canvas<T>,
     texture: &sdl2::render::Texture<'_>,
-) -> Result<(), RenderError> {
+) -> Result<NonNull<SDL_Texture>, RenderError> {
     let raw = canvas.raw();
     // Both handles belong to the checked source device and remain alive for this operation.
     unsafe {
@@ -111,16 +111,17 @@ pub(super) fn select<T: RenderTarget>(
         checked(SDL_RenderSetScale(raw, 1.0, 1.0))?;
         checked(SDL_RenderSetViewport(raw, ptr::null()))?;
         checked(SDL_RenderSetClipRect(raw, ptr::null()))?;
+        // SDL may bind a native-format texture behind the requested texture.
+        NonNull::new(SDL_GetRenderTarget(raw)).ok_or(RenderError::InvalidScope)
     }
-    Ok(())
 }
 
 pub(super) fn is_current<T: RenderTarget>(
     canvas: &Canvas<T>,
-    texture: &sdl2::render::Texture<'_>,
+    target: NonNull<SDL_Texture>,
 ) -> bool {
     // Comparing live handles does not dereference a previously saved target.
-    unsafe { SDL_GetRenderTarget(canvas.raw()) == texture.raw() }
+    unsafe { SDL_GetRenderTarget(canvas.raw()) == target.as_ptr() }
 }
 
 pub(super) fn clear<T: RenderTarget>(canvas: &Canvas<T>) -> Result<(), RenderError> {

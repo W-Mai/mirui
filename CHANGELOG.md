@@ -117,6 +117,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- SDL GPU validates offscreen scopes against the bound native target, allowing renderers that convert texture formats to complete nested rendering and readback.
+
 - Web release optimization enables only the required WebAssembly extensions, preventing compact imports from making the gallery fail to load in browsers.
 
 - Lumen Lab clips light paths and scan markers to the board, preventing stale beams outside the playfield.

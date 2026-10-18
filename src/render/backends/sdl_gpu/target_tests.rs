@@ -44,6 +44,32 @@ fn pixels(target: &dyn BackendTarget) -> Texture<'static> {
 }
 
 #[test]
+fn selected_target_identity_survives_format_conversion_and_nested_restore() {
+    let device = device();
+    let outer = device
+        .creator
+        .create_texture_target(sdl2::pixels::PixelFormatEnum::RGBA4444, 4, 4)
+        .unwrap();
+    let inner = device
+        .creator
+        .create_texture_target(sdl2::pixels::PixelFormatEnum::RGBA32, 4, 4)
+        .unwrap();
+    let canvas = device.canvas().unwrap();
+    let root = DriverState::capture(&canvas).unwrap();
+    let selected_outer = target_state::select(&canvas, &outer).unwrap();
+    assert!(target_state::is_current(&canvas, selected_outer));
+    let parent = DriverState::capture(&canvas).unwrap();
+    let selected_inner = target_state::select(&canvas, &inner).unwrap();
+    assert!(target_state::is_current(&canvas, selected_inner));
+    assert!(!target_state::is_current(&canvas, selected_outer));
+    parent.restore(&canvas).unwrap();
+    assert!(target_state::is_current(&canvas, selected_outer));
+    assert!(!target_state::is_current(&canvas, selected_inner));
+    root.restore(&canvas).unwrap();
+    assert!(!target_state::is_current(&canvas, selected_outer));
+}
+
+#[test]
 fn reuse_checks_storage_without_binding_or_accepting_invalid_contents() {
     let first = device();
     let second = device();

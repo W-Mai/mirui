@@ -67,6 +67,7 @@ pub struct TargetState {
 struct Binding<T: RenderTarget> {
     child: Rc<Storage<T>>,
     driver: DriverState,
+    selected: core::ptr::NonNull<sdl2_sys::SDL_Texture>,
 }
 
 impl<T: RenderTarget + 'static> BackendTarget for Target<T> {
@@ -105,7 +106,7 @@ impl<T: RenderTarget + 'static> BackendTarget for Target<T> {
             .map_err(|_| RenderError::InvalidScope)?;
         let canvas = device.canvas()?;
         let saved = DriverState::capture(&canvas)?;
-        let result = target_state::select(&canvas, &texture).and_then(|()| {
+        let result = target_state::select(&canvas, &texture).and_then(|_| {
             let stride = dst.stride();
             readback::rgba8(
                 &canvas,
@@ -279,23 +280,26 @@ impl<T: RenderTarget + 'static> Binding<T> {
         let canvas = device.canvas()?;
         let driver = DriverState::capture(&canvas)?;
         child.completed.set(false);
-        let result = target_state::select(&canvas, &texture).and_then(|()| {
+        let result = target_state::select(&canvas, &texture).and_then(|selected| {
             if update == TargetUpdate::Rebuild {
-                target_state::clear(&canvas)
-            } else {
-                Ok(())
+                target_state::clear(&canvas)?;
             }
+            Ok(selected)
         });
-        if let Err(error) = result {
-            if driver.restore(&canvas).is_err() {
-                device.poison();
+        let selected = match result {
+            Ok(selected) => selected,
+            Err(error) => {
+                if driver.restore(&canvas).is_err() {
+                    device.poison();
+                }
+                return Err(error);
             }
-            return Err(error);
-        }
+        };
         child.active.set(true);
         Ok(Self {
             child: Rc::clone(child),
             driver,
+            selected,
         })
     }
 
@@ -305,13 +309,13 @@ impl<T: RenderTarget + 'static> Binding<T> {
             return Err(RenderError::InvalidScope);
         }
         let result = device.canvas().and_then(|canvas| {
-            let texture = self
+            let _texture = self
                 .child
                 .texture
                 .try_borrow()
                 .map_err(|_| RenderError::InvalidScope)?;
             if self.child.generation != device.generation()
-                || !target_state::is_current(&canvas, &texture)
+                || !target_state::is_current(&canvas, self.selected)
             {
                 return Err(RenderError::InvalidScope);
             }
