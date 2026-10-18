@@ -235,22 +235,23 @@ fn compose_playfield(model: model!(LumenModel)) -> Entity {
     ui! {
         Row (height: 204, padding: padding(0, 12), column_gap: 11) {
             View (
-                id: "lumen_board",
                 width: 282,
                 height: 204,
                 clip_children: true
-            ) [
-                LumenBoard { model: model.clone() },
-                TouchAction::None,
-            ] {
-                mirror_labels (model)
-            } on Tap(|event: event!(Tap), rows: query!(LumenBoard, ComputedRect)| {
-                let Some((board, rect)) = rows.get(event.target) else {
-                    return false;
-                };
-                let rect = rect.0;
-                board_tap(board, rect, event.x, event.y)
-            })
+            ) {
+                View (id: "lumen_board", grow: 1.0) [
+                    LumenBoard { model: model.clone() },
+                    TouchAction::None,
+                ] {
+                    mirror_labels (model)
+                } on Tap(|event: event!(Tap), rows: query!(LumenBoard, ComputedRect)| {
+                    let Some((board, rect)) = rows.get(event.target) else {
+                        return false;
+                    };
+                    let rect = rect.0;
+                    board_tap(board, rect, event.x, event.y)
+                })
+            }
             Column (width: 163, height: 204, row_gap: 6) {
                 Column (
                     height: 102,

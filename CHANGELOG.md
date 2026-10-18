@@ -115,6 +115,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Lumen Lab clips light paths and scan markers to the board, preventing stale beams outside the playfield.
+
 - The reactive effect demo releases its observer when its widget subtree is removed.
 
 - The reactive branch demo fits all layouts at its default size and scrolls when the viewport is shortened.
