@@ -743,6 +743,7 @@ fn build_retained_layout_tree(
     entity: Entity,
     active: bool,
     parked: &mut Vec<LayoutNode>,
+    parked_changed: &mut bool,
 ) -> Result<Option<LayoutNode>, TextLayoutFailure> {
     let Some(mut node) = layout_node(world, entity, active)? else {
         return Ok(None);
@@ -752,12 +753,13 @@ fn build_retained_layout_tree(
         for &child in &children.0 {
             let child_active = active && !super::branch::is_authored_hidden(world, child);
             if let Some(child_node) =
-                build_retained_layout_tree(world, child, child_active, parked)?
+                build_retained_layout_tree(world, child, child_active, parked, parked_changed)?
             {
                 if child_active {
                     node.children.push(child_node);
                 } else if active {
                     parked.push(child_node);
+                    *parked_changed = true;
                 } else {
                     node.children.push(child_node);
                 }
@@ -767,14 +769,26 @@ fn build_retained_layout_tree(
     Ok(Some(node))
 }
 
-fn take_parked_layout_node(parked: &mut Vec<LayoutNode>, entity: Entity) -> Option<LayoutNode> {
+fn take_parked_layout_node(
+    parked: &mut Vec<LayoutNode>,
+    entity: Entity,
+    parked_changed: &mut bool,
+) -> Option<LayoutNode> {
     parked
         .iter()
         .position(|node| node.entity == Some(entity))
-        .map(|index| parked.swap_remove(index))
+        .map(|index| {
+            *parked_changed = true;
+            parked.swap_remove(index)
+        })
 }
 
-fn park_layout_node(world: &mut World, parked: &mut Vec<LayoutNode>, node: LayoutNode) {
+fn park_layout_node(
+    world: &mut World,
+    parked: &mut Vec<LayoutNode>,
+    node: LayoutNode,
+    parked_changed: &mut bool,
+) {
     if let Some(entity) = node.entity {
         world.invalidate_subtree_paint(entity);
     }
@@ -783,9 +797,13 @@ fn park_layout_node(world: &mut World, parked: &mut Vec<LayoutNode>, node: Layou
     } else {
         parked.push(node);
     }
+    *parked_changed = true;
 }
 
 fn layout_entity_reachable(world: &World, root: Entity, target: Entity) -> bool {
+    if !world.has::<Widget>(root) || !world.has::<Style>(root) {
+        return false;
+    }
     if root == target {
         return true;
     }
@@ -804,6 +822,8 @@ fn prune_parked_children(world: &World, node: &mut LayoutNode) {
     node.children.retain(|child| {
         child.entity.is_some_and(|entity| {
             world.is_alive(entity)
+                && world.has::<Widget>(entity)
+                && world.has::<Style>(entity)
                 && world
                     .get::<Children>(parent)
                     .is_some_and(|children| children.0.contains(&entity))
@@ -837,6 +857,7 @@ fn refresh_layout_tree(
     entity: Entity,
     node: &mut LayoutNode,
     parked: &mut Vec<LayoutNode>,
+    parked_changed: &mut bool,
 ) -> Result<bool, TextLayoutFailure> {
     if node.entity != Some(entity)
         || world.get::<Widget>(entity).is_none()
@@ -872,21 +893,27 @@ fn refresh_layout_tree(
             {
                 node.children.swap(used, used + index);
             } else {
-                let replacement = match take_parked_layout_node(parked, child) {
+                let replacement = match take_parked_layout_node(parked, child, parked_changed) {
                     Some(node) => Some(node),
-                    None => build_retained_layout_tree(world, child, true, parked)?,
+                    None => build_retained_layout_tree(world, child, true, parked, parked_changed)?,
                 };
                 let Some(replacement) = replacement else {
                     continue;
                 };
                 if used < node.children.len() {
                     let displaced = core::mem::replace(&mut node.children[used], replacement);
-                    park_layout_node(world, parked, displaced);
+                    park_layout_node(world, parked, displaced, parked_changed);
                 } else {
                     node.children.push(replacement);
                 }
             }
-            if refresh_layout_tree(world, child, &mut node.children[used], parked)? {
+            if refresh_layout_tree(
+                world,
+                child,
+                &mut node.children[used],
+                parked,
+                parked_changed,
+            )? {
                 used += 1;
             }
         }
@@ -896,6 +923,7 @@ fn refresh_layout_tree(
             world,
             parked,
             node.children.pop().expect("trailing layout child"),
+            parked_changed,
         );
     }
     Ok(true)
@@ -1300,6 +1328,7 @@ fn compute_layout_snapshot(
     logical_h: u16,
 ) -> Result<Option<Box<LayoutSnapshot>>, TextLayoutFailure> {
     world.watch_component_revision::<crate::input::event::scroll::ScrollConfig>();
+    LayoutSnapshot::watch_maintenance(world);
     output_plan::invalidate_geometry(world);
     let mut previous = world.take_resource_box::<LayoutSnapshot>();
     if super::branch::is_authored_hidden(world, root) {
@@ -1377,6 +1406,7 @@ fn compute_layout_snapshot(
             .begin_frame_with_owner_filter(|owner| visible_text_owner(world, &entities, owner));
     }
     entities.clear();
+    let mut parked_changed = false;
     let mut snapshot = crate::trace_span!("layout.build_tree", {
         match previous {
             Some(mut snapshot) if snapshot.root == root => {
@@ -1385,6 +1415,7 @@ fn compute_layout_snapshot(
                     root,
                     &mut snapshot.layout_tree,
                     &mut snapshot.parked,
+                    &mut parked_changed,
                 );
                 match refreshed {
                     Ok(true) => {}
@@ -1405,7 +1436,13 @@ fn compute_layout_snapshot(
                     .as_ref()
                     .map_or(0, |demand| demand.parked_roots);
                 let mut parked = Vec::with_capacity(parked_capacity);
-                let Some(layout_tree) = build_retained_layout_tree(world, root, true, &mut parked)?
+                let Some(layout_tree) = build_retained_layout_tree(
+                    world,
+                    root,
+                    true,
+                    &mut parked,
+                    &mut parked_changed,
+                )?
                 else {
                     return Ok(None);
                 };
@@ -1416,6 +1453,7 @@ fn compute_layout_snapshot(
                     valid: false,
                     bindings_pending: false,
                     scroll_config_revision: 0,
+                    maintenance_revisions: [0; 6],
                     layout_tree,
                     parked,
                     entities,
@@ -1437,7 +1475,11 @@ fn compute_layout_snapshot(
         snapshot.entities.clear();
         collect_entities_preorder(world, root, &mut snapshot.entities);
     });
-    prune_parked_layout_nodes(world, root, &snapshot.entities, &mut snapshot.parked);
+    if !snapshot.maintenance_current(world) || parked_changed {
+        crate::trace_span!("layout.prune_parked", {
+            prune_parked_layout_nodes(world, root, &snapshot.entities, &mut snapshot.parked);
+        });
+    }
     let mut text_index = 0;
     let intrinsic_changed = crate::trace_span!("layout.text", {
         layout_text_tree(
@@ -1468,6 +1510,7 @@ fn compute_layout_snapshot(
     }
     snapshot.logical_w = logical_w;
     snapshot.logical_h = logical_h;
+    snapshot.maintenance_revisions = LayoutSnapshot::maintenance_revisions(world);
     snapshot.valid = true;
     Ok(Some(snapshot))
 }
@@ -3056,6 +3099,7 @@ pub(crate) struct LayoutSnapshot {
     valid: bool,
     bindings_pending: bool,
     scroll_config_revision: u64,
+    maintenance_revisions: [u64; 6],
     pub(crate) layout_tree: LayoutNode,
     parked: Vec<LayoutNode>,
     pub(crate) entities: Vec<Entity>,
@@ -3063,6 +3107,30 @@ pub(crate) struct LayoutSnapshot {
 }
 
 impl LayoutSnapshot {
+    fn watch_maintenance(world: &mut World) {
+        world.watch_component_revision::<Children>();
+        world.watch_component_revision::<Parent>();
+        world.watch_component_revision::<super::Hidden>();
+        world.watch_component_revision::<super::branch::CachedBranchVisibility>();
+        world.watch_component_revision::<Widget>();
+        world.watch_component_revision::<Style>();
+    }
+
+    fn maintenance_revisions(world: &World) -> [u64; 6] {
+        [
+            world.component_revision::<Children>(),
+            world.component_revision::<Parent>(),
+            world.component_revision::<super::Hidden>(),
+            world.component_revision::<super::branch::CachedBranchVisibility>(),
+            world.component_revision::<Widget>(),
+            world.component_revision::<Style>(),
+        ]
+    }
+
+    fn maintenance_current(&self, world: &World) -> bool {
+        self.valid && self.maintenance_revisions == Self::maintenance_revisions(world)
+    }
+
     fn scroll_config_current(&self, world: &World) -> bool {
         self.scroll_config_revision
             == world.component_revision::<crate::input::event::scroll::ScrollConfig>()
@@ -3880,6 +3948,209 @@ mod layout_snapshot_reuse_check {
         assert!(snapshot.parked.is_empty());
         assert!(snapshot.layout_tree.children.is_empty());
         assert_eq!(snapshot.entities, [root]);
+    }
+
+    #[test]
+    fn parked_maintenance_tracks_structure_without_warm_allocations() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let hidden = child(&mut world, root, None);
+        child(&mut world, hidden, None);
+        world.insert(hidden, Hidden);
+        world.insert(hidden, CachedBranchVisibility { selected: false });
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        try_update_layout(&mut world, root, &viewport).unwrap();
+
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for _ in 0..4 {
+                    assert!(
+                        world
+                            .resource::<LayoutSnapshot>()
+                            .unwrap()
+                            .maintenance_current(&world)
+                    );
+                    try_update_layout(&mut world, root, &viewport).unwrap();
+                }
+            }),
+            0
+        );
+        for kind in 0..6 {
+            match kind {
+                0 => {
+                    world.get_mut::<Children>(root).unwrap();
+                }
+                1 => {
+                    world.get_mut::<Parent>(hidden).unwrap();
+                }
+                2 => {
+                    world.get_mut::<Hidden>(hidden).unwrap();
+                }
+                3 => {
+                    world.get_mut::<CachedBranchVisibility>(hidden).unwrap();
+                }
+                4 => {
+                    world.get_mut::<Widget>(hidden).unwrap();
+                }
+                _ => {
+                    world.get_mut::<Style>(hidden).unwrap();
+                }
+            }
+            assert!(
+                !world
+                    .resource::<LayoutSnapshot>()
+                    .unwrap()
+                    .maintenance_current(&world)
+            );
+            try_update_layout(&mut world, root, &viewport).unwrap();
+            let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+            assert!(snapshot.maintenance_current(&world));
+            assert_eq!(snapshot.parked.len(), 1);
+        }
+    }
+
+    #[test]
+    fn parked_refresh_reports_swaps_without_a_pool_length_change() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let first = child(&mut world, root, None);
+        let second = child(&mut world, root, None);
+        world.insert(second, Hidden);
+        try_update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE)).unwrap();
+        world.insert(first, Hidden);
+        world.remove::<Hidden>(second);
+        let mut snapshot = world.take_resource_box::<LayoutSnapshot>().unwrap();
+        let mut parked_changed = false;
+        let count = snapshot.parked.len();
+        assert!(
+            refresh_layout_tree(
+                &mut world,
+                root,
+                &mut snapshot.layout_tree,
+                &mut snapshot.parked,
+                &mut parked_changed,
+            )
+            .unwrap()
+        );
+        assert!(parked_changed);
+        assert_eq!(snapshot.parked.len(), count);
+        assert_eq!(snapshot.parked[0].entity, Some(first));
+        assert_eq!(snapshot.layout_tree.children[0].entity, Some(second));
+    }
+
+    #[test]
+    fn parked_nodes_release_removed_layout_components_and_restore_current_structure() {
+        for remove_widget in [false, true] {
+            for remove_root in [false, true] {
+                let mut world = World::new();
+                let root = widget(&mut world, 64);
+                let hidden = child(&mut world, root, None);
+                let removed = child(&mut world, hidden, None);
+                let retained = child(&mut world, hidden, None);
+                world.insert(hidden, Hidden);
+                let viewport = Viewport::new(64, 64, Fixed::ONE);
+                try_update_layout(&mut world, root, &viewport).unwrap();
+                let target = if remove_root { hidden } else { removed };
+                let style = if remove_widget {
+                    world.remove::<Widget>(target);
+                    None
+                } else {
+                    world.remove::<Style>(target)
+                };
+                try_update_layout(&mut world, root, &viewport).unwrap();
+                let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+                assert_eq!(snapshot.entities, [root]);
+                if remove_root {
+                    assert!(snapshot.parked.is_empty());
+                } else {
+                    assert_eq!(snapshot.parked.len(), 1);
+                    assert_eq!(snapshot.parked[0].children.len(), 1);
+                    assert_eq!(snapshot.parked[0].children[0].entity, Some(retained));
+                }
+
+                if let Some(style) = style {
+                    world.insert(target, style);
+                } else {
+                    world.insert(target, Widget);
+                }
+                world.get_mut::<Children>(hidden).unwrap().0.swap(0, 1);
+                world.remove::<Hidden>(hidden);
+                try_update_layout(&mut world, root, &viewport).unwrap();
+                let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+                assert!(snapshot.maintenance_current(&world));
+                assert!(snapshot.parked.is_empty());
+                assert_eq!(snapshot.entities, [root, hidden, retained, removed]);
+            }
+        }
+    }
+
+    #[test]
+    fn parked_children_follow_reparenting_without_duplicate_storage() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let hidden = child(&mut world, root, None);
+        let visible = child(&mut world, root, None);
+        let moved = child(&mut world, hidden, None);
+        let leaf = child(&mut world, moved, None);
+        world.insert(hidden, Hidden);
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        try_update_layout(&mut world, root, &viewport).unwrap();
+
+        world.get_mut::<Children>(hidden).unwrap().0.clear();
+        world.insert(visible, Children(vec![moved]));
+        world.insert(moved, Parent(visible));
+        try_update_layout(&mut world, root, &viewport).unwrap();
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        assert!(snapshot.maintenance_current(&world));
+        assert_eq!(snapshot.entities, [root, visible, moved, leaf]);
+        assert_eq!(snapshot.parked.len(), 1);
+        assert_eq!(snapshot.parked[0].entity, Some(hidden));
+        assert!(snapshot.parked[0].children.is_empty());
+
+        world.remove::<Hidden>(hidden);
+        try_update_layout(&mut world, root, &viewport).unwrap();
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        assert_eq!(snapshot.entities, [root, hidden, visible, moved, leaf]);
+        assert!(snapshot.parked.is_empty());
+    }
+
+    #[test]
+    fn failed_text_preparation_does_not_confirm_parked_maintenance() {
+        use crate::ui::widgets::{Placeholder, TextInput};
+
+        let mut app = crate::app::App::headless(96, 48);
+        app.with_default_widgets();
+        app.with_text_layout_limits(crate::text::TextLayoutLimits {
+            text_bytes: 2,
+            ..crate::text::TextLayoutLimits::default()
+        });
+        let root = app.spawn_root().id();
+        let input = app.compose(root, |cx| cx.spawn(TextInput::build()));
+        app.world.insert(input, Placeholder("A"));
+        let hidden = child(&mut app.world, root, None);
+        app.world.insert(hidden, Hidden);
+        app.render().unwrap();
+        let revisions = app
+            .world
+            .resource::<LayoutSnapshot>()
+            .unwrap()
+            .maintenance_revisions;
+
+        app.world.get_mut::<Style>(input).unwrap();
+        app.world.insert(input, Placeholder("Too long"));
+        app.world.invalidate(input);
+        for _ in 0..2 {
+            assert!(matches!(app.render_dirty(), Err(RenderError::TextLayout)));
+            let snapshot = app.world.resource::<LayoutSnapshot>().unwrap();
+            assert!(!snapshot.maintenance_current(&app.world));
+            assert_eq!(snapshot.maintenance_revisions, revisions);
+        }
+        app.world.insert(input, Placeholder("A"));
+        app.render_dirty().unwrap();
+        let snapshot = app.world.resource::<LayoutSnapshot>().unwrap();
+        assert!(snapshot.maintenance_current(&app.world));
+        assert_ne!(snapshot.maintenance_revisions, revisions);
+        assert_eq!(snapshot.parked.len(), 1);
     }
 
     #[test]
