@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- `DrawRequest` carries an optional physical write boundary. `RendererFactory::mirror_buffers` receives the accepted physical redraw regions separately from logical damage and scroll transfers.
+
 - `Canvas::clear` and `Painter::clear` accept physical regions and replace pixels without blending or logical scaling on software, SDL-GPU, WGPU, and Web Canvas backends.
 
 - Apple SDL and WGPU builds require macOS 11 or iOS 14 or newer for native clipboard type mapping.
@@ -118,6 +120,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Render plane layouts reject empty dimensions and support checked construction in constant expressions. Texture storage validation shares the plane layout calculation and accepts omitted padding after the last pixel.
 
 ### Fixed
+
+- App redraws reconstruct their owned pixels before painting, preventing retained alpha and fractional viewport edges from accumulating across frames. Physical clear, drawing, submission, and buffer mirroring share non-overlapping regions while preserving scroll transfers.
 
 - X11 clipboard requests share one deadline across setup, timestamp acquisition, and data transfer; expired operations cannot deliver successful results.
 - X11 clipboard reads use XFixes ownership notifications and final server confirmation to read sources without TIMESTAMP support and reject replacement during multi-format transfers.

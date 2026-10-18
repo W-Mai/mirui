@@ -101,6 +101,29 @@ impl Viewport {
         self.physical_rect_in(logical, u32::from(width), u32::from(height))
     }
 
+    pub(crate) fn logical_cover(&self, physical: PhysicalRect) -> Rect {
+        if physical.is_empty() {
+            return Rect::ZERO;
+        }
+        let upper = |edge| {
+            let edge = Fixed::from(edge);
+            let value = (edge / self.scale).ceil();
+            if value * self.scale < edge {
+                value + Fixed::ONE
+            } else {
+                value
+            }
+        };
+        let left = (Fixed::from(physical.x()) / self.scale).floor();
+        let top = (Fixed::from(physical.y()) / self.scale).floor();
+        Rect::new(
+            left,
+            top,
+            upper(physical.right()) - left,
+            upper(physical.bottom()) - top,
+        )
+    }
+
     pub(crate) fn physical_rect_in(
         &self,
         logical: Rect,

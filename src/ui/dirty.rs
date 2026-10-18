@@ -407,6 +407,72 @@ pub struct DirtyRegions {
     scratch: Vec<Rect>,
 }
 
+pub(crate) struct PhysicalDamage {
+    rects: [crate::types::PhysicalRect; super::render_system::DIRTY_PLAN_RECT_CAPACITY],
+    len: usize,
+}
+
+impl PhysicalDamage {
+    pub(crate) fn as_slice(&self) -> &[crate::types::PhysicalRect] {
+        &self.rects[..self.len]
+    }
+}
+
+#[cfg(test)]
+mod physical_damage_tests {
+    use super::*;
+    use crate::types::{PhysicalRect, Viewport};
+
+    #[test]
+    fn physical_damage_is_disjoint_covers_quantized_edges_and_reuses_scratch() {
+        let mut plan =
+            DirtyRegions::with_rect_capacity(super::super::render_system::DIRTY_PLAN_RECT_CAPACITY);
+        plan.rects.extend_from_slice(&[
+            Rect::new(1, 1, 6, 2),
+            Rect::new(7, 2, 3, 9),
+            Rect::new(1, 10, 8, 2),
+            Rect::new(1, 1, 2, 11),
+        ]);
+        let logical = plan.rects.clone();
+        for scale in [Fixed::from_ratio(229, 256), Fixed::from_ratio(3, 2)] {
+            let viewport = Viewport::new(23, 21, scale);
+            let allocations = crate::test_support::tracked_allocations(|| {
+                for _ in 0..8 {
+                    let physical = plan.physical_redraw(viewport, false);
+                    for (i, rect) in physical.as_slice().iter().enumerate() {
+                        assert!(
+                            physical.as_slice()[i + 1..]
+                                .iter()
+                                .all(|other| rect.intersection(*other).is_none())
+                        );
+                    }
+                    for input in &logical {
+                        if let Some(input) = viewport.physical_rect(*input) {
+                            for y in input.y()..input.bottom() {
+                                for x in input.x()..input.right() {
+                                    let pixel = PhysicalRect::new(x, y, 1, 1).unwrap();
+                                    assert!(
+                                        physical
+                                            .as_slice()
+                                            .iter()
+                                            .any(|rect| rect.intersection(pixel).is_some())
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    assert_eq!(plan.rects, logical);
+                }
+            });
+            assert_eq!(allocations, 0);
+            assert_eq!(
+                plan.physical_redraw(viewport, true).as_slice(),
+                &[PhysicalRect::from_size(23, 21)]
+            );
+        }
+    }
+}
+
 impl Clone for DirtyRegions {
     fn clone(&self) -> Self {
         Self {
@@ -461,6 +527,51 @@ impl DirtyRegions {
         self.scratch.clear();
         self.scratch.extend_from_slice(&self.rects);
         regions::normalize(&mut self.scratch, &mut self.rects);
+    }
+
+    pub(crate) fn physical_redraw(
+        &mut self,
+        viewport: crate::types::Viewport,
+        full: bool,
+    ) -> PhysicalDamage {
+        use crate::types::PhysicalRect;
+        let mut result = PhysicalDamage {
+            rects: [PhysicalRect::EMPTY; super::render_system::DIRTY_PLAN_RECT_CAPACITY],
+            len: 0,
+        };
+        if full {
+            let (width, height) = viewport.physical_size();
+            if width != 0 && height != 0 {
+                result.rects[0] = PhysicalRect::from_size(width, height);
+                result.len = 1;
+            }
+            return result;
+        }
+        self.scratch.clear();
+        for rect in &self.rects {
+            if let Some(area) = viewport.physical_rect(*rect) {
+                self.scratch
+                    .push(Rect::new(area.x(), area.y(), area.width(), area.height()));
+            }
+        }
+        if !self.prefers_split_redraw()
+            && let Some(union) = self.scratch.iter().copied().reduce(|a, b| a.union(&b))
+        {
+            self.scratch.clear();
+            self.scratch.push(union);
+        }
+        let mut normalized = [Rect::ZERO; super::render_system::DIRTY_PLAN_RECT_CAPACITY];
+        result.len = regions::normalize_into(&mut self.scratch, &mut normalized);
+        for (dst, rect) in result.rects.iter_mut().zip(&normalized[..result.len]) {
+            *dst = PhysicalRect::new(
+                rect.x.to_int() as u16,
+                rect.y.to_int() as u16,
+                rect.w.to_int() as u16,
+                rect.h.to_int() as u16,
+            )
+            .expect("normalized target-clipped rectangle");
+        }
+        result
     }
 
     pub(crate) fn prefers_split_redraw(&self) -> bool {

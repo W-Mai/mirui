@@ -33,12 +33,13 @@ pub trait RendererFactory<B: Surface>: crate::core::cache::InspectCaches {
         Ok(())
     }
 
-    /// Mirror the accepted frame's dirty rects into writable inactive slots.
+    /// Mirror the accepted frame's physical redraw areas into writable inactive slots. Apply the plan's scroll shifts before copying `redraw`; logical `plan.rects` describe pending damage, not the final write coverage.
     /// Default no-op — only multi-buffer CPU backends override.
     fn mirror_buffers(
         &mut self,
         _backend: &mut B,
         _plan: &crate::ui::dirty::DirtyRegions,
+        _redraw: &[crate::types::PhysicalRect],
         _transform: &Viewport,
     ) -> Result<(), RenderError> {
         Ok(())
@@ -89,6 +90,7 @@ impl<B: FramebufferAccess> RendererFactory<B> for SwRendererFactory {
         &mut self,
         backend: &mut B,
         plan: &crate::ui::dirty::DirtyRegions,
+        redraw: &[crate::types::PhysicalRect],
         transform: &Viewport,
     ) -> Result<(), RenderError> {
         if backend.buffer_count() <= 1 {
@@ -111,10 +113,7 @@ impl<B: FramebufferAccess> RendererFactory<B> for SwRendererFactory {
                         )?;
                     }
                 }
-                for rect in &plan.rects {
-                    let Some(area) = transform.physical_rect(*rect) else {
-                        continue;
-                    };
+                for &area in redraw {
                     for inact in inactives.iter_mut() {
                         crate::surface::mirror::blit_region(inact, active, area)?;
                     }

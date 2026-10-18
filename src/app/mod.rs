@@ -5,6 +5,8 @@ pub mod plugins;
 pub use model::ModelBuilder;
 
 #[cfg(test)]
+mod frame_background_tests;
+#[cfg(test)]
 mod frame_submission_tests;
 #[cfg(test)]
 mod snapshot_tests;
@@ -100,6 +102,7 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     dirty_plan: DirtyRegions,
     pending_frame: Option<PendingFrame>,
     needs_full_redraw: bool,
+    painted_root_hidden: bool,
     suspended: bool,
     started: bool,
     host_focus: Option<bool>,
@@ -297,6 +300,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             dirty_plan: DirtyRegions::with_rect_capacity(render_system::DIRTY_PLAN_RECT_CAPACITY),
             pending_frame: None,
             needs_full_redraw: true,
+            painted_root_hidden: false,
             suspended: false,
             started: false,
             host_focus: None,
@@ -1118,8 +1122,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         &mut self,
     ) -> Result<Option<crate::render::texture::Texture<'static>>, crate::render::RenderError> {
         self.render_frame(|renderer, viewport| {
-            let (width, height) = viewport.logical_size();
-            let area = Rect::new(0, 0, width, height);
+            let (width, height) = viewport.physical_size();
+            let area = viewport.logical_cover(PhysicalRect::from_size(width, height));
             renderer.prepare_readback(&area)?;
             let texture = renderer
                 .sample_target_region(&area)?
@@ -1188,6 +1192,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 clear_hidden_root(&self.world, &transform, &mut renderer);
                 Ok(())
             } else {
+                let (width, height) = transform.physical_size();
+                let area = PhysicalRect::from_size(width, height);
+                renderer.clear(&area, &crate::types::Color::rgba(0, 0, 0, 0));
                 let (width, height) = transform.logical_size();
                 render_system::render_region_in_batch(
                     &self.world,
@@ -1196,6 +1203,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                     &Rect::new(0, 0, width, height),
                     &mut renderer,
                     &requests,
+                    Some(area),
                 )
             };
             result.and_then(|()| {
@@ -1224,8 +1232,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             crate::trace_span!("frame.flush");
             self.backend.flush(PhysicalRect::from_size(pw, ph))?;
             self.backend.end_flush()?;
-            self.factory
-                .mirror_buffers(&mut self.backend, &self.dirty_plan, &transform)
+            self.factory.mirror_buffers(
+                &mut self.backend,
+                &self.dirty_plan,
+                &[PhysicalRect::from_size(pw, ph)],
+                &transform,
+            )
         })();
         if let Err(error) = submitted {
             self.backend.abort_flush();
@@ -1248,6 +1260,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.last_seed_prev_ns = self.clock_ns().saturating_sub(flush_end);
         self.dirty_plan.clear();
         self.needs_full_redraw = false;
+        self.painted_root_hidden = root_hidden;
 
         {
             crate::trace_span!("frame.finalize");
@@ -1345,6 +1358,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         )
         .map_err(|_| crate::render::RenderError::TextLayout)?;
         if self.needs_full_redraw
+            || (self.painted_root_hidden
+                && !crate::ui::branch::is_effectively_hidden(&self.world, root))
             || self.backend.needs_redraw()
             || (!self.dirty_plan.is_empty()
                 && self.backend.persistence() == crate::surface::BackbufferPersistence::Transient)
@@ -1678,11 +1693,14 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             self.dirty_plan = plan;
             return Err(crate::render::RenderError::TextLayout);
         }
-        if self.needs_full_redraw
+        let full_redraw = self.needs_full_redraw
+            || (self.painted_root_hidden && !root_hidden)
             || self.backend.needs_redraw()
             || (!plan.is_empty()
-                && self.backend.persistence() == crate::surface::BackbufferPersistence::Transient)
-        {
+                && (root_hidden
+                    || self.backend.persistence()
+                        == crate::surface::BackbufferPersistence::Transient));
+        if full_redraw {
             plan.clear();
             let (lw, lh) = transform.logical_size();
             plan.rects.push(Rect::new(0, 0, lw, lh));
@@ -1714,6 +1732,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             };
             let mut plan = plan;
             plan.coalesce_overlaps();
+            let physical = plan.physical_redraw(transform, full_redraw);
 
             if let Some(last) = self
                 .world
@@ -1739,25 +1758,35 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 let result = if root_hidden {
                     clear_hidden_root(&self.world, &transform, &mut renderer);
                     Ok(())
-                } else if plan.prefers_split_redraw() {
+                } else {
                     let mut result = Ok(());
-                    for rect in &plan.rects {
+                    for &area in physical.as_slice() {
+                        renderer.clear(&area, &crate::types::Color::rgba(0, 0, 0, 0));
+                        let (width, height) = transform.logical_size();
+                        let Some(rect) = transform
+                            .logical_cover(area)
+                            .intersect(&Rect::new(0, 0, width, height))
+                        else {
+                            continue;
+                        };
                         result = if let Some(snapshot) = snapshot {
                             render_system::render_region_cached(
                                 &self.world,
                                 snapshot,
-                                rect,
+                                &rect,
                                 &mut renderer,
                                 &requests,
+                                Some(area),
                             )
                         } else {
                             render_system::render_region_in_batch(
                                 &self.world,
                                 root,
                                 &transform,
-                                rect,
+                                &rect,
                                 &mut renderer,
                                 &requests,
+                                Some(area),
                             )
                         };
                         if result.is_err() {
@@ -1765,32 +1794,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                         }
                     }
                     result
-                } else if let Some(union_rect) = plan
-                    .rects
-                    .iter()
-                    .copied()
-                    .reduce(|left, right| left.union(&right))
-                {
-                    if let Some(snapshot) = snapshot {
-                        render_system::render_region_cached(
-                            &self.world,
-                            snapshot,
-                            &union_rect,
-                            &mut renderer,
-                            &requests,
-                        )
-                    } else {
-                        render_system::render_region_in_batch(
-                            &self.world,
-                            root,
-                            &transform,
-                            &union_rect,
-                            &mut renderer,
-                            &requests,
-                        )
-                    }
-                } else {
-                    Ok(())
                 };
                 result?;
                 Renderer::flush(&mut renderer)?;
@@ -1810,10 +1813,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             let render_ns = render_end.saturating_sub(layout_start);
             let submitted = (|| {
                 crate::trace_span!("frame.flush");
-                for rect in &plan.rects {
-                    if let Some(physical) = transform.physical_rect(*rect) {
-                        self.backend.flush(physical)?;
-                    }
+                for &area in physical.as_slice() {
+                    self.backend.flush(area)?;
                 }
                 for sop in &plan.shifts {
                     if let Some(physical) = transform.physical_rect(sop.area) {
@@ -1821,8 +1822,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                     }
                 }
                 self.backend.end_flush()?;
-                self.factory
-                    .mirror_buffers(&mut self.backend, &plan, &transform)
+                self.factory.mirror_buffers(
+                    &mut self.backend,
+                    &plan,
+                    physical.as_slice(),
+                    &transform,
+                )
             })();
             if let Err(error) = submitted {
                 self.backend.abort_flush();
@@ -1837,6 +1842,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             render_system::seed_prev_rects(&mut self.world, root, &transform);
             self.last_seed_prev_ns = self.clock_ns().saturating_sub(seed_start);
             self.needs_full_redraw = false;
+            self.painted_root_hidden = root_hidden;
 
             {
                 crate::trace_span!("frame.finalize");

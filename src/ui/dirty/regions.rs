@@ -62,16 +62,22 @@ impl<const N: usize> RegionSet<N> {
 }
 
 pub(super) fn normalize(input: &mut Vec<Rect>, output: &mut Vec<Rect>) {
+    output.resize(output.capacity(), Rect::ZERO);
+    let len = normalize_into(input, output);
+    output.truncate(len);
+}
+
+pub(super) fn normalize_into(input: &mut Vec<Rect>, output: &mut [Rect]) -> usize {
+    assert!(!output.is_empty() || input.is_empty());
     input.retain(|rect| rect.w > Fixed::ZERO && rect.h > Fixed::ZERO);
     for rect in input.iter_mut() {
         let (x0, y0, x1, y1) = rect.pixel_bounds();
         *rect = Rect::new(x0, y0, x1 - x0, y1 - y0);
     }
     loop {
-        output.clear();
-        if scan_bands(input, output) {
+        if let Some(len) = scan_bands(input, output) {
             input.clear();
-            return;
+            return len;
         }
         // Each retry removes an input rectangle, so bounded output always terminates.
         let (left, right) = cheapest_pair(input.len(), |index| input[index]);
@@ -80,9 +86,10 @@ pub(super) fn normalize(input: &mut Vec<Rect>, output: &mut Vec<Rect>) {
     }
 }
 
-fn scan_bands(input: &[Rect], output: &mut Vec<Rect>) -> bool {
+fn scan_bands(input: &[Rect], output: &mut [Rect]) -> Option<usize> {
+    let mut len = 0;
     let Some(mut top) = input.iter().map(|rect| rect.y).min() else {
-        return true;
+        return Some(0);
     };
     while let Some(bottom) = input
         .iter()
@@ -98,20 +105,21 @@ fn scan_bands(input: &[Rect], output: &mut Vec<Rect>) -> bool {
                 w: right - left,
                 h: bottom - top,
             };
-            if let Some(previous) = output.iter_mut().find(|previous| {
+            if let Some(previous) = output[..len].iter_mut().find(|previous| {
                 previous.x == rect.x && previous.w == rect.w && previous.y + previous.h == top
             }) {
                 previous.h += rect.h;
-            } else if output.len() < output.capacity() {
-                output.push(rect);
+            } else if len < output.len() {
+                output[len] = rect;
+                len += 1;
             } else {
-                return false;
+                return None;
             }
             cursor = Some(right);
         }
         top = bottom;
     }
-    true
+    Some(len)
 }
 
 fn merged_interval(

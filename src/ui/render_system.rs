@@ -2890,7 +2890,9 @@ pub fn render_region(
     renderer: &mut dyn Renderer,
 ) -> Result<(), RenderError> {
     let requests = prepare_paint_requests(world)?;
-    render_region_in_batch(world, root, transform, dirty_rect, renderer, &requests)?;
+    render_region_in_batch(
+        world, root, transform, dirty_rect, renderer, &requests, None,
+    )?;
     requests.commit();
     Ok(())
 }
@@ -2902,6 +2904,7 @@ pub(crate) fn render_region_in_batch(
     dirty_rect: &Rect,
     renderer: &mut dyn Renderer,
     requests: &PaintRequestScope,
+    physical_clip: Option<crate::types::PhysicalRect>,
 ) -> Result<(), RenderError> {
     super::offscreen::reconcile_texture_outputs(world);
     let _outputs_batch = world
@@ -2919,6 +2922,7 @@ pub(crate) fn render_region_in_batch(
             dirty_rect,
             renderer,
             requests,
+            physical_clip,
         );
     }
     let Some(mut layout_tree) =
@@ -2942,6 +2946,7 @@ pub(crate) fn render_region_in_batch(
         dirty_rect,
         renderer,
         requests,
+        physical_clip,
     )
 }
 
@@ -2965,6 +2970,7 @@ pub(crate) fn render_region_cached(
     dirty_rect: &Rect,
     renderer: &mut dyn Renderer,
     requests: &PaintRequestScope,
+    physical_clip: Option<crate::types::PhysicalRect>,
 ) -> Result<(), RenderError> {
     let _outputs_batch = world
         .resource::<Outputs<WidgetTexture>>()
@@ -2976,6 +2982,7 @@ pub(crate) fn render_region_cached(
         dirty_rect,
         renderer,
         requests,
+        physical_clip,
     )
 }
 
@@ -2986,18 +2993,20 @@ fn render_region_with(
     dirty_rect: &Rect,
     renderer: &mut dyn Renderer,
     requests: &PaintRequestScope,
+    physical_clip: Option<crate::types::PhysicalRect>,
 ) -> Result<(), RenderError> {
     let prepared = output_plan::prepare(world, layout_tree, entities, renderer)?;
 
     {
         crate::trace_span!("render.draw_tree");
         let mut idx = 0;
+        let mut renderer = ScopedRenderer::new(renderer, Transform3D::IDENTITY, physical_clip);
         draw_tree_offset(
             layout_tree,
             world,
             entities,
             &mut idx,
-            renderer,
+            &mut renderer,
             dirty_rect,
             Fixed::ZERO,
             Fixed::ZERO,
@@ -10201,7 +10210,7 @@ mod scroll_plan_check {
             .expect("snapshot present after dirty walk");
         let mut cached_out = Recorder(std::vec::Vec::new());
         let requests = prepare_paint_requests(&world).unwrap();
-        render_region_cached(&world, snap, &dirty_rect, &mut cached_out, &requests).unwrap();
+        render_region_cached(&world, snap, &dirty_rect, &mut cached_out, &requests, None).unwrap();
         requests.commit();
 
         let mut fresh_out = Recorder(std::vec::Vec::new());
