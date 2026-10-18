@@ -43,6 +43,33 @@ fn pixels(app: &mut App<TestSurface>) -> Vec<u8> {
 }
 
 #[test]
+fn frame_write_boundary_preserves_background_sampling() {
+    let mut app = App::new(FramebufSurface::with_scale_and_format(
+        41,
+        31,
+        Fixed::ONE,
+        ColorFormat::RGBA8888,
+        (|_, _| {}) as fn(&[u8], PhysicalRect),
+    ));
+    app.with_default_widgets();
+    let root = app.spawn_root().bg_color(Color::rgb(30, 50, 100)).id();
+    app.compose(root, layers());
+    let a = app.world.find_by_id("a").unwrap();
+    app.world
+        .insert(a, crate::ui::widgets::BackgroundBlur::new(2));
+    app.world.invalidate(a);
+    app.render().unwrap();
+    let first = pixels(&mut app);
+    app.render().unwrap();
+    assert_eq!(pixels(&mut app), first);
+    app.world.invalidate(a);
+    app.render_dirty().unwrap();
+    let dirty = pixels(&mut app);
+    app.render().unwrap();
+    assert_eq!(pixels(&mut app), dirty);
+}
+
+#[test]
 fn retained_frames_reconstruct_transparency_after_queries_moves_hiding_and_deletion() {
     for scale in [
         Fixed::from_ratio(229, 256),

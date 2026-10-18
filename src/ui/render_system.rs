@@ -272,6 +272,14 @@ impl Renderer for ScopedRenderer<'_> {
     fn prepare_readback(&mut self, src: &Rect) -> Result<(), RenderError> {
         self.inner.prepare_readback(src)
     }
+
+    fn read_target_region(&self, src: &Rect, dst: &mut Texture) -> Result<(), RenderError> {
+        self.inner.read_target_region(src, dst)
+    }
+
+    fn sample_target_region(&self, src: &Rect) -> Result<Option<Texture<'static>>, RenderError> {
+        self.inner.sample_target_region(src)
+    }
 }
 
 /// Disabled (subtree) > Errored (self) > Pressed > Hovered > Enabled.

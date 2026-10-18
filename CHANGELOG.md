@@ -121,6 +121,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- App frame write scopes preserve background sampling and target readback.
+
 - App redraws reconstruct their owned pixels before painting, preventing retained alpha and fractional viewport edges from accumulating across frames. Physical clear, drawing, submission, and buffer mirroring share non-overlapping regions while preserving scroll transfers.
 
 - X11 clipboard requests share one deadline across setup, timestamp acquisition, and data transfer; expired operations cannot deliver successful results.
