@@ -59,7 +59,7 @@ The Trunk pre-build hook renders the demo card previews through the software bac
 
 `trunk build --release` uses the workspace `[profile.release]` with `opt-level = "z"`, LTO, one codegen unit, stripped symbols, and aborting panics. Measure the emitted `.wasm` after every Gallery feature batch because embedded fonts, artwork, and complete application modules intentionally remain in the single browser artifact.
 
-`wasm-opt` runs only in `--release` and needs `--all-features` to accept the bulk-memory and sign-extension operations emitted by current wasm32 Rust toolchains; `index.html` supplies that flag through `data-wasm-opt-params`.
+`wasm-opt` runs only in `--release`. `index.html` enables bulk-memory, sign-extension, and nontrapping float-to-integer operations through `data-wasm-opt-params`; experimental WebAssembly features remain disabled.
 
 ## Adding a demo
 

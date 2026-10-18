@@ -117,6 +117,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Web release optimization enables only the required WebAssembly extensions, preventing compact imports from making the gallery fail to load in browsers.
+
 - Lumen Lab clips light paths and scan markers to the board, preventing stale beams outside the playfield.
 
 - The reactive effect demo releases its observer when its widget subtree is removed.

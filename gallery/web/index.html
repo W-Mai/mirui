@@ -77,7 +77,7 @@
         document.documentElement.lang = language === "zh" ? "zh-CN" : "en";
       })();
     </script>
-    <link data-trunk rel="rust" data-wasm-opt="z" data-wasm-opt-params="--all-features" />
+    <link data-trunk rel="rust" data-wasm-opt="z" data-wasm-opt-params="--enable-bulk-memory --enable-sign-ext --enable-nontrapping-float-to-int" />
     <style>
       /* ════════════════════════════════════════════════════════════
          mirui gallery — one instrument, three panes.

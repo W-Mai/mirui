@@ -38,6 +38,15 @@ jobs:
           test -s gallery/web/dist/index.html
           test -n "$(find gallery/web/dist -maxdepth 1 -type f -name '*.js' -size +0c -print -quit)"
           test -n "$(find gallery/web/dist -maxdepth 1 -type f -name '*.wasm' -size +0c -print -quit)"
+          node --input-type=module <<'JS'
+          import { readFile, readdir } from 'node:fs/promises';
+          const directory = 'gallery/web/dist';
+          for (const file of await readdir(directory)) {
+            if (file.endsWith('.wasm')) {
+              await WebAssembly.compile(await readFile(`${directory}/${file}`));
+            }
+          }
+          JS
           test "$(cat gallery/web/dist/CNAME)" = "mirui.rs"
           test -s gallery/web/dist/robots.txt
           test -s gallery/web/dist/sitemap.xml
