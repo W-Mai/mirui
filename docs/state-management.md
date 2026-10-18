@@ -672,7 +672,7 @@ let doubled = {
     Computed::new(move || count.get() * 2)   // lazy, recomputes when count changes
 };
 
-Effect::new(move || {
+let _effect = Effect::new(move || {
     // re-runs whenever a signal read inside it changes
 });
 ```
@@ -682,7 +682,7 @@ Effect::new(move || {
   or a reactive binding). `set()` / `update()` mark subscribers dirty.
 - `Computed<T>` derives a value lazily: it only recomputes when one of its
   inputs changed, and only when read.
-- `Effect` runs a closure now and again whenever the signals it read change.
+- `Effect` runs a closure now and again whenever the signals it read change. Keep its handle alive for the required lifetime; dropping the handle or calling `dispose()` unregisters the effect. Inside a composition, `effect_with_widget(entity, closure)` binds an effect to a constructed widget instead: the runtime removes it when that widget is retired.
 
 Signals are `Clone` (cheap, reference-counted), so clone one into each
 closure that needs it.

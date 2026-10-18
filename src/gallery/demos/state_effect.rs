@@ -1,25 +1,17 @@
 extern crate alloc;
 
-use crate::core::reactive::{Effect, Signal};
+use crate::core::reactive::{Signal, effect_with_widget};
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ParagraphStyle, Text};
 
 #[compose]
 pub fn build_widgets() {
     let value = Signal::new(0i32);
-    // an effect with a side effect: count how many times `value` changed
     let changes = Signal::new(0i32);
-    {
-        let (value, changes) = (value.clone(), changes.clone());
-        core::mem::forget(Effect::new(move || {
-            let _ = value.get();
-            changes.update(|c| *c += 1);
-        }));
-    }
     let (bump, vlabel, clabel) = (value.clone(), value.clone(), changes.clone());
 
     //~focus-start
-    ui! {
+    let panel = ui! {
         Column (
             grow: 1.0,
             align: AlignItems::Center,
@@ -57,6 +49,10 @@ pub fn build_widgets() {
             ] on Tap { bump.update(|v| *v += 1); }
         }
     };
+    effect_with_widget(panel, move || {
+        let _ = value.get();
+        changes.update(|count| *count += 1);
+    });
     //~focus-end
 }
 
@@ -93,6 +89,7 @@ mod tests {
         let parent = app.spawn_root().id();
         app.compose(parent, build_widgets());
         let world = &mut app.world;
+        flush_signal_dirty(world);
 
         let col = world.get::<Children>(parent).unwrap().0[0];
         let runs_label = world.get::<Children>(col).unwrap().0[1];
