@@ -302,6 +302,81 @@ fn nonzero_capture_origin_is_removed_once_from_source_anchored_drop_effects() {
 }
 
 #[test]
+fn source_position_and_size_refresh_cached_inline_and_captured_measurements() {
+    for captured in [false, true] {
+        let mut app = test_app((0, 0), BUDGET * 2);
+        let capture = app.world.find_by_id("capture").unwrap();
+        if !captured {
+            app.world.remove::<OffscreenRender>(capture);
+        }
+        let source = app.world.find_by_id("source").unwrap();
+        let shadow = app.world.find_by_id("shadow").unwrap();
+        let glow = app.world.find_by_id("glow").unwrap();
+        let mirror = app.world.find_by_id("mirror").unwrap();
+        app.render().unwrap();
+        let snapshot = app.world.resource::<super::LayoutSnapshot>().unwrap();
+        let plan = super::measure_for_dirty(&app.world, &snapshot.layout_tree, &snapshot.entities);
+        super::return_plan(&app.world, plan);
+        let measured = |app: &TestApp| {
+            let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+            let snapshot = app.world.resource::<super::LayoutSnapshot>().unwrap();
+            let plan = outputs.take_texture_plan().unwrap();
+            let index = snapshot
+                .entities
+                .iter()
+                .position(|&entity| entity == shadow)
+                .unwrap();
+            let node = &plan.nodes[index];
+            assert!(node.measurement_valid);
+            let result = (node.extra.unwrap(), node.workspace_bytes);
+            outputs.put_texture_plan(plan);
+            result
+        };
+        let original = measured(&app);
+        for (left, top, width) in [(8, 7, 4), (8, 7, 5)] {
+            let style = app.world.get_mut::<Style>(source).unwrap();
+            style.layout.left = Dimension::px(left);
+            style.layout.top = Dimension::px(top);
+            style.layout.width = Dimension::px(width);
+            let root = app.world.resource::<crate::ui::WidgetRoot>().unwrap().0;
+            crate::ui::render_system::try_update_layout(
+                &mut app.world,
+                root,
+                &crate::types::Viewport::new(24, 24, Fixed::ONE),
+            )
+            .unwrap();
+            for consumer in [shadow, glow, mirror] {
+                crate::ui::dirty::VisualDirty::prepare(&mut app.world, consumer);
+            }
+            let snapshot = app.world.resource::<super::LayoutSnapshot>().unwrap();
+            let plan =
+                super::measure_for_dirty(&app.world, &snapshot.layout_tree, &snapshot.entities);
+            super::return_plan(&app.world, plan);
+            let current = measured(&app);
+            assert_eq!(current.0.x, original.0.x + Fixed::from_int(2));
+            assert_eq!(current.0.y, original.0.y + Fixed::ONE);
+            assert_eq!(current.0.w, original.0.w + Fixed::from_int(width - 4));
+            if width > 4 {
+                assert!(current.1 > original.1);
+            }
+            app.render_dirty().unwrap();
+            let partial = app
+                .backend
+                .framebuffer()
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .to_vec();
+            app.render().unwrap();
+            assert_eq!(
+                app.backend.framebuffer().read_pixels().unwrap().bytes(),
+                partial
+            );
+        }
+    }
+}
+
+#[test]
 fn half_resolution_source_preserves_the_shadows_logical_coverage() {
     let mut app = test_app((0, 0), BUDGET);
     let source = app.world.find_by_id("source").unwrap();

@@ -1,6 +1,7 @@
 use super::*;
 use crate::render::scratch::PlaneLayout;
 use crate::types::Fixed64;
+use crate::ui::dirty::{Dirty, VisualDirty};
 use crate::ui::offscreen::BufferKey;
 use crate::ui::outputs::graph::OutputGraph;
 use crate::ui::outputs::relations::OutputRelations;
@@ -40,6 +41,8 @@ struct Capture {
 struct NodeGeometry {
     extra: Option<Rect>,
     capture: Option<usize>,
+    workspace_bytes: usize,
+    measurement_valid: bool,
 }
 
 fn geometry_fixed(value: Fixed64) -> Result<Fixed, ()> {
@@ -132,6 +135,36 @@ impl TexturePlan {
         self.batch_complete = false;
     }
 
+    fn invalidate_measurements(&mut self) {
+        self.invalidate_geometry();
+        for node in &mut self.nodes {
+            node.measurement_valid = false;
+        }
+    }
+
+    fn invalidate_changed_measurements(&mut self, world: &World, entities: &[Entity]) {
+        if world.resource::<OutputRelations>().is_none()
+            || world.resource::<ViewRegistry>().is_none()
+        {
+            self.invalidate_measurements();
+            return;
+        }
+        let mut geometry_changed = false;
+        for (node, entity) in self.nodes.iter_mut().zip(entities) {
+            let dirty = world.has::<Dirty>(*entity);
+            let visual = world.get::<VisualDirty>(*entity).copied();
+            if dirty || visual.is_some_and(|state| state.content_pending() == VisualDirty::New) {
+                node.measurement_valid = false;
+                geometry_changed = true;
+            }
+            geometry_changed |=
+                visual.is_some_and(|state| state.parent_pending() == VisualDirty::New);
+        }
+        if geometry_changed {
+            self.invalidate_geometry();
+        }
+    }
+
     fn invalidate_structure(&mut self) {
         self.invalidate_geometry();
         self.structure_valid = false;
@@ -218,6 +251,8 @@ impl TexturePlan {
         self.nodes.push(NodeGeometry {
             extra: None,
             capture,
+            workspace_bytes: 0,
+            measurement_valid: false,
         });
         *index += 1;
         for child in &node.children {
@@ -335,18 +370,39 @@ impl TexturePlan {
             .captures
             .iter()
             .find(|capture| capture.entity == entity)?;
-        if matches!(capture.state, CaptureState::Blocked | CaptureState::Missing)
-            || capture.key.w == 0
-            || capture.key.h == 0
-        {
+        if matches!(capture.state, CaptureState::Blocked | CaptureState::Missing) {
             return None;
         }
-        let plane = PlaneLayout::packed(capture.key.w, capture.key.h, capture.key.format).ok()?;
+        Self::key_geometry(&capture.key)
+    }
+
+    fn key_geometry(key: &BufferKey) -> Option<SourceGeometry> {
+        if key.w == 0 || key.h == 0 {
+            return None;
+        }
+        let plane = PlaneLayout::packed(key.w, key.h, key.format).ok()?;
         Some(SourceGeometry {
             plane,
-            layout_rect: capture.key.layout_rect,
-            local_bounds: capture.key.local_bounds,
+            layout_rect: key.layout_rect,
+            local_bounds: key.local_bounds,
         })
+    }
+
+    fn invalidate_source_measurements(
+        &mut self,
+        world: &World,
+        entities: &[Entity],
+        source: Entity,
+    ) {
+        if let Some(relations) = world.resource::<OutputRelations>() {
+            relations.visit_current_dependencies(|consumer, dependency, descriptor| {
+                if dependency == source && (descriptor.kind)() == TypeId::of::<WidgetTexture>() {
+                    if let Some(position) = entities.iter().position(|&entity| entity == consumer) {
+                        self.nodes[position].measurement_valid = false;
+                    }
+                }
+            });
+        }
     }
 
     fn measure_node(
@@ -358,8 +414,27 @@ impl TexturePlan {
         owner: Option<usize>,
     ) -> Result<(), ()> {
         let Some(registry) = world.resource::<ViewRegistry>() else {
+            self.nodes[position].extra = None;
+            self.nodes[position].workspace_bytes = 0;
+            self.nodes[position].measurement_valid = false;
             return Ok(());
         };
+        if self.nodes[position].measurement_valid
+            && registry.paint_iter().all(|view| {
+                view.measurement().is_none()
+                    || view
+                        .component_filter()
+                        .is_some_and(|ty| !world.has_type(entity, ty))
+                    || view.measurement_reusable()
+            })
+        {
+            self.include_workspace(position, owner);
+            return Ok(());
+        }
+        self.nodes[position].measurement_valid = false;
+        self.nodes[position].extra = None;
+        self.nodes[position].workspace_bytes = 0;
+        let mut reusable = world.resource::<OutputRelations>().is_some();
         for view in registry.paint_iter() {
             let Some(measure) = view.measurement() else {
                 continue;
@@ -370,9 +445,11 @@ impl TexturePlan {
             {
                 continue;
             }
+            reusable &= view.measurement_reusable();
             let Some(measured) = measure(world, entity, rect, &|source| {
                 self.measured_output_layout(source)
             }) else {
+                reusable = false;
                 continue;
             };
             if !measured.coverage.is_empty() {
@@ -385,14 +462,22 @@ impl TexturePlan {
             }
             if let Some(layout) = measured.workspace {
                 let bytes = layout.required_bytes();
-                self.workspace_bytes = self.workspace_bytes.max(bytes);
-                if let Some(owner) = owner {
-                    self.captures[owner].workspace_bytes =
-                        self.captures[owner].workspace_bytes.max(bytes);
-                }
+                self.nodes[position].workspace_bytes =
+                    self.nodes[position].workspace_bytes.max(bytes);
+                self.include_workspace(position, owner);
             }
         }
+        self.nodes[position].measurement_valid = reusable;
+        self.include_workspace(position, owner);
         Ok(())
+    }
+
+    fn include_workspace(&mut self, position: usize, owner: Option<usize>) {
+        let bytes = self.nodes[position].workspace_bytes;
+        self.workspace_bytes = self.workspace_bytes.max(bytes);
+        if let Some(owner) = owner {
+            self.captures[owner].workspace_bytes = self.captures[owner].workspace_bytes.max(bytes);
+        }
     }
 
     pub(super) fn local_paint_bounds(&self, position: usize, rect: Rect) -> Option<Rect> {
@@ -511,9 +596,7 @@ impl TexturePlan {
     fn measure(&mut self, world: &World, tree: &LayoutNode, entities: &[Entity]) {
         self.invalidate_geometry();
         self.refresh_structure(world, tree, entities);
-        for node in &mut self.nodes {
-            node.extra = None;
-        }
+        self.invalidate_changed_measurements(world, entities);
         for (index, capture) in self.captures.iter_mut().enumerate() {
             capture.workspace_bytes = 0;
             capture.state = if self.graph.is_blocked(index) {
@@ -530,6 +613,7 @@ impl TexturePlan {
                 continue;
             }
             let capture = &self.captures[id];
+            let previous_geometry = Self::key_geometry(&capture.key);
             let node =
                 node_at(tree, capture.start).expect("capture belongs to the layout snapshot");
             let mut index = capture.start;
@@ -581,6 +665,10 @@ impl TexturePlan {
             }
             if capture.key.w == 0 || capture.key.h == 0 {
                 capture.state = CaptureState::Missing;
+            }
+            let source = capture.entity;
+            if previous_geometry != self.measured_output_layout(source) {
+                self.invalidate_source_measurements(world, entities, source);
             }
         }
         let _ = self.measure_tree(
@@ -639,6 +727,16 @@ pub(super) fn invalidate_geometry(world: &World) {
     }
 }
 
+pub(crate) fn invalidate_measurements(world: &World) {
+    let Some(outputs) = world.resource::<Outputs<WidgetTexture>>() else {
+        return;
+    };
+    if let Some(mut plan) = outputs.take_texture_plan() {
+        plan.invalidate_measurements();
+        outputs.put_texture_plan(plan);
+    }
+}
+
 pub(super) fn invalidate_structure(world: &World) {
     let Some(outputs) = world.resource::<Outputs<WidgetTexture>>() else {
         return;
@@ -692,6 +790,7 @@ pub(super) fn prepare<'a>(
         .ok_or(RenderError::BackendFailure)?;
     let mut prepared = PreparedTextures { outputs, plan };
     let plan = &mut prepared.plan;
+    plan.invalidate_changed_measurements(world, entities);
     if !plan.geometry_ready
         && plan.batch_complete
         && plan.batch == outputs.batch_id()
@@ -865,14 +964,16 @@ mod geometry_arithmetic_tests {
         plan.nodes.push(NodeGeometry {
             extra: Some(geometry_translate(rect, origin, Point::ZERO).unwrap()),
             capture: None,
+            workspace_bytes: 0,
+            measurement_valid: false,
         });
         plan.geometry_valid = true;
         assert_eq!(
             core::mem::size_of::<NodeGeometry>(),
             if core::mem::size_of::<usize>() == 8 {
-                40
+                48
             } else {
-                28
+                36
             }
         );
         assert_eq!(plan.local_paint_bounds(0, rect), Some(rect));
@@ -914,6 +1015,8 @@ mod geometry_arithmetic_tests {
         plan.nodes.push(NodeGeometry {
             extra: Some(Rect::new(0, 0, 1, 1)),
             capture: None,
+            workspace_bytes: 0,
+            measurement_valid: false,
         });
         assert!(
             plan.local_paint_bounds(0, Rect::new(Fixed::MAX, 0, 1, 1))

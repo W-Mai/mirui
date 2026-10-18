@@ -603,7 +603,7 @@ struct ViewPaint {
     measurement: Option<PaintMeasure>,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SourceGeometry {
     pub plane: PlaneLayout,
     pub layout_rect: Rect,
@@ -752,6 +752,12 @@ impl<Systems> View<Systems> {
             .paint
             .as_ref()
             .and_then(|paint| paint.measurement)
+    }
+
+    pub(crate) fn measurement_reusable(&self) -> bool {
+        self.definition.component_filter.is_some()
+            && self.definition.component_tracking_ready
+            && self.definition.query_scope.get() == QueryScope::Local
     }
 
     /// Replace the systems installed with this widget kind.
@@ -912,6 +918,13 @@ impl ViewRegistry {
             if has_outputs && world.resource::<OutputRelations>().is_none() {
                 world.insert_resource(OutputRelations::default());
             }
+            if registry
+                .views
+                .iter()
+                .any(|view| !view.definition.component_tracking_ready)
+            {
+                super::render_system::output_plan::invalidate_measurements(world);
+            }
             for view in &mut registry.views {
                 if !view.definition.component_tracking_ready {
                     for dependency in view.definition.output_dependencies {
@@ -935,6 +948,7 @@ impl ViewRegistry {
             if world.resource::<OutputRelations>().is_some() {
                 world.with_resource_box::<OutputRelations, _>(|relations, world| {
                     if relations.activate(world, &mut registry.output_registration) {
+                        super::render_system::output_plan::invalidate_measurements(world);
                         for view in &registry.views {
                             if !view.definition.output_dependencies.is_empty() {
                                 world.watch_component_type(
@@ -962,6 +976,7 @@ impl ViewRegistry {
             }
         });
         if registered.is_none() {
+            super::render_system::output_plan::invalidate_measurements(world);
             world.with_resource_box::<OutputRelations, _>(|relations, world| {
                 relations.clear(world);
                 relations.reconcile(world);

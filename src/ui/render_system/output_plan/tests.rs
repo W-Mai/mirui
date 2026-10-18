@@ -43,6 +43,447 @@ fn output_version(world: &World, name: &'static str) -> u64 {
         .version
 }
 
+#[crate::component]
+struct MeasurementSample {
+    calls: Cell<usize>,
+    available: Cell<bool>,
+    global: Cell<bool>,
+    bounds: Rect,
+    workspace: u16,
+}
+
+#[crate::view(component = MeasurementSample)]
+fn measurement_render(
+    sample: component!(),
+    samples: query!(MeasurementSample),
+    entity: entity!(),
+    paint: paint!(),
+) {
+    if sample.global.get() {
+        for _ in samples {}
+    } else {
+        let _ = samples.get(entity);
+    }
+    let _ = paint.rect();
+}
+
+fn sample_measurement(
+    world: &World,
+    entity: Entity,
+    _rect: Rect,
+    _source: &dyn Fn(Entity) -> Option<SourceGeometry>,
+) -> Option<crate::ui::view::PaintMeasurement> {
+    let sample = world.get::<MeasurementSample>(entity)?;
+    sample.calls.set(sample.calls.get() + 1);
+    sample
+        .available
+        .get()
+        .then(|| crate::ui::view::PaintMeasurement {
+            coverage: if sample.bounds.w == Fixed::ZERO {
+                crate::ui::dirty::PaintCoverage::EMPTY
+            } else {
+                crate::ui::dirty::PaintCoverage::solid(sample.bounds)
+            },
+            workspace: (sample.workspace != 0)
+                .then(|| PlaneLayout::packed(sample.workspace, 1, ColorFormat::RGBA8888).unwrap()),
+        })
+}
+
+#[crate::compose]
+fn measured_scene() {
+    ui! {
+        View (id: "measured", width: 4, height: 4) [
+            OffscreenRender::new(),
+            MeasurementSample {
+                calls: Cell::new(0),
+                available: Cell::new(true),
+                global: Cell::new(false),
+                bounds: Rect::new(0, 0, 6, 4),
+                workspace: 8,
+            },
+        ]
+    };
+}
+
+fn measured_app() -> (TestApp, Entity) {
+    let mut app = app(16, 8);
+    app.with_widget(measurement_render::view().with_measurement(sample_measurement));
+    let root = app.spawn_root().id();
+    app.compose(root, measured_scene());
+    let entity = app.world.find_by_id("measured").unwrap();
+    (app, entity)
+}
+
+fn measure_snapshot(app: &TestApp) {
+    let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+    let snapshot = app.world.resource::<LayoutSnapshot>().unwrap();
+    let mut plan = outputs.take_texture_plan().unwrap();
+    plan.measure(&app.world, &snapshot.layout_tree, &snapshot.entities);
+    outputs.put_texture_plan(plan);
+}
+
+fn sample_calls(app: &TestApp, entity: Entity) -> usize {
+    app.world
+        .get::<MeasurementSample>(entity)
+        .unwrap()
+        .calls
+        .get()
+}
+
+#[test]
+fn stable_measurements_reuse_local_bounds_through_transform_only_changes() {
+    let (mut app, entity) = measured_app();
+    app.dirty_regions().unwrap();
+    let cold = sample_calls(&app, entity);
+    measure_snapshot(&app);
+    assert!(sample_calls(&app, entity) > cold);
+    app.render().unwrap();
+    measure_snapshot(&app);
+    let warm = sample_calls(&app, entity);
+    let allocations = crate::test_support::tracked_allocations(|| {
+        for _ in 0..4 {
+            measure_snapshot(&app);
+        }
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(sample_calls(&app, entity), warm);
+
+    app.world.insert(
+        entity,
+        crate::ui::widgets::WidgetTransform(Transform {
+            tx: Fixed::from_int(2),
+            ..Transform::IDENTITY
+        }),
+    );
+    app.world.invalidate_transform(entity);
+    measure_snapshot(&app);
+    assert_eq!(sample_calls(&app, entity), warm);
+    let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+    let plan = outputs.take_texture_plan().unwrap();
+    assert_eq!(
+        plan.measured_output_layout(entity).unwrap().local_bounds.w,
+        Fixed::from_int(6)
+    );
+    outputs.put_texture_plan(plan);
+}
+
+#[test]
+fn prepared_query_remeasures_new_content_before_same_batch_preparation() {
+    let (mut app, entity) = measured_app();
+    app.render().unwrap();
+    app.dirty_regions().unwrap();
+    let calls = sample_calls(&app, entity);
+    app.world
+        .get_mut::<MeasurementSample>(entity)
+        .unwrap()
+        .bounds
+        .w = Fixed::from_int(9);
+    ViewRegistry::reconcile_observations(&mut app.world);
+    let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+    let snapshot = app.world.resource::<LayoutSnapshot>().unwrap();
+    let mut pixels = [0_u8; 16 * 8 * 4];
+    let mut renderer = crate::render::sw::SwRenderer::new(
+        Texture::new(&mut pixels, 16, 8, ColorFormat::RGBA8888).unwrap(),
+    );
+    let _batch = outputs.begin_batch();
+    let prepared = prepare(
+        &app.world,
+        &snapshot.layout_tree,
+        &snapshot.entities,
+        &mut renderer,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(sample_calls(&app, entity) > calls);
+    assert_eq!(
+        prepared
+            .plan
+            .measured_output_layout(entity)
+            .unwrap()
+            .local_bounds
+            .w,
+        Fixed::from_int(9)
+    );
+}
+
+#[test]
+fn completed_batch_recomputes_transformed_descendants_without_remeasuring_them() {
+    let (mut app, entity) = measured_app();
+    register_counter(&mut app);
+    app.world.insert(entity, PaintCounter(Cell::new(0)));
+    let root = app.world.resource::<crate::ui::WidgetRoot>().unwrap().0;
+    app.world.insert(root, OffscreenRender::new());
+    app.world.remove::<OffscreenRender>(entity);
+    app.render().unwrap();
+    measure_snapshot(&app);
+    let calls = sample_calls(&app, entity);
+    let paints = paint_calls(&app.world, "measured");
+    let prepare_width = |app: &TestApp| {
+        let snapshot = app.world.resource::<LayoutSnapshot>().unwrap();
+        let mut pixels = [0_u8; 16 * 8 * 4];
+        let mut renderer = crate::render::sw::SwRenderer::new(
+            Texture::new(&mut pixels, 16, 8, ColorFormat::RGBA8888).unwrap(),
+        );
+        let prepared = prepare(
+            &app.world,
+            &snapshot.layout_tree,
+            &snapshot.entities,
+            &mut renderer,
+        )
+        .unwrap()
+        .unwrap();
+        assert!(prepared.plan.batch_complete);
+        prepared
+            .plan
+            .measured_output_layout(root)
+            .unwrap()
+            .local_bounds
+            .w
+    };
+    let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+    let batch = outputs.batch_id();
+    assert_eq!(prepare_width(&app), Fixed::from_int(16));
+    assert_eq!(sample_calls(&app, entity), calls);
+    app.world.insert(
+        entity,
+        crate::ui::widgets::WidgetTransform(Transform {
+            tx: Fixed::from_int(12),
+            ..Transform::IDENTITY
+        }),
+    );
+    app.world.invalidate_transform(entity);
+    assert_eq!(prepare_width(&app), Fixed::from_int(18));
+    // Exact paint coverage still measures once per paint; plan preparation reuses its result.
+    assert_eq!(
+        sample_calls(&app, entity) - calls,
+        paint_calls(&app.world, "measured") - paints
+    );
+    assert_eq!(
+        app.world
+            .resource::<Outputs<WidgetTexture>>()
+            .unwrap()
+            .batch_id(),
+        batch
+    );
+}
+
+#[test]
+fn empty_measurements_cache_but_unavailable_and_overflowing_measurements_retry() {
+    let (mut app, entity) = measured_app();
+    app.world
+        .get_mut::<MeasurementSample>(entity)
+        .unwrap()
+        .bounds = Rect::ZERO;
+    app.render().unwrap();
+    measure_snapshot(&app);
+    let calls = sample_calls(&app, entity);
+    measure_snapshot(&app);
+    assert_eq!(sample_calls(&app, entity), calls);
+
+    app.world
+        .get::<MeasurementSample>(entity)
+        .unwrap()
+        .available
+        .set(false);
+    app.world.invalidate_visual(entity);
+    measure_snapshot(&app);
+    VisualDirty::prepare(&mut app.world, entity);
+    let unavailable = sample_calls(&app, entity);
+    measure_snapshot(&app);
+    assert!(sample_calls(&app, entity) > unavailable);
+    app.world
+        .get::<MeasurementSample>(entity)
+        .unwrap()
+        .available
+        .set(true);
+    measure_snapshot(&app);
+    let recovered = sample_calls(&app, entity);
+    measure_snapshot(&app);
+    assert_eq!(sample_calls(&app, entity), recovered);
+
+    app.world
+        .get_mut::<MeasurementSample>(entity)
+        .unwrap()
+        .bounds = Rect::new(Fixed::MAX, Fixed::ZERO, Fixed::ONE, Fixed::ONE);
+    app.world.invalidate_visual(entity);
+    measure_snapshot(&app);
+    VisualDirty::prepare(&mut app.world, entity);
+    let overflowed = sample_calls(&app, entity);
+    measure_snapshot(&app);
+    assert!(sample_calls(&app, entity) > overflowed);
+}
+
+#[test]
+fn cached_workspace_maximum_shrinks_and_disappears_with_its_measurement() {
+    let (mut app, entity) = measured_app();
+    app.render().unwrap();
+    measure_snapshot(&app);
+    let workspace = |app: &TestApp| {
+        let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+        let plan = outputs.take_texture_plan().unwrap();
+        let bytes = plan.workspace_bytes;
+        outputs.put_texture_plan(plan);
+        bytes
+    };
+    assert_eq!(workspace(&app), 32);
+    app.world
+        .get_mut::<MeasurementSample>(entity)
+        .unwrap()
+        .workspace = 2;
+    ViewRegistry::reconcile_observations(&mut app.world);
+    measure_snapshot(&app);
+    assert_eq!(workspace(&app), 8);
+    VisualDirty::prepare(&mut app.world, entity);
+    measure_snapshot(&app);
+    assert_eq!(workspace(&app), 8);
+    app.world.remove::<MeasurementSample>(entity);
+    ViewRegistry::reconcile_observations(&mut app.world);
+    measure_snapshot(&app);
+    assert_eq!(workspace(&app), 0);
+}
+
+fn empty_sample_measurement(
+    world: &World,
+    entity: Entity,
+    rect: Rect,
+    source: &dyn Fn(Entity) -> Option<SourceGeometry>,
+) -> Option<crate::ui::view::PaintMeasurement> {
+    let mut measured = sample_measurement(world, entity, rect, source)?;
+    measured.coverage = crate::ui::dirty::PaintCoverage::EMPTY;
+    measured.workspace = None;
+    Some(measured)
+}
+
+#[test]
+fn registry_identity_and_observation_scope_bound_measurement_reuse() {
+    let (mut app, entity) = measured_app();
+    app.render().unwrap();
+    measure_snapshot(&app);
+    let original = app.world.remove_resource::<ViewRegistry>().unwrap();
+    let mut alternate = ViewRegistry::with_builtins();
+    alternate.insert(measurement_render::view().with_measurement(empty_sample_measurement));
+    app.world.insert_resource(alternate);
+    app.render().unwrap();
+    measure_snapshot(&app);
+    let mut parked = original;
+    for expected in [32, 0, 32, 0] {
+        let active = app.world.remove_resource::<ViewRegistry>().unwrap();
+        app.world.insert_resource(parked);
+        parked = active;
+        ViewRegistry::reconcile_observations(&mut app.world);
+        let calls = sample_calls(&app, entity);
+        measure_snapshot(&app);
+        assert!(sample_calls(&app, entity) > calls);
+        let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+        let plan = outputs.take_texture_plan().unwrap();
+        assert_eq!(plan.workspace_bytes, expected);
+        outputs.put_texture_plan(plan);
+        VisualDirty::prepare(&mut app.world, entity);
+    }
+
+    app.render().unwrap();
+    measure_snapshot(&app);
+    let relations = app.world.remove_resource::<OutputRelations>().unwrap();
+    let calls = sample_calls(&app, entity);
+    measure_snapshot(&app);
+    measure_snapshot(&app);
+    assert_eq!(sample_calls(&app, entity), calls + 2);
+    app.world.insert_resource(relations);
+
+    app.world
+        .get::<MeasurementSample>(entity)
+        .unwrap()
+        .global
+        .set(true);
+    app.world.invalidate_visual(entity);
+    app.render().unwrap();
+    let calls = sample_calls(&app, entity);
+    measure_snapshot(&app);
+    measure_snapshot(&app);
+    assert_eq!(sample_calls(&app, entity), calls + 2);
+
+    app.world.remove_resource::<ViewRegistry>();
+    measure_snapshot(&app);
+    let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+    let plan = outputs.take_texture_plan().unwrap();
+    assert!(
+        plan.nodes
+            .iter()
+            .all(|node| !node.measurement_valid && node.extra.is_none())
+    );
+    assert_eq!(plan.workspace_bytes, 0);
+    outputs.put_texture_plan(plan);
+}
+
+fn overflowing_measurement(
+    _world: &World,
+    _entity: Entity,
+    _rect: Rect,
+    _source: &dyn Fn(Entity) -> Option<SourceGeometry>,
+) -> Option<crate::ui::view::PaintMeasurement> {
+    Some(crate::ui::view::PaintMeasurement {
+        coverage: crate::ui::dirty::PaintCoverage::solid(Rect::new(Fixed::MAX, 0, 1, 1)),
+        workspace: None,
+    })
+}
+
+#[crate::view(component = MirrorOf, priority = 99)]
+fn failed_bounds_render(paint: paint!()) {
+    let _ = paint.rect();
+}
+
+#[test]
+fn measurement_failure_retains_successful_workspace_for_inline_fallback() {
+    let mut app = app(8, 4);
+    let root = app.spawn_root().bg_color(Color::rgb(0, 0, 0)).id();
+    app.compose(root, inline_dependency_inside_capture());
+    app.render().unwrap();
+    app.with_widget(failed_bounds_render::view().with_measurement(overflowing_measurement));
+    ViewRegistry::reconcile_observations(&mut app.world);
+    let mirror = app.world.find_by_id("inline_mirror").unwrap();
+    let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+    let snapshot = app.world.resource::<LayoutSnapshot>().unwrap();
+    let mut pixels = [0_u8; 8 * 4 * 4];
+    {
+        let mut renderer = crate::render::sw::SwRenderer::new(
+            Texture::new(&mut pixels, 8, 4, ColorFormat::RGBA8888).unwrap(),
+        );
+        let prepared = prepare(
+            &app.world,
+            &snapshot.layout_tree,
+            &snapshot.entities,
+            &mut renderer,
+        )
+        .unwrap()
+        .unwrap();
+        let rect = app.world.get::<crate::ui::ComputedRect>(mirror).unwrap().0;
+        let style = app.world.get::<Style>(mirror).unwrap();
+        let mut paint = crate::ui::view::PaintCtx::new(
+            &mut renderer,
+            style,
+            &rect,
+            &rect,
+            Transform::IDENTITY,
+            None,
+            crate::ui::theme::WidgetState::Enabled,
+        );
+        paint.set_workspace(&prepared.plan.workspace);
+        crate::ui::widgets::mirror::view().paint(&app.world, mirror, &mut paint);
+        assert!(paint.error().is_none());
+    }
+    let plan = outputs.take_texture_plan().unwrap();
+    let index = snapshot
+        .entities
+        .iter()
+        .position(|&entity| entity == mirror)
+        .unwrap();
+    assert_eq!(plan.nodes[index].workspace_bytes, 4 * 4 * 4);
+    assert_eq!(plan.workspace_bytes, 4 * 4 * 4);
+    assert!(!plan.nodes[index].measurement_valid);
+    outputs.put_texture_plan(plan);
+    assert_eq!(&pixels[(8 + 1) * 4..(8 + 2) * 4], &[31, 173, 91, 255]);
+}
+
 #[crate::compose]
 fn reversed_mirror_chain() {
     ui! {
