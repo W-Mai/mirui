@@ -1686,8 +1686,21 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for SdlGpuRenderer<'_, S> {
         self.blit_inner(src, src_rect, dst, dst_size, clip, opa, composite);
     }
 
-    fn clear(&mut self, area: &Rect, color: &Color) {
-        self.fill_rect_inner(area, area, color, Fixed::ZERO, 255);
+    fn clear(&mut self, area: &PhysicalRect, color: &Color) {
+        if self.failure.is_some() {
+            return;
+        }
+        let (width, height) = self.viewport.physical_size();
+        let Some(area) = area.intersection(PhysicalRect::from_size(width, height)) else {
+            return;
+        };
+        let result = self.device.canvas().and_then(|canvas| {
+            target_state::clear_region(&*canvas, area, *color, self.target_alpha())
+        });
+        if let Err(error) = result {
+            self.device.poison();
+            self.failure.get_or_insert(error);
+        }
     }
 
     fn draw_glyph_run(

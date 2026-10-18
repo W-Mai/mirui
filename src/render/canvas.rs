@@ -1,7 +1,7 @@
 use crate::render::PosedGlyphs;
 use crate::render::command::CompositeMode;
 use crate::render::raster::FillRule;
-use crate::types::{Color, Fixed, Point, Rect, Transform};
+use crate::types::{Color, Fixed, PhysicalRect, Point, Rect, Transform};
 
 use super::font::Font;
 use super::path::Path;
@@ -12,7 +12,7 @@ pub use mirx::scene::{LineCap, LineJoin, Paint};
 /// Rasterization interface. All coordinate parameters (`area`, `clip`,
 /// `pos`, path points, widths, radii, `dst`, `dst_size`) are in
 /// **logical pixels**; implementations convert to physical internally
-/// (typically by holding a `Viewport` field).
+/// (typically by holding a `Viewport` field). `clear` operates on integer physical target pixels.
 pub trait Canvas {
     fn fill_path(&mut self, path: &Path, clip: &Rect, paint: &Paint, opa: u8, fill_rule: FillRule);
     #[allow(clippy::too_many_arguments)]
@@ -40,7 +40,8 @@ pub trait Canvas {
         radius: Fixed,
         composite: CompositeMode,
     );
-    fn clear(&mut self, area: &Rect, color: &Color);
+    /// Replace target pixels with a straight-alpha color, clipped to target bounds. Call outside drawing clip scopes, with every `push_clip` balanced by `pop_clip`. This storage operation does not blend, antialias or scale. It preserves subsequent drawing state; failures are reported by `flush`.
+    fn clear(&mut self, area: &PhysicalRect, color: &Color);
     #[allow(clippy::too_many_arguments)]
     fn draw_glyph_run(
         &mut self,

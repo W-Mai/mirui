@@ -354,7 +354,7 @@ impl crate::render::canvas::Canvas for SubmissionRenderer {
     ) {
     }
 
-    fn clear(&mut self, _: &Rect, _: &Color) {}
+    fn clear(&mut self, _: &crate::types::PhysicalRect, _: &Color) {}
 
     fn flush(&mut self) -> Result<(), RenderError> {
         Renderer::flush(self)

@@ -24,7 +24,7 @@ const METHODS: &[(&str, &str, bool)] = &[
     ),
     (
         "clear",
-        "area: &::mirui::types::Rect, color: &::mirui::types::Color",
+        "area: &::mirui::types::PhysicalRect, color: &::mirui::types::Color",
         false,
     ),
     (

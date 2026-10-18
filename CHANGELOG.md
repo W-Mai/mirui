@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Breaking
 
+- `Canvas::clear` and `Painter::clear` accept physical regions and replace pixels without blending or logical scaling on software, SDL-GPU, WGPU, and Web Canvas backends.
+
 - Apple SDL and WGPU builds require macOS 11 or iOS 14 or newer for native clipboard type mapping.
 
 - `RendererFactory` implements the existing `InspectCaches` protocol. App cache snapshots include both surface-owned and factory-owned caches.

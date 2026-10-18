@@ -392,6 +392,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<WebCanvasSurface>
             surface: backend,
             viewport: *transform,
             failure: None,
+            clip_depth: 0,
             known_transform: None,
             current_text_run: None,
         }
@@ -423,6 +424,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<WebCanvasSurface>
 }
 
 pub struct WebCanvasRenderer<'a, S = Box<[u8]>> {
+    clip_depth: usize,
     factory: &'a mut WebCanvasRendererFactory<S>,
     surface: &'a mut WebCanvasSurface,
     viewport: Viewport,
@@ -2026,18 +2028,41 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
         }
     }
 
-    fn clear(&mut self, area: &Rect, color: &Color) {
+    fn clear(&mut self, area: &PhysicalRect, color: &Color) {
+        if self.failure.is_some() {
+            return;
+        }
+        let (width, height) = self.viewport.physical_size();
+        let Some(area) = area.intersection(PhysicalRect::from_size(width, height)) else {
+            return;
+        };
+        if self.clip_depth != 0 {
+            self.failure.get_or_insert(RenderError::InvalidScope);
+            return;
+        }
         let ctx = self.ctx();
         ctx.save();
-        ctx.set_global_alpha(color.a as f64 / 255.0);
-        ctx.set_fill_style_str(&css_color(color));
-        ctx.fill_rect(
-            area.x.to_f32() as f64,
-            area.y.to_f32() as f64,
-            area.w.to_f32() as f64,
-            area.h.to_f32() as f64,
-        );
+        let result = (|| {
+            ctx.set_transform(1.0, 0.0, 0.0, 1.0, 0.0, 0.0)?;
+            ctx.set_global_composite_operation("source-over")?;
+            let (x, y, w, h) = (
+                f64::from(area.x()),
+                f64::from(area.y()),
+                f64::from(area.width()),
+                f64::from(area.height()),
+            );
+            ctx.clear_rect(x, y, w, h);
+            if color.a != 0 {
+                ctx.set_global_alpha(f64::from(color.a) / 255.0);
+                ctx.set_fill_style_str(&css_color(color));
+                ctx.fill_rect(x, y, w, h);
+            }
+            Ok::<(), wasm_bindgen::JsValue>(())
+        })();
         ctx.restore();
+        if result.is_err() {
+            self.failure.get_or_insert(RenderError::BackendFailure);
+        }
     }
 
     fn draw_glyph_run(
@@ -2087,6 +2112,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
         _transform: &Transform,
         fill_rule: crate::render::raster::FillRule,
     ) {
+        self.clip_depth += 1;
         self.ctx().save();
         self.build_path(path);
         match fill_rule {
@@ -2098,6 +2124,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
     }
 
     fn pop_clip(&mut self) {
+        self.clip_depth = self.clip_depth.saturating_sub(1);
         self.ctx().restore();
     }
 

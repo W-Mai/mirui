@@ -581,19 +581,22 @@ impl<'a> Canvas for SwRenderer<'a> {
         self.blit_inner(src, src_rect, dst, dst_size, clip, opa, radius, composite);
     }
 
-    fn clear(&mut self, area: &Rect, color: &Color) {
-        let phys_area = self.viewport.rect_to_physical(*area);
-        let screen = Rect::new(0, 0, self.target.width, self.target.height);
-        let Some(draw_area) = phys_area.intersect(&screen) else {
+    fn clear(&mut self, area: &crate::types::PhysicalRect, color: &Color) {
+        let screen = crate::types::PhysicalRect::from_size(self.target.width, self.target.height);
+        let Some(draw_area) = area.intersection(screen) else {
             return;
         };
-        let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
+        if !self.scratch.clip_stack.is_empty() {
+            self.failure
+                .get_or_insert(crate::render::RenderError::InvalidScope);
+            return;
+        }
         let Some(mut target) = write_pixels(&mut self.target, &mut self.failure) else {
             return;
         };
-        for py in px_y0..px_y1 {
-            for px in px_x0..px_x1 {
-                target.set_pixel(px, py, color);
+        for py in draw_area.y()..draw_area.bottom() {
+            for px in draw_area.x()..draw_area.right() {
+                target.set_pixel(i32::from(px), i32::from(py), color);
             }
         }
     }
@@ -2249,12 +2252,52 @@ mod tests {
         let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut backend = SwRenderer::new(tex);
 
-        backend.clear(&Rect::new(0, 0, 8, 8), &Color::rgb(50, 100, 150));
+        backend.clear(
+            &crate::types::PhysicalRect::from_size(8, 8),
+            &Color::rgb(50, 100, 150),
+        );
 
         let c = backend.target.read_pixels().unwrap().get_pixel(4, 4);
         assert_eq!(c.r, 50);
         assert_eq!(c.g, 100);
         assert_eq!(c.b, 150);
+    }
+
+    #[test]
+    fn clear_replaces_physical_pixels_without_scaling_or_blending() {
+        use crate::types::PhysicalRect;
+        let mut bytes = [0_u8; 4 * 3 * 4];
+        let texture = Texture::new(&mut bytes, 4, 3, ColorFormat::RGBA8888).unwrap();
+        let mut renderer = SwRenderer::new(texture);
+        renderer.viewport = crate::types::Viewport::new(4, 3, Fixed::from_f32(1.5));
+        let background = Color::rgb(13, 29, 47);
+        renderer.clear(&PhysicalRect::from_size(4, 3), &background);
+        let partial = Color::rgba(200, 100, 50, 128);
+        let area = PhysicalRect::new(1, 1, 9, 9).unwrap();
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for _ in 0..4 {
+                renderer.clear(&area, &partial);
+                renderer.clear(
+                    &PhysicalRect::new(2, 1, 1, 1).unwrap(),
+                    &Color::rgba(0, 0, 0, 0),
+                );
+                renderer.clear(&PhysicalRect::EMPTY, &background);
+            }
+        });
+        assert_eq!(allocations, 0);
+        let pixels = renderer.target.read_pixels().unwrap();
+        for y in 0..3 {
+            for x in 0..4 {
+                let expected = if x == 2 && y == 1 {
+                    Color::rgba(0, 0, 0, 0)
+                } else if x >= 1 && y >= 1 {
+                    partial
+                } else {
+                    background
+                };
+                assert_eq!(pixels.get_pixel(x, y), expected);
+            }
+        }
     }
 
     #[test]

@@ -7,9 +7,14 @@ use bytemuck::{Pod, Zeroable};
 
 use crate::core::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
 
+#[cfg(test)]
+#[path = "clear_tests.rs"]
+mod clear_tests;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ShaderKind {
     Fill,
+    FillReplace,
     Blit,
     BlitReplace,
     BlitQuad,
@@ -254,7 +259,7 @@ impl PipelineCache {
             pipelines,
         } = self;
         let bgl = match key.shader {
-            ShaderKind::Fill | ShaderKind::QuadSdf => fill_bgl,
+            ShaderKind::Fill | ShaderKind::FillReplace | ShaderKind::QuadSdf => fill_bgl,
             ShaderKind::Blit | ShaderKind::BlitReplace => blit_bgl,
             ShaderKind::BlitQuad => blit_quad_bgl,
             ShaderKind::GlyphCoverage | ShaderKind::GlyphSdf => glyph_bgl,
@@ -299,7 +304,9 @@ fn build_pipeline(
     key: PipelineKey,
 ) -> wgpu::RenderPipeline {
     let (label, src) = match key.shader {
-        ShaderKind::Fill => ("mirui-fill", include_str!("shader/fill.wgsl")),
+        ShaderKind::Fill | ShaderKind::FillReplace => {
+            ("mirui-fill", include_str!("shader/fill.wgsl"))
+        }
         ShaderKind::Blit | ShaderKind::BlitReplace => {
             ("mirui-blit", include_str!("shader/blit.wgsl"))
         }
@@ -403,7 +410,7 @@ fn build_pipeline(
     };
 
     let (vertex_buffers, topology): (&[wgpu::VertexBufferLayout], _) = match key.shader {
-        ShaderKind::Fill | ShaderKind::Blit | ShaderKind::BlitReplace => {
+        ShaderKind::Fill | ShaderKind::FillReplace | ShaderKind::Blit | ShaderKind::BlitReplace => {
             (&[], wgpu::PrimitiveTopology::TriangleStrip)
         }
         ShaderKind::BlitQuad => (
@@ -435,7 +442,11 @@ fn build_pipeline(
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
-            entry_point: Some("fs_main"),
+            entry_point: Some(if key.shader == ShaderKind::FillReplace {
+                "fs_replace"
+            } else {
+                "fs_main"
+            }),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format: key.format,
@@ -485,7 +496,7 @@ pub fn blend_state_for(
     use crate::render::command::CompositeMode;
     use wgpu::{BlendComponent, BlendFactor, BlendOperation, BlendState};
 
-    if shader == ShaderKind::BlitReplace {
+    if matches!(shader, ShaderKind::BlitReplace | ShaderKind::FillReplace) {
         return BlendState::REPLACE;
     }
     if !matches!(shader, ShaderKind::Blit | ShaderKind::BlitQuad) {

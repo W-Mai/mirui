@@ -89,6 +89,8 @@ not inspect or carry this storage.
 
 ## Backend behavior
 
+`Canvas::clear(&PhysicalRect, &Color)` replaces target pixels without blending, antialiasing, or logical scaling. The region is clipped to the current target; pixels outside it remain unchanged. Colors use straight RGBA at the API boundary and are encoded according to the target's alpha representation. Call it outside balanced `push_clip`/`pop_clip` scopes. Drawing state is preserved, and backend errors are reported by `flush()`. `Painter::clear` and composed backends use the same physical-coordinate contract.
+
 `Surface::persistence()` describes whether partial drawing can reuse pixels; it does not request continuous drawing. `Surface::needs_redraw()` reports content loss without consuming the request. App redraws on damage or invalidation, expands a needed transient frame to full coverage, and acknowledges the request only after successful submission. Window exposure can re-present retained software-upload textures without rasterizing the scene again.
 
 `FrameRateCapPlugin` limits logical ticks after platform maintenance, including idle ticks and failed drawing attempts. It requires `MonoClock`; without the plugin or clock there is no implicit frame cap. Mobile hosts use its deadline for event-loop waits and run systems independently of window redraw requests. A platform redraw does not advance systems a second time. Web uses browser animation frames for scheduling.

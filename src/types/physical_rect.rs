@@ -63,11 +63,38 @@ impl PhysicalRect {
     pub const fn is_empty(self) -> bool {
         self.width == 0 || self.height == 0
     }
+
+    pub fn intersection(self, other: Self) -> Option<Self> {
+        let left = self.x.max(other.x);
+        let top = self.y.max(other.y);
+        let right = self.right().min(other.right());
+        let bottom = self.bottom().min(other.bottom());
+        if left >= right || top >= bottom {
+            return None;
+        }
+        Self::new(left, top, right - left, bottom - top)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn intersection_is_half_open_and_bounded() {
+        let target = PhysicalRect::from_size(8, 6);
+        assert_eq!(
+            target.intersection(PhysicalRect::new(5, 4, 10, 10).unwrap()),
+            PhysicalRect::new(5, 4, 3, 2)
+        );
+        assert_eq!(
+            target.intersection(PhysicalRect::new(8, 0, 2, 6).unwrap()),
+            None
+        );
+        assert_eq!(target.intersection(PhysicalRect::EMPTY), None);
+        let edge = PhysicalRect::new(u16::MAX - 1, 0, 1, 1).unwrap();
+        assert_eq!(edge.intersection(edge), Some(edge));
+    }
 
     #[test]
     fn rejects_edges_outside_the_u16_target_domain() {

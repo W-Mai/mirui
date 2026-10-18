@@ -104,7 +104,10 @@ fn main() {
 
         let t = start.elapsed().as_secs_f32();
 
-        hybrid.clear(&clip, &Color::rgb(30, 30, 46));
+        hybrid.clear(
+            &mirui::types::PhysicalRect::from_size(W as u16, H as u16),
+            &Color::rgb(30, 30, 46),
+        );
 
         let x = 40.0 + (t * 1.2).sin() * 160.0 + 160.0;
         let path = Path::rounded_rect(

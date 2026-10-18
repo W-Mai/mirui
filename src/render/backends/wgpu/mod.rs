@@ -1340,6 +1340,10 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             ],
             radius_pad: [radius.to_f32(), 0.0, 0.0, 0.0],
         };
+        self.submit_fill(rect_uniform, scissor, ShaderKind::Fill);
+    }
+
+    fn submit_fill(&mut self, rect_uniform: RectUniform, scissor: [u32; 4], shader: ShaderKind) {
         let Some(offset) = self.push_uniform(&rect_uniform) else {
             self.failure.get_or_insert(RenderError::BackendFailure);
             return;
@@ -1384,7 +1388,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             &state.device,
             frame
                 .target()
-                .pipeline_key(ShaderKind::Fill, CompositeMode::SourceOver),
+                .pipeline_key(shader, CompositeMode::SourceOver),
         );
 
         frame.ops.push(DrawOp {
@@ -4987,8 +4991,43 @@ impl<B: WgpuTarget> Canvas for WgpuRenderer<'_, B> {
         self.blit_inner(src, src_rect, dst, dst_size, clip, opa, radius, composite);
     }
 
-    fn clear(&mut self, area: &Rect, color: &Color) {
-        self.fill_rect_inner(area, area, color, Fixed::ZERO, 255);
+    fn clear(&mut self, area: &PhysicalRect, color: &Color) {
+        if area.is_empty() || !self.begin_frame() {
+            return;
+        }
+        let target = self.frame.as_ref().expect("frame initialized").target();
+        let bounds = PhysicalRect::from_size(
+            target.texture().width().min(u32::from(u16::MAX)) as u16,
+            target.texture().height().min(u32::from(u16::MAX)) as u16,
+        );
+        let Some(area) = area.intersection(bounds) else {
+            return;
+        };
+        let scale = self.viewport.scale().to_f32();
+        let uniform = RectUniform {
+            pos: [0.0; 2],
+            size: [
+                f32::from(bounds.width()) / scale,
+                f32::from(bounds.height()) / scale,
+            ],
+            color: [
+                f32::from(color.r) / 255.0,
+                f32::from(color.g) / 255.0,
+                f32::from(color.b) / 255.0,
+                f32::from(color.a) / 255.0,
+            ],
+            radius_pad: [0.0; 4],
+        };
+        self.submit_fill(
+            uniform,
+            [
+                u32::from(area.x()),
+                u32::from(area.y()),
+                u32::from(area.width()),
+                u32::from(area.height()),
+            ],
+            ShaderKind::FillReplace,
+        );
     }
 
     fn draw_glyph_run(

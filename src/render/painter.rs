@@ -143,7 +143,7 @@ impl<'a, B: Canvas> Painter<'a, B> {
         );
     }
 
-    pub fn clear(&mut self, area: &Rect, color: &Color) {
+    pub fn clear(&mut self, area: &crate::types::PhysicalRect, color: &Color) {
         self.backend.clear(area, color);
     }
 }

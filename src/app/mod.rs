@@ -75,12 +75,12 @@ fn clear_hidden_root(
     transform: &crate::types::Viewport,
     renderer: &mut impl Canvas,
 ) {
-    let (lw, lh) = transform.logical_size();
+    let (pw, ph) = transform.physical_size();
     let surface = world
         .resource::<Theme>()
         .expect("App always owns an active Theme")
         .resolve(crate::ui::theme::ColorToken::Surface);
-    renderer.clear(&Rect::new(0, 0, lw, lh), &surface);
+    renderer.clear(&PhysicalRect::from_size(pw, ph), &surface);
 }
 
 /// Main application entry point — ties World + Surface + Renderer factory together

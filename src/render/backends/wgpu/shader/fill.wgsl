@@ -70,3 +70,8 @@ fn fs_main(v: VertexOut) -> @location(0) vec4<f32> {
 
     return vec4<f32>(rect.color.rgb, rect.color.a * coverage);
 }
+
+@fragment
+fn fs_replace() -> @location(0) vec4<f32> {
+    return vec4<f32>(rect.color.rgb * rect.color.a, rect.color.a);
+}

@@ -30,7 +30,7 @@ fn render_frame<F: FnMut(&[u8], PhysicalRect)>(
     let paint = Paint::Color(color.into());
     let mut renderer = factory.make(surface, viewport);
 
-    renderer.clear(&clip, &Color::rgb(6, 10, 18));
+    renderer.clear(&PhysicalRect::from_size(64, 64), &Color::rgb(6, 10, 18));
     renderer.push_clip(path, &Transform::IDENTITY, FillRule::EvenOdd);
     renderer.fill_path(path, &clip, &paint, 220, FillRule::EvenOdd);
     renderer.stroke_path(
@@ -137,7 +137,7 @@ fn warmed_software_arcs_reuse_path_storage_across_frames() {
     let color = Color::rgb(80, 220, 150);
     let draw = |factory: &mut SwRendererFactory, surface: &mut FramebufSurface<_>| {
         let mut renderer = factory.make(surface, &viewport);
-        renderer.clear(&clip, &Color::rgb(0, 0, 0));
+        renderer.clear(&PhysicalRect::from_size(64, 64), &Color::rgb(0, 0, 0));
         renderer.draw_arc(
             Point::new(28, 28),
             Fixed::from_int(18),

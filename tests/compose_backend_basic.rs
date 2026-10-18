@@ -87,7 +87,7 @@ impl Canvas for Dummy {
     ) {
         self.counts.blit.set(self.counts.blit.get() + 1);
     }
-    fn clear(&mut self, _: &Rect, _: &Color) {
+    fn clear(&mut self, _: &mirui::types::PhysicalRect, _: &Color) {
         self.counts.clear.set(self.counts.clear.get() + 1);
     }
     fn draw_glyph_run(
@@ -440,7 +440,7 @@ fn direct_canvas_calls_stay_on_the_shared_target() {
         Fixed::ZERO,
         CompositeMode::SourceOver,
     );
-    h.clear(&rect, &color);
+    h.clear(&mirui::types::PhysicalRect::EMPTY, &color);
     h.fill_rect(&rect, &rect, &color, Fixed::ZERO, 255);
 
     assert_eq!(h.sw.counts.blit.get(), 1);
@@ -544,7 +544,7 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
         _: CompositeMode,
     ) {
     }
-    fn clear(&mut self, _: &Rect, _: &Color) {}
+    fn clear(&mut self, _: &mirui::types::PhysicalRect, _: &Color) {}
     fn draw_glyph_run(
         &mut self,
         _: &Point,
@@ -684,7 +684,7 @@ impl Canvas for PlainDummy {
         _: CompositeMode,
     ) {
     }
-    fn clear(&mut self, _: &Rect, _: &Color) {}
+    fn clear(&mut self, _: &mirui::types::PhysicalRect, _: &Color) {}
     fn draw_glyph_run(
         &mut self,
         _: &Point,
