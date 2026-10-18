@@ -36,6 +36,7 @@ impl Reader {
             500,
             2000,
             now + Duration::from_secs(10),
+            true,
         )
         .unwrap();
         Self {
@@ -297,6 +298,7 @@ fn source_and_reader_exchange_multiple_incr_formats_on_one_protocol_connection()
         500,
         2000,
         now + Duration::from_secs(10),
+        true,
     )
     .unwrap();
     let mut request_index = 0;

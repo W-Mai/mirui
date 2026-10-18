@@ -27,6 +27,9 @@ mod session;
 #[path = "x11_clipboard/session.rs"]
 mod session_contracts;
 
+#[path = "x11_clipboard/tracking.rs"]
+mod tracking_contracts;
+
 #[path = "x11_clipboard/read.rs"]
 mod read_contracts;
 

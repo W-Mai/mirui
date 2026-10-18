@@ -27,6 +27,9 @@ pub struct State {
     pub destroyed: Vec<u32>,
     pub socket_events: bool,
     pub time: Option<u32>,
+    pub xfixes: bool,
+    pub xfixes_failure: Option<u8>,
+    pub selection_masks: HashMap<u32, u32>,
 }
 
 fn u32_at(bytes: &[u8], offset: usize) -> u32 {
@@ -43,6 +46,7 @@ impl State {
                 Event::SelectionNotify(event) => copy(&event.serialize()),
                 Event::SelectionRequest(event) => copy(&event.serialize()),
                 Event::DestroyNotify(event) => copy(&event.serialize()),
+                Event::XfixesSelectionNotify(event) => copy(&event.serialize()),
                 _ => panic!("unsupported fixture event"),
             }
             bytes[2..4].copy_from_slice(&self.sequence.to_ne_bytes());
@@ -78,6 +82,15 @@ impl State {
     fn process(&mut self, request: &[u8]) {
         self.sequence = self.sequence.wrapping_add(1);
         let sequence = self.sequence;
+        if request[0] == 200 && self.xfixes_failure == Some(request[1]) {
+            let mut error = [0; 32];
+            error[1] = 10;
+            error[2..4].copy_from_slice(&sequence.to_ne_bytes());
+            error[8..10].copy_from_slice(&u16::from(request[1]).to_ne_bytes());
+            error[10] = 200;
+            self.output.extend(error);
+            return;
+        }
         match request[0] {
             CREATE_WINDOW_REQUEST => {
                 let window = u32_at(request, 4);
@@ -94,6 +107,7 @@ impl State {
                 self.windows.retain(|id| *id != window);
                 self.destroyed.push(window);
                 self.masks.remove(&window);
+                self.selection_masks.remove(&window);
                 self.properties.retain(|(id, _), _| *id != window);
                 self.emit(Event::DestroyNotify(DestroyNotifyEvent {
                     response_type: DESTROY_NOTIFY_EVENT,
@@ -118,14 +132,36 @@ impl State {
                     .serialize(),
                 );
             }
-            QUERY_EXTENSION_REQUEST => self.reply(
-                QueryExtensionReply {
-                    sequence,
-                    present: false,
-                    ..Default::default()
+            QUERY_EXTENSION_REQUEST => {
+                let length = u16::from_ne_bytes(request[4..6].try_into().unwrap()) as usize;
+                let present = self.xfixes && &request[8..8 + length] == b"XFIXES";
+                self.reply(
+                    QueryExtensionReply {
+                        sequence,
+                        present,
+                        major_opcode: if present { 200 } else { 0 },
+                        first_event: if present { 90 } else { 0 },
+                        ..Default::default()
+                    }
+                    .serialize(),
+                );
+            }
+            200 => match request[1] {
+                0 => self.reply(
+                    x11rb::protocol::xfixes::QueryVersionReply {
+                        sequence,
+                        major_version: 1,
+                        minor_version: 0,
+                        ..Default::default()
+                    }
+                    .serialize(),
+                ),
+                2 => {
+                    self.selection_masks
+                        .insert(u32_at(request, 4), u32_at(request, 12));
                 }
-                .serialize(),
-            ),
+                opcode => panic!("unexpected XFixes opcode {opcode}"),
+            },
             GET_ATOM_NAME_REQUEST => {
                 let id = u32_at(request, 4);
                 let name = self

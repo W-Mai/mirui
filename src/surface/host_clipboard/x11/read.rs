@@ -36,6 +36,7 @@ pub(super) struct Read {
     owner: Window,
     request_time: Timestamp,
     timestamp: Timestamp,
+    timestamp_check: bool,
     phase: Phase,
     formats: Vec<Format>,
     item: Option<ClipboardItem>,
@@ -52,6 +53,7 @@ impl Read {
         property: Atom,
         time: Timestamp,
         deadline: Instant,
+        timestamp_check: bool,
     ) -> Result<Self, ClipboardError> {
         if time == x11rb::CURRENT_TIME || property == x11rb::NONE {
             return Err(ClipboardError::InvalidData);
@@ -68,7 +70,12 @@ impl Read {
             owner,
             request_time: time,
             timestamp: 0,
-            phase: Phase::Timestamp,
+            timestamp_check,
+            phase: if timestamp_check {
+                Phase::Timestamp
+            } else {
+                Phase::Targets
+            },
             formats: Vec::new(),
             item: None,
             bytes: 0,
@@ -96,10 +103,6 @@ impl Read {
 
     pub(super) fn expired(&self, now: Instant) -> bool {
         now >= self.deadline
-    }
-
-    pub(super) fn deadline(&self) -> Instant {
-        self.deadline
     }
 
     fn target(&self) -> Result<Atom, ClipboardError> {
@@ -227,10 +230,7 @@ impl Read {
                     platform(
                         platform(connection.delete_property(self.window, self.property))?.check(),
                     )?;
-                    let mut data = ClipboardData::with_capacity(1, self.bytes)?;
-                    data.push(self.item.take().ok_or(ClipboardError::InvalidData)?)?;
-                    self.phase = Phase::Finished;
-                    return Ok(Some(data));
+                    return self.finish().map(Some);
                 }
                 self.timestamp = timestamp;
                 self.phase = Phase::Targets;
@@ -289,6 +289,9 @@ impl Read {
                     .as_mut()
                     .unwrap()
                     .push(ClipboardFormat::new(mime, bytes))?;
+                if index + 1 == self.formats.len() && !self.timestamp_check {
+                    return self.finish().map(Some);
+                }
                 self.phase = if index + 1 < self.formats.len() {
                     Phase::Data(index + 1)
                 } else {
@@ -299,6 +302,13 @@ impl Read {
         }
         self.request(connection)?;
         Ok(None)
+    }
+
+    fn finish(&mut self) -> Result<ClipboardData, ClipboardError> {
+        let mut data = ClipboardData::with_capacity(1, self.bytes)?;
+        data.push(self.item.take().ok_or(ClipboardError::InvalidData)?)?;
+        self.phase = Phase::Finished;
+        Ok(data)
     }
 
     fn add_format(

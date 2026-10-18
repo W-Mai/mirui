@@ -71,8 +71,7 @@ fn finish_read(
 }
 
 fn exchange(source: &mut NativeSession, reader: &mut NativeSession) -> ClipboardData {
-    let time = timestamp(reader, 0);
-    reader.begin_read(time, Instant::now() + WAIT).unwrap();
+    reader.begin_read(Instant::now() + WAIT).unwrap();
     finish_read(source, reader).unwrap()
 }
 
@@ -140,9 +139,38 @@ fn isolated_server_preserves_snapshots_and_retires_read_windows() {
         assert!(reader.deadline().is_none());
     }
 
+    // Reasserting the same owner with the same timestamp still invalidates a read.
+    reader.begin_read(Instant::now() + WAIT).unwrap();
+    timestamp(&mut reader, 0);
+    let clipboard = source
+        .connection()
+        .intern_atom(false, b"CLIPBOARD")
+        .unwrap()
+        .reply()
+        .unwrap()
+        .atom;
+    let owner = source
+        .connection()
+        .get_selection_owner(clipboard)
+        .unwrap()
+        .reply()
+        .unwrap()
+        .owner;
+    source
+        .connection()
+        .set_selection_owner(owner, clipboard, time)
+        .unwrap()
+        .check()
+        .unwrap();
+    assert!(matches!(
+        finish_read(&mut source, &mut reader),
+        Err(ClipboardError::Unavailable)
+    ));
+    assert_eq!(window_count(&reader), baseline_windows);
+
     // A replacement on the same owner cannot complete a pending older snapshot.
-    let read_time = timestamp(&mut reader, 0);
-    reader.begin_read(read_time, Instant::now() + WAIT).unwrap();
+    reader.begin_read(Instant::now() + WAIT).unwrap();
+    timestamp(&mut reader, 0);
     let next_time = timestamp(&mut source, time);
     let replacement = Arc::new(ClipboardData::text("replacement").unwrap());
     source.write(replacement.clone(), next_time).unwrap();
@@ -181,9 +209,9 @@ fn isolated_server_preserves_snapshots_and_retires_read_windows() {
         );
         std::thread::sleep(Duration::from_millis(1));
     }
-    let time = timestamp(&mut reader, 0);
+    reader.begin_read(Instant::now() + WAIT).unwrap();
     assert_eq!(
-        reader.begin_read(time, Instant::now() + WAIT),
+        finish_read(&mut source, &mut reader).map(|_| ()),
         Err(ClipboardError::Unavailable)
     );
     assert_eq!(window_count(&reader), baseline_windows);

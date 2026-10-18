@@ -363,11 +363,23 @@ fn run(
                     .connection()
                     .stream()
                     .set_deadline(Some(work.deadline));
-                session.request_time()?;
-                pending = Some(Pending {
-                    work,
-                    phase: Phase::Clock { probe: None },
-                });
+                if work.is_write() {
+                    session.request_time()?;
+                    pending = Some(Pending {
+                        work,
+                        phase: Phase::Clock { probe: None },
+                    });
+                } else {
+                    match session.begin_read(work.deadline) {
+                        Ok(()) => {
+                            pending = Some(Pending {
+                                work,
+                                phase: Phase::Reading,
+                            })
+                        }
+                        Err(error) => work.fail(error),
+                    }
+                }
             }
         }
         let mut count = 0;
@@ -396,19 +408,19 @@ fn run(
                 }
             }
             if let Some(time) = session.timestamp(&event)
-                && pending.as_ref().is_some_and(|pending| {
-                    matches!(pending.phase, Phase::Clock { probe: None, .. })
-                })
+                && pending
+                    .as_ref()
+                    .is_some_and(|pending| matches!(pending.phase, Phase::Clock { probe: None }))
             {
                 let mut current = pending.take().expect("pending timestamp request");
                 if now >= current.work.deadline {
                     current.work.fail(ClipboardError::Unavailable);
-                } else if current.work.is_write() && last_write == Some(time) {
+                } else if last_write == Some(time) {
                     if let Phase::Clock { probe } = &mut current.phase {
                         *probe = Some(now + Duration::from_millis(1));
                     }
                     pending = Some(current);
-                } else if current.work.is_write() {
+                } else {
                     let deadline = current.work.deadline;
                     current.work.respond(|request| match request {
                         ClipboardRequest::Write(request) => request.complete_with(|data| {
@@ -421,14 +433,6 @@ fn run(
                         }),
                         request => failed(request, ClipboardError::InvalidData),
                     });
-                } else {
-                    match session.begin_read(time, current.work.deadline) {
-                        Ok(()) => {
-                            current.phase = Phase::Reading;
-                            pending = Some(current);
-                        }
-                        Err(error) => current.work.fail(error),
-                    }
                 }
             }
         }

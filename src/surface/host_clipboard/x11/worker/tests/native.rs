@@ -1,5 +1,5 @@
 use super::*;
-use x11rb::protocol::xproto::ConnectionExt;
+use x11rb::protocol::{Event, xproto::*};
 
 mod server {
     include!(concat!(
@@ -106,5 +106,94 @@ fn native_worker_preserves_app_receipts_and_releases_server_resources() {
     while windows() != baseline {
         assert!(Instant::now() < deadline, "closed worker retained windows");
         thread::sleep(Duration::from_millis(1));
+    }
+}
+
+#[test]
+#[ignore = "requires Xvfb; starts an isolated server with TCP disabled"]
+fn native_pending_reads_release_windows_on_deadline_and_surface_close() {
+    let (_server, display) = server::Server::start();
+    let (source, screen) = x11rb::connect(Some(&display)).unwrap();
+    let root = source.setup().roots[screen].root;
+    let owner = source.generate_id().unwrap();
+    source
+        .create_window(
+            0,
+            owner,
+            root,
+            0,
+            0,
+            1,
+            1,
+            0,
+            WindowClass::INPUT_ONLY,
+            0,
+            &CreateWindowAux::new(),
+        )
+        .unwrap()
+        .check()
+        .unwrap();
+    let selection = source
+        .intern_atom(false, b"CLIPBOARD")
+        .unwrap()
+        .reply()
+        .unwrap()
+        .atom;
+    source
+        .set_selection_owner(owner, selection, x11rb::CURRENT_TIME)
+        .unwrap()
+        .check()
+        .unwrap();
+    let windows = || {
+        source
+            .query_tree(root)
+            .unwrap()
+            .reply()
+            .unwrap()
+            .children
+            .len()
+    };
+    let baseline = windows();
+    for cancel in [false, true] {
+        let mut bridge = Bridge::new(display.clone(), screen).unwrap();
+        let (mut app, editor) = fixture();
+        clipboard::paste(&mut app.world, editor);
+        let request = clipboard::take_request(&mut app.world).unwrap();
+        bridge
+            .requests
+            .try_send(Work {
+                request: Some(request),
+                replies: bridge.replies.clone(),
+                deadline: Instant::now() + Duration::from_secs(2),
+            })
+            .unwrap_or_else(|_| panic!("read admission failed"));
+        bridge.busy = true;
+        bridge.wake.write_all(&[1]).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(Event::SelectionRequest(_)) = source.poll_for_event().unwrap() {
+                break;
+            }
+            assert!(Instant::now() < deadline, "read did not reach the source");
+            thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(windows(), baseline + 2);
+        if !cancel {
+            complete(&mut app, response(&mut bridge));
+            assert_eq!(
+                app.world.resource::<Observed>().unwrap().results,
+                [Err(ClipboardError::Unavailable)]
+            );
+            assert!(bridge.poll().is_none());
+        }
+        drop(bridge);
+        while windows() != baseline {
+            assert!(
+                Instant::now() < deadline,
+                "read resources survived cancellation"
+            );
+            thread::sleep(Duration::from_millis(1));
+        }
+        assert!(app.world.resource::<Observed>().unwrap().pasted.is_none());
     }
 }

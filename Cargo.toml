@@ -138,7 +138,7 @@ optional = true
 [target.'cfg(target_os = "linux")'.dependencies]
 sdl2 = { version = "0.37", optional = true, features = ["raw-window-handle"] }
 raw-window-handle = { version = "0.6", optional = true }
-x11rb = { version = "0.13.2", optional = true }
+x11rb = { version = "0.13.2", optional = true, features = ["xfixes"] }
 x11-dl = { version = "2.21", optional = true }
 rustix = { version = "1", optional = true, features = ["event", "net", "fs", "pipe"] }
 wayland-client = { version = "0.31.15", optional = true, features = ["system", "dlopen"] }
@@ -246,7 +246,7 @@ objc2-core-graphics = { version = "0.3", default-features = false, features = ["
 objc2-ui-kit = { version = "0.3", default-features = false, features = ["UIGraphics"] }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos"))'.dev-dependencies]
-x11rb = "0.13.2"
+x11rb = { version = "0.13.2", features = ["xfixes"] }
 rustix = { version = "1", features = ["event", "net", "fs", "pipe", "process"] }
 wayland-client = "0.31.15"
 wayland-server = "0.31"

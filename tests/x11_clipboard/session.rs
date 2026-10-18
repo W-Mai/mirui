@@ -13,6 +13,22 @@ use super::{
     ui::clipboard::{ClipboardData, ClipboardError},
 };
 
+fn begin(
+    session: &mut Session<x11rb::rust_connection::RustConnection<super::wire::Wire>>,
+    state: &std::sync::Mutex<super::wire::State>,
+    deadline: Instant,
+) -> Result<(), ClipboardError> {
+    session.begin_read(deadline)?;
+    loop {
+        let event = state.lock().unwrap().events.pop_front();
+        let Some(event) = event else { break };
+        if let Some(result) = session.event(&event, Instant::now())? {
+            return result.map(|_| ());
+        }
+    }
+    Ok(())
+}
+
 fn denied(request: (u32, u32, u32, u32, u32)) -> Event {
     let (requestor, selection, target, _, time) = request;
     Event::SelectionNotify(SelectionNotifyEvent {
@@ -34,19 +50,17 @@ fn read_windows_retire_on_rejection_timeout_and_initialization_failure() {
     let atom_count = state.lock().unwrap().atoms.len();
     let now = Instant::now();
     assert_eq!(
-        session.begin_read(2000, now + Duration::from_secs(10)),
+        begin(&mut session, &state, now + Duration::from_secs(10)),
         Err(ClipboardError::Unavailable)
     );
     assert_eq!(state.lock().unwrap().windows.len(), 1);
     assert_eq!(state.lock().unwrap().destroyed.len(), 1);
     state.lock().unwrap().owner = 42;
-    session
-        .begin_read(2000, now + Duration::from_secs(10))
-        .unwrap();
+    begin(&mut session, &state, now + Duration::from_secs(10)).unwrap();
     let request = *state.lock().unwrap().conversions.last().unwrap();
     assert_eq!(state.lock().unwrap().windows.len(), 2);
     assert_eq!(
-        session.begin_read(2001, now + Duration::from_secs(10)),
+        session.begin_read(now + Duration::from_secs(10)),
         Err(ClipboardError::Unavailable)
     );
     assert_eq!(state.lock().unwrap().windows.len(), 2);
@@ -71,9 +85,7 @@ fn read_windows_retire_on_rejection_timeout_and_initialization_failure() {
     );
 
     for _ in 0..32 {
-        session
-            .begin_read(2001, now + Duration::from_secs(10))
-            .unwrap();
+        begin(&mut session, &state, now + Duration::from_secs(10)).unwrap();
         assert!(session.event(&denied(request), now).unwrap().is_none());
         let current = *state.lock().unwrap().conversions.last().unwrap();
         assert_ne!(current.0, request.0);
@@ -103,7 +115,7 @@ fn reads_keep_the_request_deadline_after_clock_setup() {
     state.lock().unwrap().owner = 42;
     let accepted = Instant::now();
     let deadline = accepted + Duration::from_secs(10);
-    session.begin_read(2000, deadline).unwrap();
+    session.begin_read(deadline).unwrap();
     assert_eq!(session.deadline(), Some(deadline));
     assert!(
         session
@@ -130,9 +142,7 @@ fn complete_reads_keep_the_source_and_destroy_only_their_request_window() {
     let data = Arc::new(ClipboardData::text(&"x".repeat(100_001)).unwrap());
     session.write(data.clone(), 1000).unwrap();
     let now = Instant::now();
-    session
-        .begin_read(2000, now + Duration::from_secs(10))
-        .unwrap();
+    session.begin_read(now + Duration::from_secs(10)).unwrap();
     let request_window = state.lock().unwrap().windows[1];
     let mut cursor = 0;
     let mut result = None;
@@ -180,9 +190,7 @@ fn complete_reads_keep_the_source_and_destroy_only_their_request_window() {
     assert_eq!(Arc::strong_count(&data), 2);
     assert!(session.deadline().is_none());
     session.connection().flush().unwrap();
-    session
-        .begin_read(2001, now + Duration::from_secs(10))
-        .unwrap();
+    session.begin_read(now + Duration::from_secs(10)).unwrap();
     assert_ne!(state.lock().unwrap().windows[1], request_window);
 
     for _ in 0..100 {
@@ -231,9 +239,7 @@ fn request_window_destruction_completes_the_read_once() {
     let mut session = Session::new(connection, 0).unwrap();
     state.lock().unwrap().owner = 42;
     let now = Instant::now();
-    session
-        .begin_read(2000, now + Duration::from_secs(10))
-        .unwrap();
+    session.begin_read(now + Duration::from_secs(10)).unwrap();
     let window = state.lock().unwrap().windows[1];
     let event = Event::DestroyNotify(DestroyNotifyEvent {
         response_type: DESTROY_NOTIFY_EVENT,

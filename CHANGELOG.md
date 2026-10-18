@@ -118,6 +118,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - X11 clipboard requests share one deadline across setup, timestamp acquisition, and data transfer; expired operations cannot deliver successful results.
+- X11 clipboard reads use XFixes ownership notifications and final server confirmation to read sources without TIMESTAMP support and reject replacement during multi-format transfers.
 
 - SDL GPU validates offscreen scopes against the bound native target, allowing renderers that convert texture formats to complete nested rendering and readback.
 
