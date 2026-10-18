@@ -34,17 +34,19 @@ fn read_windows_retire_on_rejection_timeout_and_initialization_failure() {
     let atom_count = state.lock().unwrap().atoms.len();
     let now = Instant::now();
     assert_eq!(
-        session.begin_read(2000, now),
+        session.begin_read(2000, now + Duration::from_secs(10)),
         Err(ClipboardError::Unavailable)
     );
     assert_eq!(state.lock().unwrap().windows.len(), 1);
     assert_eq!(state.lock().unwrap().destroyed.len(), 1);
     state.lock().unwrap().owner = 42;
-    session.begin_read(2000, now).unwrap();
+    session
+        .begin_read(2000, now + Duration::from_secs(10))
+        .unwrap();
     let request = *state.lock().unwrap().conversions.last().unwrap();
     assert_eq!(state.lock().unwrap().windows.len(), 2);
     assert_eq!(
-        session.begin_read(2001, now),
+        session.begin_read(2001, now + Duration::from_secs(10)),
         Err(ClipboardError::Unavailable)
     );
     assert_eq!(state.lock().unwrap().windows.len(), 2);
@@ -69,7 +71,9 @@ fn read_windows_retire_on_rejection_timeout_and_initialization_failure() {
     );
 
     for _ in 0..32 {
-        session.begin_read(2001, now).unwrap();
+        session
+            .begin_read(2001, now + Duration::from_secs(10))
+            .unwrap();
         assert!(session.event(&denied(request), now).unwrap().is_none());
         let current = *state.lock().unwrap().conversions.last().unwrap();
         assert_ne!(current.0, request.0);
@@ -93,6 +97,29 @@ fn invalid_screen_does_not_create_a_window() {
 }
 
 #[test]
+fn reads_keep_the_request_deadline_after_clock_setup() {
+    let (connection, state) = super::connection();
+    let mut session = Session::new(connection, 0).unwrap();
+    state.lock().unwrap().owner = 42;
+    let accepted = Instant::now();
+    let deadline = accepted + Duration::from_secs(10);
+    session.begin_read(2000, deadline).unwrap();
+    assert_eq!(session.deadline(), Some(deadline));
+    assert!(
+        session
+            .expire(deadline - Duration::from_nanos(1))
+            .unwrap()
+            .is_none()
+    );
+    assert!(matches!(
+        session.expire(deadline).unwrap(),
+        Some(Err(ClipboardError::Unavailable))
+    ));
+    assert_eq!(state.lock().unwrap().windows.len(), 1);
+    assert!(session.expire(deadline).unwrap().is_none());
+}
+
+#[test]
 fn complete_reads_keep_the_source_and_destroy_only_their_request_window() {
     let (connection, state) = super::connection();
     let mut session = Session::new(connection, 0).unwrap();
@@ -103,7 +130,9 @@ fn complete_reads_keep_the_source_and_destroy_only_their_request_window() {
     let data = Arc::new(ClipboardData::text(&"x".repeat(100_001)).unwrap());
     session.write(data.clone(), 1000).unwrap();
     let now = Instant::now();
-    session.begin_read(2000, now).unwrap();
+    session
+        .begin_read(2000, now + Duration::from_secs(10))
+        .unwrap();
     let request_window = state.lock().unwrap().windows[1];
     let mut cursor = 0;
     let mut result = None;
@@ -151,7 +180,9 @@ fn complete_reads_keep_the_source_and_destroy_only_their_request_window() {
     assert_eq!(Arc::strong_count(&data), 2);
     assert!(session.deadline().is_none());
     session.connection().flush().unwrap();
-    session.begin_read(2001, now).unwrap();
+    session
+        .begin_read(2001, now + Duration::from_secs(10))
+        .unwrap();
     assert_ne!(state.lock().unwrap().windows[1], request_window);
 
     for _ in 0..100 {
@@ -200,7 +231,9 @@ fn request_window_destruction_completes_the_read_once() {
     let mut session = Session::new(connection, 0).unwrap();
     state.lock().unwrap().owner = 42;
     let now = Instant::now();
-    session.begin_read(2000, now).unwrap();
+    session
+        .begin_read(2000, now + Duration::from_secs(10))
+        .unwrap();
     let window = state.lock().unwrap().windows[1];
     let event = Event::DestroyNotify(DestroyNotifyEvent {
         response_type: DESTROY_NOTIFY_EVENT,

@@ -72,7 +72,7 @@ fn finish_read(
 
 fn exchange(source: &mut NativeSession, reader: &mut NativeSession) -> ClipboardData {
     let time = timestamp(reader, 0);
-    reader.begin_read(time, Instant::now()).unwrap();
+    reader.begin_read(time, Instant::now() + WAIT).unwrap();
     finish_read(source, reader).unwrap()
 }
 
@@ -142,7 +142,7 @@ fn isolated_server_preserves_snapshots_and_retires_read_windows() {
 
     // A replacement on the same owner cannot complete a pending older snapshot.
     let read_time = timestamp(&mut reader, 0);
-    reader.begin_read(read_time, Instant::now()).unwrap();
+    reader.begin_read(read_time, Instant::now() + WAIT).unwrap();
     let next_time = timestamp(&mut source, time);
     let replacement = Arc::new(ClipboardData::text("replacement").unwrap());
     source.write(replacement.clone(), next_time).unwrap();
@@ -183,7 +183,7 @@ fn isolated_server_preserves_snapshots_and_retires_read_windows() {
     }
     let time = timestamp(&mut reader, 0);
     assert_eq!(
-        reader.begin_read(time, Instant::now()),
+        reader.begin_read(time, Instant::now() + WAIT),
         Err(ClipboardError::Unavailable)
     );
     assert_eq!(window_count(&reader), baseline_windows);

@@ -126,7 +126,7 @@ impl<C: Connection> Session<C> {
     pub(super) fn begin_read(
         &mut self,
         time: Timestamp,
-        now: Instant,
+        deadline: Instant,
     ) -> Result<(), ClipboardError> {
         if self.read.is_some() {
             return Err(ClipboardError::Unavailable);
@@ -138,7 +138,7 @@ impl<C: Connection> Session<C> {
             window,
             self.atoms.CLIPBOARD,
             time,
-            now,
+            deadline,
         ) {
             Ok(transfer) => {
                 self.read = Some(PendingRead { window, transfer });

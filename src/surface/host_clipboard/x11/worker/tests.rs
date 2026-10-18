@@ -130,10 +130,10 @@ fn protocol_peer() -> (Bridge, Arc<Mutex<wire::State>>, JoinHandle<()>) {
             }
         }
     });
-    let bridge = Bridge::spawn(0, move |control| {
+    let bridge = Bridge::spawn(0, move |control, deadline| {
         let (stream, _) = platform(DefaultStream::from_unix_stream(socket))?;
         let (stream, cancel) = platform(BoundedStream::new(stream))?;
-        stream.set_deadline(Some(Instant::now() + TIMEOUT));
+        stream.set_deadline(Some(deadline));
         control.lock().unwrap().cancel = Some(cancel);
         platform(RustConnection::connect_to_stream(stream, 0))
     })
@@ -216,13 +216,37 @@ fn initialization_failure_and_busy_rejection_preserve_app_operation_identity() {
 }
 
 #[test]
+fn expired_work_cannot_deliver_success_or_run_its_completion() {
+    for drop_only in [false, true] {
+        let (mut app, editor) = fixture();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let work = Work {
+            request: Some(ClipboardRequest::Write(write(&mut app, editor))),
+            replies: sender,
+            deadline: Instant::now(),
+        };
+        if drop_only {
+            drop(work);
+        } else {
+            work.respond(|_| panic!("expired work must not execute"));
+        }
+        complete(&mut app, receiver.try_recv().unwrap());
+        let observed = app.world.resource::<Observed>().unwrap();
+        assert_eq!(observed.cuts, 0);
+        assert_eq!(observed.results, [Err(ClipboardError::Unavailable)]);
+        assert!(receiver.try_recv().is_err());
+    }
+}
+
+#[test]
 fn surface_drop_cancels_a_worker_waiting_for_setup_without_joining() {
     let (socket, mut peer) = UnixStream::pair().unwrap();
     peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
     let (done, receiver) = mpsc::sync_channel(1);
-    let mut bridge = Bridge::spawn(0, move |control| {
+    let mut bridge = Bridge::spawn(0, move |control, deadline| {
         let (stream, _) = platform(DefaultStream::from_unix_stream(socket))?;
         let (stream, cancel) = platform(BoundedStream::new(stream))?;
+        stream.set_deadline(Some(deadline));
         control.lock().unwrap().cancel = Some(cancel);
         let result = platform(RustConnection::connect_to_stream(stream, 0));
         done.send(result.is_err()).unwrap();

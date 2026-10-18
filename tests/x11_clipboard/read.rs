@@ -29,7 +29,15 @@ impl Reader {
             .unwrap()
             .reply()
             .unwrap();
-        let read = Read::begin(&connection, atoms, 200, 500, 2000, now).unwrap();
+        let read = Read::begin(
+            &connection,
+            atoms,
+            200,
+            500,
+            2000,
+            now + Duration::from_secs(10),
+        )
+        .unwrap();
         Self {
             connection,
             state,
@@ -282,7 +290,15 @@ fn source_and_reader_exchange_multiple_incr_formats_on_one_protocol_connection()
     data.push(item).unwrap();
     source.claim(&connection, Arc::new(data), 1000).unwrap();
     let now = Instant::now();
-    let mut read = Read::begin(&connection, atoms, 200, 500, 2000, now).unwrap();
+    let mut read = Read::begin(
+        &connection,
+        atoms,
+        200,
+        500,
+        2000,
+        now + Duration::from_secs(10),
+    )
+    .unwrap();
     let mut request_index = 0;
     let mut result = None;
     for _ in 0..100 {

@@ -44,12 +44,18 @@ fn failed(request: ClipboardRequest, error: ClipboardError) -> ClipboardResponse
 struct Work {
     request: Option<ClipboardRequest>,
     replies: SyncSender<ClipboardResponse>,
+    deadline: Instant,
 }
 
 impl Work {
     fn respond(mut self, finish: impl FnOnce(ClipboardRequest) -> ClipboardResponse) {
         if let Some(request) = self.request.take() {
-            let _ = self.replies.try_send(finish(request));
+            let response = if Instant::now() >= self.deadline {
+                failed(request, ClipboardError::Unavailable)
+            } else {
+                finish(request)
+            };
+            let _ = self.replies.try_send(response);
         }
     }
 
@@ -72,9 +78,12 @@ impl Work {
 impl Drop for Work {
     fn drop(&mut self) {
         if let Some(request) = self.request.take() {
-            let _ = self
-                .replies
-                .try_send(failed(request, ClipboardError::Platform));
+            let error = if Instant::now() >= self.deadline {
+                ClipboardError::Unavailable
+            } else {
+                ClipboardError::Platform
+            };
+            let _ = self.replies.try_send(failed(request, error));
         }
     }
 }
@@ -91,12 +100,17 @@ pub(in super::super) struct Bridge {
 
 impl Bridge {
     pub(in super::super) fn new(display: String, screen: usize) -> Result<Self, ClipboardError> {
-        Self::spawn(screen, move |control| connect(&display, screen, control))
+        Self::spawn(screen, move |control, deadline| {
+            connect(&display, screen, control, deadline)
+        })
     }
 
     fn spawn(
         screen: usize,
-        connect: impl FnOnce(&Mutex<Control>) -> Result<RustConnection<BoundedStream>, ClipboardError>
+        connect: impl FnOnce(
+            &Mutex<Control>,
+            Instant,
+        ) -> Result<RustConnection<BoundedStream>, ClipboardError>
         + Send
         + 'static,
     ) -> Result<Self, ClipboardError> {
@@ -112,7 +126,7 @@ impl Bridge {
                 let Ok(first) = receiver.recv() else {
                     return;
                 };
-                match connect(&worker_control) {
+                match connect(&worker_control, first.deadline) {
                     Ok(connection) => {
                         let _ = run(
                             connection,
@@ -163,6 +177,7 @@ impl Bridge {
         let work = Work {
             request: Some(request),
             replies: self.replies.clone(),
+            deadline: Instant::now() + TIMEOUT,
         };
         match self.requests.try_send(work) {
             Ok(()) => {
@@ -201,10 +216,10 @@ fn connect(
     display: &str,
     screen: usize,
     control: &Mutex<Control>,
+    deadline: Instant,
 ) -> Result<RustConnection<BoundedStream>, ClipboardError> {
     use x11rb::reexports::x11rb_protocol::{parse_display::parse_display, xauth::get_auth};
     let display = platform(parse_display(Some(display)))?;
-    let deadline = Instant::now() + TIMEOUT;
     for address in display.connect_instruction() {
         if control
             .lock()
@@ -237,16 +252,29 @@ fn connect(
 }
 
 enum Phase {
-    Clock {
-        deadline: Instant,
-        probe: Option<Instant>,
-    },
+    Clock { probe: Option<Instant> },
     Reading,
 }
 
 struct Pending {
     work: Work,
     phase: Phase,
+}
+
+fn expire_request(pending: &mut Option<Pending>, now: Instant) -> bool {
+    if pending
+        .as_ref()
+        .is_some_and(|pending| now >= pending.work.deadline)
+    {
+        pending
+            .take()
+            .unwrap()
+            .work
+            .fail(ClipboardError::Unavailable);
+        true
+    } else {
+        false
+    }
 }
 
 fn drain_wake(mut wake: &UnixStream) -> Result<(), ClipboardError> {
@@ -291,6 +319,10 @@ fn run(
     wake: UnixStream,
     control: Arc<Mutex<Control>>,
 ) -> Result<(), ClipboardError> {
+    if Instant::now() >= first.deadline {
+        first.fail(ClipboardError::Unavailable);
+        return Ok(());
+    }
     let mut session = Session::new(connection, screen)?;
     let mut queued = Some(first);
     let mut pending: Option<Pending> = None;
@@ -304,10 +336,14 @@ fn run(
         {
             return Ok(());
         }
-        session
-            .connection()
-            .stream()
-            .set_deadline(Some(Instant::now() + TIMEOUT));
+        if expire_request(&mut pending, Instant::now()) {
+            return Ok(());
+        }
+        session.connection().stream().set_deadline(Some(
+            pending
+                .as_ref()
+                .map_or_else(|| Instant::now() + TIMEOUT, |pending| pending.work.deadline),
+        ));
         drain_wake(&wake)?;
         if pending.is_none() {
             let work = match queued.take() {
@@ -319,18 +355,29 @@ fn run(
                 },
             };
             if let Some(work) = work {
+                if Instant::now() >= work.deadline {
+                    work.fail(ClipboardError::Unavailable);
+                    return Ok(());
+                }
+                session
+                    .connection()
+                    .stream()
+                    .set_deadline(Some(work.deadline));
                 session.request_time()?;
                 pending = Some(Pending {
                     work,
-                    phase: Phase::Clock {
-                        deadline: Instant::now() + TIMEOUT,
-                        probe: None,
-                    },
+                    phase: Phase::Clock { probe: None },
                 });
             }
         }
         let mut count = 0;
         while count < 64 {
+            if pending.is_none() {
+                session
+                    .connection()
+                    .stream()
+                    .set_deadline(Some(Instant::now() + TIMEOUT));
+            }
             let event = match ready_event.take() {
                 Some(event) => Some(event),
                 None => platform(session.connection().poll_for_event())?,
@@ -340,6 +387,9 @@ fn run(
             };
             count += 1;
             let now = Instant::now();
+            if expire_request(&mut pending, now) {
+                return Ok(());
+            }
             if let Some(result) = session.event(&event, now)? {
                 if let Some(pending) = pending.take() {
                     pending.work.read(result);
@@ -351,24 +401,28 @@ fn run(
                 })
             {
                 let mut current = pending.take().expect("pending timestamp request");
-                if matches!(current.phase, Phase::Clock { deadline, .. } if now >= deadline) {
+                if now >= current.work.deadline {
                     current.work.fail(ClipboardError::Unavailable);
                 } else if current.work.is_write() && last_write == Some(time) {
-                    if let Phase::Clock { probe, .. } = &mut current.phase {
+                    if let Phase::Clock { probe } = &mut current.phase {
                         *probe = Some(now + Duration::from_millis(1));
                     }
                     pending = Some(current);
                 } else if current.work.is_write() {
+                    let deadline = current.work.deadline;
                     current.work.respond(|request| match request {
                         ClipboardRequest::Write(request) => request.complete_with(|data| {
                             session.write(Arc::new(data), time)?;
+                            if Instant::now() >= deadline {
+                                return Err(ClipboardError::Unavailable);
+                            }
                             last_write = Some(time);
                             Ok(())
                         }),
                         request => failed(request, ClipboardError::InvalidData),
                     });
                 } else {
-                    match session.begin_read(time, now) {
+                    match session.begin_read(time, current.work.deadline) {
                         Ok(()) => {
                             current.phase = Phase::Reading;
                             pending = Some(current);
@@ -379,6 +433,9 @@ fn run(
             }
         }
         let now = Instant::now();
+        if expire_request(&mut pending, now) {
+            return Ok(());
+        }
         if let Some(result) = session.expire(now)? {
             if let Some(pending) = pending.take() {
                 pending.work.read(result);
@@ -386,29 +443,18 @@ fn run(
         }
         let mut deadline = session.deadline();
         if let Some(current) = &mut pending
-            && let Phase::Clock {
-                deadline: clock_deadline,
-                probe,
-            } = &mut current.phase
+            && let Phase::Clock { probe } = &mut current.phase
         {
-            if now >= *clock_deadline {
-                pending
-                    .take()
-                    .expect("expired timestamp request")
-                    .work
-                    .fail(ClipboardError::Unavailable);
-            } else {
-                if probe.is_some_and(|probe| now >= probe) {
-                    session.request_time()?;
-                    *probe = None;
-                    continue;
-                }
-                deadline = deadline
-                    .into_iter()
-                    .chain(Some(*clock_deadline))
-                    .chain(*probe)
-                    .min();
+            if probe.is_some_and(|probe| now >= probe) {
+                session.request_time()?;
+                *probe = None;
+                continue;
             }
+            deadline = deadline
+                .into_iter()
+                .chain(Some(current.work.deadline))
+                .chain(*probe)
+                .min();
         }
         if count < 64 {
             ready_event = platform(session.connection().poll_for_event())?;

@@ -11,7 +11,7 @@ use crate::ui::clipboard::{
 };
 
 use super::{
-    protocol::{Atoms, TIMEOUT, platform, read_property},
+    protocol::{Atoms, platform, read_property},
     transfer::{Incoming, Property as Value},
 };
 
@@ -51,7 +51,7 @@ impl Read {
         window: Window,
         property: Atom,
         time: Timestamp,
-        now: Instant,
+        deadline: Instant,
     ) -> Result<Self, ClipboardError> {
         if time == x11rb::CURRENT_TIME || property == x11rb::NONE {
             return Err(ClipboardError::InvalidData);
@@ -73,7 +73,7 @@ impl Read {
             item: None,
             bytes: 0,
             incoming: None,
-            deadline: now + TIMEOUT,
+            deadline,
         };
         read.request(connection)?;
         Ok(read)
