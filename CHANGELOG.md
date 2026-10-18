@@ -60,6 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Output dependency propagation shares source checks across consumers while retaining per-consumer invalidation and consumption tracking.
+
 - Linux X11 SDL and WGPU surfaces share asynchronous multi-format clipboard transfer, incremental selection delivery, snapshot validation, and cancellable connected socket waits.
 
 - Windows SDL and WGPU surfaces share native multi-format clipboard transfer for Unicode text, HTML, RTF, PNG, file lists, and registered MIME data. Writes validate all representations before clearing; reads copy one native snapshot and use system image codecs.

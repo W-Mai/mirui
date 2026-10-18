@@ -40,6 +40,23 @@ struct Demand {
 }
 
 impl Binding {
+    fn update(
+        &mut self,
+        world: &mut World,
+        visible: bool,
+        version: Option<u64>,
+        dirty: bool,
+    ) -> bool {
+        let changed = self.visible != visible || self.version.get() != version || dirty;
+        self.visible = visible;
+        if !changed {
+            return false;
+        }
+        let propagated = self.invalidate(world);
+        self.version.set(version);
+        propagated
+    }
+
     fn invalidate(&self, world: &mut World) -> bool {
         match self.invalidation {
             ViewInvalidation::Visual
@@ -198,26 +215,7 @@ impl OutputRelations {
     }
 
     pub(crate) fn propagate_publications(&mut self, world: &mut World) {
-        for binding in &mut self.bindings {
-            if !binding.active
-                || binding.dependency.retain_previous
-                || !world.is_alive(binding.consumer)
-            {
-                continue;
-            }
-            let source = binding.source.filter(|&source| world.is_alive(source));
-            let visible =
-                source.is_some_and(|source| !crate::ui::branch::is_hidden_in_tree(world, source));
-            let version = source
-                .filter(|_| visible)
-                .and_then(|source| (binding.dependency.descriptor.version)(world, source));
-            let changed = binding.visible != visible || binding.version.get() != version;
-            binding.visible = visible;
-            if changed {
-                binding.invalidate(world);
-                binding.version.set(version);
-            }
-        }
+        self.propagate_sources(world, false);
     }
 
     fn reconcile_demands(&mut self, world: &mut World) {
@@ -279,33 +277,48 @@ impl OutputRelations {
         // Marker propagation is bounded by the number of current relationships.
         // History retention never introduces a current dependency edge.
         for _ in 0..=self.bindings.len() {
-            let mut propagated = false;
-            for binding in &mut self.bindings {
-                if !binding.active || binding.dependency.retain_previous {
-                    continue;
-                }
-                let source = binding.source.filter(|&source| world.is_alive(source));
-                let visible = source
-                    .is_some_and(|source| !crate::ui::branch::is_hidden_in_tree(world, source));
-                let dirty = visible && source.is_some_and(|source| source_is_dirty(world, source));
-                if dirty {
-                    (binding.dependency.descriptor.invalidate)(world, source.expect("live source"));
-                }
-                let version = source
-                    .filter(|_| visible)
-                    .and_then(|source| (binding.dependency.descriptor.version)(world, source));
-                let changed =
-                    binding.visible != visible || binding.version.get() != version || dirty;
-                binding.visible = visible;
-                if changed {
-                    propagated |= binding.invalidate(world);
-                    binding.version.set(version);
-                }
-            }
-            if !propagated {
+            if !self.propagate_sources(world, true) {
                 break;
             }
         }
+    }
+
+    fn propagate_sources(&mut self, world: &mut World, check_dirty: bool) -> bool {
+        let mut propagated = false;
+        for demand in &self.demands {
+            if demand.current == 0 || !world.is_alive(demand.source) {
+                continue;
+            }
+            let visible = !crate::ui::branch::is_hidden_in_tree(world, demand.source);
+            let dirty = check_dirty && visible && source_is_dirty(world, demand.source);
+            if dirty {
+                (demand.descriptor.invalidate)(world, demand.source);
+            }
+            let version = visible
+                .then(|| (demand.descriptor.version)(world, demand.source))
+                .flatten();
+            for binding in &mut self.bindings {
+                if !binding.active
+                    || binding.dependency.retain_previous
+                    || binding.source != Some(demand.source)
+                    || (binding.dependency.descriptor.kind)() != demand.kind
+                    || !world.is_alive(binding.consumer)
+                {
+                    continue;
+                }
+                propagated |= binding.update(world, visible, version, dirty);
+            }
+        }
+        for binding in &mut self.bindings {
+            if binding.active
+                && !binding.dependency.retain_previous
+                && world.is_alive(binding.consumer)
+                && binding.source.is_none_or(|source| !world.is_alive(source))
+            {
+                propagated |= binding.update(world, false, None, false);
+            }
+        }
+        propagated
     }
 }
 
@@ -392,6 +405,8 @@ mod tests {
             world.insert(consumer, source);
             relations.bind(&world, consumer, 0, 0, &CURRENT, invalidation);
         }
+        relations.reconcile_demands(&mut world);
+        world.remove::<VisualDirty>(source);
 
         for stage in 0..4 {
             match stage {
@@ -430,6 +445,8 @@ mod tests {
         // Bind the downstream reader first to require transitive propagation.
         relations.bind(&world, visual, 0, 0, &CURRENT, ViewInvalidation::Visual);
         relations.bind(&world, layout, 0, 0, &CURRENT, ViewInvalidation::Layout);
+        relations.reconcile_demands(&mut world);
+        world.remove::<VisualDirty>(source);
         relations.propagate_invalidations(&mut world);
         for consumer in [layout, visual] {
             relations.acknowledge(&world, consumer);
@@ -460,6 +477,8 @@ mod tests {
             world.insert(consumer, source);
             relations.bind(&world, consumer, 0, 0, &CURRENT, ViewInvalidation::Visual);
         }
+        relations.reconcile_demands(&mut world);
+        world.remove::<VisualDirty>(source);
 
         relations.propagate_invalidations(&mut world);
         assert!(
@@ -531,6 +550,7 @@ mod tests {
             world.insert(consumer, source);
             relations.bind(&world, consumer, 0, 0, dependency, ViewInvalidation::Visual);
         }
+        relations.reconcile_demands(&mut world);
 
         relations.propagate_publications(&mut world);
         assert_eq!(
@@ -607,6 +627,7 @@ mod tests {
                 ViewInvalidation::Visual,
             );
         }
+        relations.reconcile_demands(&mut world);
         relations.propagate_invalidations(&mut world);
         relations.bindings[1].visible = false;
         relations.bindings[2].active = false;
@@ -620,6 +641,271 @@ mod tests {
             count += 1;
         });
         assert_eq!(count, 1);
+    }
+
+    #[derive(Default)]
+    struct SourceReads {
+        versions: [Cell<Option<u64>>; 2],
+        reads: [Cell<usize>; 2],
+        invalidations: [Cell<usize>; 2],
+    }
+
+    impl SourceReads {
+        fn version(&self, kind: usize) -> Option<u64> {
+            self.reads[kind].set(self.reads[kind].get() + 1);
+            self.versions[kind].get()
+        }
+
+        fn invalidate(&self, kind: usize) {
+            self.invalidations[kind].set(self.invalidations[kind].get() + 1);
+            self.versions[kind].set(None);
+        }
+
+        fn clear_counts(&self) {
+            for counter in self.reads.iter().chain(&self.invalidations) {
+                counter.set(0);
+            }
+        }
+    }
+
+    const COUNTED_FIRST: OutputDependency = OutputDependency {
+        descriptor: OutputDescriptor {
+            invalidate: |world, source| world.get::<SourceReads>(source).unwrap().invalidate(0),
+            version: |world, source| world.get::<SourceReads>(source).unwrap().version(0),
+            ..CURRENT.descriptor
+        },
+        ..CURRENT
+    };
+
+    const COUNTED_SECOND: OutputDependency = OutputDependency {
+        descriptor: OutputDescriptor {
+            kind: TypeId::of::<u32>,
+            invalidate: |world, source| world.get::<SourceReads>(source).unwrap().invalidate(1),
+            version: |world, source| world.get::<SourceReads>(source).unwrap().version(1),
+            ..CURRENT.descriptor
+        },
+        ..CURRENT
+    };
+
+    const COUNTED_HISTORY: OutputDependency = OutputDependency {
+        retain_previous: true,
+        ..COUNTED_FIRST
+    };
+
+    #[test]
+    fn source_checks_are_shared_by_current_demand_not_consumer_or_history_count() {
+        let mut world = World::default();
+        let source = world.spawn_empty();
+        let history_source = world.spawn_empty();
+        world.insert(source, SourceReads::default());
+        world.insert(history_source, SourceReads::default());
+        world.get::<SourceReads>(source).unwrap().versions[0].set(Some(7));
+        world.get::<SourceReads>(source).unwrap().versions[1].set(Some(19));
+        let consumers: [Entity; 12] = core::array::from_fn(|_| world.spawn_empty());
+        let mut relations = OutputRelations::default();
+        for (index, consumer) in consumers.into_iter().enumerate() {
+            let (source, dependency) = match index {
+                0..8 => (source, &COUNTED_FIRST),
+                8..11 => (source, &COUNTED_SECOND),
+                _ => (history_source, &COUNTED_HISTORY),
+            };
+            world.insert(consumer, source);
+            relations.bind(&world, consumer, 0, 0, dependency, ViewInvalidation::Visual);
+        }
+        relations.reconcile_demands(&mut world);
+        assert_eq!(relations.demands.len(), 3);
+        for source in [source, history_source] {
+            world.remove::<VisualDirty>(source);
+        }
+        relations.propagate_publications(&mut world);
+        for (index, binding) in relations.bindings.iter().enumerate() {
+            assert_eq!(
+                binding.version.get(),
+                match index {
+                    0..8 => Some(7),
+                    8..11 => Some(19),
+                    _ => None,
+                }
+            );
+        }
+        for consumer in consumers {
+            VisualDirty::prepare(&mut world, consumer);
+            relations.acknowledge(&world, consumer);
+            VisualDirty::acknowledge(&mut world, consumer);
+        }
+        world.get::<SourceReads>(source).unwrap().clear_counts();
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                relations.propagate_publications(&mut world);
+            }),
+            0
+        );
+        let counts = world.get::<SourceReads>(source).unwrap();
+        assert_eq!(counts.reads.each_ref().map(Cell::get), [1, 1]);
+        assert_eq!(counts.invalidations.each_ref().map(Cell::get), [0, 0]);
+        counts.clear_counts();
+        world.invalidate_visual(source);
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                relations.propagate_invalidations(&mut world);
+            }),
+            0
+        );
+        let counts = world.get::<SourceReads>(source).unwrap();
+        assert_eq!(counts.reads.each_ref().map(Cell::get), [2, 2]);
+        assert_eq!(counts.invalidations.each_ref().map(Cell::get), [2, 2]);
+        assert!(
+            consumers[..11]
+                .iter()
+                .all(|&entity| world.has::<VisualDirty>(entity))
+        );
+        assert!(!world.has::<VisualDirty>(consumers[11]));
+        let history = world.get::<SourceReads>(history_source).unwrap();
+        assert_eq!(history.reads.each_ref().map(Cell::get), [0, 0]);
+        assert_eq!(history.invalidations.each_ref().map(Cell::get), [0, 0]);
+    }
+
+    #[test]
+    fn reverse_diamond_dependencies_propagate_again_after_preparation_without_allocating() {
+        struct SecondSource(Entity);
+        const SECOND_EDGE: OutputDependency = OutputDependency {
+            source: |world, consumer| world.get::<SecondSource>(consumer).map(|source| source.0),
+            ..CURRENT
+        };
+        let mut world = World::default();
+        let source = world.spawn_empty();
+        let left = world.spawn_empty();
+        let right = world.spawn_empty();
+        let last = world.spawn_empty();
+        world.insert(last, left);
+        world.insert(last, SecondSource(right));
+        world.insert(left, source);
+        world.insert(right, source);
+        let mut relations = OutputRelations::default();
+        for (consumer, slot, dependency, invalidation) in [
+            (last, 0, &CURRENT, ViewInvalidation::Visual),
+            (last, 1, &SECOND_EDGE, ViewInvalidation::Visual),
+            (left, 0, &CURRENT, ViewInvalidation::Layout),
+            (right, 0, &CURRENT, ViewInvalidation::Visual),
+        ] {
+            relations.bind(&world, consumer, 0, slot, dependency, invalidation);
+        }
+        relations.reconcile(&mut world);
+        for entity in [source, left, right, last] {
+            VisualDirty::prepare(&mut world, entity);
+            relations.acknowledge(&world, entity);
+            VisualDirty::acknowledge(&mut world, entity);
+        }
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for _ in 0..2 {
+                    world.invalidate_visual(source);
+                    relations.propagate_invalidations(&mut world);
+                    assert!(world.has::<Dirty>(left));
+                    assert!(world.has::<VisualDirty>(right));
+                    assert!(world.has::<VisualDirty>(last));
+                    for entity in [source, left, right, last] {
+                        VisualDirty::prepare(&mut world, entity);
+                    }
+                    relations.propagate_invalidations(&mut world);
+                    assert!(!world.has::<Dirty>(left));
+                    for entity in [source, left, right, last] {
+                        assert!(matches!(
+                            world.get::<VisualDirty>(entity),
+                            Some(VisualDirty::Prepared)
+                        ));
+                        relations.acknowledge(&world, entity);
+                        VisualDirty::acknowledge(&mut world, entity);
+                    }
+                }
+            }),
+            0
+        );
+    }
+
+    #[test]
+    fn grouped_sources_preserve_hidden_damage_and_reject_reused_entity_slots() {
+        let mut world = World::default();
+        let source = world.spawn_empty();
+        let first = world.spawn_empty();
+        let second = world.spawn_empty();
+        world.insert(source, 1_u64);
+        let mut relations = OutputRelations::default();
+        for consumer in [first, second] {
+            world.insert(consumer, source);
+            relations.bind(&world, consumer, 0, 0, &CURRENT, ViewInvalidation::Visual);
+        }
+        relations.reconcile(&mut world);
+        for entity in [source, first, second] {
+            VisualDirty::prepare(&mut world, entity);
+            relations.acknowledge(&world, entity);
+            VisualDirty::acknowledge(&mut world, entity);
+        }
+
+        world.insert(source, crate::ui::Hidden);
+        world.invalidate_visual(source);
+        relations.propagate_invalidations(&mut world);
+        assert!(matches!(
+            world.get::<VisualDirty>(source),
+            Some(VisualDirty::New)
+        ));
+        for consumer in [first, second] {
+            assert!(world.has::<VisualDirty>(consumer));
+            VisualDirty::prepare(&mut world, consumer);
+            relations.acknowledge(&world, consumer);
+            VisualDirty::acknowledge(&mut world, consumer);
+        }
+        assert!(
+            relations
+                .bindings
+                .iter()
+                .all(|binding| !binding.visible && binding.version.get().is_none())
+        );
+
+        world.remove::<crate::ui::Hidden>(source);
+        relations.propagate_invalidations(&mut world);
+        assert!(
+            relations
+                .bindings
+                .iter()
+                .all(|binding| binding.visible && binding.version.get() == Some(1))
+        );
+        for entity in [source, first, second] {
+            VisualDirty::prepare(&mut world, entity);
+            relations.acknowledge(&world, entity);
+            VisualDirty::acknowledge(&mut world, entity);
+        }
+
+        assert!(world.despawn(source));
+        let replacement = world.spawn_empty();
+        assert_eq!(replacement.id, source.id);
+        assert_ne!(replacement.generation, source.generation);
+        world.insert(replacement, 99_u64);
+        relations.propagate_publications(&mut world);
+        assert!(
+            relations
+                .bindings
+                .iter()
+                .all(|binding| !binding.visible && binding.version.get().is_none())
+        );
+        assert!(world.has::<VisualDirty>(first));
+        assert!(world.has::<VisualDirty>(second));
+
+        world.insert(first, replacement);
+        relations.bind(&world, first, 0, 0, &CURRENT, ViewInvalidation::Visual);
+        relations.reconcile_demands(&mut world);
+        world.remove::<VisualDirty>(replacement);
+        relations.propagate_publications(&mut world);
+        assert_eq!(relations.bindings[0].version.get(), Some(99));
+        assert_eq!(relations.bindings[1].version.get(), None);
+        assert!(!relations.bindings[1].visible);
+
+        assert!(world.despawn(first));
+        relations.propagate_publications(&mut world);
+        assert!(!world.has::<VisualDirty>(first));
+        relations.reconcile(&mut world);
+        assert!(!relations.bindings[0].active);
+        assert!(relations.demands.is_empty());
     }
 
     #[test]
