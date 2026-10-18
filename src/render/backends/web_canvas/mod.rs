@@ -436,6 +436,35 @@ pub struct WebCanvasRenderer<'a, S = Box<[u8]>> {
     current_text_run: Option<TextRunIdentity>,
 }
 
+impl<S> WebCanvasRenderer<'_, S> {
+    fn ctx(&self) -> &CanvasRenderingContext2d {
+        self.surface.ctx()
+    }
+
+    fn begin_path_clip(&mut self) {
+        self.ctx().save();
+        self.clip_depth += 1;
+    }
+
+    fn end_path_clip(&mut self) -> Result<(), RenderError> {
+        if self.clip_depth == 0 {
+            self.failure.get_or_insert(RenderError::InvalidScope);
+        } else {
+            self.ctx().restore();
+            self.clip_depth -= 1;
+        }
+        self.failure.map_or(Ok(()), Err)
+    }
+}
+
+impl<S> Drop for WebCanvasRenderer<'_, S> {
+    fn drop(&mut self) {
+        while self.clip_depth != 0 {
+            let _ = self.end_path_clip();
+        }
+    }
+}
+
 struct GlyphRunDraw<'a> {
     pos: &'a Point,
     glyphs: &'a [textflow::shaping::PositionedGlyph],
@@ -542,9 +571,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,
     ) -> Result<(), RenderError> {
-        if let Some(error) = self.failure {
-            return Err(error);
-        }
         WebCanvasRenderer::submit_with_route(self, request, route)
     }
 
@@ -634,10 +660,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
             DrawCommand::StrokePath { paint, .. } => !matches!(paint, Paint::Color(_)),
             _ => false,
         }
-    }
-
-    fn ctx(&self) -> &CanvasRenderingContext2d {
-        self.surface.ctx()
     }
 
     fn dpr(&self) -> f64 {
@@ -1209,6 +1231,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
     }
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        if matches!(request.command, DrawCommand::PopClip) {
+            return self.end_path_clip();
+        }
+        if let Some(error) = self.failure {
+            return Err(error);
+        }
         let route = self.route(request)?;
         self.submit_with_route(request, route)
     }
@@ -1218,6 +1246,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,
     ) -> Result<(), RenderError> {
+        if matches!(request.command, DrawCommand::PopClip) {
+            return self.end_path_clip();
+        }
+        if let Some(error) = self.failure {
+            return Err(error);
+        }
         let saved = self.physical_clip;
         request.validate_write_boundary(self.viewport)?;
         self.physical_clip = request.physical_clip;
@@ -1378,8 +1412,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 transform,
                 fill_rule,
             } => {
+                self.begin_path_clip();
                 let ctx = self.ctx();
-                ctx.save();
                 let tf = transform;
                 ctx.set_transform(
                     tf.m00.to_f32() as f64 * dpr,
@@ -1402,7 +1436,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 return;
             }
             DrawCommand::PopClip => {
-                self.ctx().restore();
+                let _ = self.end_path_clip();
                 return;
             }
             DrawCommand::ApplyBlur { alpha, region } => {
@@ -2135,8 +2169,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
         _transform: &Transform,
         fill_rule: crate::render::raster::FillRule,
     ) {
-        self.clip_depth += 1;
-        self.ctx().save();
+        self.begin_path_clip();
         self.build_path(path);
         match fill_rule {
             crate::render::raster::FillRule::EvenOdd => self
@@ -2147,8 +2180,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
     }
 
     fn pop_clip(&mut self) {
-        self.clip_depth = self.clip_depth.saturating_sub(1);
-        self.ctx().restore();
+        let _ = self.end_path_clip();
     }
 
     fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {

@@ -121,6 +121,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Web Canvas restores path clip scopes after drawing errors and renderer retirement, and rejects replacement clears inside command clips.
+
 - Linux SDL software and GPU surfaces skip native clipboard handles on unsupported video drivers, including KMSDRM.
 
 - App frame write scopes preserve background sampling and target readback.
