@@ -1,3 +1,4 @@
+use crate::input::event::scroll::{ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 use crate::ui::widgets::{Button, ProgressBar, Text};
 
@@ -16,10 +17,13 @@ pub fn build_widgets() {
         Column (
             grow: 1.0,
             align: AlignItems::Center,
-            justify: JustifyContent::Center,
             padding: Padding::all(20),
-            row_gap: 10
-        ) {
+            row_gap: 10,
+            clip_children: true
+        ) [
+            ScrollOffset::default(),
+            ScrollConfig::default(),
+        ] {
             Button (
                 width: Dimension::percent(100),
                 max_width: 220,

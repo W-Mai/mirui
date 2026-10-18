@@ -115,6 +115,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The reactive branch demo fits all layouts at its default size and scrolls when the viewport is shortened.
+
 - WGPU keyboard text reaches App callbacks without an active editor while retired IME commits retain their original session.
 
 - Web canvas keyboard input delivers character shortcuts to App callbacks without duplicating DOM editor text.
