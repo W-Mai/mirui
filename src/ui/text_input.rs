@@ -585,6 +585,14 @@ pub(crate) fn intercept_key(world: &mut World, key: &Key) -> bool {
         return false;
     };
     let state = service.state.borrow();
+    let native_composition = state.mode == TextInputMode::Native
+        && state
+            .active
+            .as_ref()
+            .is_some_and(|active| active.composition.is_some());
+    if native_composition && key.selection_shortcut().is_none() {
+        return true;
+    }
     let callback = (state.mode == TextInputMode::Software && state.active.is_some())
         .then(|| state.key.clone())
         .flatten();

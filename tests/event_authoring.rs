@@ -82,6 +82,7 @@ fn text_notifications_share_authoring_forms_and_respect_key_consumption() {
         for input in [
             InputEvent::TextCommitted(mirui::input::event::input::TextCommitted::new("界")),
             InputEvent::Key {
+                physical: None,
                 code: KEY_RETURN,
                 pressed: true,
                 modifiers: Some(Default::default()),

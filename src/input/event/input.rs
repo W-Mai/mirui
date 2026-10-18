@@ -3,6 +3,11 @@ use crate::ecs::Component;
 use crate::types::Fixed;
 use alloc::borrow::Cow;
 
+pub use super::physical_key::PhysicalKey;
+
+/// No logical editing or hardware-button code is available. Physical identity may still be present.
+pub const KEY_UNKNOWN: u32 = 0;
+
 pub(crate) const WHEEL_LINE_PIXELS: Fixed = Fixed::from_int(20);
 
 /// Encoder/Digital Crown press button code.
@@ -11,9 +16,7 @@ pub const KEY_ROTARY_PRESS: u32 = 0x0100;
 /// Hardware button base code; concrete buttons are `KEY_HW_BUTTON_0..N`.
 pub const KEY_HW_BUTTON_0: u32 = 0x0200;
 
-// Editing keys for text input. Codes match SDL2 SDL_Keycode for the
-// platform layer to map straight through; range is below the rotary
-// (0x0100) and hw button (0x0200) bases to avoid collision.
+// Logical editing codes are translated by each platform, independently of physical positions.
 pub const KEY_BACKSPACE: u32 = 0x0008;
 pub const KEY_DELETE: u32 = 0x007F;
 pub const KEY_LEFT: u32 = 0x0050;
@@ -170,12 +173,30 @@ typed_inputs! {
     },
     Key(InputSource) {
         code: u32,
+        /// Keyboard position, or `None` for sources without physical key identity.
+        physical: Option<PhysicalKey>,
         pressed: bool,
         /// Platform modifier snapshot, or `None` when unavailable.
         modifiers: Option<KeyModifiers>,
         /// Platform auto-repeat flag, or `None` when unavailable.
         repeat: Option<bool>,
     },
+}
+
+impl Key {
+    pub(crate) fn selection_shortcut(&self) -> Option<u32> {
+        if !self.pressed || self.repeat == Some(true) {
+            return None;
+        }
+        let name = match self.code {
+            KEY_A => "a",
+            KEY_C => "c",
+            KEY_V => "v",
+            KEY_X => "x",
+            _ => return None,
+        };
+        selection_shortcut_key(name, self.modifiers?)
+    }
 }
 
 /// Focused keyboard selectors available on component nodes.
@@ -268,6 +289,7 @@ mod tests {
                 y: Fixed::ZERO,
             },
             InputEvent::Key {
+                physical: None,
                 code: KEY_RETURN,
                 pressed: true,
                 modifiers: Some(Default::default()),
@@ -291,6 +313,7 @@ mod tests {
     #[test]
     fn conversion_preserves_keyboard_metadata() {
         let key = Key {
+            physical: Some(PhysicalKey::Backspace),
             code: KEY_BACKSPACE,
             pressed: true,
             modifiers: Some(KeyModifiers {
@@ -302,6 +325,7 @@ mod tests {
             repeat: Some(true),
         };
         let InputEvent::Key {
+            physical,
             code,
             pressed,
             modifiers,
@@ -312,6 +336,7 @@ mod tests {
         };
         assert_eq!(
             Key {
+                physical,
                 code,
                 pressed,
                 modifiers,

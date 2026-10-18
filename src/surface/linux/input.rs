@@ -202,6 +202,7 @@ impl EvdevInput {
                                 }
                             }
                             queue.push_back(InputEvent::Key {
+                                physical: crate::surface::keyboard::from_evdev(raw.code),
                                 code: linux_keycode_to_mirui(raw.code),
                                 pressed: raw.value != 0,
                                 modifiers: self.keys.as_ref().map(key_modifiers),
@@ -269,23 +270,16 @@ fn key_modifiers(keys: &AttributeSet<KeyCode>) -> KeyModifiers {
 
 fn linux_keycode_to_mirui(code: u16) -> u32 {
     use crate::input::event::input::*;
-    const KEY_ESC: u16 = 1;
-    const KEY_BACKSPACE_LX: u16 = 14;
-    const KEY_ENTER: u16 = 28;
-    const KEY_HOME_LX: u16 = 102;
-    const KEY_LEFT_LX: u16 = 105;
-    const KEY_RIGHT_LX: u16 = 106;
-    const KEY_END_LX: u16 = 107;
-    const KEY_DELETE_LX: u16 = 111;
-    match code {
-        KEY_ESC => KEY_ESCAPE,
-        KEY_BACKSPACE_LX => KEY_BACKSPACE,
-        KEY_ENTER => KEY_RETURN,
-        KEY_LEFT_LX => KEY_LEFT,
-        KEY_RIGHT_LX => KEY_RIGHT,
-        KEY_HOME_LX => KEY_HOME,
-        KEY_END_LX => KEY_END,
-        KEY_DELETE_LX => KEY_DELETE,
+    match KeyCode(code) {
+        KeyCode::KEY_ESC => KEY_ESCAPE,
+        KeyCode::KEY_BACKSPACE => KEY_BACKSPACE,
+        KeyCode::KEY_ENTER | KeyCode::KEY_KPENTER => KEY_RETURN,
+        KeyCode::KEY_LEFT => KEY_LEFT,
+        KeyCode::KEY_RIGHT => KEY_RIGHT,
+        KeyCode::KEY_HOME => KEY_HOME,
+        KeyCode::KEY_END => KEY_END,
+        KeyCode::KEY_DELETE => KEY_DELETE,
+        _ if crate::surface::keyboard::from_evdev(code).is_some() => KEY_UNKNOWN,
         _ => u32::from(code),
     }
 }

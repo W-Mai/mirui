@@ -20,6 +20,7 @@ pub(crate) mod host_clipboard;
     all(feature = "nuttx", target_os = "nuttx"),
 ))]
 pub(crate) mod input_state;
+mod keyboard;
 #[cfg(all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"))]
 pub mod linux;
 pub(crate) mod mirror;

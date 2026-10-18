@@ -70,12 +70,14 @@ pub(crate) fn dispatch_input(
             return Ok(true);
         }
         InputEvent::Key {
+            physical,
             code,
             pressed,
             modifiers,
             repeat,
         } => {
             let key = Key {
+                physical: *physical,
                 code: *code,
                 pressed: *pressed,
                 modifiers: *modifiers,

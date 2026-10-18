@@ -1078,6 +1078,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                     tl.action_elapsed_ms = 0;
                 }
                 let event = InputEvent::Key {
+                    physical: None,
                     code: crate::input::event::input::KEY_ROTARY_PRESS,
                     pressed: true,
                     modifiers: Some(Default::default()),
@@ -1086,6 +1087,7 @@ pub(crate) fn sim_timeline_system(world: &mut World) -> Result<(), crate::ecs::C
                 super::deliver_input(world, root, &event, now_ms, lw, lh);
             } else if action_elapsed >= 50 {
                 let event = InputEvent::Key {
+                    physical: None,
                     code: crate::input::event::input::KEY_ROTARY_PRESS,
                     pressed: false,
                     modifiers: Some(Default::default()),
@@ -1206,6 +1208,7 @@ mod tests {
 
     fn program_key(code: u32) -> InputEvent {
         super::super::input::Key {
+            physical: None,
             code,
             pressed: true,
             modifiers: None,
@@ -1579,6 +1582,7 @@ mod tests {
                     SimCommand::at(
                         0,
                         InputEvent::Key {
+                            physical: None,
                             code: crate::input::event::input::KEY_ROTARY_PRESS,
                             pressed: true,
                             modifiers: Some(Default::default()),
@@ -1588,6 +1592,7 @@ mod tests {
                     SimCommand::at(
                         50,
                         InputEvent::Key {
+                            physical: None,
                             code: crate::input::event::input::KEY_ROTARY_PRESS,
                             pressed: false,
                             modifiers: Some(Default::default()),

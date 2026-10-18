@@ -1,6 +1,6 @@
 use crate::input::event::input::{
-    InputEvent, KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_ESCAPE, KEY_HOME, KEY_LEFT, KEY_RETURN,
-    KEY_RIGHT, KeyModifiers, PointerKind, WHEEL_LINE_PIXELS,
+    KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_ESCAPE, KEY_HOME, KEY_LEFT, KEY_RETURN, KEY_RIGHT,
+    KEY_UNKNOWN, Key, KeyModifiers, PhysicalKey, PointerKind, TextCommitted, WHEEL_LINE_PIXELS,
 };
 use crate::types::Fixed;
 use alloc::string::String;
@@ -16,6 +16,12 @@ pub(super) enum TextInputAction {
 pub(super) enum KeyboardSource {
     Canvas,
     TextInput,
+}
+
+pub(super) struct KeyboardInput {
+    pub key: Option<Key>,
+    pub text: Option<TextCommitted>,
+    pub prevent_default: bool,
 }
 
 pub(super) fn text_input_action(composing: bool, input_type: &str) -> TextInputAction {
@@ -37,10 +43,16 @@ pub(super) fn keyboard_input(
     modifiers: KeyModifiers,
     repeat: bool,
     composing: bool,
-) -> Option<InputEvent> {
+    physical: Option<PhysicalKey>,
+) -> KeyboardInput {
+    let mut input = KeyboardInput {
+        key: None,
+        text: None,
+        prevent_default: false,
+    };
     let shortcut = crate::input::event::input::selection_shortcut_key(&key, modifiers);
     if composing && shortcut.is_none() {
-        return None;
+        return input;
     }
     let code = match key.as_str() {
         "Backspace" => Some(KEY_BACKSPACE),
@@ -53,22 +65,29 @@ pub(super) fn keyboard_input(
         "Escape" => Some(KEY_ESCAPE),
         _ => shortcut,
     };
-    if let Some(code) = code {
-        return Some(InputEvent::Key {
-            code,
+    if code.is_some() || physical.is_some() {
+        input.key = Some(Key {
+            physical,
+            code: code.unwrap_or(KEY_UNKNOWN),
             pressed,
             modifiers: Some(modifiers),
             repeat: Some(repeat),
         });
     }
-    if matches!(source, KeyboardSource::Canvas) && pressed && !modifiers.control && !modifiers.meta
+    input.prevent_default = code.is_some();
+    if code.is_none()
+        && matches!(source, KeyboardSource::Canvas)
+        && pressed
+        && !modifiers.control
+        && !modifiers.meta
     {
         let mut chars = key.chars();
         if chars.next().is_some_and(|ch| !ch.is_control()) && chars.next().is_none() {
-            return Some(crate::input::event::input::TextCommitted::new(key).into());
+            input.text = Some(TextCommitted::new(key));
+            input.prevent_default = true;
         }
     }
-    None
+    input
 }
 
 #[derive(Clone, Copy)]
@@ -185,6 +204,63 @@ pub(super) fn wheel_delta(
 
 #[cfg(test)]
 mod tests {
+    use crate::input::event::input::InputEvent;
+
+    #[test]
+    fn physical_keys_do_not_replace_dom_text_or_cancel_typing() {
+        for pressed in [true, false] {
+            let input = super::keyboard_input(
+                KeyboardSource::TextInput,
+                "z".into(),
+                pressed,
+                KeyModifiers::default(),
+                true,
+                false,
+                Some(PhysicalKey::KeyW),
+            );
+            assert_eq!(input.key.unwrap().physical, Some(PhysicalKey::KeyW));
+            assert!(input.text.is_none());
+            assert!(!input.prevent_default);
+        }
+        let input = super::keyboard_input(
+            KeyboardSource::Canvas,
+            "z".into(),
+            true,
+            KeyModifiers::default(),
+            false,
+            false,
+            Some(PhysicalKey::KeyW),
+        );
+        assert_eq!(input.key.unwrap().code, KEY_UNKNOWN);
+        assert_eq!(input.text.unwrap().text(), "z");
+        assert!(input.prevent_default);
+        let input = super::keyboard_input(
+            KeyboardSource::TextInput,
+            "Process".into(),
+            true,
+            KeyModifiers::default(),
+            false,
+            true,
+            Some(PhysicalKey::KeyW),
+        );
+        assert!(input.key.is_none() && input.text.is_none());
+        assert!(!input.prevent_default);
+    }
+    fn logical_input(
+        source: KeyboardSource,
+        key: String,
+        pressed: bool,
+        modifiers: KeyModifiers,
+        repeat: bool,
+        composing: bool,
+    ) -> Option<InputEvent> {
+        let input = super::keyboard_input(source, key, pressed, modifiers, repeat, composing, None);
+        input
+            .key
+            .map(InputEvent::from)
+            .or_else(|| input.text.map(InputEvent::from))
+    }
+
     use super::*;
 
     #[test]
@@ -247,7 +323,7 @@ mod tests {
                 for composing in [false, true] {
                     for pressed in [false, true] {
                         assert!(
-                            matches!(keyboard_input(KeyboardSource::TextInput, key.into(), pressed, modifiers, true, composing), Some(InputEvent::Key { code, pressed: actual, modifiers: Some(actual_modifiers), repeat: Some(true) }) if code == expected && actual == pressed && actual_modifiers == modifiers)
+                            matches!(logical_input(KeyboardSource::TextInput, key.into(), pressed, modifiers, true, composing), Some(InputEvent::Key { physical: None, code, pressed: actual, modifiers: Some(actual_modifiers), repeat: Some(true) }) if code == expected && actual == pressed && actual_modifiers == modifiers)
                         );
                     }
                 }
@@ -266,7 +342,7 @@ mod tests {
                 },
             ] {
                 assert!(
-                    keyboard_input(
+                    logical_input(
                         KeyboardSource::TextInput,
                         key.into(),
                         true,
@@ -297,7 +373,7 @@ mod tests {
         ] {
             for pressed in [false, true] {
                 assert!(
-                    keyboard_input(
+                    logical_input(
                         KeyboardSource::TextInput,
                         key.into(),
                         pressed,
@@ -319,15 +395,15 @@ mod tests {
         };
         for pressed in [false, true] {
             assert!(
-                matches!(keyboard_input(KeyboardSource::TextInput, "Enter".into(), pressed, modifiers, true, false),
-                Some(InputEvent::Key { code: KEY_RETURN, pressed: actual, modifiers: Some(actual_modifiers), repeat: Some(true) })
+                matches!(logical_input(KeyboardSource::TextInput, "Enter".into(), pressed, modifiers, true, false),
+                Some(InputEvent::Key { physical: None, code: KEY_RETURN, pressed: actual, modifiers: Some(actual_modifiers), repeat: Some(true) })
                 if actual == pressed && actual_modifiers == modifiers)
             );
         }
         for key in ["a", "中", "Dead", "Process", "Unidentified"] {
             for pressed in [false, true] {
                 assert!(
-                    keyboard_input(
+                    logical_input(
                         KeyboardSource::TextInput,
                         key.into(),
                         pressed,
@@ -349,7 +425,7 @@ mod tests {
                 let original = key.as_ptr();
                 assert_eq!(
                     crate::test_support::tracked_allocations(|| {
-                        let input = keyboard_input(
+                        let input = logical_input(
                             KeyboardSource::Canvas,
                             key,
                             true,
@@ -373,7 +449,7 @@ mod tests {
     fn canvas_does_not_commit_composition_control_keys_or_shortcut_text() {
         for text in ["", "Dead", "Process", "Unidentified", "Shift", "\n", "\t"] {
             assert!(
-                keyboard_input(
+                logical_input(
                     KeyboardSource::Canvas,
                     text.into(),
                     true,
@@ -386,7 +462,7 @@ mod tests {
         }
         for text in ["a", " ", "中"] {
             assert!(
-                keyboard_input(
+                logical_input(
                     KeyboardSource::Canvas,
                     text.into(),
                     false,
@@ -397,7 +473,7 @@ mod tests {
                 .is_none()
             );
             assert!(
-                keyboard_input(
+                logical_input(
                     KeyboardSource::Canvas,
                     text.into(),
                     true,
@@ -418,7 +494,7 @@ mod tests {
                 },
             ] {
                 assert!(!matches!(
-                    keyboard_input(
+                    logical_input(
                         KeyboardSource::Canvas,
                         text.into(),
                         true,

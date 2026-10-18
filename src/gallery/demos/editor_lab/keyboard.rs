@@ -130,6 +130,7 @@ pub(super) fn panel(keyboard: model!(Keyboard)) -> Entity {
                                 .key(
                                     session,
                                     Key {
+                                        physical: None,
                                         code: KEY_BACKSPACE,
                                         pressed: true,
                                         modifiers: None,

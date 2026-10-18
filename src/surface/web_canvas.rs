@@ -544,7 +544,7 @@ fn keyboard_listener(
     let q = queue.clone();
     let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
         let evt: KeyboardEvent = raw.unchecked_into();
-        if let Some(input) = super::web_input::keyboard_input(
+        let input = super::web_input::keyboard_input(
             source,
             evt.key(),
             pressed,
@@ -558,9 +558,17 @@ fn keyboard_listener(
             evt.is_composing()
                 || evt.key_code() == 229
                 || composing.as_ref().is_some_and(|state| state.get()),
-        ) {
+            super::keyboard::from_web(&evt.code()),
+        );
+        if input.prevent_default {
             evt.prevent_default();
-            q.borrow_mut().push_back(input);
+        }
+        let mut queue = q.borrow_mut();
+        if let Some(key) = input.key {
+            queue.push_back(key.into());
+        }
+        if let Some(text) = input.text {
+            queue.push_back(text.into());
         }
     });
     register_listener(target, name, closure)

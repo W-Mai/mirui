@@ -217,6 +217,7 @@ impl Transport {
                         let mut queue = queue.borrow_mut();
                         for pressed in [true, false] {
                             queue.push_back(InputEvent::Key {
+                                physical: None,
                                 code,
                                 pressed,
                                 modifiers: Some(Default::default()),

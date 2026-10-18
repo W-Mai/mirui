@@ -132,12 +132,14 @@ fn main() {
             match event {
                 InputEvent::Quit => break,
                 InputEvent::Key {
+                    physical: None,
                     code: KEY_ESCAPE,
                     pressed: true,
                     modifiers,
                     repeat: Some(false),
                 } if modifiers == Some(Default::default()) => break,
                 InputEvent::Key {
+                    physical: None,
                     code: KEY_RETURN,
                     pressed: true,
                     modifiers,

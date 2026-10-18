@@ -393,8 +393,16 @@ pub(super) fn select_all(
 
 #[crate::event]
 pub(super) fn key(node: entity!(), event: event!(Key), commands: commands!()) -> bool {
+    let text_position = event.physical.is_some_and(|key| key.is_text_entry());
+    let shortcut = event
+        .modifiers
+        .is_some_and(|m| m.meta || (m.control && !m.alt));
     if !event.pressed {
-        return false;
+        return (text_position && !shortcut)
+            || matches!(
+                event.code,
+                KEY_RETURN | KEY_BACKSPACE | KEY_DELETE | KEY_LEFT | KEY_RIGHT | KEY_HOME | KEY_END
+            );
     }
     let extend = event.modifiers.is_some_and(|modifiers| modifiers.shift);
     let edit = match event.code {
@@ -405,7 +413,7 @@ pub(super) fn key(node: entity!(), event: event!(Key), commands: commands!()) ->
         KEY_RIGHT => Edit::Navigate(Navigation::Right, extend),
         KEY_HOME => Edit::Navigate(Navigation::Home, extend),
         KEY_END => Edit::Navigate(Navigation::End, extend),
-        _ => return false,
+        _ => return text_position && !shortcut,
     };
     commands.apply(node, edit, apply);
     true

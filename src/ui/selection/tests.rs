@@ -96,6 +96,7 @@ fn key(app: &mut TestApp, code: u32, pressed: bool, repeat: bool, modifiers: Key
         &mut app.world,
         app.root,
         &InputEvent::Key {
+            physical: None,
             code,
             pressed,
             repeat: Some(repeat),

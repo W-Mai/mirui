@@ -28,6 +28,7 @@ fn main() {
     )
     .unwrap();
     let payload = Key {
+        physical: None,
         code: 1,
         pressed: true,
         modifiers: Some(Default::default()),

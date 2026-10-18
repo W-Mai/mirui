@@ -300,6 +300,7 @@ fn custom_attachments_share_input_behavior_and_preserve_document_identity() {
         root,
         command,
         InputEvent::Key {
+            physical: None,
             code: KEY_RETURN,
             pressed: true,
             modifiers: None,

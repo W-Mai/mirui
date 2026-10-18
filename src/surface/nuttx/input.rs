@@ -159,6 +159,7 @@ impl KeyInput {
                 };
                 let pressed = ev.event_type == KEYBOARD_PRESS;
                 queue.push_back(InputEvent::Key {
+                    physical: None,
                     code: x11_keysym_to_mirui(ev.code),
                     pressed,
                     modifiers: None,

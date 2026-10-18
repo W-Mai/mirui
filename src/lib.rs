@@ -243,7 +243,7 @@ pub mod prelude {
     };
     pub use crate::input::event::hover::{HoverChanged, HoverSelectors};
     pub use crate::input::event::input::{
-        InputSelectors, Key, KeyModifiers, Rotary, TextCommitted, Wheel,
+        InputSelectors, Key, KeyModifiers, PhysicalKey, Rotary, TextCommitted, Wheel,
     };
     pub use crate::input::event::layout::{LayoutSelectors, LayoutSize, SizeChanged};
     pub use crate::input::event::lifecycle::{

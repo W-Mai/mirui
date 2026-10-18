@@ -420,9 +420,11 @@ impl WgpuRuntime {
         state: ElementState,
         text: Option<&str>,
         repeat: bool,
+        physical: Option<crate::input::event::input::PhysicalKey>,
     ) -> bool {
         use crate::input::event::input::{
-            KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RETURN, KEY_RIGHT,
+            KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_ESCAPE, KEY_HOME, KEY_LEFT, KEY_RETURN,
+            KEY_RIGHT, KEY_UNKNOWN,
         };
 
         let shortcut = match key {
@@ -445,7 +447,8 @@ impl WgpuRuntime {
             Key::Named(NamedKey::Home) => Some(KEY_HOME),
             Key::Named(NamedKey::End) => Some(KEY_END),
             Key::Named(NamedKey::Enter) => Some(KEY_RETURN),
-            Key::Named(NamedKey::Escape | NamedKey::BrowserBack) => {
+            Key::Named(NamedKey::Escape) => Some(KEY_ESCAPE),
+            Key::Named(NamedKey::BrowserBack) => {
                 if pressed {
                     self.event_queue.push_back(InputEvent::Quit);
                 }
@@ -453,9 +456,10 @@ impl WgpuRuntime {
             }
             _ => shortcut,
         };
-        if let Some(code) = code {
+        if code.is_some() || physical.is_some() {
             self.event_queue.push_back(InputEvent::Key {
-                code,
+                physical,
+                code: code.unwrap_or(KEY_UNKNOWN),
                 pressed,
                 modifiers: self.modifiers,
                 repeat: Some(repeat),
@@ -768,13 +772,20 @@ impl WgpuRuntime {
                 event:
                     KeyEvent {
                         logical_key,
+                        physical_key,
                         text,
                         state,
                         repeat,
                         ..
                     },
                 ..
-            } => self.keyboard_input(&logical_key, state, text.as_deref(), repeat),
+            } => self.keyboard_input(
+                &logical_key,
+                state,
+                text.as_deref(),
+                repeat,
+                super::keyboard::from_winit(physical_key),
+            ),
             WindowEvent::ModifiersChanged(modifiers) => {
                 let state = modifiers.state();
                 self.modifiers = Some(crate::input::event::input::KeyModifiers {
@@ -2001,9 +2012,10 @@ mod tests {
             (NamedKey::Home, KEY_HOME),
             (NamedKey::End, KEY_END),
             (NamedKey::Enter, KEY_RETURN),
+            (NamedKey::Escape, crate::input::event::input::KEY_ESCAPE),
         ] {
             for state in [ElementState::Pressed, ElementState::Released] {
-                assert!(!runtime.keyboard_input(&Key::Named(key), state, None, false));
+                assert!(!runtime.keyboard_input(&Key::Named(key), state, None, false, None));
                 assert!(matches!(runtime.event_queue.pop_front(),
                     Some(InputEvent::Key { code, pressed, .. })
                     if code == expected && pressed == (state == ElementState::Pressed)));
@@ -2013,23 +2025,60 @@ mod tests {
     }
 
     #[test]
+    fn physical_position_and_committed_character_remain_independent() {
+        use crate::input::event::input::{KEY_UNKNOWN, PhysicalKey};
+        let mut runtime = WgpuRuntime::new(WgpuConfig::default());
+        for state in [ElementState::Pressed, ElementState::Released] {
+            runtime.keyboard_input(
+                &Key::Character("z".into()),
+                state,
+                Some("z"),
+                true,
+                Some(PhysicalKey::KeyW),
+            );
+            assert!(matches!(runtime.poll_event(), Some(InputEvent::Key {
+                physical: Some(PhysicalKey::KeyW), code: KEY_UNKNOWN, repeat: Some(true), pressed, ..
+            }) if pressed == (state == ElementState::Pressed)));
+            if state == ElementState::Pressed {
+                assert!(
+                    matches!(runtime.poll_event(), Some(InputEvent::TextCommitted(text)) if text.text() == "z")
+                );
+            }
+            assert!(runtime.poll_event().is_none());
+        }
+    }
+
+    #[test]
     fn keyboard_translation_does_not_duplicate_quit_or_text() {
         let (mut app, editor, mut runtime) = native_fixture();
-        for key in [NamedKey::Escape, NamedKey::BrowserBack] {
-            assert!(runtime.keyboard_input(&Key::Named(key), ElementState::Pressed, None, false));
+        {
+            let key = NamedKey::BrowserBack;
+            assert!(runtime.keyboard_input(
+                &Key::Named(key),
+                ElementState::Pressed,
+                None,
+                false,
+                None
+            ));
             assert!(matches!(
                 runtime.event_queue.pop_front(),
                 Some(InputEvent::Quit)
             ));
-            assert!(!runtime.keyboard_input(&Key::Named(key), ElementState::Released, None, false));
+            assert!(!runtime.keyboard_input(
+                &Key::Named(key),
+                ElementState::Released,
+                None,
+                false,
+                None
+            ));
             assert!(runtime.event_queue.is_empty());
         }
         let key = Key::Character("A中🙂".into());
-        assert!(!runtime.keyboard_input(&key, ElementState::Pressed, Some("A中🙂"), false));
+        assert!(!runtime.keyboard_input(&key, ElementState::Pressed, Some("A中🙂"), false, None));
         assert_eq!(runtime.event_queue.len(), 1);
         deliver(&mut app, &mut runtime);
         display(&app, editor, "A中🙂");
-        assert!(!runtime.keyboard_input(&key, ElementState::Released, Some("A中🙂"), false));
+        assert!(!runtime.keyboard_input(&key, ElementState::Released, Some("A中🙂"), false, None));
         assert!(runtime.event_queue.is_empty());
     }
 
@@ -2058,12 +2107,14 @@ mod tests {
                 ElementState::Pressed,
                 Some(text),
                 false,
+                None,
             );
             runtime.keyboard_input(
                 &Key::Character(text.into()),
                 ElementState::Released,
                 Some(text),
                 false,
+                None,
             );
         }
         deliver(&mut app, &mut runtime);
@@ -2076,15 +2127,15 @@ mod tests {
         use winit::keyboard::ModifiersState;
         let mut runtime = WgpuRuntime::new(WgpuConfig::default());
         let key = Key::Named(NamedKey::ArrowLeft);
-        runtime.keyboard_input(&key, ElementState::Pressed, None, false);
+        runtime.keyboard_input(&key, ElementState::Pressed, None, false, None);
         runtime.window_event(WindowEvent::ModifiersChanged(
             (ModifiersState::SHIFT | ModifiersState::SUPER).into(),
         ));
-        runtime.keyboard_input(&key, ElementState::Pressed, None, true);
+        runtime.keyboard_input(&key, ElementState::Pressed, None, true, None);
         runtime.window_event(WindowEvent::ModifiersChanged(
             ModifiersState::empty().into(),
         ));
-        runtime.keyboard_input(&key, ElementState::Released, None, false);
+        runtime.keyboard_input(&key, ElementState::Released, None, false, None);
         for (expected, repeated) in [
             (None, false),
             (
@@ -2309,9 +2360,15 @@ mod tests {
             runtime.modifiers = Some(modifiers);
             for (text, code) in [("a", KEY_A), ("C", KEY_C), ("v", KEY_V), ("X", KEY_X)] {
                 for state in [ElementState::Pressed, ElementState::Released] {
-                    runtime.keyboard_input(&Key::Character(text.into()), state, Some(text), true);
+                    runtime.keyboard_input(
+                        &Key::Character(text.into()),
+                        state,
+                        Some(text),
+                        true,
+                        None,
+                    );
                     assert!(
-                        matches!(runtime.event_queue.pop_front(), Some(InputEvent::Key { code: actual, pressed, modifiers: Some(actual_modifiers), repeat: Some(true) }) if actual == code && pressed == (state == ElementState::Pressed) && actual_modifiers == modifiers)
+                        matches!(runtime.event_queue.pop_front(), Some(InputEvent::Key { physical: None, code: actual, pressed, modifiers: Some(actual_modifiers), repeat: Some(true) }) if actual == code && pressed == (state == ElementState::Pressed) && actual_modifiers == modifiers)
                     );
                     assert!(runtime.event_queue.is_empty());
                 }
@@ -2330,7 +2387,8 @@ mod tests {
             &Key::Character("n".into()),
             ElementState::Pressed,
             Some("n"),
-            false
+            false,
+            None
         ));
         assert!(runtime.event_queue.is_empty());
         runtime.window_event(WindowEvent::Ime(Ime::Preedit("".into(), None)));
@@ -2355,6 +2413,7 @@ mod tests {
             ElementState::Pressed,
             Some("a"),
             false,
+            None,
         );
         runtime.finish_input_batch();
         assert_eq!(runtime.event_queue.len(), 3);
@@ -2406,6 +2465,7 @@ mod tests {
             ElementState::Pressed,
             Some("x"),
             false,
+            None,
         );
         deliver(&mut app, &mut runtime);
         display(&app, editor, "new");

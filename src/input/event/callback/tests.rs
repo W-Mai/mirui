@@ -190,6 +190,7 @@ fn installed_owner_is_checked_before_body_execution() {
     .prepare(&mut first, CommandCapacity::default())
     .unwrap();
     let payload = Key {
+        physical: None,
         code: 1,
         pressed: true,
         modifiers: Some(Default::default()),
@@ -239,6 +240,7 @@ fn input_callback_normalizes_consume_results() {
     .prepare(&mut world, CommandCapacity::default())
     .unwrap();
     let mut payload = Key {
+        physical: None,
         code: 1,
         pressed: true,
         modifiers: Some(Default::default()),
@@ -272,6 +274,7 @@ fn model_capture_uses_the_invocation_owner_and_preserves_instance_identity() {
     .prepare(&mut app.world, CommandCapacity::default())
     .unwrap();
     let payload = Key {
+        physical: None,
         code: 1,
         pressed: true,
         modifiers: Some(Default::default()),
@@ -326,6 +329,7 @@ fn shared_capture_preparation_and_first_repeated_invocation_do_not_allocate() {
     );
     let prepared = prepared.unwrap();
     let payload = Key {
+        physical: None,
         code: 1,
         pressed: true,
         modifiers: Some(Default::default()),
@@ -595,6 +599,7 @@ fn panic_releases_invocation_borrows_and_preserves_prepared_callback() {
     .prepare(&mut world, CommandCapacity::default())
     .unwrap();
     let mut payload = Key {
+        physical: None,
         code: 1,
         pressed: true,
         modifiers: Some(Default::default()),
@@ -639,6 +644,7 @@ fn deferred_body_reads_live_parameters_before_ordered_commit_without_allocating(
     .prepare(&mut world, CommandCapacity::new().resource_value::<i32>(2))
     .unwrap();
     let payload = Key {
+        physical: None,
         code: 1,
         pressed: true,
         modifiers: Some(Default::default()),
@@ -712,6 +718,7 @@ fn deferred_capacity_error_does_not_commit_partial_commands_or_rollback_resource
     .prepare(&mut world, CommandCapacity::new().resource_value::<i32>(1))
     .unwrap();
     let mut payload = Key {
+        physical: None,
         code: 1,
         pressed: true,
         modifiers: Some(Default::default()),
@@ -763,6 +770,7 @@ fn deferred_snapshot_shares_storage_and_reports_busy_without_panicking() {
     assert!(Rc::ptr_eq(queue, snapshot_queue));
     let guard = queue.borrow_mut();
     let payload = Key {
+        physical: None,
         code: 1,
         pressed: true,
         modifiers: Some(Default::default()),
@@ -825,6 +833,7 @@ fn deferred_body_and_apply_panic_drop_pending_values_and_leave_executor_reusable
         )
         .unwrap();
         let mut payload = Key {
+            physical: None,
             code: 1,
             pressed: true,
             modifiers: Some(Default::default()),

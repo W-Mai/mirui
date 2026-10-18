@@ -308,6 +308,7 @@ fn capability_view_accepts_fragments_and_keys_without_an_appearance_component() 
         ["content", "selection"]
     );
     let enter = Key {
+        physical: None,
         code: KEY_RETURN,
         pressed: true,
         modifiers: None,

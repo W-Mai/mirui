@@ -772,6 +772,7 @@ pub(crate) fn dispatch_input(
     runtime.check_owner(world)?;
     match event {
         InputEvent::Key {
+            physical,
             code,
             pressed,
             modifiers,
@@ -782,6 +783,7 @@ pub(crate) fn dispatch_input(
                 .snapshot_keyboard(
                     world,
                     &Key {
+                        physical: *physical,
                         code: *code,
                         pressed: *pressed,
                         modifiers: *modifiers,
@@ -1202,6 +1204,7 @@ mod tests {
                 &mut world,
                 None,
                 &InputEvent::Key {
+                    physical: None,
                     code: 7,
                     pressed: true,
                     modifiers: Some(Default::default()),
@@ -1234,6 +1237,7 @@ mod tests {
                             &mut world,
                             None,
                             &InputEvent::Key {
+                                physical: None,
                                 code,
                                 pressed: true,
                                 modifiers: Some(Default::default()),
@@ -1333,6 +1337,7 @@ mod tests {
             focused: Some(child),
         });
         let input = InputEvent::Key {
+            physical: None,
             code: 7,
             pressed: true,
             modifiers: Some(Default::default()),
@@ -1471,6 +1476,7 @@ mod tests {
                             &mut world,
                             None,
                             &InputEvent::Key {
+                                physical: None,
                                 code,
                                 pressed: true,
                                 modifiers: Some(Default::default()),

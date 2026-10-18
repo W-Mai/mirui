@@ -56,19 +56,21 @@ pub(crate) fn keyboard_input(event: &Event) -> Option<InputEvent> {
     use crate::input::event::input::*;
     use sdl2::keyboard::{Keycode, Mod};
 
-    let (keycode, pressed, keymod, repeat) = match event {
+    let (keycode, scancode, pressed, keymod, repeat) = match event {
         Event::KeyDown {
-            keycode: Some(keycode),
+            keycode,
+            scancode,
             keymod,
             repeat,
             ..
-        } => (*keycode, true, *keymod, *repeat),
+        } => (*keycode, *scancode, true, *keymod, *repeat),
         Event::KeyUp {
-            keycode: Some(keycode),
+            keycode,
+            scancode,
             keymod,
             repeat,
             ..
-        } => (*keycode, false, *keymod, *repeat),
+        } => (*keycode, *scancode, false, *keymod, *repeat),
         _ => return None,
     };
     let modifiers = KeyModifiers {
@@ -77,22 +79,27 @@ pub(crate) fn keyboard_input(event: &Event) -> Option<InputEvent> {
         alt: keymod.intersects(Mod::LALTMOD | Mod::RALTMOD),
         meta: keymod.intersects(Mod::LGUIMOD | Mod::RGUIMOD),
     };
+    let physical = scancode.and_then(super::keyboard::from_sdl);
     let code = match keycode {
-        Keycode::Backspace => KEY_BACKSPACE,
-        Keycode::Delete => KEY_DELETE,
-        Keycode::Left => KEY_LEFT,
-        Keycode::Right => KEY_RIGHT,
-        Keycode::Home => KEY_HOME,
-        Keycode::End => KEY_END,
-        Keycode::Return => KEY_RETURN,
-        Keycode::A => selection_shortcut_key("a", modifiers)?,
-        Keycode::C => selection_shortcut_key("c", modifiers)?,
-        Keycode::V => selection_shortcut_key("v", modifiers)?,
-        Keycode::X => selection_shortcut_key("x", modifiers)?,
-        Keycode::Escape if pressed => return Some(InputEvent::Quit),
-        _ => return None,
+        Some(Keycode::Backspace) => KEY_BACKSPACE,
+        Some(Keycode::Delete) => KEY_DELETE,
+        Some(Keycode::Left) => KEY_LEFT,
+        Some(Keycode::Right) => KEY_RIGHT,
+        Some(Keycode::Home) => KEY_HOME,
+        Some(Keycode::End) => KEY_END,
+        Some(Keycode::Return | Keycode::KpEnter) => KEY_RETURN,
+        Some(Keycode::A) => selection_shortcut_key("a", modifiers).unwrap_or(KEY_UNKNOWN),
+        Some(Keycode::C) => selection_shortcut_key("c", modifiers).unwrap_or(KEY_UNKNOWN),
+        Some(Keycode::V) => selection_shortcut_key("v", modifiers).unwrap_or(KEY_UNKNOWN),
+        Some(Keycode::X) => selection_shortcut_key("x", modifiers).unwrap_or(KEY_UNKNOWN),
+        Some(Keycode::Escape) => KEY_ESCAPE,
+        _ => KEY_UNKNOWN,
     };
+    if code == KEY_UNKNOWN && physical.is_none() {
+        return None;
+    }
     Some(InputEvent::Key {
+        physical,
         code,
         pressed,
         modifiers: Some(modifiers),
@@ -331,15 +338,87 @@ mod tests {
     }
 
     #[test]
-    fn keyboard_translation_does_not_duplicate_quit_or_text() {
-        assert!(matches!(
-            keyboard_input(&key_event(Keycode::Escape, true)),
-            Some(InputEvent::Quit)
-        ));
-        assert!(keyboard_input(&key_event(Keycode::Escape, false)).is_none());
+    fn keyboard_translation_keeps_escape_as_input_without_fabricating_text() {
         for pressed in [true, false] {
+            assert!(
+                matches!(keyboard_input(&key_event(Keycode::Escape, pressed)),
+                Some(InputEvent::Key { code: crate::input::event::input::KEY_ESCAPE, pressed: actual, .. }) if actual == pressed)
+            );
             assert!(keyboard_input(&key_event(Keycode::A, pressed)).is_none());
         }
+    }
+
+    #[test]
+    fn physical_positions_survive_logical_layout_and_missing_keycodes() {
+        use crate::input::event::input::{KEY_UNKNOWN, PhysicalKey};
+        for keycode in [None, Some(Keycode::Z), Some(Keycode::W)] {
+            for pressed in [true, false] {
+                let mut event = key_event(Keycode::W, pressed);
+                match &mut event {
+                    Event::KeyDown {
+                        keycode: logical,
+                        scancode,
+                        repeat,
+                        ..
+                    }
+                    | Event::KeyUp {
+                        keycode: logical,
+                        scancode,
+                        repeat,
+                        ..
+                    } => {
+                        *logical = keycode;
+                        *scancode = Some(sdl2::keyboard::Scancode::W);
+                        *repeat = true;
+                    }
+                    _ => unreachable!(),
+                }
+                assert!(matches!(keyboard_input(&event), Some(InputEvent::Key {
+                    code: KEY_UNKNOWN, physical: Some(PhysicalKey::KeyW), pressed: actual,
+                    repeat: Some(true), ..
+                }) if actual == pressed));
+            }
+        }
+    }
+
+    #[derive(Default)]
+    struct Keys {
+        last: Option<crate::input::event::input::Key>,
+        count: u32,
+    }
+
+    #[crate::event]
+    fn capture_key(input: event!(crate::input::event::input::Key), keys: res!(mut Keys)) {
+        keys.last = Some(*input);
+        keys.count += 1;
+    }
+
+    #[test]
+    fn sdl_positions_reach_author_callbacks_without_text_input() {
+        use crate::input::event::{
+            contract::Event as _,
+            input::{Key, PhysicalKey},
+        };
+        let mut app = crate::app::App::headless(16, 16);
+        app.add_resource(Keys::default());
+        app.on_event(Key::EVENT, capture_key::callback());
+        let event = Event::KeyDown {
+            timestamp: 0,
+            window_id: 0,
+            keycode: Some(Keycode::Z),
+            scancode: Some(sdl2::keyboard::Scancode::W),
+            keymod: Mod::NOMOD,
+            repeat: false,
+        };
+        let input = keyboard_input(&event).unwrap();
+        crate::input::event::deliver_input(&mut app.world, None, &input, 0, 16, 16);
+        let allocations = crate::test_support::tracked_allocations(|| {
+            crate::input::event::deliver_input(&mut app.world, None, &input, 1, 16, 16);
+        });
+        assert_eq!(allocations, 0);
+        let keys = app.world.resource::<Keys>().unwrap();
+        assert_eq!(keys.count, 2);
+        assert_eq!(keys.last.unwrap().physical, Some(PhysicalKey::KeyW));
     }
 
     #[test]

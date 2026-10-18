@@ -62,6 +62,7 @@ fn fixture(capacity: EventCapacity) -> (World, Entity) {
 
 fn key(code: u32, pressed: bool) -> Key {
     Key {
+        physical: None,
         code,
         pressed,
         modifiers: Some(Default::default()),
@@ -81,6 +82,24 @@ fn character(world: &mut World, node: Entity, ch: char) -> Result<bool, CommandE
         &TextCommitted::new(ch.to_string()),
         None,
     )
+}
+
+#[test]
+fn logical_editing_takes_precedence_over_numpad_text_positions() {
+    use crate::input::event::input::PhysicalKey;
+    let (mut world, node) = fixture(EventCapacity::default());
+    character(&mut world, node, 'A').unwrap();
+    let mut event = key(KEY_HOME, true);
+    event.physical = Some(PhysicalKey::Numpad7);
+    assert!(view_input::invoke_payload(view(), &mut world, node, &event, None).unwrap());
+    assert_eq!(world.get::<TextEditing>(node).unwrap().cursor(), 0);
+    event.code = KEY_DELETE;
+    event.physical = Some(PhysicalKey::NumpadDecimal);
+    assert!(view_input::invoke_payload(view(), &mut world, node, &event, None).unwrap());
+    world
+        .get::<TextEditing>(node)
+        .unwrap()
+        .read(|text| assert!(text.is_empty()));
 }
 
 #[test]
@@ -501,7 +520,7 @@ fn return_reports_each_press_without_editing_or_changing_focus() {
     world.remove::<Dirty>(node);
     assert!(press(&mut world, node, KEY_RETURN).unwrap());
     assert!(
-        !view_input::invoke_payload(view(), &mut world, node, &key(KEY_RETURN, false), None)
+        view_input::invoke_payload(view(), &mut world, node, &key(KEY_RETURN, false), None)
             .unwrap()
     );
     assert!(press(&mut world, node, KEY_RETURN).unwrap());

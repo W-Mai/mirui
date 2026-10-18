@@ -4756,6 +4756,7 @@ mod lifecycle_tests {
         app.world
             .insert_resource(SimTimeline::new(alloc::vec![SimAction::wait(1000)]));
         let input = InputEvent::Key {
+            physical: None,
             code: 1,
             pressed: true,
             modifiers: Some(Default::default()),

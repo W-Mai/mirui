@@ -317,6 +317,7 @@ fn native_and_scheduled_input_deliver_taps_before_the_following_key() {
                 y: Fixed::from_int(2),
             },
             InputEvent::Key {
+                physical: None,
                 code: 42,
                 pressed: true,
                 modifiers: Some(Default::default()),
@@ -355,6 +356,7 @@ fn native_and_scheduled_input_deliver_taps_before_the_following_key() {
                 .eq([
                     Step::Tap,
                     Step::Key(Key {
+                        physical: None,
                         code: 42,
                         pressed: true,
                         modifiers: Some(Default::default()),
@@ -408,6 +410,7 @@ fn surface_geometry_publishes_before_input_without_business_capacity_or_duplicat
     };
     app.backend.pending_geometry = Some((new, safe_area));
     app.backend.events.push_back(InputEvent::Key {
+        physical: None,
         code: 7,
         pressed: true,
         modifiers: Some(Default::default()),
@@ -484,6 +487,7 @@ fn host_state_is_ordered_deduplicated_and_independent_of_suspension() {
         InputEvent::HostVisibility { visible: false },
         InputEvent::HostFocus { focused: false },
         InputEvent::Key {
+            physical: None,
             code: 7,
             pressed: true,
             modifiers: Some(Default::default()),
@@ -500,6 +504,7 @@ fn host_state_is_ordered_deduplicated_and_independent_of_suspension() {
             Step::HostVisibility(false),
             Step::HostFocus(false),
             Step::Key(Key {
+                physical: None,
                 code: 7,
                 pressed: true,
                 modifiers: Some(Default::default()),
@@ -796,6 +801,7 @@ fn rotary(input: event!(Rotary), trace: res!(mut Trace)) -> bool {
 #[test]
 fn rootless_app_dispatches_all_four_typed_input_kinds_once() {
     let key_input = Key {
+        physical: None,
         code: 42,
         pressed: true,
         modifiers: Some(KeyModifiers {
@@ -900,6 +906,7 @@ impl<B: Surface, F: RendererFactory<B>> Plugin<B, F> for ConsumeInput {
 #[test]
 fn plugin_consumption_blocks_user_callbacks_but_not_lifecycle_requests() {
     let input = InputEvent::Key {
+        physical: None,
         code: 42,
         pressed: true,
         modifiers: Some(Default::default()),
@@ -972,6 +979,7 @@ fn runner_starts_and_quits_once() {
 #[test]
 fn resume_delivers_the_remaining_input_burst_in_the_same_tick() {
     let input = Key {
+        physical: None,
         code: 19,
         pressed: true,
         modifiers: Some(Default::default()),
@@ -1049,6 +1057,7 @@ impl mirui::core::log::Sink for InstallWarnings {
 #[test]
 fn rejected_model_and_access_bindings_warn_once_and_leave_valid_callbacks_running() {
     let input = Key {
+        physical: None,
         code: 23,
         pressed: true,
         modifiers: Some(Default::default()),

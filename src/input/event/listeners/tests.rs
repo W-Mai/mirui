@@ -861,6 +861,7 @@ impl KeyboardFixture {
 fn keyboard_and_character_routes_order_authors_defaults_ancestors_and_app_without_allocation() {
     let mut fixture = KeyboardFixture::new(5);
     let key = Key {
+        physical: None,
         code: 7,
         pressed: false,
         modifiers: Some(Default::default()),
@@ -892,6 +893,7 @@ fn keyboard_and_character_routes_order_authors_defaults_ancestors_and_app_withou
 fn keyboard_consumption_stops_before_later_defaults_and_fallback() {
     let mut fixture = KeyboardFixture::new(5);
     let key = Key {
+        physical: None,
         code: 7,
         pressed: true,
         modifiers: Some(Default::default()),
@@ -950,6 +952,7 @@ fn keyboard_explicit_origin_does_not_read_or_change_current_focus() {
 fn keyboard_selection_freezes_focus_and_parents_but_skips_retired_defaults() {
     let mut fixture = KeyboardFixture::new(5);
     let key = Key {
+        physical: None,
         code: 7,
         pressed: true,
         modifiers: Some(Default::default()),
@@ -973,6 +976,7 @@ fn keyboard_selection_freezes_focus_and_parents_but_skips_retired_defaults() {
 fn keyboard_suppressed_or_stale_focus_only_reaches_app_fallback() {
     let mut fixture = KeyboardFixture::new(1);
     let key = Key {
+        physical: None,
         code: 7,
         pressed: true,
         modifiers: Some(Default::default()),
@@ -1003,6 +1007,7 @@ fn keyboard_suppressed_or_stale_focus_only_reaches_app_fallback() {
 fn keyboard_capacity_and_cycles_fail_before_any_body_and_release_scratch() {
     let mut fixture = KeyboardFixture::new(4);
     let key = Key {
+        physical: None,
         code: 7,
         pressed: true,
         modifiers: Some(Default::default()),
@@ -1045,6 +1050,7 @@ fn keyboard_capacity_and_cycles_fail_before_any_body_and_release_scratch() {
 fn keyboard_snapshot_skips_destroyed_generations_without_retargeting_replacements() {
     let mut fixture = KeyboardFixture::new(5);
     let key = Key {
+        physical: None,
         code: 7,
         pressed: true,
         modifiers: Some(Default::default()),
@@ -1098,6 +1104,7 @@ fn unchanged_editor_actions_are_accepted_without_reaching_app_fallback() {
     ] {
         fixture.trace.borrow_mut().len = 0;
         let key = Key {
+            physical: None,
             code,
             pressed: true,
             modifiers: Some(Default::default()),
@@ -2594,12 +2601,14 @@ fn consumable_input_uses_the_same_pool_and_stops_in_installation_order() {
         .unwrap();
     }
     let pressed = Key {
+        physical: None,
         code: 1,
         pressed: true,
         modifiers: Some(Default::default()),
         repeat: Some(false),
     };
     let released = Key {
+        physical: None,
         code: 1,
         pressed: false,
         modifiers: Some(Default::default()),

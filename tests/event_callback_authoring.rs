@@ -411,6 +411,7 @@ fn generated_commands_commit_after_query_borrows_end() {
             handler.invoke(
                 &mut app.world,
                 &Key {
+                    physical: None,
                     code: 1,
                     pressed: true,
                     modifiers: Some(Default::default()),

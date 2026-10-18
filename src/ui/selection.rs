@@ -86,18 +86,8 @@ impl Shortcut {
         target: Entity,
         key: &crate::input::event::input::Key,
     ) -> Option<Self> {
-        use crate::input::event::input::{KEY_A, KEY_C, KEY_V, KEY_X, selection_shortcut_key};
-        if !key.pressed || key.repeat == Some(true) {
-            return None;
-        }
-        let name = match key.code {
-            KEY_A => "a",
-            KEY_C => "c",
-            KEY_V => "v",
-            KEY_X => "x",
-            _ => return None,
-        };
-        selection_shortcut_key(name, key.modifiers?)?;
+        use crate::input::event::input::{KEY_A, KEY_C, KEY_V, KEY_X};
+        key.selection_shortcut()?;
         match key.code {
             KEY_A => request::resolve(world, target).ok().map(Self::SelectAll),
             KEY_C => Some(Self::Copy {

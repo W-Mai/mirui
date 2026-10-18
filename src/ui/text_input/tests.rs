@@ -3,6 +3,84 @@ use crate::core::model::BindType;
 use crate::prelude::*;
 use crate::ui::widgets::{TextDocument, TextInput, TextSelection};
 
+#[derive(Default)]
+struct AppKeys(u32);
+
+#[crate::event]
+fn app_key(_event: event!(Key), count: res!(mut AppKeys)) {
+    count.0 += 1;
+}
+
+#[test]
+fn focused_editors_consume_positions_without_inserting_text_or_leaking_game_input() {
+    use crate::input::event::input::{InputEvent, KEY_UNKNOWN, PhysicalKey};
+    let (mut app, editor, _, _) = fixture();
+    app.add_resource(AppKeys::default());
+    app.on_event(Key::EVENT, app_key::callback());
+    app.with_input_method(InputMethod::native());
+    let session = native_state(&mut app.world, 0).unwrap().session;
+    for pressed in [true, false] {
+        for modifiers in [
+            KeyModifiers::default(),
+            KeyModifiers {
+                control: true,
+                alt: true,
+                ..Default::default()
+            },
+        ] {
+            native(
+                &mut app,
+                InputEvent::Key {
+                    code: KEY_UNKNOWN,
+                    physical: Some(PhysicalKey::KeyW),
+                    pressed,
+                    modifiers: Some(modifiers),
+                    repeat: Some(false),
+                },
+            );
+        }
+    }
+    assert_eq!(app.world.resource::<AppKeys>().unwrap().0, 0);
+    assert!(
+        app.world
+            .get::<TextEditing>(editor)
+            .unwrap()
+            .read(str::is_empty)
+    );
+    native(&mut app, session.preedit("ni", Some(2..2)));
+    native(
+        &mut app,
+        InputEvent::Key {
+            code: KEY_UNKNOWN,
+            physical: Some(PhysicalKey::F1),
+            pressed: true,
+            modifiers: None,
+            repeat: None,
+        },
+    );
+    assert_eq!(app.world.resource::<AppKeys>().unwrap().0, 0);
+    native(&mut app, session.commit("你"));
+    assert!(
+        app.world
+            .get::<TextEditing>(editor)
+            .unwrap()
+            .read(|text| text == "你")
+    );
+    app.world.resource_mut::<FocusState>().unwrap().focused = None;
+    super::super::delivery::flush(&mut app.world).unwrap();
+    native(
+        &mut app,
+        InputEvent::Key {
+            code: KEY_UNKNOWN,
+            physical: Some(PhysicalKey::KeyW),
+            pressed: true,
+            modifiers: None,
+            repeat: None,
+        },
+    );
+    assert_eq!(app.world.resource::<AppKeys>().unwrap().0, 1);
+}
+
 #[crate::model]
 #[derive(Default)]
 struct Provider {
@@ -92,6 +170,7 @@ fn software_select_and_copy(
             commands.text_input().key(
                 session,
                 Key {
+                    physical: None,
                     code,
                     pressed: true,
                     modifiers: Some(KeyModifiers {
@@ -124,6 +203,7 @@ fn software_keys_use_selection_defaults_without_reentering_the_input_method() {
     native(
         &mut app,
         InputEvent::Key {
+            physical: None,
             code: KEY_RETURN,
             pressed: true,
             modifiers: None,
@@ -159,6 +239,7 @@ fn copy_shortcut_uses_formal_selection_without_ending_composition() {
     let session = native_state(&mut app.world, 0).unwrap().session;
     native(&mut app, session.commit("A中🙂"));
     let shortcut = |code| InputEvent::Key {
+        physical: None,
         code,
         pressed: true,
         modifiers: Some(KeyModifiers {
@@ -699,6 +780,7 @@ fn software_keys_intercept_platform_input_but_do_not_reenter_for_provider_output
     let session = provider.session().unwrap();
     run(&mut app, Request::Commit(session, TextCommitted::new("ab")));
     let key = Key {
+        physical: None,
         code: KEY_BACKSPACE,
         pressed: true,
         modifiers: None,
@@ -709,6 +791,7 @@ fn software_keys_intercept_platform_input_but_do_not_reenter_for_provider_output
             &mut app.world,
             app.root,
             &InputEvent::Key {
+                physical: None,
                 code,
                 pressed: true,
                 modifiers: None,

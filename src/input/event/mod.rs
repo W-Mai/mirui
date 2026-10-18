@@ -13,6 +13,7 @@ pub mod lifecycle;
 pub(crate) mod listeners;
 pub mod multi_tap;
 pub(crate) mod notification;
+pub(crate) mod physical_key;
 pub mod press;
 pub(crate) mod request;
 pub(crate) mod runtime;
@@ -403,6 +404,7 @@ mod tests {
         world.insert_resource(TapCount(0));
         runtime::install_app(&mut world, Key::EVENT, count_key::callback()).unwrap();
         let input = InputEvent::Key {
+            physical: None,
             code: 42,
             pressed: true,
             modifiers: Some(Default::default()),
