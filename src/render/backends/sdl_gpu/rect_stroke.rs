@@ -16,7 +16,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         if radius == Fixed::ZERO && width == Fixed::ONE {
             // 1px axis-aligned border: SDL draws it directly.
             let phys_area = self.viewport.rect_to_physical(*area);
-            let phys_clip = self.viewport.rect_to_physical(*clip);
+            let phys_clip = self.physical_draw_clip(*clip);
             if let Some(sdl_rect) = sdl_pixel_rect(&phys_area, &phys_clip) {
                 let mut canvas = match self.device.canvas() {
                     Ok(canvas) => canvas,

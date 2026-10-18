@@ -13,7 +13,7 @@ impl SwRenderer<'_> {
         opa: u8,
     ) {
         let phys_area = self.viewport.rect_to_physical(*area);
-        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_clip = self.physical_draw_clip(*clip);
         let width = width * self.viewport.scale();
         let radius = radius * self.viewport.scale();
         let area = &phys_area;

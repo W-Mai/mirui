@@ -34,12 +34,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             color,
             opacity,
         } = draw;
+        let clip = self.physical_draw_clip(*clip);
         if let Err(error) = self.label_cache.draw_glyph_run(
             pos,
             glyphs,
             font,
             transform,
-            clip,
+            &clip,
             color,
             opacity,
             self.viewport,
@@ -49,13 +50,14 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     }
 
     pub(super) fn draw_posed_glyph_run_inner(&mut self, draw: PosedGlyphRunDraw<'_>) {
+        let clip = self.physical_draw_clip(*draw.clip);
         if let Err(error) = self.label_cache.draw_posed_glyph_run(
             *draw.pos,
             draw.glyphs,
             draw.frames,
             draw.font,
             *draw.transform,
-            *draw.clip,
+            clip,
             *draw.color,
             draw.opacity,
             self.viewport,

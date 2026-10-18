@@ -751,6 +751,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFact
             stroke_scratch: &mut self.stroke_scratch,
             viewport,
             failure: None,
+            physical_clip: None,
             native_target: false,
         }
     }
@@ -774,10 +775,18 @@ pub struct SdlGpuRenderer<'a, S = Box<[u8]>> {
     stroke_scratch: &'a mut StrokeScratch,
     viewport: Viewport,
     failure: Option<RenderError>,
+    physical_clip: Option<crate::types::PhysicalRect>,
     native_target: bool,
 }
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
+    fn physical_draw_clip(&self, clip: Rect) -> Rect {
+        crate::render::renderer::constrain_physical_clip(
+            self.viewport.rect_to_physical(clip),
+            self.physical_clip,
+        )
+    }
+
     fn target_alpha(&self) -> crate::render::TargetAlpha {
         if self.native_target {
             crate::render::TargetAlpha::Premultiplied
@@ -788,8 +797,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
 
     fn physical_clip_rect(&self, src: &Rect) -> Option<PhysicalRect> {
         let (pw, ph) = self.viewport.physical_size();
-        self.viewport
-            .physical_rect_in(*src, u32::from(pw), u32::from(ph))
+        let rect = self
+            .viewport
+            .physical_rect_in(*src, u32::from(pw), u32::from(ph))?;
+        match self.physical_clip {
+            Some(clip) => rect.intersection(clip),
+            None => Some(rect),
+        }
     }
 
     pub(super) fn submit_geometry(&mut self, phys_clip: &Rect, needs_blend: bool) {
@@ -971,6 +985,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
         request.validate_texture()?;
+        request.validate_write_boundary(self.viewport)?;
         if let DrawCommand::ApplyBlur { alpha, region } = request.command {
             if !request.projective.is_identity() {
                 return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
@@ -1015,6 +1030,21 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     }
 
     fn submit_with_route(
+        &mut self,
+        request: &DrawRequest<'_, '_>,
+        route: RenderRoute,
+    ) -> Result<(), RenderError> {
+        let saved = self.physical_clip;
+        request.validate_write_boundary(self.viewport)?;
+        self.physical_clip = request.physical_clip;
+        let result = request
+            .clip_route(route)
+            .and_then(|route| self.submit_clipped(request, route));
+        self.physical_clip = saved;
+        result
+    }
+
+    fn submit_clipped(
         &mut self,
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,

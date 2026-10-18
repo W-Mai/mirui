@@ -136,7 +136,7 @@ impl SwRenderer<'_> {
             viewport_scale,
             mono_scale: viewport_scale.to_int().max(1),
             mono_height: metrics.line_height.to_int().max(1),
-            bounds: self.viewport.rect_to_physical(*clip).pixel_bounds(),
+            bounds: self.physical_draw_clip(*clip).pixel_bounds(),
         };
         for positioned in glyphs {
             let Some(glyph) =

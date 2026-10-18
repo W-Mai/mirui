@@ -776,9 +776,10 @@ fn preflight_software_scope(
         preflight.region.height(),
         preflight.output_scale,
     );
-    let origin_x = Fixed::from(preflight.region.x()) / preflight.output_scale;
-    let origin_y = Fixed::from(preflight.region.y()) / preflight.output_scale;
-    let mut local = crate::render::renderer::RegionRenderer::new(&mut software, origin_x, origin_y);
+    let mut local = crate::render::renderer::RegionRenderer::new(
+        &mut software,
+        (preflight.region.x(), preflight.region.y()),
+    );
     let mut routes = [ReplayPlan::EMPTY; 0];
     let mut route_len = 0;
     let mut scope_len = 0;
@@ -977,8 +978,10 @@ fn draw_isolated_scope(
             crate::render::backends::sw::SwRenderer::new(texture).with_alpha_mode(AlphaMode::Blend);
         software.viewport = crate::types::Viewport::new(local_w, local_h, scale);
         {
-            let mut local =
-                crate::render::renderer::RegionRenderer::new(&mut software, origin_x, origin_y);
+            let mut local = crate::render::renderer::RegionRenderer::new(
+                &mut software,
+                (scope.region.x(), scope.region.y()),
+            );
             if let Some(ResourceRef::Inline(path)) = group_clip {
                 let command = DrawCommand::PushClip {
                     path,

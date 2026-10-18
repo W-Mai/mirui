@@ -29,7 +29,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     ) {
         // DrawCommand carries quads in logical pixels — the viewport
         // still owns the scale → physical conversion.
-        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_clip = self.physical_draw_clip(*clip);
         let phys_q = [
             self.viewport.point_to_physical(q[0]),
             self.viewport.point_to_physical(q[1]),
@@ -60,7 +60,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         opa: u8,
         clip: &Rect,
     ) {
-        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_clip = self.physical_draw_clip(*clip);
         let phys_q = [
             self.viewport.point_to_physical(q[0]),
             self.viewport.point_to_physical(q[1]),
@@ -94,7 +94,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         if opa == 0 {
             return;
         }
-        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_clip = self.physical_draw_clip(*clip);
         let phys_q = [
             self.viewport.point_to_physical(q[0]),
             self.viewport.point_to_physical(q[1]),

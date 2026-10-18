@@ -154,12 +154,42 @@ mod text_layout_failure_tests {
     }
 }
 
-struct ProjectiveRenderer<'a> {
+pub(crate) struct ScopedRenderer<'a> {
+    physical_clip: Option<crate::types::PhysicalRect>,
     inner: &'a mut dyn Renderer,
     transform: Transform3D,
 }
 
-impl Renderer for ProjectiveRenderer<'_> {
+impl<'a> ScopedRenderer<'a> {
+    pub(crate) fn new(
+        inner: &'a mut dyn Renderer,
+        transform: Transform3D,
+        physical_clip: Option<crate::types::PhysicalRect>,
+    ) -> Self {
+        Self {
+            inner,
+            transform,
+            physical_clip,
+        }
+    }
+
+    fn request<'cmd, 'data>(&self, request: &DrawRequest<'cmd, 'data>) -> DrawRequest<'cmd, 'data> {
+        let physical_clip = match (self.physical_clip, request.physical_clip) {
+            (Some(left), Some(right)) => Some(
+                left.intersection(right)
+                    .unwrap_or(crate::types::PhysicalRect::EMPTY),
+            ),
+            (left, right) => left.or(right),
+        };
+        DrawRequest {
+            projective: self.transform.compose(&request.projective),
+            physical_clip,
+            ..*request
+        }
+    }
+}
+
+impl Renderer for ScopedRenderer<'_> {
     type TargetState = ();
 
     fn plan_target(&self, layout: PlaneLayout) -> Result<Option<TargetPlan>, RenderError> {
@@ -191,17 +221,11 @@ impl Renderer for ProjectiveRenderer<'_> {
     }
 
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
-        self.inner.route(
-            &DrawRequest::new(request.command, request.clip)
-                .with_projective(self.transform.compose(&request.projective)),
-        )
+        self.inner.route(&self.request(request))
     }
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-        self.inner.submit(
-            &DrawRequest::new(request.command, request.clip)
-                .with_projective(self.transform.compose(&request.projective)),
-        )
+        self.inner.submit(&self.request(request))
     }
 
     fn submit_text_run(
@@ -209,11 +233,7 @@ impl Renderer for ProjectiveRenderer<'_> {
         request: &DrawRequest<'_, '_>,
         identity: crate::render::renderer::TextRunIdentity,
     ) -> Result<(), RenderError> {
-        self.inner.submit_text_run(
-            &DrawRequest::new(request.command, request.clip)
-                .with_projective(self.transform.compose(&request.projective)),
-            identity,
-        )
+        self.inner.submit_text_run(&self.request(request), identity)
     }
 
     fn submit_with_route(
@@ -221,11 +241,7 @@ impl Renderer for ProjectiveRenderer<'_> {
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,
     ) -> Result<(), RenderError> {
-        self.inner.submit_with_route(
-            &DrawRequest::new(request.command, request.clip)
-                .with_projective(self.transform.compose(&request.projective)),
-            route,
-        )
+        self.inner.submit_with_route(&self.request(request), route)
     }
 
     fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
@@ -246,11 +262,9 @@ impl Renderer for ProjectiveRenderer<'_> {
         draw: &mut dyn FnMut(&mut dyn Renderer) -> Result<(), RenderError>,
     ) -> Result<bool, RenderError> {
         let transform = self.transform;
+        let physical_clip = self.physical_clip;
         self.inner.render_scope(region, &mut |local| {
-            let mut projected = ProjectiveRenderer {
-                inner: local,
-                transform,
-            };
+            let mut projected = ScopedRenderer::new(local, transform, physical_clip);
             draw(&mut projected)
         })
     }
@@ -1789,7 +1803,8 @@ fn draw_tree_content(
         && let Some(off) = offscreen
     {
         let handled = if !tf_3d.is_identity() {
-            let mut scoped = ProjectiveRenderer {
+            let mut scoped = ScopedRenderer {
+                physical_clip: None,
                 inner: renderer,
                 transform: tf_3d,
             };
@@ -1858,7 +1873,8 @@ fn draw_tree_content(
                 *clip
             };
             if !tf_3d.is_identity() {
-                let mut scoped = ProjectiveRenderer {
+                let mut scoped = ScopedRenderer {
+                    physical_clip: None,
                     inner: renderer,
                     transform: tf_3d,
                 };
@@ -2048,7 +2064,8 @@ mod projective_transform_tests {
     #[test]
     fn affine_only_renderer_does_not_receive_projective_approximation() {
         let mut renderer = AffineOnlyRenderer::default();
-        let mut scoped = ProjectiveRenderer {
+        let mut scoped = ScopedRenderer {
+            physical_clip: None,
             inner: &mut renderer,
             transform: Transform3D::translate(Fixed::from_int(4), Fixed::ZERO),
         };
@@ -2111,7 +2128,8 @@ mod projective_transform_tests {
             region: clip,
         };
         let mut recorder = Recorder::default();
-        ProjectiveRenderer {
+        ScopedRenderer {
+            physical_clip: None,
             inner: &mut recorder,
             transform: projection,
         }

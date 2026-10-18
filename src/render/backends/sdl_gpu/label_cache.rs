@@ -155,7 +155,6 @@ impl LabelCache {
         };
         let logical_quad = transform.apply_rect(rect);
         let quad = logical_quad.map(|point| viewport.point_to_physical(point));
-        let phys_clip = viewport.rect_to_physical(*clip);
         self.draw_cached(
             &quad,
             RasterContent::Positioned {
@@ -169,7 +168,7 @@ impl LabelCache {
             raster_scale,
             key,
             font,
-            &phys_clip,
+            clip,
             color,
             opa,
         )
@@ -283,7 +282,6 @@ impl LabelCache {
                 raster.surface,
                 &run.indices[batch.indices.clone()],
                 clip,
-                viewport,
             )?;
         }
         self.glyph_vertices.clear();
@@ -324,7 +322,7 @@ impl LabelCache {
             };
             if !scalar_admitted(raster, self.device.max_texture_size) {
                 if let Some((key, surface)) = active.take() {
-                    self.flush_scalar_batch(key, surface, clip, viewport)?;
+                    self.flush_scalar_batch(key, surface, clip)?;
                 }
                 let tangent = Point {
                     x: crate::types::fixed::from_textflow(frame.unit_tangent.x),
@@ -360,7 +358,7 @@ impl LabelCache {
                 || self.glyph_indices.len() + 54 > MAX_BATCH_INDICES
             {
                 if let Some((key, surface)) = active.take() {
-                    self.flush_scalar_batch(key, surface, clip, viewport)?;
+                    self.flush_scalar_batch(key, surface, clip)?;
                 }
                 active = Some((key, raster.surface));
             }
@@ -370,7 +368,7 @@ impl LabelCache {
             self.push_scalar_glyph(quad, region, raster.surface, color, opa, viewport);
         }
         if let Some((key, surface)) = active {
-            self.flush_scalar_batch(key, surface, clip, viewport)
+            self.flush_scalar_batch(key, surface, clip)
         } else {
             Ok(())
         }
@@ -473,10 +471,9 @@ impl LabelCache {
         key: ScalarSurfaceKey,
         surface: GlyphSurface<'_>,
         clip: Rect,
-        viewport: Viewport,
     ) -> Result<(), RenderError> {
         let mut indices = core::mem::take(&mut self.glyph_indices);
-        let result = self.draw_scalar_batch(key, surface, &indices, clip, viewport);
+        let result = self.draw_scalar_batch(key, surface, &indices, clip);
         indices.clear();
         self.glyph_indices = indices;
         self.glyph_vertices.clear();
@@ -489,13 +486,11 @@ impl LabelCache {
         surface: GlyphSurface<'_>,
         indices: &[i32],
         clip: Rect,
-        viewport: Viewport,
     ) -> Result<(), RenderError> {
         if indices.is_empty() {
             return Ok(());
         }
-        let physical_clip = viewport.rect_to_physical(clip);
-        let Some(clip) = sdl_pixel_rect(&physical_clip, &physical_clip) else {
+        let Some(clip) = sdl_pixel_rect(&clip, &clip) else {
             return Ok(());
         };
         let device = &self.device;

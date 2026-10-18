@@ -392,6 +392,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<WebCanvasSurface>
             surface: backend,
             viewport: *transform,
             failure: None,
+            physical_clip: None,
             clip_depth: 0,
             known_transform: None,
             current_text_run: None,
@@ -429,6 +430,7 @@ pub struct WebCanvasRenderer<'a, S = Box<[u8]>> {
     surface: &'a mut WebCanvasSurface,
     viewport: Viewport,
     failure: Option<RenderError>,
+    physical_clip: Option<crate::types::PhysicalRect>,
     // Only command draws track their transform; direct Canvas calls may inherit external state.
     known_transform: Option<[f64; 6]>,
     current_text_run: Option<TextRunIdentity>,
@@ -663,8 +665,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
     /// black for the out-of-canvas portion (W3C spec).
     fn physical_clip_rect(&self, src: &Rect) -> Option<PhysicalRect> {
         let (pw, ph) = self.viewport.physical_size();
-        self.viewport
-            .physical_rect_in(*src, u32::from(pw), u32::from(ph))
+        let rect = self
+            .viewport
+            .physical_rect_in(*src, u32::from(pw), u32::from(ph))?;
+        match self.physical_clip {
+            Some(clip) => rect.intersection(clip),
+            None => Some(rect),
+        }
     }
 
     /// Clip in physical pixels so partial redraw edges do not blend with retained pixels. The scissor stays in screen space regardless of the current widget transform.
@@ -1157,6 +1164,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
         request.validate_texture()?;
+        request.validate_write_boundary(self.viewport)?;
         if let DrawCommand::ApplyBlur { alpha, region } = request.command {
             if !request.projective.is_identity() {
                 return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
@@ -1206,6 +1214,21 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
     }
 
     fn submit_with_route(
+        &mut self,
+        request: &DrawRequest<'_, '_>,
+        route: RenderRoute,
+    ) -> Result<(), RenderError> {
+        let saved = self.physical_clip;
+        request.validate_write_boundary(self.viewport)?;
+        self.physical_clip = request.physical_clip;
+        let result = request
+            .clip_route(route)
+            .and_then(|route| self.submit_clipped(request, route));
+        self.physical_clip = saved;
+        result
+    }
+
+    fn submit_clipped(
         &mut self,
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,

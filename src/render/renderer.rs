@@ -6,11 +6,29 @@ use super::scratch::{PlaneLayout, PlaneRequirements};
 use super::target::{BackendTarget, TargetPlan, TargetUpdate};
 use super::texture::{ColorFormat, Texture};
 
+#[cfg(test)]
+#[path = "physical_clip_tests.rs"]
+mod physical_clip_tests;
+
 /// Stable identity of one run in a bounded `Text` widget.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct TextRunIdentity {
     pub entity: Entity,
     pub run_index: usize,
+}
+
+pub(crate) fn constrain_physical_clip(clip: Rect, boundary: Option<PhysicalRect>) -> Rect {
+    match boundary {
+        Some(boundary) => clip
+            .intersect(&Rect::new(
+                boundary.x(),
+                boundary.y(),
+                boundary.width(),
+                boundary.height(),
+            ))
+            .unwrap_or(Rect::new(0, 0, 0, 0)),
+        None => clip,
+    }
 }
 
 /// One draw under its effective clip and shared projective transform.
@@ -19,6 +37,8 @@ pub struct DrawRequest<'cmd, 'data> {
     pub command: &'cmd DrawCommand<'data>,
     pub clip: Rect,
     pub projective: Transform3D,
+    /// Additional target-local integer write boundary. Geometry and sampling remain unchanged.
+    pub physical_clip: Option<PhysicalRect>,
 }
 
 impl<'cmd, 'data> DrawRequest<'cmd, 'data> {
@@ -27,12 +47,45 @@ impl<'cmd, 'data> DrawRequest<'cmd, 'data> {
             command,
             clip,
             projective: Transform3D::IDENTITY,
+            physical_clip: None,
         }
     }
 
     pub const fn with_projective(mut self, projective: Transform3D) -> Self {
         self.projective = projective;
         self
+    }
+
+    pub const fn with_physical_clip(mut self, clip: PhysicalRect) -> Self {
+        self.physical_clip = Some(clip);
+        self
+    }
+
+    #[cfg(any(feature = "sdl-gpu", feature = "wgpu", feature = "web-canvas"))]
+    pub(crate) fn clip_route(&self, route: RenderRoute) -> Result<RenderRoute, RenderError> {
+        let (Some(clip), RenderRoute::ExactFallback(region)) = (self.physical_clip, route) else {
+            return Ok(route);
+        };
+        let Some(rect) = region.rect().intersection(clip) else {
+            return Ok(RenderRoute::ExactFallback(FallbackRegion::EMPTY));
+        };
+        Ok(RenderRoute::ExactFallback(FallbackRegion::new(
+            rect,
+            region.stride_bytes(),
+        )?))
+    }
+
+    pub(crate) fn validate_write_boundary(&self, viewport: Viewport) -> Result<(), RenderError> {
+        if let (Some(clip), DrawCommand::ApplyBlur { alpha, region }) =
+            (self.physical_clip, self.command)
+            && *alpha > Fixed::ZERO
+            && *alpha < Fixed::ONE
+            && let Some(area) = viewport.physical_rect(*region)
+            && area.intersection(clip) != Some(area)
+        {
+            return Err(RenderError::Unsupported(RenderFeature::Blur));
+        }
+        Ok(())
     }
 
     /// Validate command data shared by all renderer routes.
@@ -243,18 +296,17 @@ pub(crate) struct RegionRenderer<'a> {
     inner: &'a mut dyn Renderer,
     origin_x: Fixed,
     origin_y: Fixed,
+    physical_origin: (u16, u16),
 }
 
 impl RegionRenderer<'_> {
-    pub(crate) fn new(
-        inner: &mut dyn Renderer,
-        origin_x: Fixed,
-        origin_y: Fixed,
-    ) -> RegionRenderer<'_> {
+    pub(crate) fn new(inner: &mut dyn Renderer, physical_origin: (u16, u16)) -> RegionRenderer<'_> {
+        let scale = inner.output_scale();
         RegionRenderer {
             inner,
-            origin_x,
-            origin_y,
+            origin_x: Fixed::from(physical_origin.0) / scale,
+            origin_y: Fixed::from(physical_origin.1) / scale,
+            physical_origin,
         }
     }
 
@@ -312,9 +364,37 @@ impl RegionRenderer<'_> {
     }
 
     fn request<'cmd, 'data>(&self, request: &DrawRequest<'cmd, 'data>) -> DrawRequest<'cmd, 'data> {
-        DrawRequest::new(request.command, self.clip(request.clip)).with_projective(
-            Transform3D::translate(-self.origin_x, -self.origin_y).compose(&request.projective),
-        )
+        DrawRequest {
+            clip: self.clip(request.clip),
+            projective: Transform3D::translate(-self.origin_x, -self.origin_y)
+                .compose(&request.projective),
+            physical_clip: self.local_physical_clip(request.physical_clip),
+            ..*request
+        }
+    }
+
+    fn local_physical_clip(&self, clip: Option<PhysicalRect>) -> Option<PhysicalRect> {
+        clip.map(|clip| {
+            let (x, y) = self.physical_origin;
+            let left = clip.x().saturating_sub(x);
+            let top = clip.y().saturating_sub(y);
+            let right = clip.right().saturating_sub(x);
+            let bottom = clip.bottom().saturating_sub(y);
+            PhysicalRect::new(left, top, right - left, bottom - top).unwrap_or(PhysicalRect::EMPTY)
+        })
+    }
+
+    fn local_request<'cmd, 'data>(
+        &self,
+        command: &'cmd DrawCommand<'data>,
+        request: &DrawRequest<'_, '_>,
+    ) -> DrawRequest<'cmd, 'data> {
+        DrawRequest {
+            command,
+            clip: self.clip(request.clip),
+            projective: request.projective,
+            physical_clip: self.local_physical_clip(request.physical_clip),
+        }
     }
 }
 
@@ -354,20 +434,14 @@ impl Renderer for RegionRenderer<'_> {
 
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         if let Some(command) = self.local_command(request) {
-            return self.inner.route(
-                &DrawRequest::new(&command, self.clip(request.clip))
-                    .with_projective(request.projective),
-            );
+            return self.inner.route(&self.local_request(&command, request));
         }
         self.inner.route(&self.request(request))
     }
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         if let Some(command) = self.local_command(request) {
-            return self.inner.submit(
-                &DrawRequest::new(&command, self.clip(request.clip))
-                    .with_projective(request.projective),
-            );
+            return self.inner.submit(&self.local_request(&command, request));
         }
         self.inner.submit(&self.request(request))
     }
@@ -378,11 +452,9 @@ impl Renderer for RegionRenderer<'_> {
         identity: TextRunIdentity,
     ) -> Result<(), RenderError> {
         if let Some(command) = self.local_command(request) {
-            return self.inner.submit_text_run(
-                &DrawRequest::new(&command, self.clip(request.clip))
-                    .with_projective(request.projective),
-                identity,
-            );
+            return self
+                .inner
+                .submit_text_run(&self.local_request(&command, request), identity);
         }
         self.inner.submit_text_run(&self.request(request), identity)
     }
@@ -393,11 +465,9 @@ impl Renderer for RegionRenderer<'_> {
         route: RenderRoute,
     ) -> Result<(), RenderError> {
         if let Some(command) = self.local_command(request) {
-            return self.inner.submit_with_route(
-                &DrawRequest::new(&command, self.clip(request.clip))
-                    .with_projective(request.projective),
-                route,
-            );
+            return self
+                .inner
+                .submit_with_route(&self.local_request(&command, request), route);
         }
         self.inner.submit_with_route(&self.request(request), route)
     }
@@ -416,8 +486,8 @@ impl Renderer for RegionRenderer<'_> {
         if scale <= Fixed::ZERO {
             return Err(RenderError::InvalidGeometry);
         }
-        let origin_x = (self.origin_x * scale).to_int();
-        let origin_y = (self.origin_y * scale).to_int();
+        let origin_x = i32::from(self.physical_origin.0);
+        let origin_y = i32::from(self.physical_origin.1);
         let x = i32::from(local.x())
             .checked_add(origin_x)
             .ok_or(RenderError::InvalidGeometry)?;
@@ -840,6 +910,7 @@ pub trait Renderer: super::target::__private::TargetScopeDispatch {
                 inner: &mut software,
                 origin_x: logical.x,
                 origin_y: logical.y,
+                physical_origin: (region.x(), region.y()),
             };
             draw(&mut local)?;
             local.flush()
@@ -1348,7 +1419,7 @@ mod tests {
             region: clip,
         };
         let mut recorder = Recorder::default();
-        RegionRenderer::new(&mut recorder, Fixed::from_int(3), Fixed::from_int(4))
+        RegionRenderer::new(&mut recorder, (3, 4))
             .submit_text_run(&DrawRequest::new(&command, clip), identity)
             .unwrap();
         assert_eq!(

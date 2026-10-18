@@ -15,7 +15,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     ) {
         if width == Fixed::ONE {
             // 1px line → SDL draw_line, no tessellation.
-            let phys_clip = self.viewport.rect_to_physical(*clip);
+            let phys_clip = self.physical_draw_clip(*clip);
             let phys_p1 = self.viewport.point_to_physical(p1);
             let phys_p2 = self.viewport.point_to_physical(p2);
             let Some(clip_rect) = sdl_pixel_rect(&phys_clip, &phys_clip) else {

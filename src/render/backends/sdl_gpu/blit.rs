@@ -103,7 +103,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
 
         let phys_dst = self.viewport.point_to_physical(dst);
         let phys_dst_size = self.viewport.point_to_physical(dst_size);
-        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_clip = self.physical_draw_clip(*clip);
         let dx = phys_dst.x.to_int();
         let dy = phys_dst.y.to_int();
         let dw = phys_dst_size.x.to_int().max(0) as u32;

@@ -267,6 +267,47 @@ fn fresh_hybrid() -> Hybrid<Dummy, CountingEngine> {
 }
 
 #[test]
+fn nested_composed_engines_preserve_physical_write_boundaries() {
+    use mirui::types::PhysicalRect;
+    let surface = Texture::owned(9, 5, ColorFormat::RGBA8888).unwrap();
+    let mut software = mirui::render::SwRenderer::new(surface);
+    software.viewport = mirui::types::Viewport::new(9, 5, Fixed::from_f32(1.5));
+    let mut renderer = Hybrid::new(
+        Hybrid::new(software, CountingEngine::default()),
+        CountingEngine::default(),
+    );
+    let area = Rect::new(0, 0, 20, 20);
+    let command = mirui::render::command::DrawCommand::Fill {
+        area,
+        transform: Transform::IDENTITY,
+        quad: None,
+        color: Color::rgb(20, 100, 200),
+        radius: Fixed::ZERO,
+        opa: 255,
+    };
+    renderer
+        .submit(
+            &DrawRequest::new(&command, area)
+                .with_physical_clip(PhysicalRect::new(3, 1, 2, 3).unwrap()),
+        )
+        .unwrap();
+    Renderer::flush(&mut renderer).unwrap();
+    assert_eq!(renderer.gpu.counts.submit, 1);
+    assert_eq!(renderer.sw.gpu.counts.submit, 1);
+    let pixels = renderer.sw.sw.target.read_pixels().unwrap();
+    for y in 0..5 {
+        for x in 0..9 {
+            let expected = if (3..5).contains(&x) && (1..4).contains(&y) {
+                Color::rgb(20, 100, 200)
+            } else {
+                Color::rgba(0, 0, 0, 0)
+            };
+            assert_eq!(pixels.get_pixel(x, y), expected);
+        }
+    }
+}
+
+#[test]
 fn composed_canvas_and_renderer_propagate_target_submission_errors() {
     let mut hybrid = fresh_hybrid();
     hybrid

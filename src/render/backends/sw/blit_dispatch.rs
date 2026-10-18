@@ -19,7 +19,7 @@ impl SwRenderer<'_> {
     ) {
         let phys_dst = self.viewport.point_to_physical(dst);
         let phys_dst_size = self.viewport.point_to_physical(dst_size);
-        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_clip = self.physical_draw_clip(*clip);
         let phys_radius = radius * self.viewport.scale();
         let (sx0, sy0, sx1, sy1) = src_rect.pixel_bounds();
         let (Ok(sw), Ok(sh)) = (u16::try_from(sx1 - sx0), u16::try_from(sy1 - sy0)) else {

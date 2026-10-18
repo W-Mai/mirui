@@ -586,7 +586,7 @@ impl SwRenderer<'_> {
             return;
         }
         let phys_tf = self.viewport.as_transform();
-        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_clip = self.physical_draw_clip(*clip);
         self.fill_path_transformed(path, phys_clip, &phys_tf, paint, opa, fill_rule);
     }
 
@@ -745,7 +745,7 @@ impl SwRenderer<'_> {
             );
         }
         let outline_cmds = core::mem::take(&mut self.scratch.stroke_outline);
-        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_clip = self.physical_draw_clip(*clip);
         let paint_bbox = if !matches!(paint, Paint::Color(_)) {
             stroked_paint_bbox(&outline_cmds, &phys_tf).unwrap_or(Rect::new(0, 0, 0, 0))
         } else {

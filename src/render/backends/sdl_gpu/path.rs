@@ -13,7 +13,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         fill_rule: FillRule,
     ) {
         let phys_tf = self.viewport.as_transform();
-        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_clip = self.physical_draw_clip(*clip);
         if let Err(error) = self
             .tessellator
             .fill(path, Some(&phys_tf), color, opa, fill_rule)
@@ -34,7 +34,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         fill_rule: FillRule,
     ) {
         let phys_tf = self.viewport.as_transform().compose(cmd_tf);
-        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_clip = self.physical_draw_clip(*clip);
         if let Err(error) =
             self.tessellator
                 .fill(path.commands(), Some(&phys_tf), color, opa, fill_rule)
@@ -103,7 +103,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 self.failure.get_or_insert(error);
                 return;
             }
-            let phys_clip = self.viewport.rect_to_physical(*clip);
+            let phys_clip = self.physical_draw_clip(*clip);
             self.submit_geometry(&phys_clip, physical_opacity != 255 || color.a != 255);
             return;
         }
@@ -122,7 +122,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             self.failure.get_or_insert(error);
             return;
         }
-        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_clip = self.physical_draw_clip(*clip);
         self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
     }
 }

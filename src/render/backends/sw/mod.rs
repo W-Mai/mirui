@@ -36,6 +36,7 @@ pub struct SwRenderer<'a> {
     pub viewport: Viewport,
     pub(super) scratch: ScratchStorage<'a>,
     failure: Option<RenderError>,
+    physical_clip: Option<crate::types::PhysicalRect>,
     #[cfg(feature = "perf")]
     pub perf: Option<PerfCtx>,
 }
@@ -181,6 +182,13 @@ impl<'a> SwRenderer<'a> {
         Self::with_storage(target, ScratchStorage::Borrowed(scratch))
     }
 
+    fn physical_draw_clip(&self, clip: Rect) -> Rect {
+        crate::render::renderer::constrain_physical_clip(
+            self.viewport.rect_to_physical(clip),
+            self.physical_clip,
+        )
+    }
+
     fn with_storage(target: Texture<'a>, scratch: ScratchStorage<'a>) -> Self {
         let viewport = Viewport::new(target.width, target.height, Fixed::ONE);
         Self {
@@ -188,6 +196,7 @@ impl<'a> SwRenderer<'a> {
             viewport,
             scratch,
             failure: None,
+            physical_clip: None,
             #[cfg(feature = "perf")]
             perf: None,
         }
@@ -228,7 +237,7 @@ impl<'a> SwRenderer<'a> {
     fn draw_transformed(&mut self, cmd: &DrawCommand, clip: &Rect, tf: &Transform) {
         let vp = self.viewport.as_transform();
         let phys_tf = vp.compose(tf);
-        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_clip = self.physical_draw_clip(*clip);
         match cmd {
             DrawCommand::PushClip {
                 path, fill_rule, ..
@@ -239,7 +248,7 @@ impl<'a> SwRenderer<'a> {
                 self.pop_clip();
             }
             DrawCommand::ApplyBlur { alpha, region } => {
-                let phys_region = self.viewport.rect_to_physical(*region);
+                let phys_region = self.physical_draw_clip(*region);
                 let Some(mut target) = write_pixels(&mut self.target, &mut self.failure) else {
                     return;
                 };
@@ -652,7 +661,7 @@ impl SwRenderer<'_> {
     ) {
         #[cfg(feature = "perf")]
         let t0 = quad_perf::now();
-        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_clip = self.physical_draw_clip(*clip);
         let phys_q = [
             self.viewport.point_to_physical(q[0]),
             self.viewport.point_to_physical(q[1]),
@@ -696,7 +705,7 @@ impl SwRenderer<'_> {
         };
         #[cfg(feature = "perf")]
         let t0 = quad_perf::now();
-        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_clip = self.physical_draw_clip(*clip);
         let phys_q = [
             self.viewport.point_to_physical(q[0]),
             self.viewport.point_to_physical(q[1]),
@@ -736,7 +745,7 @@ impl SwRenderer<'_> {
         opa: u8,
         clip: &Rect,
     ) {
-        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_clip = self.physical_draw_clip(*clip);
         let phys_q = [
             self.viewport.point_to_physical(q[0]),
             self.viewport.point_to_physical(q[1]),
@@ -924,6 +933,7 @@ impl SwRenderer<'_> {
 
         request.validate_projection()?;
         request.validate_texture()?;
+        request.validate_write_boundary(self.viewport)?;
         if !request.projective.is_identity() {
             self.preflight_projective(request.command, &request.clip, &request.projective)
                 .map_err(RenderError::from)?;
@@ -995,6 +1005,15 @@ impl SwRenderer<'_> {
     }
 
     fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        let saved = self.physical_clip;
+        request.validate_write_boundary(self.viewport)?;
+        self.physical_clip = request.physical_clip;
+        let result = self.submit_clipped(request);
+        self.physical_clip = saved;
+        result
+    }
+
+    fn submit_clipped(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         use crate::types::TransformClass;
 
         self.flush()?;
@@ -1181,7 +1200,7 @@ impl SwRenderer<'_> {
                     frames: glyphs.frames(),
                     font,
                     transform: &phys_tf,
-                    clip: self.viewport.rect_to_physical(*clip),
+                    clip: self.physical_draw_clip(*clip),
                     color,
                     opacity: *opa,
                 });
@@ -1236,7 +1255,7 @@ impl SwRenderer<'_> {
                         .viewport
                         .as_transform()
                         .compose(&Transform::translate(tx, ty));
-                    let phys_clip = self.viewport.rect_to_physical(*clip);
+                    let phys_clip = self.physical_draw_clip(*clip);
                     self.fill_path_transformed(path, phys_clip, &phys_tf, paint, *opa, *fill_rule);
                 }
             }
@@ -1269,7 +1288,7 @@ impl SwRenderer<'_> {
                         .viewport
                         .as_transform()
                         .compose(&Transform::translate(tx, ty));
-                    let phys_clip = self.viewport.rect_to_physical(*clip);
+                    let phys_clip = self.physical_draw_clip(*clip);
                     self.stroke_path_transformed(
                         path,
                         phys_clip,
@@ -1360,7 +1379,7 @@ impl SwRenderer<'_> {
                     glyphs,
                     font,
                     transform: &physical,
-                    clip: self.viewport.rect_to_physical(*clip),
+                    clip: self.physical_draw_clip(*clip),
                     color,
                     opacity: *opa,
                 });
@@ -1382,7 +1401,7 @@ impl SwRenderer<'_> {
                     font,
                     command_transform: transform,
                     projective_transform: &physical_projective,
-                    clip: self.viewport.rect_to_physical(*clip),
+                    clip: self.physical_draw_clip(*clip),
                     color,
                     opacity: *opa,
                 });
@@ -1399,7 +1418,7 @@ impl SwRenderer<'_> {
                 self.fill_path_projective(
                     path,
                     &physical,
-                    self.viewport.rect_to_physical(*clip),
+                    self.physical_draw_clip(*clip),
                     paint,
                     *opa,
                     *fill_rule,
@@ -1422,7 +1441,7 @@ impl SwRenderer<'_> {
                     path.commands(),
                     transform,
                     &physical_projective,
-                    self.viewport.rect_to_physical(*clip),
+                    self.physical_draw_clip(*clip),
                     *width,
                     paint,
                     *opa,
@@ -1448,7 +1467,7 @@ impl SwRenderer<'_> {
                     &commands,
                     transform,
                     &physical_projective,
-                    self.viewport.rect_to_physical(*clip),
+                    self.physical_draw_clip(*clip),
                     *width,
                     &paint,
                     *opa,
@@ -1477,7 +1496,7 @@ impl SwRenderer<'_> {
                     path.commands(),
                     transform,
                     &physical_projective,
-                    self.viewport.rect_to_physical(*clip),
+                    self.physical_draw_clip(*clip),
                     *width,
                     &paint,
                     *opa,

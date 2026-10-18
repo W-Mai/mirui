@@ -553,8 +553,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
             if projective.is_identity() {
                 let mut local = crate::render::renderer::RegionRenderer::new(
                     &mut renderer,
-                    plan.logical_origin.x,
-                    plan.logical_origin.y,
+                    (plan.region.x(), plan.region.y()),
                 );
                 return local.submit(&crate::render::renderer::DrawRequest::new(
                     command,

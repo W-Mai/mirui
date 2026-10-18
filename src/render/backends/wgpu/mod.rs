@@ -430,6 +430,7 @@ impl<B: WgpuTarget> RendererFactory<B> for WgpuRendererFactory {
                 viewport: *transform,
                 frame: None,
                 failure: Some(error),
+                physical_clip: None,
             };
         }
         let device = &backend
@@ -472,6 +473,7 @@ impl<B: WgpuTarget> RendererFactory<B> for WgpuRendererFactory {
             viewport: *transform,
             frame: None,
             failure: None,
+            physical_clip: None,
         }
     }
 
@@ -502,6 +504,7 @@ pub struct WgpuRenderer<'a, B: WgpuTarget> {
     viewport: Viewport,
     frame: Option<Frame>,
     failure: Option<RenderError>,
+    physical_clip: Option<crate::types::PhysicalRect>,
 }
 
 struct Frame {
@@ -1641,12 +1644,18 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
 
 impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     fn physical_clip_rect(&self, src: &Rect) -> Option<PhysicalRect> {
-        if let Some(target) = self.frame.as_ref().and_then(|frame| frame.target.as_ref()) {
-            return target.clip_rect(self.viewport, *src);
+        let rect = if let Some(target) = self.frame.as_ref().and_then(|frame| frame.target.as_ref())
+        {
+            target.clip_rect(self.viewport, *src)?
+        } else {
+            let state = self.surface.state()?;
+            self.viewport
+                .physical_rect_in(*src, state.config.width, state.config.height)?
+        };
+        match self.physical_clip {
+            Some(clip) => rect.intersection(clip),
+            None => Some(rect),
         }
-        let state = self.surface.state()?;
-        self.viewport
-            .physical_rect_in(*src, state.config.width, state.config.height)
     }
 }
 
@@ -2560,6 +2569,7 @@ mod route_tests {
             viewport: Viewport::new(64, 64, Fixed::ONE),
             frame: None,
             failure: None,
+            physical_clip: None,
         };
         let line = DrawCommand::Line {
             p1: Point::new(8, 8),
@@ -2666,6 +2676,7 @@ mod route_tests {
             viewport: Viewport::new(2, 2, Fixed::ONE),
             frame: None,
             failure: None,
+            physical_clip: None,
         };
         assert_eq!(
             renderer.edit_region(
@@ -2710,6 +2721,7 @@ mod route_tests {
             viewport: Viewport::new(2, 2, Fixed::ONE),
             frame: None,
             failure: None,
+            physical_clip: None,
         };
         let source = Texture::owned(1, 1, ColorFormat::RGBA8888).unwrap();
         assert!(renderer.blit_source_view(&source).is_none());
@@ -4245,6 +4257,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         request.validate_projection()?;
         request.validate_texture()?;
+        request.validate_write_boundary(self.viewport)?;
         if let Some(plan) = self.non_native_fallback_plan(request)? {
             return Ok(RenderRoute::ExactFallback(plan.region()));
         }
@@ -4281,6 +4294,21 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     }
 
     fn submit_with_route(
+        &mut self,
+        request: &DrawRequest<'_, '_>,
+        route: RenderRoute,
+    ) -> Result<(), RenderError> {
+        let saved = self.physical_clip;
+        request.validate_write_boundary(self.viewport)?;
+        self.physical_clip = request.physical_clip;
+        let result = request
+            .clip_route(route)
+            .and_then(|route| self.submit_clipped(request, route));
+        self.physical_clip = saved;
+        result
+    }
+
+    fn submit_clipped(
         &mut self,
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,
