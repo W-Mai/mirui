@@ -146,7 +146,7 @@ app.on_event(Key::EVENT, handle_key::callback(shortcuts));
 
 Focused keyboard handlers and default text editing run before App key and character fallback. Wheel and rotary events first try the scroll route. An accepted input is not dispatched again through a second handler path. App fallback also works without a widget root. Plugin consumption can stop user input, but does not stop lifecycle requests from reaching other plugins or bypass cancellation.
 
-Atlas Restoration, Echo Walker, Pocket Post, Twin Beacons, and Folding Ark bind keyboard controls with `#[event]`, `event!(TextCommitted)`, and `model!` parameters. Their shortcuts match a complete single-key string at App fallback, without splitting pasted text into game actions. Registered instances are shared with the rest of each game; input consumed by a focused editor does not trigger the shortcut.
+Atlas Restoration, Echo Walker, Pocket Post, Twin Beacons, and Folding Ark bind keyboard controls with `#[event]`, `event!(Key)`, and `model!` parameters. Controls use `PhysicalKey` positions; WASD labels refer to US keyboard positions, independently of the active text layout. Presses and repeated presses operate the game, while releases and Control/Command/Alt combinations do not. Committed or pasted text does not trigger game actions. Registered instances are shared with the rest of each game; input consumed by a focused editor does not trigger the control.
 
 On Web, a focused canvas delivers non-composing character key presses as `TextCommitted`, including Space. A focused text editor receives its text through DOM input instead, so keyboard input is not committed twice. Control and Command combinations do not produce character commits.
 

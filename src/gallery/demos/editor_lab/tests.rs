@@ -41,6 +41,7 @@ fn clipboard_shortcuts_use_the_focused_shared_editors_selection() {
             &mut app.world,
             app.root,
             &InputEvent::Key {
+                physical: None,
                 code,
                 pressed: true,
                 modifiers: Some(KeyModifiers {
@@ -73,6 +74,7 @@ fn clipboard_shortcuts_use_the_focused_shared_editors_selection() {
             &mut app.world,
             app.root,
             &InputEvent::Key {
+                physical: None,
                 code,
                 pressed: true,
                 modifiers: Some(KeyModifiers {

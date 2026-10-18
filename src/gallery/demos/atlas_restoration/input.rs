@@ -4,7 +4,7 @@ use crate::gallery::play::expeditions::{
     Direction4, ExpeditionModal, ExpeditionPanel, ExpeditionUiModel, picture_level,
 };
 use crate::gallery::play::picture::{PictureModel, PictureTool};
-use crate::prelude::{Fixed, Rect, TextCommitted, event};
+use crate::prelude::{Fixed, Key, PhysicalKey, Rect, event};
 
 fn local_cell(level_index: u8, rect: Rect, x: Fixed, y: Fixed) -> Option<u8> {
     if rect.w.is_zero() || rect.h.is_zero() {
@@ -98,22 +98,29 @@ pub(super) fn surface_drag_end(surface: &PictureSurface, cancelled: bool) -> boo
 
 #[event]
 pub(super) fn keyboard(
-    input: event!(TextCommitted),
+    input: event!(Key),
     model: model!(PictureModel),
     expedition: model!(ExpeditionUiModel),
 ) -> bool {
     if expedition.panel() != ExpeditionPanel::None || model.modal() != ExpeditionModal::None {
         return false;
     }
-    match input.text() {
-        "w" | "W" => model.move_cursor(Direction4::Up),
-        "d" | "D" => model.move_cursor(Direction4::Right),
-        "s" | "S" => model.move_cursor(Direction4::Down),
-        "a" | "A" => model.move_cursor(Direction4::Left),
-        " " => model.apply_cursor(None),
-        "x" | "X" => model.apply_cursor(Some(PictureTool::Mark)),
-        "z" | "Z" => model.undo(),
-        "h" | "H" => model.reveal_hint(),
+    if !input.pressed
+        || input
+            .modifiers
+            .is_some_and(|m| m.control || m.meta || m.alt)
+    {
+        return false;
+    }
+    match input.physical {
+        Some(PhysicalKey::KeyW) => model.move_cursor(Direction4::Up),
+        Some(PhysicalKey::KeyD) => model.move_cursor(Direction4::Right),
+        Some(PhysicalKey::KeyS) => model.move_cursor(Direction4::Down),
+        Some(PhysicalKey::KeyA) => model.move_cursor(Direction4::Left),
+        Some(PhysicalKey::Space) => model.apply_cursor(None),
+        Some(PhysicalKey::KeyX) => model.apply_cursor(Some(PictureTool::Mark)),
+        Some(PhysicalKey::KeyZ) => model.undo(),
+        Some(PhysicalKey::KeyH) => model.reveal_hint(),
         _ => return false,
     };
     true

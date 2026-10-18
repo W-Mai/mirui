@@ -1234,7 +1234,7 @@ where
     let hints = FoldHintService::new();
     app.add_resource(hints.clone());
     app.on_event(
-        TextCommitted::EVENT,
+        Key::EVENT,
         keyboard::callback(game.clone(), expedition.clone()),
     );
     app.compose(parent, build_widgets(game, expedition, hints));

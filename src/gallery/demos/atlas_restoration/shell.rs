@@ -1646,7 +1646,7 @@ where
     let model = app.add_model(PictureModel::default()).finish();
     let expedition = app.add_model(ExpeditionUiModel::default()).finish();
     app.on_event(
-        TextCommitted::EVENT,
+        Key::EVENT,
         keyboard::callback(model.clone(), expedition.clone()),
     );
     app.with_widget(surface_render::view());

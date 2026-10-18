@@ -56,3 +56,16 @@ pub(crate) fn tracked_allocations(run: impl FnOnce()) -> usize {
     drop(stop);
     ALLOCATIONS.with(Cell::get)
 }
+
+#[cfg(feature = "gallery")]
+pub(crate) fn physical_key(
+    position: crate::input::event::input::PhysicalKey,
+) -> crate::input::event::input::Key {
+    crate::input::event::input::Key {
+        physical: Some(position),
+        code: crate::input::event::input::KEY_UNKNOWN,
+        pressed: true,
+        modifiers: Some(Default::default()),
+        repeat: Some(false),
+    }
+}

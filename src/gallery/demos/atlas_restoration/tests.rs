@@ -191,9 +191,7 @@ fn overlays_block_surface_taps_drags_and_keyboard_commands() {
     crate::input::event::dispatch_input(
         &mut world,
         None,
-        &crate::surface::InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new(
-            "d",
-        )),
+        &crate::test_support::physical_key(PhysicalKey::KeyD).into(),
         0,
         480,
         320,
@@ -210,13 +208,11 @@ fn overlays_block_surface_taps_drags_and_keyboard_commands() {
     let cursor = ModelHandle::read(&model, PictureModel::cursor);
     let tool = model.tool();
     let history_len = model.history_len();
-    for ch in ['d', 'x'] {
+    for position in [PhysicalKey::KeyD, PhysicalKey::KeyX] {
         crate::input::event::dispatch_input(
             &mut world,
             None,
-            &crate::surface::InputEvent::TextCommitted(
-                crate::input::event::input::TextCommitted::new(ch.to_string()),
-            ),
+            &crate::test_support::physical_key(position).into(),
             1,
             480,
             320,
@@ -321,9 +317,7 @@ fn keyboard_commands_wait_for_the_active_stroke_transaction() {
     crate::input::event::dispatch_input(
         &mut world,
         None,
-        &crate::surface::InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new(
-            "h",
-        )),
+        &crate::test_support::physical_key(PhysicalKey::KeyH).into(),
         0,
         480,
         320,
@@ -347,16 +341,16 @@ fn keyboard_commands_wait_for_the_active_stroke_transaction() {
 }
 
 #[derive(Default)]
-struct UnhandledCharacter(Option<char>);
+struct UnhandledKey(Option<PhysicalKey>);
 
 #[event]
-fn unhandled_character(input: event!(TextCommitted), seen: res!(mut UnhandledCharacter)) -> bool {
-    seen.0 = input.text().chars().next();
+fn unhandled_key(input: event!(Key), seen: res!(mut UnhandledKey)) -> bool {
+    seen.0 = input.physical;
     true
 }
 
 #[test]
-fn registered_keyboard_uses_both_model_instances_and_leaves_unknown_characters_unhandled() {
+fn registered_keyboard_uses_both_model_instances_and_leaves_unknown_positions_unhandled() {
     let mut app = App::headless(480, 320);
     app.with_default_widgets().with_default_systems();
     let root = app.spawn_root().id();
@@ -364,8 +358,8 @@ fn registered_keyboard_uses_both_model_instances_and_leaves_unknown_characters_u
     let (model, expedition) = handles(&app.world);
     let observer = model.clone();
     let panel = expedition.clone();
-    app.world.insert_resource(UnhandledCharacter::default());
-    app.on_event(TextCommitted::EVENT, unhandled_character::callback());
+    app.world.insert_resource(UnhandledKey::default());
+    app.on_event(Key::EVENT, unhandled_key::callback());
     drop(model);
     drop(expedition);
 
@@ -373,49 +367,43 @@ fn registered_keyboard_uses_both_model_instances_and_leaves_unknown_characters_u
     crate::input::event::dispatch_input(
         &mut app.world,
         Some(root),
-        &crate::surface::InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new(
-            "D",
-        )),
+        &crate::test_support::physical_key(PhysicalKey::KeyD).into(),
         0,
         480,
         320,
     );
     let moved = observer.read(PictureModel::cursor);
     assert_ne!(moved, before);
-    assert_eq!(app.world.resource::<UnhandledCharacter>().unwrap().0, None);
+    assert_eq!(app.world.resource::<UnhandledKey>().unwrap().0, None);
 
     panel.open_rules();
     crate::input::event::dispatch_input(
         &mut app.world,
         Some(root),
-        &crate::surface::InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new(
-            "a",
-        )),
+        &crate::test_support::physical_key(PhysicalKey::KeyA).into(),
         1,
         480,
         320,
     );
     assert_eq!(observer.read(PictureModel::cursor), moved);
     assert_eq!(
-        app.world.resource::<UnhandledCharacter>().unwrap().0,
-        Some('a')
+        app.world.resource::<UnhandledKey>().unwrap().0,
+        Some(PhysicalKey::KeyA)
     );
 
     panel.close();
     crate::input::event::dispatch_input(
         &mut app.world,
         Some(root),
-        &crate::surface::InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new(
-            "q",
-        )),
+        &crate::test_support::physical_key(PhysicalKey::KeyQ).into(),
         2,
         480,
         320,
     );
     assert_eq!(observer.read(PictureModel::cursor), moved);
     assert_eq!(
-        app.world.resource::<UnhandledCharacter>().unwrap().0,
-        Some('q')
+        app.world.resource::<UnhandledKey>().unwrap().0,
+        Some(PhysicalKey::KeyQ)
     );
 }
 

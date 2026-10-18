@@ -53,21 +53,19 @@ fn visible_interactive_descendant(world: &World, entity: Entity) -> bool {
 }
 
 #[derive(Default)]
-struct UnhandledCharacter(Option<char>);
+struct UnhandledKey(Option<PhysicalKey>);
 
 #[event]
-fn unhandled_character(input: event!(TextCommitted), seen: res!(mut UnhandledCharacter)) -> bool {
-    seen.0 = input.text().chars().next();
+fn unhandled_key(input: event!(Key), seen: res!(mut UnhandledKey)) -> bool {
+    seen.0 = input.physical;
     true
 }
 
-fn send_character(world: &mut World, root: Entity, ch: char) {
+fn send_key(world: &mut World, root: Entity, position: PhysicalKey) {
     crate::input::event::dispatch_input(
         world,
         Some(root),
-        &crate::surface::InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new(
-            ch.to_string(),
-        )),
+        &crate::test_support::physical_key(position).into(),
         0,
         480,
         320,
@@ -91,62 +89,67 @@ fn registered_keyboard_preserves_commands_and_bound_model_instances() {
     let independent = app.add_model(FoldModel::default()).finish();
     let independent_panel = app.add_model(ExpeditionUiModel::default()).finish();
     independent_panel.open_summary();
-    app.add_resource(UnhandledCharacter::default());
-    app.on_event(TextCommitted::EVENT, unhandled_character::callback());
+    app.add_resource(UnhandledKey::default());
+    app.on_event(Key::EVENT, unhandled_key::callback());
     drop(game);
     drop(expedition);
 
-    for (characters, direction) in [
-        (['w', 'W'], Direction4::Up),
-        (['d', 'D'], Direction4::Right),
-        (['s', 'S'], Direction4::Down),
-        (['a', 'A'], Direction4::Left),
+    for (position, direction) in [
+        (PhysicalKey::KeyW, Direction4::Up),
+        (PhysicalKey::KeyD, Direction4::Right),
+        (PhysicalKey::KeyS, Direction4::Down),
+        (PhysicalKey::KeyA, Direction4::Left),
     ] {
-        for ch in characters {
-            observer.restart();
-            let mut expected = with_game(&observer, |game| *game);
-            expected.move_direction(direction);
-            send_character(&mut app.world, root, ch);
-            assert_eq!(
-                with_game(&observer, game_snapshot),
-                game_snapshot(&expected)
-            );
-            assert_eq!(app.world.resource::<UnhandledCharacter>().unwrap().0, None);
-        }
+        observer.restart();
+        let mut expected = with_game(&observer, |game| *game);
+        expected.move_direction(direction);
+        send_key(&mut app.world, root, position);
+        assert_eq!(
+            with_game(&observer, game_snapshot),
+            game_snapshot(&expected)
+        );
+        assert_eq!(app.world.resource::<UnhandledKey>().unwrap().0, None);
     }
 
     observer.restart();
     let direction = with_game(&observer, |game| game.level().solution(0).unwrap());
     observer.move_direction(direction);
     assert_eq!(observer.steps(), 1);
-    for ch in ['Z', 'z'] {
-        send_character(&mut app.world, root, ch);
+    for _ in 0..2 {
+        let position = PhysicalKey::KeyZ;
+        send_key(&mut app.world, root, position);
         assert_eq!(observer.steps(), 0);
         assert_eq!(observer.message(), FoldMessage::Undone);
-        assert_eq!(app.world.resource::<UnhandledCharacter>().unwrap().0, None);
+        assert_eq!(app.world.resource::<UnhandledKey>().unwrap().0, None);
     }
-    for ch in ['h', 'H'] {
-        send_character(&mut app.world, root, ch);
+    for _ in 0..2 {
+        let position = PhysicalKey::KeyH;
+        send_key(&mut app.world, root, position);
         assert!(matches!(observer.message(), FoldMessage::Hint(_, _)));
-        assert_eq!(app.world.resource::<UnhandledCharacter>().unwrap().0, None);
+        assert_eq!(app.world.resource::<UnhandledKey>().unwrap().0, None);
     }
 
     panel.open_rules();
     let before = with_game(&observer, game_snapshot);
-    for ch in ['w', 'D', 'z', 'H'] {
-        send_character(&mut app.world, root, ch);
+    for position in [
+        PhysicalKey::KeyW,
+        PhysicalKey::KeyD,
+        PhysicalKey::KeyZ,
+        PhysicalKey::KeyH,
+    ] {
+        send_key(&mut app.world, root, position);
         assert_eq!(with_game(&observer, game_snapshot), before);
         assert_eq!(
-            app.world.resource::<UnhandledCharacter>().unwrap().0,
-            Some(ch)
+            app.world.resource::<UnhandledKey>().unwrap().0,
+            Some(position)
         );
     }
     panel.close();
-    send_character(&mut app.world, root, 'q');
+    send_key(&mut app.world, root, PhysicalKey::KeyQ);
     assert_eq!(with_game(&observer, game_snapshot), before);
     assert_eq!(
-        app.world.resource::<UnhandledCharacter>().unwrap().0,
-        Some('q')
+        app.world.resource::<UnhandledKey>().unwrap().0,
+        Some(PhysicalKey::KeyQ)
     );
 
     observer.restart();
@@ -157,11 +160,11 @@ fn registered_keyboard_preserves_commands_and_bound_model_instances() {
     }
     assert_ne!(observer.modal(), ExpeditionModal::None);
     let completed = with_game(&observer, game_snapshot);
-    app.world.resource_mut::<UnhandledCharacter>().unwrap().0 = None;
-    for ch in ['W', 'Z', 'H'] {
-        send_character(&mut app.world, root, ch);
+    app.world.resource_mut::<UnhandledKey>().unwrap().0 = None;
+    for position in [PhysicalKey::KeyW, PhysicalKey::KeyZ, PhysicalKey::KeyH] {
+        send_key(&mut app.world, root, position);
         assert_eq!(with_game(&observer, game_snapshot), completed);
-        assert_eq!(app.world.resource::<UnhandledCharacter>().unwrap().0, None);
+        assert_eq!(app.world.resource::<UnhandledKey>().unwrap().0, None);
     }
     assert_eq!(
         with_game(&independent, game_snapshot),
@@ -188,7 +191,7 @@ fn keyboard_refetches_hints_and_preserves_observed_revision_contracts() {
     app.world.remove::<VisualDirty>(surface);
     let visual_revision = observer.visual_revision();
     let saved = with_game(&observer, game_snapshot).0;
-    send_character(&mut app.world, root, 'H');
+    send_key(&mut app.world, root, PhysicalKey::KeyH);
     let hint = observer.message();
     assert!(matches!(hint, FoldMessage::Hint(_, _)));
     assert_ne!(with_game(&observer, game_snapshot).0, saved);
@@ -197,7 +200,7 @@ fn keyboard_refetches_hints_and_preserves_observed_revision_contracts() {
     assert!(!app.world.has::<VisualDirty>(surface));
 
     let hinted = with_game(&observer, game_snapshot).0;
-    send_character(&mut app.world, root, 'h');
+    send_key(&mut app.world, root, PhysicalKey::KeyH);
     assert_eq!(observer.message(), hint);
     assert_eq!(with_game(&observer, game_snapshot).0, hinted);
     assert_eq!(observer.visual_revision(), visual_revision);
@@ -208,7 +211,7 @@ fn keyboard_refetches_hints_and_preserves_observed_revision_contracts() {
     let before = with_game(&observer, game_snapshot);
     app.world.remove_resource::<FoldHintService>().unwrap();
     let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        send_character(&mut app.world, root, 'H');
+        send_key(&mut app.world, root, PhysicalKey::KeyH);
     }));
     assert!(error.is_err());
     assert_eq!(with_game(&observer, game_snapshot), before);
@@ -217,10 +220,10 @@ fn keyboard_refetches_hints_and_preserves_observed_revision_contracts() {
 
     observer.restart();
     app.add_resource(FoldHintService::new());
-    send_character(&mut app.world, root, 'h');
+    send_key(&mut app.world, root, PhysicalKey::KeyH);
     let restored = with_game(&observer, game_snapshot).0;
     assert!(matches!(observer.message(), FoldMessage::Hint(_, _)));
-    send_character(&mut app.world, root, 'H');
+    send_key(&mut app.world, root, PhysicalKey::KeyH);
     assert_eq!(with_game(&observer, game_snapshot).0, restored);
 }
 

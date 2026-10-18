@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `Key::physical` identifies keyboard positions independently of text layout on SDL, WGPU, Web, and Linux evdev. Focused editors separate physical controls from committed text, and Escape is delivered as a key instead of closing the window.
+- Echo Walker, Pocket Post, Twin Beacons, Folding Ark, and Atlas Restoration use physical keyboard controls without requiring an active text-input session.
 - The Android host library provides read-only clipboard snapshot URIs with independent MIME representations and file lifetimes.
 - Android host clipboard operations preserve ClipData item grouping, reject malformed text, and read typed streams with cancellation and complete-result validation.
 - Android WGPU and SDL surfaces share asynchronous clipboard transfers with exactly-once receipts and suspension cancellation.

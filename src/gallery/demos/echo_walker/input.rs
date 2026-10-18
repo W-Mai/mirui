@@ -46,15 +46,22 @@ pub(super) fn surface_tap(surface: &EchoSurface, rect: Rect, x: Fixed, y: Fixed)
 }
 
 #[event]
-pub(super) fn keyboard(input: event!(TextCommitted), model: model!(EchoModel)) -> bool {
-    match input.text() {
-        "w" | "W" => model.step(Direction::Up),
-        "a" | "A" => model.step(Direction::Left),
-        "s" | "S" => model.step(Direction::Down),
-        "d" | "D" => model.step(Direction::Right),
-        " " => model.step(Direction::Wait),
-        "r" | "R" => model.rewind(),
-        "u" | "U" => model.undo(),
+pub(super) fn keyboard(input: event!(Key), model: model!(EchoModel)) -> bool {
+    if !input.pressed
+        || input
+            .modifiers
+            .is_some_and(|m| m.control || m.meta || m.alt)
+    {
+        return false;
+    }
+    match input.physical {
+        Some(PhysicalKey::KeyW) => model.step(Direction::Up),
+        Some(PhysicalKey::KeyA) => model.step(Direction::Left),
+        Some(PhysicalKey::KeyS) => model.step(Direction::Down),
+        Some(PhysicalKey::KeyD) => model.step(Direction::Right),
+        Some(PhysicalKey::Space) => model.step(Direction::Wait),
+        Some(PhysicalKey::KeyR) => model.rewind(),
+        Some(PhysicalKey::KeyU) => model.undo(),
         _ => return false,
     };
     true
@@ -64,33 +71,93 @@ pub(super) fn keyboard(input: event!(TextCommitted), model: model!(EchoModel)) -
 mod tests {
     use super::*;
     use crate::core::model::ModelHandle;
-    use crate::input::event::{dispatch_input, input::InputEvent};
+    use crate::input::event::{dispatch_input, input::PhysicalKey};
 
     #[derive(Default)]
-    struct Unhandled(Option<char>);
+    struct Unhandled(Option<PhysicalKey>);
 
     #[event]
-    fn unhandled(input: event!(TextCommitted), seen: res!(mut Unhandled)) -> bool {
-        seen.0 = input.text().chars().next();
+    fn unhandled(input: event!(Key), seen: res!(mut Unhandled)) -> bool {
+        seen.0 = input.physical;
         true
     }
 
     #[test]
     fn committed_words_do_not_trigger_individual_game_shortcuts() {
         let mut app = crate::app::App::headless(32, 32);
-        app.add_resource(Unhandled::default());
         let model = app.add_model(EchoModel::default()).finish();
-        app.on_event(TextCommitted::EVENT, keyboard::callback(model))
-            .on_event(TextCommitted::EVENT, unhandled::callback());
-        crate::input::event::dispatch_input(
-            &mut app.world,
-            None,
-            &TextCommitted::new("wasd").into(),
-            0,
-            32,
-            32,
-        );
-        assert_eq!(app.world.resource::<Unhandled>().unwrap().0, Some('w'));
+        app.on_event(Key::EVENT, keyboard::callback(model.clone()));
+        for text in ["wasd", " ", "w"] {
+            dispatch_input(
+                &mut app.world,
+                None,
+                &TextCommitted::new(text).into(),
+                0,
+                32,
+                32,
+            );
+            assert_eq!(model.tick(), 0);
+        }
+    }
+
+    #[test]
+    fn game_positions_ignore_releases_and_shortcuts_but_preserve_shift_and_repeat() {
+        use crate::input::event::input::KeyModifiers;
+        let mut app = App::headless(32, 32);
+        let model = app.add_model(EchoModel::default()).finish();
+        app.on_event(Key::EVENT, keyboard::callback(model.clone()));
+        let base = crate::test_support::physical_key(PhysicalKey::Space);
+        for event in [
+            Key {
+                pressed: false,
+                ..base
+            },
+            Key {
+                modifiers: Some(KeyModifiers {
+                    control: true,
+                    ..Default::default()
+                }),
+                ..base
+            },
+            Key {
+                modifiers: Some(KeyModifiers {
+                    meta: true,
+                    ..Default::default()
+                }),
+                ..base
+            },
+            Key {
+                modifiers: Some(KeyModifiers {
+                    alt: true,
+                    ..Default::default()
+                }),
+                ..base
+            },
+            Key {
+                physical: None,
+                ..base
+            },
+        ] {
+            dispatch_input(&mut app.world, None, &event.into(), 0, 32, 32);
+            assert_eq!(model.tick(), 0);
+        }
+        for event in [
+            Key {
+                modifiers: Some(KeyModifiers {
+                    shift: true,
+                    ..Default::default()
+                }),
+                ..base
+            },
+            Key {
+                repeat: Some(true),
+                ..base
+            },
+        ] {
+            model.rewind();
+            dispatch_input(&mut app.world, None, &event.into(), 0, 32, 32);
+            assert_eq!(model.tick(), 1);
+        }
     }
 
     #[test]
@@ -99,14 +166,14 @@ mod tests {
         let model = app.add_model(EchoModel::default()).finish();
         let observer = model.clone();
         app.world.insert_resource(Unhandled::default());
-        app.on_event(TextCommitted::EVENT, keyboard::callback(model.clone()))
-            .on_event(TextCommitted::EVENT, unhandled::callback());
+        app.on_event(Key::EVENT, keyboard::callback(model.clone()))
+            .on_event(Key::EVENT, unhandled::callback());
         drop(model);
 
         dispatch_input(
             &mut app.world,
             None,
-            &InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new(" ")),
+            &crate::test_support::physical_key(PhysicalKey::Space).into(),
             0,
             1,
             1,
@@ -118,12 +185,15 @@ mod tests {
         dispatch_input(
             &mut app.world,
             None,
-            &InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new("x")),
+            &crate::test_support::physical_key(PhysicalKey::KeyX).into(),
             1,
             1,
             1,
         );
         observer.read(|model| assert_eq!(model.tick(), 1));
-        assert_eq!(app.world.resource::<Unhandled>().unwrap().0, Some('x'));
+        assert_eq!(
+            app.world.resource::<Unhandled>().unwrap().0,
+            Some(PhysicalKey::KeyX)
+        );
     }
 }

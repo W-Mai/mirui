@@ -34,11 +34,18 @@ pub(super) fn post_tick_system(model: model!(PostModel), delta: res!(DeltaTimeMs
 }
 
 #[event]
-pub(super) fn keyboard(input: event!(TextCommitted), model: model!(PostModel)) -> bool {
-    match input.text() {
-        "a" | "A" => model.toggle_switch(0),
-        "s" | "S" => model.toggle_switch(1),
-        " " => model.toggle_running(),
+pub(super) fn keyboard(input: event!(Key), model: model!(PostModel)) -> bool {
+    if !input.pressed
+        || input
+            .modifiers
+            .is_some_and(|m| m.control || m.meta || m.alt)
+    {
+        return false;
+    }
+    match input.physical {
+        Some(PhysicalKey::KeyA) => model.toggle_switch(0),
+        Some(PhysicalKey::KeyS) => model.toggle_switch(1),
+        Some(PhysicalKey::Space) => model.toggle_running(),
         _ => return false,
     };
     true
@@ -49,14 +56,14 @@ mod tests {
     use super::*;
     use crate::core::model::ModelHandle;
     use crate::gallery::play::post::PostModal;
-    use crate::input::event::{dispatch_input, input::InputEvent};
+    use crate::input::event::{dispatch_input, input::PhysicalKey};
 
     #[derive(Default)]
-    struct Unhandled(Option<char>);
+    struct Unhandled(Option<PhysicalKey>);
 
     #[event]
-    fn unhandled(input: event!(TextCommitted), seen: res!(mut Unhandled)) -> bool {
-        seen.0 = input.text().chars().next();
+    fn unhandled(input: event!(Key), seen: res!(mut Unhandled)) -> bool {
+        seen.0 = input.physical;
         true
     }
 
@@ -66,17 +73,15 @@ mod tests {
         let model = app.add_model(PostModel::default()).finish();
         let observer = model.clone();
         app.world.insert_resource(Unhandled::default());
-        app.on_event(TextCommitted::EVENT, keyboard::callback(model.clone()))
-            .on_event(TextCommitted::EVENT, unhandled::callback());
+        app.on_event(Key::EVENT, keyboard::callback(model.clone()))
+            .on_event(Key::EVENT, unhandled::callback());
         drop(model);
 
-        for ch in ['a', 'S', ' '] {
+        for position in [PhysicalKey::KeyA, PhysicalKey::KeyS, PhysicalKey::Space] {
             dispatch_input(
                 &mut app.world,
                 None,
-                &InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new(
-                    ch.to_string(),
-                )),
+                &crate::test_support::physical_key(position).into(),
                 0,
                 1,
                 1,
@@ -89,13 +94,11 @@ mod tests {
         });
 
         observer.open_manifests();
-        for ch in ['A', 's', ' '] {
+        for position in [PhysicalKey::KeyA, PhysicalKey::KeyS, PhysicalKey::Space] {
             dispatch_input(
                 &mut app.world,
                 None,
-                &InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new(
-                    ch.to_string(),
-                )),
+                &crate::test_support::physical_key(position).into(),
                 1,
                 1,
                 1,
@@ -111,12 +114,15 @@ mod tests {
         dispatch_input(
             &mut app.world,
             None,
-            &InputEvent::TextCommitted(crate::input::event::input::TextCommitted::new("x")),
+            &crate::test_support::physical_key(PhysicalKey::KeyX).into(),
             2,
             1,
             1,
         );
-        assert_eq!(app.world.resource::<Unhandled>().unwrap().0, Some('x'));
+        assert_eq!(
+            app.world.resource::<Unhandled>().unwrap().0,
+            Some(PhysicalKey::KeyX)
+        );
         observer.read(|model| {
             assert_eq!(model.switch(0), 1);
             assert_eq!(model.switch(1), 1);
