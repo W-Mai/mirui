@@ -2669,7 +2669,6 @@ fn reconcile_layout_snapshot(
         let reuse = reuse_visual_layout
             && pass == 0
             && !super::branch::is_authored_hidden(world, root)
-            && !super::dirty::has_visible_dirty::<super::dirty::Dirty>(world, root)
             && !crate::input::event::hit_test::geometry_changes(world).0
             && world.resource::<LayoutSnapshot>().is_some_and(|snapshot| {
                 snapshot.matches(root, logical_w, logical_h)
@@ -4533,6 +4532,34 @@ mod layout_snapshot_reuse_check {
                     snapshot
                 );
             }
+            for width in [20, 5] {
+                try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
+                let revision = world.component_revision::<Dirty>();
+                world.get_mut::<Style>(child).unwrap().layout.width = Dimension::px(width);
+                world.invalidate(child);
+                assert_ne!(world.component_revision::<Dirty>(), revision);
+                assert!(geometry_changes(&world).0);
+                prepare_input_geometry(&mut world, root, &viewport).unwrap();
+                assert!(world.has::<Dirty>(child));
+                assert_eq!(
+                    world.get::<super::super::ComputedRect>(child).unwrap().0.w,
+                    Fixed::from_int(width)
+                );
+                try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
+                assert_eq!(geometry_changes(&world), (false, false));
+                assert_eq!(
+                    hit_test(&world, root, 15.into(), 5.into(), 64, 64),
+                    (width == 20).then_some(child)
+                );
+                assert_eq!(
+                    world
+                        .get::<super::super::dirty::PaintedCoverage>(child)
+                        .unwrap()
+                        .0
+                        .outer,
+                    Rect::new(0, 0, 10, 10)
+                );
+            }
         });
         assert_eq!(allocations, 0);
         try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
@@ -5635,10 +5662,29 @@ mod text_layout_check {
         assert!(matches!(app.render(), Err(RenderError::TextLayout)));
         assert_eq!(app.last_text_layout_failure().unwrap().entity, input);
         assert!(app.world.get::<TextEditingLayoutHandle>(input).is_none());
+        assert!(!app.world.resource::<LayoutSnapshot>().unwrap().valid);
         app.world.remove::<Placeholder>(input);
-        app.render().unwrap();
+        app.render_dirty().unwrap();
         assert!(app.last_text_layout_failure().is_none());
         assert!(app.world.get::<TextEditingLayoutHandle>(input).is_some());
+        assert!(app.world.resource::<LayoutSnapshot>().unwrap().valid);
+        assert!(crate::input::event::hit_test::geometry_matches(
+            &app.world, root, 96, 48
+        ));
+        app.world.insert(input, Placeholder("Type"));
+        for _ in 0..2 {
+            assert!(matches!(app.dirty_regions(), Err(RenderError::TextLayout)));
+            assert_eq!(app.last_text_layout_failure().unwrap().entity, input);
+            assert!(!app.world.resource::<LayoutSnapshot>().unwrap().valid);
+            assert!(!crate::input::event::hit_test::geometry_matches(
+                &app.world, root, 96, 48
+            ));
+        }
+        app.world.remove::<Placeholder>(input);
+        app.render_dirty().unwrap();
+        assert!(app.last_text_layout_failure().is_none());
+        assert!(app.world.get::<TextEditingLayoutHandle>(input).is_some());
+        assert!(app.world.resource::<LayoutSnapshot>().unwrap().valid);
     }
 
     #[test]
