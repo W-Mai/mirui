@@ -84,6 +84,55 @@ struct Placement {
     clip: Rect,
 }
 
+impl Placement {
+    fn root(viewport: Rect) -> Self {
+        Self {
+            scroll_x: Fixed::ZERO,
+            scroll_y: Fixed::ZERO,
+            affine: Transform::IDENTITY,
+            projective: Transform3D::IDENTITY,
+            clip: viewport,
+        }
+    }
+
+    fn descend(self, world: &World, node: &LayoutNode, entity: Entity) -> (Rect, Rect, Self) {
+        let rect = Rect {
+            x: node.rect.x - self.scroll_x,
+            y: node.rect.y - self.scroll_y,
+            ..node.rect
+        };
+        let (affine, projective) =
+            super::geometry::render_transforms(self.affine, self.projective, world, entity, rect);
+        let parent_clip = super::widgets::follow_bounds::clip(world, entity)
+            .map_or(self.clip, |clip| {
+                self.clip.intersect(&clip).unwrap_or(Rect::ZERO)
+            });
+        let scroll = world.get::<ScrollOffset>(entity);
+        let clip = if scroll.is_some()
+            || world
+                .get::<super::Style>(entity)
+                .is_some_and(|style| style.clip_children)
+        {
+            super::geometry::transformed_clip_bounds(rect, affine, projective)
+                .and_then(|bounds| parent_clip.intersect(&bounds))
+                .unwrap_or(Rect::ZERO)
+        } else {
+            parent_clip
+        };
+        (
+            rect,
+            parent_clip,
+            Self {
+                scroll_x: self.scroll_x + scroll.map_or(Fixed::ZERO, |scroll| scroll.x),
+                scroll_y: self.scroll_y + scroll.map_or(Fixed::ZERO, |scroll| scroll.y),
+                affine,
+                projective,
+                clip,
+            },
+        )
+    }
+}
+
 pub(crate) fn publish(world: &World, tree: &LayoutNode, entities: &[Entity], viewport: Rect) {
     let Some(outputs) = world.resource::<Outputs<LayoutGeometry>>() else {
         return;
@@ -94,18 +143,63 @@ pub(crate) fn publish(world: &World, tree: &LayoutNode, entities: &[Entity], vie
     outputs.reset_where(|entity| {
         !entities.contains(&entity) || super::branch::is_hidden_in_tree(world, entity)
     });
-    publish_node(
-        world,
-        outputs,
-        tree,
-        Placement {
-            scroll_x: Fixed::ZERO,
-            scroll_y: Fixed::ZERO,
-            affine: Transform::IDENTITY,
-            projective: Transform3D::IDENTITY,
-            clip: viewport,
-        },
-    );
+    publish_node(world, outputs, tree, Placement::root(viewport));
+}
+
+pub(crate) fn publish_subtree(world: &World, tree: &LayoutNode, target: Entity, viewport: Rect) {
+    struct Ancestor<'a> {
+        node: &'a LayoutNode,
+        parent: Option<&'a Ancestor<'a>>,
+    }
+
+    fn placement(world: &World, path: Option<&Ancestor<'_>>, viewport: Rect) -> Option<Placement> {
+        let Some(path) = path else {
+            return Some(Placement::root(viewport));
+        };
+        let entity = path.node.entity?;
+        if super::branch::is_effectively_hidden(world, entity) {
+            return None;
+        }
+        let parent = placement(world, path.parent, viewport)?;
+        Some(parent.descend(world, path.node, entity).2)
+    }
+
+    fn find(
+        world: &World,
+        outputs: &Outputs<LayoutGeometry>,
+        node: &LayoutNode,
+        target: Entity,
+        parent: Option<&Ancestor<'_>>,
+        viewport: Rect,
+    ) -> bool {
+        if node.entity == Some(target) {
+            if let Some(parent) = placement(world, parent, viewport) {
+                publish_node(world, outputs, node, parent);
+            } else {
+                reset_subtree(outputs, node);
+            }
+            return true;
+        }
+        let ancestor = Ancestor { node, parent };
+        node.children
+            .iter()
+            .any(|node| find(world, outputs, node, target, Some(&ancestor), viewport))
+    }
+
+    if let Some(outputs) = world.resource::<Outputs<LayoutGeometry>>()
+        && outputs.has_requests()
+    {
+        find(world, outputs, tree, target, None, viewport);
+    }
+}
+
+fn reset_subtree(outputs: &Outputs<LayoutGeometry>, node: &LayoutNode) {
+    if let Some(entity) = node.entity {
+        outputs.reset(entity);
+    }
+    for child in &node.children {
+        reset_subtree(outputs, child);
+    }
 }
 
 fn publish_node(
@@ -118,20 +212,10 @@ fn publish_node(
         return;
     };
     if super::branch::is_effectively_hidden(world, entity) {
-        outputs.reset(entity);
+        reset_subtree(outputs, node);
         return;
     }
-    let rect = Rect {
-        x: node.rect.x - parent.scroll_x,
-        y: node.rect.y - parent.scroll_y,
-        ..node.rect
-    };
-    let (affine, projective) =
-        super::geometry::render_transforms(parent.affine, parent.projective, world, entity, rect);
-    let parent_clip = super::widgets::follow_bounds::clip(world, entity)
-        .map_or(parent.clip, |clip| {
-            parent.clip.intersect(&clip).unwrap_or(Rect::ZERO)
-        });
+    let (rect, parent_clip, child) = parent.descend(world, node, entity);
     if outputs.is_requested(entity) {
         let content = node.content_rect();
         let record = LayoutGeometryRead {
@@ -141,10 +225,10 @@ fn publish_node(
                 y: content.y - node.rect.y,
                 ..content
             },
-            transform: if projective.is_identity() {
-                Transform3D::from(affine)
+            transform: if child.projective.is_identity() {
+                Transform3D::from(child.affine)
             } else {
-                projective
+                child.projective
             }
             .compose(&Transform3D::translate(rect.x, rect.y)),
             clip: parent_clip,
@@ -154,25 +238,6 @@ fn publish_node(
             crate::warn!(target: "mirui::outputs", "layout geometry rejected: {:?}", error);
         }
     }
-    let scroll = world.get::<ScrollOffset>(entity);
-    let clip = if scroll.is_some()
-        || world
-            .get::<super::Style>(entity)
-            .is_some_and(|style| style.clip_children)
-    {
-        super::geometry::transformed_clip_bounds(rect, affine, projective)
-            .and_then(|bounds| parent_clip.intersect(&bounds))
-            .unwrap_or(Rect::ZERO)
-    } else {
-        parent_clip
-    };
-    let child = Placement {
-        scroll_x: parent.scroll_x + scroll.map_or(Fixed::ZERO, |scroll| scroll.x),
-        scroll_y: parent.scroll_y + scroll.map_or(Fixed::ZERO, |scroll| scroll.y),
-        affine,
-        projective,
-        clip,
-    };
     for node in &node.children {
         publish_node(world, outputs, node, child);
     }

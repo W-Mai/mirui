@@ -60,6 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- FollowBounds publishes changed subtree geometry in dependency order without republishing unrelated branches for each follower.
+
 - Dirty-region queries reuse successfully prepared layout until layout inputs change, without consuming pending paint damage.
 
 - Output dependency propagation shares source checks across consumers while retaining per-consumer invalidation and consumption tracking.

@@ -279,31 +279,38 @@ pub(crate) fn reconcile(
             for &index in plan.graph.order() {
                 let entity = plan.entities[index];
                 let geometry = resolve(world, entity);
+                let previous = world.get::<FollowState>(entity).unwrap().geometry;
                 changed |= assign(world, entity, geometry);
+                let mut publish = previous != world.get::<FollowState>(entity).unwrap().geometry;
                 if let Some(geometry) = world.get::<FollowState>(entity).unwrap().geometry {
                     let parent = world.get::<Parent>(entity).unwrap().0;
                     let origin = world.get::<ComputedRect>(parent).unwrap().0;
                     let node = node_mut(tree, entity).unwrap();
-                    layout_style(world, entity, &mut node.style);
-                    crate::ui::layout::compute_layout(
-                        node,
+                    let rect = Rect::new(
                         origin.x + geometry.rect.x,
                         origin.y + geometry.rect.y,
                         geometry.rect.w,
                         geometry.rect.h,
                     );
-                    let mut position = entities
-                        .iter()
-                        .position(|&candidate| candidate == entity)
-                        .unwrap();
-                    crate::ui::render_system::write_computed_rects(
-                        node,
-                        world,
-                        entities,
-                        &mut position,
-                    );
+                    layout_style(world, entity, &mut node.style);
+                    if node.rect != rect {
+                        crate::ui::layout::compute_layout(node, rect.x, rect.y, rect.w, rect.h);
+                        let mut position = entities
+                            .iter()
+                            .position(|&candidate| candidate == entity)
+                            .unwrap();
+                        crate::ui::render_system::write_computed_rects(
+                            node,
+                            world,
+                            entities,
+                            &mut position,
+                        );
+                        publish = true;
+                    }
                 }
-                crate::ui::layout_geometry::publish(world, tree, entities, viewport);
+                if publish {
+                    crate::ui::layout_geometry::publish_subtree(world, tree, entity, viewport);
+                }
             }
             changed
         })

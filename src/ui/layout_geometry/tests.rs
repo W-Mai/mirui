@@ -182,6 +182,74 @@ fn unchanged_geometry_keeps_publication_identity_and_steady_preparation_does_not
 }
 
 #[test]
+fn subtree_publication_matches_full_placement_and_retires_hidden_descendants() {
+    let (mut app, root, scroller, source) = fixture();
+    let content = app.world.find_by_id("content").unwrap();
+    app.world.insert(root, GeometryReader { source: scroller });
+    app.world
+        .insert(scroller, GeometryReader { source: content });
+    app.world
+        .insert(scroller, WidgetTransform(Transform::rotate_deg(12.into())));
+    app.world.insert(
+        source,
+        WidgetTransform3D(Transform3D::rotate_y_perspective(20.into(), 300.into())),
+    );
+    app.world.insert(
+        scroller,
+        ScrollOffset {
+            x: 3.into(),
+            y: 7.into(),
+        },
+    );
+    app.render().unwrap();
+    app.world.remove::<crate::ui::Parent>(source);
+    app.world.remove::<crate::ui::Parent>(content);
+    let viewport = Rect::new(0, 0, 128, 128);
+    let snapshot = app
+        .world
+        .take_resource_box::<crate::ui::render_system::LayoutSnapshot>()
+        .unwrap();
+    publish(
+        &app.world,
+        &snapshot.layout_tree,
+        &snapshot.entities,
+        viewport,
+    );
+    let expected = [source, content].map(|entity| outputs(&app).get(entity).unwrap());
+    for entity in [scroller, source, content] {
+        outputs(&app).invalidate(entity);
+    }
+    assert_eq!(
+        crate::test_support::tracked_allocations(|| {
+            publish_subtree(&app.world, &snapshot.layout_tree, source, viewport);
+        }),
+        0
+    );
+    for (entity, expected) in [source, content].into_iter().zip(expected) {
+        assert_eq!(outputs(&app).get(entity), Some(expected));
+    }
+    assert!(outputs(&app).get(scroller).is_none());
+
+    app.world.insert(source, Hidden);
+    publish_subtree(&app.world, &snapshot.layout_tree, source, viewport);
+    assert!(outputs(&app).get(source).is_none());
+    assert!(outputs(&app).get(content).is_none());
+    app.world.remove::<Hidden>(source);
+    publish_subtree(&app.world, &snapshot.layout_tree, source, viewport);
+    for (entity, expected) in [source, content].into_iter().zip(expected) {
+        assert_eq!(outputs(&app).get(entity), Some(expected));
+    }
+    app.world.insert(scroller, Hidden);
+    publish_subtree(&app.world, &snapshot.layout_tree, source, viewport);
+    assert!(outputs(&app).get(source).is_none());
+    assert!(outputs(&app).get(content).is_none());
+    app.world.remove::<Hidden>(scroller);
+    publish_subtree(&app.world, &snapshot.layout_tree, source, viewport);
+    assert_eq!(outputs(&app).get(source), Some(expected[0]));
+    app.world.put_resource_box(snapshot);
+}
+
+#[test]
 fn hidden_detached_and_replaced_sources_do_not_leave_readable_records() {
     let (mut app, root, scroller, source) = fixture();
     app.render().unwrap();
