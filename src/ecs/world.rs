@@ -17,6 +17,20 @@ use component_lifetimes::ComponentLifetimes;
 type ResourceSlot = Option<Box<dyn Any>>;
 type ResourceMap = HashMap<TypeId, ResourceSlot, FxBuildHasher>;
 
+// Share table probes across typed accessors instead of inlining one per type.
+#[inline(never)]
+fn component_storage(
+    storages: &HashMap<TypeId, Box<dyn ComponentStorage>, FxBuildHasher>,
+    type_id: TypeId,
+) -> Option<&dyn ComponentStorage> {
+    storages.get(&type_id).map(Box::as_ref)
+}
+
+#[inline(never)]
+fn resource_value(resources: &ResourceMap, type_id: TypeId) -> Option<&dyn Any> {
+    resources.get(&type_id)?.as_deref()
+}
+
 const _: () = {
     assert!(core::mem::size_of::<ResourceSlot>() == core::mem::size_of::<Box<dyn Any>>());
     assert!(core::mem::align_of::<ResourceSlot>() == core::mem::align_of::<Box<dyn Any>>());
@@ -69,7 +83,7 @@ impl<'world> SystemWorldCell<'world> {
         // references. SparseSet's value cells provide the controlled interior
         // mutability needed by validated Write<T> elements.
         let storages = unsafe { &*self.storages.as_ptr() };
-        storages.get(&TypeId::of::<T>()).map(|storage| {
+        component_storage(storages, TypeId::of::<T>()).map(|storage| {
             let storage = storage
                 .as_any()
                 .downcast_ref::<SparseSet<T>>()
@@ -87,10 +101,7 @@ impl<'world> SystemWorldCell<'world> {
         // SAFETY: the caller validated the complete resource access plan. The
         // pointer is branded by the unique World borrow held by this cell.
         let resources = unsafe { &*self.resources.as_ptr() };
-        let value = resources
-            .get(&TypeId::of::<T>())?
-            .as_ref()?
-            .downcast_ref::<T>()? as *const T;
+        let value = resource_value(resources, TypeId::of::<T>())?.downcast_ref::<T>()? as *const T;
         Some(unsafe { &*value })
     }
 
@@ -672,9 +683,7 @@ impl World {
     }
 
     pub fn has_type(&self, entity: Entity, type_id: TypeId) -> bool {
-        self.storages
-            .get(&type_id)
-            .is_some_and(|s| s.contains_entity(entity))
+        component_storage(&self.storages, type_id).is_some_and(|s| s.contains_entity(entity))
     }
 
     /// True iff *any* live entity owns a component of `type_id`.
@@ -727,8 +736,7 @@ impl World {
     }
 
     pub(crate) fn storage<T: 'static>(&self) -> Option<&SparseSet<T>> {
-        self.storages
-            .get(&TypeId::of::<T>())
+        component_storage(&self.storages, TypeId::of::<T>())
             .map(|s| s.as_any().downcast_ref::<SparseSet<T>>().unwrap())
     }
 
@@ -765,10 +773,7 @@ impl World {
     }
 
     pub fn resource<T: 'static>(&self) -> Option<&T> {
-        self.resources
-            .get(&TypeId::of::<T>())
-            .and_then(Option::as_ref)
-            .and_then(|v| v.downcast_ref::<T>())
+        resource_value(&self.resources, TypeId::of::<T>())?.downcast_ref::<T>()
     }
 
     pub fn resource_mut<T: 'static>(&mut self) -> Option<&mut T> {
@@ -839,6 +844,47 @@ impl Drop for World {
 mod tests {
     use super::*;
     use crate::test_support::tracked_allocations;
+
+    #[test]
+    fn typed_reads_preserve_type_and_entity_identity_without_allocating() {
+        let mut world = World::new();
+        let first = world.spawn_empty();
+        world.insert(first, 17u16);
+        world.insert(first, 29u32);
+        world.insert_resource(41u16);
+        world.insert_resource(53u32);
+        assert_eq!(
+            tracked_allocations(|| {
+                assert_eq!(world.get::<u16>(first), Some(&17));
+                assert_eq!(world.get::<u32>(first), Some(&29));
+                assert_eq!(world.get::<u64>(first), None);
+                assert!(world.has_type(first, TypeId::of::<u16>()));
+                assert!(!world.has_type(first, TypeId::of::<u64>()));
+                assert_eq!(world.resource::<u16>(), Some(&41));
+                assert_eq!(world.resource::<u32>(), Some(&53));
+                assert_eq!(world.resource::<u64>(), None);
+            }),
+            0
+        );
+
+        assert!(world.despawn(first));
+        let second = world.spawn_empty();
+        assert_eq!(first.id, second.id);
+        assert_ne!(first.generation, second.generation);
+        world.insert(second, 61u16);
+        assert_eq!(
+            tracked_allocations(|| {
+                assert_eq!(world.get::<u16>(first), None);
+                assert!(!world.has::<u16>(first));
+                assert!(!world.has_type(first, TypeId::of::<u16>()));
+                assert_eq!(world.get::<u16>(second), Some(&61));
+                assert!(world.has_type(second, TypeId::of::<u16>()));
+                assert_eq!(world.resource::<u16>(), Some(&41));
+                assert_eq!(world.resource::<u32>(), Some(&53));
+            }),
+            0
+        );
+    }
 
     #[test]
     fn component_revisions_preserve_repeated_writes_without_entity_tracking() {
