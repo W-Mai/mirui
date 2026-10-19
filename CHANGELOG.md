@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Damage collection, App drawing, and successful frame acknowledgement share local paint preparation; every new collection invalidates prior query results.
+
 - Full and partial App frames reuse prepared two-dimensional transforms and local paint coverage through successful submission.
 
 - Paint preparation reuses View membership across measurement and drawing without changing registry priority order or limiting the number of registered Views.

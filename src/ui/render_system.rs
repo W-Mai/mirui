@@ -2735,6 +2735,7 @@ pub fn render(
     transform: &Viewport,
     renderer: &mut dyn Renderer,
 ) -> Result<(), RenderError> {
+    reset_paint_preparation(world);
     super::offscreen::reconcile_texture_outputs(world);
     let _outputs_batch = world
         .resource::<Outputs<WidgetTexture>>()
@@ -2820,10 +2821,13 @@ pub(crate) fn prepare_paint_requests(world: &World) -> Result<PaintRequestScope,
     if !crate::core::reactive::reserve_paint_requests(world.live_entity_count()) {
         return Err(RenderError::MissingWorkspace);
     }
+    Ok(PaintRequestScope::new(world))
+}
+
+fn reset_paint_preparation(world: &World) {
     if let Some(snapshot) = world.resource::<LayoutSnapshot>() {
         snapshot.prepared_paint.clear();
     }
-    Ok(PaintRequestScope::new(world))
 }
 
 fn reconcile_layout_snapshot(
@@ -3101,6 +3105,7 @@ pub(crate) fn render_region_in_batch(
     requests: &PaintRequestScope,
     physical_clip: Option<crate::types::PhysicalRect>,
 ) -> Result<(), RenderError> {
+    reset_paint_preparation(world);
     super::offscreen::reconcile_texture_outputs(world);
     let _outputs_batch = world
         .resource::<Outputs<WidgetTexture>>()
@@ -3326,6 +3331,7 @@ fn collect_dirty_walk(
     plan: &mut DirtyRegions,
     painted_damage: &mut alloc::vec::Vec<Entity>,
     output_plan: Option<&output_plan::TexturePlan>,
+    preparation: &PreparedPaint,
 ) {
     use super::dirty::VisualDirty;
     if *idx >= entities.len() {
@@ -3338,7 +3344,15 @@ fn collect_dirty_walk(
         y: node.rect.y - scroll_offset.1,
         ..node.rect
     };
-    let (tf, tf_3d) = render_transforms(*parent_transform, *parent_3d, world, entity, shifted_rect);
+    let (tf, tf_3d) = prepared_paint::transforms(
+        *parent_transform,
+        *parent_3d,
+        world,
+        entity,
+        shifted_rect,
+        *idx,
+        Some(preparation),
+    );
 
     let pending = VisualDirty::prepare(world, entity);
     let moved = ancestor_moved || pending.is_some_and(VisualDirty::transforms_subtree);
@@ -3366,6 +3380,7 @@ fn collect_dirty_walk(
                 painted_damage,
                 *idx,
                 output_plan,
+                preparation,
             );
         }
 
@@ -3424,6 +3439,7 @@ fn collect_dirty_walk(
             painted_damage,
             *idx,
             output_plan,
+            preparation,
         );
     }
 
@@ -3469,6 +3485,7 @@ fn collect_dirty_walk(
             plan,
             painted_damage,
             output_plan,
+            preparation,
         );
     }
 
@@ -3542,6 +3559,7 @@ fn push_entity_dirty(
     painted_damage: &mut alloc::vec::Vec<Entity>,
     position: usize,
     output_plan: Option<&output_plan::TexturePlan>,
+    preparation: &PreparedPaint,
 ) {
     let mut curr = if visible {
         visible_paint_coverage(
@@ -3553,7 +3571,7 @@ fn push_entity_dirty(
             output_scale,
             position,
             output_plan,
-            None,
+            Some(preparation),
         )
     } else {
         PaintCoverage::EMPTY
@@ -3665,6 +3683,7 @@ pub(crate) fn try_collect_dirty_regions_into(
     transform: &Viewport,
     plan: &mut DirtyRegions,
 ) -> Result<(), TextLayoutFailure> {
+    reset_paint_preparation(world);
     super::view::ViewRegistry::invalidate_queries(world);
     let (logical_w, logical_h) = transform.logical_size();
     plan.clear();
@@ -3837,6 +3856,7 @@ pub(crate) fn try_collect_dirty_regions_into(
             plan,
             &mut snapshot.painted_damage,
             output_plan.as_ref(),
+            &snapshot.prepared_paint,
         );
     }
     output_plan::return_plan(world, output_plan);

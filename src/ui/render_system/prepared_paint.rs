@@ -202,6 +202,7 @@ mod tests {
             .unwrap();
             probe.measurements.set(0);
             for expected in [1, 2] {
+                super::super::reset_paint_preparation(&app.world);
                 let requests = super::super::prepare_paint_requests(&app.world).unwrap();
                 for x in [0, 8, 16] {
                     super::super::render_region_cached(
@@ -244,7 +245,7 @@ mod tests {
             }
             assert_eq!(
                 app.world.get::<Probe>(entity).unwrap().measurements.get(),
-                2,
+                1,
                 "full={full}"
             );
         }
@@ -259,7 +260,7 @@ mod tests {
         super::super::seed_prev_rects(&mut app.world, root, &Viewport::new(32, 32, Fixed::ONE));
         assert_eq!(
             app.world.get::<Probe>(entity).unwrap().measurements.get(),
-            3
+            2
         );
         assert!(
             !app.world
@@ -268,6 +269,56 @@ mod tests {
                 .0
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn querying_damage_does_not_publish_or_reuse_geometry_after_mutation() {
+        use crate::ui::widgets::WidgetTransform;
+        let mut app = App::headless(32, 32);
+        app.with_default_widgets();
+        app.with_widget(probe_render::view().with_measurement(measure));
+        let root = app.spawn_root().id();
+        app.compose(root, scene());
+        app.render().unwrap();
+        let entity = app.world.find_by_id("probe").unwrap();
+        let viewport = Viewport::new(32, 32, Fixed::ONE);
+        for (queried, painted) in [(2, 5), (7, 1)] {
+            let previous = app
+                .world
+                .get::<crate::ui::dirty::PaintedCoverage>(entity)
+                .unwrap()
+                .0;
+            app.world.insert(
+                entity,
+                WidgetTransform(Transform::translate(queried.into(), Fixed::ZERO)),
+            );
+            app.world.invalidate_visual(entity);
+            super::super::collect_dirty_regions(&mut app.world, root, &viewport).unwrap();
+            assert_eq!(
+                app.world
+                    .get::<crate::ui::dirty::PaintedCoverage>(entity)
+                    .unwrap()
+                    .0,
+                previous
+            );
+            app.world.insert(
+                entity,
+                WidgetTransform(Transform::translate(painted.into(), Fixed::ZERO)),
+            );
+            app.world.invalidate_visual(entity);
+            app.world.get::<Probe>(entity).unwrap().measurements.set(0);
+            app.render_dirty().unwrap();
+            assert_eq!(
+                app.world.get::<Probe>(entity).unwrap().measurements.get(),
+                1
+            );
+            let coverage = app
+                .world
+                .get::<crate::ui::dirty::PaintedCoverage>(entity)
+                .unwrap()
+                .0;
+            assert_eq!(coverage.outer, Rect::new(painted, 0, 20, 20));
+        }
     }
 
     #[test]
