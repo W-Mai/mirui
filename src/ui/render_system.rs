@@ -495,6 +495,7 @@ fn seed_prev_rect_walk(
     scroll_pixels: bool,
     ancestors_visible: bool,
     output_plan: Option<&output_plan::TexturePlan>,
+    preparation: Option<&PreparedPaint>,
 ) {
     if *idx >= entities.len() {
         return;
@@ -522,17 +523,21 @@ fn seed_prev_rect_walk(
         world.remove::<scroll::PaintedScroll>(entity);
     }
     let mut coverage = if visible {
-        visible_paint_coverage(
-            world,
-            entity,
-            shifted_rect,
-            tf,
-            tf_3d,
-            output_scale,
-            *idx,
-            output_plan,
-            None,
-        )
+        preparation
+            .and_then(|prepared| prepared.get(*idx))
+            .unwrap_or_else(|| {
+                visible_paint_coverage(
+                    world,
+                    entity,
+                    shifted_rect,
+                    tf,
+                    tf_3d,
+                    output_scale,
+                    *idx,
+                    output_plan,
+                    None,
+                )
+            })
     } else {
         PaintCoverage::EMPTY
     };
@@ -582,12 +587,21 @@ fn seed_prev_rect_walk(
             scroll_pixels && scroll::children_are_transferable(world, entity),
             visible,
             output_plan,
+            preparation,
         );
     }
 }
 
 /// Record paint bounds and acknowledge prepared damage after successfully drawing the full pending plan, including descendants moved by scroll transfers. Call before subsequent state changes; collecting damage does not advance these bounds.
 pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
+    acknowledge_paint(world, root, transform, false);
+}
+
+pub(crate) fn acknowledge_painted_frame(world: &mut World, root: Entity, transform: &Viewport) {
+    acknowledge_paint(world, root, transform, true);
+}
+
+fn acknowledge_paint(world: &mut World, root: Entity, transform: &Viewport, prepared: bool) {
     scroll::PaintedScroll::invalidate_all(world);
     let retired_paint = world
         .resource::<super::dirty::ExactDirtyRegions>()
@@ -623,7 +637,9 @@ pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
                 true,
                 !super::branch::is_hidden_in_tree(world, root),
                 output_plan.as_ref().filter(|plan| plan.matches_root(root)),
+                prepared.then_some(&snapshot.prepared_paint),
             );
+            snapshot.prepared_paint.clear();
             output_plan::return_plan(world, output_plan);
             world.put_resource_box(snapshot);
             return;
@@ -666,6 +682,7 @@ pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
         None,
         true,
         !super::branch::is_hidden_in_tree(world, root),
+        None,
         None,
     );
 }

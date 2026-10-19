@@ -139,6 +139,44 @@ mod tests {
     }
 
     #[test]
+    fn successful_partial_frame_acknowledges_the_measured_coverage() {
+        let mut app = App::headless(32, 32);
+        app.with_default_widgets();
+        app.with_widget(probe_render::view().with_measurement(measure));
+        let root = app.spawn_root().id();
+        app.compose(root, scene());
+        app.render().unwrap();
+        let entity = app.world.find_by_id("probe").unwrap();
+        app.world.get::<Probe>(entity).unwrap().measurements.set(0);
+        app.world.invalidate_visual(entity);
+        app.render_dirty().unwrap();
+        assert_eq!(
+            app.world.get::<Probe>(entity).unwrap().measurements.get(),
+            2
+        );
+        let snapshot = app
+            .world
+            .resource::<super::super::LayoutSnapshot>()
+            .unwrap();
+        let position = snapshot.entities.iter().position(|&e| e == entity).unwrap();
+        assert!(snapshot.prepared_paint.get(position).is_none());
+
+        snapshot.prepared_paint.set(position, PaintCoverage::EMPTY);
+        super::super::seed_prev_rects(&mut app.world, root, &Viewport::new(32, 32, Fixed::ONE));
+        assert_eq!(
+            app.world.get::<Probe>(entity).unwrap().measurements.get(),
+            3
+        );
+        assert!(
+            !app.world
+                .get::<crate::ui::dirty::PaintedCoverage>(entity)
+                .unwrap()
+                .0
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn batch_reset_and_retained_node_capacity_do_not_allocate() {
         let mut prepared = PreparedPaint::with_capacity(8);
         prepared.resize(8);

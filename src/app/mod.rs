@@ -1255,7 +1255,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         // and the first dirty render leaves residue.
         {
             crate::trace_span!("frame.seed_prev");
-            render_system::seed_prev_rects(&mut self.world, root, &transform);
+            render_system::acknowledge_painted_frame(&mut self.world, root, &transform);
         }
         self.last_seed_prev_ns = self.clock_ns().saturating_sub(flush_end);
         self.dirty_plan.clear();
@@ -1839,7 +1839,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             render_system::acknowledge_rendered_outputs(&self.world);
             self.last_flush_ns = self.clock_ns().saturating_sub(render_end);
             let seed_start = self.clock_ns();
-            render_system::seed_prev_rects(&mut self.world, root, &transform);
+            render_system::acknowledge_painted_frame(&mut self.world, root, &transform);
             self.last_seed_prev_ns = self.clock_ns().saturating_sub(seed_start);
             self.needs_full_redraw = false;
             self.painted_root_hidden = root_hidden;
