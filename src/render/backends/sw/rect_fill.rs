@@ -413,7 +413,7 @@ fn fill_aa_band(
     }
 }
 
-fn fill_axis_aligned(
+pub(super) fn fill_axis_aligned(
     target: &mut TexturePixelsMut<'_>,
     px_x0: i32,
     px_y0: i32,
