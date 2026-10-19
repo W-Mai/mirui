@@ -105,6 +105,14 @@ impl Viewport {
         if physical.is_empty() {
             return Rect::ZERO;
         }
+        if self.scale == Fixed::ONE {
+            return Rect::new(
+                physical.x(),
+                physical.y(),
+                physical.width(),
+                physical.height(),
+            );
+        }
         let upper = |edge| {
             let edge = Fixed::from(edge);
             let value = (edge / self.scale).ceil();
@@ -168,6 +176,75 @@ impl Viewport {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn coordinate_mapping_preserves_identity_and_scaled_rounding() {
+        for scale in [
+            Fixed::ZERO,
+            Fixed::HALF,
+            Fixed::ONE,
+            Fixed::from_ratio(3, 2),
+            Fixed::from_int(2),
+        ] {
+            let viewport = Viewport::new(128, 96, scale).with_logical_size(127, 95);
+            let scale = viewport.scale();
+            for x in [-1001, -6, -1, 0, 1, 6, 255] {
+                for y in [-7, 0, 1, 129] {
+                    let point = Point::new(Fixed::from_ratio(x, 4), Fixed::from_ratio(y, 4));
+                    assert_eq!(
+                        viewport.point_to_physical(point),
+                        Point::new(point.x * scale, point.y * scale)
+                    );
+                    assert_eq!(
+                        viewport.point_to_logical(point),
+                        Point::new(point.x / scale, point.y / scale)
+                    );
+                    for width in [Fixed::ZERO, Fixed::HALF, Fixed::from_ratio(41, 2)] {
+                        let rect = Rect::new(point.x, point.y, width, Fixed::from_ratio(31, 2));
+                        assert_eq!(
+                            viewport.rect_to_physical(rect),
+                            Rect::new(
+                                rect.x * scale,
+                                rect.y * scale,
+                                rect.w * scale,
+                                rect.h * scale
+                            )
+                        );
+                        assert_eq!(
+                            viewport.rect_to_physical_pixel_bounds(rect),
+                            (
+                                (rect.x * scale).to_int(),
+                                (rect.y * scale).to_int(),
+                                ((rect.x + rect.w) * scale).ceil().to_int(),
+                                ((rect.y + rect.h) * scale).ceil().to_int(),
+                            )
+                        );
+                    }
+                }
+            }
+            for rect in [
+                PhysicalRect::EMPTY,
+                PhysicalRect::new(1, 3, 17, 11).unwrap(),
+                PhysicalRect::from_size(128, 96),
+            ] {
+                let logical = viewport.logical_cover(rect);
+                if rect.is_empty() {
+                    assert_eq!(logical, Rect::ZERO);
+                } else if scale == Fixed::ONE {
+                    assert_eq!(
+                        logical,
+                        Rect::new(rect.x(), rect.y(), rect.width(), rect.height())
+                    );
+                    assert_eq!(viewport.physical_rect(logical), Some(rect));
+                } else {
+                    let (left, top, right, bottom) =
+                        viewport.rect_to_physical_pixel_bounds(logical);
+                    assert!(left <= i32::from(rect.x()) && top <= i32::from(rect.y()));
+                    assert!(right >= i32::from(rect.right()) && bottom >= i32::from(rect.bottom()));
+                }
+            }
+        }
+    }
 
     #[test]
     fn zero_scale_is_normalized_to_one() {
