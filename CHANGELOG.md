@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Full and partial App frames reuse prepared two-dimensional transforms and local paint coverage through successful submission.
+
 - Paint preparation reuses View membership across measurement and drawing without changing registry priority order or limiting the number of registered Views.
 
 - Successful partial-frame submission reuses prepared paint coverage when advancing the painted baseline; failed submissions and manual confirmation retain independent handling.

@@ -512,7 +512,15 @@ fn seed_prev_rect_walk(
         y: node.rect.y - scroll_offset.1,
         ..node.rect
     };
-    let (tf, tf_3d) = render_transforms(*parent_transform, *parent_3d, world, entity, shifted_rect);
+    let (tf, tf_3d) = prepared_paint::transforms(
+        *parent_transform,
+        *parent_3d,
+        world,
+        entity,
+        shifted_rect,
+        *idx,
+        preparation,
+    );
     if let Some(mut painted) = scroll::PaintedScroll::capture(
         world,
         entity,
@@ -1825,8 +1833,15 @@ fn draw_visible_tree_offset(
         y: node.rect.y - offset_y,
         ..node.rect
     };
-    let (affine, projective) =
-        render_transforms(*parent_transform, *parent_transform_3d, world, entity, rect);
+    let (affine, projective) = prepared_paint::transforms(
+        *parent_transform,
+        *parent_transform_3d,
+        world,
+        entity,
+        rect,
+        *idx,
+        preparation,
+    );
     let before = *idx;
     let result = super::widgets::follow_bounds::clip::draw(
         world,
@@ -1891,12 +1906,14 @@ fn draw_tree_content(
             generation: 0,
         }
     };
-    let (tf, tf_3d) = render_transforms(
+    let (tf, tf_3d) = prepared_paint::transforms(
         *parent_transform,
         *parent_transform_3d,
         world,
         entity,
         shifted_rect,
+        *idx,
+        preparation,
     );
     let quad = if tf_3d.is_identity()
         && !matches!(
@@ -3144,7 +3161,7 @@ pub(crate) fn acknowledge_rendered_outputs(world: &World) {
 /// Caller must guarantee the snapshot was produced in the same frame
 /// against the same `transform` and `root`. Public `render_region` is
 /// the safe entry point — this one is `pub(crate)` and only invoked
-/// from `App::render_dirty`.
+/// from App frame rendering.
 pub(crate) fn render_region_cached(
     world: &World,
     snapshot: &LayoutSnapshot,

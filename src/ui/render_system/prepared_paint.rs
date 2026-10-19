@@ -1,4 +1,5 @@
 use crate::ecs::{Entity, World};
+use crate::types::{Rect, Transform, Transform3D};
 use crate::ui::view::ViewRegistry;
 use alloc::vec::Vec;
 use core::cell::Cell;
@@ -9,6 +10,7 @@ pub(super) struct PreparedPaint {
     coverage: Vec<Cell<Option<PaintCoverage>>>,
     views: Vec<Cell<usize>>,
     view_count: usize,
+    affine: Vec<Cell<Option<Transform>>>,
 }
 
 impl PreparedPaint {
@@ -17,11 +19,13 @@ impl PreparedPaint {
             coverage: Vec::with_capacity(capacity),
             views: Vec::new(),
             view_count: 0,
+            affine: Vec::with_capacity(capacity),
         }
     }
 
     pub(super) fn resize(&mut self, len: usize, view_count: usize) {
         self.coverage.resize_with(len, || Cell::new(None));
+        self.affine.resize_with(len, || Cell::new(None));
         self.view_count = view_count;
         self.views
             .resize_with(len * self.view_stride(), || Cell::new(0));
@@ -30,6 +34,9 @@ impl PreparedPaint {
 
     pub(super) fn clear(&self) {
         self.clear_coverage();
+        for entry in &self.affine {
+            entry.set(None);
+        }
         for entry in &self.views {
             entry.set(0);
         }
@@ -81,6 +88,29 @@ impl PreparedPaint {
             entry.set(Some(coverage));
         }
     }
+}
+
+pub(super) fn transforms(
+    parent_affine: Transform,
+    parent_projective: Transform3D,
+    world: &World,
+    entity: Entity,
+    rect: Rect,
+    position: usize,
+    preparation: Option<&PreparedPaint>,
+) -> (Transform, Transform3D) {
+    let entry = preparation.and_then(|prepared| prepared.affine.get(position));
+    if let Some(affine) = entry.and_then(Cell::get) {
+        return (affine, Transform3D::IDENTITY);
+    }
+    let (affine, projective) =
+        super::render_transforms(parent_affine, parent_projective, world, entity, rect);
+    if projective.is_identity()
+        && let Some(entry) = entry
+    {
+        entry.set(Some(affine));
+    }
+    (affine, projective)
 }
 
 pub(super) struct PreparedViews<'a> {
@@ -196,7 +226,7 @@ mod tests {
     }
 
     #[test]
-    fn successful_partial_frame_acknowledges_the_measured_coverage() {
+    fn successful_frames_acknowledge_the_measured_coverage() {
         let mut app = App::headless(32, 32);
         app.with_default_widgets();
         app.with_widget(probe_render::view().with_measurement(measure));
@@ -204,13 +234,20 @@ mod tests {
         app.compose(root, scene());
         app.render().unwrap();
         let entity = app.world.find_by_id("probe").unwrap();
-        app.world.get::<Probe>(entity).unwrap().measurements.set(0);
-        app.world.invalidate_visual(entity);
-        app.render_dirty().unwrap();
-        assert_eq!(
-            app.world.get::<Probe>(entity).unwrap().measurements.get(),
-            2
-        );
+        for full in [false, true] {
+            app.world.get::<Probe>(entity).unwrap().measurements.set(0);
+            app.world.invalidate_visual(entity);
+            if full {
+                app.render().unwrap();
+            } else {
+                app.render_dirty().unwrap();
+            }
+            assert_eq!(
+                app.world.get::<Probe>(entity).unwrap().measurements.get(),
+                2,
+                "full={full}"
+            );
+        }
         let snapshot = app
             .world
             .resource::<super::super::LayoutSnapshot>()
@@ -231,6 +268,80 @@ mod tests {
                 .0
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn affine_preparation_resets_between_batches_and_preserves_projective_composition() {
+        use crate::ui::widgets::{WidgetTransform, WidgetTransform3D};
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let mut prepared = PreparedPaint::with_capacity(1);
+        prepared.resize(1, 0);
+        let rect = Rect::new(7, 11, 29, 31);
+        let parent = Transform::rotate_deg(Fixed::from_int(19));
+        for local in [
+            Transform::translate(Fixed::HALF, Fixed::from_int(-3)),
+            Transform::scale(Fixed::HALF, Fixed::from_int(2)),
+        ] {
+            world.insert(entity, WidgetTransform(local));
+            prepared.clear();
+            let expected = crate::ui::geometry::render_transforms(
+                parent,
+                Transform3D::IDENTITY,
+                &world,
+                entity,
+                rect,
+            );
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| {
+                    for _ in 0..16 {
+                        assert_eq!(
+                            transforms(
+                                parent,
+                                Transform3D::IDENTITY,
+                                &world,
+                                entity,
+                                rect,
+                                0,
+                                Some(&prepared)
+                            ),
+                            expected
+                        );
+                    }
+                }),
+                0
+            );
+            assert_eq!(prepared.affine[0].get(), Some(expected.0));
+        }
+        prepared.clear();
+        world.insert(
+            entity,
+            WidgetTransform3D(Transform3D::rotate_y_perspective(
+                Fixed::from_int(35),
+                Fixed::from_int(100),
+            )),
+        );
+        let expected = crate::ui::geometry::render_transforms(
+            parent,
+            Transform3D::IDENTITY,
+            &world,
+            entity,
+            rect,
+        );
+        assert_eq!(
+            transforms(
+                parent,
+                Transform3D::IDENTITY,
+                &world,
+                entity,
+                rect,
+                0,
+                Some(&prepared)
+            ),
+            expected
+        );
+        assert!(prepared.affine[0].get().is_none());
+        assert_eq!(core::mem::size_of::<Cell<Option<Transform>>>(), 28);
     }
 
     #[test]

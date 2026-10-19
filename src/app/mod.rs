@@ -1196,15 +1196,27 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 let area = PhysicalRect::from_size(width, height);
                 renderer.clear(&area, &crate::types::Color::rgba(0, 0, 0, 0));
                 let (width, height) = transform.logical_size();
-                render_system::render_region_in_batch(
-                    &self.world,
-                    root,
-                    &transform,
-                    &Rect::new(0, 0, width, height),
-                    &mut renderer,
-                    &requests,
-                    Some(area),
-                )
+                let rect = Rect::new(0, 0, width, height);
+                if let Some(snapshot) = self.world.resource::<render_system::LayoutSnapshot>() {
+                    render_system::render_region_cached(
+                        &self.world,
+                        snapshot,
+                        &rect,
+                        &mut renderer,
+                        &requests,
+                        Some(area),
+                    )
+                } else {
+                    render_system::render_region_in_batch(
+                        &self.world,
+                        root,
+                        &transform,
+                        &rect,
+                        &mut renderer,
+                        &requests,
+                        Some(area),
+                    )
+                }
             };
             result.and_then(|()| {
                 let output = finish(&mut renderer, &transform);
