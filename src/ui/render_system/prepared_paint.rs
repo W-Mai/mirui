@@ -1,3 +1,5 @@
+use crate::ecs::{Entity, World};
+use crate::ui::view::ViewRegistry;
 use alloc::vec::Vec;
 use core::cell::Cell;
 
@@ -5,24 +7,69 @@ use super::PaintCoverage;
 
 pub(super) struct PreparedPaint {
     coverage: Vec<Cell<Option<PaintCoverage>>>,
+    views: Vec<Cell<usize>>,
+    view_count: usize,
 }
 
 impl PreparedPaint {
     pub(super) fn with_capacity(capacity: usize) -> Self {
         Self {
             coverage: Vec::with_capacity(capacity),
+            views: Vec::new(),
+            view_count: 0,
         }
     }
 
-    pub(super) fn resize(&mut self, len: usize) {
+    pub(super) fn resize(&mut self, len: usize, view_count: usize) {
         self.coverage.resize_with(len, || Cell::new(None));
+        self.view_count = view_count;
+        self.views
+            .resize_with(len * self.view_stride(), || Cell::new(0));
         self.clear();
     }
 
     pub(super) fn clear(&self) {
+        self.clear_coverage();
+        for entry in &self.views {
+            entry.set(0);
+        }
+    }
+
+    pub(super) fn clear_coverage(&self) {
         for entry in &self.coverage {
             entry.set(None);
         }
+    }
+
+    fn view_stride(&self) -> usize {
+        1 + self.view_count.div_ceil(usize::BITS as usize)
+    }
+
+    pub(super) fn matching_views(
+        &self,
+        world: &World,
+        registry: &ViewRegistry,
+        entity: Entity,
+        position: usize,
+    ) -> Option<PreparedViews<'_>> {
+        if self.view_count != registry.paint_iter().len() {
+            return None;
+        }
+        let stride = self.view_stride();
+        let row = self.views.get(position * stride..(position + 1) * stride)?;
+        if row[0].get() == 0 {
+            for (index, view) in registry.paint_iter().enumerate() {
+                if view
+                    .component_filter()
+                    .is_none_or(|kind| world.has_type(entity, kind))
+                {
+                    let word = &row[1 + index / usize::BITS as usize];
+                    word.set(word.get() | (1 << (index % usize::BITS as usize)));
+                }
+            }
+            row[0].set(1);
+        }
+        Some(PreparedViews { words: &row[1..] })
     }
 
     pub(super) fn get(&self, position: usize) -> Option<PaintCoverage> {
@@ -33,6 +80,16 @@ impl PreparedPaint {
         if let Some(entry) = self.coverage.get(position) {
             entry.set(Some(coverage));
         }
+    }
+}
+
+pub(super) struct PreparedViews<'a> {
+    words: &'a [Cell<usize>],
+}
+
+impl PreparedViews<'_> {
+    pub(super) fn contains(&self, index: usize) -> bool {
+        self.words[index / usize::BITS as usize].get() & (1 << (index % usize::BITS as usize)) != 0
     }
 }
 
@@ -177,9 +234,62 @@ mod tests {
     }
 
     #[test]
+    fn view_membership_spans_words_and_refreshes_between_batches() {
+        use crate::ui::view::View;
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(
+            entity,
+            Probe {
+                measurements: Cell::new(0),
+                global: Cell::new(false),
+            },
+        );
+        let mut registry = ViewRegistry::default();
+        for index in 0..usize::BITS as usize * 2 + 3 {
+            let view = View::new("probe", (index % 7) as u8, |_, _, _| {});
+            registry.insert(if index % 2 == 0 {
+                view.with_filter::<Probe>()
+            } else {
+                view.with_filter::<crate::ui::Style>()
+            });
+        }
+        let mut prepared = PreparedPaint::with_capacity(1);
+        prepared.resize(1, registry.paint_iter().len());
+        let check = |prepared: &PreparedPaint, world: &World, registry: &ViewRegistry| {
+            let matching = prepared.matching_views(world, registry, entity, 0).unwrap();
+            for (index, view) in registry.paint_iter().enumerate() {
+                assert_eq!(
+                    matching.contains(index),
+                    world.has_type(entity, view.component_filter().unwrap())
+                );
+            }
+        };
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                check(&prepared, &world, &registry);
+                check(&prepared, &world, &registry);
+            }),
+            0
+        );
+        world.remove::<Probe>(entity);
+        world.insert(entity, crate::ui::Style::default());
+        prepared.clear();
+        check(&prepared, &world, &registry);
+        registry.insert(View::new("extra", 2, |_, _, _| {}).with_filter::<crate::ui::Style>());
+        assert!(
+            prepared
+                .matching_views(&world, &registry, entity, 0)
+                .is_none()
+        );
+        prepared.resize(1, registry.paint_iter().len());
+        check(&prepared, &world, &registry);
+    }
+
+    #[test]
     fn batch_reset_and_retained_node_capacity_do_not_allocate() {
         let mut prepared = PreparedPaint::with_capacity(8);
-        prepared.resize(8);
+        prepared.resize(8, 17);
         let coverage = PaintCoverage::solid(Rect::new(1, 2, 3, 4));
         assert_eq!(
             crate::test_support::tracked_allocations(|| {
@@ -188,8 +298,8 @@ mod tests {
                     assert_eq!(prepared.get(7), Some(coverage));
                     prepared.clear();
                     assert_eq!(prepared.get(7), None);
-                    prepared.resize(4);
-                    prepared.resize(8);
+                    prepared.resize(4, 17);
+                    prepared.resize(8, 17);
                     assert_eq!(prepared.get(7), None);
                 }
             }),

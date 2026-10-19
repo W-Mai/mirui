@@ -445,11 +445,16 @@ fn visible_paint_coverage(
     };
     let mut coverage = PaintCoverage::EMPTY;
     let mut reusable = true;
-    for view in registry.paint_iter() {
-        if view
-            .component_filter()
-            .is_some_and(|ty| !world.has_type(entity, ty))
-        {
+    let matching =
+        preparation.and_then(|prepared| prepared.matching_views(world, registry, entity, position));
+    for (index, view) in registry.paint_iter().enumerate() {
+        if !matching.as_ref().map_or_else(
+            || {
+                view.component_filter()
+                    .is_none_or(|ty| world.has_type(entity, ty))
+            },
+            |matching| matching.contains(index),
+        ) {
             continue;
         }
         reusable &= view.measurement_reusable();
@@ -1526,7 +1531,12 @@ fn compute_layout_snapshot(
         snapshot.entities.clear();
         collect_entities_preorder(world, root, &mut snapshot.entities);
     });
-    snapshot.prepared_paint.resize(snapshot.entities.len());
+    snapshot.prepared_paint.resize(
+        snapshot.entities.len(),
+        world
+            .resource::<ViewRegistry>()
+            .map_or(0, |registry| registry.paint_iter().len()),
+    );
     if !snapshot.maintenance_current(world) || changes.parked {
         crate::trace_span!("layout.prune_parked", {
             prune_parked_layout_nodes(world, root, &snapshot.entities, &mut snapshot.parked);
@@ -2039,7 +2049,7 @@ fn draw_tree_content(
                         ctx.set_workspace(&plan.workspace);
                     }
                     ctx.set_layout_offset(Point::new(offset_x, offset_y));
-                    render_views(world, entity, &mut ctx, requests, preparation)
+                    render_views(world, entity, &mut ctx, requests, preparation, *idx)
                 };
                 result?;
             } else {
@@ -2049,7 +2059,7 @@ fn draw_tree_content(
                     ctx.set_workspace(&plan.workspace);
                 }
                 ctx.set_layout_offset(Point::new(offset_x, offset_y));
-                render_views(world, entity, &mut ctx, requests, preparation)?;
+                render_views(world, entity, &mut ctx, requests, preparation, *idx)?;
             }
         }
     }
@@ -2085,15 +2095,22 @@ fn render_views(
     ctx: &mut PaintCtx<'_>,
     requests: &PaintRequestScope,
     preparation: Option<&PreparedPaint>,
+    position: usize,
 ) -> Result<(), RenderError> {
     let Some(registry) = world.resource::<ViewRegistry>() else {
         return Ok(());
     };
     crate::trace_span!("draw.view_dispatch");
-    for view in registry.paint_iter() {
-        if let Some(tid) = view.component_filter()
-            && !world.has_type(entity, tid)
-        {
+    let matching =
+        preparation.and_then(|prepared| prepared.matching_views(world, registry, entity, position));
+    for (index, view) in registry.paint_iter().enumerate() {
+        if !matching.as_ref().map_or_else(
+            || {
+                view.component_filter()
+                    .is_none_or(|ty| world.has_type(entity, ty))
+            },
+            |matching| matching.contains(index),
+        ) {
             continue;
         }
         let reusable = preparation.is_some() && view.measurement_reusable();
@@ -2102,7 +2119,7 @@ fn render_views(
             && !view.measurement_reusable()
             && let Some(preparation) = preparation
         {
-            preparation.clear();
+            preparation.clear_coverage();
         }
         if let Some(error) = ctx.error() {
             return Err(error);
@@ -2579,7 +2596,7 @@ fn draw_output_subtree(
                     ctx.set_workspace(&plan.workspace);
                 }
                 ctx.set_layout_offset(Point::new(offset_x, offset_y));
-                render_views(world, entity, &mut ctx, requests, None)?;
+                render_views(world, entity, &mut ctx, requests, None, *idx)?;
             }
             *idx += 1;
 

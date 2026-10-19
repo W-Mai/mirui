@@ -1232,7 +1232,7 @@ impl ViewRegistry {
         self.input_attach_plan.as_ref().map(Rc::clone)
     }
 
-    pub(crate) fn paint_iter(&self) -> impl Iterator<Item = &View> {
+    pub(crate) fn paint_iter(&self) -> impl ExactSizeIterator<Item = &View> {
         self.paint_order.iter().map(|&index| &self.views[index])
     }
 
