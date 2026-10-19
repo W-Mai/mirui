@@ -109,7 +109,7 @@ sdl2 = { version = "0.37", optional = true, features = ["raw-window-handle"] }
 objc2-app-kit = { version = "0.3", optional = true, default-features = false, features = ["std", "NSPasteboard", "NSPasteboardItem", "NSBitmapImageRep", "NSImageRep", "NSResponder"] }
 
 [target.'cfg(target_os = "ios")'.dependencies]
-objc2-ui-kit = { version = "0.3", optional = true, default-features = false, features = ["std", "UIPasteboard", "UIImage", "UIGraphicsImageRenderer", "UIGraphicsRenderer", "objc2-core-foundation", "objc2-core-graphics", "block2"] }
+objc2-ui-kit = { version = "0.3", optional = true, default-features = false, features = ["std", "UIPasteboard", "UIImage", "UIGraphicsImageRenderer", "UIGraphicsRenderer", "UIApplication", "UIResponder", "UIScene", "UISceneDefinitions", "UISceneSession", "UIView", "UIWindow", "UIWindowScene", "objc2-core-foundation", "objc2-core-graphics", "block2"] }
 objc2-core-foundation = { version = "0.3", optional = true, default-features = false, features = ["std"] }
 block2 = { version = "0.6", optional = true }
 

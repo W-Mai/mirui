@@ -31,6 +31,8 @@ mod text_input;
 use text_input::NativeTextInput;
 mod config;
 pub use config::{PowerPreference, PresentMode, WgpuConfig, WgpuSurfaceError};
+#[cfg(target_os = "ios")]
+mod ios;
 
 const MAX_NATIVE_TOUCHES: usize = 16;
 
@@ -498,6 +500,7 @@ impl WgpuRuntime {
 
     pub(crate) fn resume(&mut self, window: Arc<Window>) -> Result<(), WgpuSurfaceError> {
         if self.state.is_some() {
+            self.needs_redraw = true;
             return Ok(());
         }
         let state = match self.context.as_ref() {
@@ -515,18 +518,26 @@ impl WgpuRuntime {
         Ok(())
     }
 
-    pub(crate) fn suspend(&mut self) {
+    pub(crate) fn suspend(&mut self, retain_window: bool) {
         self.frame_texture = None;
         self.set_text_input(None);
         self.modifiers = None;
         #[cfg(any(target_os = "linux", target_os = "android"))]
         self.clipboard.detach();
-        self.state = None;
-        self.event_queue
-            .retain(|event| matches!(event, InputEvent::Clipboard(_)));
+        if !retain_window {
+            self.state = None;
+            self.reconfigure_before_acquire = false;
+        }
+        self.event_queue.retain(|event| {
+            matches!(event, InputEvent::Clipboard(_))
+                || (retain_window
+                    && matches!(
+                        event,
+                        InputEvent::HostFocus { .. } | InputEvent::HostVisibility { .. }
+                    ))
+        });
         self.pending_move = None;
         self.native_touches.clear();
-        self.reconfigure_before_acquire = false;
     }
 
     fn reconfigure_surface(&mut self) -> bool {
@@ -839,7 +850,7 @@ impl ApplicationHandler<HostEvent> for WgpuHandler {
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         #[cfg(target_os = "macos")]
         self.menu.take();
-        self.runtime.suspend();
+        self.runtime.suspend(false);
     }
 
     #[cfg(target_os = "macos")]
@@ -1235,8 +1246,10 @@ impl Surface for WgpuSurface {
 /// Surface lifecycle required by platform-owned mobile event loops.
 #[cfg(any(target_os = "android", target_os = "ios"))]
 pub trait MobileSurface: Surface {
+    /// Resumes presentation on a new or retained window and refreshes its drawable geometry.
     fn resume_window(&mut self, window: Arc<Window>) -> Result<(), MobileSurfaceError>;
 
+    /// Pauses native input and presentation. iOS windows remain valid during inactivity; Android native surfaces must be released before returning.
     fn suspend_window(&mut self);
 
     /// Finish the native event batch before the platform loop waits.
@@ -1453,7 +1466,7 @@ impl MobileSurface for MobileWgpuSurface {
     }
 
     fn suspend_window(&mut self) {
-        self.runtime.suspend();
+        self.runtime.suspend(cfg!(target_os = "ios"));
     }
 
     fn handle_window_event(
@@ -1639,6 +1652,7 @@ where
         unreachable!("mobile event loop returned")
     }
 
+    /// Runs the iOS application on the main thread. The application manifest must declare a single application scene; the host binds each native window before creating or resuming its surface.
     #[cfg(target_os = "ios")]
     pub fn run_ios(mut self) -> ! {
         let event_loop = EventLoop::new().expect("winit iOS event loop");
@@ -1660,15 +1674,26 @@ where
 {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         event_loop.set_control_flow(ControlFlow::Poll);
-        if let Some(window) = self.window.as_ref() {
+        if let Some(window) = self.window.as_ref()
+            && self.app.as_ref().is_some_and(|app| !app.is_suspended())
+        {
             window.request_redraw();
             return;
         }
-        let window = Arc::new(
-            event_loop
-                .create_window(Window::default_attributes().with_title(self.title.clone()))
-                .expect("winit mobile window"),
-        );
+        let window = self.window.clone().unwrap_or_else(|| {
+            Arc::new(
+                event_loop
+                    .create_window(Window::default_attributes().with_title(self.title.clone()))
+                    .expect("winit mobile window"),
+            )
+        });
+
+        #[cfg(target_os = "ios")]
+        if let Err(error) = ios::prepare_window(&window) {
+            crate::warn!("mobile window preparation failed: {:?}", error);
+            self.suspended(event_loop);
+            return;
+        }
 
         if let Some(app) = self.app.as_mut() {
             if let Err(error) = app.backend.resume_window(window.clone()) {
@@ -1702,7 +1727,10 @@ where
             app.suspend();
             app.backend.suspend_window();
         }
-        self.window = None;
+        #[cfg(not(target_os = "ios"))]
+        {
+            self.window = None;
+        }
         event_loop.set_control_flow(ControlFlow::Wait);
     }
 
@@ -1721,12 +1749,13 @@ where
         let Some(window) = self.window.as_ref() else {
             return;
         };
-        if !window_event_is_current(Some(&window.id()), &window_id) {
-            return;
-        }
         let Some(app) = self.app.as_mut() else {
             return;
         };
+        if !window_event_is_deliverable(Some(&window.id()), &window_id, app.is_suspended(), &event)
+        {
+            return;
+        }
         let redraw = matches!(event, WindowEvent::RedrawRequested);
         match app.backend.handle_window_event(event) {
             Ok(MobileEventFlow::Continue) => {}
@@ -1741,9 +1770,6 @@ where
             }
         }
         if redraw {
-            if app.is_suspended() {
-                return;
-            }
             app.draw_tick();
             app.maintain_tick();
         }
@@ -1789,8 +1815,14 @@ where
 }
 
 #[cfg(any(target_os = "android", target_os = "ios", test))]
-fn window_event_is_current<T: Eq>(active: Option<&T>, incoming: &T) -> bool {
+fn window_event_is_deliverable<T: Eq>(
+    active: Option<&T>,
+    incoming: &T,
+    suspended: bool,
+    event: &WindowEvent,
+) -> bool {
     active.is_some_and(|active| active == incoming)
+        && (!suspended || matches!(event, WindowEvent::Focused(_) | WindowEvent::Occluded(_)))
 }
 
 #[cfg(test)]
@@ -2160,52 +2192,104 @@ mod tests {
         runtime.window_event(WindowEvent::Focused(false));
         assert_eq!(runtime.modifiers, None);
         runtime.window_event(WindowEvent::ModifiersChanged(ModifiersState::ALT.into()));
-        runtime.suspend();
+        runtime.suspend(false);
         assert_eq!(runtime.modifiers, None);
     }
 
     #[test]
-    fn suspend_discards_input_bound_to_the_old_native_window() {
-        let mut runtime = WgpuRuntime::new(WgpuConfig::default());
-        runtime.event_queue.push_back(InputEvent::PointerDown {
-            kind: crate::input::event::input::PointerKind::Mouse,
-            id: 0,
-            x: Fixed::from_int(4),
-            y: Fixed::from_int(8),
-        });
-        runtime.pending_move = Some((Fixed::from_int(10), Fixed::from_int(12)));
+    fn suspend_discards_transient_input_and_preserves_only_retained_window_state() {
+        for retain_window in [false, true] {
+            let mut runtime = WgpuRuntime::new(WgpuConfig::default());
+            runtime.event_queue.push_back(InputEvent::PointerDown {
+                kind: crate::input::event::input::PointerKind::Mouse,
+                id: 0,
+                x: Fixed::from_int(4),
+                y: Fixed::from_int(8),
+            });
+            runtime.pending_move = Some((Fixed::from_int(10), Fixed::from_int(12)));
+            runtime
+                .event_queue
+                .push_back(InputEvent::HostFocus { focused: true });
+            runtime.reconfigure_before_acquire = true;
 
-        runtime.suspend();
+            runtime.suspend(retain_window);
 
-        assert!(runtime.event_queue.is_empty());
-        assert!(runtime.pending_move.is_none());
+            if retain_window {
+                assert!(matches!(
+                    runtime.poll_event(),
+                    Some(InputEvent::HostFocus { focused: true })
+                ));
+            }
+            assert!(runtime.poll_event().is_none());
+            assert!(runtime.pending_move.is_none());
+            assert_eq!(runtime.reconfigure_before_acquire, retain_window);
+        }
     }
 
     #[test]
     fn suspend_retains_clipboard_receipts_until_the_app_consumes_them() {
         use crate::ui::clipboard::{self, ClipboardData, ClipboardRequest};
-        let (mut app, editor, mut runtime) = native_fixture();
-        clipboard::paste(&mut app.world, editor);
-        let Some(ClipboardRequest::Read(request)) = clipboard::take_request(&mut app.world) else {
-            panic!("expected pending clipboard read");
-        };
-        runtime.event_queue.push_back(InputEvent::Clipboard(
-            request.complete(ClipboardData::text("retained")),
-        ));
-        runtime.suspend();
-        let Some(InputEvent::Clipboard(response)) = runtime.poll_event() else {
-            panic!("lost clipboard receipt");
-        };
-        clipboard::complete(&mut app.world, &response);
-        display(&app, editor, "retained");
-        assert!(runtime.poll_event().is_none());
+        for retain_window in [false, true] {
+            let (mut app, editor, mut runtime) = native_fixture();
+            clipboard::paste(&mut app.world, editor);
+            let Some(ClipboardRequest::Read(request)) = clipboard::take_request(&mut app.world)
+            else {
+                panic!("expected pending clipboard read");
+            };
+            runtime.event_queue.push_back(InputEvent::Clipboard(
+                request.complete(ClipboardData::text("retained")),
+            ));
+            runtime.suspend(retain_window);
+            let Some(InputEvent::Clipboard(response)) = runtime.poll_event() else {
+                panic!("lost clipboard receipt");
+            };
+            clipboard::complete(&mut app.world, &response);
+            display(&app, editor, "retained");
+            assert!(runtime.poll_event().is_none());
+        }
     }
 
     #[test]
     fn only_the_active_native_window_dispatches_events() {
-        assert!(window_event_is_current(Some(&7), &7));
-        assert!(!window_event_is_current(Some(&7), &8));
-        assert!(!window_event_is_current::<u8>(None, &7));
+        for event in [WindowEvent::RedrawRequested, WindowEvent::Focused(true)] {
+            assert!(window_event_is_deliverable(Some(&7), &7, false, &event));
+            assert!(!window_event_is_deliverable(Some(&7), &8, false, &event));
+            assert!(!window_event_is_deliverable::<u8>(None, &7, false, &event));
+        }
+    }
+
+    #[test]
+    fn suspended_windows_deliver_host_state_without_rendering_or_pointer_input() {
+        let (mut app, _, mut runtime) = native_fixture();
+        for event in [WindowEvent::Focused(false), WindowEvent::Occluded(true)] {
+            runtime.window_event(event);
+        }
+        deliver(&mut app, &mut runtime);
+        app.suspend();
+        runtime.suspend(true);
+        assert!(crate::ui::text_input::native_state(&mut app.world, 0).is_none());
+
+        for event in [
+            WindowEvent::Resized(winit::dpi::PhysicalSize::new(400, 200)),
+            WindowEvent::RedrawRequested,
+            WindowEvent::MouseInput {
+                device_id: winit::event::DeviceId::dummy(),
+                state: ElementState::Pressed,
+                button: MouseButton::Left,
+            },
+        ] {
+            assert!(!window_event_is_deliverable(Some(&7), &7, true, &event));
+        }
+        for event in [WindowEvent::Focused(true), WindowEvent::Occluded(false)] {
+            assert!(window_event_is_deliverable(Some(&7), &7, true, &event));
+            runtime.window_event(event);
+        }
+        app.suspend();
+        runtime.suspend(true);
+        assert!(crate::ui::text_input::native_state(&mut app.world, 0).is_none());
+        app.resume();
+        deliver(&mut app, &mut runtime);
+        assert!(crate::ui::text_input::native_state(&mut app.world, 0).is_some());
     }
 
     #[test]

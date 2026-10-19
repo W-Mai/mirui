@@ -351,6 +351,26 @@ Android uses a NativeActivity entry point, builds Rust through `cargo-ndk`, and 
 
 iOS builds require iOS 14 or newer. Set the application's deployment target accordingly; standalone Cargo builds can use `IPHONEOS_DEPLOYMENT_TARGET=14.0`.
 
+The iOS application's `Info.plist` declares one application scene. `MobileHost` attaches the Winit window to that scene before creating or resuming either rendering path. No custom scene delegate or additional application loop is required.
+
+```xml
+<key>UIApplicationSceneManifest</key>
+<dict>
+    <key>UIApplicationSupportsMultipleScenes</key>
+    <false/>
+    <key>UISceneConfigurations</key>
+    <dict>
+        <key>UIWindowSceneSessionRoleApplication</key>
+        <array>
+            <dict>
+                <key>UISceneConfigurationName</key>
+                <string>Default Configuration</string>
+            </dict>
+        </array>
+    </dict>
+</dict>
+```
+
 Mobile applications retain their world and renderer state across suspend and resume. Touch contacts are mapped to stable compact pointer IDs for their full lifetime, and a focused `TextInput` opens the native software keyboard while preserving UTF-8 text delivered by native input events. Custom editors attach `TextEditing` and register its View to share editing, focus, and native keyboard behavior.
 
 Software-rendered hosts use native device density within an explicit framebuffer budget. Resize admission is transactional: an allocation or budget failure leaves the last valid framebuffer active. WGPU acquisition recovers once from outdated or lost surfaces and skips transient timeout or occlusion frames. Native memory warnings release reconstructible text, path-placement, offscreen, software-raster, and GPU caches while preserving application state; plugins can release their own caches through `Plugin::on_memory_warning`.

@@ -282,7 +282,7 @@ impl SoftwareUploadSurface {
                 None
             };
             let exact_size =
-                u32::from(width) == state.config.width && u32::from(height) == state.config.height;
+                u32::from(width) == window_size.width && u32::from(height) == window_size.height;
             let presenter = Presenter::new(state, width, height, exact_size);
             if let Some(buffer) = next_buffer {
                 self.buffer = buffer;
@@ -396,13 +396,15 @@ impl MobileSurface for SoftwareUploadSurface {
 
     fn resume_window(&mut self, window: Arc<Window>) -> Result<(), MobileSurfaceError> {
         self.runtime.resume(window)?;
-        self.presenter = None;
         self.resize_storage()
     }
 
     fn suspend_window(&mut self) {
-        self.runtime.suspend();
-        self.presenter = None;
+        self.runtime.suspend(cfg!(target_os = "ios"));
+        #[cfg(not(target_os = "ios"))]
+        {
+            self.presenter = None;
+        }
         self.pending_present = false;
     }
 
