@@ -287,18 +287,27 @@ pub(crate) fn update_hit_test_geometry(
         used: 0,
         changed: geometry_changed,
     };
-    let mut index = 0;
-    collect_geometry(
-        world,
-        layout_tree,
-        entities,
-        &mut index,
-        (Fixed::ZERO, Fixed::ZERO),
-        None,
-        Transform::IDENTITY,
-        Transform3D::IDENTITY,
-        &mut writer,
-    );
+    let has_targets = world.storage::<HitTarget>().is_some_and(|s| !s.is_empty())
+        || world
+            .storage::<ScrollConfig>()
+            .is_some_and(|s| !s.is_empty())
+        || world
+            .storage::<ScrollOffset>()
+            .is_some_and(|s| !s.is_empty());
+    if has_targets {
+        let mut index = 0;
+        collect_geometry(
+            world,
+            layout_tree,
+            entities,
+            &mut index,
+            (Fixed::ZERO, Fixed::ZERO),
+            None,
+            Transform::IDENTITY,
+            Transform3D::IDENTITY,
+            &mut writer,
+        );
+    }
     writer.finish();
     let geometry_changed = writer.changed;
     geometry.root = Some(root);
@@ -388,6 +397,55 @@ mod tests {
             .expect("parent children")
             .0
             .push(child);
+    }
+
+    #[test]
+    fn empty_geometry_tracks_target_installation_and_retirement_without_allocating() {
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        world.insert(root, Widget);
+        world.insert(root, fixed_style(32, 24));
+        let mut node = LayoutNode::new(LayoutStyle::default());
+        node.entity = Some(root);
+        node.rect = Rect::new(0, 0, 32, 24);
+        let refresh = |world: &mut World| {
+            update_hit_test_geometry(world, root, 128, 128, &node, &[root]);
+        };
+        refresh(&mut world);
+        assert!(geometry_matches(&world, root, 128, 128));
+        let empty_revision = geometry_revision(&world);
+        refresh(&mut world);
+        assert_eq!(geometry_revision(&world), empty_revision);
+        for kind in 0..3 {
+            match kind {
+                0 => world.insert(root, HitTarget),
+                1 => world.insert(root, ScrollConfig::default()),
+                _ => world.insert(root, ScrollOffset::default()),
+            };
+            refresh(&mut world);
+            assert_eq!(
+                hit_test(&world, root, 4.into(), 4.into(), 128, 128),
+                Some(root)
+            );
+            let populated_revision = geometry_revision(&world);
+            world.remove::<HitTarget>(root);
+            world.remove::<ScrollConfig>(root);
+            world.remove::<ScrollOffset>(root);
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| refresh(&mut world)),
+                0
+            );
+            assert!(
+                world
+                    .resource::<HitTestGeometry>()
+                    .unwrap()
+                    .entries
+                    .is_empty()
+            );
+            assert_ne!(geometry_revision(&world), populated_revision);
+            assert_eq!(hit_test(&world, root, 4.into(), 4.into(), 128, 128), None);
+            assert_eq!(geometry_changes(&world), (false, false));
+        }
     }
 
     #[test]

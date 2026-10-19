@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Input geometry preparation skips tree traversal when no hit targets or scroll viewports are installed and resumes when those components are added.
+
 - Software clearing and opaque rectangle fills share packed scanline writes across all pixel formats, preserving stride padding and replacement alpha without temporary allocations.
 
 ### Added
