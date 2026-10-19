@@ -17,6 +17,14 @@ pub(super) fn effective_transform(
         Some(t) if !t.0.is_identity() => t.0,
         _ => return *parent,
     };
+    if parent.is_identity()
+        && local.m00 == Fixed::ONE
+        && local.m11 == Fixed::ONE
+        && local.m01 == Fixed::ZERO
+        && local.m10 == Fixed::ZERO
+    {
+        return local;
+    }
     let cx = rect.x + rect.w / Fixed::from_int(2);
     let cy = rect.y + rect.h / Fixed::from_int(2);
     let to_origin = Transform::translate(Fixed::ZERO - cx, Fixed::ZERO - cy);
@@ -64,7 +72,14 @@ pub(crate) fn render_transforms(
     let local_affine = effective_transform(&Transform::IDENTITY, world, entity, rect);
     let local_projective = effective_transform_3d(&Transform3D::IDENTITY, world, entity, rect);
     if parent_projective.is_identity() && local_projective.is_identity() {
-        return (parent_affine.compose(&local_affine), Transform3D::IDENTITY);
+        let affine = if local_affine.is_identity() {
+            parent_affine
+        } else if parent_affine.is_identity() {
+            local_affine
+        } else {
+            parent_affine.compose(&local_affine)
+        };
+        return (affine, Transform3D::IDENTITY);
     }
     let outer = if parent_projective.is_identity() {
         Transform3D::from_affine(parent_affine)
@@ -135,5 +150,61 @@ pub(crate) fn transformed_clip_bounds(
         projective
             .apply_rect(rect)
             .map(|quad| Rect::bounding_quad(&quad))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn translations_preserve_centered_composition_for_every_parent_kind() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let rect = Rect::new(-17, 23, 31, 19);
+        let center = Transform::translate(
+            rect.x + rect.w / Fixed::from_int(2),
+            rect.y + rect.h / Fixed::from_int(2),
+        );
+        let inverse = Transform::translate(-center.tx, -center.ty);
+        for parent in [
+            Transform::IDENTITY,
+            Transform::translate(Fixed::from_int(11), Fixed::from_int(-7)),
+            Transform::scale(Fixed::from_f32(0.75), Fixed::from_f32(1.25)),
+            Transform::rotate_deg(Fixed::from_int(37)),
+        ] {
+            for offset in [-7.5, -0.5, 0.0, 0.5, 9.25] {
+                let local = Transform::translate(Fixed::from_f32(offset), Fixed::from_f32(-offset));
+                world.insert(entity, WidgetTransform(local));
+                let centered = center.compose(&local).compose(&inverse);
+                assert_eq!(
+                    render_transforms(parent, Transform3D::IDENTITY, &world, entity, rect),
+                    (parent.compose(&centered), Transform3D::IDENTITY),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn affine_and_projective_order_is_preserved() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let rect = Rect::new(13, -9, 37, 21);
+        for local in [
+            Transform::IDENTITY,
+            Transform::translate(Fixed::from_f32(0.5), Fixed::from_int(3)),
+            Transform::rotate_deg(Fixed::from_int(23)),
+        ] {
+            world.insert(entity, WidgetTransform(local));
+            let parent = Transform3D::from_affine(Transform::rotate_deg(Fixed::from_int(19)));
+            let local = effective_transform(&Transform::IDENTITY, &world, entity, rect);
+            assert_eq!(
+                render_transforms(Transform::IDENTITY, parent, &world, entity, rect),
+                (
+                    Transform::IDENTITY,
+                    parent.compose(&Transform3D::from_affine(local))
+                ),
+            );
+        }
     }
 }
