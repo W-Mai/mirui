@@ -1,5 +1,6 @@
 use crate::ecs::{Entity, World};
 use crate::types::{Rect, Transform, Transform3D};
+use crate::ui::theme::WidgetState;
 use crate::ui::view::ViewRegistry;
 use alloc::vec::Vec;
 use core::cell::Cell;
@@ -11,7 +12,13 @@ pub(super) struct PreparedPaint {
     views: Vec<Cell<usize>>,
     view_count: usize,
     affine: Vec<Cell<Option<Transform>>>,
-    visibility: Vec<Cell<PaintVisibility>>,
+    nodes: Vec<PreparedNode>,
+}
+
+#[derive(Default)]
+struct PreparedNode {
+    visibility: Cell<PaintVisibility>,
+    state: Cell<Option<WidgetState>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -42,15 +49,14 @@ impl PreparedPaint {
             views: Vec::new(),
             view_count: 0,
             affine: Vec::with_capacity(capacity),
-            visibility: Vec::with_capacity(capacity),
+            nodes: Vec::with_capacity(capacity),
         }
     }
 
     pub(super) fn resize(&mut self, len: usize, view_count: usize) {
         self.coverage.resize_with(len, || Cell::new(None));
         self.affine.resize_with(len, || Cell::new(None));
-        self.visibility
-            .resize_with(len, || Cell::new(PaintVisibility::Unknown));
+        self.nodes.resize_with(len, PreparedNode::default);
         self.view_count = view_count;
         self.views
             .resize_with(len * self.view_stride(), || Cell::new(0));
@@ -65,8 +71,9 @@ impl PreparedPaint {
         for entry in &self.views {
             entry.set(0);
         }
-        for entry in &self.visibility {
-            entry.set(PaintVisibility::Unknown);
+        for entry in &self.nodes {
+            entry.visibility.set(PaintVisibility::Unknown);
+            entry.state.set(None);
         }
     }
 
@@ -124,7 +131,9 @@ pub(super) fn visibility(
     position: usize,
     preparation: Option<&PreparedPaint>,
 ) -> PaintVisibility {
-    let entry = preparation.and_then(|prepared| prepared.visibility.get(position));
+    let entry = preparation
+        .and_then(|prepared| prepared.nodes.get(position))
+        .map(|node| &node.visibility);
     if let Some(visibility) = entry.map(Cell::get)
         && visibility != PaintVisibility::Unknown
     {
@@ -135,6 +144,25 @@ pub(super) fn visibility(
         entry.set(visibility);
     }
     visibility
+}
+
+pub(super) fn state(
+    world: &World,
+    entity: Entity,
+    position: usize,
+    preparation: Option<&PreparedPaint>,
+) -> WidgetState {
+    let entry = preparation
+        .and_then(|prepared| prepared.nodes.get(position))
+        .map(|node| &node.state);
+    if let Some(state) = entry.and_then(Cell::get) {
+        return state;
+    }
+    let state = super::resolve_widget_state(world, entity);
+    if let Some(entry) = entry {
+        entry.set(Some(state));
+    }
+    state
 }
 
 pub(super) fn transforms(
@@ -438,6 +466,143 @@ mod tests {
             visibility(&app.world, follower, 1, Some(&prepared)),
             PaintVisibility::Hidden
         );
+    }
+
+    #[test]
+    fn state_preparation_preserves_priority_and_resets_without_allocating() {
+        use crate::ui::state::{InteractionState, UserState};
+        let mut world = World::new();
+        let parent = world.spawn_empty();
+        let entity = world.spawn_empty();
+        world.insert(entity, crate::ui::Parent(parent));
+        let mut prepared = PreparedPaint::with_capacity(1);
+        prepared.resize(1, 0);
+        assert_eq!(core::mem::size_of::<PreparedNode>(), 2);
+        for (ancestor_disabled, own_error, interaction, expected) in [
+            (false, false, None, WidgetState::Enabled),
+            (
+                false,
+                false,
+                Some(InteractionState::Hovered),
+                WidgetState::Hovered,
+            ),
+            (
+                false,
+                false,
+                Some(InteractionState::Pressed),
+                WidgetState::Pressed,
+            ),
+            (
+                false,
+                true,
+                Some(InteractionState::Pressed),
+                WidgetState::Error,
+            ),
+            (
+                true,
+                true,
+                Some(InteractionState::Pressed),
+                WidgetState::Disabled,
+            ),
+            (false, false, None, WidgetState::Enabled),
+        ] {
+            if ancestor_disabled {
+                world.insert(parent, UserState::Disabled);
+            } else {
+                world.remove::<UserState>(parent);
+            }
+            if own_error {
+                world.insert(entity, UserState::Errored);
+            } else {
+                world.remove::<UserState>(entity);
+            }
+            if let Some(interaction) = interaction {
+                world.insert(entity, interaction);
+            } else {
+                world.remove::<InteractionState>(entity);
+            }
+            assert_eq!(state(&world, entity, 0, None), expected);
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| {
+                    prepared.clear();
+                    assert!(prepared.nodes[0].state.get().is_none());
+                    for _ in 0..8 {
+                        assert_eq!(state(&world, entity, 0, Some(&prepared)), expected);
+                    }
+                    assert_eq!(prepared.nodes[0].state.get(), Some(expected));
+                }),
+                0
+            );
+        }
+        prepared.resize(1, 0);
+        assert!(prepared.nodes[0].state.get().is_none());
+    }
+
+    #[test]
+    fn new_app_batch_discards_state_prepared_before_mutation() {
+        use crate::surface::FramebufferAccess;
+        let mut app = App::headless(32, 32);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.compose(root, scene());
+        app.render().unwrap();
+        let entity = app.world.find_by_id("probe").unwrap();
+        app.world.get_mut::<Style>(entity).unwrap().bg_color = Some(ColorToken::Primary.into());
+        for disabled in [true, false] {
+            app.world.invalidate_visual(entity);
+            app.dirty_regions().unwrap();
+            let snapshot = app
+                .world
+                .resource::<super::super::LayoutSnapshot>()
+                .unwrap();
+            let position = snapshot
+                .entities
+                .iter()
+                .position(|&node| node == entity)
+                .unwrap();
+            state(&app.world, entity, position, Some(&snapshot.prepared_paint));
+            if disabled {
+                app.world
+                    .insert(root, crate::ui::state::UserState::Disabled);
+            } else {
+                app.world.remove::<crate::ui::state::UserState>(root);
+            }
+            app.render_dirty().unwrap();
+            let expected = if disabled {
+                WidgetState::Disabled
+            } else {
+                WidgetState::Enabled
+            };
+            assert_eq!(
+                app.backend
+                    .framebuffer()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(1, 1),
+                app.world
+                    .resource::<crate::ui::Theme>()
+                    .unwrap()
+                    .resolve_in(ColorToken::Primary, expected),
+            );
+            let snapshot = app
+                .world
+                .resource::<super::super::LayoutSnapshot>()
+                .unwrap();
+            assert!(
+                snapshot.prepared_paint.nodes[position]
+                    .state
+                    .get()
+                    .is_none()
+            );
+            assert_eq!(
+                state(&app.world, entity, position, Some(&snapshot.prepared_paint)),
+                if disabled {
+                    WidgetState::Disabled
+                } else {
+                    WidgetState::Enabled
+                }
+            );
+        }
     }
 
     #[test]

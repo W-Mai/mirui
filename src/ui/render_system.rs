@@ -2014,7 +2014,7 @@ fn draw_tree_content(
 
     if visible && *idx < entities.len() {
         if let Some(style) = world.get::<Style>(entity) {
-            let state = resolve_widget_state(world, entity);
+            let state = prepared_paint::state(world, entity, *idx, preparation);
             let clip_x = !matches!(
                 style.layout.width,
                 crate::types::Dimension::Auto | crate::types::Dimension::Content

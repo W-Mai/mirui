@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Paint batches resolve inherited widget state once per visible node and reuse it across partial regions without additional allocation containers.
+
 - Paint batches reuse node visibility and follow-clip eligibility across partial regions, refreshing both at each preparation boundary.
 
 - Software rectangle fills reuse packed scanlines for opaque subpixel interiors while retaining antialiased edges and physical clipping.
