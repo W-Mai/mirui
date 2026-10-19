@@ -603,11 +603,14 @@ impl<'a> Canvas for SwRenderer<'a> {
         let Some(mut target) = write_pixels(&mut self.target, &mut self.failure) else {
             return;
         };
-        for py in draw_area.y()..draw_area.bottom() {
-            for px in draw_area.x()..draw_area.right() {
-                target.set_pixel(i32::from(px), i32::from(py), color);
-            }
-        }
+        rect_fill::overwrite_rect(
+            &mut target,
+            i32::from(draw_area.x()),
+            i32::from(draw_area.y()),
+            i32::from(draw_area.right()),
+            i32::from(draw_area.bottom()),
+            color,
+        );
     }
 
     fn draw_glyph_run(
@@ -2280,6 +2283,54 @@ mod tests {
         assert_eq!(c.r, 50);
         assert_eq!(c.g, 100);
         assert_eq!(c.b, 150);
+    }
+
+    #[test]
+    fn clear_preserves_padding_and_matches_pixel_replacement_in_every_format() {
+        use crate::types::PhysicalRect;
+        for format in [
+            ColorFormat::RGB565,
+            ColorFormat::RGB565Swapped,
+            ColorFormat::RGB888,
+            ColorFormat::RGBA8888,
+            ColorFormat::BGRA8888,
+        ] {
+            for color in [Color::rgba(0, 0, 0, 0), Color::rgba(193, 79, 37, 128)] {
+                for area in [
+                    PhysicalRect::EMPTY,
+                    PhysicalRect::from_size(4, 3),
+                    PhysicalRect::new(1, 1, 9, 9).unwrap(),
+                    PhysicalRect::new(3, 2, 1, 1).unwrap(),
+                    PhysicalRect::new(4, 3, 2, 2).unwrap(),
+                ] {
+                    let stride = 4 * format.bytes_per_pixel() + 5;
+                    let mut actual = [0xa5; 96];
+                    let mut expected = actual;
+                    let texture = Texture::new(&mut actual, 4, 3, format)
+                        .unwrap()
+                        .with_stride(stride)
+                        .unwrap();
+                    let mut renderer = SwRenderer::new(texture);
+                    renderer.clear(&area, &color);
+                    assert_eq!(renderer.flush(), Ok(()));
+                    drop(renderer);
+                    let mut reference = Texture::new(&mut expected, 4, 3, format)
+                        .unwrap()
+                        .with_stride(stride)
+                        .unwrap();
+                    if let Some(clipped) = area.intersection(PhysicalRect::from_size(4, 3)) {
+                        let mut pixels = reference.pixels_mut().unwrap();
+                        for y in clipped.y()..clipped.bottom() {
+                            for x in clipped.x()..clipped.right() {
+                                pixels.set_pixel(i32::from(x), i32::from(y), &color);
+                            }
+                        }
+                    }
+                    drop(reference);
+                    assert_eq!(actual, expected, "{format:?} {area:?} {color:?}");
+                }
+            }
+        }
     }
 
     #[test]

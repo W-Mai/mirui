@@ -422,45 +422,7 @@ fn fill_axis_aligned(
     let blend_aware =
         target.alpha_mode() == crate::render::texture::AlphaMode::Blend && color.a < 255;
     if opa == 255 && !blend_aware {
-        let bpp = target.format().bytes_per_pixel();
-        let stride = target.stride();
-        let row_px = (px_x1 - px_x0) as usize;
-        let row_bytes = row_px * bpp;
-        let format = target.format();
-        let buf = target.bytes_mut();
-        match format {
-            ColorFormat::RGBA8888 => {
-                fill_first_row_then_replicate::<4>(
-                    buf,
-                    stride,
-                    px_x0,
-                    px_y0,
-                    px_y1,
-                    row_bytes,
-                    [color.r, color.g, color.b, color.a],
-                );
-            }
-            ColorFormat::RGB565 | ColorFormat::RGB565Swapped => {
-                let px16 = ((color.r as u16 >> 3) << 11)
-                    | ((color.g as u16 >> 2) << 5)
-                    | (color.b as u16 >> 3);
-                let pixel = if format == ColorFormat::RGB565Swapped {
-                    [(px16 >> 8) as u8, px16 as u8]
-                } else {
-                    [px16 as u8, (px16 >> 8) as u8]
-                };
-                fill_first_row_then_replicate::<2>(
-                    buf, stride, px_x0, px_y0, px_y1, row_bytes, pixel,
-                );
-            }
-            _ => {
-                for py in px_y0..px_y1 {
-                    for px in px_x0..px_x1 {
-                        target.set_pixel(px, py, color);
-                    }
-                }
-            }
-        }
+        overwrite_rect(target, px_x0, px_y0, px_x1, px_y1, color);
     } else {
         for py in px_y0..px_y1 {
             for px in px_x0..px_x1 {
@@ -470,10 +432,52 @@ fn fill_axis_aligned(
     }
 }
 
-/// Fast-path opaque solid fill: write one scanline, then memcpy
-/// it into each subsequent row. Avoids both per-pixel
-/// `copy_from_slice` bounds-check overhead and any heap alloc for a
-/// repeating-pattern buffer.
+/// Replaces an already clipped pixel rectangle, including source alpha.
+pub(super) fn overwrite_rect(
+    target: &mut TexturePixelsMut<'_>,
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    color: &Color,
+) {
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
+    let format = target.format();
+    let stride = target.stride();
+    let row_bytes = (x1 - x0) as usize * format.bytes_per_pixel();
+    let pixel = format.pack(color).to_le_bytes();
+    let buf = target.bytes_mut();
+    match format {
+        ColorFormat::RGB565 | ColorFormat::RGB565Swapped => {
+            fill_first_row_then_replicate::<2>(
+                buf,
+                stride,
+                x0,
+                y0,
+                y1,
+                row_bytes,
+                [pixel[0], pixel[1]],
+            );
+        }
+        ColorFormat::RGB888 => {
+            fill_first_row_then_replicate::<3>(
+                buf,
+                stride,
+                x0,
+                y0,
+                y1,
+                row_bytes,
+                [pixel[0], pixel[1], pixel[2]],
+            );
+        }
+        ColorFormat::RGBA8888 | ColorFormat::BGRA8888 => {
+            fill_first_row_then_replicate::<4>(buf, stride, x0, y0, y1, row_bytes, pixel);
+        }
+    }
+}
+
 #[inline]
 fn fill_first_row_then_replicate<const BPP: usize>(
     buf: &mut [u8],

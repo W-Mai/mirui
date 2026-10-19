@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+
+- Software clearing and opaque rectangle fills share packed scanline writes across all pixel formats, preserving stride padding and replacement alpha without temporary allocations.
+
 ### Added
 
 - `Key::physical` identifies keyboard positions independently of text layout on SDL, WGPU, Web, and Linux evdev. Focused editors separate physical controls from committed text, and Escape is delivered as a key instead of closing the window.
