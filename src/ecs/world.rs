@@ -27,8 +27,30 @@ fn component_storage(
 }
 
 #[inline(never)]
+fn component_storage_mut(
+    storages: &mut HashMap<TypeId, Box<dyn ComponentStorage>, FxBuildHasher>,
+    type_id: TypeId,
+) -> Option<&mut Box<dyn ComponentStorage>> {
+    storages.get_mut(&type_id)
+}
+
+#[inline(never)]
+fn component_storage_or_insert(
+    storages: &mut HashMap<TypeId, Box<dyn ComponentStorage>, FxBuildHasher>,
+    type_id: TypeId,
+    create: fn() -> Box<dyn ComponentStorage>,
+) -> &mut Box<dyn ComponentStorage> {
+    storages.entry(type_id).or_insert_with(create)
+}
+
+#[inline(never)]
 fn resource_value(resources: &ResourceMap, type_id: TypeId) -> Option<&dyn Any> {
     resources.get(&type_id)?.as_deref()
+}
+
+#[inline(never)]
+fn resource_slot_mut(resources: &mut ResourceMap, type_id: TypeId) -> Option<&mut ResourceSlot> {
+    resources.get_mut(&type_id)
 }
 
 const _: () = {
@@ -113,8 +135,7 @@ impl<'world> SystemWorldCell<'world> {
         // SAFETY: the caller validated exclusive access to T. The pointer is
         // branded by the unique World borrow held by this cell.
         let resources = unsafe { &mut *self.resources.as_ptr() };
-        let value = resources
-            .get_mut(&TypeId::of::<T>())?
+        let value = resource_slot_mut(resources, TypeId::of::<T>())?
             .as_mut()?
             .downcast_mut::<T>()? as *mut T;
         Some(unsafe { &mut *value })
@@ -661,9 +682,7 @@ impl World {
         kind: ComponentChangeKind,
     ) -> Option<&mut T> {
         let type_id = TypeId::of::<T>();
-        let component = self
-            .storages
-            .get_mut(&type_id)?
+        let component = component_storage_mut(&mut self.storages, type_id)?
             .as_any_mut()
             .downcast_mut::<SparseSet<T>>()
             .expect("component storage type")
@@ -741,26 +760,23 @@ impl World {
     }
 
     fn storage_mut<T: 'static>(&mut self) -> &mut SparseSet<T> {
-        self.storages
-            .entry(TypeId::of::<T>())
-            .or_insert_with(|| Box::new(SparseSet::<T>::new()))
-            .as_any_mut()
-            .downcast_mut::<SparseSet<T>>()
-            .unwrap()
+        component_storage_or_insert(&mut self.storages, TypeId::of::<T>(), || {
+            Box::new(SparseSet::<T>::new())
+        })
+        .as_any_mut()
+        .downcast_mut::<SparseSet<T>>()
+        .unwrap()
     }
 
     fn storage_mut_if_exists<T: 'static>(&mut self) -> Option<&mut SparseSet<T>> {
-        self.storages
-            .get_mut(&TypeId::of::<T>())
+        component_storage_mut(&mut self.storages, TypeId::of::<T>())
             .map(|storage| storage.as_any_mut().downcast_mut::<SparseSet<T>>().unwrap())
     }
 
     /// Register a resource, reusing its storage when the type is already present.
     pub fn insert_resource<T: 'static>(&mut self, value: T) {
-        if let Some(existing) = self
-            .resources
-            .get_mut(&TypeId::of::<T>())
-            .and_then(Option::as_mut)
+        if let Some(existing) =
+            resource_slot_mut(&mut self.resources, TypeId::of::<T>()).and_then(Option::as_mut)
         {
             let slot = existing
                 .downcast_mut::<T>()
@@ -777,8 +793,7 @@ impl World {
     }
 
     pub fn resource_mut<T: 'static>(&mut self) -> Option<&mut T> {
-        self.resources
-            .get_mut(&TypeId::of::<T>())
+        resource_slot_mut(&mut self.resources, TypeId::of::<T>())
             .and_then(Option::as_mut)
             .and_then(|v| v.downcast_mut::<T>())
     }
@@ -792,8 +807,7 @@ impl World {
     }
 
     pub(crate) fn take_resource_box<T: 'static>(&mut self) -> Option<Box<T>> {
-        self.resources
-            .get_mut(&TypeId::of::<T>())
+        resource_slot_mut(&mut self.resources, TypeId::of::<T>())
             .and_then(Option::take)
             .and_then(|v| v.downcast::<T>().ok())
     }

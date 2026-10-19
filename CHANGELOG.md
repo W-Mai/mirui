@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Mutable component and resource access share table probes, and component storage creation reuses a common entry path without allocating on hits.
+
 - Component and resource reads share type-independent table lookup code while retaining checked downcasts and entity generation validation.
 
 - Paint batches resolve inherited widget state once per visible node and reuse it across partial regions without additional allocation containers.
