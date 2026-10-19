@@ -60,6 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The no_std Three Body demo uses 16×16 images and square borders without decorative rings or header text.
+
 - Widget output plans reuse stable local measurements, refresh consumers when source geometry changes, and recalculate peak workspace requirements.
 
 - Widget output plans retain dependency structure across content changes and retry failed batch preparation without repainting successful outputs.

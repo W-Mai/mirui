@@ -1,5 +1,6 @@
 use alloc::vec::Vec;
 
+#[cfg(feature = "std")]
 use super::orbit::OrbitRing;
 use super::simulation::BODY_SIZE;
 #[cfg(feature = "std")]
@@ -12,7 +13,9 @@ use super::state::{
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 use crate::ui;
-use crate::ui::widgets::{Image, ParagraphStyle, Text, TextAlign};
+use crate::ui::widgets::Image;
+#[cfg(feature = "std")]
+use crate::ui::widgets::{ParagraphStyle, Text, TextAlign};
 
 #[compose]
 pub fn build_widgets(view_w: u16, view_h: u16, n_bodies: usize, equilibrium: Fixed) {
@@ -39,72 +42,80 @@ pub fn build_widgets(view_w: u16, view_h: u16, n_bodies: usize, equilibrium: Fix
     });
     res!().insert(KickPhase(0));
 
-    let orbit_size = logical_w.min(logical_h) * 72 / 100;
-    let orbit_left = (logical_w - orbit_size) / 2;
-    let orbit_top = (logical_h - orbit_size) / 2;
-    ui! {
-        View (grow: 1.0, bg_color: ColorToken::Surface, clip_children: true) {
-            Row (
-                position: Position::Absolute,
-                left: 0,
-                top: 8,
-                width: Dimension::percent(100),
-                height: 32,
-                align: AlignItems::Center,
-                column_gap: 8,
-                padding: Padding {
-                    top: Dimension::px(0),
-                    right: Dimension::px(16),
-                    bottom: Dimension::px(0),
-                    left: Dimension::px(16),
+    #[cfg(feature = "std")]
+    {
+        let orbit_size = logical_w.min(logical_h) * 72 / 100;
+        let orbit_left = (logical_w - orbit_size) / 2;
+        let orbit_top = (logical_h - orbit_size) / 2;
+        ui! {
+            View (grow: 1.0, bg_color: ColorToken::Surface, clip_children: true) {
+                Row (
+                    position: Position::Absolute,
+                    left: 0,
+                    top: 8,
+                    width: Dimension::percent(100),
+                    height: 32,
+                    align: AlignItems::Center,
+                    column_gap: 8,
+                    padding: Padding {
+                        top: Dimension::px(0),
+                        right: Dimension::px(16),
+                        bottom: Dimension::px(0),
+                        left: Dimension::px(16),
+                    }
+                ) {
+                    Text (
+                        "THREE-BODY FIELD",
+                        grow: 1.0,
+                        height: 26,
+                        font_size: 15,
+                        text_color: ColorToken::OnSurface,
+                        paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
+                    )
+                    Text (
+                        "FIXED · LIVE",
+                        width: 104,
+                        height: 22,
+                        font_size: 9,
+                        bg_color: ColorToken::SurfaceVariant,
+                        text_color: ColorToken::Primary,
+                        border_radius: 11,
+                        paragraph: ParagraphStyle::label()
+                    )
                 }
-            ) {
-                Text (
-                    "THREE-BODY FIELD",
-                    grow: 1.0,
-                    height: 26,
-                    font_size: 15,
-                    text_color: ColorToken::OnSurface,
-                    paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
-                )
-                Text (
-                    "FIXED · LIVE",
-                    width: 104,
-                    height: 22,
-                    font_size: 9,
-                    bg_color: ColorToken::SurfaceVariant,
-                    text_color: ColorToken::Primary,
-                    border_radius: 11,
-                    paragraph: ParagraphStyle::label()
-                )
+                View (
+                    position: Position::Absolute,
+                    left: orbit_left,
+                    top: orbit_top,
+                    width: orbit_size,
+                    height: orbit_size,
+                    border_color: ColorToken::Outline,
+                    border_width: 1,
+                    border_radius: orbit_size as u32 / 2
+                ) [
+                    OrbitRing { diameter_percent: 72 },
+                ]
+                View (
+                    position: Position::Absolute,
+                    left: orbit_left + orbit_size / 4,
+                    top: orbit_top + orbit_size / 4,
+                    width: orbit_size / 2,
+                    height: orbit_size / 2,
+                    border_color: Color::rgba(97, 218, 251, 80),
+                    border_width: 1,
+                    border_radius: orbit_size as u32 / 4
+                ) [
+                    OrbitRing { diameter_percent: 36 },
+                ]
             }
-            View (
-                position: Position::Absolute,
-                left: orbit_left,
-                top: orbit_top,
-                width: orbit_size,
-                height: orbit_size,
-                border_color: ColorToken::Outline,
-                border_width: 1,
-                border_radius: orbit_size as u32 / 2
-            ) [
-                OrbitRing { diameter_percent: 72 },
-            ]
-            View (
-                position: Position::Absolute,
-                left: orbit_left + orbit_size / 4,
-                top: orbit_top + orbit_size / 4,
-                width: orbit_size / 2,
-                height: orbit_size / 2,
-                border_color: Color::rgba(97, 218, 251, 80),
-                border_width: 1,
-                border_radius: orbit_size as u32 / 4
-            ) [
-                OrbitRing { diameter_percent: 36 },
-            ]
-        }
-    };
+        };
+    }
 
+    let body_radius = if cfg!(feature = "std") {
+        BODY_SIZE as u32 / 2
+    } else {
+        0
+    };
     let iw = BODY_SIZE;
     let ih = BODY_SIZE;
     let center_x = Fixed::from_int(logical_w / 2);
@@ -138,7 +149,7 @@ pub fn build_widgets(view_w: u16, view_h: u16, n_bodies: usize, equilibrium: Fix
                 bg_color: ColorToken::SurfaceVariant,
                 border_color: ColorToken::Primary,
                 border_width: 1,
-                border_radius: BODY_SIZE as u32 / 2
+                border_radius: body_radius
             ) [
                 PhysicsBody { x: pos.0, y: pos.1 },
                 Velocity { vx: pos.2, vy: pos.3 },

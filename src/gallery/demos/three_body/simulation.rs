@@ -10,7 +10,7 @@ use crate::ui::widgets::WidgetTransform;
 use crate::ui::{ComputedRect, WidgetRoot};
 
 const PHYSICS_DT_MS: u32 = 11;
-pub(super) const BODY_SIZE: i32 = 24;
+pub(super) const BODY_SIZE: i32 = if cfg!(feature = "std") { 24 } else { 16 };
 
 fn isqrt(n: u32) -> u32 {
     if n == 0 {
