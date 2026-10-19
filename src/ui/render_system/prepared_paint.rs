@@ -11,6 +11,28 @@ pub(super) struct PreparedPaint {
     views: Vec<Cell<usize>>,
     view_count: usize,
     affine: Vec<Cell<Option<Transform>>>,
+    visibility: Vec<Cell<PaintVisibility>>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) enum PaintVisibility {
+    #[default]
+    Unknown,
+    Hidden,
+    Unclipped,
+    Clipped,
+}
+
+impl PaintVisibility {
+    fn resolve(world: &World, entity: Entity) -> Self {
+        if crate::ui::branch::is_effectively_hidden(world, entity) {
+            Self::Hidden
+        } else if crate::ui::widgets::follow_bounds::clip(world, entity).is_some() {
+            Self::Clipped
+        } else {
+            Self::Unclipped
+        }
+    }
 }
 
 impl PreparedPaint {
@@ -20,12 +42,15 @@ impl PreparedPaint {
             views: Vec::new(),
             view_count: 0,
             affine: Vec::with_capacity(capacity),
+            visibility: Vec::with_capacity(capacity),
         }
     }
 
     pub(super) fn resize(&mut self, len: usize, view_count: usize) {
         self.coverage.resize_with(len, || Cell::new(None));
         self.affine.resize_with(len, || Cell::new(None));
+        self.visibility
+            .resize_with(len, || Cell::new(PaintVisibility::Unknown));
         self.view_count = view_count;
         self.views
             .resize_with(len * self.view_stride(), || Cell::new(0));
@@ -39,6 +64,9 @@ impl PreparedPaint {
         }
         for entry in &self.views {
             entry.set(0);
+        }
+        for entry in &self.visibility {
+            entry.set(PaintVisibility::Unknown);
         }
     }
 
@@ -88,6 +116,25 @@ impl PreparedPaint {
             entry.set(Some(coverage));
         }
     }
+}
+
+pub(super) fn visibility(
+    world: &World,
+    entity: Entity,
+    position: usize,
+    preparation: Option<&PreparedPaint>,
+) -> PaintVisibility {
+    let entry = preparation.and_then(|prepared| prepared.visibility.get(position));
+    if let Some(visibility) = entry.map(Cell::get)
+        && visibility != PaintVisibility::Unknown
+    {
+        return visibility;
+    }
+    let visibility = PaintVisibility::resolve(world, entity);
+    if let Some(entry) = entry {
+        entry.set(visibility);
+    }
+    visibility
 }
 
 pub(super) fn transforms(
@@ -319,6 +366,78 @@ mod tests {
                 .0;
             assert_eq!(coverage.outer, Rect::new(painted, 0, 20, 20));
         }
+    }
+
+    #[test]
+    fn visibility_refreshes_with_the_batch_and_preserves_follow_clipping() {
+        use crate::ui::widgets::FollowBounds;
+        #[crate::compose]
+        fn nodes() {
+            ui! {
+                View(width: 32, height: 32) {
+                    View(id: "target", width: 12, height: 12)
+                    View(id: "follower", border_width: 1, border_color: ColorToken::Primary) [
+                        FollowBounds::new(id("target")),
+                    ]
+                }
+            };
+        }
+        let mut app = App::headless(32, 32);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.compose(root, nodes());
+        app.render().unwrap();
+        let target = app.world.find_by_id("target").unwrap();
+        let follower = app.world.find_by_id("follower").unwrap();
+        let mut prepared = PreparedPaint::with_capacity(2);
+        prepared.resize(2, 0);
+        assert_eq!(core::mem::size_of::<Cell<PaintVisibility>>(), 1);
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for _ in 0..8 {
+                    assert_eq!(
+                        visibility(&app.world, target, 0, Some(&prepared)),
+                        PaintVisibility::Unclipped
+                    );
+                    assert_eq!(
+                        visibility(&app.world, follower, 1, Some(&prepared)),
+                        PaintVisibility::Clipped
+                    );
+                }
+            }),
+            0
+        );
+        app.world.insert(follower, crate::ui::Hidden);
+        assert_eq!(
+            visibility(&app.world, follower, 1, None),
+            PaintVisibility::Hidden
+        );
+        prepared.clear();
+        assert_eq!(
+            visibility(&app.world, follower, 1, Some(&prepared)),
+            PaintVisibility::Hidden
+        );
+        app.world.remove::<crate::ui::Hidden>(follower);
+        prepared.clear();
+        assert_eq!(
+            visibility(&app.world, follower, 1, Some(&prepared)),
+            PaintVisibility::Clipped
+        );
+        app.world.remove::<FollowBounds>(follower);
+        prepared.clear();
+        assert_eq!(
+            visibility(&app.world, follower, 1, Some(&prepared)),
+            PaintVisibility::Unclipped
+        );
+        app.world.insert(
+            follower,
+            crate::ui::branch::CachedBranchVisibility { selected: false },
+        );
+        prepared.clear();
+        assert_eq!(
+            visibility(&app.world, follower, 1, Some(&prepared)),
+            PaintVisibility::Hidden
+        );
     }
 
     #[test]

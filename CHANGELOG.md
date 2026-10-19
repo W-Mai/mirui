@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Paint batches reuse node visibility and follow-clip eligibility across partial regions, refreshing both at each preparation boundary.
+
 - Software rectangle fills reuse packed scanlines for opaque subpixel interiors while retaining antialiased edges and physical clipping.
 
 - Projective matrix composition returns the other operand directly for identity transforms, avoiding redundant arithmetic in clipped drawing scopes.

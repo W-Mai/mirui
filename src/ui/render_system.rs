@@ -1807,11 +1807,12 @@ fn draw_visible_tree_offset(
     let Some(&entity) = entities.get(*idx) else {
         return Ok(());
     };
-    if super::branch::is_effectively_hidden(world, entity) {
+    let visibility = prepared_paint::visibility(world, entity, *idx, preparation);
+    if visibility == prepared_paint::PaintVisibility::Hidden {
         *idx += count_nodes(node);
         return Ok(());
     }
-    if super::widgets::follow_bounds::clip(world, entity).is_none() {
+    if visibility == prepared_paint::PaintVisibility::Unclipped {
         return draw_tree_content(
             node,
             world,
