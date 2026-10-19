@@ -131,6 +131,13 @@ impl SizeObservers {
         Some((entry.listener, entry.entity, SizeChanged { old, new }))
     }
 
+    pub(super) fn has_pending(&self, index: usize) -> bool {
+        self.entries
+            .borrow()
+            .get(index)
+            .is_some_and(|entry| entry.pending.is_some())
+    }
+
     pub(super) fn finish(&self) {
         for entry in &mut *self.entries.borrow_mut() {
             entry.pending = None;

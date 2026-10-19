@@ -661,6 +661,9 @@ pub(crate) struct SizeChangeBatch {
 impl SizeChangeBatch {
     pub(crate) fn dispatch(self, world: &mut World, before_dispatch: fn(&mut World)) {
         for index in 0..self.length {
+            if !self.runtime.sizes.has_pending(index) {
+                continue;
+            }
             before_dispatch(world);
             let Some((listener, entity, event)) = self.runtime.sizes.take(index) else {
                 continue;
@@ -711,6 +714,10 @@ pub(crate) fn capture_sizes(
     let (length, changed) = runtime
         .sizes
         .capture(&runtime.listeners, world, laid_out, invoke)?;
+    if invoke && !changed {
+        runtime.sizes.finish();
+        return Ok(None);
+    }
     Ok(Some(SizeChangeBatch {
         runtime,
         length,

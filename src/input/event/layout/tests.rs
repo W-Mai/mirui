@@ -42,10 +42,16 @@ fn prepared_size_capture_and_dispatch_allocate_nothing_and_restore_owner() {
     assert_eq!(allocations, 0);
     assert_eq!(app.world.resource::<Count>().unwrap().0, 65);
     assert_eq!(crate::core::reactive::current_world_id(), None);
+    assert!(
+        runtime::capture_sizes(&app.world, &[node], true)
+            .unwrap()
+            .is_none()
+    );
+    app.world.get_mut::<ComputedRect>(node).unwrap().0.w = Fixed::from_int(95);
     let batch = runtime::capture_sizes(&app.world, &[node], true)
         .unwrap()
         .unwrap();
-    assert!(!batch.changed);
+    assert!(batch.changed);
     assert!(matches!(
         runtime::capture_sizes(&app.world, &[node], true),
         Err(ListenerError::Busy)
