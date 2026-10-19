@@ -266,14 +266,19 @@ pub mod prop {
                 type Value = $value;
 
                 fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
-                    if let Some(style) = world.get_mut::<crate::ui::Style>(entity) {
-                        if style.$field == value {
-                            return PropertyChange::Unchanged;
-                        }
-                        style.$field = value;
-                    } else {
+                    if !world
+                        .get::<crate::ui::Style>(entity)
+                        .is_some_and(|style| style.$field != value)
+                    {
                         return PropertyChange::Unchanged;
                     }
+                    let Some(style) = world.get_mut_with_change::<crate::ui::Style>(
+                        entity,
+                        crate::ecs::world::ComponentChangeKind::Visual,
+                    ) else {
+                        return PropertyChange::Unchanged;
+                    };
+                    style.$field = value;
                     PropertyChange::Visual
                 }
             }
@@ -284,14 +289,19 @@ pub mod prop {
         type Value = crate::ui::theme::ThemedColor;
 
         fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
-            if let Some(style) = world.get_mut::<crate::ui::Style>(entity) {
-                if style.bg_color == Some(value) {
-                    return PropertyChange::Unchanged;
-                }
-                style.bg_color = Some(value);
-            } else {
+            if !world
+                .get::<crate::ui::Style>(entity)
+                .is_some_and(|style| style.bg_color != Some(value))
+            {
                 return PropertyChange::Unchanged;
             }
+            let Some(style) = world.get_mut_with_change::<crate::ui::Style>(
+                entity,
+                crate::ecs::world::ComponentChangeKind::Visual,
+            ) else {
+                return PropertyChange::Unchanged;
+            };
+            style.bg_color = Some(value);
             PropertyChange::Visual
         }
     }
@@ -302,14 +312,19 @@ pub mod prop {
         type Value = crate::ui::theme::ThemedColor;
 
         fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
-            if let Some(style) = world.get_mut::<crate::ui::Style>(entity) {
-                if style.border_color == Some(value) {
-                    return PropertyChange::Unchanged;
-                }
-                style.border_color = Some(value);
-            } else {
+            if !world
+                .get::<crate::ui::Style>(entity)
+                .is_some_and(|style| style.border_color != Some(value))
+            {
                 return PropertyChange::Unchanged;
             }
+            let Some(style) = world.get_mut_with_change::<crate::ui::Style>(
+                entity,
+                crate::ecs::world::ComponentChangeKind::Visual,
+            ) else {
+                return PropertyChange::Unchanged;
+            };
+            style.border_color = Some(value);
             PropertyChange::Visual
         }
     }
@@ -414,14 +429,19 @@ pub mod prop {
         type Value = u16;
 
         fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
-            if let Some(style) = world.get_mut::<crate::ui::Style>(entity) {
-                if style.font_size == Some(value) {
-                    return PropertyChange::Unchanged;
-                }
-                style.set_font_size(value);
-            } else {
+            if !world
+                .get::<crate::ui::Style>(entity)
+                .is_some_and(|style| style.font_size != Some(value))
+            {
                 return PropertyChange::Unchanged;
             }
+            let Some(style) = world.get_mut_with_change::<crate::ui::Style>(
+                entity,
+                crate::ecs::world::ComponentChangeKind::Layout,
+            ) else {
+                return PropertyChange::Unchanged;
+            };
+            style.set_font_size(value);
             PropertyChange::Layout
         }
     }
@@ -445,12 +465,18 @@ pub mod prop {
         type Value = crate::ui::layout::FlexDirection;
 
         fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
-            let Some(style) = world.get_mut::<crate::ui::Style>(entity) else {
-                return PropertyChange::Unchanged;
-            };
-            if style.layout.direction == value {
+            if !world
+                .get::<crate::ui::Style>(entity)
+                .is_some_and(|style| style.layout.direction != value)
+            {
                 return PropertyChange::Unchanged;
             }
+            let Some(style) = world.get_mut_with_change::<crate::ui::Style>(
+                entity,
+                crate::ecs::world::ComponentChangeKind::Layout,
+            ) else {
+                return PropertyChange::Unchanged;
+            };
             style.layout.direction = value;
             PropertyChange::Layout
         }
@@ -460,14 +486,19 @@ pub mod prop {
         type Value = crate::types::Dimension;
 
         fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
-            if let Some(style) = world.get_mut::<crate::ui::Style>(entity) {
-                if style.layout.width == value {
-                    return PropertyChange::Unchanged;
-                }
-                style.layout.width = value;
-            } else {
+            if !world
+                .get::<crate::ui::Style>(entity)
+                .is_some_and(|style| style.layout.width != value)
+            {
                 return PropertyChange::Unchanged;
             }
+            let Some(style) = world.get_mut_with_change::<crate::ui::Style>(
+                entity,
+                crate::ecs::world::ComponentChangeKind::Layout,
+            ) else {
+                return PropertyChange::Unchanged;
+            };
+            style.layout.width = value;
             PropertyChange::Layout
         }
     }
@@ -478,14 +509,19 @@ pub mod prop {
                 type Value = crate::types::Dimension;
 
                 fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
-                    if let Some(style) = world.get_mut::<crate::ui::Style>(entity) {
-                        if style.layout.$field == value {
-                            return PropertyChange::Unchanged;
-                        }
-                        style.layout.$field = value;
-                    } else {
+                    if !world
+                        .get::<crate::ui::Style>(entity)
+                        .is_some_and(|style| style.layout.$field != value)
+                    {
                         return PropertyChange::Unchanged;
                     }
+                    let Some(style) = world.get_mut_with_change::<crate::ui::Style>(
+                        entity,
+                        crate::ecs::world::ComponentChangeKind::Layout,
+                    ) else {
+                        return PropertyChange::Unchanged;
+                    };
+                    style.layout.$field = value;
                     PropertyChange::Layout
                 }
             }
@@ -499,14 +535,19 @@ pub mod prop {
         type Value = crate::types::Dimension;
 
         fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
-            if let Some(style) = world.get_mut::<crate::ui::Style>(entity) {
-                if style.layout.height == value {
-                    return PropertyChange::Unchanged;
-                }
-                style.layout.height = value;
-            } else {
+            if !world
+                .get::<crate::ui::Style>(entity)
+                .is_some_and(|style| style.layout.height != value)
+            {
                 return PropertyChange::Unchanged;
             }
+            let Some(style) = world.get_mut_with_change::<crate::ui::Style>(
+                entity,
+                crate::ecs::world::ComponentChangeKind::Layout,
+            ) else {
+                return PropertyChange::Unchanged;
+            };
+            style.layout.height = value;
             PropertyChange::Layout
         }
     }
@@ -522,14 +563,19 @@ pub mod prop {
         type Value = crate::ui::layout::Padding;
 
         fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
-            if let Some(style) = world.get_mut::<crate::ui::Style>(entity) {
-                if style.layout.padding == value {
-                    return PropertyChange::Unchanged;
-                }
-                style.layout.padding = value;
-            } else {
+            if !world
+                .get::<crate::ui::Style>(entity)
+                .is_some_and(|style| style.layout.padding != value)
+            {
                 return PropertyChange::Unchanged;
             }
+            let Some(style) = world.get_mut_with_change::<crate::ui::Style>(
+                entity,
+                crate::ecs::world::ComponentChangeKind::Layout,
+            ) else {
+                return PropertyChange::Unchanged;
+            };
+            style.layout.padding = value;
             PropertyChange::Layout
         }
     }
@@ -564,6 +610,8 @@ pub mod prop {
 
 #[cfg(test)]
 mod tests {
+    use core::any::TypeId;
+
     use super::*;
     use crate::core::reactive::{Signal, flush_signal_dirty};
     use crate::test_support::tracked_allocations;
@@ -1005,6 +1053,47 @@ mod tests {
 
         apply_to_world::<prop::Width>(&mut world, entity, Dimension::px(120));
         assert!(world.has::<Dirty>(entity));
+    }
+
+    #[test]
+    fn style_properties_publish_precise_change_kind() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Widget);
+        world.insert(entity, crate::ui::Style::default());
+        world.watch_component_type(TypeId::of::<crate::ui::Style>());
+        world.drain_component_changes(|_, _| {});
+
+        apply_to_world::<prop::BackgroundColor>(
+            &mut world,
+            entity,
+            crate::ui::ColorToken::Primary.into(),
+        );
+        let mut changes = alloc::vec::Vec::new();
+        world.drain_component_changes(|_, change| changes.push(change));
+        assert_eq!(changes.len(), 1);
+        assert_eq!(
+            changes[0].kind,
+            crate::ecs::world::ComponentChangeKind::Visual
+        );
+
+        apply_to_world::<prop::FontSize>(&mut world, entity, 18);
+        changes.clear();
+        world.drain_component_changes(|_, change| changes.push(change));
+        assert_eq!(changes.len(), 1);
+        assert_eq!(
+            changes[0].kind,
+            crate::ecs::world::ComponentChangeKind::Layout
+        );
+
+        let _ = world.get_mut::<crate::ui::Style>(entity);
+        changes.clear();
+        world.drain_component_changes(|_, change| changes.push(change));
+        assert_eq!(changes.len(), 1);
+        assert_eq!(
+            changes[0].kind,
+            crate::ecs::world::ComponentChangeKind::Component
+        );
     }
 
     #[test]

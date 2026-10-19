@@ -1078,6 +1078,7 @@ impl ViewRegistry {
                 }
                 continue;
             }
+            let invalidation = Self::invalidation_for_change(view, change);
             if let Some(relations) = relations.as_deref_mut() {
                 if world.is_alive(change.entity) && world.has_type(change.entity, change.type_id) {
                     for (slot, dependency) in view.definition.output_dependencies.iter().enumerate()
@@ -1088,7 +1089,7 @@ impl ViewRegistry {
                             view.registration_id(),
                             slot,
                             dependency,
-                            view.invalidation(),
+                            invalidation,
                         );
                     }
                 } else {
@@ -1119,7 +1120,7 @@ impl ViewRegistry {
                 let binding = &mut self.bindings[index];
                 binding
                     .subscriptions
-                    .reset(view.invalidation(), view.definition.observation_count);
+                    .reset(invalidation, view.definition.observation_count);
                 binding.entity = change.entity;
                 binding.registration_id = registration_id;
                 binding.active =
@@ -1130,11 +1131,26 @@ impl ViewRegistry {
                 }
             }
             if world.is_alive(change.entity) {
-                match view.invalidation() {
+                match invalidation {
                     ViewInvalidation::Visual => world.invalidate_visual(change.entity),
                     ViewInvalidation::Layout => world.invalidate(change.entity),
                 }
             }
+        }
+    }
+
+    fn invalidation_for_change(
+        view: &View,
+        change: crate::ecs::world::ComponentChange,
+    ) -> ViewInvalidation {
+        if view.component_filter() != Some(TypeId::of::<Style>()) {
+            return view.invalidation();
+        }
+        match change.kind {
+            crate::ecs::world::ComponentChangeKind::Visual => ViewInvalidation::Visual,
+            crate::ecs::world::ComponentChangeKind::Layout => ViewInvalidation::Layout,
+            crate::ecs::world::ComponentChangeKind::Transform => ViewInvalidation::Visual,
+            crate::ecs::world::ComponentChangeKind::Component => view.invalidation(),
         }
     }
 

@@ -1045,11 +1045,13 @@ mod tests {
             [
                 crate::ecs::world::ComponentChange {
                     entity: first,
-                    type_id: TypeId::of::<Velocity>()
+                    type_id: TypeId::of::<Velocity>(),
+                    kind: crate::ecs::world::ComponentChangeKind::Component,
                 },
                 crate::ecs::world::ComponentChange {
                     entity: second,
-                    type_id: TypeId::of::<Velocity>()
+                    type_id: TypeId::of::<Velocity>(),
+                    kind: crate::ecs::world::ComponentChangeKind::Component,
                 },
             ]
         );
@@ -1374,6 +1376,7 @@ mod tests {
             [crate::ecs::world::ComponentChange {
                 entity: active,
                 type_id: TypeId::of::<Velocity>(),
+                kind: crate::ecs::world::ComponentChangeKind::Component,
             }]
         );
         assert_eq!(world.get::<Velocity>(active), Some(&Velocity(3)));
@@ -1408,6 +1411,7 @@ mod tests {
             [crate::ecs::world::ComponentChange {
                 entity: first,
                 type_id: TypeId::of::<Velocity>(),
+                kind: crate::ecs::world::ComponentChangeKind::Component,
             }]
         );
         assert_ne!(yielded, second);

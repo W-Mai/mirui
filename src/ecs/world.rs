@@ -204,6 +204,36 @@ impl<T: 'static> ComponentStorage for SparseSet<T> {
 pub(crate) struct ComponentChange {
     pub entity: Entity,
     pub type_id: TypeId,
+    pub kind: ComponentChangeKind,
+}
+
+/// Classification of a mutable component write for View invalidation.
+///
+/// `Component` is intentionally conservative: arbitrary mutable component
+/// access does not expose which fields changed. Typed framework mutation can
+/// provide a narrower classification without changing query dependency
+/// tracking.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ComponentChangeKind {
+    Component,
+    Visual,
+    Transform,
+    Layout,
+}
+
+impl ComponentChangeKind {
+    fn merge(self, other: Self) -> Self {
+        if matches!(self, Self::Component) || matches!(other, Self::Component) {
+            return Self::Component;
+        }
+        if matches!(self, Self::Layout) || matches!(other, Self::Layout) {
+            return Self::Layout;
+        }
+        if matches!(self, Self::Transform) || matches!(other, Self::Transform) {
+            return Self::Transform;
+        }
+        Self::Visual
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -259,7 +289,13 @@ impl ComponentChangeSink<'_> {
         // holds the system's exclusive World window.
         let watched = unsafe { &mut *self.watched_component_types.as_ptr() };
         let changes = unsafe { &mut *self.component_changes.as_ptr() };
-        record_component_change(watched, changes, entity, TypeId::of::<T>());
+        record_component_change(
+            watched,
+            changes,
+            entity,
+            TypeId::of::<T>(),
+            ComponentChangeKind::Component,
+        );
     }
 }
 
@@ -268,6 +304,7 @@ fn record_component_change(
     component_changes: &mut alloc::vec::Vec<ComponentChange>,
     entity: Entity,
     type_id: TypeId,
+    kind: ComponentChangeKind,
 ) {
     let Some(watched) = watched_component_types
         .iter_mut()
@@ -280,8 +317,17 @@ fn record_component_change(
     if !watched.entity_tracking {
         return;
     }
-    let change = ComponentChange { entity, type_id };
-    if !component_changes.contains(&change) {
+    let change = ComponentChange {
+        entity,
+        type_id,
+        kind,
+    };
+    if let Some(existing) = component_changes
+        .iter_mut()
+        .find(|existing| existing.entity == entity && existing.type_id == type_id)
+    {
+        existing.kind = existing.kind.merge(kind);
+    } else {
         if component_changes.len() == component_changes.capacity() {
             component_changes
                 .try_reserve(1)
@@ -546,6 +592,7 @@ impl World {
             &mut self.component_changes,
             entity,
             type_id,
+            ComponentChangeKind::Component,
         );
     }
 
@@ -594,6 +641,14 @@ impl World {
 
     /// Successful mutable access records a possible component change and marks query dependencies. Registered bindings reconcile the component's final value before layout and painting.
     pub fn get_mut<T: 'static>(&mut self, entity: Entity) -> Option<&mut T> {
+        self.get_mut_with_change(entity, ComponentChangeKind::Component)
+    }
+
+    pub(crate) fn get_mut_with_change<T: 'static>(
+        &mut self,
+        entity: Entity,
+        kind: ComponentChangeKind,
+    ) -> Option<&mut T> {
         let type_id = TypeId::of::<T>();
         let component = self
             .storages
@@ -607,6 +662,7 @@ impl World {
             &mut self.component_changes,
             entity,
             type_id,
+            kind,
         );
         Some(component)
     }
@@ -925,7 +981,8 @@ mod tests {
             world.component_changes,
             [ComponentChange {
                 entity,
-                type_id: kind
+                type_id: kind,
+                kind: ComponentChangeKind::Component,
             }]
         );
     }
@@ -974,6 +1031,7 @@ mod tests {
                     [ComponentChange {
                         entity: first,
                         type_id: kind,
+                        kind: ComponentChangeKind::Component,
                     }]
                 );
                 world.drain_component_changes(|world, change| {
@@ -1252,7 +1310,8 @@ mod tests {
             changes,
             [ComponentChange {
                 entity,
-                type_id: TypeId::of::<u16>()
+                type_id: TypeId::of::<u16>(),
+                kind: ComponentChangeKind::Component,
             }]
         );
         assert_eq!(world.component_changes.capacity(), capacity);
