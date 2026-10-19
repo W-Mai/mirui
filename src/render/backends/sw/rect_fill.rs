@@ -222,6 +222,14 @@ impl SwRenderer<'_> {
         let mid_y1 = (area_y_end - r_int).to_int();
         let has_corners = r > Fixed::ZERO;
         let opa_full = effective_opa == 255;
+        let inner_x0 = mid_x0.max(px_x0);
+        let inner_x1 = mid_x1.min(px_x1);
+        let inner_y0 = mid_y0.max(px_y0);
+        let inner_y1 = mid_y1.min(px_y1);
+        let bulk_interior = !has_corners && opa_full && inner_x0 < inner_x1 && inner_y0 < inner_y1;
+        if bulk_interior {
+            overwrite_rect(&mut target, inner_x0, inner_y0, inner_x1, inner_y1, color);
+        }
 
         for py in px_y0..px_y1 {
             let pixel_top = Fixed::from_int(py);
@@ -236,7 +244,12 @@ impl SwRenderer<'_> {
             let row_full_y = cov_y == Fixed::ONE;
             let in_mid_y = py >= mid_y0 && py < mid_y1;
 
-            for px in px_x0..px_x1 {
+            let (left_end, right_start) = if bulk_interior && py >= inner_y0 && py < inner_y1 {
+                (inner_x0, inner_x1)
+            } else {
+                (px_x1, px_x1)
+            };
+            for px in (px_x0..left_end).chain(right_start..px_x1) {
                 let pixel_left = Fixed::from_int(px);
                 let pixel_right = Fixed::from_int(px + 1);
                 let col_full_x = pixel_left >= area.x && pixel_right <= area_x_end;
@@ -1019,6 +1032,88 @@ mod corner_check {
             0,
             "pixel outside clip should not be written"
         );
+    }
+
+    #[test]
+    fn fractional_square_fill_matches_pixel_coverage_across_formats_and_clips() {
+        use crate::render::texture::AlphaMode;
+
+        for format in [
+            ColorFormat::RGB565,
+            ColorFormat::RGB565Swapped,
+            ColorFormat::RGB888,
+            ColorFormat::RGBA8888,
+            ColorFormat::BGRA8888,
+        ] {
+            for alpha_mode in [AlphaMode::Blend, AlphaMode::Opaque] {
+                for origin in [
+                    Fixed::from_ratio(-1, 4),
+                    Fixed::HALF,
+                    Fixed::from_ratio(11, 4),
+                ] {
+                    for extent in [
+                        Fixed::HALF,
+                        Fixed::from_ratio(5, 2),
+                        Fixed::from_ratio(23, 4),
+                    ] {
+                        let area = Rect {
+                            x: origin,
+                            y: Fixed::from_ratio(5, 4),
+                            w: extent,
+                            h: Fixed::from_ratio(21, 4),
+                        };
+                        for clip in [
+                            Rect::new(0, 0, 12, 11),
+                            Rect::new(1, 2, 3, 3),
+                            Rect::new(0, 0, 1, 11),
+                            Rect::new(7, 0, 5, 11),
+                        ] {
+                            let size = 12 * 11 * format.bytes_per_pixel();
+                            let mut actual = std::vec![17; size];
+                            let mut expected = actual.clone();
+                            let mut target = Texture::new(&mut actual, 12, 11, format).unwrap();
+                            target.alpha_mode = alpha_mode;
+                            let mut reference =
+                                Texture::new(&mut expected, 12, 11, format).unwrap();
+                            reference.alpha_mode = alpha_mode;
+                            let color = Color::rgb(231, 123, 45);
+                            let mut renderer = SwRenderer::new(target);
+                            let allocations = crate::test_support::tracked_allocations(|| {
+                                renderer.fill_rect(&area, &clip, &color, Fixed::ZERO, 255);
+                            });
+                            assert_eq!(allocations, 0);
+                            if let Some(draw) = area.intersect(&clip) {
+                                let (x0, y0, x1, y1) = draw.pixel_bounds();
+                                let mut pixels = reference.pixels_mut().unwrap();
+                                for y in y0..y1 {
+                                    for x in x0..x1 {
+                                        let cx = (Fixed::from_int(x + 1).min(area.x + area.w)
+                                            - Fixed::from_int(x).max(area.x))
+                                        .clamp(Fixed::ZERO, Fixed::ONE);
+                                        let cy = (Fixed::from_int(y + 1).min(area.y + area.h)
+                                            - Fixed::from_int(y).max(area.y))
+                                        .clamp(Fixed::ZERO, Fixed::ONE);
+                                        if cx == Fixed::ONE && cy == Fixed::ONE {
+                                            pixels.set_pixel(x, y, &color);
+                                        } else {
+                                            let opacity = (cx * cy).map01(255).to_int() as u8;
+                                            if opacity > 0 {
+                                                pixels.blend_pixel_int(x, y, &color, opacity);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            assert_eq!(
+                                renderer.target.read_pixels().unwrap().bytes(),
+                                reference.read_pixels().unwrap().bytes(),
+                                "format={format:?}, origin={origin:?}, extent={extent:?}, clip={clip:?}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 
     #[test]

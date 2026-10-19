@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Software rectangle fills reuse packed scanlines for opaque subpixel interiors while retaining antialiased edges and physical clipping.
+
 - Projective matrix composition returns the other operand directly for identity transforms, avoiding redundant arithmetic in clipped drawing scopes.
 
 - Damage collection, App drawing, and successful frame acknowledgement share local paint preparation; every new collection invalidates prior query results.
