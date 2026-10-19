@@ -1,5 +1,48 @@
 use crate::prelude::*;
 use crate::surface::FramebufferAccess;
+use crate::types::Viewport;
+
+#[test]
+fn retained_descendants_and_subtree_rendering_respect_hidden_ancestors() {
+    let mut app = App::headless(160, 120);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    app.compose(root, outline_scene());
+    app.render().unwrap();
+    let container = app.world.find_by_id("container").unwrap();
+    let outline = app.world.find_by_id("outline").unwrap();
+    app.world.insert(container, crate::ui::Hidden);
+    let viewport = Viewport::new(160, 120, Fixed::ONE);
+    super::seed_prev_rects(&mut app.world, root, &viewport);
+    assert!(
+        app.world
+            .get::<crate::ui::dirty::PaintedCoverage>(outline)
+            .unwrap()
+            .0
+            .is_empty()
+    );
+
+    let mut bytes = alloc::vec![0; 160 * 120 * 4];
+    {
+        let texture = crate::render::texture::Texture::new(
+            &mut bytes,
+            160,
+            120,
+            crate::render::texture::ColorFormat::RGBA8888,
+        )
+        .unwrap();
+        let mut renderer = crate::render::sw::SwRenderer::new(texture);
+        super::render_region(
+            &app.world,
+            outline,
+            &viewport,
+            &Rect::new(0, 0, 160, 120),
+            &mut renderer,
+        )
+        .unwrap();
+    }
+    assert!(bytes.iter().all(|&byte| byte == 0));
+}
 
 #[test]
 fn visibility_cycles_reuse_storage_and_retire_only_successful_coverage() {

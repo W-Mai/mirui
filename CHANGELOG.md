@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Drawing, damage collection, and painted-bound confirmation inherit ancestor visibility during tree traversal instead of repeatedly walking parent chains.
+
 - Widget transform preparation skips centered composition for translations and matrix multiplication for identity transforms.
 
 - Input geometry preparation skips tree traversal when no hit targets or scroll viewports are installed and resumes when those components are added.

@@ -383,7 +383,7 @@ fn planned_visual_bounds(
     position: usize,
     plan: Option<&output_plan::TexturePlan>,
 ) -> Rect {
-    planned_paint_coverage(
+    visible_paint_coverage(
         world,
         entity,
         rect,
@@ -397,7 +397,7 @@ fn planned_visual_bounds(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn planned_paint_coverage(
+fn visible_paint_coverage(
     world: &World,
     entity: Entity,
     rect: Rect,
@@ -407,9 +407,6 @@ fn planned_paint_coverage(
     position: usize,
     plan: Option<&output_plan::TexturePlan>,
 ) -> PaintCoverage {
-    if super::branch::is_hidden_in_tree(world, entity) {
-        return PaintCoverage::EMPTY;
-    }
     let fallback = || {
         PaintCoverage::solid(visual_bounds(
             world,
@@ -481,12 +478,14 @@ fn seed_prev_rect_walk(
     scroll_clip: Option<Rect>,
     parent_scroll: Option<Entity>,
     scroll_pixels: bool,
+    ancestors_visible: bool,
     output_plan: Option<&output_plan::TexturePlan>,
 ) {
     if *idx >= entities.len() {
         return;
     }
     let entity = entities[*idx];
+    let visible = ancestors_visible && !super::branch::is_effectively_hidden(world, entity);
     let shifted_rect = Rect {
         x: node.rect.x - scroll_offset.0,
         y: node.rect.y - scroll_offset.1,
@@ -507,16 +506,20 @@ fn seed_prev_rect_walk(
     } else {
         world.remove::<scroll::PaintedScroll>(entity);
     }
-    let mut coverage = planned_paint_coverage(
-        world,
-        entity,
-        shifted_rect,
-        tf,
-        tf_3d,
-        output_scale,
-        *idx,
-        output_plan,
-    );
+    let mut coverage = if visible {
+        visible_paint_coverage(
+            world,
+            entity,
+            shifted_rect,
+            tf,
+            tf_3d,
+            output_scale,
+            *idx,
+            output_plan,
+        )
+    } else {
+        PaintCoverage::EMPTY
+    };
     coverage = inflated_coverage(world, entity, shifted_rect, coverage);
     if let Some(clip) = scroll_clip {
         coverage = coverage.clipped(clip);
@@ -561,6 +564,7 @@ fn seed_prev_rect_walk(
                 parent_scroll
             },
             scroll_pixels && scroll::children_are_transferable(world, entity),
+            visible,
             output_plan,
         );
     }
@@ -601,6 +605,7 @@ pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
                 Some(Rect::new(0, 0, logical_w, logical_h)),
                 None,
                 true,
+                !super::branch::is_hidden_in_tree(world, root),
                 output_plan.as_ref().filter(|plan| plan.matches_root(root)),
             );
             output_plan::return_plan(world, output_plan);
@@ -644,6 +649,7 @@ pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
         Some(Rect::new(0, 0, logical_w, logical_h)),
         None,
         true,
+        !super::branch::is_hidden_in_tree(world, root),
         None,
     );
 }
@@ -1690,8 +1696,45 @@ fn intersect_with_self(clip: &Rect, rect: &Rect) -> Rect {
 }
 
 #[allow(clippy::too_many_arguments)]
-#[mirui::trace_fn("draw.entity")]
 fn draw_tree_offset(
+    node: &LayoutNode,
+    world: &World,
+    entities: &[Entity],
+    idx: &mut usize,
+    renderer: &mut dyn Renderer,
+    clip: &Rect,
+    offset_x: Fixed,
+    offset_y: Fixed,
+    parent_transform: &Transform,
+    parent_transform_3d: &Transform3D,
+    output_plan: Option<&output_plan::TexturePlan>,
+    requests: &PaintRequestScope,
+) -> Result<(), RenderError> {
+    if let Some(&entity) = entities.get(*idx)
+        && super::branch::is_hidden_in_tree(world, entity)
+    {
+        *idx += count_nodes(node);
+        return Ok(());
+    }
+    draw_visible_tree_offset(
+        node,
+        world,
+        entities,
+        idx,
+        renderer,
+        clip,
+        offset_x,
+        offset_y,
+        parent_transform,
+        parent_transform_3d,
+        output_plan,
+        requests,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+#[mirui::trace_fn("draw.entity")]
+fn draw_visible_tree_offset(
     node: &LayoutNode,
     world: &World,
     entities: &[Entity],
@@ -1975,7 +2018,7 @@ fn draw_tree_content(
     });
 
     for child in &node.children {
-        draw_tree_offset(
+        draw_visible_tree_offset(
             child,
             world,
             entities,
@@ -3181,6 +3224,7 @@ fn collect_dirty_walk(
     parent_scroll: Option<Entity>,
     carrier: Option<Point>,
     ancestor_moved: bool,
+    ancestors_visible: bool,
     bounds: &mut DirtyBounds,
     plan: &mut DirtyRegions,
     painted_damage: &mut alloc::vec::Vec<Entity>,
@@ -3191,6 +3235,7 @@ fn collect_dirty_walk(
         return;
     }
     let entity = entities[*idx];
+    let visible = ancestors_visible && !super::branch::is_effectively_hidden(world, entity);
     let shifted_rect = Rect {
         x: node.rect.x - scroll_offset.0,
         y: node.rect.y - scroll_offset.1,
@@ -3218,6 +3263,7 @@ fn collect_dirty_walk(
                 &tf,
                 &tf_3d,
                 output_scale,
+                visible,
                 scroll_clip,
                 bounds,
                 painted_damage,
@@ -3275,6 +3321,7 @@ fn collect_dirty_walk(
             &tf,
             &tf_3d,
             output_scale,
+            visible,
             scroll_clip,
             bounds,
             painted_damage,
@@ -3320,6 +3367,7 @@ fn collect_dirty_walk(
             },
             child_carrier.filter(|_| scroll::children_are_transferable(world, entity)),
             moved || scroll_moved,
+            visible,
             bounds,
             plan,
             painted_damage,
@@ -3391,22 +3439,27 @@ fn push_entity_dirty(
     tf: &Transform,
     tf_3d: &Transform3D,
     output_scale: Fixed,
+    visible: bool,
     scroll_clip: Option<Rect>,
     bounds: &mut DirtyBounds,
     painted_damage: &mut alloc::vec::Vec<Entity>,
     position: usize,
     output_plan: Option<&output_plan::TexturePlan>,
 ) {
-    let mut curr = planned_paint_coverage(
-        world,
-        entity,
-        rect,
-        *tf,
-        *tf_3d,
-        output_scale,
-        position,
-        output_plan,
-    );
+    let mut curr = if visible {
+        visible_paint_coverage(
+            world,
+            entity,
+            rect,
+            *tf,
+            *tf_3d,
+            output_scale,
+            position,
+            output_plan,
+        )
+    } else {
+        PaintCoverage::EMPTY
+    };
     curr = inflated_coverage(world, entity, rect, curr);
     if world.has::<super::dirty::PaintedCoverage>(entity) {
         painted_damage.push(entity);
@@ -3681,6 +3734,7 @@ pub(crate) fn try_collect_dirty_regions_into(
             None,
             Some(Point::new(0, 0)),
             false,
+            !super::branch::is_hidden_in_tree(world, root),
             &mut bounds,
             plan,
             &mut snapshot.painted_damage,
