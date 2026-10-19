@@ -25,7 +25,10 @@ use super::{Children, Parent, Style, Widget};
 use super::{Outputs, WidgetTexture};
 
 pub(crate) mod output_plan;
+mod prepared_paint;
 mod scroll;
+
+use prepared_paint::PreparedPaint;
 
 pub(crate) use scroll::has_pending_scroll;
 
@@ -382,6 +385,7 @@ fn planned_visual_bounds(
     output_scale: Fixed,
     position: usize,
     plan: Option<&output_plan::TexturePlan>,
+    preparation: Option<&PreparedPaint>,
 ) -> Rect {
     visible_paint_coverage(
         world,
@@ -392,6 +396,7 @@ fn planned_visual_bounds(
         output_scale,
         position,
         plan,
+        preparation,
     )
     .outer
 }
@@ -406,7 +411,12 @@ fn visible_paint_coverage(
     output_scale: Fixed,
     position: usize,
     plan: Option<&output_plan::TexturePlan>,
+    preparation: Option<&PreparedPaint>,
 ) -> PaintCoverage {
+    let preparation = preparation.filter(|_| plan.is_none());
+    if let Some(coverage) = preparation.and_then(|prepared| prepared.get(position)) {
+        return coverage;
+    }
     let fallback = || {
         PaintCoverage::solid(visual_bounds(
             world,
@@ -434,6 +444,7 @@ fn visible_paint_coverage(
         return fallback();
     };
     let mut coverage = PaintCoverage::EMPTY;
+    let mut reusable = true;
     for view in registry.paint_iter() {
         if view
             .component_filter()
@@ -441,6 +452,7 @@ fn visible_paint_coverage(
         {
             continue;
         }
+        reusable &= view.measurement_reusable();
         let measured = view.measurement().and_then(|measure| {
             measure(world, entity, rect, &|source| {
                 plan.and_then(|plan| plan.output_layout(source))
@@ -461,6 +473,9 @@ fn visible_paint_coverage(
     }
     if let Some(capture) = plan.and_then(|plan| plan.captured_paint_bounds(position, rect)) {
         coverage = coverage.union(PaintCoverage::solid(affine.apply_rect_bbox(capture)));
+    }
+    if reusable && let Some(preparation) = preparation {
+        preparation.set(position, coverage);
     }
     coverage
 }
@@ -516,6 +531,7 @@ fn seed_prev_rect_walk(
             output_scale,
             *idx,
             output_plan,
+            None,
         )
     } else {
         PaintCoverage::EMPTY
@@ -1475,6 +1491,7 @@ fn compute_layout_snapshot(
                     parked,
                     entities,
                     painted_damage: Vec::with_capacity(node_count),
+                    prepared_paint: PreparedPaint::with_capacity(node_count),
                 })
             }
         }
@@ -1492,6 +1509,7 @@ fn compute_layout_snapshot(
         snapshot.entities.clear();
         collect_entities_preorder(world, root, &mut snapshot.entities);
     });
+    snapshot.prepared_paint.resize(snapshot.entities.len());
     if !snapshot.maintenance_current(world) || changes.parked {
         crate::trace_span!("layout.prune_parked", {
             prune_parked_layout_nodes(world, root, &snapshot.entities, &mut snapshot.parked);
@@ -1709,6 +1727,7 @@ fn draw_tree_offset(
     parent_transform_3d: &Transform3D,
     output_plan: Option<&output_plan::TexturePlan>,
     requests: &PaintRequestScope,
+    preparation: Option<&PreparedPaint>,
 ) -> Result<(), RenderError> {
     if let Some(&entity) = entities.get(*idx)
         && super::branch::is_hidden_in_tree(world, entity)
@@ -1729,6 +1748,7 @@ fn draw_tree_offset(
         parent_transform_3d,
         output_plan,
         requests,
+        preparation,
     )
 }
 
@@ -1747,6 +1767,7 @@ fn draw_visible_tree_offset(
     parent_transform_3d: &Transform3D,
     output_plan: Option<&output_plan::TexturePlan>,
     requests: &PaintRequestScope,
+    preparation: Option<&PreparedPaint>,
 ) -> Result<(), RenderError> {
     let Some(&entity) = entities.get(*idx) else {
         return Ok(());
@@ -1769,6 +1790,7 @@ fn draw_visible_tree_offset(
             parent_transform_3d,
             output_plan,
             requests,
+            preparation,
         );
     }
     let rect = Rect {
@@ -1801,6 +1823,7 @@ fn draw_visible_tree_offset(
                 parent_transform_3d,
                 output_plan,
                 requests,
+                preparation,
             )
         },
     );
@@ -1824,6 +1847,7 @@ fn draw_tree_content(
     parent_transform_3d: &Transform3D,
     output_plan: Option<&output_plan::TexturePlan>,
     requests: &PaintRequestScope,
+    preparation: Option<&PreparedPaint>,
 ) -> Result<(), RenderError> {
     let shifted_rect = Rect {
         x: node.rect.x - offset_x,
@@ -1866,6 +1890,7 @@ fn draw_tree_content(
         renderer.output_scale(),
         *idx,
         output_plan,
+        preparation,
     );
     let visible = rects_intersect(&cull_rect, clip);
     let scroll = world.get::<crate::input::event::scroll::ScrollOffset>(entity);
@@ -1997,7 +2022,7 @@ fn draw_tree_content(
                         ctx.set_workspace(&plan.workspace);
                     }
                     ctx.set_layout_offset(Point::new(offset_x, offset_y));
-                    render_views(world, entity, &mut ctx, requests)
+                    render_views(world, entity, &mut ctx, requests, preparation)
                 };
                 result?;
             } else {
@@ -2007,7 +2032,7 @@ fn draw_tree_content(
                     ctx.set_workspace(&plan.workspace);
                 }
                 ctx.set_layout_offset(Point::new(offset_x, offset_y));
-                render_views(world, entity, &mut ctx, requests)?;
+                render_views(world, entity, &mut ctx, requests, preparation)?;
             }
         }
     }
@@ -2031,6 +2056,7 @@ fn draw_tree_content(
             &tf_3d,
             output_plan,
             requests,
+            preparation,
         )?;
     }
     Ok(())
@@ -2041,6 +2067,7 @@ fn render_views(
     entity: Entity,
     ctx: &mut PaintCtx<'_>,
     requests: &PaintRequestScope,
+    preparation: Option<&PreparedPaint>,
 ) -> Result<(), RenderError> {
     let Some(registry) = world.resource::<ViewRegistry>() else {
         return Ok(());
@@ -2052,7 +2079,14 @@ fn render_views(
         {
             continue;
         }
+        let reusable = preparation.is_some() && view.measurement_reusable();
         view.paint(world, entity, ctx);
+        if reusable
+            && !view.measurement_reusable()
+            && let Some(preparation) = preparation
+        {
+            preparation.clear();
+        }
         if let Some(error) = ctx.error() {
             return Err(error);
         }
@@ -2528,7 +2562,7 @@ fn draw_output_subtree(
                     ctx.set_workspace(&plan.workspace);
                 }
                 ctx.set_layout_offset(Point::new(offset_x, offset_y));
-                render_views(world, entity, &mut ctx, requests)?;
+                render_views(world, entity, &mut ctx, requests, None)?;
             }
             *idx += 1;
 
@@ -2558,6 +2592,7 @@ fn draw_output_subtree(
                     &Transform3D::IDENTITY,
                     output_plan,
                     requests,
+                    None,
                 )?;
             }
             Ok(())
@@ -2723,6 +2758,7 @@ fn render_full_with(
         &Transform3D::IDENTITY,
         prepared.as_ref().map(|prepared| &prepared.plan),
         &requests,
+        None,
     )?;
     output_plan::acknowledge(world, entities);
     requests.commit();
@@ -2732,6 +2768,9 @@ fn render_full_with(
 pub(crate) fn prepare_paint_requests(world: &World) -> Result<PaintRequestScope, RenderError> {
     if !crate::core::reactive::reserve_paint_requests(world.live_entity_count()) {
         return Err(RenderError::MissingWorkspace);
+    }
+    if let Some(snapshot) = world.resource::<LayoutSnapshot>() {
+        snapshot.prepared_paint.clear();
     }
     Ok(PaintRequestScope::new(world))
 }
@@ -3028,6 +3067,7 @@ pub(crate) fn render_region_in_batch(
             renderer,
             requests,
             physical_clip,
+            None,
         );
     }
     output_plan::invalidate_structure(world);
@@ -3053,6 +3093,7 @@ pub(crate) fn render_region_in_batch(
         renderer,
         requests,
         physical_clip,
+        None,
     )
 }
 
@@ -3089,9 +3130,11 @@ pub(crate) fn render_region_cached(
         renderer,
         requests,
         physical_clip,
+        Some(&snapshot.prepared_paint),
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_region_with(
     world: &World,
     layout_tree: &LayoutNode,
@@ -3100,6 +3143,7 @@ fn render_region_with(
     renderer: &mut dyn Renderer,
     requests: &PaintRequestScope,
     physical_clip: Option<crate::types::PhysicalRect>,
+    preparation: Option<&PreparedPaint>,
 ) -> Result<(), RenderError> {
     let prepared = output_plan::prepare(world, layout_tree, entities, renderer)?;
 
@@ -3120,6 +3164,7 @@ fn render_region_with(
             &Transform3D::IDENTITY,
             prepared.as_ref().map(|prepared| &prepared.plan),
             requests,
+            preparation,
         )?;
     }
     Ok(())
@@ -3160,6 +3205,7 @@ pub(crate) struct LayoutSnapshot {
     parked: Vec<LayoutNode>,
     pub(crate) entities: Vec<Entity>,
     painted_damage: Vec<Entity>,
+    prepared_paint: PreparedPaint,
 }
 
 impl LayoutSnapshot {
@@ -3456,6 +3502,7 @@ fn push_entity_dirty(
             output_scale,
             position,
             output_plan,
+            None,
         )
     } else {
         PaintCoverage::EMPTY

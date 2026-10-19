@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Partial rendering reuses observed local paint coverage across regions in the same frame, with preallocated storage and conservative handling of global measurements and offscreen outputs.
+
 - Drawing, damage collection, and painted-bound confirmation inherit ancestor visibility during tree traversal instead of repeatedly walking parent chains.
 
 - Widget transform preparation skips centered composition for translations and matrix multiplication for identity transforms.
