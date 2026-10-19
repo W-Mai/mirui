@@ -200,6 +200,12 @@ impl Transform3D {
     }
 
     pub fn compose(&self, other: &Self) -> Self {
+        if self.is_identity() {
+            return *other;
+        }
+        if other.is_identity() {
+            return *self;
+        }
         Self {
             m00: self.m00 * other.m00 + self.m01 * other.m10 + self.m02 * other.m20,
             m01: self.m00 * other.m01 + self.m01 * other.m11 + self.m02 * other.m21,
@@ -401,6 +407,29 @@ pub fn point_in_quad(q: &[Point; 4], p: Point) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn composition_preserves_both_identity_laws_exactly() {
+        for transform in [
+            Transform3D::IDENTITY,
+            Transform3D::translate(Fixed::HALF, -Fixed::HALF),
+            Transform3D::rotate_deg(Fixed::from_int(37)),
+            Transform3D {
+                m00: Fixed64::from_ratio(i64::MIN, 65536),
+                m01: Fixed64::from_ratio(i64::MAX, 65536),
+                m02: Fixed64::from_ratio(-7, 65536),
+                m10: Fixed64::from_ratio(3, 65536),
+                m11: Fixed64::from_ratio(-1, 65536),
+                m12: Fixed64::from_ratio(13, 65536),
+                m20: Fixed64::from_ratio(1, 65536),
+                m21: Fixed64::from_ratio(-5, 65536),
+                m22: Fixed64::ZERO,
+            },
+        ] {
+            assert_eq!(Transform3D::IDENTITY.compose(&transform), transform);
+            assert_eq!(transform.compose(&Transform3D::IDENTITY), transform);
+        }
+    }
 
     #[test]
     fn identity_passes_point() {
