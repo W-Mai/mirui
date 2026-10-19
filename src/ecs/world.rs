@@ -667,6 +667,7 @@ impl World {
         record_query_dependency_change(&mut self.watched_component_types, TypeId::of::<T>());
     }
 
+    #[inline(never)]
     pub fn get<T: 'static>(&self, entity: Entity) -> Option<&T> {
         self.storage::<T>()?.get(entity)
     }

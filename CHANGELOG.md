@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Typed component reads share their checked access implementation across call sites without retaining additional state.
+
 - Software square borders draw disjoint edge bands through the shared scanline filler without scanning transparent interiors.
 
 - Mutable component and resource access share table probes, and component storage creation reuses a common entry path without allocating on hits.
