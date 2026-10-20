@@ -206,6 +206,12 @@ impl Transform3D {
         if other.is_identity() {
             return *self;
         }
+        self.compose_non_identity(other)
+    }
+
+    // Keep the multiplication workspace out of identity-only composition.
+    #[inline(never)]
+    fn compose_non_identity(&self, other: &Self) -> Self {
         Self {
             m00: self.m00 * other.m00 + self.m01 * other.m10 + self.m02 * other.m20,
             m01: self.m00 * other.m01 + self.m01 * other.m11 + self.m02 * other.m21,
@@ -428,6 +434,48 @@ mod tests {
         ] {
             assert_eq!(Transform3D::IDENTITY.compose(&transform), transform);
             assert_eq!(transform.compose(&Transform3D::IDENTITY), transform);
+        }
+    }
+
+    #[test]
+    fn composition_preserves_ordered_fixed_point_matrix_products() {
+        let entries = |value: Transform3D| {
+            [
+                value.m00, value.m01, value.m02, value.m10, value.m11, value.m12, value.m20,
+                value.m21, value.m22,
+            ]
+        };
+        let transforms = [
+            Transform3D::IDENTITY,
+            Transform3D::translate(Fixed::HALF, -Fixed::HALF),
+            Transform3D::scale(Fixed::from_ratio(7, 4), Fixed::from_ratio(-3, 2)),
+            Transform3D::rotate_deg(Fixed::from_int(37)),
+            Transform3D {
+                m00: Fixed64::from_ratio(13, 7),
+                m01: Fixed64::from_ratio(-5, 11),
+                m02: Fixed64::from_ratio(17, 3),
+                m10: Fixed64::from_ratio(3, 13),
+                m11: Fixed64::from_ratio(-11, 7),
+                m12: Fixed64::from_ratio(-13, 3),
+                m20: Fixed64::from_ratio(1, 257),
+                m21: Fixed64::from_ratio(-1, 131),
+                m22: Fixed64::from_ratio(31, 29),
+            },
+        ];
+        for left in transforms {
+            for right in transforms {
+                let result = entries(left.compose(&right));
+                let lhs = entries(left);
+                let rhs = entries(right);
+                for row in 0..3 {
+                    for column in 0..3 {
+                        let expected = lhs[row * 3] * rhs[column]
+                            + lhs[row * 3 + 1] * rhs[3 + column]
+                            + lhs[row * 3 + 2] * rhs[6 + column];
+                        assert_eq!(result[row * 3 + column], expected);
+                    }
+                }
+            }
         }
     }
 
