@@ -699,7 +699,7 @@ impl World {
     }
 
     pub fn has<T: 'static>(&self, entity: Entity) -> bool {
-        self.storage::<T>().is_some_and(|s| s.contains(entity))
+        self.has_type(entity, TypeId::of::<T>())
     }
 
     pub fn has_type(&self, entity: Entity, type_id: TypeId) -> bool {
@@ -877,6 +877,9 @@ mod tests {
                 assert_eq!(world.get::<u16>(first), Some(&17));
                 assert_eq!(world.get::<u32>(first), Some(&29));
                 assert_eq!(world.get::<u64>(first), None);
+                assert!(world.has::<u16>(first));
+                assert!(world.has::<u32>(first));
+                assert!(!world.has::<u64>(first));
                 assert!(world.has_type(first, TypeId::of::<u16>()));
                 assert!(!world.has_type(first, TypeId::of::<u64>()));
                 assert_eq!(world.resource::<u16>(), Some(&41));
@@ -887,6 +890,8 @@ mod tests {
         );
 
         assert!(world.despawn(first));
+        assert!(!world.has::<u16>(first));
+        assert!(!world.has_type(first, TypeId::of::<u16>()));
         let second = world.spawn_empty();
         assert_eq!(first.id, second.id);
         assert_ne!(first.generation, second.generation);
@@ -897,6 +902,9 @@ mod tests {
                 assert!(!world.has::<u16>(first));
                 assert!(!world.has_type(first, TypeId::of::<u16>()));
                 assert_eq!(world.get::<u16>(second), Some(&61));
+                assert!(world.has::<u16>(second));
+                assert!(!world.has::<u32>(second));
+                assert!(!world.has_type(second, TypeId::of::<u32>()));
                 assert!(world.has_type(second, TypeId::of::<u16>()));
                 assert_eq!(world.resource::<u16>(), Some(&41));
                 assert_eq!(world.resource::<u32>(), Some(&53));

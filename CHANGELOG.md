@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Typed component presence checks reuse the existing type-erased membership lookup.
+
 - Fractional image edges reuse one sampling cursor across disjoint row spans.
 
 - Locale refresh skips parameter and command preparation when no text components are present.
