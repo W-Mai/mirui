@@ -420,7 +420,11 @@ pub mod prop {
             {
                 return PropertyChange::Unchanged;
             }
-            world.insert(entity, crate::ui::widgets::WidgetTransform(value));
+            if let Some(current) = world.get_mut::<crate::ui::widgets::WidgetTransform>(entity) {
+                current.0 = value;
+            } else {
+                world.insert(entity, crate::ui::widgets::WidgetTransform(value));
+            }
             PropertyChange::Transform
         }
     }
@@ -1053,6 +1057,56 @@ mod tests {
 
         apply_to_world::<prop::Width>(&mut world, entity, Dimension::px(120));
         assert!(world.has::<Dirty>(entity));
+    }
+
+    #[test]
+    fn transform_property_preserves_instance_and_publishes_only_changed_values() {
+        use crate::types::Transform;
+        use crate::ui::widgets::WidgetTransform;
+
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Widget);
+        let kind = TypeId::of::<WidgetTransform>();
+        world.watch_component_lifetime(kind);
+        world.watch_component_type(kind);
+
+        let first = Transform::translate(Fixed::from_int(3), Fixed::from_int(5));
+        assert!(matches!(
+            apply_to_world::<prop::Transform>(&mut world, entity, first),
+            PropertyChange::Transform
+        ));
+        let generation = world.component_generation(entity, kind);
+        assert!(generation.is_some());
+        world.drain_component_changes(|_, _| {});
+        world.remove::<VisualDirty>(entity);
+
+        assert!(matches!(
+            apply_to_world::<prop::Transform>(&mut world, entity, first),
+            PropertyChange::Unchanged
+        ));
+        world.drain_component_changes(|_, _| panic!("unchanged transform was published"));
+        assert!(!world.has::<VisualDirty>(entity));
+
+        let second = Transform::translate(Fixed::from_int(7), Fixed::from_int(11));
+        assert!(matches!(
+            apply_to_world::<prop::Transform>(&mut world, entity, second),
+            PropertyChange::Transform
+        ));
+        assert_eq!(world.component_generation(entity, kind), generation);
+        assert_eq!(world.get::<WidgetTransform>(entity).unwrap().0, second);
+        assert!(
+            world
+                .get::<VisualDirty>(entity)
+                .unwrap()
+                .transforms_subtree()
+        );
+        let mut changes = 0;
+        world.drain_component_changes(|_, change| {
+            assert_eq!(change.type_id, kind);
+            changes += 1;
+        });
+        assert_eq!(changes, 1);
     }
 
     #[test]
