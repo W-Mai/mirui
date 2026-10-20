@@ -324,6 +324,86 @@ mod tests {
     }
 
     #[test]
+    fn prepared_leaf_culling_preserves_overflow_and_partial_pixels_after_mutation() {
+        use crate::render::sw::SwRenderer;
+        use crate::render::texture::{ColorFormat, Texture};
+        use crate::ui::widgets::WidgetTransform;
+
+        #[crate::compose]
+        fn overlapping_leaves() {
+            ui! {
+                View (width: 48, height: 32) {
+                    View (width: 10, height: 10) {
+                        View (
+                            id: "leaf",
+                            position: Position::Absolute,
+                            left: 20, top: 8, width: 16, height: 16,
+                            bg_color: Color::rgb(200, 20, 80)
+                        )
+                    }
+                    View (
+                        position: Position::Absolute,
+                        left: 28, top: 12, width: 12, height: 12,
+                        bg_color: Color::rgba(20, 160, 220, 170)
+                    )
+                }
+            };
+        }
+        let mut app = App::headless(48, 32);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        app.compose(root, overlapping_leaves());
+        app.render().unwrap();
+        let entity = app.world.find_by_id("leaf").unwrap();
+        let viewport = Viewport::new(48, 32, Fixed::ONE);
+        for offset in [Fixed::ZERO, Fixed::HALF, Fixed::from_int(-8)] {
+            app.world.insert(
+                entity,
+                WidgetTransform(Transform::translate(offset, Fixed::HALF)),
+            );
+            app.world.invalidate_visual(entity);
+            app.dirty_regions().unwrap();
+            let snapshot = app
+                .world
+                .resource::<super::super::LayoutSnapshot>()
+                .unwrap();
+            let position = snapshot.entities.iter().position(|&e| e == entity).unwrap();
+            assert!(snapshot.prepared_paint.get(position).is_some());
+            for clip in [
+                Rect::new(0, 0, 8, 8),
+                Rect::new(20, 8, 8, 16),
+                Rect::new(28, 12, 8, 8),
+                Rect::new(40, 0, 8, 32),
+            ] {
+                let mut cached_bytes = [0u8; 48 * 32 * 4];
+                let mut fresh_bytes = cached_bytes;
+                let mut cached = SwRenderer::new(
+                    Texture::new(&mut cached_bytes, 48, 32, ColorFormat::RGBA8888).unwrap(),
+                );
+                let mut fresh = SwRenderer::new(
+                    Texture::new(&mut fresh_bytes, 48, 32, ColorFormat::RGBA8888).unwrap(),
+                );
+                let requests = super::super::prepare_paint_requests(&app.world).unwrap();
+                super::super::render_region_cached(
+                    &app.world,
+                    snapshot,
+                    &clip,
+                    &mut cached,
+                    &requests,
+                    None,
+                )
+                .unwrap();
+                super::super::render_region(&app.world, root, &viewport, &clip, &mut fresh)
+                    .unwrap();
+                assert_eq!(
+                    cached_bytes, fresh_bytes,
+                    "offset={offset:?}, clip={clip:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn successful_frames_acknowledge_the_measured_coverage() {
         let mut app = App::headless(32, 32);
         app.with_default_widgets();

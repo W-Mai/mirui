@@ -1905,6 +1905,14 @@ fn draw_tree_content(
     requests: &PaintRequestScope,
     preparation: Option<&PreparedPaint>,
 ) -> Result<(), RenderError> {
+    if node.children.is_empty()
+        && output_plan.is_none()
+        && let Some(coverage) = preparation.and_then(|prepared| prepared.get(*idx))
+        && !rects_intersect(&coverage.outer, clip)
+    {
+        *idx += 1;
+        return Ok(());
+    }
     let shifted_rect = Rect {
         x: node.rect.x - offset_x,
         y: node.rect.y - offset_y,
