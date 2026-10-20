@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Texture-backed images report destination coverage through the existing paint measurement path without resolving source pixels.
+
 - Typed component presence checks reuse the existing type-erased membership lookup.
 
 - Fractional image edges reuse one sampling cursor across disjoint row spans.

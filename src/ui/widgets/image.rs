@@ -296,7 +296,25 @@ fn image_render(
     });
 }
 
-pub use image_render::view;
+pub fn view() -> crate::ui::view::View {
+    image_render::view().with_measurement(image_measurement)
+}
+
+fn image_measurement(
+    world: &World,
+    entity: Entity,
+    rect: Rect,
+    _source: &dyn Fn(Entity) -> Option<crate::ui::view::SourceGeometry>,
+) -> Option<crate::ui::view::PaintMeasurement> {
+    let image = world.get::<Image>(entity)?;
+    match image.src {
+        ImageSource::Texture(_) => Some(crate::ui::view::PaintMeasurement {
+            coverage: crate::ui::dirty::PaintCoverage::solid(rect),
+            workspace: None,
+        }),
+        ImageSource::Vector(_) => None,
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -313,6 +331,39 @@ mod tests {
 
     static RED: [u8; 4] = [255, 0, 0, 255];
     static BLUE: [u8; 4] = [0, 0, 255, 255];
+
+    #[test]
+    fn texture_measurement_bounds_destination_without_resolving_source() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Image::new("unloaded"));
+        let measure = view().measurement().expect("image measurement");
+        let rect = Rect {
+            x: Fixed::from_f32(-2.5),
+            y: Fixed::from_f32(3.25),
+            w: Fixed::from_int(16),
+            h: Fixed::from_int(12),
+        };
+        let mut measured = None;
+        let allocations = tracked_allocations(|| {
+            measured = measure(&world, entity, rect, &|_| unreachable!());
+        });
+        let measured = measured.expect("texture destination bounds");
+        assert_eq!(allocations, 0);
+        assert_eq!(measured.coverage.outer, rect);
+        assert!(measured.workspace.is_none());
+        let empty = world.spawn_empty();
+        assert!(measure(&world, empty, rect, &|_| None).is_none());
+    }
+
+    #[test]
+    fn vector_measurement_preserves_conservative_fallback() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Image::new(Path::new()));
+        let measure = view().measurement().expect("image measurement");
+        assert!(measure(&world, entity, Rect::new(0, 0, 16, 16), &|_| None).is_none());
+    }
 
     fn image_manager() -> ResourceManager<Texture<'static>> {
         ResourceManager::new(
