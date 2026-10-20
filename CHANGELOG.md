@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Typed query construction reuses the aggregate parameter change budget and skips budget scans for read-only queries.
+
 - Axis-aligned transform bounds use per-axis endpoints while preserving mirrored and fractional geometry.
 
 - Paint batches reuse per-node offscreen configuration across damage collection and partial regions, preserving output fallback decisions.

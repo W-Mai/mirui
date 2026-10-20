@@ -3,8 +3,8 @@ use core::any::type_name;
 use core::marker::PhantomData;
 
 use crate::ecs::query::system::{
-    QueryData, QueryDriver, QueryFilter, QueryReadScope, SharedQueryData, SharedQueryDriver,
-    SharedQueryFilter, SystemQuery,
+    QueryData, QueryDriver, QueryFilter, QueryMutability, QueryReadScope, SharedQueryData,
+    SharedQueryDriver, SharedQueryFilter, SystemQuery,
 };
 use crate::ecs::world::{SystemWorldCell, World};
 
@@ -68,8 +68,7 @@ pub unsafe trait SystemParam: sealed::SystemParam {
 
     /// # Safety
     ///
-    /// The complete system metadata must have been validated before any
-    /// parameter is fetched, and it must describe every access performed here.
+    /// The complete system metadata must have been validated before any parameter is fetched, and it must describe every access performed here. The aggregate change budget must already be reserved for this window.
     unsafe fn fetch<'world>(
         cell: &SystemWorldCell<'world>,
         system_name: &'static str,
@@ -141,6 +140,9 @@ where
     type Item<'world> = SystemQuery<'world, D, Q, F>;
 
     unsafe fn pending_changes<'world>(cell: &SystemWorldCell<'world>) -> usize {
+        if !Q::Mutability::WRITES {
+            return 0;
+        }
         // SAFETY: the aggregate access plan was validated before preflight.
         let driver = unsafe { D::init(cell) };
         // SAFETY: the same validated World window brands both states.
@@ -153,7 +155,7 @@ where
     ) -> Self::Item<'world> {
         // SAFETY: delegated from SystemParam::fetch for the complete parameter
         // set, not merely this individual query.
-        unsafe { SystemQuery::new_unchecked(cell) }
+        unsafe { SystemQuery::from_reserved(cell, D::init(cell)) }
     }
 }
 
@@ -173,8 +175,7 @@ pub unsafe trait SystemParamSet: sealed::SystemParamSet {
 
     /// # Safety
     ///
-    /// The System descriptor must have validated the complete access metadata
-    /// before this method is called.
+    /// The System descriptor must have validated the complete access metadata and reserved the aggregate change budget before this method is called.
     unsafe fn fetch<'world>(
         cell: &SystemWorldCell<'world>,
         system_name: &'static str,
@@ -218,8 +219,8 @@ macro_rules! impl_system_param_set {
                 cell: &SystemWorldCell<'world>,
                 system_name: &'static str,
             ) -> Self::Item<'world> {
-                // SAFETY: the caller validated the aggregate metadata before
-                // any tuple field is fetched. Tuple fields preserve source
+                // SAFETY: the caller validated metadata and reserved the aggregate
+                // change budget before fetching fields. Tuple fields preserve source
                 // order and each parameter is initialized exactly once.
                 ($(unsafe { $param::fetch(cell, system_name) },)+)
             }

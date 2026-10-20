@@ -20,6 +20,7 @@ pub struct ReadOnly;
 pub struct ReadWrite;
 
 pub trait QueryMutability: sealed::QueryMutability {
+    const WRITES: bool;
     type Combine<Other: QueryMutability>: QueryMutability;
 }
 
@@ -27,10 +28,12 @@ impl sealed::QueryMutability for ReadOnly {}
 impl sealed::QueryMutability for ReadWrite {}
 
 impl QueryMutability for ReadOnly {
+    const WRITES: bool = false;
     type Combine<Other: QueryMutability> = Other;
 }
 
 impl QueryMutability for ReadWrite {
+    const WRITES: bool = true;
     type Combine<Other: QueryMutability> = Self;
 }
 
@@ -762,23 +765,25 @@ impl<'world, D: QueryDriver, Q: QueryData, F: QueryFilter> SystemQuery<'world, D
     pub(crate) fn new(world: &'world mut World) -> Self {
         assert_compatible_access::<Q>();
         let cell = SystemWorldCell::new(world);
+        // SAFETY: access compatibility was checked before capturing any state.
+        let driver = unsafe { D::init(&cell) };
+        if Q::Mutability::WRITES {
+            // SAFETY: the query owns the exclusive World window.
+            let pending = unsafe { Q::pending_changes(&cell, D::len(&driver)) };
+            unsafe { cell.reserve_component_change_records(pending) };
+        }
         // SAFETY: access compatibility was checked before any raw parts were
-        // captured. The returned query exclusively borrows World for `'world`.
-        unsafe { Self::new_unchecked(&cell) }
+        // captured and the complete change budget has been reserved.
+        unsafe { Self::from_reserved(&cell, driver) }
     }
 
     /// # Safety
     ///
-    /// The complete system parameter set must have been checked for component
-    /// access conflicts. No path available to the system body may structurally
-    /// mutate World until the query has been dropped.
-    pub(crate) unsafe fn new_unchecked(cell: &SystemWorldCell<'world>) -> Self {
-        // SAFETY: guaranteed by the caller for the complete query state.
-        let driver = unsafe { D::init(cell) };
-        // SAFETY: the change queue is disjoint from captured component storage.
-        let pending = unsafe { Q::pending_changes(cell, D::len(&driver)) };
-        // SAFETY: this query owns the exclusive World window.
-        unsafe { cell.reserve_component_change_records(pending) };
+    /// The complete system parameter set must have been checked for component access conflicts and its aggregate change budget reserved before fetching parameters. The driver must come from the same cell. No path available to the system body may structurally mutate World until the query is dropped.
+    pub(crate) unsafe fn from_reserved(
+        cell: &SystemWorldCell<'world>,
+        driver: D::State<'world>,
+    ) -> Self {
         Self {
             driver,
             // SAFETY: guaranteed by the caller for the complete query state.
@@ -936,6 +941,80 @@ mod tests {
     struct Marker;
 
     impl Component for Marker {}
+
+    std::thread_local! {
+        static DRIVER_CALLS: Cell<(usize, usize)> = const { Cell::new((0, 0)) };
+    }
+
+    struct CountedDriver;
+
+    impl sealed::QueryDriver for CountedDriver {}
+
+    unsafe impl QueryDriver for CountedDriver {
+        type State<'world> = <ComponentDriver<Position> as QueryDriver>::State<'world>;
+
+        unsafe fn init<'world>(cell: &SystemWorldCell<'world>) -> Self::State<'world> {
+            DRIVER_CALLS.with(|calls| calls.set((calls.get().0 + 1, calls.get().1)));
+            // SAFETY: the wrapper preserves the delegated driver's contract.
+            unsafe { ComponentDriver::<Position>::init(cell) }
+        }
+
+        fn len(state: &Self::State<'_>) -> usize {
+            DRIVER_CALLS.with(|calls| calls.set((calls.get().0, calls.get().1 + 1)));
+            ComponentDriver::<Position>::len(state)
+        }
+
+        fn contains(state: &Self::State<'_>, entity: Entity) -> bool {
+            ComponentDriver::<Position>::contains(state, entity)
+        }
+
+        unsafe fn entity(state: &Self::State<'_>, index: usize) -> Entity {
+            // SAFETY: the wrapper preserves the delegated driver's contract.
+            unsafe { ComponentDriver::<Position>::entity(state, index) }
+        }
+    }
+
+    #[test]
+    fn query_preflight_budgets_writes_once_and_skips_readonly_storage() {
+        use crate::ecs::system::param::{QueryParam, fetch_system_params};
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, Position(1));
+        world.watch_component_type(TypeId::of::<Position>());
+        world.drain_component_changes(|_, _| {});
+
+        type ReadParam = QueryParam<CountedDriver, Read<Position>, ()>;
+        type WriteParam = QueryParam<CountedDriver, Write<Position>, ()>;
+        DRIVER_CALLS.with(|calls| calls.set((0, 0)));
+        // SAFETY: the sole read parameter has no conflicting accesses.
+        let (rows,) = unsafe { fetch_system_params::<(ReadParam,)>(&mut world, "read") };
+        assert_eq!(DRIVER_CALLS.with(Cell::get), (1, 0));
+        assert_eq!(rows.get(entity), Some(&Position(1)));
+
+        DRIVER_CALLS.with(|calls| calls.set((0, 0)));
+        let rows = SystemQuery::<'_, CountedDriver, Read<Position>, ()>::new(&mut world);
+        assert_eq!(DRIVER_CALLS.with(Cell::get), (1, 0));
+        assert_eq!(rows.get(entity), Some(&Position(1)));
+
+        DRIVER_CALLS.with(|calls| calls.set((0, 0)));
+        // SAFETY: the sole write parameter has exclusive access to Position.
+        let (mut rows,) = unsafe { fetch_system_params::<(WriteParam,)>(&mut world, "write") };
+        assert_eq!(DRIVER_CALLS.with(Cell::get), (2, 1));
+        assert_eq!(tracked_allocations(|| rows.get(entity).unwrap().0 += 1), 0);
+
+        DRIVER_CALLS.with(|calls| calls.set((0, 0)));
+        let mut rows = SystemQuery::<'_, CountedDriver, Write<Position>, ()>::new(&mut world);
+        assert_eq!(DRIVER_CALLS.with(Cell::get), (1, 1));
+        assert_eq!(tracked_allocations(|| rows.get(entity).unwrap().0 += 1), 0);
+        assert_eq!(world.get::<Position>(entity), Some(&Position(3)));
+        let mut changed = 0;
+        world.drain_component_changes(|_, change| {
+            assert_eq!(change.entity, entity);
+            assert_eq!(change.type_id, TypeId::of::<Position>());
+            changed += 1;
+        });
+        assert_eq!(changed, 1);
+    }
 
     #[test]
     fn paint_query_reads_track_missing_targets_and_empty_iteration_without_allocations() {
