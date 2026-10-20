@@ -48,7 +48,7 @@ impl<const N: usize> RegionSet<N> {
         'merge: loop {
             for left in 0..self.len {
                 for right in left + 1..self.len {
-                    if merge_cost(self.rects[left], self.rects[right]) == 0 {
+                    if forms_rectangle(self.rects[left], self.rects[right]) {
                         self.rects[left] = self.rects[left].union(&self.rects[right]);
                         self.len -= 1;
                         self.rects[right] = self.rects[self.len];
@@ -168,6 +168,18 @@ fn cheapest_pair(count: usize, get: impl Fn(usize) -> Rect) -> (usize, usize) {
     best
 }
 
+// RegionSet entries are nonempty and pixel-aligned.
+fn forms_rectangle(a: Rect, b: Rect) -> bool {
+    let ax = a.x + a.w;
+    let ay = a.y + a.h;
+    let bx = b.x + b.w;
+    let by = b.y + b.h;
+    (a.x <= b.x && ax >= bx && a.y <= b.y && ay >= by)
+        || (b.x <= a.x && bx >= ax && b.y <= a.y && by >= ay)
+        || (a.x == b.x && a.w == b.w && a.y <= by && b.y <= ay)
+        || (a.y == b.y && a.h == b.h && a.x <= bx && b.x <= ax)
+}
+
 fn merge_cost(a: Rect, b: Rect) -> u128 {
     area(a.union(&b)) + a.intersect(&b).map_or(0, area) - area(a) - area(b)
 }
@@ -194,6 +206,27 @@ mod tests {
                     .iter()
                     .all(|other| rect.intersect(other).is_none())
             );
+        }
+    }
+
+    #[test]
+    fn rectangular_union_matches_exact_coverage_cost() {
+        for aw in 1..5 {
+            for ah in 1..5 {
+                let a = Rect::new(-1, -2, aw, ah);
+                for bx in -5..6 {
+                    for by in -6..5 {
+                        for bw in 1..5 {
+                            for bh in 1..5 {
+                                let b = Rect::new(bx, by, bw, bh);
+                                let exact = merge_cost(a, b) == 0;
+                                assert_eq!(forms_rectangle(a, b), exact, "{a:?}, {b:?}");
+                                assert_eq!(forms_rectangle(b, a), exact, "{b:?}, {a:?}");
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
