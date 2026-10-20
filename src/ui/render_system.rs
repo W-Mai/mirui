@@ -559,10 +559,12 @@ fn seed_prev_rect_walk(
     if let Some(clip) = scroll_clip {
         coverage = coverage.clipped(clip);
     }
-    world.insert(
-        entity,
-        super::dirty::PaintedCoverage(coverage.pixel_aligned()),
-    );
+    let coverage = coverage.pixel_aligned();
+    if let Some(painted) = world.get_mut::<super::dirty::PaintedCoverage>(entity) {
+        painted.0 = coverage;
+    } else {
+        world.insert(entity, super::dirty::PaintedCoverage(coverage));
+    }
     super::dirty::VisualDirty::acknowledge(world, entity);
     *idx += 1;
     if node.children.is_empty() {
@@ -5010,6 +5012,49 @@ mod layout_snapshot_reuse_check {
         try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
         assert_eq!(plan.rects.len(), 1);
         assert_eq!(plan.rects.as_ptr(), rects_ptr);
+    }
+
+    #[test]
+    fn paint_acknowledgement_updates_existing_coverage_without_replacing_its_identity() {
+        use super::super::dirty::PaintedCoverage;
+        use core::any::TypeId;
+
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let child = widget(&mut world, 10);
+        world.insert(root, Children(vec![child]));
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        let mut plan = DirtyRegions::default();
+        let kind = TypeId::of::<PaintedCoverage>();
+        world.watch_component_lifetime(kind);
+        try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
+        seed_prev_rects(&mut world, root, &viewport);
+        let generation = world.component_generation(child, kind).unwrap();
+        let previous = world.get::<PaintedCoverage>(child).unwrap().0;
+
+        crate::ui::property::apply_to_world::<crate::ui::property::prop::Transform>(
+            &mut world,
+            child,
+            Transform::translate(Fixed::from_int(20), Fixed::ZERO),
+        );
+        for _ in 0..2 {
+            try_collect_dirty_regions_into(&mut world, root, &viewport, &mut plan).unwrap();
+            assert_eq!(world.get::<PaintedCoverage>(child).unwrap().0, previous);
+        }
+        seed_prev_rects(&mut world, root, &viewport);
+        assert_eq!(
+            world.get::<PaintedCoverage>(child).unwrap().0.outer,
+            Rect::new(20, 0, 10, 10)
+        );
+        assert_eq!(world.component_generation(child, kind), Some(generation));
+
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for _ in 0..4 {
+                seed_prev_rects(&mut world, root, &viewport);
+            }
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(world.component_generation(child, kind), Some(generation));
     }
 
     #[test]
