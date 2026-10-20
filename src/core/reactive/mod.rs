@@ -829,7 +829,9 @@ fn pop_visual_widget_for(
 /// entities are skipped (no reverse index; subscriber lists may retain
 /// despawned entities).
 pub fn flush_signal_dirty(world: &mut World) {
-    let _guard = WorldGuard::enter(world);
+    // Preserve cold preparation even when no callback needs a structural window.
+    world.register_drop_hook::<ReactiveOwnerCleanup>(release_graph_owner);
+    register_graph_owner(world.id());
     reclaim_dead_effects(world);
     // Retiring captures may enqueue work, so inspect the queues after cleanup.
     if with_reactive(|r| {
@@ -839,6 +841,7 @@ pub fn flush_signal_dirty(world: &mut World) {
     }) {
         return;
     }
+    let _guard = WorldGuard::enter(world);
     let world_id = world.id();
     for _ in 0..FLUSH_MAX_PASSES {
         let pending_effects = with_reactive(|r| r.dirty_effects.len());
@@ -920,7 +923,7 @@ pub fn flush_signal_dirty(world: &mut World) {
 
 // Reclaim effects whose owning widget is gone. No ECS hook — flush holds the
 // World, same lazy-liveness approach as the dirty-widget skip.
-fn reclaim_dead_effects(world: &World) {
+fn reclaim_dead_effects(world: &mut World) {
     let dead: Vec<EffectId> = with_reactive(|r| {
         r.effects
             .iter()
@@ -932,8 +935,12 @@ fn reclaim_dead_effects(world: &World) {
             .map(|(id, _)| *id)
             .collect()
     });
-    for id in dead {
-        unregister_effect(id);
+    if !dead.is_empty() {
+        // Captured values may use the structural World window while dropping.
+        let _guard = WorldGuard::enter(world);
+        for id in dead {
+            unregister_effect(id);
+        }
     }
     with_reactive(|r| {
         let slots = &mut r.computed_slots;
@@ -3196,9 +3203,10 @@ mod tests {
 
     #[test]
     fn quiet_retirement_delivers_work_enqueued_by_dropped_captures() {
-        struct PublishOnDrop(Signal<u8>);
+        struct PublishOnDrop(Signal<u8>, WorldId);
         impl Drop for PublishOnDrop {
             fn drop(&mut self) {
+                assert_eq!(with_world(|world| world.id()), Some(self.1));
                 self.0.set(7);
             }
         }
@@ -3211,7 +3219,7 @@ mod tests {
         let result = observed.clone();
         let _survivor =
             with_world_scope(&mut world, || Effect::new(move || result.set(signal.get())));
-        let release = PublishOnDrop(source.clone());
+        let release = PublishOnDrop(source.clone(), world.id());
         with_world_scope(&mut world, || {
             effect_with_widget(dead, move || {
                 let _ = &release;
@@ -3219,13 +3227,47 @@ mod tests {
         });
         assert!(with_reactive(|r| r.dirty_effects.is_empty()));
         world.despawn(dead);
-        flush_signal_dirty(&mut world);
+        let mut outer = World::new();
+        let outer_id = outer.id();
+        with_world_scope(&mut outer, || {
+            flush_signal_dirty(&mut world);
+            assert_eq!(with_world(|world| world.id()), Some(outer_id));
+        });
         assert_eq!(observed.get(), 7);
         assert_eq!(effect_count(), 1);
         assert_eq!(
             crate::test_support::tracked_allocations(|| flush_signal_dirty(&mut world)),
             0
         );
+    }
+
+    #[test]
+    fn empty_flush_prepares_the_owner_without_replacing_the_outer_window() {
+        reset();
+        let mut world = World::new();
+        let mut outer = World::new();
+        let outer_id = outer.id();
+        with_world_scope(&mut outer, || {
+            flush_signal_dirty(&mut world);
+            assert_eq!(with_world(|world| world.id()), Some(outer_id));
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| flush_signal_dirty(&mut world)),
+                0
+            );
+        });
+        assert!(has_graph_owner(world.id()));
+        assert!(with_world(|_| ()).is_none());
+        let source = Signal::new(0u8);
+        let signal = source.clone();
+        let observed = Rc::new(Cell::new(0));
+        let result = observed.clone();
+        let _effect =
+            with_world_scope(&mut world, || Effect::new(move || result.set(signal.get())));
+        source.set(9);
+        flush_signal_dirty(&mut world);
+        assert_eq!(observed.get(), 9);
+        assert!(has_graph_owner(world.id()));
+        assert!(with_world(|_| ()).is_none());
     }
 
     #[test]
