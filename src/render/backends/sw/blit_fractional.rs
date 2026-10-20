@@ -127,38 +127,40 @@ pub(super) fn blit_fractional(
     for y in y0..y1 {
         let sy = source_y + y_axis.next(height);
         let coverage_y = pixel_axis_coverage(area.y, bottom, y);
-        let spans = match interior {
+        let (left_end, right_start, right_axis) = match interior {
             Some((left, top, right, bottom, right_axis)) if y >= top && y < bottom => {
-                [(x0, left, x_axis), (right, x1, right_axis)]
+                (left, right, right_axis)
             }
-            _ => [(x0, x1, x_axis), (x1, x1, x_axis)],
+            _ => (x1, x1, x_axis),
         };
-        for (start, end, mut axis) in spans {
-            for x in start..end {
-                let sx = source_x + axis.next(width);
-                let mut coverage = pixel_axis_coverage(area.x, right, x) * coverage_y;
-                if radius != Fixed::ZERO {
-                    coverage = coverage
-                        * rounded_rect_coverage(
-                            Fixed::from_int(x) - area.x,
-                            Fixed::from_int(y) - area.y,
-                            area.w,
-                            area.h,
-                            radius,
-                        );
-                }
-                let color = source.get_pixel(sx, sy);
-                let alpha = ((u16::from(color.a) * u16::from(opacity) + 127) / 255) as u8;
-                let mut alpha = (Fixed::from_int(i32::from(alpha)) * coverage).to_int() as u8;
-                if let Some(mask) = mask {
-                    alpha = ((u16::from(alpha)
-                        * u16::from(mask[y as usize * target.width() as usize + x as usize])
-                        + 127)
-                        / 255) as u8;
-                }
-                if alpha != 0 {
-                    target.composite_pixel_int(x, y, &color, alpha, composite);
-                }
+        let mut axis = x_axis;
+        for x in (x0..left_end).chain(right_start..x1) {
+            if x == right_start {
+                axis = right_axis;
+            }
+            let sx = source_x + axis.next(width);
+            let mut coverage = pixel_axis_coverage(area.x, right, x) * coverage_y;
+            if radius != Fixed::ZERO {
+                coverage = coverage
+                    * rounded_rect_coverage(
+                        Fixed::from_int(x) - area.x,
+                        Fixed::from_int(y) - area.y,
+                        area.w,
+                        area.h,
+                        radius,
+                    );
+            }
+            let color = source.get_pixel(sx, sy);
+            let alpha = ((u16::from(color.a) * u16::from(opacity) + 127) / 255) as u8;
+            let mut alpha = (Fixed::from_int(i32::from(alpha)) * coverage).to_int() as u8;
+            if let Some(mask) = mask {
+                alpha = ((u16::from(alpha)
+                    * u16::from(mask[y as usize * target.width() as usize + x as usize])
+                    + 127)
+                    / 255) as u8;
+            }
+            if alpha != 0 {
+                target.composite_pixel_int(x, y, &color, alpha, composite);
             }
         }
     }
