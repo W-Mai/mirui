@@ -141,6 +141,12 @@ fn input_attach_plan(world: &World) -> Option<alloc::rc::Rc<alloc::vec::Vec<Inpu
 }
 
 fn prepare_plan(world: &mut World, plan: &[InputAttach]) {
+    if plan
+        .last()
+        .is_none_or(|hook| hook.instances.tracking_ready.get())
+    {
+        return;
+    }
     for hook in plan {
         if hook.instances.tracking_ready.replace(true) {
             continue;
@@ -216,20 +222,27 @@ pub(crate) fn attach_handlers_for(world: &mut World, entity: Entity) {
 pub(crate) fn prepare(world: &mut World) {
     for _ in 0..1024 {
         crate::core::reactive::flush_signal_dirty(world);
-        if let Some(plan) = input_attach_plan(world) {
-            prepare_plan(world, &plan);
+        let plan = input_attach_plan(world);
+        if let Some(plan) = &plan {
+            prepare_plan(world, plan);
         }
         let pending = world.pending_attachment_changes();
-        for _ in 0..pending {
-            let Some(entity) = world.next_attachment_change() else {
-                break;
-            };
-            if world.has::<AttachTarget>(entity) {
-                attach_handlers_for(world, entity);
+        let plan = if pending == 0 {
+            plan
+        } else {
+            drop(plan);
+            for _ in 0..pending {
+                let Some(entity) = world.next_attachment_change() else {
+                    break;
+                };
+                if world.has::<AttachTarget>(entity) {
+                    attach_handlers_for(world, entity);
+                }
             }
-        }
+            input_attach_plan(world)
+        };
         let mut changed = false;
-        if let Some(plan) = input_attach_plan(world) {
+        if let Some(plan) = plan {
             for hook in plan.iter() {
                 let Some(reconcile) = hook.reconcile else {
                     continue;

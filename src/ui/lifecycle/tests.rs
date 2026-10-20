@@ -236,6 +236,66 @@ fn late_view_registration_initializes_existing_constructed_nodes() {
 }
 
 #[test]
+fn prepared_registration_keeps_reconciliation_live_without_allocations() {
+    struct Reconciliations(usize);
+    fn reconcile(world: &mut World, _: Entity) -> bool {
+        world.resource_mut::<Reconciliations>().unwrap().0 += 1;
+        false
+    }
+    let mut world = world(false);
+    world.insert_resource(Reconciliations(0));
+    world.resource_mut::<ViewRegistry>().unwrap().insert(
+        View::systems_only("reconciler", &[])
+            .with_filter::<Source>()
+            .with_reconcile(reconcile),
+    );
+    let node = world.spawn(Source(1));
+    attach_handlers_for(&mut world, node);
+    prepare(&mut world);
+    let before = world.resource::<Reconciliations>().unwrap().0;
+    assert_eq!(
+        crate::test_support::tracked_allocations(|| {
+            for _ in 0..8 {
+                prepare(&mut world);
+            }
+        }),
+        0
+    );
+    assert_eq!(world.resource::<Reconciliations>().unwrap().0, before + 8);
+}
+
+#[test]
+fn pending_attachment_refreshes_the_registry_before_reconciliation() {
+    fn replace(scope: &mut crate::ui::UiScope<'_>) {
+        let node = scope.parent();
+        let world = scope.world_mut();
+        if world.get::<Source>(node).unwrap().0 == 2 {
+            world.insert_resource(ViewRegistry::default());
+        }
+    }
+    fn reconcile(world: &mut World, node: Entity) -> bool {
+        assert_eq!(world.get::<Source>(node).unwrap().0, 1);
+        false
+    }
+    let mut world = World::new();
+    let mut registry = ViewRegistry::default();
+    registry.insert(
+        View::systems_only("replace", &[])
+            .with_filter::<Source>()
+            .with_attach(replace)
+            .with_reconcile(reconcile),
+    );
+    world.insert_resource(registry);
+    let node = world.spawn(Source(1));
+    attach_handlers_for(&mut world, node);
+    prepare(&mut world);
+
+    world.insert(node, Source(2));
+    prepare(&mut world);
+    assert!(world.resource::<ViewRegistry>().unwrap().is_empty());
+}
+
+#[test]
 fn incomplete_nodes_wait_for_the_construction_boundary() {
     let mut world = world(true);
     let first = world.spawn(Source(1));
