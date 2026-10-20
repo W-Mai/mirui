@@ -814,7 +814,11 @@ impl World {
     }
 
     pub(crate) fn put_resource_box<T: 'static>(&mut self, value: Box<T>) {
-        self.resources.insert(TypeId::of::<T>(), Some(value));
+        if let Some(slot) = resource_slot_mut(&mut self.resources, TypeId::of::<T>()) {
+            drop(slot.replace(value));
+        } else {
+            self.resources.insert(TypeId::of::<T>(), Some(value));
+        }
     }
 
     /// Temporarily separate a resource from the World while its callback also
@@ -1454,6 +1458,26 @@ mod tests {
             })
             .unwrap();
         assert_eq!(world.resource::<u16>(), Some(&8));
+    }
+
+    #[test]
+    fn separated_resource_restores_its_allocation_after_its_slot_is_removed() {
+        for unwind in [false, true] {
+            let mut world = World::new();
+            world.insert_resource(7u16);
+            let address = world.resource::<u16>().unwrap() as *const u16;
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                world.with_resource_box::<u16, _>(|value, world| {
+                    assert_eq!(world.remove_resource::<u16>(), None);
+                    assert!(!world.resources.contains_key(&TypeId::of::<u16>()));
+                    *value += 1;
+                    assert!(!unwind, "callback failed");
+                });
+            }));
+            assert_eq!(outcome.is_err(), unwind);
+            assert_eq!(world.resource::<u16>(), Some(&8));
+            assert_eq!(world.resource::<u16>().unwrap() as *const u16, address);
+        }
     }
 
     #[test]
