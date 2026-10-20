@@ -1,54 +1,56 @@
 use super::rect_fill::{pixel_axis_coverage, rounded_rect_coverage};
 use crate::render::command::CompositeMode;
 use crate::render::texture::{TexturePixels, TexturePixelsMut};
-use crate::types::{Fixed, Fixed64, Rect};
+use crate::types::fixed::storage;
+use crate::types::{Fixed, Rect};
 
 #[derive(Clone, Copy)]
 struct SampleAxis {
     index: i64,
-    remainder: Fixed64,
+    remainder: u32,
     step: i64,
-    step_remainder: Fixed64,
-    extent: Fixed64,
+    step_remainder: u32,
+    extent: u32,
 }
 
 impl SampleAxis {
     fn new(first_pixel: i32, origin: Fixed, extent: Fixed, samples: i32) -> Self {
+        let scale = i64::from(storage::to_i32(Fixed::ONE));
+        let first = i64::from(first_pixel) * scale + i64::from(storage::to_i32(Fixed::HALF))
+            - i64::from(storage::to_i32(origin));
         if extent == Fixed::from_int(samples) {
             return Self {
-                index: (Fixed64::from_int(i64::from(first_pixel)) + Fixed64::from_ratio(1, 2)
-                    - Fixed64::from_fixed(origin))
-                .to_int(),
-                remainder: Fixed64::ZERO,
+                index: first.div_euclid(scale),
+                remainder: 0,
                 step: 1,
-                step_remainder: Fixed64::ZERO,
-                extent: Fixed64::ONE,
+                step_remainder: 0,
+                extent: 1,
             };
         }
-        let extent = Fixed64::from_fixed(extent);
-        let step = Fixed64::from_int(i64::from(samples));
-        let position = (Fixed64::from_int(i64::from(first_pixel)) + Fixed64::from_ratio(1, 2)
-            - Fixed64::from_fixed(origin))
-            * step;
-        let mut index = (position / extent).to_int();
-        let mut remainder = position - Fixed64::from_int(index) * extent;
-        if remainder < Fixed64::ZERO {
+        let extent = i64::from(storage::to_i32(extent));
+        let step = i64::from(samples) * scale;
+        let position = first * i64::from(samples);
+        let mut index = position / extent;
+        let mut remainder = position - index * extent;
+        if remainder < 0 {
             index -= 1;
             remainder += extent;
         }
-        let whole_step = (step / extent).to_int();
+        let whole_step = step / extent;
         Self {
             index,
-            remainder,
+            remainder: remainder as u32,
             step: whole_step,
-            step_remainder: step - Fixed64::from_int(whole_step) * extent,
-            extent,
+            step_remainder: (step - whole_step * extent) as u32,
+            extent: extent as u32,
         }
     }
 
     fn next(&mut self, samples: i32) -> i32 {
         let sample = self.index.clamp(0, i64::from(samples - 1)) as i32;
         self.index += self.step;
+        // Both remainders are below the positive Q24.8 extent, so their
+        // sum fits u32 even when the extent reaches i32::MAX.
         self.remainder += self.step_remainder;
         if self.remainder >= self.extent {
             self.remainder -= self.extent;
@@ -290,10 +292,13 @@ mod tests {
 
     #[test]
     fn sampling_is_exact_and_independent_of_the_clipped_start() {
-        for origin in [-193, -128, -1, 0, 1, 127, 193] {
-            for extent in [1, 63, 128, 257, 1023, 4096, 65537] {
+        let mut large =
+            SampleAxis::new(65500, Fixed::ZERO, Fixed::from_ratio(16776961, 256), 65535);
+        assert_eq!(large.next(65535), 65500);
+        for origin in [i32::MIN, -193, -128, -1, 0, 1, 127, 193, i32::MAX] {
+            for extent in [1, 63, 128, 257, 1023, 4096, 65537, 16776961, i32::MAX] {
                 for samples in [1, 3, 16, 257, 65535] {
-                    for start in [0, 1, 3, 17] {
+                    for start in [0, 1, 3, 17, 32760, 65500] {
                         let mut axis = SampleAxis::new(
                             start,
                             Fixed::from_ratio(origin, 256),
@@ -301,8 +306,8 @@ mod tests {
                             samples,
                         );
                         for pixel in start..start + 33 {
-                            let numerator =
-                                i64::from(pixel * 256 + 128 - origin) * i64::from(samples);
+                            let numerator = (i64::from(pixel) * 256 + 128 - i64::from(origin))
+                                * i64::from(samples);
                             let expected =
                                 (numerator / i64::from(extent)).clamp(0, i64::from(samples - 1));
                             assert_eq!(i64::from(axis.next(samples)), expected);

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fractional image sampling preserves source coordinates without overflowing intermediate fixed-point arithmetic for large textures.
+
 - Three Body motion uses transform invalidation and preserves pending content changes.
 
 - Software integer image blits share pixel-write alpha blending and RGB565 decoding across specialized and generic paths.
