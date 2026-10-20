@@ -1,5 +1,6 @@
 use crate::ecs::{Entity, World};
 use crate::types::{Rect, Transform, Transform3D};
+use crate::ui::OffscreenRender;
 use crate::ui::theme::WidgetState;
 use crate::ui::view::ViewRegistry;
 use alloc::vec::Vec;
@@ -19,6 +20,7 @@ pub(super) struct PreparedPaint {
 struct PreparedNode {
     visibility: Cell<PaintVisibility>,
     state: Cell<Option<WidgetState>>,
+    offscreen: Cell<Option<Option<OffscreenRender>>>,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -74,6 +76,7 @@ impl PreparedPaint {
         for entry in &self.nodes {
             entry.visibility.set(PaintVisibility::Unknown);
             entry.state.set(None);
+            entry.offscreen.set(None);
         }
     }
 
@@ -163,6 +166,25 @@ pub(super) fn state(
         entry.set(Some(state));
     }
     state
+}
+
+pub(super) fn offscreen(
+    world: &World,
+    entity: Entity,
+    position: usize,
+    preparation: Option<&PreparedPaint>,
+) -> Option<OffscreenRender> {
+    let entry = preparation
+        .and_then(|prepared| prepared.nodes.get(position))
+        .map(|node| &node.offscreen);
+    if let Some(config) = entry.and_then(Cell::get) {
+        return config;
+    }
+    let config = crate::ui::offscreen::config(world, entity);
+    if let Some(entry) = entry {
+        entry.set(Some(config));
+    }
+    config
 }
 
 pub(super) fn transforms(
@@ -397,6 +419,94 @@ mod tests {
     }
 
     #[test]
+    fn offscreen_preparation_reuses_absence_and_refreshes_configuration() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let mut prepared = PreparedPaint::with_capacity(1);
+        prepared.resize(1, 0);
+        assert_eq!(core::mem::size_of::<PreparedNode>(), 16);
+        let configuration = |value: Option<OffscreenRender>| value.map(|v| (v.scale, v.opacity));
+        for value in [
+            None,
+            Some(OffscreenRender::with_scale(Fixed::HALF).with_opacity(128)),
+            Some(OffscreenRender::new().with_opacity(0)),
+            None,
+        ] {
+            if let Some(value) = value {
+                world.insert(entity, value);
+            } else {
+                world.remove::<OffscreenRender>(entity);
+            }
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| {
+                    prepared.clear();
+                    for _ in 0..8 {
+                        assert_eq!(
+                            configuration(offscreen(&world, entity, 0, Some(&prepared))),
+                            configuration(value)
+                        );
+                    }
+                    assert_eq!(
+                        configuration(prepared.nodes[0].offscreen.get().unwrap()),
+                        configuration(value)
+                    );
+                }),
+                0
+            );
+        }
+    }
+
+    #[test]
+    fn offscreen_changes_after_damage_queries_are_applied_before_drawing() {
+        use crate::surface::FramebufferAccess;
+
+        for budget in [0, 32 * 1024] {
+            let mut app = App::headless(32, 32);
+            app.with_default_widgets()
+                .with_offscreen_pool_budget(budget);
+            let root = app.spawn_root().id();
+            app.world.get_mut::<Style>(root).unwrap().bg_color = Some(Color::rgb(0, 0, 0).into());
+            app.compose(root, scene());
+            let entity = app.world.find_by_id("probe").unwrap();
+            app.world.get_mut::<Style>(entity).unwrap().bg_color =
+                Some(Color::rgb(255, 0, 0).into());
+            app.render().unwrap();
+            for opacity in [Some(0), Some(128), None] {
+                app.world.invalidate_visual(entity);
+                app.dirty_regions().unwrap();
+                if let Some(opacity) = opacity {
+                    app.world
+                        .insert(entity, OffscreenRender::new().with_opacity(opacity));
+                } else {
+                    app.world.remove::<OffscreenRender>(entity);
+                }
+                app.world.invalidate_visual(entity);
+                app.render_dirty().unwrap();
+                let partial = app
+                    .backend
+                    .framebuffer()
+                    .read_pixels()
+                    .unwrap()
+                    .bytes()
+                    .to_vec();
+                app.render().unwrap();
+                let texture = app.backend.framebuffer();
+                let full = texture.read_pixels().unwrap();
+                assert_eq!(
+                    partial,
+                    full.bytes(),
+                    "budget={budget}, opacity={opacity:?}"
+                );
+                if opacity == Some(0) {
+                    assert_eq!(full.get_pixel(1, 1), Color::rgb(0, 0, 0));
+                } else if opacity.is_none() {
+                    assert_eq!(full.get_pixel(1, 1), Color::rgb(255, 0, 0));
+                }
+            }
+        }
+    }
+
+    #[test]
     fn visibility_refreshes_with_the_batch_and_preserves_follow_clipping() {
         use crate::ui::widgets::FollowBounds;
         #[crate::compose]
@@ -477,7 +587,7 @@ mod tests {
         world.insert(entity, crate::ui::Parent(parent));
         let mut prepared = PreparedPaint::with_capacity(1);
         prepared.resize(1, 0);
-        assert_eq!(core::mem::size_of::<PreparedNode>(), 2);
+        assert_eq!(core::mem::size_of::<PreparedNode>(), 16);
         for (ancestor_disabled, own_error, interaction, expected) in [
             (false, false, None, WidgetState::Enabled),
             (

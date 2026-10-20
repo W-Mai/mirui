@@ -1978,7 +1978,7 @@ fn draw_tree_content(
         return Ok(());
     }
 
-    let offscreen = crate::ui::offscreen::config(world, entity).map(|mut off| {
+    let offscreen = prepared_paint::offscreen(world, entity, *idx, preparation).map(|mut off| {
         if let Some(fallback) = world.get::<crate::ui::offscreen::CompositeFallback>(entity)
             && !output_plan.is_some_and(|plan| plan.ready(entity) && plan.ready(fallback.required))
         {
@@ -3442,7 +3442,7 @@ fn collect_dirty_walk(
 
     let pending = VisualDirty::prepare(world, entity);
     let moved = ancestor_moved || pending.is_some_and(VisualDirty::transforms_subtree);
-    let is_offscreen = crate::ui::offscreen::config(world, entity).is_some();
+    let is_offscreen = prepared_paint::offscreen(world, entity, *idx, Some(preparation)).is_some();
     if is_offscreen {
         let mut sub_idx = *idx + 1;
         let mut pending = pending.map(VisualDirty::content_pending);

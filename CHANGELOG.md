@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Paint batches reuse per-node offscreen configuration across damage collection and partial regions, preserving output fallback decisions.
+
 - Partial-frame regions share output preparation and return reusable workspaces on drawing failure.
 
 - Dirty region insertion checks rectangular unions directly without area arithmetic, retaining precise coverage and bounded overflow handling.
