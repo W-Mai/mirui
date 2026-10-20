@@ -1822,6 +1822,14 @@ fn draw_visible_tree_offset(
     let Some(&entity) = entities.get(*idx) else {
         return Ok(());
     };
+    if node.children.is_empty()
+        && output_plan.is_none()
+        && let Some(coverage) = preparation.and_then(|prepared| prepared.get(*idx))
+        && !rects_intersect(&coverage.outer, clip)
+    {
+        *idx += 1;
+        return Ok(());
+    }
     let visibility = prepared_paint::visibility(world, entity, *idx, preparation);
     if visibility == prepared_paint::PaintVisibility::Hidden {
         *idx += count_nodes(node);
@@ -1907,14 +1915,6 @@ fn draw_tree_content(
     requests: &PaintRequestScope,
     preparation: Option<&PreparedPaint>,
 ) -> Result<(), RenderError> {
-    if node.children.is_empty()
-        && output_plan.is_none()
-        && let Some(coverage) = preparation.and_then(|prepared| prepared.get(*idx))
-        && !rects_intersect(&coverage.outer, clip)
-    {
-        *idx += 1;
-        return Ok(());
-    }
     let shifted_rect = Rect {
         x: node.rect.x - offset_x,
         y: node.rect.y - offset_y,

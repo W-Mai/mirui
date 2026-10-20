@@ -404,6 +404,13 @@ mod tests {
                 let mut fresh = SwRenderer::new(
                     Texture::new(&mut fresh_bytes, 48, 32, ColorFormat::RGBA8888).unwrap(),
                 );
+                let excluded = snapshot
+                    .prepared_paint
+                    .get(position)
+                    .is_some_and(|coverage| !super::super::rects_intersect(&coverage.outer, &clip));
+                snapshot.prepared_paint.nodes[position]
+                    .visibility
+                    .set(PaintVisibility::Unknown);
                 let requests = super::super::prepare_paint_requests(&app.world).unwrap();
                 super::super::render_region_cached(
                     &app.world,
@@ -414,6 +421,13 @@ mod tests {
                     None,
                 )
                 .unwrap();
+                if excluded {
+                    assert_eq!(
+                        snapshot.prepared_paint.nodes[position].visibility.get(),
+                        PaintVisibility::Unknown,
+                        "an excluded leaf must not prepare visibility or clipping"
+                    );
+                }
                 super::super::render_region(&app.world, root, &viewport, &clip, &mut fresh)
                     .unwrap();
                 assert_eq!(
