@@ -1951,11 +1951,14 @@ fn draw_tree_content(
         preparation,
     );
     let visible = rects_intersect(&cull_rect, clip);
-    let scroll = world.get::<crate::input::event::scroll::ScrollOffset>(entity);
-    let clips_children = scroll.is_some()
-        || world
-            .get::<Style>(entity)
-            .is_some_and(|style| style.clip_children);
+    let style = world.get::<Style>(entity);
+    let scroll = if node.children.is_empty() {
+        None
+    } else {
+        world.get::<crate::input::event::scroll::ScrollOffset>(entity)
+    };
+    let clips_children = !node.children.is_empty()
+        && (scroll.is_some() || style.is_some_and(|style| style.clip_children));
     let child_clip = if clips_children {
         transformed_clip_bounds(shifted_rect, tf, tf_3d)
             .map(|bounds| intersect_with_self(clip, &bounds))
@@ -2026,7 +2029,7 @@ fn draw_tree_content(
     }
 
     if visible && *idx < entities.len() {
-        if let Some(style) = world.get::<Style>(entity) {
+        if let Some(style) = style {
             let state = prepared_paint::state(world, entity, *idx, preparation);
             let clip_x = !matches!(
                 style.layout.width,
@@ -6755,6 +6758,58 @@ mod clip_children_check {
 
     fn vp() -> Viewport {
         Viewport::new(64, 64, Fixed::ONE)
+    }
+
+    #[test]
+    fn child_scroll_and_clip_do_not_change_leaf_paint() {
+        let mut world = make_world();
+        let root = spawn_widget(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(17, 31, 49).into()),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(64)),
+                    height: Dimension::Px(Fixed::from_int(64)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let leaf = spawn_widget(
+            &mut world,
+            Some(root),
+            Style {
+                bg_color: Some(Color::rgb(201, 101, 51).into()),
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::Px(Fixed::from_int(7)),
+                    top: Dimension::Px(Fixed::from_int(9)),
+                    width: Dimension::Px(Fixed::from_int(16)),
+                    height: Dimension::Px(Fixed::from_int(20)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let draw = |world: &World| {
+            let mut bytes = std::vec![0; 64 * 64 * 4];
+            let texture = Texture::new(&mut bytes, 64, 64, ColorFormat::RGBA8888).unwrap();
+            let mut renderer = SwRenderer::new(texture);
+            super::render(world, root, &vp(), &mut renderer).unwrap();
+            drop(renderer);
+            bytes
+        };
+        let expected = draw(&world);
+        world.get_mut::<Style>(leaf).unwrap().clip_children = true;
+        world.insert(
+            leaf,
+            crate::input::event::scroll::ScrollOffset {
+                x: Fixed::from_int(100),
+                y: Fixed::from_int(-100),
+            },
+        );
+        assert_eq!(draw(&world), expected);
     }
 
     #[test]
