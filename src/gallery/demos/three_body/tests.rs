@@ -68,7 +68,7 @@ fn animation_systems_reuse_body_entities() {
     assert!(
         world
             .get::<crate::ui::dirty::VisualDirty>(selected)
-            .is_some()
+            .is_some_and(|dirty| dirty.transforms_subtree())
     );
     assert_eq!(
         world
@@ -78,6 +78,29 @@ fn animation_systems_reuse_body_entities() {
             .as_ptr(),
         entities_ptr
     );
+}
+
+#[test]
+fn motion_preserves_pending_content_and_skips_unchanged_transforms() {
+    use crate::ui::dirty::VisualDirty;
+    let mut app = App::headless(128, 128);
+    let parent = app.spawn_root().id();
+    app.compose(parent, build_widgets(128, 128, 3, Fixed::from_int(30)));
+    let world = &mut app.world;
+    let selected = world.query::<PhysicsBody>().iter().next().unwrap().0;
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(sync_layout_system::system());
+    scheduler.run_all(world).unwrap();
+    world.remove::<VisualDirty>(selected);
+    scheduler.run_all(world).unwrap();
+    assert!(world.get::<VisualDirty>(selected).is_none());
+    world.invalidate_visual(selected);
+    world.get_mut::<PhysicsBody>(selected).unwrap().x += Fixed::ONE;
+    scheduler.run_all(world).unwrap();
+    assert!(matches!(
+        world.get::<VisualDirty>(selected).copied(),
+        Some(VisualDirty::NewTransform)
+    ));
 }
 
 #[test]

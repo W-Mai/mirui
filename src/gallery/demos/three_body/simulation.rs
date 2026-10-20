@@ -5,7 +5,6 @@ use super::state::{
 };
 use crate::prelude::*;
 use crate::types::Transform;
-use crate::ui::dirty::VisualDirty;
 use crate::ui::widgets::WidgetTransform;
 use crate::ui::{ComputedRect, WidgetRoot};
 
@@ -228,8 +227,7 @@ pub fn sync_layout_system(
         let transform =
             Transform::translate(body.x - half_w - origin.x, body.y - half_h - origin.y);
         if current.is_none_or(|current| current.0 != transform) {
-            commands.insert(entity, WidgetTransform(transform));
-            commands.insert(entity, VisualDirty::New);
+            commands.set::<crate::ui::property::prop::Transform>(entity, transform);
         }
     }
 }
