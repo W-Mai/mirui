@@ -10,6 +10,8 @@ use super::PaintCoverage;
 
 pub(super) struct PreparedPaint {
     coverage: Vec<Cell<Option<PaintCoverage>>>,
+    // The first row records type presence; remaining rows record node membership.
+    // Both are invalidated together at the existing paint-batch boundary.
     views: Vec<Cell<usize>>,
     view_count: usize,
     affine: Vec<Cell<Option<Transform>>>,
@@ -61,7 +63,7 @@ impl PreparedPaint {
         self.nodes.resize_with(len, PreparedNode::default);
         self.view_count = view_count;
         self.views
-            .resize_with(len * self.view_stride(), || Cell::new(0));
+            .resize_with((len + 1) * self.view_stride(), || Cell::new(0));
         self.clear();
     }
 
@@ -101,12 +103,31 @@ impl PreparedPaint {
             return None;
         }
         let stride = self.view_stride();
-        let row = self.views.get(position * stride..(position + 1) * stride)?;
-        if row[0].get() == 0 {
+        let present = self.views.get(..stride)?;
+        let row = self
+            .views
+            .get((position + 1) * stride..(position + 2) * stride)?;
+        if present[0].get() == 0 {
             for (index, view) in registry.paint_iter().enumerate() {
                 if view
                     .component_filter()
-                    .is_none_or(|kind| world.has_type(entity, kind))
+                    .is_none_or(|kind| world.has_any_by_id(kind))
+                {
+                    let word = &present[1 + index / usize::BITS as usize];
+                    word.set(word.get() | (1 << (index % usize::BITS as usize)));
+                }
+            }
+            present[0].set(1);
+        }
+        if row[0].get() == 0 {
+            let present = PreparedViews {
+                words: &present[1..],
+            };
+            for (index, view) in registry.paint_iter().enumerate() {
+                if present.contains(index)
+                    && view
+                        .component_filter()
+                        .is_none_or(|kind| world.has_type(entity, kind))
                 {
                     let word = &row[1 + index / usize::BITS as usize];
                     word.set(word.get() | (1 << (index % usize::BITS as usize)));
@@ -872,8 +893,12 @@ mod tests {
     #[test]
     fn view_membership_spans_words_and_refreshes_between_batches() {
         use crate::ui::view::View;
+        struct Absent;
+        impl crate::ecs::Component for Absent {}
         let mut world = World::new();
         let entity = world.spawn_empty();
+        let other = world.spawn_empty();
+        world.insert(other, crate::ui::Style::default());
         world.insert(
             entity,
             Probe {
@@ -884,21 +909,27 @@ mod tests {
         let mut registry = ViewRegistry::default();
         for index in 0..usize::BITS as usize * 2 + 3 {
             let view = View::new("probe", (index % 7) as u8, |_, _, _| {});
-            registry.insert(if index % 2 == 0 {
-                view.with_filter::<Probe>()
-            } else {
-                view.with_filter::<crate::ui::Style>()
+            registry.insert(match index % 4 {
+                0 => view.with_filter::<Probe>(),
+                1 => view.with_filter::<crate::ui::Style>(),
+                2 => view.with_filter::<Absent>(),
+                _ => view,
             });
         }
-        let mut prepared = PreparedPaint::with_capacity(1);
-        prepared.resize(1, registry.paint_iter().len());
+        let mut prepared = PreparedPaint::with_capacity(2);
+        prepared.resize(2, registry.paint_iter().len());
         let check = |prepared: &PreparedPaint, world: &World, registry: &ViewRegistry| {
-            let matching = prepared.matching_views(world, registry, entity, 0).unwrap();
-            for (index, view) in registry.paint_iter().enumerate() {
-                assert_eq!(
-                    matching.contains(index),
-                    world.has_type(entity, view.component_filter().unwrap())
-                );
+            for (position, entity) in [entity, other].into_iter().enumerate() {
+                let matching = prepared
+                    .matching_views(world, registry, entity, position)
+                    .unwrap();
+                for (index, view) in registry.paint_iter().enumerate() {
+                    assert_eq!(
+                        matching.contains(index),
+                        view.component_filter()
+                            .is_none_or(|kind| world.has_type(entity, kind))
+                    );
+                }
             }
         };
         assert_eq!(
@@ -912,13 +943,16 @@ mod tests {
         world.insert(entity, crate::ui::Style::default());
         prepared.clear();
         check(&prepared, &world, &registry);
+        world.insert(other, Absent);
+        prepared.clear();
+        check(&prepared, &world, &registry);
         registry.insert(View::new("extra", 2, |_, _, _| {}).with_filter::<crate::ui::Style>());
         assert!(
             prepared
                 .matching_views(&world, &registry, entity, 0)
                 .is_none()
         );
-        prepared.resize(1, registry.paint_iter().len());
+        prepared.resize(2, registry.paint_iter().len());
         check(&prepared, &world, &registry);
     }
 
