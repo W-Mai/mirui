@@ -75,10 +75,18 @@ impl PhysicalDamage {
             extra_area: area(bounds),
         };
         for (index, rect) in self.as_slice().iter().copied().enumerate() {
-            let Some(overlap) = rect.intersection(bounds) else {
+            if rect.right() <= bounds.x()
+                || rect.x() >= bounds.right()
+                || rect.bottom() <= bounds.y()
+                || rect.y() >= bounds.bottom()
+            {
                 continue;
-            };
-            if overlap != rect {
+            }
+            if rect.x() < bounds.x()
+                || rect.right() > bounds.right()
+                || rect.y() < bounds.y()
+                || rect.bottom() > bounds.bottom()
+            {
                 return None;
             }
             candidate.members |= 1 << index;
