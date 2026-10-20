@@ -653,6 +653,7 @@ impl<'a> Canvas for SwRenderer<'a> {
 }
 
 impl SwRenderer<'_> {
+    // Keep complex admission checks out of the plain submission body.
     #[inline(never)]
     fn dispatch_fill_quad(
         &mut self,
@@ -932,6 +933,7 @@ impl SwRenderer<'_> {
 }
 
 impl SwRenderer<'_> {
+    #[inline(never)]
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         use crate::types::TransformClass;
 
@@ -1310,6 +1312,8 @@ impl SwRenderer<'_> {
         }
     }
 
+    // Projective drawing has its own stack workspace and dispatch table.
+    #[inline(never)]
     pub(crate) fn draw_projective(
         &mut self,
         cmd: &DrawCommand,
