@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Paint traversal prepares descendant clipping and scroll transfer state once per parent and skips descendant preparation for leaf nodes.
+
 - Unit-scale viewport bounds map directly from physical pixels to logical coordinates without fixed-point division.
 
 - Typed component reads share their checked access implementation across call sites without retaining additional state.

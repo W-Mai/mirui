@@ -521,7 +521,7 @@ fn seed_prev_rect_walk(
         *idx,
         preparation,
     );
-    if let Some(mut painted) = scroll::PaintedScroll::capture(
+    let current_scroll = scroll::PaintedScroll::capture(
         world,
         entity,
         shifted_rect,
@@ -529,7 +529,8 @@ fn seed_prev_rect_walk(
         tf,
         tf_3d,
         parent_scroll,
-    ) {
+    );
+    if let Some(mut painted) = current_scroll {
         painted.reusable &= scroll_pixels;
         world.insert(entity, painted);
     } else {
@@ -563,13 +564,17 @@ fn seed_prev_rect_walk(
         super::dirty::PaintedCoverage(coverage.pixel_aligned()),
     );
     super::dirty::VisualDirty::acknowledge(world, entity);
-    let child_scroll =
-        if let Some(scroll) = world.get::<crate::input::event::scroll::ScrollOffset>(entity) {
-            (scroll_offset.0 + scroll.x, scroll_offset.1 + scroll.y)
-        } else {
-            scroll_offset
-        };
-    let is_scroll = world.has::<crate::input::event::scroll::ScrollOffset>(entity);
+    *idx += 1;
+    if node.children.is_empty() {
+        return;
+    }
+    let child_scroll = current_scroll.map_or(scroll_offset, |scroll| {
+        (
+            scroll_offset.0 + scroll.offset.x,
+            scroll_offset.1 + scroll.offset.y,
+        )
+    });
+    let is_scroll = current_scroll.is_some();
     let child_clip = if is_scroll
         || world
             .get::<Style>(entity)
@@ -580,7 +585,7 @@ fn seed_prev_rect_walk(
     } else {
         scroll_clip
     };
-    *idx += 1;
+    let child_scroll_pixels = scroll_pixels && scroll::children_are_transferable(world, entity);
     for child in &node.children {
         seed_prev_rect_walk(
             child,
@@ -597,7 +602,7 @@ fn seed_prev_rect_walk(
             } else {
                 parent_scroll
             },
-            scroll_pixels && scroll::children_are_transferable(world, entity),
+            child_scroll_pixels,
             visible,
             output_plan,
             preparation,
@@ -3444,50 +3449,54 @@ fn collect_dirty_walk(
         );
     }
 
-    let child_scroll =
-        if let Some(scroll) = world.get::<crate::input::event::scroll::ScrollOffset>(entity) {
-            (scroll_offset.0 + scroll.x, scroll_offset.1 + scroll.y)
+    *idx += 1;
+    if !node.children.is_empty() {
+        let child_scroll = current_scroll.map_or(scroll_offset, |scroll| {
+            (
+                scroll_offset.0 + scroll.offset.x,
+                scroll_offset.1 + scroll.offset.y,
+            )
+        });
+
+        let clips_children = current_scroll.is_some()
+            || world
+                .get::<Style>(entity)
+                .is_some_and(|style| style.clip_children);
+        let child_scroll_clip = if clips_children {
+            let area = transformed_clip_bounds(shifted_rect, tf, tf_3d).unwrap_or(Rect::ZERO);
+            Some(scroll_clip.map_or(area, |clip| area.intersect(&clip).unwrap_or(Rect::ZERO)))
         } else {
-            scroll_offset
+            scroll_clip
         };
 
-    let clips_children = world.has::<crate::input::event::scroll::ScrollOffset>(entity)
-        || world
-            .get::<Style>(entity)
-            .is_some_and(|style| style.clip_children);
-    let child_scroll_clip = if clips_children {
-        let area = transformed_clip_bounds(shifted_rect, tf, tf_3d).unwrap_or(Rect::ZERO);
-        Some(scroll_clip.map_or(area, |clip| area.intersect(&clip).unwrap_or(Rect::ZERO)))
-    } else {
-        scroll_clip
-    };
-
-    *idx += 1;
-    for child in &node.children {
-        collect_dirty_walk(
-            child,
-            world,
-            entities,
-            idx,
-            &tf,
-            &tf_3d,
-            output_scale,
-            child_scroll,
-            child_scroll_clip,
-            if current_scroll.is_some() {
-                Some(entity)
-            } else {
-                parent_scroll
-            },
-            child_carrier.filter(|_| scroll::children_are_transferable(world, entity)),
-            moved || scroll_moved,
-            visible,
-            bounds,
-            plan,
-            painted_damage,
-            output_plan,
-            preparation,
-        );
+        let child_carrier =
+            child_carrier.filter(|_| scroll::children_are_transferable(world, entity));
+        for child in &node.children {
+            collect_dirty_walk(
+                child,
+                world,
+                entities,
+                idx,
+                &tf,
+                &tf_3d,
+                output_scale,
+                child_scroll,
+                child_scroll_clip,
+                if current_scroll.is_some() {
+                    Some(entity)
+                } else {
+                    parent_scroll
+                },
+                child_carrier,
+                moved || scroll_moved,
+                visible,
+                bounds,
+                plan,
+                painted_damage,
+                output_plan,
+                preparation,
+            );
+        }
     }
 
     // DFS post-order so a nested inner shift executes before its outer
