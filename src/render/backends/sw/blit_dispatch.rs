@@ -38,7 +38,7 @@ impl SwRenderer<'_> {
         let dy0 = phys_dst.y.to_int();
         let dw = phys_dst_size.x.to_int();
         let dh = phys_dst_size.y.to_int();
-        if dw <= 0 || dh <= 0 || sw == 0 || sh == 0 {
+        if phys_dst_size.x <= Fixed::ZERO || phys_dst_size.y <= Fixed::ZERO || sw == 0 || sh == 0 {
             return;
         }
 
@@ -57,6 +57,21 @@ impl SwRenderer<'_> {
         let needs_composite_path =
             !matches!(composite, CompositeMode::SourceOver) || phys_radius != Fixed::ZERO;
         let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
+        let area = Rect::new(phys_dst.x, phys_dst.y, phys_dst_size.x, phys_dst_size.y);
+        if !area.is_aligned() {
+            super::blit_fractional::blit_fractional(
+                &mut target,
+                src,
+                (sx0, sy0, i32::from(sw), i32::from(sh)),
+                area,
+                phys_clip,
+                opa,
+                phys_radius,
+                composite,
+                clip_mask,
+            );
+            return;
+        }
         if needs_composite_path {
             blit_composite_dda(
                 &mut target,

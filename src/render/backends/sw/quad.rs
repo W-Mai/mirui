@@ -90,8 +90,7 @@ pub fn blit_quad(
             cx += one;
             if w.is_positive() {
                 let edge_cov = if let Some(rect) = fractional_axis_rect {
-                    rect.intersect(&Rect::new(px, py, 1, 1))
-                        .map_or(Fixed::ZERO, |covered| covered.w * covered.h)
+                    super::rect_fill::rect_pixel_coverage(rect, px, py)
                 } else {
                     quad_pixel_coverage_row(&edges, None, edge_cx, py_f, &row)
                 };

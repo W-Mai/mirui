@@ -1,5 +1,5 @@
 use super::SwRenderer;
-use super::rect_fill::{fill_axis_aligned, rounded_rect_coverage};
+use super::rect_fill::{fill_axis_aligned, rect_pixel_coverage, rounded_rect_coverage};
 use crate::types::{Color, Fixed, Rect};
 
 impl SwRenderer<'_> {
@@ -15,6 +15,9 @@ impl SwRenderer<'_> {
         let phys_area = self.viewport.rect_to_physical(*area);
         let phys_clip = self.physical_draw_clip(*clip);
         let width = width * self.viewport.scale();
+        if width <= Fixed::ZERO || opa == 0 {
+            return;
+        }
         let radius = radius * self.viewport.scale();
         let area = &phys_area;
         let clip = &phys_clip;
@@ -42,7 +45,7 @@ impl SwRenderer<'_> {
         let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
             return;
         };
-        if r == Fixed::ZERO && clip_mask.is_none() {
+        if r == Fixed::ZERO && clip_mask.is_none() && area.is_aligned() && bw.is_integer() {
             let base_opa = opa_norm.map01(255).to_int() as u8;
             let effective_opa = ((u16::from(color.a) * u16::from(base_opa)) / 255) as u8;
             let x0 = (area.x + bw).ceil().to_int().clamp(px_x0, px_x1);
@@ -77,22 +80,20 @@ impl SwRenderer<'_> {
                 let rel_x = Fixed::from_int(px) - area.x;
                 let rel_y = Fixed::from_int(py) - area.y;
 
-                let outer_cov = rounded_rect_coverage(rel_x, rel_y, area.w, area.h, r);
+                let outer_cov = rect_pixel_coverage(*area, px, py)
+                    * rounded_rect_coverage(rel_x, rel_y, area.w, area.h, r);
                 if outer_cov == Fixed::ZERO {
                     continue;
                 }
 
                 let inner_rel_x = rel_x - bw;
                 let inner_rel_y = rel_y - bw;
-                let inner_cov = if inner_rel_x >= Fixed::ZERO
-                    && inner_rel_y >= Fixed::ZERO
-                    && inner_rel_x < inner_w
-                    && inner_rel_y < inner_h
-                {
-                    rounded_rect_coverage(inner_rel_x, inner_rel_y, inner_w, inner_h, inner_r)
-                } else {
-                    Fixed::ZERO
-                };
+                let inner_cov =
+                    rect_pixel_coverage(
+                        Rect::new(area.x + bw, area.y + bw, inner_w, inner_h),
+                        px,
+                        py,
+                    ) * rounded_rect_coverage(inner_rel_x, inner_rel_y, inner_w, inner_h, inner_r);
 
                 let border_cov = (outer_cov - inner_cov).max(Fixed::ZERO);
                 let base_opa = (border_cov * opa_norm).map01(255).to_int() as u8;
@@ -124,7 +125,7 @@ mod tests {
     use crate::types::{PhysicalRect, Viewport};
 
     #[test]
-    fn square_border_bands_match_pixel_sampling_without_overlapping_blends() {
+    fn square_borders_match_outer_minus_inner_coverage_without_overlapping_blends() {
         for format in [
             ColorFormat::RGB565,
             ColorFormat::RGB565Swapped,
@@ -174,11 +175,8 @@ mod tests {
                                     let width = width * scale;
                                     let inner_w = (area.w - width * 2).max(Fixed::ZERO);
                                     let inner_h = (area.h - width * 2).max(Fixed::ZERO);
-                                    let quantized_opa = Fixed::from_int(opa as i32)
-                                        .map_range((0, 255), (Fixed::ZERO, Fixed::ONE))
-                                        .map01(255)
-                                        .to_int()
-                                        as u8;
+                                    let opacity = Fixed::from_int(opa as i32)
+                                        .map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
                                     if let Some(draw) = area
                                         .intersect(&clip)
                                         .and_then(|draw| draw.intersect(&Rect::new(0, 0, 12, 11)))
@@ -187,20 +185,25 @@ mod tests {
                                         let mut pixels = reference.pixels_mut().unwrap();
                                         for y in y0..y1 {
                                             for x in x0..x1 {
-                                                let inner_x = Fixed::from_int(x) - area.x - width;
-                                                let inner_y = Fixed::from_int(y) - area.y - width;
-                                                if inner_x >= Fixed::ZERO
-                                                    && inner_x < inner_w
-                                                    && inner_y >= Fixed::ZERO
-                                                    && inner_y < inner_h
-                                                {
-                                                    continue;
-                                                }
+                                                let overlap =
+                                                    |start: Fixed, extent: Fixed, pixel: i32| {
+                                                        ((start + extent)
+                                                            .min(Fixed::from_int(pixel + 1))
+                                                            - start.max(Fixed::from_int(pixel)))
+                                                        .max(Fixed::ZERO)
+                                                    };
+                                                let outer = overlap(area.x, area.w, x)
+                                                    * overlap(area.y, area.h, y);
+                                                let inner = overlap(area.x + width, inner_w, x)
+                                                    * overlap(area.y + width, inner_h, y);
+                                                let coverage = (outer - inner).max(Fixed::ZERO);
+                                                let alpha =
+                                                    (coverage * opacity).map01(255).to_int() as u8;
                                                 pixels.blend_pixel(
                                                     Fixed::from_int(x),
                                                     Fixed::from_int(y),
                                                     &color,
-                                                    quantized_opa,
+                                                    alpha,
                                                 );
                                             }
                                         }

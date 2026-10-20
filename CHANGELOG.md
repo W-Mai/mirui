@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Software image blits and rectangle borders preserve fractional pixel coverage, including subpixel-sized images and clipped source rectangles.
+
 ### Performance
 
 - Typed query construction reuses the aggregate parameter change budget and skips budget scans for read-only queries.

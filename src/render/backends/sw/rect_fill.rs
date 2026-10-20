@@ -517,6 +517,11 @@ fn fill_first_row_then_replicate<const BPP: usize>(
     }
 }
 
+pub(super) fn rect_pixel_coverage(rect: Rect, x: i32, y: i32) -> Fixed {
+    rect.intersect(&Rect::new(x, y, 1, 1))
+        .map_or(Fixed::ZERO, |covered| covered.w * covered.h)
+}
+
 pub(super) fn rounded_rect_coverage(px: Fixed, py: Fixed, w: Fixed, h: Fixed, r: Fixed) -> Fixed {
     if r == Fixed::ZERO {
         return Fixed::ONE;
