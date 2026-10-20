@@ -18,6 +18,9 @@ impl PaintCoverage {
     }
 
     pub fn frame(outer: Rect, excluded: Rect) -> Self {
+        if excluded.w <= Fixed::ZERO || excluded.h <= Fixed::ZERO {
+            return Self::solid(outer);
+        }
         let excluded = outer.intersect(&excluded).unwrap_or(Rect::ZERO);
         if excluded == outer {
             Self::EMPTY
@@ -56,10 +59,14 @@ impl PaintCoverage {
             return Self::EMPTY;
         }
         let (x0, y0, x1, y1) = self.outer.pixel_bounds();
+        let outer = Rect::new(x0, y0, x1 - x0, y1 - y0);
+        if self.excluded.w <= Fixed::ZERO || self.excluded.h <= Fixed::ZERO {
+            return Self::solid(outer);
+        }
         let x = self.excluded.x.ceil();
         let y = self.excluded.y.ceil();
         Self::frame(
-            Rect::new(x0, y0, x1 - x0, y1 - y0),
+            outer,
             Rect {
                 x,
                 y,
@@ -108,6 +115,71 @@ impl PaintCoverage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn solid_and_frame_paths_preserve_coverage_operations() {
+        fn frame(outer: Rect, excluded: Rect) -> PaintCoverage {
+            let excluded = outer.intersect(&excluded).unwrap_or(Rect::ZERO);
+            if excluded == outer {
+                PaintCoverage::EMPTY
+            } else {
+                PaintCoverage { outer, excluded }
+            }
+        }
+        let values = [-513, -256, -1, 0, 1, 127, 256, 513];
+        for &x in &values {
+            for &y in &values {
+                for &w in &values {
+                    for &h in &values {
+                        let outer = Rect::new(
+                            Fixed::from_ratio(x, 256),
+                            Fixed::from_ratio(y, 256),
+                            Fixed::from_ratio(w, 256),
+                            Fixed::from_ratio(h, 256),
+                        );
+                        for excluded in [
+                            Rect::ZERO,
+                            outer,
+                            Rect::new(-1, -1, 2, 2),
+                            Rect::new(0, 0, 0, 2),
+                            Rect::new(1, 1, -1, 2),
+                        ] {
+                            let old = frame(outer, excluded);
+                            let current = PaintCoverage::frame(outer, excluded);
+                            assert_eq!(current, old);
+                            let aligned = if old.is_empty() {
+                                PaintCoverage::EMPTY
+                            } else {
+                                let (x0, y0, x1, y1) = old.outer.pixel_bounds();
+                                let x = old.excluded.x.ceil();
+                                let y = old.excluded.y.ceil();
+                                frame(
+                                    Rect::new(x0, y0, x1 - x0, y1 - y0),
+                                    Rect {
+                                        x,
+                                        y,
+                                        w: (old.excluded.x + old.excluded.w).floor() - x,
+                                        h: (old.excluded.y + old.excluded.h).floor() - y,
+                                    },
+                                )
+                            };
+                            assert_eq!(current.pixel_aligned(), aligned);
+                            let clip = Rect::new(0, 0, 2, 2);
+                            assert_eq!(
+                                current.clipped(clip),
+                                old.outer
+                                    .intersect(&clip)
+                                    .map_or(PaintCoverage::EMPTY, |outer| frame(
+                                        outer,
+                                        old.excluded
+                                    ),)
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn coverage_is_two_rectangles_and_expands_without_overlap() {
