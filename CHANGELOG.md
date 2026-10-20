@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Partial-frame regions share output preparation and return reusable workspaces on drawing failure.
+
 - Dirty region insertion checks rectangular unions directly without area arithmetic, retaining precise coverage and bounded overflow handling.
 
 - Text preparation skips inactive component types and unrequested output publication without retaining additional state.

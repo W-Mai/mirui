@@ -1770,6 +1770,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 let result = if root_hidden {
                     clear_hidden_root(&self.world, &transform, &mut renderer);
                     Ok(())
+                } else if let Some(snapshot) = snapshot {
+                    render_system::render_regions_cached(
+                        &self.world,
+                        snapshot,
+                        physical.as_slice(),
+                        &transform,
+                        &mut renderer,
+                        &requests,
+                    )
                 } else {
                     let mut result = Ok(());
                     for &area in physical.as_slice() {
@@ -1781,26 +1790,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                         else {
                             continue;
                         };
-                        result = if let Some(snapshot) = snapshot {
-                            render_system::render_region_cached(
-                                &self.world,
-                                snapshot,
-                                &rect,
-                                &mut renderer,
-                                &requests,
-                                Some(area),
-                            )
-                        } else {
-                            render_system::render_region_in_batch(
-                                &self.world,
-                                root,
-                                &transform,
-                                &rect,
-                                &mut renderer,
-                                &requests,
-                                Some(area),
-                            )
-                        };
+                        result = render_system::render_region_in_batch(
+                            &self.world,
+                            root,
+                            &transform,
+                            &rect,
+                            &mut renderer,
+                            &requests,
+                            Some(area),
+                        );
                         if result.is_err() {
                             break;
                         }

@@ -2834,6 +2834,51 @@ fn render_full_with(
     Ok(())
 }
 
+pub(crate) fn render_regions_cached(
+    world: &World,
+    snapshot: &LayoutSnapshot,
+    regions: &[crate::types::PhysicalRect],
+    viewport: &Viewport,
+    renderer: &mut (impl Renderer + crate::render::Canvas),
+    requests: &PaintRequestScope,
+) -> Result<(), RenderError> {
+    let _outputs_batch = world
+        .resource::<Outputs<WidgetTexture>>()
+        .map(Outputs::begin_batch);
+    let (width, height) = viewport.logical_size();
+    let bounds = Rect::new(0, 0, width, height);
+    let mut prepared = None;
+    for &area in regions {
+        renderer.clear(&area, &crate::types::Color::rgba(0, 0, 0, 0));
+        let Some(rect) = viewport.logical_cover(area).intersect(&bounds) else {
+            continue;
+        };
+        if prepared.is_none() {
+            prepared = Some(output_plan::prepare(
+                world,
+                &snapshot.layout_tree,
+                &snapshot.entities,
+                renderer,
+            )?);
+        }
+        draw_prepared_region(
+            world,
+            &snapshot.layout_tree,
+            &snapshot.entities,
+            &rect,
+            renderer,
+            requests,
+            Some(area),
+            Some(&snapshot.prepared_paint),
+            prepared
+                .as_ref()
+                .and_then(Option::as_ref)
+                .map(|prepared| &prepared.plan),
+        )?;
+    }
+    Ok(())
+}
+
 pub(crate) fn prepare_paint_requests(world: &World) -> Result<PaintRequestScope, RenderError> {
     if !crate::core::reactive::reserve_paint_requests(world.live_entity_count()) {
         return Err(RenderError::MissingWorkspace);
@@ -3219,7 +3264,31 @@ fn render_region_with(
     preparation: Option<&PreparedPaint>,
 ) -> Result<(), RenderError> {
     let prepared = output_plan::prepare(world, layout_tree, entities, renderer)?;
+    draw_prepared_region(
+        world,
+        layout_tree,
+        entities,
+        dirty_rect,
+        renderer,
+        requests,
+        physical_clip,
+        preparation,
+        prepared.as_ref().map(|prepared| &prepared.plan),
+    )
+}
 
+#[allow(clippy::too_many_arguments)]
+fn draw_prepared_region(
+    world: &World,
+    layout_tree: &LayoutNode,
+    entities: &[Entity],
+    dirty_rect: &Rect,
+    renderer: &mut dyn Renderer,
+    requests: &PaintRequestScope,
+    physical_clip: Option<crate::types::PhysicalRect>,
+    preparation: Option<&PreparedPaint>,
+    output_plan: Option<&output_plan::TexturePlan>,
+) -> Result<(), RenderError> {
     {
         crate::trace_span!("render.draw_tree");
         let mut idx = 0;
@@ -3235,7 +3304,7 @@ fn render_region_with(
             Fixed::ZERO,
             &Transform::IDENTITY,
             &Transform3D::IDENTITY,
-            prepared.as_ref().map(|prepared| &prepared.plan),
+            output_plan,
             requests,
             preparation,
         )?;

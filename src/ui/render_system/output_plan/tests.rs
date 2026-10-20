@@ -1520,6 +1520,57 @@ fn app_split_dirty_regions_share_one_publication_and_frozen_history() {
     );
 }
 
+#[test]
+fn split_region_failure_returns_output_workspace_for_retry() {
+    let mut app = app(64, 4);
+    app.with_widget(retained_batch_probe::view())
+        .with_widget(retry_paint::view());
+    let root = app.spawn_root().bg_color(Color::rgb(0, 0, 0)).id();
+    app.compose(root, separated_batch_damage());
+    let source = app.world.find_by_id("batch_source").unwrap();
+    let other = app.world.find_by_id("batch_other").unwrap();
+    app.world.insert(
+        other,
+        RetryPaint {
+            fail: Cell::new(false),
+            calls: Cell::new(0),
+        },
+    );
+    app.render().unwrap();
+    app.world.get::<RetryPaint>(other).unwrap().fail.set(true);
+    let blue = Color::rgb(23, 47, 229);
+    let green = Color::rgb(29, 191, 71);
+    app.world.get_mut::<Style>(source).unwrap().bg_color = Some(blue.into());
+    app.world.get_mut::<Style>(other).unwrap().bg_color = Some(green.into());
+    assert_eq!(app.render_dirty(), Err(RenderError::BackendFailure));
+    let dirty = &app.world.resource::<LastDirtyRegions>().unwrap().0;
+    assert_eq!(dirty.rects.len(), 2);
+    let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+    let plan = outputs
+        .take_texture_plan()
+        .expect("failed batch returns its plan");
+    outputs.put_texture_plan(plan);
+    app.world.get::<RetryPaint>(other).unwrap().fail.set(false);
+    app.render_dirty().unwrap();
+    let pixels = app.backend.framebuffer();
+    assert_eq!(pixels.read_pixels().unwrap().get_pixel(1, 1), blue);
+    assert_eq!(pixels.read_pixels().unwrap().get_pixel(61, 1), green);
+    let expected = pixels.read_pixels().unwrap().bytes().to_vec();
+    app.render().unwrap();
+    assert_eq!(
+        app.backend.framebuffer().read_pixels().unwrap().bytes(),
+        expected
+    );
+    app.render_dirty().unwrap();
+    assert!(
+        app.world
+            .resource::<LastDirtyRegions>()
+            .unwrap()
+            .0
+            .is_empty()
+    );
+}
+
 #[crate::compose]
 fn clipped_inline_consumer() {
     ui! {
