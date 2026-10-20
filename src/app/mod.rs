@@ -1737,13 +1737,13 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             self.needs_full_redraw = true;
             let mut renderer = self.factory.make(&mut self.backend, &transform);
 
-            let plan = if !renderer.supports_scroll_blit() {
-                plan.flatten_shifts()
-            } else {
-                plan
-            };
             let mut plan = plan;
-            plan.coalesce_overlaps();
+            // Collection already normalized the logical damage. Only expanding
+            // scroll transfers adds rectangles that need another union pass.
+            if !renderer.supports_scroll_blit() && !plan.shifts.is_empty() {
+                plan = plan.flatten_shifts();
+                plan.coalesce_overlaps();
+            }
             let physical = plan.physical_redraw(transform, full_redraw);
 
             if let Some(last) = self
