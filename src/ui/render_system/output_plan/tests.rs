@@ -1477,7 +1477,6 @@ fn app_split_dirty_regions_share_one_publication_and_frozen_history() {
         let plan = &app.world.resource::<LastDirtyRegions>().unwrap().0;
         assert_eq!(plan.rects.len(), 2);
         assert!(plan.shifts.is_empty());
-        assert!(plan.prefers_split_redraw());
         assert!(plan.rects[0].intersect(&plan.rects[1]).is_none());
         let expected_previous = Some((Color::rgb(229, 47, 23), first_version));
         let producer = app.world.get::<RetainedBatchProbe>(source).unwrap();

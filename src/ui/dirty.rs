@@ -9,6 +9,7 @@ use crate::types::{Fixed, Rect};
 use alloc::vec::Vec;
 
 mod coverage;
+mod physical;
 mod regions;
 pub(crate) use regions::RegionSet;
 #[cfg(test)]
@@ -491,13 +492,6 @@ impl Clone for DirtyRegions {
 }
 
 impl DirtyRegions {
-    fn rect_pixel_area(rect: Rect) -> u64 {
-        let (x0, y0, x1, y1) = rect.pixel_bounds();
-        let width = i64::from(x1).saturating_sub(i64::from(x0)).max(0) as u64;
-        let height = i64::from(y1).saturating_sub(i64::from(y0)).max(0) as u64;
-        width.saturating_mul(height)
-    }
-
     pub fn new() -> Self {
         Self::default()
     }
@@ -554,12 +548,6 @@ impl DirtyRegions {
                     .push(Rect::new(area.x(), area.y(), area.width(), area.height()));
             }
         }
-        if !self.prefers_split_redraw()
-            && let Some(union) = self.scratch.iter().copied().reduce(|a, b| a.union(&b))
-        {
-            self.scratch.clear();
-            self.scratch.push(union);
-        }
         let mut normalized = [Rect::ZERO; super::render_system::DIRTY_PLAN_RECT_CAPACITY];
         result.len = regions::normalize_into(&mut self.scratch, &mut normalized);
         for (dst, rect) in result.rects.iter_mut().zip(&normalized[..result.len]) {
@@ -571,28 +559,8 @@ impl DirtyRegions {
             )
             .expect("normalized target-clipped rectangle");
         }
+        result.coalesce_redraw();
         result
-    }
-
-    pub(crate) fn prefers_split_redraw(&self) -> bool {
-        let Some(union) = self
-            .rects
-            .iter()
-            .copied()
-            .reduce(|left, right| left.union(&right))
-        else {
-            return false;
-        };
-        if self.rects.len() < 2 {
-            return false;
-        }
-        let covered = self
-            .rects
-            .iter()
-            .copied()
-            .map(Self::rect_pixel_area)
-            .fold(0_u64, u64::saturating_add);
-        Self::rect_pixel_area(union).saturating_mul(2) > covered.saturating_mul(3)
     }
 
     /// Fold every shift's area into a redraw rect; the resulting plan
@@ -802,19 +770,20 @@ mod tests {
 
     #[test]
     fn sparse_regions_prefer_split_redraw_but_dense_regions_do_not() {
-        let sparse = DirtyRegions {
+        let mut sparse = DirtyRegions {
             rects: alloc::vec![Rect::new(0, 0, 8, 8), Rect::new(96, 96, 8, 8)],
             shifts: Vec::new(),
             ..Default::default()
         };
-        let dense = DirtyRegions {
+        let mut dense = DirtyRegions {
             rects: alloc::vec![Rect::new(0, 0, 8, 8), Rect::new(9, 0, 8, 8)],
             shifts: Vec::new(),
             ..Default::default()
         };
 
-        assert!(sparse.prefers_split_redraw());
-        assert!(!dense.prefers_split_redraw());
+        let viewport = crate::types::Viewport::new(128, 128, Fixed::ONE);
+        assert_eq!(sparse.physical_redraw(viewport, false).as_slice().len(), 2);
+        assert_eq!(dense.physical_redraw(viewport, false).as_slice().len(), 1);
     }
 
     #[test]

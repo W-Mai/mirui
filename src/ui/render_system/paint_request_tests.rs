@@ -365,7 +365,6 @@ fn split_dirty_regions_commit_main_requests_only_after_every_region_succeeds() {
         let plan = &app.world.resource::<super::LastDirtyRegions>().unwrap().0;
         assert_eq!(plan.rects.len(), 2);
         assert!(plan.shifts.is_empty());
-        assert!(plan.prefers_split_redraw());
         assert_eq!(probe(&app.world, root).calls.get(), 2);
         assert_eq!(
             probe(&app.world, root).clips.get(),
