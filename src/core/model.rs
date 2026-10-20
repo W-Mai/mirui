@@ -844,7 +844,7 @@ impl<H: ModelHandle> OptionalModelHandle for Option<H> {
     }
 }
 
-/// Run a generated View callback without permitting model writes.
+/// Run a callback without permitting model writes.
 #[doc(hidden)]
 pub fn with_model_read_only<R>(run: impl FnOnce() -> R) -> R {
     let _guard = crate::core::reactive::ModelReadOnlyGuard::enter();

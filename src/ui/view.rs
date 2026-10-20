@@ -848,6 +848,7 @@ impl<Systems> View<Systems> {
         let render = self
             .render()
             .expect("paint order contains a non-paint View");
+        // Generated and raw callbacks share this model write boundary.
         crate::core::model::with_model_read_only(|| render(world, entity, ctx));
         if previous != QueryScope::Global && !ctx.query_reads_global && ctx.error().is_none() {
             self.definition.query_scope.set(QueryScope::Local);
@@ -3560,9 +3561,10 @@ mod tests {
             WidgetState::Enabled,
         );
         let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            (view.render().expect("paint view"))(&app.world, entity, &mut ctx);
+            view.paint(&app.world, entity, &mut ctx);
         }));
         assert!(failure.is_err());
+        assert_eq!(model.value(), 0);
         model.set(2);
         assert_eq!(model.value(), 2);
     }

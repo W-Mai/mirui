@@ -184,36 +184,46 @@ fn attempt_raw_view_write(
     world.get::<PaintTile>(entity).unwrap().model.set_value(99);
 }
 
+#[view(component = PaintTile)]
+fn attempt_typed_view_write(tile: component!()) {
+    tile.model.set_value(99);
+}
+
 #[test]
-fn raw_view_cannot_write_a_model_during_render() {
+fn view_execution_rejects_model_writes_and_restores_permissions_after_failure() {
     use mirui::__macro_support::{ViewDescriptor, assemble_view};
 
-    let mut app = App::headless(32, 32);
-    app.with_default_widgets();
-    let root = app.spawn_root().id();
-    let model = app.add_model(PaintModel { value: 1 }).finish();
-    app.with_widget(assemble_view::<PaintTile>(ViewDescriptor {
-        name: "attempt_raw_view_write",
-        paint: Some((64, attempt_raw_view_write)),
-        attach: None,
-        input: None,
-        observation: None,
-        query_dependencies: &[],
-        systems: &[],
-        invalidation: ViewInvalidation::Visual,
-    }));
-    app.world.insert(
-        root,
-        PaintTile {
-            model: model.share(),
-        },
-    );
+    for descriptor in [
+        attempt_typed_view_write::view(),
+        assemble_view::<PaintTile>(ViewDescriptor {
+            name: "attempt_raw_view_write",
+            paint: Some((64, attempt_raw_view_write)),
+            attach: None,
+            input: None,
+            observation: None,
+            query_dependencies: &[],
+            systems: &[],
+            invalidation: ViewInvalidation::Visual,
+        }),
+    ] {
+        let mut app = App::headless(32, 32);
+        app.with_default_widgets();
+        let root = app.spawn_root().id();
+        let model = app.add_model(PaintModel { value: 1 }).finish();
+        app.with_widget(descriptor);
+        app.world.insert(
+            root,
+            PaintTile {
+                model: model.share(),
+            },
+        );
 
-    let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| app.render()));
-    assert!(failure.is_err());
-    assert_eq!(model.value(), 1);
-    model.set_value(2);
-    assert_eq!(model.value(), 2);
+        let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| app.render()));
+        assert!(failure.is_err());
+        assert_eq!(model.value(), 1);
+        model.set_value(2);
+        assert_eq!(model.value(), 2);
+    }
 }
 
 #[test]

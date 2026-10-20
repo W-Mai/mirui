@@ -549,11 +549,9 @@ fn lower(function: ItemFn, args: ViewArgs, bindings: Vec<BindingSpec>) -> syn::R
                 __mirui_paint: &mut ::mirui::ui::view::PaintCtx<'_>,
             ) #factory_where_clause {
                 let __mirui_query_reads = ::mirui::__macro_support::QueryReadScope::new(__mirui_entity);
-                ::mirui::core::model::with_model_read_only(|| {
-                    #render_component_fetch
-                    #(#render_fetches)*
-                    #helper_fn(#(#helper_arguments),*);
-                });
+                #render_component_fetch
+                #(#render_fetches)*
+                #helper_fn(#(#helper_arguments),*);
                 ::mirui::__macro_support::report_query_reads(__mirui_paint, &__mirui_query_reads);
             }
         }
@@ -887,6 +885,7 @@ mod tests {
             1
         );
         assert!(expanded.contains("report_query_reads"));
+        assert!(!expanded.contains("with_model_read_only"));
         assert!(expanded.contains("rows . get (node)"));
         assert!(!expanded.contains("__mirui_world . get :: < Switch >"));
         assert!(expanded.contains("query_dependencies : const {"));
