@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Text preparation skips inactive component types and unrequested output publication without retaining additional state.
+
 - Paint traversal prepares descendant clipping and scroll transfer state once per parent and skips descendant preparation for leaf nodes.
 
 - Unit-scale viewport bounds map directly from physical pixels to logical coordinates without fixed-point division.

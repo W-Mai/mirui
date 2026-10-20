@@ -1160,16 +1160,18 @@ fn prepare_input_layout(
 }
 
 fn prepare_text_geometry(world: &mut World, entities: &[Entity]) -> Result<(), TextLayoutFailure> {
-    for &entity in entities {
-        if !world.has::<super::widgets::TextEditing>(entity)
-            || crate::ui::branch::is_hidden_in_tree(world, entity)
-        {
-            continue;
+    if world.has_any_by_id(core::any::TypeId::of::<super::widgets::TextEditing>()) {
+        for &entity in entities {
+            if !world.has::<super::widgets::TextEditing>(entity)
+                || crate::ui::branch::is_hidden_in_tree(world, entity)
+            {
+                continue;
+            }
+            let Some(rect) = world.get::<super::ComputedRect>(entity).map(|rect| rect.0) else {
+                continue;
+            };
+            prepare_input_layout(world, entity, rect)?;
         }
-        let Some(rect) = world.get::<super::ComputedRect>(entity).map(|rect| rect.0) else {
-            continue;
-        };
-        prepare_input_layout(world, entity, rect)?;
     }
     prepare_path_text_placements(world, entities)
 }
@@ -1184,6 +1186,9 @@ fn publish_text_geometry(world: &World, entities: &[Entity]) -> Result<(), TextL
     let Some(outputs) = world.resource::<Outputs<TextGeometry>>() else {
         return Ok(());
     };
+    if !outputs.has_requests() {
+        return Ok(());
+    }
     for &entity in entities {
         if !outputs.is_requested(entity) {
             continue;
@@ -1287,6 +1292,9 @@ fn prepare_path_text_placements(
         paths: baselines,
     } = &mut *storage;
     baselines.begin_placements();
+    if !world.has_any_by_id(core::any::TypeId::of::<TextPath>()) {
+        return Ok(());
+    }
     let (Some(_fonts), Some(paths)) = (
         world.resource::<crate::render::font::FontManager>(),
         world.resource::<crate::render::path::PathStore>(),
@@ -6002,11 +6010,20 @@ mod text_layout_check {
         let mut app = crate::app::App::headless(96, 48);
         app.with_default_widgets();
         let root = app.spawn_root().id();
+        prepare_text_geometry(&mut app.world, &[root]).unwrap();
         let input = app.compose(root, input());
         let viewport = Viewport::new(96, 48, Fixed::ONE);
         try_update_layout(&mut app.world, root, &viewport).unwrap();
         let (placeholder, glyphs) = prepared(&app.world, input);
         assert_eq!(glyphs, 4);
+        let editing = app
+            .world
+            .remove::<super::super::widgets::TextEditing>(input)
+            .unwrap();
+        prepare_text_geometry(&mut app.world, &[root, input]).unwrap();
+        app.world.insert(input, editing);
+        prepare_text_geometry(&mut app.world, &[root, input]).unwrap();
+        assert_eq!(prepared(&app.world, input).1, 4);
         for _ in 0..3 {
             try_update_layout(&mut app.world, root, &viewport).unwrap();
             assert_eq!(prepared(&app.world, input), (placeholder, 4));
