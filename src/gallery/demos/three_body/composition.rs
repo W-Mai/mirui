@@ -116,6 +116,7 @@ pub fn build_widgets(view_w: u16, view_h: u16, n_bodies: usize, equilibrium: Fix
     } else {
         0
     };
+    let body_border = if cfg!(feature = "std") { 1 } else { 0 };
     let iw = BODY_SIZE;
     let ih = BODY_SIZE;
     let center_x = Fixed::from_int(logical_w / 2);
@@ -148,7 +149,7 @@ pub fn build_widgets(view_w: u16, view_h: u16, n_bodies: usize, equilibrium: Fix
                 src: "thumbs_up",
                 bg_color: ColorToken::SurfaceVariant,
                 border_color: ColorToken::Primary,
-                border_width: 1,
+                border_width: body_border,
                 border_radius: body_radius
             ) [
                 PhysicsBody { x: pos.0, y: pos.1 },

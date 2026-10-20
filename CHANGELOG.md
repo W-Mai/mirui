@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The embedded Three Body demo uses borderless image bodies.
+
 - Software image blits and rectangle borders preserve fractional pixel coverage, including subpixel-sized images and clipped source rectangles.
 
 ### Performance
