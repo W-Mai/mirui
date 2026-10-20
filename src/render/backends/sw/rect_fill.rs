@@ -518,8 +518,19 @@ fn fill_first_row_then_replicate<const BPP: usize>(
 }
 
 pub(super) fn rect_pixel_coverage(rect: Rect, x: i32, y: i32) -> Fixed {
-    rect.intersect(&Rect::new(x, y, 1, 1))
-        .map_or(Fixed::ZERO, |covered| covered.w * covered.h)
+    pixel_axis_coverage(rect.x, rect.x + rect.w, x)
+        * pixel_axis_coverage(rect.y, rect.y + rect.h, y)
+}
+
+pub(super) fn pixel_axis_coverage(start: Fixed, end: Fixed, pixel: i32) -> Fixed {
+    let pixel = Fixed::from_int(pixel);
+    let left = pixel.max(start);
+    let right = (pixel + Fixed::ONE).min(end);
+    if left < right {
+        right - left
+    } else {
+        Fixed::ZERO
+    }
 }
 
 pub(super) fn rounded_rect_coverage(px: Fixed, py: Fixed, w: Fixed, h: Fixed, r: Fixed) -> Fixed {
@@ -583,6 +594,36 @@ mod corner_check {
     use crate::render::canvas::Canvas;
     use std::string::String;
     use std::vec::Vec;
+
+    #[test]
+    fn separable_pixel_coverage_matches_rectangle_intersection() {
+        for x in [-5, -1, 0, 1, 5] {
+            for y in [-5, -1, 0, 1, 5] {
+                for width in [-2, 0, 1, 3, 9] {
+                    for height in [-2, 0, 1, 3, 9] {
+                        let area = Rect::new(
+                            Fixed::from_ratio(x, 2),
+                            Fixed::from_ratio(y, 2),
+                            Fixed::from_ratio(width, 2),
+                            Fixed::from_ratio(height, 2),
+                        );
+                        for py in -4..8 {
+                            for px in -4..8 {
+                                let expected = area
+                                    .intersect(&Rect::new(px, py, 1, 1))
+                                    .map_or(Fixed::ZERO, |covered| covered.w * covered.h);
+                                assert_eq!(
+                                    rect_pixel_coverage(area, px, py),
+                                    expected,
+                                    "area={area:?}, pixel=({px},{py})"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     fn render_circle(w: i32, h: i32, r: i32) -> Vec<Vec<u8>> {
         let mut buf = std::vec![0u8; (w as usize) * (h as usize) * 4];

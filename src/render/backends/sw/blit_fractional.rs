@@ -1,4 +1,4 @@
-use super::rect_fill::{rect_pixel_coverage, rounded_rect_coverage};
+use super::rect_fill::{pixel_axis_coverage, rounded_rect_coverage};
 use crate::render::command::CompositeMode;
 use crate::render::texture::{TexturePixels, TexturePixelsMut};
 use crate::types::{Fixed, Fixed64, Rect};
@@ -120,8 +120,11 @@ pub(super) fn blit_fractional(
     } else {
         None
     };
+    let right = area.x + area.w;
+    let bottom = area.y + area.h;
     for y in y0..y1 {
         let sy = source_y + y_axis.next(height);
+        let coverage_y = pixel_axis_coverage(area.y, bottom, y);
         let spans = match interior {
             Some((left, top, right, bottom, right_axis)) if y >= top && y < bottom => {
                 [(x0, left, x_axis), (right, x1, right_axis)]
@@ -131,14 +134,17 @@ pub(super) fn blit_fractional(
         for (start, end, mut axis) in spans {
             for x in start..end {
                 let sx = source_x + axis.next(width);
-                let coverage = rect_pixel_coverage(area, x, y)
-                    * rounded_rect_coverage(
-                        Fixed::from_int(x) - area.x,
-                        Fixed::from_int(y) - area.y,
-                        area.w,
-                        area.h,
-                        radius,
-                    );
+                let mut coverage = pixel_axis_coverage(area.x, right, x) * coverage_y;
+                if radius != Fixed::ZERO {
+                    coverage = coverage
+                        * rounded_rect_coverage(
+                            Fixed::from_int(x) - area.x,
+                            Fixed::from_int(y) - area.y,
+                            area.w,
+                            area.h,
+                            radius,
+                        );
+                }
                 let color = source.get_pixel(sx, sy);
                 let alpha = ((u16::from(color.a) * u16::from(opacity) + 127) / 255) as u8;
                 let mut alpha = (Fixed::from_int(i32::from(alpha)) * coverage).to_int() as u8;

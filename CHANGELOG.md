@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Fractional image edges reuse vertical pixel coverage across each scanline and skip rounded coverage calculations for square images.
+
 - Partial paint traversal rejects out-of-region leaves using already prepared coverage before repeating node setup.
 
 - Text editing systems skip execution when no editors are present and resume automatically when an editor is attached.
