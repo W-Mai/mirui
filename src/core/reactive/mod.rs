@@ -831,9 +831,20 @@ fn pop_visual_widget_for(
 pub fn flush_signal_dirty(world: &mut World) {
     let _guard = WorldGuard::enter(world);
     reclaim_dead_effects(world);
+    // Retiring captures may enqueue work, so inspect the queues after cleanup.
+    if with_reactive(|r| {
+        r.dirty_effects.is_empty()
+            && r.dirty_widgets.is_empty()
+            && r.dirty_visual_widgets.is_empty()
+    }) {
+        return;
+    }
     let world_id = world.id();
     for _ in 0..FLUSH_MAX_PASSES {
-        if world.component_count(core::any::TypeId::of::<retained::RetainedEffects>()) > 0 {
+        let pending_effects = with_reactive(|r| r.dirty_effects.len());
+        if pending_effects > 1
+            && world.component_count(core::any::TypeId::of::<retained::RetainedEffects>()) > 0
+        {
             with_reactive(|r| {
                 let effects = &r.effects;
                 r.dirty_effects
@@ -847,7 +858,6 @@ pub fn flush_signal_dirty(world: &mut World) {
                     });
             });
         }
-        let pending_effects = with_reactive(|r| r.dirty_effects.len());
         let mut ran_effect = false;
         for _ in 0..pending_effects {
             let effect = with_reactive(|r| {
@@ -3182,6 +3192,40 @@ mod tests {
         });
         flush_signal_dirty(&mut world);
         assert_eq!(effect_count(), 1, "live owner keeps its effect");
+    }
+
+    #[test]
+    fn quiet_retirement_delivers_work_enqueued_by_dropped_captures() {
+        struct PublishOnDrop(Signal<u8>);
+        impl Drop for PublishOnDrop {
+            fn drop(&mut self) {
+                self.0.set(7);
+            }
+        }
+        reset();
+        let mut world = World::new();
+        let dead = world.spawn_empty();
+        let source = Signal::new(0u8);
+        let observed = Rc::new(Cell::new(0));
+        let signal = source.clone();
+        let result = observed.clone();
+        let _survivor =
+            with_world_scope(&mut world, || Effect::new(move || result.set(signal.get())));
+        let release = PublishOnDrop(source.clone());
+        with_world_scope(&mut world, || {
+            effect_with_widget(dead, move || {
+                let _ = &release;
+            });
+        });
+        assert!(with_reactive(|r| r.dirty_effects.is_empty()));
+        world.despawn(dead);
+        flush_signal_dirty(&mut world);
+        assert_eq!(observed.get(), 7);
+        assert_eq!(effect_count(), 1);
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| flush_signal_dirty(&mut world)),
+            0
+        );
     }
 
     #[test]

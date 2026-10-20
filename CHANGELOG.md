@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Reactive flushing skips empty dispatch preparation after retiring stale subscriptions and only prepares effect ordering for multiple pending effects.
+
 - Partial redraw groups nearby physical regions within a bounded extra-area budget while preserving disjoint painting and precise logical damage queries.
 
 - Fractional image edges reuse vertical pixel coverage across each scanline and skip rounded coverage calculations for square images.
