@@ -83,7 +83,7 @@ struct LocaleWatch {
 
 // First tick (`last_locale = None`) marks every Localized Text Dirty so
 // the layout pass picks up the resolved string before the first render.
-#[mirui_macros::system]
+#[mirui_macros::system(expect = crate::ui::widgets::text::Text)]
 pub fn i18n_dirty_system(
     i18n: res!(optional I18n),
     watch: res!(optional LocaleWatch),
@@ -342,5 +342,46 @@ mod tests {
         let sys = i18n_dirty_system::system();
         sys.run_once(&mut world).unwrap();
         assert!(!world.has::<crate::ui::dirty::Dirty>(e));
+    }
+
+    #[test]
+    fn locale_observation_waits_for_text_and_resumes_after_an_empty_interval() {
+        use crate::ui::dirty::Dirty;
+        use crate::ui::widgets::text::Text;
+
+        let mut world = World::new();
+        world.insert_resource(I18n::new(Locale::EnUs).with_translations(TABLE));
+        let system = i18n_dirty_system::system();
+        system.run_once(&mut world).unwrap();
+        assert!(world.resource::<LocaleWatch>().is_none());
+
+        let first = world.spawn_empty();
+        world.insert(first, Text::from(t!("welcome")));
+        system.run_once(&mut world).unwrap();
+        assert!(world.has::<Dirty>(first));
+        assert_eq!(
+            world.resource::<LocaleWatch>().unwrap().last_locale,
+            Some(Locale::EnUs)
+        );
+
+        world.despawn(first);
+        world.resource::<I18n>().unwrap().set_locale(Locale::ZhCn);
+        let allocations = crate::test_support::tracked_allocations(|| {
+            system.run_once(&mut world).unwrap();
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(
+            world.resource::<LocaleWatch>().unwrap().last_locale,
+            Some(Locale::EnUs)
+        );
+
+        let next = world.spawn_empty();
+        world.insert(next, Text::from(t!("welcome")));
+        system.run_once(&mut world).unwrap();
+        assert!(world.has::<Dirty>(next));
+        assert_eq!(
+            world.resource::<LocaleWatch>().unwrap().last_locale,
+            Some(Locale::ZhCn)
+        );
     }
 }

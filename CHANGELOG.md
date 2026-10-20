@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Locale refresh skips parameter and command preparation when no text components are present.
+
 - Software rendering keeps projective drawing and complex route validation outside the plain submission body.
 
 - Paint batches skip repeated component-table queries for widget types without instances.
