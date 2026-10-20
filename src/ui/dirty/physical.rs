@@ -6,8 +6,8 @@ struct Merge {
     bounds: PhysicalRect,
     members: usize,
     count: usize,
-    original_area: u64,
-    extra_area: u64,
+    original_area: u32,
+    extra_area: u32,
 }
 
 impl PhysicalDamage {
@@ -29,8 +29,8 @@ impl PhysicalDamage {
                     let bounds = union(self.rects[left], self.rects[right]);
                     if let Some(candidate) = self.merge_candidate(bounds, &original)
                         && best.as_ref().is_none_or(|best| {
-                            candidate.extra_area * ((best.count - 1) as u64)
-                                < best.extra_area * ((candidate.count - 1) as u64)
+                            u64::from(candidate.extra_area) * ((best.count - 1) as u64)
+                                < u64::from(best.extra_area) * ((candidate.count - 1) as u64)
                         })
                     {
                         best = Some(candidate);
@@ -65,7 +65,7 @@ impl PhysicalDamage {
     fn merge_candidate(
         &self,
         bounds: PhysicalRect,
-        original: &[u64; DIRTY_PLAN_RECT_CAPACITY],
+        original: &[u32; DIRTY_PLAN_RECT_CAPACITY],
     ) -> Option<Merge> {
         let mut candidate = Merge {
             bounds,
@@ -86,13 +86,16 @@ impl PhysicalDamage {
             candidate.original_area += original[index];
             candidate.extra_area -= area(rect);
         }
-        (candidate.count > 1 && area(bounds) * 2 <= candidate.original_area * 3)
+        (candidate.count > 1
+            && u64::from(area(bounds)) * 2 <= u64::from(candidate.original_area) * 3)
             .then_some(candidate)
     }
 }
 
-fn area(rect: PhysicalRect) -> u64 {
-    u64::from(rect.width()) * u64::from(rect.height())
+fn area(rect: PhysicalRect) -> u32 {
+    // Disjoint target-clipped rectangles fit one u16-by-u16 pixel plane.
+    // Area sums fit u32; budget and score products are widened at comparison.
+    u32::from(rect.width()) * u32::from(rect.height())
 }
 
 fn union(a: PhysicalRect, b: PhysicalRect) -> PhysicalRect {
@@ -129,7 +132,7 @@ mod tests {
         let result = prepared(&input);
         assert_eq!(result.len, 3);
         assert_eq!(
-            result.as_slice().iter().copied().map(area).sum::<u64>(),
+            result.as_slice().iter().copied().map(area).sum::<u32>(),
             3 * 289
         );
         input.reverse();
@@ -146,7 +149,7 @@ mod tests {
         ]);
         assert_eq!(result.len, 4);
         assert_eq!(
-            result.as_slice().iter().copied().map(area).sum::<u64>(),
+            result.as_slice().iter().copied().map(area).sum::<u32>(),
             744
         );
     }
@@ -160,7 +163,7 @@ mod tests {
         ]);
         assert_eq!(result.len, 2);
         assert_eq!(
-            result.as_slice().iter().copied().map(area).sum::<u64>(),
+            result.as_slice().iter().copied().map(area).sum::<u32>(),
             350
         );
     }
@@ -173,6 +176,17 @@ mod tests {
         };
         plan.rects[0] = PhysicalRect::new(0, 0, 32767, 65535).unwrap();
         plan.rects[1] = PhysicalRect::new(32767, 0, 32768, 65535).unwrap();
+        plan.coalesce_redraw();
+        assert_eq!(plan.as_slice(), &[PhysicalRect::from_size(65535, 65535)]);
+
+        // Multiple merges must preserve the same bound as one maximal pair.
+        plan.len = 4;
+        plan.rects[..4].copy_from_slice(&[
+            PhysicalRect::new(0, 0, 32767, 32767).unwrap(),
+            PhysicalRect::new(32767, 0, 32768, 32767).unwrap(),
+            PhysicalRect::new(0, 32767, 32767, 32768).unwrap(),
+            PhysicalRect::new(32767, 32767, 32768, 32768).unwrap(),
+        ]);
         plan.coalesce_redraw();
         assert_eq!(plan.as_slice(), &[PhysicalRect::from_size(65535, 65535)]);
     }
@@ -198,8 +212,14 @@ mod tests {
             let before = plan.rects;
             let allocations = crate::test_support::tracked_allocations(|| plan.coalesce_redraw());
             assert_eq!(allocations, 0);
-            let original_area = before.iter().copied().map(area).sum::<u64>();
-            let after_area = plan.as_slice().iter().copied().map(area).sum::<u64>();
+            let original_area = before.iter().copied().map(area).map(u64::from).sum::<u64>();
+            let after_area = plan
+                .as_slice()
+                .iter()
+                .copied()
+                .map(area)
+                .map(u64::from)
+                .sum::<u64>();
             assert!(after_area * 2 <= original_area * 3);
             for (index, rect) in plan.as_slice().iter().enumerate() {
                 assert!(
