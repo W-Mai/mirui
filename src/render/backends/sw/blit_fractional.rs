@@ -14,6 +14,17 @@ struct SampleAxis {
 
 impl SampleAxis {
     fn new(first_pixel: i32, origin: Fixed, extent: Fixed, samples: i32) -> Self {
+        if extent == Fixed::from_int(samples) {
+            return Self {
+                index: (Fixed64::from_int(i64::from(first_pixel)) + Fixed64::from_ratio(1, 2)
+                    - Fixed64::from_fixed(origin))
+                .to_int(),
+                remainder: Fixed64::ZERO,
+                step: 1,
+                step_remainder: Fixed64::ZERO,
+                extent: Fixed64::ONE,
+            };
+        }
         let extent = Fixed64::from_fixed(extent);
         let step = Fixed64::from_int(i64::from(samples));
         let position = (Fixed64::from_int(i64::from(first_pixel)) + Fixed64::from_ratio(1, 2)
@@ -70,30 +81,80 @@ pub(super) fn blit_fractional(
     let x_axis = SampleAxis::new(x0, area.x, area.w, width);
     let mut y_axis = SampleAxis::new(y0, area.y, area.h, height);
     let radius = radius.max(Fixed::ZERO).min(area.w / 2).min(area.h / 2);
+    let interior = if area.w == Fixed::from_int(width)
+        && area.h == Fixed::from_int(height)
+        && radius == Fixed::ZERO
+        && opacity == 255
+        && composite == CompositeMode::SourceOver
+        && mask.is_none()
+    {
+        let left = area.x.ceil().to_int().clamp(x0, x1);
+        let top = area.y.ceil().to_int().clamp(y0, y1);
+        let right = (area.x + area.w).floor().to_int().clamp(x0, x1);
+        let bottom = (area.y + area.h).floor().to_int().clamp(y0, y1);
+        if left < right && top < bottom {
+            super::blit_fast::blit_dda(
+                target,
+                source,
+                source_x,
+                source_y,
+                width as u16,
+                height as u16,
+                (area.x - Fixed::HALF).ceil().to_int(),
+                (area.y - Fixed::HALF).ceil().to_int(),
+                width,
+                height,
+                left,
+                top,
+                right,
+                bottom,
+                255,
+                None,
+            );
+            Some((
+                left,
+                top,
+                right,
+                bottom,
+                SampleAxis::new(right, area.x, area.w, width),
+            ))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
     for y in y0..y1 {
         let sy = source_y + y_axis.next(height);
-        let mut x_axis = x_axis;
-        for x in x0..x1 {
-            let sx = source_x + x_axis.next(width);
-            let coverage = rect_pixel_coverage(area, x, y)
-                * rounded_rect_coverage(
-                    Fixed::from_int(x) - area.x,
-                    Fixed::from_int(y) - area.y,
-                    area.w,
-                    area.h,
-                    radius,
-                );
-            let color = source.get_pixel(sx, sy);
-            let alpha = ((u16::from(color.a) * u16::from(opacity) + 127) / 255) as u8;
-            let mut alpha = (Fixed::from_int(i32::from(alpha)) * coverage).to_int() as u8;
-            if let Some(mask) = mask {
-                alpha = ((u16::from(alpha)
-                    * u16::from(mask[y as usize * target.width() as usize + x as usize])
-                    + 127)
-                    / 255) as u8;
+        let spans = match interior {
+            Some((left, top, right, bottom, right_axis)) if y >= top && y < bottom => {
+                [(x0, left, x_axis), (right, x1, right_axis)]
             }
-            if alpha != 0 {
-                target.composite_pixel_int(x, y, &color, alpha, composite);
+            _ => [(x0, x1, x_axis), (x1, x1, x_axis)],
+        };
+        for (start, end, mut axis) in spans {
+            for x in start..end {
+                let sx = source_x + axis.next(width);
+                let coverage = rect_pixel_coverage(area, x, y)
+                    * rounded_rect_coverage(
+                        Fixed::from_int(x) - area.x,
+                        Fixed::from_int(y) - area.y,
+                        area.w,
+                        area.h,
+                        radius,
+                    );
+                let color = source.get_pixel(sx, sy);
+                let alpha = ((u16::from(color.a) * u16::from(opacity) + 127) / 255) as u8;
+                let mut alpha = (Fixed::from_int(i32::from(alpha)) * coverage).to_int() as u8;
+                if let Some(mask) = mask {
+                    alpha = ((u16::from(alpha)
+                        * u16::from(mask[y as usize * target.width() as usize + x as usize])
+                        + 127)
+                        / 255) as u8;
+                }
+                if alpha != 0 {
+                    target.composite_pixel_int(x, y, &color, alpha, composite);
+                }
             }
         }
     }
@@ -105,6 +166,72 @@ mod tests {
     use crate::render::backends::sw::SwRenderer;
     use crate::render::texture::{AlphaMode, ColorFormat, Texture};
     use crate::types::{Color, Point};
+
+    #[test]
+    fn one_to_one_interiors_match_masked_sampling_across_pixel_formats() {
+        let mut bytes = [0u8; 4 * 3 * 4];
+        for (i, pixel) in bytes.chunks_exact_mut(4).enumerate() {
+            pixel.copy_from_slice(&[213, (i * 17) as u8, 31, [0, 137, 255][i % 3]]);
+        }
+        let source = Texture::from_ref(&bytes, 4, 3, ColorFormat::RGBA8888).unwrap();
+        let source = source.read_pixels().unwrap();
+        let mask = [255u8; 64];
+        for format in [
+            ColorFormat::RGBA8888,
+            ColorFormat::BGRA8888,
+            ColorFormat::RGB888,
+            ColorFormat::RGB565,
+            ColorFormat::RGB565Swapped,
+        ] {
+            for alpha_mode in [AlphaMode::Opaque, AlphaMode::Blend] {
+                for origin in [-193, 64, 128, 193, 1279] {
+                    for clip in [Rect::new(0, 0, 8, 8), Rect::new(1, 2, 2, 3)] {
+                        let area = Rect::new(
+                            Fixed::from_ratio(origin, 256),
+                            Fixed::from_ratio(origin + 64, 256),
+                            4,
+                            3,
+                        );
+                        let mut actual = alloc::vec![61; 64 * format.bytes_per_pixel()];
+                        let mut expected = actual.clone();
+                        let mut target = Texture::new(&mut actual, 8, 8, format).unwrap();
+                        target.alpha_mode = alpha_mode;
+                        let mut reference = Texture::new(&mut expected, 8, 8, format).unwrap();
+                        reference.alpha_mode = alpha_mode;
+                        let allocations = crate::test_support::tracked_allocations(|| {
+                            blit_fractional(
+                                &mut target.pixels_mut().unwrap(),
+                                &source,
+                                (0, 0, 4, 3),
+                                area,
+                                clip,
+                                255,
+                                Fixed::ZERO,
+                                CompositeMode::SourceOver,
+                                None,
+                            );
+                        });
+                        assert_eq!(allocations, 0);
+                        blit_fractional(
+                            &mut reference.pixels_mut().unwrap(),
+                            &source,
+                            (0, 0, 4, 3),
+                            area,
+                            clip,
+                            255,
+                            Fixed::ZERO,
+                            CompositeMode::SourceOver,
+                            Some(&mask),
+                        );
+                        assert_eq!(
+                            actual, expected,
+                            "{format:?}, {alpha_mode:?}, {origin}, {clip:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn fractional_edges_match_quad_blits_with_opacity_masks_and_compositing() {

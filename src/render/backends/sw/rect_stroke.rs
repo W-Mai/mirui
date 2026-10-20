@@ -74,44 +74,64 @@ impl SwRenderer<'_> {
             }
             return;
         }
+        let inner = Rect::new(area.x + bw, area.y + bw, inner_w, inner_h);
+        let inner_x0 = inner.x.ceil().to_int().clamp(px_x0, px_x1);
+        let inner_x1 = (inner.x + inner.w).floor().to_int().clamp(px_x0, px_x1);
+        let inner_y0 = inner.y.ceil().to_int();
+        let inner_y1 = (inner.y + inner.h).floor().to_int();
         for py in px_y0..px_y1 {
             let row_mask_off = py as usize * target_w;
-            for px in px_x0..px_x1 {
-                let rel_x = Fixed::from_int(px) - area.x;
-                let rel_y = Fixed::from_int(py) - area.y;
-
-                let outer_cov = rect_pixel_coverage(*area, px, py)
-                    * rounded_rect_coverage(rel_x, rel_y, area.w, area.h, r);
-                if outer_cov == Fixed::ZERO {
-                    continue;
-                }
-
-                let inner_rel_x = rel_x - bw;
-                let inner_rel_y = rel_y - bw;
-                let inner_cov =
-                    rect_pixel_coverage(
-                        Rect::new(area.x + bw, area.y + bw, inner_w, inner_h),
-                        px,
-                        py,
-                    ) * rounded_rect_coverage(inner_rel_x, inner_rel_y, inner_w, inner_h, inner_r);
-
-                let border_cov = (outer_cov - inner_cov).max(Fixed::ZERO);
-                let base_opa = (border_cov * opa_norm).map01(255).to_int() as u8;
-                if base_opa == 0 {
-                    continue;
-                }
-                let final_opa = match clip_mask {
-                    Some(m) => {
-                        let clip_alpha = m[row_mask_off + px as usize];
-                        if clip_alpha == 0 {
-                            continue;
-                        }
-                        ((base_opa as u16 * clip_alpha as u16 + 127) / 255) as u8
-                    }
-                    None => base_opa,
+            let spans =
+                if r == Fixed::ZERO && inner_x0 < inner_x1 && py >= inner_y0 && py < inner_y1 {
+                    [(px_x0, inner_x0), (inner_x1, px_x1)]
+                } else {
+                    [(px_x0, px_x1), (px_x1, px_x1)]
                 };
-                if final_opa > 0 {
-                    target.blend_pixel(Fixed::from_int(px), Fixed::from_int(py), color, final_opa);
+            for (start, end) in spans {
+                for px in start..end {
+                    let rel_x = Fixed::from_int(px) - area.x;
+                    let rel_y = Fixed::from_int(py) - area.y;
+
+                    let outer_cov = rect_pixel_coverage(*area, px, py)
+                        * rounded_rect_coverage(rel_x, rel_y, area.w, area.h, r);
+                    if outer_cov == Fixed::ZERO {
+                        continue;
+                    }
+
+                    let inner_rel_x = rel_x - bw;
+                    let inner_rel_y = rel_y - bw;
+                    let inner_cov = rect_pixel_coverage(inner, px, py)
+                        * rounded_rect_coverage(
+                            inner_rel_x,
+                            inner_rel_y,
+                            inner_w,
+                            inner_h,
+                            inner_r,
+                        );
+
+                    let border_cov = (outer_cov - inner_cov).max(Fixed::ZERO);
+                    let base_opa = (border_cov * opa_norm).map01(255).to_int() as u8;
+                    if base_opa == 0 {
+                        continue;
+                    }
+                    let final_opa = match clip_mask {
+                        Some(m) => {
+                            let clip_alpha = m[row_mask_off + px as usize];
+                            if clip_alpha == 0 {
+                                continue;
+                            }
+                            ((base_opa as u16 * clip_alpha as u16 + 127) / 255) as u8
+                        }
+                        None => base_opa,
+                    };
+                    if final_opa > 0 {
+                        target.blend_pixel(
+                            Fixed::from_int(px),
+                            Fixed::from_int(py),
+                            color,
+                            final_opa,
+                        );
+                    }
                 }
             }
         }

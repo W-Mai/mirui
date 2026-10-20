@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Fractional 1:1 image blits reuse integer sampling for fully covered interiors, and square borders skip transparent interiors.
+
 - Typed query construction reuses the aggregate parameter change budget and skips budget scans for read-only queries.
 
 - Axis-aligned transform bounds use per-axis endpoints while preserving mirrored and fractional geometry.
