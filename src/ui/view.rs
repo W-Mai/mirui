@@ -911,43 +911,19 @@ impl ViewRegistry {
                     assert_eq!(registered, owner, "ViewRegistry belongs to a different App")
                 }
             }
-            let has_outputs = registry
-                .views
-                .iter()
-                .any(|view| !view.definition.output_dependencies.is_empty());
-            if has_outputs && world.resource::<OutputRelations>().is_none() {
+            if world.resource::<OutputRelations>().is_none()
+                && registry
+                    .views
+                    .iter()
+                    .any(|view| !view.definition.output_dependencies.is_empty())
+            {
                 world.insert_resource(OutputRelations::default());
             }
-            if registry
-                .views
-                .iter()
-                .any(|view| !view.definition.component_tracking_ready)
-            {
-                super::render_system::output_plan::invalidate_measurements(world);
-            }
-            for view in &mut registry.views {
-                if !view.definition.component_tracking_ready {
-                    for dependency in view.definition.output_dependencies {
-                        (dependency.descriptor.install)(world);
-                    }
-                    if let Some(type_id) = view.component_filter() {
-                        world.watch_component_type(type_id);
-                    }
-                    for dependency in view.definition.query_dependencies {
-                        world.watch_query_dependency_type(dependency());
-                        if view.component_filter() != Some(dependency()) {
-                            world.watch_component_type(dependency());
-                        }
-                    }
-                    if !view.definition.query_dependencies.is_empty() {
-                        Self::invalidate_instances(world, view);
-                    }
-                }
-                view.definition.component_tracking_ready = true;
-            }
+            let tracking_changed = registry.prepare_tracking(world);
             if world.resource::<OutputRelations>().is_some() {
                 world.with_resource_box::<OutputRelations, _>(|relations, world| {
-                    if relations.activate(world, &mut registry.output_registration) {
+                    let activated = relations.activate(world, &mut registry.output_registration);
+                    if activated {
                         super::render_system::output_plan::invalidate_measurements(world);
                         for view in &registry.views {
                             if !view.definition.output_dependencies.is_empty() {
@@ -957,9 +933,11 @@ impl ViewRegistry {
                             }
                         }
                     }
-                    for view in &registry.views {
-                        for dependency in view.definition.output_dependencies {
-                            relations.register(&dependency.descriptor);
+                    if tracking_changed || activated {
+                        for view in &registry.views {
+                            for dependency in view.definition.output_dependencies {
+                                relations.register(&dependency.descriptor);
+                            }
                         }
                     }
                     world.drain_component_changes(|world, change| {
@@ -986,6 +964,41 @@ impl ViewRegistry {
 
     pub(crate) fn invalidate_queries(world: &mut World) {
         Self::reconcile_observations(world);
+    }
+
+    fn prepare_tracking(&mut self, world: &mut World) -> bool {
+        // Views are appended and prepared in registration order; the ready prefix is contiguous.
+        if self
+            .views
+            .last()
+            .is_none_or(|view| view.definition.component_tracking_ready)
+        {
+            return false;
+        }
+        super::render_system::output_plan::invalidate_measurements(world);
+        for view in self
+            .views
+            .iter_mut()
+            .filter(|view| !view.definition.component_tracking_ready)
+        {
+            for dependency in view.definition.output_dependencies {
+                (dependency.descriptor.install)(world);
+            }
+            if let Some(type_id) = view.component_filter() {
+                world.watch_component_type(type_id);
+            }
+            for dependency in view.definition.query_dependencies {
+                world.watch_query_dependency_type(dependency());
+                if view.component_filter() != Some(dependency()) {
+                    world.watch_component_type(dependency());
+                }
+            }
+            if !view.definition.query_dependencies.is_empty() {
+                Self::invalidate_instances(world, view);
+            }
+            view.definition.component_tracking_ready = true;
+        }
+        true
     }
 
     /// Invalidate readers of a published component without re-running attachment or output preparation.
@@ -1970,7 +1983,9 @@ mod tests {
                     second: None,
                 },
             );
-            world.insert_resource(ViewRegistry::default());
+            let mut views = ViewRegistry::default();
+            views.insert(make_view("unrelated", 60).with_filter::<VisualOnlyTile>());
+            world.insert_resource(views);
             ViewRegistry::reconcile_observations(&mut world);
             assert!(world.resource::<Outputs<WidgetTexture>>().is_none());
             assert!(world.resource::<OutputRelations>().is_none());
@@ -1982,6 +1997,83 @@ mod tests {
             ViewRegistry::reconcile_observations(&mut world);
             assert!(requested(&world, source));
             assert!(!world.has::<OffscreenRender>(source));
+        }
+
+        #[test]
+        fn late_output_kinds_install_once_and_reconcile_each_pass() {
+            #[derive(Default)]
+            struct Calls {
+                installed: [usize; 2],
+                reconciled: [Cell<usize>; 2],
+            }
+            struct Probe<const N: usize>;
+            impl<const N: usize> crate::ui::outputs::private::OutputKind for Probe<N> {
+                fn install(world: &mut World) {
+                    world.resource_mut::<Calls>().unwrap().installed[N] += 1;
+                }
+                fn reconcile(world: &World) {
+                    let calls = &world.resource::<Calls>().unwrap().reconciled[N];
+                    calls.set(calls.get() + 1);
+                }
+            }
+            impl<const N: usize> crate::ui::outputs::Output for Probe<N> {
+                type Storage = ();
+                type Record = ();
+                type Read<'a> = ();
+                fn read<'a>(_: core::cell::Ref<'a, ()>, _: ()) -> Option<()> {
+                    Some(())
+                }
+            }
+            impl<const N: usize> crate::ecs::Component for Probe<N> {
+                const OUTPUT_DEPENDENCIES: &'static [OutputDependency] =
+                    &[OutputDependency::current::<Self>(|_, _| None)];
+            }
+            let mut world = World::default();
+            world.insert_resource(Calls::default());
+            world.insert_resource(registry::<Probe<0>>());
+            ViewRegistry::reconcile_observations(&mut world);
+            ViewRegistry::reconcile_observations(&mut world);
+            world
+                .resource_mut::<ViewRegistry>()
+                .unwrap()
+                .insert(make_view("late output", 0).with_filter::<Probe<1>>());
+            ViewRegistry::reconcile_observations(&mut world);
+            ViewRegistry::reconcile_observations(&mut world);
+            let calls = world.resource::<Calls>().unwrap();
+            assert_eq!(calls.installed, [1, 1]);
+            assert_eq!(calls.reconciled.each_ref().map(Cell::get), [4, 2]);
+            world.remove_resource::<OutputRelations>();
+            ViewRegistry::reconcile_observations(&mut world);
+            let calls = world.resource::<Calls>().unwrap();
+            assert_eq!(calls.installed, [1, 1]);
+            assert_eq!(calls.reconciled.each_ref().map(Cell::get), [5, 3]);
+        }
+
+        #[test]
+        fn output_registration_survives_relation_storage_replacement() {
+            let mut world = World::default();
+            let source = world.spawn_empty();
+            let owner = world.spawn_empty();
+            world.insert(owner, OtherSource(source));
+            world.insert_resource(registry::<OtherSource>());
+            ViewRegistry::reconcile_observations(&mut world);
+            assert!(requested(&world, source));
+
+            for _ in 0..3 {
+                world.remove_resource::<OutputRelations>();
+                ViewRegistry::reconcile_observations(&mut world);
+                assert!(requested(&world, source));
+                world.remove::<OtherSource>(owner);
+                ViewRegistry::reconcile_observations(&mut world);
+                assert!(!requested(&world, source));
+                world.insert(owner, OtherSource(source));
+                ViewRegistry::reconcile_observations(&mut world);
+                assert!(requested(&world, source));
+            }
+            assert_eq!(
+                tracked_allocations(|| ViewRegistry::reconcile_observations(&mut world)),
+                0,
+            );
         }
 
         #[test]
