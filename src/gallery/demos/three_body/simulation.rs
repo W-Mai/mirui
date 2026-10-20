@@ -32,16 +32,12 @@ pub fn physics_tick_system(
     spring: res!(SpringLength),
     scratch: res!(mut PhysicsScratch),
     root: res!(optional WidgetRoot),
-    rects: query!(Entity, ComputedRect),
+    rects: query!(ComputedRect),
     bodies: query!(Entity, PhysicsBody, Velocity),
     commands: commands!(),
 ) {
     let new_bounds = root
-        .and_then(|root| {
-            rects
-                .into_iter()
-                .find_map(|(entity, rect)| (entity == root.0).then_some(rect.0))
-        })
+        .and_then(|root| rects.get(root.0).map(|rect| rect.0))
         .map(|rect| (rect.w.to_int(), rect.h.to_int()));
     let (dx, dy) = match new_bounds {
         Some((width, height)) if width != bounds.w || height != bounds.h => {
@@ -169,7 +165,7 @@ pub fn physics_tick_system(
 pub fn kick_system(
     phase: res!(mut KickPhase),
     scratch: res!(PhysicsScratch),
-    velocities: query!(Entity, mut Velocity),
+    velocities: query!(mut Velocity),
 ) {
     phase.0 = phase.0.wrapping_add(1);
     let phase = phase.0;
@@ -182,12 +178,9 @@ pub fn kick_system(
         let target = scratch.entities[kick_idx];
         let kx = (kick_dir * 7).rem_euclid(13) - 6;
         let ky = (kick_dir * 11).rem_euclid(13) - 6;
-        for (entity, velocity) in velocities {
-            if entity == target {
-                velocity.vx += Fixed::from_int(kx) / Fixed::from_int(2);
-                velocity.vy += Fixed::from_int(ky) / Fixed::from_int(2);
-                break;
-            }
+        if let Some(velocity) = velocities.get(target) {
+            velocity.vx += Fixed::from_int(kx) / Fixed::from_int(2);
+            velocity.vy += Fixed::from_int(ky) / Fixed::from_int(2);
         }
     }
 }

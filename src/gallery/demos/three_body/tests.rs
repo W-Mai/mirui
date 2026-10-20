@@ -9,6 +9,53 @@ use crate::types::Transform;
 use crate::ui::Children;
 
 #[test]
+fn kicks_only_record_the_selected_live_body() {
+    use core::any::TypeId;
+    let mut world = crate::ecs::World::new();
+    let first = world.spawn_empty();
+    let target = world.spawn_empty();
+    for entity in [first, target] {
+        world.insert(
+            entity,
+            Velocity {
+                vx: Fixed::ZERO,
+                vy: Fixed::ZERO,
+            },
+        );
+    }
+    world.insert_resource(KickPhase(39));
+    world.insert_resource(PhysicsScratch {
+        entities: alloc::vec![first, target],
+        ..Default::default()
+    });
+    world.watch_component_type(TypeId::of::<Velocity>());
+    world.drain_component_changes(|_, _| {});
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(kick_system::system());
+    scheduler.run_all(&mut world).unwrap();
+    let mut changed = Vec::new();
+    world.drain_component_changes(|_, change| changed.push(change.entity));
+    assert_eq!(changed, [target]);
+    assert_eq!(world.get::<Velocity>(first).unwrap().vx, Fixed::ZERO);
+
+    assert!(world.despawn(target));
+    let replacement = world.spawn_empty();
+    assert_eq!(replacement.id, target.id);
+    world.insert(
+        replacement,
+        Velocity {
+            vx: Fixed::ZERO,
+            vy: Fixed::ZERO,
+        },
+    );
+    world.drain_component_changes(|_, _| {});
+    world.resource_mut::<KickPhase>().unwrap().0 = 39;
+    scheduler.run_all(&mut world).unwrap();
+    world.drain_component_changes(|_, _| panic!("stale target changed a component"));
+    assert_eq!(world.get::<Velocity>(replacement).unwrap().vx, Fixed::ZERO);
+}
+
+#[test]
 fn build_widgets_smoke() {
     let mut app = App::headless(128, 128);
     let parent = app.spawn_root().id();

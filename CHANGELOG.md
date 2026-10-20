@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Three Body impulses no longer mark unrelated velocity components as changed.
+
 - Fractional image sampling preserves source coordinates without overflowing intermediate fixed-point arithmetic for large textures.
 
 - Three Body motion uses transform invalidation and preserves pending content changes.
