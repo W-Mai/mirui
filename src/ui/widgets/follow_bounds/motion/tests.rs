@@ -25,7 +25,7 @@ fn position_motion_reuses_layout_without_losing_children_or_painted_damage() {
         let viewport = crate::types::Viewport::new(128, 96, Fixed::ONE);
         let start = rect(&app, follower);
         for _ in 0..120 {
-            advance(&mut app.world).unwrap();
+            follow_bounds_motion(&mut app.world).unwrap();
             for _ in 0..2 {
                 crate::ui::render_system::prepare_input_geometry(&mut app.world, root, &viewport)
                     .unwrap();
@@ -66,13 +66,44 @@ fn size_motion_keeps_layout_invalidation_and_resolves_percentage_children() {
     app.world.get_mut::<Style>(source).unwrap().layout.width = Dimension::px(12);
     app.world.invalidate(source);
     app.render_dirty().unwrap();
-    advance(&mut app.world).unwrap();
+    follow_bounds_motion(&mut app.world).unwrap();
     assert!(app.world.has::<crate::ui::dirty::Dirty>(follower));
     let viewport = crate::types::Viewport::new(128, 96, Fixed::ONE);
     crate::ui::render_system::prepare_input_geometry(&mut app.world, root, &viewport).unwrap();
     let child = app.world.find_by_id("fill").unwrap();
     assert_eq!(rect(&app, child), rect(&app, follower));
     assert!(rect(&app, follower).w < Fixed::from_int(30));
+}
+
+#[test]
+fn scheduler_follows_motion_storage_presence_without_spurious_completions() {
+    struct Completions(u32);
+    let (mut app, _, _, follower) = fixture();
+    app.render().unwrap();
+    app.world.insert_resource(Completions(0));
+    app.world.set_callback_observer(|world| {
+        world.resource_mut::<Completions>().unwrap().0 += 1;
+    });
+    let mut scheduler = crate::ecs::SystemScheduler::new();
+    scheduler.add(follow_bounds_motion::system());
+    scheduler.run_all(&mut app.world).unwrap();
+    assert_eq!(app.world.resource::<Completions>().unwrap().0, 0);
+
+    app.world
+        .get_mut::<FollowBounds>(follower)
+        .unwrap()
+        .transition = Some(SMOOTH.into());
+    for expected in [1, 2] {
+        assert!(prepare(&mut app.world, follower));
+        scheduler.run_all(&mut app.world).unwrap();
+        assert_eq!(app.world.resource::<Completions>().unwrap().0, expected);
+        app.world.remove::<FollowMotion>(follower).unwrap();
+        let allocations = crate::test_support::tracked_allocations(|| {
+            scheduler.run_all(&mut app.world).unwrap();
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(app.world.resource::<Completions>().unwrap().0, expected);
+    }
 }
 
 #[test]

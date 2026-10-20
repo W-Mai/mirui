@@ -326,7 +326,7 @@ pub(crate) fn timer_system(world: &mut World) -> Result<(), CommandError> {
         .unwrap_or(Ok(()))
 }
 
-crate::ecs::system::framework_system!(pub timer_system, Timer);
+crate::ecs::system::framework_system!(pub timer_system, Timer, expect = [Timer]);
 
 #[cfg(test)]
 mod tests {
@@ -414,6 +414,38 @@ mod tests {
     fn tick(world: &mut World, now_ms: u32) {
         mock::set_ms(now_ms as u64);
         timer_system(world).unwrap();
+    }
+
+    #[test]
+    fn scheduler_stops_after_the_last_timer_and_resumes_on_installation() {
+        let _guard = mock::install();
+        reset_count();
+        let mut world = fresh_world();
+        let mut scheduler = crate::ecs::SystemScheduler::new();
+        scheduler.add(timer_system::system());
+        scheduler.run_all(&mut world).unwrap();
+        assert_eq!(scheduler.iter().next().unwrap().call_count, 0);
+        assert!(world.resource::<TimerRuntime>().is_none());
+
+        for cycle in 0..2 {
+            let now = cycle * 100;
+            mock::set_ms(now);
+            let entity = add(&mut world, TimerSchedule::after(10), count_cb);
+            scheduler.run_all(&mut world).unwrap();
+            assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), cycle as u32);
+            mock::set_ms(now + 10);
+            scheduler.run_all(&mut world).unwrap();
+            assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), cycle as u32 + 1);
+            assert!(!world.has::<Timer>(entity));
+            let calls = scheduler.iter().next().unwrap().call_count;
+            assert_eq!(calls, (cycle + 1) as u32 * 2);
+            let allocations = tracked_allocations(|| {
+                scheduler.run_all(&mut world).unwrap();
+            });
+            assert_eq!(allocations, 0);
+            assert_eq!(scheduler.iter().next().unwrap().call_count, calls);
+            assert_eq!(scheduler.iter().next().unwrap().last_us, 0);
+        }
     }
 
     #[test]

@@ -68,7 +68,7 @@ pub(super) fn redirect(world: &mut World, entity: Entity, target: Rect) -> Rect 
     motion.rect()
 }
 
-pub(super) fn advance(world: &mut World) -> Result<(), crate::ecs::CommandError> {
+pub(super) fn follow_bounds_motion(world: &mut World) -> Result<(), crate::ecs::CommandError> {
     let dt = world
         .resource::<crate::ecs::DeltaTimeMs>()
         .map_or(16, |dt| dt.0);
@@ -105,6 +105,12 @@ pub(super) fn advance(world: &mut World) -> Result<(), crate::ecs::CommandError>
     });
     Ok(())
 }
+
+crate::ecs::system::framework_system!(
+    pub(super) follow_bounds_motion,
+    Animation,
+    expect = [FollowMotion],
+);
 
 #[cfg(test)]
 mod tests;

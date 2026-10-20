@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Timer and bounds-following systems skip scheduling while their driving component storage is empty.
+
 - Identity projective composition bypasses the matrix multiplication workspace.
 
 - Frame-clock updates reuse resource storage without queuing deferred resource replacements.

@@ -94,13 +94,7 @@ fn follow_bounds() {}
 /// Register layout following. Included by `App::with_default_widgets()`.
 pub fn view() -> View {
     follow_bounds::view().with_reconcile(prepare).with_systems(
-        const {
-            &[crate::ecs::System::new(
-                "follow_bounds_motion",
-                crate::ecs::SystemSlot::Animation.priority(),
-                motion::advance,
-            )]
-        } as &'static [crate::ecs::System],
+        const { &[motion::follow_bounds_motion::system()] } as &'static [crate::ecs::System],
     )
 }
 
