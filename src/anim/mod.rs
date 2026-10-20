@@ -437,22 +437,21 @@ impl From<Spring> for Motion {
     }
 }
 
-#[crate::system(order = DeltaTime)]
-pub fn sync_delta_time_ms(clock: res!(optional MonoClock), commands: commands!()) {
-    let ms = match clock {
+fn sync_delta_time_ms(world: &mut crate::ecs::World) -> Result<(), crate::ecs::CommandError> {
+    let ms = match world.resource_mut::<MonoClock>() {
         Some(clock) => {
             let now = (clock.clock)();
             let dt_ns = now.saturating_sub(clock.last_ns);
-            commands.insert_resource(MonoClock {
-                clock: clock.clock,
-                last_ns: now,
-            });
+            clock.last_ns = now;
             (dt_ns / 1_000_000).clamp(1, MAX_FRAME_DT_MS as u64) as u16
         }
         None => 16,
     };
-    commands.insert_resource(DeltaTimeMs(ms));
+    world.insert_resource(DeltaTimeMs(ms));
+    Ok(())
 }
+
+crate::ecs::system::framework_system!(pub sync_delta_time_ms, DeltaTime);
 
 /// Accesses the [`Motion`] stored by a generated or custom animation component.
 pub trait MotionComponent: Component {
@@ -1069,7 +1068,7 @@ mod settle_threshold_check {
     }
 
     #[test]
-    fn sync_delta_time_clamps_wall_clock_spike() {
+    fn frame_clock_publishes_bounded_steps_before_other_systems_without_allocating() {
         use crate::ecs::MonoClock;
         use core::sync::atomic::{AtomicU64, Ordering};
 
@@ -1077,16 +1076,62 @@ mod settle_threshold_check {
         fn clock() -> u64 {
             T_NS.load(Ordering::Relaxed)
         }
+        #[derive(Default)]
+        struct Seen {
+            dt: u16,
+            callbacks: usize,
+        }
+        fn observe(world: &mut crate::ecs::World) -> Result<(), crate::ecs::CommandError> {
+            let dt = world.resource::<DeltaTimeMs>().unwrap().0;
+            world.resource_mut::<Seen>().unwrap().dt = dt;
+            Ok(())
+        }
+        fn completed(world: &mut crate::ecs::World) {
+            world.resource_mut::<Seen>().unwrap().callbacks += 1;
+        }
 
         let mut world = crate::ecs::World::new();
-        T_NS.store(0, Ordering::Relaxed);
-        world.insert_resource(MonoClock::new(clock));
-        T_NS.store(30_000_000_000, Ordering::Relaxed);
+        world.insert_resource(Seen::default());
+        world.set_callback_observer(completed);
         let mut scheduler = crate::ecs::SystemScheduler::new();
+        scheduler.add(crate::ecs::System::new(
+            "observe",
+            crate::ecs::SystemSlot::Normal.priority(),
+            observe,
+        ));
         scheduler.add(sync_delta_time_ms::system());
         scheduler.run_all(&mut world).unwrap();
-        let dt = world.resource::<DeltaTimeMs>().map(|d| d.0).unwrap();
-        assert!(dt <= MAX_FRAME_DT_MS, "spike dt {dt} must be clamped");
+        assert_eq!(world.resource::<Seen>().unwrap().dt, 16);
+        let delta_address = world.resource::<DeltaTimeMs>().unwrap() as *const _;
+        T_NS.store(0, Ordering::Relaxed);
+        world.insert_resource(MonoClock::new(clock));
+        for (now, expected) in [
+            (16_900_000, 16),
+            (30_000_000_000, MAX_FRAME_DT_MS),
+            (30_001_000_000, 1),
+            (0, 1),
+            (0, 1),
+            (999_999, 1),
+        ] {
+            T_NS.store(now, Ordering::Relaxed);
+            let callbacks = world.resource::<Seen>().unwrap().callbacks;
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| {
+                    scheduler.run_all(&mut world).unwrap();
+                }),
+                0,
+            );
+            assert_eq!(world.resource::<Seen>().unwrap().dt, expected);
+            assert_eq!(world.resource::<Seen>().unwrap().callbacks, callbacks + 2);
+            assert_eq!(world.resource::<MonoClock>().unwrap().last_ns, now);
+            assert_eq!(
+                world.resource::<DeltaTimeMs>().unwrap() as *const _,
+                delta_address,
+            );
+        }
+        world.remove_resource::<MonoClock>();
+        scheduler.run_all(&mut world).unwrap();
+        assert_eq!(world.resource::<Seen>().unwrap().dt, 16);
     }
 
     #[test]

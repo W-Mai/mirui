@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Frame-clock updates reuse resource storage without queuing deferred resource replacements.
+
 - Texture-backed images report destination coverage through the existing paint measurement path without resolving source pixels.
 
 - Typed component presence checks reuse the existing type-erased membership lookup.
