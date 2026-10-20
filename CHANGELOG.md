@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Damage preparation updates existing pending state without replacing component instances.
+
 - Solid paint coverage skips empty exclusion geometry during construction and pixel alignment.
 
 - Temporarily borrowed resources return to their existing map slots without repeating insertion.

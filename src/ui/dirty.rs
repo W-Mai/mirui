@@ -76,23 +76,26 @@ impl VisualDirty {
     }
 
     pub(crate) fn prepare(world: &mut World, entity: Entity) -> Option<Self> {
-        let previous = world.get::<Self>(entity).copied();
-        let state = if world.remove::<Dirty>(entity).is_some() {
-            Some(previous.unwrap_or(Self::New).with_content())
-        } else {
-            previous
-        };
-        if let Some(state) = state {
-            let prepared = if state.transforms_subtree() {
+        let layout = world.remove::<Dirty>(entity).is_some();
+        if let Some(previous) = world.get_mut::<Self>(entity) {
+            let state = if layout {
+                previous.with_content()
+            } else {
+                *previous
+            };
+            *previous = if state.transforms_subtree() {
                 Self::PreparedTransform
             } else {
                 Self::Prepared
             };
-            if state != prepared {
-                world.insert(entity, prepared);
-            }
+            return Some(state);
         }
-        state
+        if layout {
+            world.insert(entity, Self::Prepared);
+            Some(Self::New)
+        } else {
+            None
+        }
     }
 
     pub(crate) fn acknowledge(world: &mut World, entity: Entity) {
@@ -593,6 +596,57 @@ mod tests {
     use super::*;
     use crate::ecs::World;
     use crate::ui::{Children, Hidden};
+
+    #[test]
+    fn preparing_damage_advances_state_without_replacing_its_identity() {
+        use core::any::TypeId;
+        for initial in [
+            None,
+            Some(VisualDirty::New),
+            Some(VisualDirty::Prepared),
+            Some(VisualDirty::Transform),
+            Some(VisualDirty::NewTransform),
+            Some(VisualDirty::PreparedTransform),
+        ] {
+            for layout in [false, true] {
+                let mut world = World::new();
+                let entity = world.spawn_empty();
+                world.watch_component_lifetime(TypeId::of::<VisualDirty>());
+                if let Some(initial) = initial {
+                    world.insert(entity, initial);
+                }
+                if layout {
+                    world.insert(entity, Dirty);
+                }
+                let generation = world.component_generation(entity, TypeId::of::<VisualDirty>());
+                let expected = if layout {
+                    Some(initial.unwrap_or(VisualDirty::New).with_content())
+                } else {
+                    initial
+                };
+                let result = VisualDirty::prepare(&mut world, entity);
+                assert!(result == expected);
+                assert!(!world.has::<Dirty>(entity));
+                if generation.is_some() {
+                    assert_eq!(
+                        world.component_generation(entity, TypeId::of::<VisualDirty>()),
+                        generation,
+                    );
+                }
+                let prepared = expected.map(|state| {
+                    if state.transforms_subtree() {
+                        VisualDirty::PreparedTransform
+                    } else {
+                        VisualDirty::Prepared
+                    }
+                });
+                assert!(world.get::<VisualDirty>(entity).copied() == prepared);
+                assert!(VisualDirty::prepare(&mut world, entity) == prepared);
+                VisualDirty::acknowledge(&mut world, entity);
+                assert!(!world.has::<VisualDirty>(entity));
+            }
+        }
+    }
 
     #[test]
     fn mark_subtree_walks_descendants() {
