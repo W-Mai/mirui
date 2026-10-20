@@ -75,6 +75,14 @@ pub(super) fn normalize_into(input: &mut Vec<Rect>, output: &mut [Rect]) -> usiz
         *rect = Rect::new(x0, y0, x1 - x0, y1 - y0);
     }
     loop {
+        for index in 1..input.len() {
+            let key = |rect: Rect| (rect.x, rect.y, rect.w, rect.h);
+            let mut cursor = index;
+            while cursor > 0 && key(input[cursor]) < key(input[cursor - 1]) {
+                input.swap(cursor, cursor - 1);
+                cursor -= 1;
+            }
+        }
         if let Some(len) = scan_bands(input, output) {
             input.clear();
             return len;
@@ -128,27 +136,20 @@ fn merged_interval(
     bottom: Fixed,
     after: Option<Fixed>,
 ) -> Option<(Fixed, Fixed)> {
-    let active = || {
-        input
-            .iter()
-            .filter(|rect| rect.y <= top && rect.y + rect.h >= bottom)
-    };
-    let left = active()
-        .filter(|rect| after.is_none_or(|end| rect.x + rect.w > end))
-        .map(|rect| rect.x)
-        .min()?;
-    let mut right = left;
-    loop {
-        let extended = active()
-            .filter(|rect| rect.x <= right)
-            .map(|rect| rect.x + rect.w)
-            .max()
-            .unwrap_or(right);
-        if extended <= right {
-            return Some((left, right));
+    let mut interval = None;
+    // Input is ordered by x, so a gap cannot be bridged by a later entry.
+    for rect in input {
+        let end = rect.x + rect.w;
+        if rect.y > top || rect.y + rect.h < bottom || after.is_some_and(|after| end <= after) {
+            continue;
         }
-        right = extended;
+        match &mut interval {
+            None => interval = Some((rect.x, end)),
+            Some((_, right)) if rect.x <= *right => *right = (*right).max(end),
+            Some(_) => break,
+        }
     }
+    interval
 }
 
 fn cheapest_pair(count: usize, get: impl Fn(usize) -> Rect) -> (usize, usize) {
@@ -302,7 +303,10 @@ mod tests {
         for capacity in 1..8 {
             let mut input = original.to_vec();
             let mut output = Vec::with_capacity(capacity);
-            normalize(&mut input, &mut output);
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| normalize(&mut input, &mut output)),
+                0
+            );
             assert!(output.len() <= capacity);
             assert_eq!(output.capacity(), capacity);
             disjoint(&output);
@@ -311,6 +315,18 @@ mod tests {
                     if contains(&original, x, y) {
                         assert!(contains(&output, x, y));
                     }
+                }
+            }
+            for rotation in 0..original.len() {
+                for reverse in [false, true] {
+                    let mut reordered = original.to_vec();
+                    reordered.rotate_left(rotation);
+                    if reverse {
+                        reordered.reverse();
+                    }
+                    let mut actual = Vec::with_capacity(capacity);
+                    normalize(&mut reordered, &mut actual);
+                    assert_eq!(actual, output);
                 }
             }
         }
