@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Axis-aligned transform bounds use per-axis endpoints while preserving mirrored and fractional geometry.
+
 - Paint batches reuse per-node offscreen configuration across damage collection and partial regions, preserving output fallback decisions.
 
 - Partial-frame regions share output preparation and return reusable workspaces on drawing failure.

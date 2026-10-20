@@ -117,6 +117,18 @@ impl Transform {
     }
 
     pub fn apply_rect_bbox(&self, r: Rect) -> Rect {
+        if self.m01 == Fixed::ZERO && self.m10 == Fixed::ZERO {
+            let x0 = self.m00 * r.x + self.tx;
+            let x1 = self.m00 * (r.x + r.w) + self.tx;
+            let y0 = self.m11 * r.y + self.ty;
+            let y1 = self.m11 * (r.y + r.h) + self.ty;
+            return Rect {
+                x: x0.min(x1),
+                y: y0.min(y1),
+                w: x0.max(x1) - x0.min(x1),
+                h: y0.max(y1) - y0.min(y1),
+            };
+        }
         Rect::bounding_quad(&self.apply_rect(r))
     }
 
@@ -290,6 +302,46 @@ mod tests {
     fn singular_matrix_inverse_is_none() {
         let t = Transform::scale(Fixed::ZERO, Fixed::ONE);
         assert!(t.inverse().is_none());
+    }
+
+    #[test]
+    fn rectangular_bounds_match_transformed_corners() {
+        let values = [-513, -256, -1, 0, 1, 128, 256, 769].map(|raw| Fixed::from_ratio(raw, 256));
+        for sx in values {
+            for sy in values {
+                for cross in [
+                    Fixed::ZERO,
+                    Fixed::from_ratio(1, 256),
+                    Fixed::from_ratio(-1, 256),
+                ] {
+                    let transform = Transform {
+                        m00: sx,
+                        m11: sy,
+                        m01: cross,
+                        m10: -cross,
+                        tx: Fixed::from_ratio(-257, 256),
+                        ty: Fixed::from_ratio(139, 256),
+                    };
+                    for origin in values {
+                        for width in values {
+                            let rect = Rect::new(origin, -origin, width, -width);
+                            assert_eq!(
+                                transform.apply_rect_bbox(rect),
+                                Rect::bounding_quad(&transform.apply_rect(rect)),
+                                "{transform:?}, {rect:?}",
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        for origin in [Fixed::MIN, Fixed::MAX - Fixed::ONE] {
+            let rect = Rect::new(origin, origin, Fixed::ONE, Fixed::ONE);
+            assert_eq!(
+                Transform::IDENTITY.apply_rect_bbox(rect),
+                Rect::bounding_quad(&Transform::IDENTITY.apply_rect(rect)),
+            );
+        }
     }
 
     #[test]
