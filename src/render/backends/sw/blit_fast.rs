@@ -1,21 +1,9 @@
 #[cfg(test)]
+use crate::render::texture::AlphaMode;
+#[cfg(test)]
 use crate::render::texture::Texture;
-use crate::render::texture::{
-    AlphaMode, ColorFormat, TexturePixels, TexturePixelsMut, blend_straight_source_over,
-};
+use crate::render::texture::{ColorFormat, TexturePixels, TexturePixelsMut};
 use crate::types::Color;
-
-#[inline(always)]
-fn blend_rgba_pixel(destination: &mut [u8], index: usize, source: &Color) {
-    let previous = Color::rgba(
-        destination[index],
-        destination[index + 1],
-        destination[index + 2],
-        destination[index + 3],
-    );
-    let output = blend_straight_source_over(source, &previous, source.a);
-    destination[index..index + 4].copy_from_slice(&[output.r, output.g, output.b, output.a]);
-}
 
 #[allow(clippy::too_many_arguments)]
 pub fn blit_generic_slow(
@@ -143,7 +131,7 @@ fn blit_1to1_argb_to_argb(
 ) {
     let src_stride = src.stride();
     let dst_stride = dst.stride();
-    let blend_aware = dst.alpha_mode() == AlphaMode::Blend;
+    let alpha_mode = dst.alpha_mode();
     let src_buf = src.bytes();
     let dst_buf = dst.bytes_mut();
     for row in 0..run_h {
@@ -163,19 +151,9 @@ fn blit_1to1_argb_to_argb(
                 // a == 255: source covers dst regardless of mode; both
                 // write 255 (Blend's source-over identity gives 255).
                 dst_buf[di + 3] = 255;
-            } else if blend_aware {
-                let source = Color::rgba(src_buf[si], src_buf[si + 1], src_buf[si + 2], a);
-                blend_rgba_pixel(dst_buf, di, &source);
             } else {
-                // Blend: out = src * a + dst * (255 - a), via integer.
-                let inv = 255 - a as u16;
-                let sa = a as u16;
-                dst_buf[di] = ((src_buf[si] as u16 * sa + dst_buf[di] as u16 * inv) / 255) as u8;
-                dst_buf[di + 1] =
-                    ((src_buf[si + 1] as u16 * sa + dst_buf[di + 1] as u16 * inv) / 255) as u8;
-                dst_buf[di + 2] =
-                    ((src_buf[si + 2] as u16 * sa + dst_buf[di + 2] as u16 * inv) / 255) as u8;
-                dst_buf[di + 3] = 255;
+                let color = Color::rgba(src_buf[si], src_buf[si + 1], src_buf[si + 2], a);
+                ColorFormat::RGBA8888.blend_pixel(dst_buf, di, &color, a, alpha_mode);
             }
         }
     }
@@ -194,6 +172,7 @@ fn blit_1to1_argb_to_565sw(
 ) {
     let src_stride = src.stride();
     let dst_stride = dst.stride();
+    let alpha_mode = dst.alpha_mode();
     let src_buf = src.bytes();
     let dst_buf = dst.bytes_mut();
     for row in 0..run_h {
@@ -206,24 +185,12 @@ fn blit_1to1_argb_to_565sw(
             if a == 0 {
                 continue;
             }
-            let (r, g, b) = if a == 255 {
-                (src_buf[si], src_buf[si + 1], src_buf[si + 2])
-            } else {
-                // Decode existing dst 565 → RGB888, blend, re-encode.
-                let hi = dst_buf[di] as u16;
-                let lo = dst_buf[di + 1] as u16;
-                let px = lo | (hi << 8);
-                let dr = ((px >> 11) as u8) << 3;
-                let dg = (((px >> 5) & 0x3F) as u8) << 2;
-                let db = ((px & 0x1F) as u8) << 3;
-                let inv = 255 - a as u16;
-                let sa = a as u16;
-                (
-                    ((src_buf[si] as u16 * sa + dr as u16 * inv) / 255) as u8,
-                    ((src_buf[si + 1] as u16 * sa + dg as u16 * inv) / 255) as u8,
-                    ((src_buf[si + 2] as u16 * sa + db as u16 * inv) / 255) as u8,
-                )
-            };
+            if a != 255 {
+                let color = Color::rgba(src_buf[si], src_buf[si + 1], src_buf[si + 2], a);
+                ColorFormat::RGB565Swapped.blend_pixel(dst_buf, di, &color, a, alpha_mode);
+                continue;
+            }
+            let (r, g, b) = (src_buf[si], src_buf[si + 1], src_buf[si + 2]);
             let px = ((r as u16 >> 3) << 11) | ((g as u16 >> 2) << 5) | (b as u16 >> 3);
             dst_buf[di] = (px >> 8) as u8;
             dst_buf[di + 1] = px as u8;
@@ -273,6 +240,7 @@ fn blit_1to1_argb_to_565(
     // compile-time constant within each.
     let src_stride = src.stride();
     let dst_stride = dst.stride();
+    let alpha_mode = dst.alpha_mode();
     let src_buf = src.bytes();
     let dst_buf = dst.bytes_mut();
     for row in 0..run_h {
@@ -285,23 +253,12 @@ fn blit_1to1_argb_to_565(
             if a == 0 {
                 continue;
             }
-            let (r, g, b) = if a == 255 {
-                (src_buf[si], src_buf[si + 1], src_buf[si + 2])
-            } else {
-                let lo = dst_buf[di] as u16;
-                let hi = dst_buf[di + 1] as u16;
-                let px = lo | (hi << 8);
-                let dr = ((px >> 11) as u8) << 3;
-                let dg = (((px >> 5) & 0x3F) as u8) << 2;
-                let db = ((px & 0x1F) as u8) << 3;
-                let inv = 255 - a as u16;
-                let sa = a as u16;
-                (
-                    ((src_buf[si] as u16 * sa + dr as u16 * inv) / 255) as u8,
-                    ((src_buf[si + 1] as u16 * sa + dg as u16 * inv) / 255) as u8,
-                    ((src_buf[si + 2] as u16 * sa + db as u16 * inv) / 255) as u8,
-                )
-            };
+            if a != 255 {
+                let color = Color::rgba(src_buf[si], src_buf[si + 1], src_buf[si + 2], a);
+                ColorFormat::RGB565.blend_pixel(dst_buf, di, &color, a, alpha_mode);
+                continue;
+            }
+            let (r, g, b) = (src_buf[si], src_buf[si + 1], src_buf[si + 2]);
             let px = ((r as u16 >> 3) << 11) | ((g as u16 >> 2) << 5) | (b as u16 >> 3);
             dst_buf[di] = px as u8;
             dst_buf[di + 1] = (px >> 8) as u8;
@@ -418,7 +375,7 @@ fn blit_2to2_argb_to_argb(
 ) {
     let src_stride = src.stride();
     let dst_stride = dst.stride();
-    let blend_aware = dst.alpha_mode() == AlphaMode::Blend;
+    let alpha_mode = dst.alpha_mode();
     let src_buf = src.bytes();
     let dst_buf = dst.bytes_mut();
     for block_row in 0..block_h {
@@ -441,7 +398,7 @@ fn blit_2to2_argb_to_argb(
                 dst_buf[d01..d01 + 4].copy_from_slice(&px);
                 dst_buf[d10..d10 + 4].copy_from_slice(&px);
                 dst_buf[d11..d11 + 4].copy_from_slice(&px);
-            } else if blend_aware {
+            } else {
                 let source = Color::rgba(px[0], px[1], px[2], a);
                 for di in [
                     dst_row0 + col * 8,
@@ -449,25 +406,7 @@ fn blit_2to2_argb_to_argb(
                     dst_row1 + col * 8,
                     dst_row1 + col * 8 + 4,
                 ] {
-                    blend_rgba_pixel(dst_buf, di, &source);
-                }
-            } else {
-                // Four blends; hand-roll instead of a helper to keep
-                // bounds check elided by the compiler per index.
-                let inv = 255 - a as u16;
-                let sa = a as u16;
-                for &di in &[
-                    dst_row0 + col * 8,
-                    dst_row0 + col * 8 + 4,
-                    dst_row1 + col * 8,
-                    dst_row1 + col * 8 + 4,
-                ] {
-                    dst_buf[di] = ((px[0] as u16 * sa + dst_buf[di] as u16 * inv) / 255) as u8;
-                    dst_buf[di + 1] =
-                        ((px[1] as u16 * sa + dst_buf[di + 1] as u16 * inv) / 255) as u8;
-                    dst_buf[di + 2] =
-                        ((px[2] as u16 * sa + dst_buf[di + 2] as u16 * inv) / 255) as u8;
-                    dst_buf[di + 3] = 255;
+                    ColorFormat::RGBA8888.blend_pixel(dst_buf, di, &source, a, alpha_mode);
                 }
             }
         }
@@ -487,6 +426,7 @@ fn blit_2to2_argb_to_565sw(
 ) {
     let src_stride = src.stride();
     let dst_stride = dst.stride();
+    let alpha_mode = dst.alpha_mode();
     let src_buf = src.bytes();
     let dst_buf = dst.bytes_mut();
     for block_row in 0..block_h {
@@ -518,31 +458,14 @@ fn blit_2to2_argb_to_565sw(
                 dst_buf[d10 + 2] = hi;
                 dst_buf[d10 + 3] = lo;
             } else {
-                // Partial α on 565 loses precision either way. Use
-                // the generic 1-pixel helper 4 times; not hot.
-                let sr = src_buf[si];
-                let sg = src_buf[si + 1];
-                let sb = src_buf[si + 2];
-                let inv = 255 - a as u16;
-                let sa = a as u16;
+                let color = Color::rgba(src_buf[si], src_buf[si + 1], src_buf[si + 2], a);
                 for &di in &[
                     dst_row0 + col * 4,
                     dst_row0 + col * 4 + 2,
                     dst_row1 + col * 4,
                     dst_row1 + col * 4 + 2,
                 ] {
-                    let hi = dst_buf[di] as u16;
-                    let lo = dst_buf[di + 1] as u16;
-                    let dpx = lo | (hi << 8);
-                    let dr = ((dpx >> 11) as u8) << 3;
-                    let dg = (((dpx >> 5) & 0x3F) as u8) << 2;
-                    let db = ((dpx & 0x1F) as u8) << 3;
-                    let br = ((sr as u16 * sa + dr as u16 * inv) / 255) as u8;
-                    let bg = ((sg as u16 * sa + dg as u16 * inv) / 255) as u8;
-                    let bb = ((sb as u16 * sa + db as u16 * inv) / 255) as u8;
-                    let px = ((br as u16 >> 3) << 11) | ((bg as u16 >> 2) << 5) | (bb as u16 >> 3);
-                    dst_buf[di] = (px >> 8) as u8;
-                    dst_buf[di + 1] = px as u8;
+                    ColorFormat::RGB565Swapped.blend_pixel(dst_buf, di, &color, a, alpha_mode);
                 }
             }
         }
@@ -599,6 +522,7 @@ fn blit_2to2_argb_to_565(
 ) {
     let src_stride = src.stride();
     let dst_stride = dst.stride();
+    let alpha_mode = dst.alpha_mode();
     let src_buf = src.bytes();
     let dst_buf = dst.bytes_mut();
     for block_row in 0..block_h {
@@ -629,29 +553,14 @@ fn blit_2to2_argb_to_565(
                 dst_buf[d10 + 2] = lo;
                 dst_buf[d10 + 3] = hi;
             } else {
-                let sr = src_buf[si];
-                let sg = src_buf[si + 1];
-                let sb = src_buf[si + 2];
-                let inv = 255 - a as u16;
-                let sa = a as u16;
+                let color = Color::rgba(src_buf[si], src_buf[si + 1], src_buf[si + 2], a);
                 for &di in &[
                     dst_row0 + col * 4,
                     dst_row0 + col * 4 + 2,
                     dst_row1 + col * 4,
                     dst_row1 + col * 4 + 2,
                 ] {
-                    let lo = dst_buf[di] as u16;
-                    let hi = dst_buf[di + 1] as u16;
-                    let dpx = lo | (hi << 8);
-                    let dr = ((dpx >> 11) as u8) << 3;
-                    let dg = (((dpx >> 5) & 0x3F) as u8) << 2;
-                    let db = ((dpx & 0x1F) as u8) << 3;
-                    let br = ((sr as u16 * sa + dr as u16 * inv) / 255) as u8;
-                    let bg = ((sg as u16 * sa + dg as u16 * inv) / 255) as u8;
-                    let bb = ((sb as u16 * sa + db as u16 * inv) / 255) as u8;
-                    let px = ((br as u16 >> 3) << 11) | ((bg as u16 >> 2) << 5) | (bb as u16 >> 3);
-                    dst_buf[di] = px as u8;
-                    dst_buf[di + 1] = (px >> 8) as u8;
+                    ColorFormat::RGB565.blend_pixel(dst_buf, di, &color, a, alpha_mode);
                 }
             }
         }
@@ -941,55 +850,81 @@ mod tests {
     }
 
     #[test]
-    fn opaque_rgba_integer_blits_preserve_framebuffer_rounding_and_alpha() {
-        for scale in [1, 2] {
-            for source_alpha in [0, 128, 255] {
-                let source_color = Color::rgba(201, 37, 9, source_alpha);
-                let destination_color = Color::rgba(17, 101, 233, 96);
-                let mut source_bytes = [0u8; 4];
-                let mut source = Texture::new(&mut source_bytes, 1, 1, ColorFormat::RGBA8888)
-                    .expect("valid pixel storage");
-                source.pixels_mut().unwrap().set_pixel(0, 0, &source_color);
-                let mut destination_bytes = [0u8; 16];
-                let mut destination =
-                    Texture::new(&mut destination_bytes, 2, 2, ColorFormat::RGBA8888)
-                        .expect("valid pixel storage");
-                for y in 0..2 {
-                    for x in 0..2 {
-                        destination
-                            .pixels_mut()
-                            .unwrap()
-                            .set_pixel(x, y, &destination_color);
-                    }
-                }
-                let blit = if scale == 1 {
-                    blit_1to1_fast
-                } else {
-                    blit_2to2_fast
-                };
-                blit(
-                    &mut destination.pixels_mut().unwrap(),
-                    &source.read_pixels().unwrap(),
-                    0,
-                    0,
-                    1,
-                    1,
-                    0,
-                    0,
-                    0,
-                    0,
-                    2,
-                    2,
-                );
-                let expected = match source_alpha {
-                    0 => destination_color,
-                    128 => Color::rgba(109, 68, 120, 255),
-                    255 => source_color,
-                    _ => unreachable!(),
-                };
-                for y in 0..scale {
-                    for x in 0..scale {
-                        assert_eq!(destination.read_pixels().unwrap().get_pixel(x, y), expected);
+    fn integer_blits_match_pixel_blending_in_every_destination_format() {
+        for format in [
+            ColorFormat::RGBA8888,
+            ColorFormat::BGRA8888,
+            ColorFormat::RGB888,
+            ColorFormat::RGB565,
+            ColorFormat::RGB565Swapped,
+        ] {
+            for alpha_mode in [AlphaMode::Opaque, AlphaMode::Blend] {
+                for scale in [1, 2] {
+                    for source_alpha in 0..=255 {
+                        let source_color = Color::rgba(201, 37, 9, source_alpha);
+                        let destination_color = Color::rgba(17, 101, 233, 96);
+                        let mut source_bytes = [0u8; 4];
+                        let mut source =
+                            Texture::new(&mut source_bytes, 1, 1, ColorFormat::RGBA8888)
+                                .expect("valid pixel storage");
+                        source.pixels_mut().unwrap().set_pixel(0, 0, &source_color);
+                        let mut destination_bytes = [0u8; 16];
+                        let mut destination = Texture::new(&mut destination_bytes, 2, 2, format)
+                            .expect("valid pixel storage");
+                        destination.alpha_mode = alpha_mode;
+                        for y in 0..2 {
+                            for x in 0..2 {
+                                destination.pixels_mut().unwrap().set_pixel(
+                                    x,
+                                    y,
+                                    &destination_color,
+                                );
+                            }
+                        }
+                        let mut expected_bytes = [0u8; 16];
+                        let mut reference =
+                            Texture::new(&mut expected_bytes, 2, 2, format).unwrap();
+                        reference.alpha_mode = alpha_mode;
+                        for y in 0..2 {
+                            for x in 0..2 {
+                                reference
+                                    .pixels_mut()
+                                    .unwrap()
+                                    .set_pixel(x, y, &destination_color);
+                                if x < scale && y < scale {
+                                    reference.pixels_mut().unwrap().blend_pixel_int(
+                                        x,
+                                        y,
+                                        &source_color,
+                                        source_alpha,
+                                    );
+                                }
+                            }
+                        }
+                        let blit = if scale == 1 {
+                            blit_1to1_fast
+                        } else {
+                            blit_2to2_fast
+                        };
+                        blit(
+                            &mut destination.pixels_mut().unwrap(),
+                            &source.read_pixels().unwrap(),
+                            0,
+                            0,
+                            1,
+                            1,
+                            0,
+                            0,
+                            0,
+                            0,
+                            2,
+                            2,
+                        );
+                        assert_eq!(
+                            destination.read_pixels().unwrap().bytes(),
+                            reference.read_pixels().unwrap().bytes(),
+                            "{format:?}, {alpha_mode:?}, scale={scale}, alpha={source_alpha}"
+                        );
                     }
                 }
             }

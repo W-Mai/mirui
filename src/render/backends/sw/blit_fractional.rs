@@ -93,7 +93,7 @@ pub(super) fn blit_fractional(
         let right = (area.x + area.w).floor().to_int().clamp(x0, x1);
         let bottom = (area.y + area.h).floor().to_int().clamp(y0, y1);
         if left < right && top < bottom {
-            super::blit_fast::blit_dda(
+            super::blit_fast::blit_1to1_fast(
                 target,
                 source,
                 source_x,
@@ -102,14 +102,10 @@ pub(super) fn blit_fractional(
                 height as u16,
                 (area.x - Fixed::HALF).ceil().to_int(),
                 (area.y - Fixed::HALF).ceil().to_int(),
-                width,
-                height,
                 left,
                 top,
                 right,
                 bottom,
-                255,
-                None,
             );
             Some((
                 left,

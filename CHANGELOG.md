@@ -9,13 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Software integer image blits share pixel-write alpha blending and RGB565 decoding across specialized and generic paths.
+
 - The embedded Three Body demo uses borderless image bodies.
 
 - Software image blits and rectangle borders preserve fractional pixel coverage, including subpixel-sized images and clipped source rectangles.
 
 ### Performance
 
-- Fractional 1:1 image blits reuse integer sampling for fully covered interiors, and square borders skip transparent interiors.
+- Fractional 1:1 image blits reuse format-specialized writes for fully covered interiors, and square borders skip transparent interiors.
 
 - Typed query construction reuses the aggregate parameter change budget and skips budget scans for read-only queries.
 

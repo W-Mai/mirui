@@ -1,4 +1,4 @@
-use super::{AlphaMode, ColorFormat, Texture, blend_straight_source_over};
+use super::{AlphaMode, ColorFormat, Texture};
 use crate::render::renderer::RenderError;
 use crate::render::scratch::{PlaneLayout, PlaneRequirements};
 use crate::types::{Color, Fixed};
@@ -180,26 +180,11 @@ impl TexturePixelsMut<'_> {
             self.set_pixel(x, y, &Color { a: 255, ..*color });
             return;
         }
-        // Alpha blend in plain u8 space: out = (src·a + dst·(255−a) + 127)/255.
-        // Avoids the NormColor round-trip (8 divisions per call) that the
-        // old implementation did; exact within ±1 over the full range.
-        let dst = self.get_pixel(x, y);
-        let ia = 255 - a as u32;
-        let aa = a as u32;
-        let blend = |src: u8, dst: u8| -> u8 {
-            let sum = src as u32 * aa + dst as u32 * ia + 127;
-            ((sum + (sum >> 8)) >> 8) as u8
+        let Some(offset) = offset(self.layout, x, y) else {
+            return;
         };
-        let out = match self.alpha_mode {
-            AlphaMode::Opaque => Color {
-                r: blend(color.r, dst.r),
-                g: blend(color.g, dst.g),
-                b: blend(color.b, dst.b),
-                a: 255,
-            },
-            AlphaMode::Blend => blend_straight_source_over(color, &dst, a),
-        };
-        self.set_pixel(x, y, &out);
+        self.format()
+            .blend_pixel(self.bytes, offset, color, a, self.alpha_mode);
     }
 
     /// Composite-aware pixel write. `src_a` is the effective alpha after

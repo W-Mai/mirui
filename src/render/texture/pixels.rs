@@ -1,4 +1,4 @@
-use super::ColorFormat;
+use super::{AlphaMode, ColorFormat, blend_straight_source_over};
 use crate::types::Color;
 
 #[inline(always)]
@@ -17,6 +17,42 @@ pub(super) fn pixel_offset(
 }
 
 impl ColorFormat {
+    #[inline]
+    pub(crate) fn blend_pixel(
+        self,
+        bytes: &mut [u8],
+        offset: usize,
+        color: &Color,
+        alpha: u8,
+        alpha_mode: AlphaMode,
+    ) {
+        if alpha == 0 {
+            return;
+        }
+        if alpha == 255 {
+            self.write_pixel(bytes, offset, &Color { a: 255, ..*color });
+            return;
+        }
+        let previous = self.read_pixel(bytes, offset);
+        let result = match alpha_mode {
+            AlphaMode::Opaque => {
+                let blend = |source: u8, destination: u8| {
+                    let sum = u32::from(source) * u32::from(alpha)
+                        + u32::from(destination) * (255 - u32::from(alpha))
+                        + 127;
+                    ((sum + (sum >> 8)) >> 8) as u8
+                };
+                Color::rgb(
+                    blend(color.r, previous.r),
+                    blend(color.g, previous.g),
+                    blend(color.b, previous.b),
+                )
+            }
+            AlphaMode::Blend => blend_straight_source_over(color, &previous, alpha),
+        };
+        self.write_pixel(bytes, offset, &result);
+    }
+
     #[inline(always)]
     pub(super) fn read_pixel(self, bytes: &[u8], offset: usize) -> Color {
         match self {
