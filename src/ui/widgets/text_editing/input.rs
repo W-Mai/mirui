@@ -602,7 +602,7 @@ pub(super) fn replace_from_clipboard(
     Ok(())
 }
 
-#[crate::system(order = PreRender)]
+#[crate::system(order = PreRender, expect = TextEditing)]
 pub(super) fn normalize_selections(editors: query!(Entity, TextEditing), commands: commands!()) {
     for (entity, editor) in editors {
         if editor
@@ -618,7 +618,7 @@ pub(super) fn normalize_selections(editors: query!(Entity, TextEditing), command
     }
 }
 
-#[crate::system(order = PreRender)]
+#[crate::system(order = PreRender, expect = TextEditing)]
 pub(super) fn cursor_blink(
     clock: res!(optional crate::ecs::MonoClock),
     phase: res!(optional super::CursorBlinkPhase),

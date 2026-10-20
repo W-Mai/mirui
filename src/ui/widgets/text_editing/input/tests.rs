@@ -16,6 +16,54 @@ fn fixture() -> (TestApp, Entity) {
 }
 
 #[test]
+fn editing_systems_follow_component_presence_without_reinstallation() {
+    use crate::ecs::{MonoClock, SystemScheduler};
+    use crate::ui::widgets::text_editing::CursorBlinkPhase;
+
+    let (mut app, node) = fixture();
+    app.world.remove::<TextEditing>(node);
+    app.world.insert_resource(MonoClock::new(|| 750_000_000));
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(normalize_selections::system());
+    scheduler.add(cursor_blink::system());
+    assert_eq!(
+        tracked_allocations(|| scheduler.run_all(&mut app.world).unwrap()),
+        0
+    );
+    assert!(scheduler.iter().all(|system| system.call_count == 0));
+    assert!(app.world.resource::<CursorBlinkPhase>().is_none());
+
+    let document = app.add_model(TextDocument::new()).finish();
+    document.set_text("A中").unwrap();
+    let mut editor = TextEditing::new(document.clone());
+    editor
+        .set_selection(TextSelection {
+            anchor: 0,
+            cursor: 4,
+        })
+        .unwrap();
+    app.world.insert(node, editor);
+    document.set_text("A").unwrap();
+    scheduler.run_all(&mut app.world).unwrap();
+    assert!(scheduler.iter().all(|system| system.call_count == 1));
+    assert_eq!(
+        app.world.get::<TextEditing>(node).unwrap().selection.cursor,
+        1
+    );
+    assert!(!app.world.resource::<CursorBlinkPhase>().unwrap().0);
+
+    app.world.remove::<TextEditing>(node);
+    app.world.insert_resource(MonoClock::new(|| 1_000_000_000));
+    scheduler.run_all(&mut app.world).unwrap();
+    assert!(scheduler.iter().all(|system| system.call_count == 1));
+    assert!(!app.world.resource::<CursorBlinkPhase>().unwrap().0);
+    app.world.insert(node, TextEditing::new(document));
+    scheduler.run_all(&mut app.world).unwrap();
+    assert!(scheduler.iter().all(|system| system.call_count == 2));
+    assert!(app.world.resource::<CursorBlinkPhase>().unwrap().0);
+}
+
+#[test]
 fn local_and_shared_inputs_apply_the_same_unicode_editing_rules() {
     for shared in [false, true] {
         let (mut app, node) = fixture();
