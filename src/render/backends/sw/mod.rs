@@ -2505,7 +2505,7 @@ mod tests {
             y: Fixed::from_int(1),
         };
         let clip = Rect::new(0, 0, 32, 16);
-        let font = crate::render::font::Font::bitmap_8x8();
+        let font = crate::render::font::Font::default();
         let glyphs = [textflow::shaping::PositionedGlyph::new(
             crate::render::font::GlyphId::new(65),
             textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
@@ -2538,7 +2538,7 @@ mod tests {
         let tex =
             Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(tex);
-        let font = crate::render::font::Font::bitmap_8x8();
+        let font = crate::render::font::Font::default();
         let glyphs = [textflow::shaping::PositionedGlyph::new(
             crate::render::font::GlyphId::new(u16::from(b'A')),
             textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
@@ -3010,7 +3010,7 @@ mod tests {
         let clip = Rect::new(0, 0, 32, 16);
 
         {
-            let font = crate::render::font::Font::bitmap_8x8();
+            let font = crate::render::font::Font::default();
             let mut painter = Painter::new(&mut backend);
             let glyphs = [textflow::shaping::PositionedGlyph::new(
                 crate::render::font::GlyphId::new(66),
@@ -4697,7 +4697,7 @@ mod tests {
         let mut renderer = SwRenderer::new(
             Texture::new(&mut pixels, 32, 16, ColorFormat::RGBA8888).expect("valid pixel storage"),
         );
-        let font = crate::render::font::Font::bitmap_8x8();
+        let font = crate::render::font::Font::default();
         let glyphs = [textflow::shaping::PositionedGlyph::new(
             crate::render::font::GlyphId::new(65),
             textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
@@ -4727,7 +4727,7 @@ mod tests {
         let mut renderer = SwRenderer::new(
             Texture::new(&mut pixels, 16, 16, ColorFormat::RGBA8888).expect("valid pixel storage"),
         );
-        let font = crate::render::font::Font::bitmap_8x8();
+        let font = crate::render::font::Font::default();
         let glyphs = [textflow::shaping::PositionedGlyph::new(
             crate::render::font::GlyphId::new(65),
             textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },

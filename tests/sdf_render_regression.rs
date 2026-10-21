@@ -80,14 +80,11 @@ fn render_text(text: &str, font_token: FontToken, size: Option<u16>) -> Vec<u8> 
 }
 
 #[test]
-fn mono_hello_byte_hash_is_stable() {
+fn embedded_font_hello_byte_hash_is_stable() {
     let pixels = render_text("Hello mirui!", FontToken::Default, None);
     let hash = fnv1a64(&pixels);
     assert_eq!(pixels.len(), 240 * 48 * 4);
-    assert_eq!(
-        hash, 0x2c8a_ab42_6930_ead4,
-        "Mono Bitmap8x8 render drifted; eye-check the snapshot before pinning a new value",
-    );
+    assert_eq!(hash, 0x2c8a_ab42_6930_ead4, "Embedded font pixels changed",);
 }
 
 #[test]

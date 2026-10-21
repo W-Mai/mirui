@@ -361,7 +361,7 @@ mod tests {
 
     use super::*;
     use crate::render::font::{
-        Font, FontBackend, FontFaceId, FontMetrics, FontProvider, FontToken, GlyphId, RasterGlyph,
+        Font, FontFaceId, FontMetrics, FontProvider, FontToken, GlyphId, RasterGlyph,
     };
     use crate::render::renderer::Renderer;
     use crate::types::Transform;
@@ -473,7 +473,7 @@ mod tests {
             Font {
                 family: "proportional",
                 size: 12,
-                backend: FontBackend::Custom(Rc::new(ProportionalFace)),
+                provider: Rc::new(ProportionalFace),
             },
         );
         world.insert_resource(fonts);

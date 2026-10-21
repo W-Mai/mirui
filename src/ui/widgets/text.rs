@@ -1575,7 +1575,7 @@ mod tests {
     #[cfg(feature = "std")]
     #[test]
     fn static_run_typed_roles_refetch_resources_and_borrow_glyphs_without_allocating() {
-        use crate::render::font::{Font, FontBackend, FontToken};
+        use crate::render::font::{Font, FontToken};
         use crate::render::{DrawRequest, RenderError};
         use crate::test_support::tracked_allocations;
         use core::any::TypeId;
@@ -1607,7 +1607,13 @@ mod tests {
                 else {
                     panic!("expected a borrowed static glyph run");
                 };
-                assert_eq!(*pos, Point::new(3, 5));
+                assert_eq!(
+                    *pos,
+                    Point {
+                        x: Fixed::from_int(3),
+                        y: Fixed::from_int(12) - font.metrics(font.size).ascender
+                    }
+                );
                 assert_eq!(
                     *transform,
                     Transform::translate(Fixed::from_int(2), Fixed::from_int(3))
@@ -1675,7 +1681,7 @@ mod tests {
                 Font {
                     family,
                     size,
-                    backend: FontBackend::Bitmap8x8,
+                    provider: Font::default().provider,
                 },
             );
             // Prepare the existing font cache before checking the typed paint adapter.

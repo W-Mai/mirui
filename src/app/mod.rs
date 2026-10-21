@@ -3396,8 +3396,8 @@ mod app_invariant_tests {
     #[test]
     fn font_manager_replacement_refreshes_input_layout_in_a_dirty_frame() {
         use crate::render::font::{
-            Font, FontBackend, FontFaceId, FontMetrics, FontProvider, FontToken, GlyphId,
-            RasterGlyph, default_font_manager,
+            Font, FontFaceId, FontMetrics, FontProvider, FontToken, GlyphId, RasterGlyph,
+            default_font_manager,
         };
         use crate::ui::widgets::TextInput;
         use crate::ui::widgets::text_editing::geometry::TextEditingLayoutHandle;
@@ -3432,7 +3432,7 @@ mod app_invariant_tests {
                 Font {
                     family: "input-metrics",
                     size,
-                    backend: FontBackend::Custom(provider.clone()),
+                    provider: provider.clone(),
                 },
             );
             fonts

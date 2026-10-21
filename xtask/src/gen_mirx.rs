@@ -1,3 +1,4 @@
+mod builtin_font;
 mod bundle;
 mod font;
 mod frames;
@@ -10,6 +11,7 @@ type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 pub fn cmd_gen_mirx(args: &[String]) -> Result {
     let sub = args.first().map(|s| s.as_str()).unwrap_or("");
     match sub {
+        "builtin-font" => builtin_font::run(&args[1..]),
         "font" => font::run(&args[1..]),
         "frames" => frames::run(&args[1..]),
         "image" => image::run(&args[1..]),
@@ -18,6 +20,7 @@ pub fn cmd_gen_mirx(args: &[String]) -> Result {
         _ => {
             eprintln!(
                 "usage:\n  \
+                 cargo xtask gen-mirx builtin-font [--check]\n  \
                  cargo xtask gen-mirx font --ttf <f.ttf> --charset <s> \\\n    \
                      --size <px> [--bit-depth <1|2|4|8>] --format <sdf|gray> \
     \

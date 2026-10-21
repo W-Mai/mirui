@@ -8,8 +8,6 @@ use crate::types::{Color, Fixed, Fixed64, Point, Rect, Transform, Transform3D, f
 struct GlyphRasterContext {
     requested_size: u16,
     viewport_scale: Fixed,
-    mono_scale: i32,
-    mono_height: i32,
     bounds: (i32, i32, i32, i32),
 }
 
@@ -55,7 +53,6 @@ impl RasterInverse {
 }
 
 enum TransformedGlyph<'a> {
-    Mono(&'a [u8]),
     Coverage(ScalarField<'a>),
     SignedDistance(SignedDistanceField<'a>),
 }
@@ -106,7 +103,6 @@ pub(super) struct ProjectivePosedRun<'a> {
 impl TransformedGlyph<'_> {
     fn dimensions(&self) -> (u32, u32) {
         match self {
-            Self::Mono(bitmap) => (8, bitmap.len() as u32),
             Self::Coverage(field) => (field.width(), field.height()),
             Self::SignedDistance(field) => (field.width(), field.height()),
         }
@@ -134,8 +130,6 @@ impl SwRenderer<'_> {
         let context = GlyphRasterContext {
             requested_size,
             viewport_scale,
-            mono_scale: viewport_scale.to_int().max(1),
-            mono_height: metrics.line_height.to_int().max(1),
             bounds: self.physical_draw_clip(*clip).pixel_bounds(),
         };
         for positioned in glyphs {
@@ -153,8 +147,7 @@ impl SwRenderer<'_> {
             ) else {
                 continue;
             };
-            let mono_y = baseline - (metrics.ascender * viewport_scale).to_int();
-            self.draw_glyph_at(&glyph, x, mono_y, baseline, context, color, opa);
+            self.draw_glyph_at(&glyph, x, baseline, context, color, opa);
         }
     }
 
@@ -193,23 +186,6 @@ impl SwRenderer<'_> {
             let x = run.pos.x + crate::types::fixed::from_textflow(dx);
             let baseline = run.pos.y + metrics.ascender + crate::types::fixed::from_textflow(dy);
             match glyph.kind {
-                GlyphKind::Mono(bitmap) => {
-                    let rect = Rect {
-                        x,
-                        y: baseline - metrics.ascender,
-                        w: Fixed::from_int(8),
-                        h: metrics.line_height,
-                    };
-                    self.blit_transformed_glyph(
-                        TransformedGlyph::Mono(bitmap),
-                        rect,
-                        run.transform,
-                        &inverse,
-                        run.clip,
-                        run.color,
-                        run.opacity,
-                    );
-                }
                 GlyphKind::Raster {
                     samples,
                     stride,
@@ -260,33 +236,7 @@ impl SwRenderer<'_> {
         let requested_size = run.font.size.max(1);
         let output_ppem =
             crate::render::font::output_ppem(requested_size, run.transform.raster_scale());
-        let metrics = run.font.metrics(requested_size);
         for (positioned, frame) in run.glyphs.iter().zip(run.frames) {
-            if run.transform.is_identity()
-                && let Some(bitmap) = run.font.packed_mono_glyph(positioned.glyph_id())
-            {
-                self.blit_posed_mono_glyph(
-                    bitmap,
-                    Rect {
-                        x: Fixed::ZERO,
-                        y: -metrics.ascender,
-                        w: Fixed::from_int(8),
-                        h: metrics.line_height,
-                    },
-                    Point {
-                        x: run.pos.x + crate::types::fixed::from_textflow(frame.local_origin.x),
-                        y: run.pos.y + crate::types::fixed::from_textflow(frame.local_origin.y),
-                    },
-                    Point {
-                        x: crate::types::fixed::from_textflow(frame.unit_tangent.x),
-                        y: crate::types::fixed::from_textflow(frame.unit_tangent.y),
-                    },
-                    run.clip,
-                    run.color,
-                    run.opacity,
-                );
-                continue;
-            }
             let Some(raster) =
                 run.font
                     .raster_for_output(positioned.glyph_id(), requested_size, output_ppem)
@@ -372,68 +322,6 @@ impl SwRenderer<'_> {
                     run.color,
                     run.opacity,
                 );
-            }
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn blit_posed_mono_glyph(
-        &mut self,
-        bitmap: &[u8],
-        logical_rect: Rect,
-        origin: Point,
-        tangent: Point,
-        clip: Rect,
-        color: &Color,
-        opacity: u8,
-    ) {
-        let transform = Transform {
-            m00: tangent.x,
-            m01: -tangent.y,
-            tx: origin.x,
-            m10: tangent.y,
-            m11: tangent.x,
-            ty: origin.y,
-        };
-        let Some(draw_area) = transform
-            .apply_rect_bbox(logical_rect)
-            .intersect(&clip)
-            .and_then(|area| {
-                area.intersect(&Rect::new(0, 0, self.target.width, self.target.height))
-            })
-        else {
-            return;
-        };
-        let clip_bounds = draw_area.pixel_bounds();
-        let target_width = self.target.width as usize;
-        let clip_mask = self
-            .scratch
-            .clip_stack
-            .last()
-            .map(|mask| mask.alpha.as_slice());
-        let local_x = logical_rect.x + Fixed::HALF;
-        let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
-            return;
-        };
-        for (row, byte) in bitmap.iter().copied().enumerate() {
-            let local_y = logical_rect.y + Fixed::from_int(row as i32) + Fixed::HALF;
-            let mut screen_x = origin.x + tangent.x * local_x - tangent.y * local_y;
-            let mut screen_y = origin.y + tangent.y * local_x + tangent.x * local_y;
-            for col in 0..8 {
-                if byte & (0x80 >> col) != 0 {
-                    splat_coverage_pixel(
-                        &mut target,
-                        screen_x - Fixed::HALF,
-                        screen_y - Fixed::HALF,
-                        clip_bounds,
-                        target_width,
-                        clip_mask,
-                        color,
-                        opacity,
-                    );
-                }
-                screen_x += tangent.x;
-                screen_y += tangent.y;
             }
         }
     }
@@ -537,23 +425,6 @@ impl SwRenderer<'_> {
             let x = run.pos.x + crate::types::fixed::from_textflow(dx);
             let baseline = run.pos.y + metrics.ascender + crate::types::fixed::from_textflow(dy);
             match glyph.kind {
-                GlyphKind::Mono(bitmap) => {
-                    let rect = Rect {
-                        x,
-                        y: baseline - metrics.ascender,
-                        w: Fixed::from_int(8),
-                        h: metrics.line_height,
-                    };
-                    self.blit_projective_glyph(
-                        TransformedGlyph::Mono(bitmap),
-                        rect,
-                        run.transform,
-                        &inverse,
-                        run.clip,
-                        run.color,
-                        run.opacity,
-                    );
-                }
                 GlyphKind::Raster {
                     samples,
                     stride,
@@ -717,7 +588,6 @@ impl SwRenderer<'_> {
                 let sx = u * source_scale_x - Fixed::HALF;
                 let sy = v * source_scale_y - Fixed::HALF;
                 let coverage = match &glyph {
-                    TransformedGlyph::Mono(bitmap) => sample_mono_bilinear(bitmap, sx, sy),
                     TransformedGlyph::Coverage(field) => field.sample_bilinear(sx, sy),
                     TransformedGlyph::SignedDistance(field) => {
                         let (distance, gradient_x, gradient_y) = field.sample_with_gradient(sx, sy);
@@ -833,7 +703,6 @@ impl SwRenderer<'_> {
                 let sx = (u - half).to_fixed();
                 let sy = (v - half).to_fixed();
                 let coverage = match &glyph {
-                    TransformedGlyph::Mono(bitmap) => sample_mono_bilinear(bitmap, sx, sy),
                     TransformedGlyph::Coverage(field) => field.sample_bilinear(sx, sy),
                     TransformedGlyph::SignedDistance(field) => {
                         let (distance, gradient_x, gradient_y) = field.sample_with_gradient(sx, sy);
@@ -870,23 +739,12 @@ impl SwRenderer<'_> {
         &mut self,
         glyph: &Glyph<'_>,
         x: i32,
-        mono_y: i32,
         baseline: i32,
         context: GlyphRasterContext,
         color: &Color,
         opa: u8,
     ) {
         match &glyph.kind {
-            GlyphKind::Mono(bitmap) => self.blit_mono_glyph(
-                bitmap,
-                x,
-                mono_y,
-                context.mono_scale,
-                context.mono_height,
-                context.bounds,
-                color,
-                opa,
-            ),
             GlyphKind::Raster {
                 samples,
                 stride,
@@ -941,58 +799,6 @@ impl SwRenderer<'_> {
                         ),
                     mirx::font::FontRepresentationKind::Application(_) => {}
                     _ => {}
-                }
-            }
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn blit_mono_glyph(
-        &mut self,
-        bitmap: &[u8],
-        cx: i32,
-        cy: i32,
-        scale: i32,
-        char_h: i32,
-        phys_bounds: (i32, i32, i32, i32),
-        color: &Color,
-        opa: u8,
-    ) {
-        let (clip_x, clip_y, clip_x2, clip_y2) = phys_bounds;
-        let target_w = self.target.width as usize;
-        let clip_mask = self.scratch.clip_stack.last().map(|m| m.alpha.as_slice());
-        let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
-            return;
-        };
-        for row in 0..char_h.min(bitmap.len() as i32) {
-            let byte = bitmap[row as usize];
-            for col in 0..8 {
-                if byte & (0x80 >> col) == 0 {
-                    continue;
-                }
-                for sy in 0..scale {
-                    for sx in 0..scale {
-                        let px = cx + col * scale + sx;
-                        let py = cy + row * scale + sy;
-                        if px >= clip_x && px < clip_x2 && py >= clip_y && py < clip_y2 {
-                            let alpha = match clip_mask {
-                                Some(m) => {
-                                    let ca = m[py as usize * target_w + px as usize];
-                                    if ca == 0 {
-                                        continue;
-                                    }
-                                    ((opa as u16 * ca as u16 + 127) / 255) as u8
-                                }
-                                None => opa,
-                            };
-                            target.blend_pixel(
-                                Fixed::from_int(px),
-                                Fixed::from_int(py),
-                                color,
-                                alpha,
-                            );
-                        }
-                    }
                 }
             }
         }
@@ -1120,29 +926,6 @@ impl SwRenderer<'_> {
     }
 }
 
-fn sample_mono_bilinear(bitmap: &[u8], x: Fixed, y: Fixed) -> Fixed {
-    let x0 = x.floor().to_int();
-    let y0 = y.floor().to_int();
-    let tx = x - Fixed::from_int(x0);
-    let ty = y - Fixed::from_int(y0);
-    let top_left = mono_sample(bitmap, x0, y0);
-    let top = top_left + (mono_sample(bitmap, x0 + 1, y0) - top_left) * tx;
-    let bottom_left = mono_sample(bitmap, x0, y0 + 1);
-    let bottom = bottom_left + (mono_sample(bitmap, x0 + 1, y0 + 1) - bottom_left) * tx;
-    top + (bottom - top) * ty
-}
-
-fn mono_sample(bitmap: &[u8], x: i32, y: i32) -> Fixed {
-    if !(0..8).contains(&x) || y < 0 || y as usize >= bitmap.len() {
-        return Fixed::ZERO;
-    }
-    if bitmap[y as usize] & (0x80 >> x) == 0 {
-        Fixed::ZERO
-    } else {
-        Fixed::ONE
-    }
-}
-
 fn scale_opacity(opacity: u8, coverage: u8) -> u8 {
     ((u16::from(opacity) * u16::from(coverage) + 127) / 255) as u8
 }
@@ -1189,8 +972,7 @@ mod tests {
     use super::*;
     use crate::render::backends::sw::SwRenderer;
     use crate::render::font::{
-        FontBackend, FontFaceId, FontMetrics, FontProvider, FontSurfaceId, GlyphId, GlyphSurface,
-        RasterGlyph,
+        FontFaceId, FontMetrics, FontProvider, FontSurfaceId, GlyphId, GlyphSurface, RasterGlyph,
     };
     use crate::render::texture::{ColorFormat, Texture};
     use crate::types::Viewport;
@@ -1200,28 +982,6 @@ mod tests {
 
     fn pixel_alpha(buf: &[u8], stride: usize, x: usize, y: usize) -> u8 {
         buf[(y * stride + x) * 4 + 3]
-    }
-
-    #[test]
-    fn transformed_mono_sampling_filters_edges_and_transparent_border() {
-        let bitmap = [0b1000_0000];
-
-        assert_eq!(
-            sample_mono_bilinear(&bitmap, Fixed::ZERO, Fixed::ZERO),
-            Fixed::ONE
-        );
-        assert_eq!(
-            sample_mono_bilinear(&bitmap, Fixed::HALF, Fixed::ZERO),
-            Fixed::HALF
-        );
-        assert_eq!(
-            sample_mono_bilinear(&bitmap, -Fixed::HALF, Fixed::ZERO),
-            Fixed::HALF
-        );
-        assert_eq!(
-            sample_mono_bilinear(&bitmap, Fixed::HALF, Fixed::HALF),
-            Fixed::from_ratio(1, 4)
-        );
     }
 
     #[test]
@@ -1255,7 +1015,7 @@ mod tests {
         use crate::render::font::FontTypeface;
         use crate::text::layout::{TextLayoutCache, TextLayoutRequest};
 
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let face = FontTypeface::new(&font, font.size);
         let faces: [&dyn Typeface; 1] = [&face];
         let mut cache = TextLayoutCache::default();
@@ -1302,12 +1062,12 @@ mod tests {
             Texture::new(&mut expected, 24, 8, ColorFormat::RGBA8888).expect("valid pixel storage");
         let mut renderer = SwRenderer::new(texture);
         let a = [textflow::shaping::PositionedGlyph::new(
-            GlyphId::new(65),
+            font.map_char('A').unwrap(),
             textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
         )];
         renderer.draw_glyph_run_inner(&Point::ZERO, &a, &font, &clip, &color, 255);
         let b = [textflow::shaping::PositionedGlyph::new(
-            GlyphId::new(66),
+            font.map_char('B').unwrap(),
             textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
         )];
         renderer.draw_glyph_run_inner(
@@ -1327,9 +1087,9 @@ mod tests {
 
     #[test]
     fn affine_glyph_run_renders_inside_its_transformed_quad() {
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let glyphs = [textflow::shaping::PositionedGlyph::new(
-            GlyphId::new(u16::from(b'A')),
+            font.map_char('A').unwrap(),
             textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
         )];
         let transform = Transform::translate(Fixed::from_int(12), Fixed::from_int(1))
@@ -1364,9 +1124,9 @@ mod tests {
 
     #[test]
     fn posed_glyph_run_uses_each_glyph_tangent() {
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let glyphs = [textflow::shaping::PositionedGlyph::new(
-            GlyphId::new(u16::from(b'A')),
+            font.map_char('A').unwrap(),
             textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
         )];
         let frames = [textflow::placement::GlyphFrame {
@@ -1410,7 +1170,7 @@ mod tests {
         let font = Font {
             family: "atlas-bitmap",
             size: 8,
-            backend: FontBackend::Custom(Rc::new(AtlasBitmapProvider)),
+            provider: Rc::new(AtlasBitmapProvider),
         };
         let glyphs = [textflow::shaping::PositionedGlyph::new(
             GlyphId::new(1),
@@ -1732,7 +1492,7 @@ mod tests {
         let font = Font {
             family: "recording",
             size: 16,
-            backend: FontBackend::Custom(Rc::new(provider)),
+            provider: Rc::new(provider),
         };
         let mut buf = vec![0u8; 64 * 64 * 4];
         let tex =
@@ -1814,7 +1574,7 @@ mod tests {
         let font = Font {
             family: "sized-raster",
             size: 8,
-            backend: FontBackend::Custom(Rc::new(SizedRasterProvider)),
+            provider: Rc::new(SizedRasterProvider),
         };
         let mut buf = vec![0u8; 12 * 2 * 4];
         let tex =

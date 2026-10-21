@@ -1,5 +1,80 @@
-/// 8x8 bitmap font for ASCII 32-126. Each char = 8 bytes (rows), MSB = leftmost pixel.
-pub const FONT_8X8: &[u8; 760] = &[
+use mirx::Document;
+use mirx::document::EncodeOptions;
+use mirx::font::{
+    CmapEntry, Font, FontAdvanceSource, FontAsset, FontFace, FontRepresentation, GlyphId, GlyphMap,
+    GlyphSurfaceAsset, RasterMetrics, RawGlyphs, RepresentationAsset,
+};
+use mirx::image::{AtlasMap, Region, SampleLayout};
+use mirx::reader::PayloadLimits;
+use mirx::types::Fixed;
+
+pub(super) fn run(args: &[String]) -> super::Result {
+    if !args.is_empty() && args != ["--check"] {
+        return Err("usage: cargo xtask gen-mirx builtin-font [--check]".into());
+    }
+    let bytes = encode().map_err(|error| format!("built-in font: {error}"))?;
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../src/render/font/assets/default.mirx");
+    if args == ["--check"] {
+        if std::fs::read(&path)? != bytes {
+            return Err("embedded font differs from its source".into());
+        }
+    } else {
+        std::fs::create_dir_all(path.parent().unwrap())?;
+        std::fs::write(&path, &bytes)?;
+    }
+    println!("{}: {} bytes", path.display(), bytes.len());
+    Ok(())
+}
+
+fn encode() -> Result<Vec<u8>, String> {
+    let cmap: Vec<_> = (32u8..127)
+        .enumerate()
+        .map(|(index, ch)| CmapEntry::new(char::from(ch), GlyphId::new(index as u16)))
+        .collect();
+    let advances = [Fixed::from_int(8); 95];
+    let regions: Vec<_> = (0..95)
+        .map(|index| Region::new(0, index * 8, 8, 8).expect("bounded glyph region"))
+        .collect();
+    let atlas = AtlasMap::new(8, 760, &regions).map_err(|e| format!("{e:?}"))?;
+    let map = GlyphMap::atlas(atlas);
+    let raw = RawGlyphs::builder(map, SampleLayout::A1)
+        .build(GLYPH_ROWS)
+        .map_err(|e| format!("{e:?}"))?;
+    let surfaces = [GlyphSurfaceAsset::raw(raw)];
+    let representations = [RepresentationAsset::new(
+        FontRepresentation::coverage(1, 8, GLYPH_ROWS.len() as u32)
+            .map_err(|e| format!("{e:?}"))?,
+        0,
+    )
+    .with_atlas_map(0)];
+    let maps = [atlas];
+    let face = FontFace::new(
+        8,
+        GlyphId::new(u16::from(b'?' - b' ')),
+        95,
+        Fixed::from_int(7),
+        Fixed::from_int(-1),
+        Fixed::ZERO,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let metrics = [RasterMetrics::new(Fixed::ZERO, Fixed::from_int(7)); 95];
+    let font = Font::from_asset(
+        FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances))
+            .with_rasters(&representations, &metrics, &surfaces)
+            .with_atlas_maps(&maps),
+        &PayloadLimits::EMBEDDED,
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let mut document = Document::new();
+    document.push_font(&font).map_err(|e| format!("{e:?}"))?;
+    document
+        .encode(&EncodeOptions::new())
+        .map_err(|e| format!("{e:?}"))
+}
+
+// ASCII 32 through 126, eight MSB-first rows per glyph.
+const GLYPH_ROWS: &[u8; 760] = &[
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // ' ' (32)
     0x18, 0x18, 0x18, 0x18, 0x18, 0x00, 0x18, 0x00, // '!' (33)
     0x6C, 0x6C, 0x24, 0x00, 0x00, 0x00, 0x00, 0x00, // '"' (34)
@@ -96,17 +171,3 @@ pub const FONT_8X8: &[u8; 760] = &[
     0x70, 0x18, 0x18, 0x0E, 0x18, 0x18, 0x70, 0x00, // '}' (125)
     0x76, 0xDC, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // '~' (126)
 ];
-
-pub const CHAR_W: u32 = 8;
-pub const CHAR_H: u32 = 8;
-
-/// Get the 8-byte bitmap for a character. Returns box for unsupported chars.
-#[inline]
-pub fn glyph(c: u8) -> &'static [u8; 8] {
-    if (32..127).contains(&c) {
-        let offset = (c - 32) as usize * 8;
-        unsafe { &*(FONT_8X8.as_ptr().add(offset) as *const [u8; 8]) }
-    } else {
-        glyph(b'?')
-    }
-}

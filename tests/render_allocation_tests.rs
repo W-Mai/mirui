@@ -100,7 +100,7 @@ fn warmed_software_frame_reuses_all_render_storage() {
         local_origin: FlowPoint { x: 0, y: 0 },
         unit_tangent: FlowPoint { x: 1 << 8, y: 0 },
     }];
-    let font = Font::bitmap_8x8();
+    let font = Font::default();
 
     render_frame(
         &mut factory,

@@ -5290,8 +5290,8 @@ mod text_layout_check {
 
     use super::*;
     use crate::render::font::{
-        Font, FontBackend, FontFaceId, FontManager, FontMetrics, FontProvider, FontStack,
-        FontToken, GlyphId, RasterGlyph,
+        Font, FontFaceId, FontManager, FontMetrics, FontProvider, FontStack, FontToken, GlyphId,
+        RasterGlyph,
     };
     use crate::types::{Dimension, Viewport};
     use crate::ui::layout::{FlexDirection, LayoutStyle, Padding};
@@ -5890,7 +5890,7 @@ mod text_layout_check {
             Font {
                 family: "cjk",
                 size: 10,
-                backend: FontBackend::Custom(Rc::new(CjkFace)),
+                provider: Rc::new(CjkFace),
             },
         );
         let root = spawn(
@@ -5930,7 +5930,14 @@ mod text_layout_check {
         let cache = &storage.layouts;
         let layout = cache.get(*handle).unwrap();
         assert_eq!(layout.runs().len(), 2);
-        assert_eq!(layout.runs()[0].font_id(), FontFaceId::new(1));
+        assert_eq!(
+            layout.runs()[0].font_id(),
+            world
+                .resource::<FontManager>()
+                .unwrap()
+                .resolve(FontToken::Default.cache_key())
+                .face_id()
+        );
         assert_eq!(layout.runs()[1].font_id(), FontFaceId::new(9));
     }
 
@@ -5978,10 +5985,10 @@ mod text_layout_check {
             Font {
                 family: "scalable",
                 size: 8,
-                backend: FontBackend::Custom(Rc::new(PpemFace {
+                provider: Rc::new(PpemFace {
                     id: 10,
                     character: 'A',
-                })),
+                }),
             },
         );
         let root = spawn(
@@ -6034,7 +6041,7 @@ mod text_layout_check {
                 Font {
                     family,
                     size,
-                    backend: FontBackend::Custom(Rc::new(PpemFace { id, character })),
+                    provider: Rc::new(PpemFace { id, character }),
                 },
             );
         }

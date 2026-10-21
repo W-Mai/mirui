@@ -4,8 +4,7 @@ use alloc::rc::Rc;
 use core::cell::Cell;
 
 use super::{
-    Font, FontBackend, FontFaceId, FontMetrics, FontProvider, FontSurfaceId, GlyphId, GlyphSurface,
-    RasterGlyph,
+    Font, FontFaceId, FontMetrics, FontProvider, FontSurfaceId, GlyphId, GlyphSurface, RasterGlyph,
 };
 use mirx::{
     font::{
@@ -458,7 +457,7 @@ impl Font {
         Ok(Self {
             family,
             size,
-            backend: FontBackend::Custom(Rc::new(provider)),
+            provider: Rc::new(provider),
         })
     }
 
@@ -477,7 +476,7 @@ impl Font {
         Ok(Self {
             family,
             size,
-            backend: FontBackend::Custom(Rc::new(provider)),
+            provider: Rc::new(provider),
         })
     }
 }

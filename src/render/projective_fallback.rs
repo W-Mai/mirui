@@ -1176,7 +1176,7 @@ mod tests {
             GlyphId::new(u16::from(b'A')),
             FlowPoint { x: 0, y: 0 },
         )];
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let command = glyph_command(&glyphs, &font);
         let fallback = ProjectiveFallback::new(alloc::vec![0; 15].into_boxed_slice());
         let transform =
@@ -1200,7 +1200,7 @@ mod tests {
     fn borrowed_target_uses_caller_storage_without_growing() {
         let mut bytes = [0u8; 256];
         let mut fallback = ProjectiveFallback::borrowed(&mut bytes);
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let glyphs = [PositionedGlyph::new(
             GlyphId::new(u16::from(b'A')),
             FlowPoint { x: 0, y: 0 },
@@ -1226,7 +1226,7 @@ mod tests {
             GlyphId::new(u16::from(b'A')),
             FlowPoint { x: 0, y: 0 },
         )];
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let command = DrawCommand::GlyphRun {
             pos: Point::new(10, 20),
             transform: Transform::IDENTITY,
@@ -1257,7 +1257,7 @@ mod tests {
             GlyphId::new(u16::from(b'A')),
             FlowPoint { x: 0, y: 8 << 8 },
         )];
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let command = glyph_command(&glyphs, &font);
         let mut fallback = ProjectiveFallback::new(alloc::vec![7; 8 * 8 * 4]);
         let viewport = Viewport::new(8, 8, Fixed::ONE);
@@ -1313,7 +1313,7 @@ mod tests {
                 y: 9 << 8,
             },
         )];
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let command = glyph_command(&glyphs, &font);
         let viewport = Viewport::new(WIDTH as u16, HEIGHT as u16, Fixed::ONE);
         let clip = Rect::new(3, 2, 9, 8);
@@ -1482,7 +1482,7 @@ mod tests {
             GlyphId::new(u16::from(b'A')),
             FlowPoint { x: 0, y: 0 },
         )];
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let command = DrawCommand::GlyphRun {
             pos: Point::new(20, 25),
             transform: Transform::rotate_deg(Fixed::from_int(8)),
@@ -1507,7 +1507,7 @@ mod tests {
             },
             unit_tangent: FlowPoint { x: 1 << 8, y: 0 },
         }];
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let command = DrawCommand::PosedGlyphRun {
             pos: Point::ZERO,
             transform: Transform::IDENTITY,

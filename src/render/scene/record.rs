@@ -277,7 +277,7 @@ mod tests {
 
     #[test]
     fn positioned_glyphs_retain_their_placements() {
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let glyphs = [textflow::shaping::PositionedGlyph::new(
             GlyphId::new(65),
             textflow::shaping::FlowPoint { x: 0, y: 7 << 8 },
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn posed_glyphs_retain_one_paired_geometry_buffer() {
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let glyphs = [textflow::shaping::PositionedGlyph::new(
             GlyphId::new(65),
             textflow::shaping::FlowPoint { x: 0, y: 0 },

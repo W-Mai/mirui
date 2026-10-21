@@ -2,6 +2,12 @@
 
 mirui shapes text into positioned glyphs, then optionally places those glyphs on a registered vector path. The same `Path` and `PathId` types drive drawing, clipping, hit testing, and text baselines.
 
+## Default font and providers
+
+`Font::default()` opens the embedded ASCII MIRX face at 8 px. Its A1 atlas is borrowed from program storage. `font_size` scales both metrics and drawing; omitting it uses the selected font's size. Characters outside ASCII use the face's question-mark glyph unless a font stack supplies coverage. Applications that require more characters can register another MIRX font through `App::with_fonts`.
+
+Every font uses `FontProvider`, including the embedded face. A custom provider is shared through the `provider: Rc<dyn FontProvider>` field of `Font`; cloning a font shares that provider. Software and accelerated renderers consume the same raster regions and coverage metadata. The software renderer reads exact-size A1 coverage directly and resamples scaled coverage.
+
 ## Text box overflow
 
 Assign a finite width when text should wrap or show an ellipsis. `Ellipsis` also requires a font in the stack that maps U+2026. Explicitly sized axes clip ordinary `Text` to the transformed text box for both overflow policies; `Auto` and `Content` preserve glyph ink overhang within the ancestor clip. Path text uses its placed glyph geometry and ancestor clip because its ink can extend beyond the layout box.

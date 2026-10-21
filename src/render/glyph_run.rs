@@ -102,8 +102,9 @@ mod tests {
 
     #[test]
     fn ink_bounds_use_the_same_oriented_raster_quads_as_rendering() {
+        let font = Font::default();
         let glyphs = [PositionedGlyph::new(
-            GlyphId::new(u16::from(b'A')),
+            font.map_char('A').unwrap(),
             FlowPoint { x: 0, y: 0 },
         )];
         let frames = [GlyphFrame {
@@ -116,12 +117,7 @@ mod tests {
         let posed = PosedGlyphs::new(&glyphs, &frames).unwrap();
 
         assert_eq!(
-            posed.ink_bounds(
-                &Font::bitmap_8x8(),
-                Point::ZERO,
-                Transform::IDENTITY,
-                Fixed::ONE,
-            ),
+            posed.ink_bounds(&font, Point::ZERO, Transform::IDENTITY, Fixed::ONE,),
             Some(crate::types::Rect {
                 x: Fixed::from_int(11),
                 y: Fixed::from_int(1),

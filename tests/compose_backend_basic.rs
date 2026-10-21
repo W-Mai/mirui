@@ -434,7 +434,7 @@ fn default_methods_route_to_sw() {
         ::mirui::types::Fixed::from_int(4),
         &[],
     );
-    let font = mirui::render::font::Font::bitmap_8x8();
+    let font = mirui::render::font::Font::default();
     h.draw_glyph_run(
         &Point::ZERO,
         &[mirui::text::PositionedGlyph::default()],

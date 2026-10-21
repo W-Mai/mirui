@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The default ASCII font is embedded as MIRX and shares font providers, raster surfaces and rendering paths with other fonts. Explicit font sizes scale its metrics and glyphs; the default remains 8 px.
+- `Font::default()` replaces the bitmap constructor. `Font::provider` replaces `FontBackend`; raw bitmap exports and mono-only rendering paths are removed.
+
 ### Performance
 
 - Software rendering reads exact-size A1 glyph coverage without bilinear interpolation.

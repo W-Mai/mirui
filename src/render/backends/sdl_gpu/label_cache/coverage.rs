@@ -181,7 +181,7 @@ mod tests {
 
     #[test]
     fn retained_geometry_checks_full_signature_and_keeps_ordered_bounded_batches() {
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let glyph = PositionedGlyph::new(font.map_char('A').unwrap(), FlowPoint { x: 0, y: 0 });
         let mut glyphs = alloc::vec![glyph; 500];
         let run = CoverageRun::prepare(&glyphs, &font, Fixed::ONE, (4096, 4096))
@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn admission_rejects_capacity_and_unsupported_surfaces_before_allocating() {
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let glyph = PositionedGlyph::new(font.map_char('A').unwrap(), FlowPoint { x: 0, y: 0 });
         let oversized = alloc::vec![glyph; 10_000];
         assert_eq!(
@@ -229,7 +229,7 @@ mod tests {
         use super::super::{CachedRun, RunKey};
         use crate::core::cache::{CacheInspect, LruCache, MaxSize};
 
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let glyphs = [PositionedGlyph::new(
             font.map_char('A').unwrap(),
             FlowPoint { x: 0, y: 0 },

@@ -2442,7 +2442,7 @@ mod tests {
             &ops,
             &mut renderer,
             &Rect::new(0, 0, 200, 100),
-            &BitmapResolver(Font::bitmap_8x8()),
+            &BitmapResolver(Font::default()),
             ReplayScratch::new(&mut frames, &mut routes, &mut scopes).with_rgba(&mut rgba),
         )
         .unwrap();
@@ -2509,7 +2509,7 @@ mod tests {
             !resolved_children_disjoint(
                 &ops,
                 ReplayFrame::EMPTY,
-                &BitmapResolver(Font::bitmap_8x8()),
+                &BitmapResolver(Font::default()),
                 Fixed::ONE,
                 &mut frames,
             )
@@ -3116,13 +3116,7 @@ mod tests {
         }];
         let mut renderer = GlyphRenderer { glyphs: 0, ppem: 0 };
 
-        replay_scene(
-            &ops,
-            &mut renderer,
-            &rect(),
-            &FontResolver(Font::bitmap_8x8()),
-        )
-        .unwrap();
+        replay_scene(&ops, &mut renderer, &rect(), &FontResolver(Font::default())).unwrap();
 
         assert_eq!(renderer.glyphs, 1);
         assert_eq!(renderer.ppem, 19);
@@ -3196,13 +3190,7 @@ mod tests {
             tangent: None,
         };
 
-        replay_scene(
-            &ops,
-            &mut renderer,
-            &rect(),
-            &FontResolver(Font::bitmap_8x8()),
-        )
-        .unwrap();
+        replay_scene(&ops, &mut renderer, &rect(), &FontResolver(Font::default())).unwrap();
 
         assert_eq!(renderer.origin, Some(origin));
         assert_eq!(renderer.tangent, Some(tangent));

@@ -3,15 +3,12 @@
 //! [`FontManager`] (a `ResourceManager<Font>`) is the World resource
 //! that maps a [`FontToken`] cache key to a concrete [`Font`]. Built-in
 //! widgets resolve a [`FontStack`] through the manager. The fallback provider
-//! is the 8x8 ASCII bitmap; external font formats plug in through
-//! [`FontProvider`] behind [`FontBackend::Custom`].
+//! is an embedded MIRX face; external font formats plug in through
+//! [`FontProvider`].
 
-pub mod bitmap_8x8;
 pub mod mirx;
 pub(crate) mod scalar;
 pub mod sdf;
-
-pub use bitmap_8x8::{CHAR_H, CHAR_W, FONT_8X8, glyph};
 
 use alloc::{borrow::Cow, rc::Rc};
 
@@ -357,8 +354,6 @@ pub(crate) fn output_ppem(ppem: u16, scale: Fixed) -> u16 {
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub enum GlyphKind<'a> {
-    /// Bitmap rows, one byte per row, MSB = leftmost pixel.
-    Mono(&'static [u8]),
     /// Borrowed scalar samples in their declared physical plane.
     Raster {
         samples: &'a [u8],
@@ -544,56 +539,44 @@ impl<P: FontProvider + ?Sized> textflow::shaping::GlyphSource for ProviderGlyphS
     }
 }
 
-/// Glyph source backing a [`Font`]: the bundled 8x8 bitmap, or a
-/// caller-supplied [`FontProvider`]. `Rc` (not `Box`) so `Font` is
-/// `Clone` — `ResourceManager<Font>` requires it, and a clone is a
-/// refcount bump, never a provider copy.
+/// A font resource with shared provider storage and logical pixel size.
 #[derive(Clone)]
-pub enum FontBackend {
-    /// 8x8 ASCII bitmap, ASCII 32..127.
-    Bitmap8x8,
-    /// Caller-supplied provider.
-    Custom(Rc<dyn FontProvider>),
-}
-
-impl core::fmt::Debug for FontBackend {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            FontBackend::Bitmap8x8 => f.write_str("Bitmap8x8"),
-            FontBackend::Custom(_) => f.write_str("Custom(<dyn FontProvider>)"),
-        }
-    }
-}
-
-/// A font resource: family / size identity + a glyph backend.
-#[derive(Debug, Clone)]
 pub struct Font {
     pub family: &'static str,
     pub size: u16,
-    pub backend: FontBackend,
+    pub provider: Rc<dyn FontProvider>,
+}
+
+impl core::fmt::Debug for Font {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Font")
+            .field("family", &self.family)
+            .field("size", &self.size)
+            .field("face_id", &self.face_id())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Default for Font {
+    /// Opens the embedded ASCII MIRX font at 8 px; clones share its provider.
+    fn default() -> Self {
+        Self::from_mirx(
+            "default",
+            8,
+            include_bytes!("assets/default.mirx"),
+            &::mirx::reader::PayloadLimits::EMBEDDED,
+        )
+        .expect("embedded font is validated during asset generation")
+    }
 }
 
 impl Font {
-    pub fn bitmap_8x8() -> Self {
-        Self {
-            family: "bitmap8x8",
-            size: 8,
-            backend: FontBackend::Bitmap8x8,
-        }
-    }
-
     pub fn face_id(&self) -> FontFaceId {
-        match &self.backend {
-            FontBackend::Bitmap8x8 => FontFaceId::new(1),
-            FontBackend::Custom(provider) => provider.face_id(),
-        }
+        self.provider.face_id()
     }
 
     pub fn revision(&self) -> u64 {
-        match &self.backend {
-            FontBackend::Bitmap8x8 => 0,
-            FontBackend::Custom(provider) => provider.revision(),
-        }
+        self.provider.revision()
     }
 
     #[cfg(any(
@@ -623,37 +606,15 @@ impl Font {
     }
 
     pub fn map_char(&self, ch: char) -> Option<GlyphId> {
-        match &self.backend {
-            FontBackend::Bitmap8x8 => ('\u{20}'..'\u{7f}')
-                .contains(&ch)
-                .then_some(GlyphId::new(ch as u16)),
-            FontBackend::Custom(provider) => provider.map_char(ch),
-        }
+        self.provider.map_char(ch)
     }
 
     pub fn glyph_advance(&self, glyph: GlyphId, ppem: u16) -> Option<Fixed> {
-        match &self.backend {
-            FontBackend::Bitmap8x8 => Some(Fixed::from_int(bitmap_8x8::CHAR_W as i32)),
-            FontBackend::Custom(provider) => provider.glyph_advance(glyph, ppem),
-        }
-    }
-
-    pub(crate) fn packed_mono_glyph(&self, glyph: GlyphId) -> Option<&'static [u8]> {
-        let FontBackend::Bitmap8x8 = &self.backend else {
-            return None;
-        };
-        let value = u8::try_from(glyph.value()).ok()?;
-        let GlyphKind::Mono(bitmap) = bitmap_8x8_glyph(value as char)?.kind else {
-            return None;
-        };
-        Some(bitmap)
+        self.provider.glyph_advance(glyph, ppem)
     }
 
     pub fn raster(&self, glyph: GlyphId, ppem: u16) -> Option<RasterGlyph<'_>> {
-        match &self.backend {
-            FontBackend::Bitmap8x8 => None,
-            FontBackend::Custom(provider) => provider.raster(glyph, ppem, ppem),
-        }
+        self.provider.raster(glyph, ppem, ppem)
     }
 
     pub(crate) fn raster_for_output(
@@ -662,53 +623,15 @@ impl Font {
         layout_ppem: u16,
         output_ppem: u16,
     ) -> Option<RasterGlyph<'_>> {
-        match &self.backend {
-            FontBackend::Bitmap8x8 => {
-                let value = u8::try_from(glyph.value()).ok()?;
-                let ordinal = value.checked_sub(b' ')?;
-                if ordinal >= 95 {
-                    return None;
-                }
-                Some(RasterGlyph {
-                    surface: GlyphSurface::new(
-                        bitmap_8x8::FONT_8X8,
-                        bitmap_8x8::CHAR_W,
-                        bitmap_8x8::CHAR_H * 95,
-                        1,
-                        ::mirx::image::SampleLayout::A1,
-                        ::mirx::types::ByteAlignment::ONE,
-                        FontSurfaceId::new(u64::MAX),
-                    )
-                    .ok()?,
-                    region: ::mirx::image::Region::new(
-                        0,
-                        u32::from(ordinal) * bitmap_8x8::CHAR_H,
-                        bitmap_8x8::CHAR_W,
-                        bitmap_8x8::CHAR_H,
-                    )
-                    .ok(),
-                    offset_x: Fixed::ZERO,
-                    offset_y: BITMAP_8X8_METRICS.ascender,
-                    representation: ::mirx::font::FontRepresentation::coverage(
-                        1,
-                        layout_ppem.max(1),
-                        bitmap_8x8::FONT_8X8.len() as u32,
-                    )
-                    .ok()?,
-                })
-            }
-            FontBackend::Custom(provider) => provider.raster(glyph, layout_ppem, output_ppem),
-        }
+        self.provider.raster(glyph, layout_ppem, output_ppem)
     }
 
     pub fn glyph(&self, ch: char, requested_size: u16) -> Option<Glyph<'_>> {
-        match &self.backend {
-            FontBackend::Bitmap8x8 => bitmap_8x8_glyph(ch),
-            FontBackend::Custom(provider) => {
-                let glyph = provider.map_char(ch).or_else(|| provider.notdef_glyph())?;
-                self.glyph_by_id(glyph, requested_size)
-            }
-        }
+        let glyph = self
+            .provider
+            .map_char(ch)
+            .or_else(|| self.provider.notdef_glyph())?;
+        self.glyph_by_id(glyph, requested_size)
     }
 
     pub fn glyph_by_id(&self, glyph: GlyphId, requested_size: u16) -> Option<Glyph<'_>> {
@@ -721,33 +644,22 @@ impl Font {
         requested_size: u16,
         output_ppem: u16,
     ) -> Option<Glyph<'_>> {
-        match &self.backend {
-            FontBackend::Bitmap8x8 => {
-                let value = u8::try_from(glyph.value()).ok()?;
-                if !(b' '..0x7f).contains(&value) {
-                    return None;
-                }
-                bitmap_8x8_glyph(value as char)
-            }
-            FontBackend::Custom(provider) => {
-                let advance = provider.glyph_advance(glyph, requested_size)?;
-                let raster = provider.raster(glyph, requested_size, output_ppem)?;
-                let region = raster.region.unwrap_or_else(|| {
-                    ::mirx::image::Region::new(0, 0, 0, 0).expect("empty glyph region")
-                });
-                Some(Glyph {
-                    advance,
-                    kind: GlyphKind::Raster {
-                        samples: raster.surface.samples,
-                        stride: raster.surface.stride,
-                        region,
-                        representation: raster.representation,
-                        bearing_x: raster.offset_x,
-                        bearing_y: raster.offset_y,
-                    },
-                })
-            }
-        }
+        let advance = self.provider.glyph_advance(glyph, requested_size)?;
+        let raster = self.provider.raster(glyph, requested_size, output_ppem)?;
+        let region = raster
+            .region
+            .unwrap_or_else(|| ::mirx::image::Region::new(0, 0, 0, 0).expect("empty glyph region"));
+        Some(Glyph {
+            advance,
+            kind: GlyphKind::Raster {
+                samples: raster.surface.samples,
+                stride: raster.surface.stride,
+                region,
+                representation: raster.representation,
+                bearing_x: raster.offset_x,
+                bearing_y: raster.offset_y,
+            },
+        })
     }
 
     pub(crate) fn glyph_run_ink_bounds(
@@ -791,12 +703,6 @@ impl Font {
             let dx = crate::types::fixed::from_textflow(dx);
             let dy = crate::types::fixed::from_textflow(dy);
             let rect = match glyph.kind {
-                GlyphKind::Mono(_) => Rect {
-                    x: dx,
-                    y: dy,
-                    w: Fixed::from_int(bitmap_8x8::CHAR_W as i32),
-                    h: metrics.line_height,
-                },
                 GlyphKind::Raster {
                     region,
                     representation,
@@ -827,10 +733,7 @@ impl Font {
 
     /// Cheap metrics — no glyph touch.
     pub fn metrics(&self, requested_size: u16) -> FontMetrics {
-        match &self.backend {
-            FontBackend::Bitmap8x8 => BITMAP_8X8_METRICS,
-            FontBackend::Custom(p) => p.metrics(requested_size),
-        }
+        self.provider.metrics(requested_size)
     }
 
     #[cfg(any(
@@ -845,12 +748,7 @@ impl Font {
     }
 
     pub fn covers(&self, cluster: &str) -> bool {
-        match &self.backend {
-            FontBackend::Bitmap8x8 => {
-                !cluster.is_empty() && cluster.chars().all(|ch| ('\u{20}'..'\u{7f}').contains(&ch))
-            }
-            FontBackend::Custom(provider) => provider.covers(cluster),
-        }
+        self.provider.covers(cluster)
     }
 
     pub fn shape_into(
@@ -859,24 +757,11 @@ impl Font {
         request: &textflow::shaping::ShapeRequest<'_>,
         output: &mut [textflow::shaping::ShapedGlyph],
     ) -> Result<usize, textflow::shaping::ShapeError> {
-        match &self.backend {
-            FontBackend::Bitmap8x8 => {
-                let source = FontGlyphSource { font: self, ppem };
-                textflow::shaping::Typeface::shape_into(
-                    &textflow::shaping::SimpleTypeface::new(&source),
-                    request,
-                    output,
-                )
-            }
-            FontBackend::Custom(provider) => provider.shape_into(ppem, request, output),
-        }
+        self.provider.shape_into(ppem, request, output)
     }
 
     pub fn supports_complex_shaping(&self) -> bool {
-        match &self.backend {
-            FontBackend::Bitmap8x8 => false,
-            FontBackend::Custom(provider) => provider.supports_complex_shaping(),
-        }
+        self.provider.supports_complex_shaping()
     }
 }
 
@@ -1009,10 +894,7 @@ impl ResolvedFontStack {
         for font in self.fonts[..self.len].iter().filter_map(Option::as_ref) {
             write(&font.face_id().value().to_le_bytes());
             write(&font.revision().to_le_bytes());
-            let storage = match &font.backend {
-                FontBackend::Bitmap8x8 => 0,
-                FontBackend::Custom(provider) => Rc::as_ptr(provider) as *const () as usize as u64,
-            };
+            let storage = Rc::as_ptr(&font.provider) as *const () as usize as u64;
             write(&storage.to_le_bytes());
         }
         fingerprint
@@ -1124,25 +1006,6 @@ impl textflow::shaping::Typeface for FontTypeface<'_> {
     }
 }
 
-const BITMAP_8X8_METRICS: FontMetrics = FontMetrics {
-    ascender: crate::types::Fixed::from_int(7),
-    descender: crate::types::Fixed::from_int(-1),
-    line_height: crate::types::Fixed::from_int(8),
-};
-
-fn bitmap_8x8_glyph(ch: char) -> Option<Glyph<'static>> {
-    let byte = if ('\u{20}'..'\u{7f}').contains(&ch) {
-        ch as u8
-    } else {
-        b'?'
-    };
-    let bitmap: &'static [u8; 8] = bitmap_8x8::glyph(byte);
-    Some(Glyph {
-        advance: crate::types::Fixed::from_int(bitmap_8x8::CHAR_W as i32),
-        kind: GlyphKind::Mono(bitmap),
-    })
-}
-
 impl crate::core::cache::HasSize for FontMetrics {
     fn cache_size(&self) -> usize {
         core::mem::size_of::<Self>()
@@ -1234,15 +1097,15 @@ impl FontToken {
 
 /// World resource mapping a [`FontToken`] cache key to a [`Font`].
 ///
-/// The manager's fallback is [`Font::bitmap_8x8`], so any unregistered
-/// token resolves to the bundled bitmap — widgets never see a missing
+/// The manager's fallback is [`Font::default`], so any unregistered
+/// token resolves to the embedded MIRX font — widgets never see a missing
 /// font.
 pub type FontManager = ResourceManager<Font>;
 
 /// Build the default font manager: an unbounded-budget
-/// [`ResourceManager`] whose fallback is the 8x8 bitmap.
+/// [`ResourceManager`] whose fallback is the embedded 8 px MIRX font.
 pub(crate) fn default_font_manager() -> FontManager {
-    ResourceManager::new(crate::core::cache::MaxSize::Unbound, Font::bitmap_8x8())
+    ResourceManager::new(crate::core::cache::MaxSize::Unbound, Font::default())
 }
 
 /// Resolve `token` against the World's [`FontManager`], or `None` when
@@ -1311,8 +1174,10 @@ mod tests {
     fn positioned_raster_preserves_baseline_offsets_and_representation_scale() {
         use textflow::shaping::{FlowPoint, PositionedGlyph};
 
-        let font = Font::bitmap_8x8();
-        let mut raster = font.raster_for_output(GlyphId::new(65), 8, 8).unwrap();
+        let font = Font::default();
+        let mut raster = font
+            .raster_for_output(font.map_char('A').unwrap(), 8, 8)
+            .unwrap();
         raster.offset_x = Fixed::from_int(-2);
         raster.offset_y = Fixed::from_int(5);
         let first = FlowPoint {
@@ -1375,8 +1240,10 @@ mod tests {
     fn raster_geometry_rejects_missing_ink_and_position_overflow() {
         use textflow::shaping::{FlowPoint, PositionedGlyph};
 
-        let font = Font::bitmap_8x8();
-        let mut raster = font.raster_for_output(GlyphId::new(65), 8, 8).unwrap();
+        let font = Font::default();
+        let mut raster = font
+            .raster_for_output(font.map_char('A').unwrap(), 8, 8)
+            .unwrap();
         let quad = |raster: RasterGlyph<'_>, first, glyph: PositionedGlyph| {
             raster.positioned_quad(
                 Point::ZERO,
@@ -1416,7 +1283,7 @@ mod tests {
     ))]
     #[test]
     fn cached_run_origin_maps_a_baseline_to_a_line_top() {
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let baseline = Point::new(11, 21);
         let origin = font.line_origin_for_baseline(baseline);
         assert_eq!(origin.x, baseline.x);
@@ -1461,7 +1328,7 @@ mod tests {
     #[cfg(feature = "sdl-gpu")]
     #[test]
     fn raster_run_key_uses_font_identity_but_not_composite_alpha() {
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let scale = Fixed::from_ratio(3, 2);
         let faint = font.raster_run_key(&[], &crate::types::Color::rgba(1, 2, 3, 40), scale);
         let opaque = font.raster_run_key(&[], &crate::types::Color::rgba(1, 2, 3, 255), scale);
@@ -1476,10 +1343,10 @@ mod tests {
     }
 
     #[test]
-    fn default_token_resolves_to_bitmap8x8() {
+    fn default_token_resolves_to_mirx() {
         let mgr = default_font_manager();
         let f = mgr.resolve(FontToken::Default.cache_key());
-        assert_eq!(f.family, "bitmap8x8");
+        assert_eq!(f.family, "default");
         assert_eq!(f.size, 8);
     }
 
@@ -1518,10 +1385,10 @@ mod tests {
     }
 
     #[test]
-    fn unbound_token_falls_back_to_bitmap() {
+    fn unbound_token_falls_back_to_mirx() {
         let mgr = default_font_manager();
         let f = mgr.resolve(FontToken::Heading.cache_key());
-        assert_eq!(f.family, "bitmap8x8");
+        assert_eq!(f.family, "default");
     }
 
     #[test]
@@ -1532,7 +1399,7 @@ mod tests {
             Font {
                 family: "fake-heading",
                 size: 16,
-                backend: FontBackend::Bitmap8x8,
+                provider: Font::default().provider,
             },
         );
         let f = mgr.resolve(FontToken::Heading.cache_key());
@@ -1548,7 +1415,7 @@ mod tests {
             Font {
                 family: "user-default",
                 size: 12,
-                backend: FontBackend::Bitmap8x8,
+                provider: Font::default().provider,
             },
         );
         assert_eq!(
@@ -1566,7 +1433,7 @@ mod tests {
             Font {
                 family: "brand-face",
                 size: 10,
-                backend: FontBackend::Bitmap8x8,
+                provider: Font::default().provider,
             },
         );
         assert_eq!(mgr.resolve(token.cache_key()).family, "brand-face");
@@ -1669,48 +1536,79 @@ mod tests {
 
     #[test]
     fn metrics_is_extractable_via_has_probe() {
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let meta = font.extract_meta();
-        assert_eq!(meta, BITMAP_8X8_METRICS);
+        assert_eq!(meta.ascender, Fixed::from_int(7));
+        assert_eq!(meta.descender, Fixed::from_int(-1));
         assert_eq!(meta.line_height, crate::types::Fixed::from_int(8));
-    }
-
-    fn unwrap_mono<'a>(g: &'a Glyph<'a>) -> &'a [u8] {
-        match &g.kind {
-            GlyphKind::Mono(b) => b,
-            other => panic!("expected Mono, got {:?}", other),
-        }
     }
 
     #[test]
     fn glyph_roundtrip_for_ascii() {
-        let font = Font::bitmap_8x8();
-        let g = font.glyph('A', 16).expect("ASCII glyph");
-        assert_eq!(g.advance, crate::types::Fixed::from_int(8));
-        assert_eq!(unwrap_mono(&g).len(), 8);
+        let font = Font::default();
+        for ppem in [8, 16, 24] {
+            let glyph = font.glyph('A', ppem).expect("ASCII glyph");
+            assert_eq!(glyph.advance, Fixed::from_int(i32::from(ppem)));
+            assert_eq!(
+                font.metrics(ppem).line_height,
+                Fixed::from_int(i32::from(ppem))
+            );
+            let GlyphKind::Raster {
+                region,
+                representation,
+                bearing_y,
+                ..
+            } = glyph.kind;
+            assert_eq!((region.width(), region.height()), (8, 8));
+            assert_eq!(representation.design_ppem(), 8);
+            assert_eq!(bearing_y, Fixed::from_ratio(i32::from(ppem) * 7, 8));
+        }
     }
 
     #[test]
     fn glyph_falls_back_to_question_mark_outside_ascii() {
-        let font = Font::bitmap_8x8();
-        let g = font.glyph('日', 16).expect("fallback glyph");
-        let q = font.glyph('?', 16).expect("? glyph");
-        assert_eq!(unwrap_mono(&g), unwrap_mono(&q));
+        let font = Font::default();
+        let GlyphKind::Raster { region: actual, .. } = font.glyph('日', 16).unwrap().kind;
+        let GlyphKind::Raster {
+            region: expected, ..
+        } = font.glyph('?', 16).unwrap().kind;
+        assert_eq!(actual, expected);
     }
 
     #[test]
-    fn glyph_returns_mono_for_bitmap_8x8() {
-        let font = Font::bitmap_8x8();
-        let g = font.glyph('A', 16).expect("ASCII glyph");
-        assert!(matches!(g.kind, GlyphKind::Mono(_)));
+    fn default_font_borrows_shared_mirx_surface() {
+        let font = Font::default();
+        let cloned = font.clone();
+        assert!(Rc::ptr_eq(&font.provider, &cloned.provider));
+        let a = font.raster(font.map_char('A').unwrap(), 8).unwrap();
+        let b = cloned.raster(cloned.map_char('B').unwrap(), 8).unwrap();
+        assert_eq!(a.surface.samples().as_ptr(), b.surface.samples().as_ptr());
+        assert_eq!(a.surface.sample_layout(), ::mirx::image::SampleLayout::A1);
+        assert_eq!(a.surface.samples().len(), 760);
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for size in [8, 12, 16, 24] {
+                    let clone = font.clone();
+                    for ch in ' '..='~' {
+                        let glyph = clone.map_char(ch).unwrap();
+                        assert!(clone.raster(glyph, size).is_some());
+                        assert_eq!(
+                            clone.glyph_advance(glyph, size),
+                            Some(Fixed::from_int(i32::from(size)))
+                        );
+                    }
+                }
+            }),
+            0
+        );
     }
 
     #[cfg(feature = "wgpu")]
     #[test]
-    fn bitmap_font_exposes_the_shared_coverage_surface_to_gpu_backends() {
-        let font = Font::bitmap_8x8();
+    fn default_font_exposes_the_shared_coverage_surface_to_gpu_backends() {
+        let font = Font::default();
         let raster = font
-            .raster_for_output(GlyphId::new(u16::from(b'A')), 8, 16)
+            .raster_for_output(font.map_char('A').unwrap(), 8, 16)
             .unwrap();
 
         assert_eq!(
@@ -1770,7 +1668,7 @@ mod tests {
         let font = Font {
             family: "all-x",
             size: 6,
-            backend: FontBackend::Custom(Rc::new(AllX)),
+            provider: Rc::new(AllX),
         };
         assert_eq!(
             font.glyph('A', 16).unwrap().advance,
@@ -1820,7 +1718,11 @@ mod tests {
             }
 
             fn metrics(&self, _ppem: u16) -> FontMetrics {
-                BITMAP_8X8_METRICS
+                FontMetrics {
+                    ascender: Fixed::from_int(7),
+                    descender: Fixed::from_int(-1),
+                    line_height: Fixed::from_int(8),
+                }
             }
 
             fn shape_into(
@@ -1841,7 +1743,7 @@ mod tests {
         let font = Font {
             family: "language-probe",
             size: 8,
-            backend: FontBackend::Custom(Rc::new(LanguageProbe)),
+            provider: Rc::new(LanguageProbe),
         };
         let face = FontTypeface::new(&font, 8).with_language(Some("zh-Hans"));
         let request = textflow::shaping::ShapeRequest::new(
@@ -1860,7 +1762,7 @@ mod tests {
 
     #[test]
     fn required_shaping_rejects_simple_faces() {
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let face =
             FontTypeface::new(&font, 8).with_shaping(crate::ui::widgets::ShapingPolicy::Required);
         let request = textflow::shaping::ShapeRequest::new(
@@ -1904,7 +1806,11 @@ mod tests {
             }
 
             fn metrics(&self, _ppem: u16) -> FontMetrics {
-                BITMAP_8X8_METRICS
+                FontMetrics {
+                    ascender: Fixed::from_int(7),
+                    descender: Fixed::from_int(-1),
+                    line_height: Fixed::from_int(8),
+                }
             }
 
             fn supports_complex_shaping(&self) -> bool {
@@ -1931,7 +1837,7 @@ mod tests {
         let font = Font {
             family: "complex-probe",
             size: 8,
-            backend: FontBackend::Custom(Rc::new(ComplexProbe)),
+            provider: Rc::new(ComplexProbe),
         };
         let request = textflow::shaping::ShapeRequest::new(
             "A",

@@ -791,7 +791,7 @@ mod tests {
 
     #[test]
     fn scalar_admission_checks_actual_representation_and_surface_budget() {
-        let font = Font::bitmap_8x8();
+        let font = Font::default();
         let mut raster = font
             .raster_for_output(font.map_char('A').unwrap(), 8, 8)
             .unwrap();

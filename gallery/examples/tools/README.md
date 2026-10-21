@@ -1,5 +1,7 @@
 # Snapshot tools
 
+The embedded font asset can be regenerated with `cargo xtask gen-mirx builtin-font`; `cargo xtask gen-mirx builtin-font --check` verifies it against the glyph source. The generator uses the MIRX font encoder and does not require external font tooling.
+
 Run these commands from the repository root. Headless tools use the software framebuffer and do not open a window. PNG tools that convert PPM files require Pillow in the `python3` environment; the effect and modal tools write PPM directly.
 
 ```sh
