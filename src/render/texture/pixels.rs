@@ -91,8 +91,17 @@ impl ColorFormat {
     #[inline(always)]
     pub(super) fn write_pixel(self, bytes: &mut [u8], offset: usize, color: &Color) {
         let packed = self.pack(color).to_le_bytes();
-        let len = self.bytes_per_pixel();
-        bytes[offset..offset + len].copy_from_slice(&packed[..len]);
+        match self {
+            Self::RGB565 | Self::RGB565Swapped => {
+                bytes[offset..offset + 2].copy_from_slice(&packed[..2]);
+            }
+            Self::RGB888 => {
+                bytes[offset..offset + 3].copy_from_slice(&packed[..3]);
+            }
+            Self::RGBA8888 | Self::BGRA8888 => {
+                bytes[offset..offset + 4].copy_from_slice(&packed);
+            }
+        }
     }
 }
 
@@ -111,24 +120,26 @@ mod tests {
         ] {
             for channel in 0..=255 {
                 let color = Color::rgba(channel, 255 - channel, channel / 2, channel);
-                let mut bytes = [0xa5; 8];
-                format.write_pixel(&mut bytes, 2, &color);
-                let end = 2 + format.bytes_per_pixel();
-                assert_eq!(&bytes[..2], &[0xa5; 2]);
-                assert!(bytes[end..].iter().all(|byte| *byte == 0xa5));
-                assert_eq!(
-                    &bytes[2..end],
-                    &format.pack(&color).to_le_bytes()[..format.bytes_per_pixel()]
-                );
-                let decoded = format.read_pixel(&bytes, 2);
-                match format {
-                    ColorFormat::RGBA8888 | ColorFormat::BGRA8888 => assert_eq!(decoded, color),
-                    ColorFormat::RGB888 => assert_eq!(decoded, Color { a: 255, ..color }),
-                    ColorFormat::RGB565 | ColorFormat::RGB565Swapped => {
-                        assert_eq!(decoded.a, 255);
-                        assert!(decoded.r.abs_diff(color.r) <= 7);
-                        assert!(decoded.g.abs_diff(color.g) <= 3);
-                        assert!(decoded.b.abs_diff(color.b) <= 7);
+                for offset in 0..=4 {
+                    let mut bytes = [0xa5; 8];
+                    format.write_pixel(&mut bytes, offset, &color);
+                    let end = offset + format.bytes_per_pixel();
+                    assert!(bytes[..offset].iter().all(|byte| *byte == 0xa5));
+                    assert!(bytes[end..].iter().all(|byte| *byte == 0xa5));
+                    assert_eq!(
+                        &bytes[offset..end],
+                        &format.pack(&color).to_le_bytes()[..format.bytes_per_pixel()]
+                    );
+                    let decoded = format.read_pixel(&bytes, offset);
+                    match format {
+                        ColorFormat::RGBA8888 | ColorFormat::BGRA8888 => assert_eq!(decoded, color),
+                        ColorFormat::RGB888 => assert_eq!(decoded, Color { a: 255, ..color }),
+                        ColorFormat::RGB565 | ColorFormat::RGB565Swapped => {
+                            assert_eq!(decoded.a, 255);
+                            assert!(decoded.r.abs_diff(color.r) <= 7);
+                            assert!(decoded.g.abs_diff(color.g) <= 3);
+                            assert!(decoded.b.abs_diff(color.b) <= 7);
+                        }
                     }
                 }
             }
