@@ -8,6 +8,10 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_BUILD_JOBS: 2
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
 
 jobs:
   ci:
@@ -25,4 +29,11 @@ jobs:
       - run: cargo install xrune-fmt
       - run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/W-Mai/Cha/releases/download/v1.20.0/cha-cli-installer.sh | sh
       - run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      - name: Report available build storage
+        run: df -h .
       - run: cargo xtask ci
+      - name: Report build storage usage
+        if: always()
+        run: |
+          df -h .
+          if [ -d target ]; then du -sh target; fi
