@@ -131,9 +131,9 @@ mod paint_contract_tests {
         }
     }
 
-    fn prepared_manager(with_raster: bool) -> FontManager {
+    fn prepared_manager(with_custom_font: bool) -> FontManager {
         let manager = default_font_manager();
-        if with_raster {
+        if with_custom_font {
             let font = Font::from_mirx(
                 "contour",
                 24,
@@ -166,8 +166,13 @@ mod paint_contract_tests {
         let render = view.render().unwrap();
         let rect = Rect::new(11, 17, 256, 256);
         let style = Style::default();
-        for with_raster in [false, true, false, true] {
-            app.world.insert_resource(prepared_manager(with_raster));
+        for with_custom_font in [false, true, false, true] {
+            let manager = prepared_manager(with_custom_font);
+            let font = manager.resolve(UI.cache_key());
+            let raster = font.raster(font.map_char('S').unwrap(), 56).unwrap();
+            let region = raster.region.unwrap();
+            let expected_calls = region.width() as usize * region.height() as usize;
+            app.world.insert_resource(manager);
             for light in [false, true] {
                 if light {
                     app.world.insert_resource(Theme::light());
@@ -190,19 +195,15 @@ mod paint_contract_tests {
                             tracked_allocations(|| render(&app.world, node, &mut paint)),
                             0
                         );
-                        let draws = with_raster;
                         assert_eq!(
                             paint.error(),
-                            if fail && draws {
+                            if fail {
                                 Some(RenderError::BackendFailure)
                             } else {
                                 None
                             }
                         );
-                        assert_eq!(renderer.calls != 0, draws);
-                        if fail && draws {
-                            assert_eq!(renderer.calls, 1);
-                        }
+                        assert_eq!(renderer.calls, if fail { 1 } else { expected_calls });
                     }
                 }
             }

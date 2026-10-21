@@ -19,7 +19,7 @@ pub fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "isolated group · caller-owned RGBA workspace",
+                "Isolated group / RGBA workspace",
                 height: 20,
                 font_size: 11,
                 text_color: ColorToken::OnSurfaceVariant,

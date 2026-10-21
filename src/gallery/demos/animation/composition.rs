@@ -24,8 +24,10 @@ pub fn build_widgets() {
             ) {
                 Row (
                     id: "animation_header",
+                    width: Dimension::percent(100),
                     height: 52,
                     align: AlignItems::Center,
+                    column_gap: 8,
                     padding: Padding {
                         top: Dimension::px(12),
                         right: Dimension::px(16),
@@ -36,15 +38,15 @@ pub fn build_widgets() {
                     Text (
                         "TWEEN MOTION",
                         grow: 1.0,
-                        font_size: 16,
+                        font_size: 12,
                         text_color: ColorToken::OnSurfaceVariant,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "PING · PONG",
-                        width: 100,
+                        "PING / PONG",
+                        width: 104,
                         height: 24,
-                        font_size: 10,
+                        font_size: 8,
                         bg_color: ColorToken::Surface,
                         text_color: ColorToken::Primary,
                         border_radius: 12,

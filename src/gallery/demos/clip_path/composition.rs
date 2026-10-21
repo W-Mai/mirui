@@ -19,9 +19,10 @@ pub fn build_widgets() {
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )
             Text (
-                "one vector boundary, four semantic layers",
+                "One boundary / four layers",
+                width: Dimension::percent(100),
                 height: 20,
-                font_size: 11,
+                font_size: 10,
                 text_color: ColorToken::OnSurfaceVariant,
                 paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
             )

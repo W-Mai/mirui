@@ -68,13 +68,13 @@ pub fn build_widgets(view_w: u16, view_h: u16, n_bodies: usize, equilibrium: Fix
                         "THREE-BODY FIELD",
                         grow: 1.0,
                         height: 26,
-                        font_size: 15,
+                        font_size: if view_w < 400 { 10 } else { 15 },
                         text_color: ColorToken::OnSurface,
                         paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                     )
                     Text (
-                        "FIXED · LIVE",
-                        width: 104,
+                        "FIXED / LIVE",
+                        width: 112,
                         height: 22,
                         font_size: 9,
                         bg_color: ColorToken::SurfaceVariant,

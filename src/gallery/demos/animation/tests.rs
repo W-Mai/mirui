@@ -35,4 +35,14 @@ fn phone_header_stays_inside_the_animation_stage() {
     let header = rect("animation_header");
     assert!(header.x >= stage.x);
     assert!(header.x + header.w <= stage.x + stage.w);
+    let children = world
+        .get::<Children>(world.find_by_id("animation_header").unwrap())
+        .unwrap();
+    let mut previous_end = header.x;
+    for child in &children.0 {
+        let child = world.get::<ComputedRect>(*child).unwrap().0;
+        assert!(child.x >= previous_end);
+        assert!(child.x + child.w <= header.x + header.w);
+        previous_end = child.x + child.w;
+    }
 }

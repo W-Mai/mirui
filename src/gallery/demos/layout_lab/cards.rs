@@ -19,18 +19,19 @@ pub(super) fn compose_header() -> Entity {
             column_gap: 14
         ) {
             View (width: 8, height: 42, bg_color: CYAN, border_radius: 4)
-            Column (grow: 1.0, min_width: 150, row_gap: 3) {
+            Column (grow: 1.0, height: 62, min_width: 150, row_gap: 3) {
                 Text (
                     "LAYOUT LAB",
                     width: Dimension::percent(100),
+                    height: 28,
                     font_size: 24,
                     text_color: TEXT,
                     paragraph: bounded_body(1)
                 )
                 Text (
-                    "responsive geometry / one widget tree",
+                    "Responsive widget tree",
                     width: Dimension::percent(100),
-                    min_height: 18,
+                    height: 28,
                     font_size: 13,
                     text_color: MUTED,
                     paragraph: bounded_body(2)
@@ -50,7 +51,7 @@ pub(super) fn compose_header() -> Entity {
                     if layout_lab_document.width < Fixed::from_int(640) {
                         Dimension::percent(100)
                     } else {
-                        Dimension::px(154)
+                        Dimension::px(184)
                     }
                 },
                 height: 30,

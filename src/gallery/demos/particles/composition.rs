@@ -128,8 +128,8 @@ pub fn build_widgets() {
                     paragraph: ParagraphStyle::label().with_align(TextAlign::Start)
                 )
                 Text (
-                    "LIVE · 12 NODES",
-                    width: 124,
+                    "12 NODES",
+                    width: 88,
                     height: 22,
                     font_size: 9,
                     bg_color: ColorToken::SurfaceVariant,
