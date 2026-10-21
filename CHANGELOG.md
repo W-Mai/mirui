@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Component membership checks validate entity identity without borrowing component values.
+
 - Empty reactive flushes retain subscription cleanup and capacity preparation without installing a mutable execution window.
 
 - Timer and bounds-following systems skip scheduling while their driving component storage is empty.

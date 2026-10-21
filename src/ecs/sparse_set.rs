@@ -175,7 +175,10 @@ impl<T> SparseSet<T> {
     }
 
     pub fn contains(&self, entity: Entity) -> bool {
-        self.get(entity).is_some()
+        let Some(Some(index)) = self.sparse.get(entity.id as usize) else {
+            return false;
+        };
+        self.dense[*index as usize] == entity
     }
 
     pub fn len(&self) -> usize {
@@ -229,6 +232,60 @@ mod tests {
     use super::*;
 
     struct DropProbe(Rc<Cell<usize>>);
+
+    #[test]
+    fn membership_tracks_generation_and_dense_moves_without_reading_values() {
+        fn check<T: Default>() {
+            let mut storage = SparseSet::<T>::new();
+            let first = Entity {
+                id: 3,
+                generation: 0,
+            };
+            let second = Entity {
+                id: 7,
+                generation: 0,
+            };
+            let replacement = Entity {
+                generation: 1,
+                ..first
+            };
+            let absent = Entity {
+                id: u32::MAX,
+                generation: 0,
+            };
+            let probes = [first, second, replacement, absent];
+            let verify = |storage: &SparseSet<T>| {
+                for entity in probes {
+                    assert_eq!(storage.contains(entity), storage.get(entity).is_some());
+                }
+            };
+            verify(&storage);
+            storage.reserve_entities(7, 2);
+            verify(&storage);
+            storage.insert(first, T::default());
+            storage.insert(second, T::default());
+            verify(&storage);
+            storage.insert(replacement, T::default());
+            assert!(!storage.contains(first));
+            assert!(storage.contains(replacement));
+            verify(&storage);
+            assert!(storage.remove(first).is_none());
+            storage.remove(replacement).unwrap();
+            assert!(storage.contains(second));
+            verify(&storage);
+            storage.remove(second).unwrap();
+            verify(&storage);
+            storage.insert(first, T::default());
+            verify(&storage);
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| verify(&storage)),
+                0
+            );
+        }
+        check::<()>();
+        check::<u8>();
+        check::<[u64; 32]>();
+    }
 
     impl Drop for DropProbe {
         fn drop(&mut self) {
