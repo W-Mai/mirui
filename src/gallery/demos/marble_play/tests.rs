@@ -506,7 +506,7 @@ fn marble_board_pixels_follow_only_their_bound_model() {
             .any(|pixel| pixel[..3] != [0, 0, 0])
     );
 
-    shared.set_page(Page::Scenes);
+    shared.set_page(Page::Edit);
     app.render_dirty().unwrap();
     let texture = app.backend.framebuffer();
     let after_shared = board_pixels(texture.read_pixels().unwrap().bytes(), texture.stride);
@@ -631,7 +631,7 @@ fn independent_marble_boards_repaint_for_a_shared_selection_source() {
         "shared selection keeps boards equal"
     );
 
-    first.set_page(Page::Scenes);
+    first.set_page(Page::Edit);
     app.render_dirty().unwrap();
     let texture = app.backend.framebuffer();
     let after_first_game = board_pixels(texture.read_pixels().unwrap().bytes(), texture.stride);
@@ -644,7 +644,7 @@ fn independent_marble_boards_repaint_for_a_shared_selection_source() {
         "second board stays untouched"
     );
 
-    second.set_page(Page::Settings);
+    second.set_page(Page::Edit);
     app.render_dirty().unwrap();
     let texture = app.backend.framebuffer();
     let after_second_game = board_pixels(texture.read_pixels().unwrap().bytes(), texture.stride);

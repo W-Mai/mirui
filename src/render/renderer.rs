@@ -61,7 +61,11 @@ impl<'cmd, 'data> DrawRequest<'cmd, 'data> {
         self
     }
 
-    #[cfg(any(feature = "sdl-gpu", feature = "wgpu", feature = "web-canvas"))]
+    #[cfg(any(
+        feature = "sdl-gpu",
+        feature = "wgpu",
+        all(feature = "web-canvas", target_arch = "wasm32")
+    ))]
     pub(crate) fn clip_route(&self, route: RenderRoute) -> Result<RenderRoute, RenderError> {
         let (Some(clip), RenderRoute::ExactFallback(region)) = (self.physical_clip, route) else {
             return Ok(route);

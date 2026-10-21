@@ -94,9 +94,9 @@ mod tests {
     }
 
     #[test]
-    fn capture_rejects_short_texture_before_resolving_it() {
+    fn capture_rejects_empty_image_geometry_before_resolving_it() {
         let texture = Texture::from_ref(
-            &[0u8; 1],
+            &[0u8; 16],
             2,
             2,
             crate::render::texture::ColorFormat::RGBA8888,
@@ -104,7 +104,7 @@ mod tests {
         .expect("valid pixel storage");
         let command = DrawCommand::Blit {
             pos: Point::ZERO,
-            size: Point::new(2, 2),
+            size: Point::new(0, 2),
             transform: Transform::IDENTITY,
             quad: None,
             texture: &texture,
@@ -117,7 +117,7 @@ mod tests {
         let mut renderer = scene.renderer(&mut resolver);
         assert_eq!(
             renderer.submit(&DrawRequest::new(&command, Rect::new(0, 0, 2, 2))),
-            Err(RenderError::InvalidTexture)
+            Err(RenderError::InvalidGeometry)
         );
         assert!(renderer.scene.ops.is_empty());
     }

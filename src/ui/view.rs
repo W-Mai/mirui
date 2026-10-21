@@ -1626,6 +1626,14 @@ mod tests {
         impl Renderer for Trace {
             type TargetState = ();
 
+            fn route(
+                &self,
+                request: &DrawRequest<'_, '_>,
+            ) -> Result<crate::render::RenderRoute, RenderError> {
+                request.validate()?;
+                Ok(crate::render::RenderRoute::Native)
+            }
+
             fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
                 assert_eq!(request.clip, Rect::new(13, 17, 460, 340));
                 match *request.command {

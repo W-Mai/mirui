@@ -70,8 +70,14 @@ max_depth = 3
 [plugins.api-misuse]
 enabled = true
 fixed_storage_paths = [
+  # Integer sampling retains exact subpixel remainders across clipped spans.
+  "src/render/backends/sw/blit_fractional.rs",
   "src/render/backends/sw/label.rs",
   "src/render/backends/sw/quad_aa.rs",
+  # Cache signatures preserve every fixed-point bit without float rounding.
+  "src/render/backends/tessellation/geometry.rs",
+  # Raster extents use widened products before checked pixel-size saturation.
+  "src/render/font/mod.rs",
   "src/render/mirx_convert.rs",
   "src/types/transform_3d.rs",
   "src/ui/widgets/lazy_list/geometry.rs",

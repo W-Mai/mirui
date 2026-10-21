@@ -501,15 +501,9 @@ mod tests {
         ] {
             assert!(effect_plane(source, bounds, radius, offset).is_none());
         }
-        let empty = PlaneLayout::packed(0, 8, ColorFormat::RGBA8888).unwrap();
-        assert!(
-            effect_plane(
-                empty,
-                Rect::new(0, 0, 8, 8),
-                Fixed::ONE,
-                (Fixed::ZERO, Fixed::ZERO)
-            )
-            .is_none()
+        assert_eq!(
+            PlaneLayout::packed(0, 8, ColorFormat::RGBA8888),
+            Err(crate::render::scratch::PlaneError::EmptyDimensions)
         );
     }
 

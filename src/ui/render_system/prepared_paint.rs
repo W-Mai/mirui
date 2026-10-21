@@ -62,6 +62,10 @@ impl PreparedPaint {
         self.affine.resize_with(len, || Cell::new(None));
         self.nodes.resize_with(len, PreparedNode::default);
         self.view_count = view_count;
+        let view_capacity = (self.coverage.capacity() + 1) * self.view_stride();
+        if self.views.capacity() < view_capacity {
+            self.views.reserve_exact(view_capacity - self.views.len());
+        }
         self.views
             .resize_with((len + 1) * self.view_stride(), || Cell::new(0));
         self.clear();
@@ -973,11 +977,12 @@ mod tests {
     #[test]
     fn batch_reset_and_retained_node_capacity_do_not_allocate() {
         let mut prepared = PreparedPaint::with_capacity(8);
-        prepared.resize(8, 17);
+        prepared.resize(4, 17);
         let coverage = PaintCoverage::solid(Rect::new(1, 2, 3, 4));
         assert_eq!(
             crate::test_support::tracked_allocations(|| {
                 for _ in 0..16 {
+                    prepared.resize(8, 17);
                     prepared.set(7, coverage);
                     assert_eq!(prepared.get(7), Some(coverage));
                     prepared.clear();

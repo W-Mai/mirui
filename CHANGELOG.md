@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Paint matching storage reserves capacity for retained hidden nodes, avoiding allocation when existing pages and panels become visible.
+
 - SDL GPU initialization reads driver metadata without converting unneeded pixel-format identifiers into binding enums.
 
 - Fixed-point multiplication preserves representable results without overflowing partial products.
@@ -182,7 +184,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The no_std Three Body demo uses 16×16 images and square borders without decorative rings or header text.
+- The no_std Three Body demo uses borderless 16×16 images without decorative rings or header text.
 
 - Widget output plans reuse stable local measurements, refresh consumers when source geometry changes, and recalculate peak workspace requirements.
 
@@ -250,7 +252,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Target readback copies and software scopes use checked writable pixels. Software scopes flush before accepting their result.
 - `PaintCtx::read_pixels` retains source-read failures and borrows pixels independently of the paint context. Temporal, reflection, shadow and glow effects read sources before modifying their reusable workspace.
 - Software raster batches use exclusive pixel borrows for fills, paths, glyphs, blits and blur. Write failures propagate through submission or `Canvas::flush`; blending retains the existing pixel arithmetic.
-- Framebuffer region edits, readback, mirroring and scroll transfers use checked pixel borrows and advance destination upload revisions. Read-only targets are rejected without copying storage.
+- Framebuffer region edits, readback, buffer synchronization and scroll transfers use checked pixel borrows and advance destination upload revisions. Read-only targets are rejected without copying storage.
 - Software Blit sampling borrows validated source pixels before rasterization. Source-read failures propagate through renderer submission and software fallback without accepting the frame.
 - Resource managers and handles accept non-`Clone` values and share their existing reference-counted storage.
 - Render plane layouts reject empty dimensions and support checked construction in constant expressions. Texture storage validation shares the plane layout calculation and accepts omitted padding after the last pixel.
@@ -267,7 +269,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - App frame write scopes preserve background sampling and target readback.
 
-- App redraws reconstruct their owned pixels before painting, preventing retained alpha and fractional viewport edges from accumulating across frames. Physical clear, drawing, submission, and buffer mirroring share non-overlapping regions while preserving scroll transfers.
+- App redraws reconstruct their owned pixels before painting, preventing retained alpha and fractional viewport edges from accumulating across frames. Physical clear, drawing, submission, and buffer synchronization share non-overlapping regions while preserving scroll transfers.
 
 - X11 clipboard requests share one deadline across setup, timestamp acquisition, and data transfer; expired operations cannot deliver successful results.
 - X11 clipboard reads use XFixes ownership notifications and final server confirmation to read sources without TIMESTAMP support and reject replacement during multi-format transfers.
