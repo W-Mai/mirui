@@ -740,7 +740,14 @@ mod tests {
 
     #[test]
     fn rgba_integer_blits_match_straight_alpha_pixel_blending_without_allocating() {
-        for scale in [1, 2] {
+        for (scale, format) in [1, 2].into_iter().flat_map(|scale| {
+            [
+                ColorFormat::RGBA8888,
+                ColorFormat::RGB565,
+                ColorFormat::RGB565Swapped,
+            ]
+            .map(|format| (scale, format))
+        }) {
             for destination_alpha in [0, 96, 255] {
                 for source_alpha in [0, 1, 64, 128, 254, 255] {
                     for cropped in [false, true] {
@@ -765,9 +772,8 @@ mod tests {
                         }
                         let mut reference_bytes = [0xa5u8; 6 * 28];
                         {
-                            let mut initial =
-                                Texture::new(&mut reference_bytes, 6, 6, ColorFormat::RGBA8888)
-                                    .expect("valid pixel storage");
+                            let mut initial = Texture::new(&mut reference_bytes, 6, 6, format)
+                                .expect("valid pixel storage");
                             initial.stride = 28;
                             for y in 0..6 {
                                 for x in 0..6 {
@@ -785,14 +791,12 @@ mod tests {
                             }
                         }
                         let mut actual_bytes = reference_bytes;
-                        let mut reference =
-                            Texture::new(&mut reference_bytes, 6, 6, ColorFormat::RGBA8888)
-                                .expect("valid pixel storage");
+                        let mut reference = Texture::new(&mut reference_bytes, 6, 6, format)
+                            .expect("valid pixel storage");
                         reference.stride = 28;
                         reference.alpha_mode = AlphaMode::Blend;
-                        let mut actual =
-                            Texture::new(&mut actual_bytes, 6, 6, ColorFormat::RGBA8888)
-                                .expect("valid pixel storage");
+                        let mut actual = Texture::new(&mut actual_bytes, 6, 6, format)
+                            .expect("valid pixel storage");
                         actual.stride = 28;
                         actual.alpha_mode = AlphaMode::Blend;
                         let clip_start = if cropped { 1 + scale } else { 0 };
@@ -841,7 +845,7 @@ mod tests {
                         assert_eq!(
                             actual.read_pixels().unwrap().bytes(),
                             reference.read_pixels().unwrap().bytes(),
-                            "scale={scale}, source_alpha={source_alpha}, destination_alpha={destination_alpha}, cropped={cropped}"
+                            "format={format:?}, scale={scale}, source_alpha={source_alpha}, destination_alpha={destination_alpha}, cropped={cropped}"
                         );
                     }
                 }
