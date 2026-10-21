@@ -9,6 +9,69 @@ use crate::types::Transform;
 use crate::ui::Children;
 
 #[test]
+fn physics_uses_fixed_steps_and_integer_equilibrium_distance() {
+    fn clock() -> u64 {
+        11_000_000
+    }
+
+    let mut world = crate::ecs::World::new();
+    world.insert_resource(MonoClock::new(clock));
+    world.insert_resource(PhysicsTime {
+        last_tick_ms: 0,
+        accumulator_ms: 0,
+    });
+    world.insert_resource(WorldBounds { w: 128, h: 128 });
+    world.insert_resource(SpringLength(Fixed::from_int(5)));
+    world.insert_resource(PhysicsScratch::default());
+    let first = world.spawn_empty();
+    let second = world.spawn_empty();
+    for (entity, x, y, vx, vy) in [(first, 30, 30, 1, 0), (second, 33, 34, 0, 1)] {
+        world.insert(
+            entity,
+            PhysicsBody {
+                x: x.into(),
+                y: y.into(),
+            },
+        );
+        world.insert(
+            entity,
+            Velocity {
+                vx: vx.into(),
+                vy: vy.into(),
+            },
+        );
+    }
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(physics_tick_system::system());
+    scheduler.run_all(&mut world).unwrap();
+    let positions = |world: &crate::ecs::World| {
+        [first, second].map(|entity| {
+            let body = world.get::<PhysicsBody>(entity).unwrap();
+            (body.x, body.y)
+        })
+    };
+    assert_eq!(
+        positions(&world),
+        [(31.into(), 30.into()), (33.into(), 35.into())]
+    );
+    assert_eq!(world.resource::<PhysicsTime>().unwrap().accumulator_ms, 0);
+    scheduler.run_all(&mut world).unwrap();
+    assert_eq!(
+        positions(&world),
+        [(31.into(), 30.into()), (33.into(), 35.into())]
+    );
+
+    // sqrt(3*3 + 5*5) floors to the same equilibrium distance.
+    world.get_mut::<PhysicsBody>(first).unwrap().x = 30.into();
+    world.resource_mut::<PhysicsTime>().unwrap().last_tick_ms = 0;
+    scheduler.run_all(&mut world).unwrap();
+    assert_eq!(
+        positions(&world),
+        [(31.into(), 30.into()), (33.into(), 36.into())]
+    );
+}
+
+#[test]
 fn kicks_only_record_the_selected_live_body() {
     use core::any::TypeId;
     let mut world = crate::ecs::World::new();

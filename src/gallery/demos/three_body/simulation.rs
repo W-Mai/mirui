@@ -11,19 +11,6 @@ use crate::ui::{ComputedRect, WidgetRoot};
 const PHYSICS_DT_MS: u32 = 11;
 pub(super) const BODY_SIZE: i32 = if cfg!(feature = "std") { 24 } else { 16 };
 
-fn isqrt(n: u32) -> u32 {
-    if n == 0 {
-        return 0;
-    }
-    let mut x = n;
-    let mut y = x.div_ceil(2);
-    while y < x {
-        x = y;
-        y = (x + n / x) / 2;
-    }
-    x
-}
-
 #[mirui_macros::system]
 pub fn physics_tick_system(
     clock: res!(optional MonoClock),
@@ -91,7 +78,7 @@ pub fn physics_tick_system(
                 let dx_int = dx.to_int();
                 let dy_int = dy.to_int();
                 let dist =
-                    Fixed::from_int(isqrt((dx_int * dx_int + dy_int * dy_int) as u32) as i32);
+                    Fixed::from_int(((dx_int * dx_int + dy_int * dy_int) as u32).isqrt() as i32);
                 if dist == Fixed::ZERO {
                     continue;
                 }
