@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-10-21
+
 ### Fixed
 
 - Paint matching storage reserves capacity for retained hidden nodes, avoiding allocation when existing pages and panels become visible.
