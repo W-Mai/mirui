@@ -240,7 +240,7 @@ mod tests {
         canvas.set_draw_color(sdl2::pixels::Color::RGBA(32, 64, 16, 128));
         canvas.clear();
         let creator = canvas.texture_creator();
-        let device = super::super::Device::new(canvas, creator);
+        let device = super::super::Device::new(canvas, creator).unwrap();
         let region = crate::render::renderer::FallbackRegion::from_parts(1, 1, 2, 2, 16);
         let mut bytes = [0xa5; 32];
         let address = bytes.as_ptr();

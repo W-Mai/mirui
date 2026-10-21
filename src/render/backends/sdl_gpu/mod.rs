@@ -1,10 +1,6 @@
 //! GPU-accelerated SDL backend.
 //!
-//! Where [`crate::surface::sdl::SdlSurface`] keeps a CPU byte buffer and uploads it
-//! each frame, `SdlGpuSurface` drives the SDL2 accelerated renderer
-//! directly: `canvas.fill_rect`, `canvas.copy`, and ultimately
-//! `SDL_RenderGeometry` (unsafe FFI) for tessellated paths. No CPU
-//! framebuffer, no `FramebufferAccess` impl.
+//! Where [`crate::surface::sdl::SdlSurface`] keeps a CPU byte buffer and uploads it each frame, `SdlGpuSurface` drives the SDL2 accelerated renderer directly: `canvas.fill_rect`, `canvas.copy`, and `SDL_RenderGeometry` for tessellated paths. Single-sample renderers with target-texture support retain GPU pixels between presents and receive one bounding damage update per frame. Multisampled windows retain their window MSAA and use full redraws when damaged. No CPU framebuffer or `FramebufferAccess` impl.
 
 mod blit;
 mod config;
@@ -140,9 +136,7 @@ impl SdlGpuSurface {
         sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "0");
         let sdl = crate::surface::sdl_events::init().map_err(|e| backend_error("SDL init", e))?;
         let video = sdl.video().map_err(|e| backend_error("SDL video", e))?;
-        let driver = config
-            .driver
-            .select(sdl2::render::drivers().map(|driver| driver.name))?;
+        let driver = config.driver.select(self::config::driver_names())?;
         config.driver.configure_gl()?;
         let mut window = video.window(title, u32::from(width), u32::from(height));
         window.position_centered().allow_highdpi();
@@ -169,13 +163,6 @@ impl SdlGpuSurface {
         let canvas = canvas_builder
             .build()
             .map_err(|e| backend_error("SDL renderer", e))?;
-        if config
-            .driver
-            .name()
-            .is_some_and(|name| canvas.info().name != name)
-        {
-            return Err(SdlGpuError::UnsupportedDriver(config.driver));
-        }
         config.driver.verify_gl()?;
         let viewport = self::config::viewport(
             canvas.window().size(),
@@ -191,22 +178,45 @@ impl SdlGpuSurface {
             &video,
             sdl.event().map_err(|e| backend_error("SDL events", e))?,
         );
+        let device = Rc::new(
+            Device::new(canvas, texture_creator)
+                .map_err(|_| backend_error("SDL renderer info", sdl2::get_error()))?,
+        );
+        if config
+            .driver
+            .name()
+            .is_some_and(|name| device.name() != name)
+        {
+            return Err(SdlGpuError::UnsupportedDriver(config.driver));
+        }
+        let (physical_width, physical_height) = viewport.physical_size();
+        device
+            .prepare_persistent_target((u32::from(physical_width), u32::from(physical_height)))
+            .map_err(|_| backend_error("SDL persistent render target", "target creation failed"))?;
         #[cfg(target_os = "macos")]
-        let menu = crate::surface::native_menu::SdlMenu::new(
-            canvas.window(),
-            sdl.event().map_err(|e| backend_error("SDL events", e))?,
-        )
-        .map_err(|e| backend_error("SDL native menu", e))?;
+        let menu = {
+            let canvas = device
+                .canvas()
+                .map_err(|_| backend_error("SDL access", "renderer unavailable"))?;
+            crate::surface::native_menu::SdlMenu::new(
+                canvas.window(),
+                sdl.event().map_err(|e| backend_error("SDL events", e))?,
+            )
+            .map_err(|e| backend_error("SDL native menu", e))?
+        };
         #[cfg(target_os = "linux")]
         let clipboard = {
+            let canvas = device
+                .canvas()
+                .map_err(|_| backend_error("SDL access", "renderer unavailable"))?;
             let mut clipboard = crate::surface::host_clipboard::linux::Clipboard::default();
-            // The clipboard field is dropped before the device and its native window.
+            // Attach after fallible target preparation. Both local teardown and
+            // Surface field order keep the native window alive until detachment.
             unsafe {
                 clipboard.attach_sdl(canvas.window());
             }
             clipboard
         };
-        let device = Rc::new(Device::new(canvas, texture_creator));
         Ok(Self {
             #[cfg(target_os = "macos")]
             menu,
@@ -251,6 +261,12 @@ impl SdlGpuSurface {
             return Ok(());
         }
         self.viewport = config::viewport(logical, physical)?;
+        let (physical_width, physical_height) = self.viewport.physical_size();
+        self.device
+            .prepare_persistent_target((u32::from(physical_width), u32::from(physical_height)))
+            .map_err(|_| {
+                config::backend_error("SDL persistent render target", "target creation failed")
+            })?;
         Ok(())
     }
 
@@ -377,9 +393,15 @@ impl Surface for SdlGpuSurface {
     }
 
     fn end_flush(&mut self) -> Result<(), crate::render::RenderError> {
+        self.device.finish_persistent_frame()?;
         self.device.canvas()?.present();
         self.needs_redraw = false;
         Ok(())
+    }
+
+    fn abort_flush(&mut self) {
+        self.device.abort_persistent_frame();
+        self.needs_redraw = true;
     }
 
     fn needs_redraw(&self) -> bool {
@@ -387,13 +409,27 @@ impl Surface for SdlGpuSurface {
     }
 
     fn begin_flush(&mut self) -> Result<(), crate::render::RenderError> {
-        let canvas = self.device.canvas()?;
-        let (width, height) = canvas
-            .output_size()
-            .map_err(|_| crate::render::RenderError::BackendFailure)?;
-        if canvas.window().is_minimized() || width == 0 || height == 0 {
-            return Err(crate::render::RenderError::SurfaceUnavailable);
+        let (logical, (width, height)) = {
+            let canvas = self.device.canvas()?;
+            let (width, height) = canvas
+                .output_size()
+                .map_err(|_| crate::render::RenderError::BackendFailure)?;
+            if canvas.window().is_minimized() || width == 0 || height == 0 {
+                return Err(crate::render::RenderError::SurfaceUnavailable);
+            }
+            (canvas.window().size(), (width, height))
+        };
+        let viewport =
+            config::viewport(logical, (width, height)).map_err(|_| RenderError::InvalidGeometry)?;
+        if viewport != self.viewport {
+            // A resize can precede its input event. Do not apply an old damage
+            // plan to newly allocated storage; let App prepare the new viewport.
+            self.viewport = viewport;
+            self.needs_redraw = true;
+            return Err(RenderError::SurfaceUnavailable);
         }
+        self.device.prepare_persistent_target((width, height))?;
+        self.device.begin_persistent_frame()?;
         Ok(())
     }
 
@@ -631,8 +667,16 @@ impl Surface for SdlGpuSurface {
         self.pending.pop_front().or_else(|| self.text_input.idle())
     }
 
+    fn redraw_strategy(&self) -> crate::surface::RedrawStrategy {
+        crate::surface::RedrawStrategy::BoundingBox
+    }
+
     fn persistence(&self) -> crate::surface::BackbufferPersistence {
-        crate::surface::BackbufferPersistence::Transient
+        if self.device.has_persistent_target() {
+            crate::surface::BackbufferPersistence::Persistent
+        } else {
+            crate::surface::BackbufferPersistence::Transient
+        }
     }
 }
 
@@ -752,7 +796,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFact
             viewport,
             failure: None,
             physical_clip: None,
-            native_target: false,
+            native_target: backend.device.persistent_frame_active(),
         }
     }
 

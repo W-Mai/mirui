@@ -105,6 +105,10 @@ impl<S: Surface> Surface for SlowSurface<S> {
         self.inner.persistence()
     }
 
+    fn redraw_strategy(&self) -> super::RedrawStrategy {
+        self.inner.redraw_strategy()
+    }
+
     fn needs_redraw(&self) -> bool {
         self.inner.needs_redraw()
     }

@@ -106,7 +106,7 @@ pub use crate::input::event::input::{InputEvent, KEY_HW_BUTTON_0, KEY_ROTARY_PRE
 
 /// Does the backbuffer survive `flush()`?
 ///
-/// CPU raster and Web Canvas backends are [`Persistent`]; swap-chain GPU backends are [`Transient`]. Transient surfaces redraw the entire frame when there is damage, but can remain idle otherwise. Content loss is reported separately by [`Surface::needs_redraw`].
+/// CPU raster, Web Canvas, and SDL GPU surfaces with retained targets are [`Persistent`]; direct swap-chain surfaces are [`Transient`]. Transient surfaces redraw the entire frame when there is damage, but can remain idle otherwise. Content loss is reported separately by [`Surface::needs_redraw`].
 ///
 /// [`Persistent`]: Self::Persistent
 /// [`Transient`]: Self::Transient
@@ -114,6 +114,16 @@ pub use crate::input::event::input::{InputEvent, KEY_HW_BUTTON_0, KEY_ROTARY_PRE
 pub enum BackbufferPersistence {
     Persistent,
     Transient,
+}
+
+/// How a persistent surface groups damage for painting.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum RedrawStrategy {
+    /// Split sparse regions and combine dense damage according to pixel coverage.
+    #[default]
+    Adaptive,
+    /// Paint one bounding rectangle to avoid repeating scene traversal for fragmented damage.
+    BoundingBox,
 }
 
 /// Platform backend trait — abstracts display + input.
@@ -206,10 +216,14 @@ pub trait Surface: crate::core::cache::InspectCaches {
         (pw, ph)
     }
 
-    /// Defaults to [`BackbufferPersistence::Persistent`]; swap-chain
-    /// GPU backends override to [`BackbufferPersistence::Transient`].
+    /// Defaults to [`BackbufferPersistence::Persistent`]; surfaces drawing directly into a swap chain override this with [`BackbufferPersistence::Transient`].
     fn persistence(&self) -> BackbufferPersistence {
         BackbufferPersistence::Persistent
+    }
+
+    /// Select how damaged pixels are grouped. Empty frames remain empty under either strategy.
+    fn redraw_strategy(&self) -> RedrawStrategy {
+        RedrawStrategy::Adaptive
     }
 
     /// Whether the surface needs newly drawn pixels. Queries do not consume this request; successful `end_flush` acknowledges it. Retained pixels awaiting presentation are maintained by `frame_end` instead.

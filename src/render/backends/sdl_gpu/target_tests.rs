@@ -13,7 +13,7 @@ fn device() -> Rc<TestDevice> {
         .into_canvas()
         .unwrap();
     let creator = canvas.texture_creator();
-    Rc::new(Device::new(canvas, creator))
+    Rc::new(Device::new(canvas, creator).unwrap())
 }
 
 fn target(device: &Rc<TestDevice>) -> Box<dyn BackendTarget> {
@@ -41,6 +41,51 @@ fn pixels(target: &dyn BackendTarget) -> Texture<'static> {
         .read_pixels_into(&mut image.pixels_mut().unwrap())
         .unwrap();
     image
+}
+
+#[test]
+fn retained_frame_is_restored_after_nested_outputs_without_reallocation() {
+    let device = device();
+    let outer = target(&device);
+    let inner = target(&device);
+    assert!(device.prepare_persistent_target((16, 16)).unwrap());
+    let allocations = tracked_allocations(|| {
+        for _ in 0..8 {
+            assert!(device.prepare_persistent_target((16, 16)).unwrap());
+            assert!(device.begin_persistent_frame().unwrap());
+            let frame = {
+                let canvas = device.canvas().unwrap();
+                core::ptr::NonNull::new(unsafe { sdl2::sys::SDL_GetRenderTarget(canvas.raw()) })
+                    .unwrap()
+            };
+            fill(
+                &device,
+                sdl2::rect::Rect::new(0, 0, 16, 16),
+                (7, 29, 53, 255),
+            );
+            let parent = Binding::begin(&device, &*outer, TargetUpdate::Rebuild).unwrap();
+            fill(&device, sdl2::rect::Rect::new(0, 0, 4, 4), (255, 0, 0, 255));
+            let child = Binding::begin(&device, &*inner, TargetUpdate::Rebuild).unwrap();
+            fill(&device, sdl2::rect::Rect::new(0, 0, 4, 4), (0, 255, 0, 255));
+            child.finish(&device, true).unwrap();
+            parent.finish(&device, true).unwrap();
+            {
+                let canvas = device.canvas().unwrap();
+                assert!(target_state::is_current(&canvas, frame));
+                let mut pixel = [0; 4];
+                super::super::readback::rgba8(
+                    &canvas,
+                    crate::types::PhysicalRect::new(0, 0, 1, 1).unwrap(),
+                    &mut pixel,
+                    4,
+                )
+                .unwrap();
+                assert_eq!(pixel, [7, 29, 53, 255]);
+            }
+            assert!(device.finish_persistent_frame().unwrap());
+        }
+    });
+    assert_eq!(allocations, 0);
 }
 
 #[test]

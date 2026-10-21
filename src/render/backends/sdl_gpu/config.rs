@@ -73,15 +73,17 @@ impl SdlGpuDriver {
 
     pub(super) fn select(
         self,
-        mut names: impl Iterator<Item = &'static str>,
+        names: impl Iterator<Item = Result<&'static str, SdlGpuError>>,
     ) -> Result<Option<u32>, SdlGpuError> {
         let Some(name) = self.name() else {
             return Ok(None);
         };
-        names
-            .position(|candidate| candidate == name)
-            .map(|index| Some(index as u32))
-            .ok_or(SdlGpuError::UnsupportedDriver(self))
+        for (index, candidate) in names.enumerate() {
+            if candidate? == name {
+                return Ok(Some(index as u32));
+            }
+        }
+        Err(SdlGpuError::UnsupportedDriver(self))
     }
 
     pub(super) fn validate(self) -> Result<(), SdlGpuError> {
@@ -123,21 +125,11 @@ impl SdlGpuDriver {
     }
 
     pub(super) fn verify_gl(self) -> Result<(), SdlGpuError> {
-        use sdl2::sys::SDL_GLattr::*;
         let samples = match self {
             Self::Auto => return Ok(()),
             Self::OpenGl { samples } | Self::OpenGles2 { samples } => samples,
         };
-        let read = |attribute| {
-            let mut value = 0;
-            // The current context belongs to the newly created SDL renderer.
-            if unsafe { sdl2::sys::SDL_GL_GetAttribute(attribute, &mut value) } != 0 {
-                return Err(backend_error("SDL_GL_GetAttribute", sdl2::get_error()));
-            }
-            Ok(value)
-        };
-        let buffers = read(SDL_GL_MULTISAMPLEBUFFERS)?;
-        let actual = read(SDL_GL_MULTISAMPLESAMPLES)?;
+        let (buffers, actual) = gl_multisampling()?;
         if (samples == 0 && buffers != 0)
             || (samples > 0 && (buffers == 0 || actual < i32::from(samples)))
         {
@@ -147,6 +139,48 @@ impl SdlGpuDriver {
             ));
         }
         Ok(())
+    }
+}
+
+pub(super) fn driver_names() -> impl Iterator<Item = Result<&'static str, SdlGpuError>> {
+    (0..unsafe { sdl2::sys::SDL_GetNumRenderDrivers() }).map(|index| {
+        let mut info = core::mem::MaybeUninit::uninit();
+        // Read driver names without decoding SDL's extensible pixel-format list.
+        if unsafe { sdl2::sys::SDL_GetRenderDriverInfo(index, info.as_mut_ptr()) } != 0 {
+            return Err(backend_error("SDL_GetRenderDriverInfo", sdl2::get_error()));
+        }
+        // SDL owns this static driver name; the structure was initialized above.
+        let info = unsafe { info.assume_init() };
+        unsafe { core::ffi::CStr::from_ptr(info.name) }
+            .to_str()
+            .map_err(|error| backend_error("SDL driver name", error))
+    })
+}
+
+fn gl_multisampling() -> Result<(i32, i32), SdlGpuError> {
+    use sdl2::sys::SDL_GLattr::*;
+    let read = |attribute| {
+        let mut value = 0;
+        // Called immediately after SDL creates the renderer's current context.
+        if unsafe { sdl2::sys::SDL_GL_GetAttribute(attribute, &mut value) } != 0 {
+            return Err(backend_error("SDL_GL_GetAttribute", sdl2::get_error()));
+        }
+        Ok(value)
+    };
+    Ok((
+        read(SDL_GL_MULTISAMPLEBUFFERS)?,
+        read(SDL_GL_MULTISAMPLESAMPLES)?,
+    ))
+}
+
+pub(super) fn window_is_single_sample(renderer: &str) -> bool {
+    match renderer {
+        // SDL texture targets have no multisample attachments. Keep drawing to
+        // the window when its context uses MSAA or cannot report its state.
+        "opengl" | "opengles" | "opengles2" => {
+            gl_multisampling().is_ok_and(|(buffers, _)| buffers == 0)
+        }
+        _ => true,
     }
 }
 
@@ -184,22 +218,27 @@ mod tests {
     #[test]
     fn explicit_drivers_require_the_matching_index() {
         let names = ["software", "metal", "opengl", "opengles2"];
-        assert_eq!(SdlGpuDriver::Auto.select(names.into_iter()).unwrap(), None);
+        assert_eq!(
+            SdlGpuDriver::Auto
+                .select(names.into_iter().map(Ok))
+                .unwrap(),
+            None
+        );
         assert_eq!(
             SdlGpuDriver::OpenGl { samples: 4 }
-                .select(names.into_iter())
+                .select(names.into_iter().map(Ok))
                 .unwrap(),
             Some(2)
         );
         assert_eq!(
             SdlGpuDriver::OpenGles2 { samples: 0 }
-                .select(names.into_iter())
+                .select(names.into_iter().map(Ok))
                 .unwrap(),
             Some(3)
         );
         assert!(
             SdlGpuDriver::OpenGles2 { samples: 0 }
-                .select(["opengl"].into_iter())
+                .select(["opengl"].into_iter().map(Ok))
                 .is_err()
         );
     }

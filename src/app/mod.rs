@@ -1735,6 +1735,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 return Err(error);
             }
             self.needs_full_redraw = true;
+            let redraw_strategy = self.backend.redraw_strategy();
             let mut renderer = self.factory.make(&mut self.backend, &transform);
 
             let mut plan = plan;
@@ -1744,7 +1745,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 plan = plan.flatten_shifts();
                 plan.coalesce_overlaps();
             }
-            let physical = plan.physical_redraw(transform, full_redraw);
+            let physical = plan.physical_redraw(transform, full_redraw, redraw_strategy);
 
             if let Some(last) = self
                 .world

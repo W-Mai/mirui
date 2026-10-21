@@ -428,6 +428,50 @@ mod physical_damage_tests {
     use crate::types::{PhysicalRect, Viewport};
 
     #[test]
+    fn bounding_redraw_preserves_damage_coverage_without_promoting_idle_frames() {
+        use crate::surface::RedrawStrategy::{Adaptive, BoundingBox};
+        let viewport = Viewport::new(48, 32, Fixed::ONE);
+        let mut plan =
+            DirtyRegions::with_rect_capacity(super::super::render_system::DIRTY_PLAN_RECT_CAPACITY);
+        assert!(
+            plan.physical_redraw(viewport, false, BoundingBox)
+                .as_slice()
+                .is_empty()
+        );
+        plan.mark(Rect::new(1, 2, 2, 2));
+        plan.mark(Rect::new(40, 24, 4, 4));
+        let original = plan.rects.clone();
+        assert_eq!(
+            plan.physical_redraw(viewport, false, Adaptive)
+                .as_slice()
+                .len(),
+            2
+        );
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for _ in 0..8 {
+                let bounding = plan.physical_redraw(viewport, false, BoundingBox);
+                assert_eq!(
+                    bounding.as_slice(),
+                    &[PhysicalRect::new(1, 2, 43, 26).unwrap()]
+                );
+                assert_eq!(plan.rects, original);
+            }
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(
+            plan.physical_redraw(viewport, true, BoundingBox).as_slice(),
+            &[PhysicalRect::from_size(48, 32)]
+        );
+        plan.clear();
+        plan.mark(Rect::new(60, 50, 2, 2));
+        assert!(
+            plan.physical_redraw(viewport, false, BoundingBox)
+                .as_slice()
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn physical_damage_is_disjoint_covers_quantized_edges_and_reuses_scratch() {
         let mut plan =
             DirtyRegions::with_rect_capacity(super::super::render_system::DIRTY_PLAN_RECT_CAPACITY);
@@ -442,7 +486,11 @@ mod physical_damage_tests {
             let viewport = Viewport::new(23, 21, scale);
             let allocations = crate::test_support::tracked_allocations(|| {
                 for _ in 0..8 {
-                    let physical = plan.physical_redraw(viewport, false);
+                    let physical = plan.physical_redraw(
+                        viewport,
+                        false,
+                        crate::surface::RedrawStrategy::Adaptive,
+                    );
                     for (i, rect) in physical.as_slice().iter().enumerate() {
                         assert!(
                             physical.as_slice()[i + 1..]
@@ -470,7 +518,8 @@ mod physical_damage_tests {
             });
             assert_eq!(allocations, 0);
             assert_eq!(
-                plan.physical_redraw(viewport, true).as_slice(),
+                plan.physical_redraw(viewport, true, crate::surface::RedrawStrategy::Adaptive)
+                    .as_slice(),
                 &[PhysicalRect::from_size(23, 21)]
             );
         }
@@ -530,6 +579,7 @@ impl DirtyRegions {
         &mut self,
         viewport: crate::types::Viewport,
         full: bool,
+        strategy: crate::surface::RedrawStrategy,
     ) -> PhysicalDamage {
         use crate::types::PhysicalRect;
         let mut result = PhysicalDamage {
@@ -550,6 +600,12 @@ impl DirtyRegions {
                 self.scratch
                     .push(Rect::new(area.x(), area.y(), area.width(), area.height()));
             }
+        }
+        if strategy == crate::surface::RedrawStrategy::BoundingBox
+            && let Some(union) = self.scratch.iter().copied().reduce(|a, b| a.union(&b))
+        {
+            self.scratch.clear();
+            self.scratch.push(union);
         }
         let mut normalized = [Rect::ZERO; super::render_system::DIRTY_PLAN_RECT_CAPACITY];
         result.len = regions::normalize_into(&mut self.scratch, &mut normalized);
@@ -836,8 +892,20 @@ mod tests {
         };
 
         let viewport = crate::types::Viewport::new(128, 128, Fixed::ONE);
-        assert_eq!(sparse.physical_redraw(viewport, false).as_slice().len(), 2);
-        assert_eq!(dense.physical_redraw(viewport, false).as_slice().len(), 1);
+        assert_eq!(
+            sparse
+                .physical_redraw(viewport, false, crate::surface::RedrawStrategy::Adaptive)
+                .as_slice()
+                .len(),
+            2
+        );
+        assert_eq!(
+            dense
+                .physical_redraw(viewport, false, crate::surface::RedrawStrategy::Adaptive)
+                .as_slice()
+                .len(),
+            1
+        );
     }
 
     #[test]

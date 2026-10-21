@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- SDL GPU initialization reads driver metadata without converting unneeded pixel-format identifiers into binding enums.
+
 - Fixed-point multiplication preserves representable results without overflowing partial products.
 
 - Transform property updates preserve existing component identity and leave unchanged values unpublished.
@@ -126,6 +128,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Software clearing and opaque rectangle fills share packed scanline writes across all pixel formats, preserving stride padding and replacement alpha without temporary allocations.
 
 ### Added
+
+- Single-sample SDL GPU surfaces retain a render-target texture between presents, repaint the bounding damage region, and recreate storage after resize or renderer reset. Multisampled windows preserve their configured MSAA.
 
 - `Key::physical` identifies keyboard positions independently of text layout on SDL, WGPU, Web, and Linux evdev. Focused editors separate physical controls from committed text, and Escape is delivered as a key instead of closing the window.
 - Echo Walker, Pocket Post, Twin Beacons, Folding Ark, and Atlas Restoration use physical keyboard controls without requiring an active text-input session.

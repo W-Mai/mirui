@@ -1,34 +1,74 @@
 use core::cell::{Cell, RefCell, RefMut};
 
-use sdl2::render::{Canvas, RenderTarget, TextureCreator};
+use sdl2::pixels::PixelFormatEnum;
+use sdl2::render::{BlendMode, Canvas, RenderTarget, Texture as SdlTexture, TextureCreator};
 use sdl2::video::Window;
 
+use super::target_state::{self, DriverState};
 use crate::render::RenderError;
+
+struct PersistentTarget {
+    texture: SdlTexture<'static>,
+    size: (u32, u32),
+    initialized: bool,
+}
 
 pub(super) struct Device<T: RenderTarget = Window> {
     canvas: RefCell<Canvas<T>>,
     pub(super) creator: TextureCreator<T::Context>,
     generation: Cell<u64>,
     failure: Cell<Option<RenderError>>,
+    persistent: RefCell<Option<PersistentTarget>>,
+    frame_state: RefCell<Option<DriverState>>,
+    persistent_supported: bool,
     pub(super) target_supported: bool,
     pub(super) max_texture_size: (u32, u32),
     name: &'static str,
 }
 
+impl<T: RenderTarget> Drop for Device<T> {
+    fn drop(&mut self) {
+        // The retained texture borrows the renderer represented by `canvas`.
+        // Drop it before Canvas releases that renderer; the field order cannot
+        // express this because TextureCreator is only a lifetime witness.
+        self.abort_persistent_frame();
+        self.persistent.get_mut().take();
+    }
+}
+
 impl<T: RenderTarget> Device<T> {
-    pub(super) fn new(canvas: Canvas<T>, creator: TextureCreator<T::Context>) -> Self {
+    pub(super) fn new(
+        canvas: Canvas<T>,
+        creator: TextureCreator<T::Context>,
+    ) -> Result<Self, RenderError> {
         assert_eq!(canvas.raw(), creator.raw());
-        let info = canvas.info();
+        let mut info = core::mem::MaybeUninit::uninit();
+        // SDL can report formats newer than the Rust binding's enum. Only the
+        // static name and extent limits are needed; leave format IDs opaque.
+        if unsafe { sdl2::sys::SDL_GetRendererInfo(canvas.raw(), info.as_mut_ptr()) } != 0 {
+            return Err(RenderError::BackendFailure);
+        }
+        let info = unsafe { info.assume_init() };
+        // SDL driver names are static strings owned by the loaded library.
+        let name = unsafe { core::ffi::CStr::from_ptr(info.name) }
+            .to_str()
+            .map_err(|_| RenderError::BackendFailure)?;
         let target_supported = canvas.render_target_supported();
-        Self {
+        Ok(Self {
             canvas: RefCell::new(canvas),
             creator,
             generation: Cell::new(0),
             failure: Cell::new(None),
+            persistent: RefCell::new(None),
+            frame_state: RefCell::new(None),
+            persistent_supported: target_supported && super::config::window_is_single_sample(name),
             target_supported,
-            max_texture_size: (info.max_texture_width, info.max_texture_height),
-            name: info.name,
-        }
+            max_texture_size: (
+                info.max_texture_width.max(0) as u32,
+                info.max_texture_height.max(0) as u32,
+            ),
+            name,
+        })
     }
 
     pub(super) fn canvas(&self) -> Result<RefMut<'_, Canvas<T>>, RenderError> {
@@ -46,6 +86,120 @@ impl<T: RenderTarget> Device<T> {
         self.failure.set(Some(RenderError::BackendFailure));
     }
 
+    pub(super) fn prepare_persistent_target(&self, size: (u32, u32)) -> Result<bool, RenderError> {
+        self.check()?;
+        if !self.persistent_supported {
+            return Ok(false);
+        }
+        if self
+            .persistent
+            .borrow()
+            .as_ref()
+            .is_some_and(|target| target.size == size)
+        {
+            return Ok(true);
+        }
+        if self.frame_state.borrow().is_some() {
+            return Err(RenderError::InvalidScope);
+        }
+        self.persistent.borrow_mut().take();
+        let mut texture = self
+            .creator
+            .create_texture_target(PixelFormatEnum::RGBA32, size.0, size.1)
+            .map_err(|_| RenderError::BackendFailure)?;
+        // Presentation replaces window pixels, including transparent pixels.
+        texture.set_blend_mode(BlendMode::None);
+        // TextureCreator is owned by this Device for the entire texture lifetime.
+        let texture =
+            unsafe { core::mem::transmute::<SdlTexture<'_>, SdlTexture<'static>>(texture) };
+        *self.persistent.borrow_mut() = Some(PersistentTarget {
+            texture,
+            size,
+            initialized: false,
+        });
+        Ok(true)
+    }
+
+    pub(super) fn has_persistent_target(&self) -> bool {
+        self.persistent.borrow().is_some()
+    }
+
+    pub(super) fn persistent_frame_active(&self) -> bool {
+        self.frame_state.borrow().is_some()
+    }
+
+    pub(super) fn begin_persistent_frame(&self) -> Result<bool, RenderError> {
+        if self.persistent.borrow().is_none() {
+            return Ok(false);
+        }
+        if self.frame_state.borrow().is_some() {
+            return Err(RenderError::InvalidScope);
+        }
+        let canvas = self.canvas()?;
+        let mut target = self.persistent.borrow_mut();
+        let target = target.as_mut().ok_or(RenderError::InvalidScope)?;
+        let driver = DriverState::capture(&canvas)?;
+        if let Err(error) = target_state::select(&canvas, &target.texture) {
+            if driver.restore(&canvas).is_err() {
+                self.poison();
+            }
+            return Err(error);
+        }
+        if !target.initialized {
+            if let Err(error) = target_state::clear(&canvas) {
+                if driver.restore(&canvas).is_err() {
+                    self.poison();
+                }
+                return Err(error);
+            }
+            target.initialized = true;
+        }
+        *self.frame_state.borrow_mut() = Some(driver);
+        Ok(true)
+    }
+
+    pub(super) fn finish_persistent_frame(&self) -> Result<bool, RenderError> {
+        let mut canvas = self.canvas()?;
+        let Some(driver) = self.frame_state.borrow_mut().take() else {
+            return Ok(false);
+        };
+        let target = self.persistent.borrow();
+        let texture = &target.as_ref().unwrap().texture;
+        let result = (|| {
+            driver.restore(&canvas)?;
+            canvas.set_viewport(None);
+            canvas.set_clip_rect(None);
+            canvas
+                .set_scale(1.0, 1.0)
+                .map_err(|_| RenderError::BackendFailure)?;
+            canvas
+                .set_logical_size(0, 0)
+                .map_err(|_| RenderError::BackendFailure)?;
+            canvas
+                .copy(texture, None, None)
+                .map_err(|_| RenderError::BackendFailure)?;
+            driver.restore(&canvas)
+        })();
+        if result.is_err() {
+            self.poison();
+        }
+        result.map(|()| true)
+    }
+
+    pub(super) fn abort_persistent_frame(&self) {
+        let Some(driver) = self.frame_state.borrow_mut().take() else {
+            return;
+        };
+        match self.canvas.try_borrow_mut() {
+            Ok(canvas) => {
+                if driver.restore(&canvas).is_err() {
+                    self.poison();
+                }
+            }
+            Err(_) => self.poison(),
+        }
+    }
+
     pub(super) fn name(&self) -> &'static str {
         self.name
     }
@@ -55,6 +209,8 @@ impl<T: RenderTarget> Device<T> {
     }
 
     pub(super) fn invalidate(&self) {
+        self.abort_persistent_frame();
+        self.persistent.borrow_mut().take();
         self.generation.set(self.generation.get().wrapping_add(1));
         self.failure.set(None);
     }
@@ -73,7 +229,104 @@ mod tests {
             .into_canvas()
             .unwrap();
         let creator = canvas.texture_creator();
-        Rc::new(Device::new(canvas, creator))
+        Rc::new(Device::new(canvas, creator).unwrap())
+    }
+
+    fn read_pixel(device: &Device<sdl2::surface::Surface<'static>>, x: u16, y: u16) -> [u8; 4] {
+        let mut pixel = [0; 4];
+        super::super::readback::rgba8(
+            &*device.canvas().unwrap(),
+            PhysicalRect::new(x, y, 1, 1).unwrap(),
+            &mut pixel,
+            4,
+        )
+        .unwrap();
+        pixel
+    }
+
+    #[test]
+    fn persistent_frames_retain_undamaged_pixels_and_replace_window_alpha() {
+        let device = device();
+        assert!(device.prepare_persistent_target((4, 3)).unwrap());
+        for (x, color) in [(0, [120, 30, 60, 128]), (2, [7, 19, 83, 255])] {
+            assert!(device.begin_persistent_frame().unwrap());
+            {
+                let mut canvas = device.canvas().unwrap();
+                canvas.set_blend_mode(BlendMode::None);
+                canvas.set_draw_color(sdl2::pixels::Color::RGBA(
+                    color[0], color[1], color[2], color[3],
+                ));
+                canvas.fill_rect(sdl2::rect::Rect::new(x, 0, 1, 1)).unwrap();
+            }
+            assert!(device.finish_persistent_frame().unwrap());
+            assert_eq!(read_pixel(&device, 0, 0), [120, 30, 60, 128]);
+            assert_eq!(read_pixel(&device, 3, 2), [0; 4]);
+            // A discarded window backbuffer cannot erase retained pixels.
+            if x == 0 {
+                let mut canvas = device.canvas().unwrap();
+                canvas.set_draw_color(sdl2::pixels::Color::RGBA(255, 255, 255, 255));
+                canvas.clear();
+            }
+        }
+        assert_eq!(read_pixel(&device, 2, 0), [7, 19, 83, 255]);
+        assert!(!device.finish_persistent_frame().unwrap());
+    }
+
+    #[test]
+    fn persistent_abort_restores_driver_state_and_reset_recreates_storage() {
+        let device = device();
+        assert!(device.prepare_persistent_target((4, 3)).unwrap());
+        let expected = {
+            let mut canvas = device.canvas().unwrap();
+            canvas.set_viewport(sdl2::rect::Rect::new(1, 1, 2, 2));
+            canvas.set_clip_rect(sdl2::rect::Rect::new(0, 0, 1, 1));
+            canvas.set_scale(1.5, 1.5).unwrap();
+            canvas.set_blend_mode(BlendMode::Add);
+            (
+                canvas.viewport(),
+                canvas.clip_rect(),
+                canvas.scale(),
+                canvas.blend_mode(),
+            )
+        };
+        assert!(device.begin_persistent_frame().unwrap());
+        assert_eq!(
+            device.begin_persistent_frame(),
+            Err(RenderError::InvalidScope)
+        );
+        assert_eq!(
+            device.prepare_persistent_target((8, 6)),
+            Err(RenderError::InvalidScope)
+        );
+        device.abort_persistent_frame();
+        {
+            let canvas = device.canvas().unwrap();
+            assert_eq!(
+                (
+                    canvas.viewport(),
+                    canvas.clip_rect(),
+                    canvas.scale(),
+                    canvas.blend_mode()
+                ),
+                expected
+            );
+        }
+        device.invalidate();
+        assert!(!device.has_persistent_target());
+        assert!(device.prepare_persistent_target((8, 6)).unwrap());
+        assert!(device.begin_persistent_frame().unwrap());
+        assert_eq!(read_pixel(&device, 7, 5), [0; 4]);
+        assert!(device.finish_persistent_frame().unwrap());
+        let canvas = device.canvas().unwrap();
+        assert_eq!(
+            (
+                canvas.viewport(),
+                canvas.clip_rect(),
+                canvas.scale(),
+                canvas.blend_mode()
+            ),
+            expected
+        );
     }
 
     #[test]

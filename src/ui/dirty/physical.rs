@@ -130,7 +130,11 @@ mod tests {
     fn prepared(input: &[Rect]) -> PhysicalDamage {
         let mut plan = DirtyRegions::with_rect_capacity(DIRTY_PLAN_RECT_CAPACITY);
         plan.rects.extend_from_slice(input);
-        plan.physical_redraw(Viewport::new(128, 128, Fixed::ONE), false)
+        plan.physical_redraw(
+            Viewport::new(128, 128, Fixed::ONE),
+            false,
+            crate::surface::RedrawStrategy::Adaptive,
+        )
     }
 
     #[test]
