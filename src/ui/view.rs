@@ -525,7 +525,7 @@ pub(crate) mod generated {
     }
 
     pub fn assemble_view<C: crate::ecs::Component>(descriptor: ViewDescriptor) -> View {
-        View::from_descriptor(descriptor, Some(TypeId::of::<C>), C::OUTPUT_DEPENDENCIES)
+        View::from_descriptor(descriptor, Some(TypeId::of::<C>()), C::OUTPUT_DEPENDENCIES)
     }
 
     /// Collects subscriptions for one entity and one View registration.
@@ -633,7 +633,7 @@ struct ViewDefinition {
     /// When set, the walker only invokes `render` on entities that
     /// own a component of this type. `None` runs on every entity
     /// (e.g. the generic Style stage).
-    component_filter: Option<fn() -> TypeId>,
+    component_filter: Option<TypeId>,
     query_dependencies: &'static [fn() -> TypeId],
     query_scope: Cell<QueryScope>,
     output_dependencies: &'static [OutputDependency],
@@ -655,7 +655,7 @@ enum QueryScope {
 impl View {
     fn from_descriptor(
         descriptor: generated::ViewDescriptor,
-        component_filter: Option<fn() -> TypeId>,
+        component_filter: Option<TypeId>,
         output_dependencies: &'static [OutputDependency],
     ) -> Self {
         let paint = descriptor.paint.map(|(priority, render)| ViewPaint {
@@ -775,8 +775,8 @@ impl<Systems> View<Systems> {
     }
 
     #[cfg(test)]
-    pub(crate) const fn with_filter<T: crate::ecs::Component>(mut self) -> Self {
-        self.definition.component_filter = Some(TypeId::of::<T>);
+    pub(crate) fn with_filter<T: crate::ecs::Component>(mut self) -> Self {
+        self.definition.component_filter = Some(TypeId::of::<T>());
         self.definition.output_dependencies = T::OUTPUT_DEPENDENCIES;
         self
     }
@@ -858,7 +858,7 @@ impl<Systems> View<Systems> {
         self.definition.auto_attach.as_ref()
     }
     pub(crate) fn component_filter(&self) -> Option<TypeId> {
-        self.definition.component_filter.map(|f| f())
+        self.definition.component_filter
     }
     pub(crate) fn inputs(&self) -> Option<&crate::input::event::view_input::SharedInputs> {
         self.definition.input.as_ref()
@@ -3512,6 +3512,27 @@ mod tests {
         assert_eq!(
             view.component_filter(),
             Some(TypeId::of::<GenericTile<u8>>())
+        );
+        let other = paint_generic_tile::view::<u16>();
+        assert_eq!(
+            other.component_filter(),
+            Some(TypeId::of::<GenericTile<u16>>())
+        );
+        assert_ne!(view.component_filter(), other.component_filter());
+        let systems: [crate::ecs::System; 0] = [];
+        let view = view.with_systems(systems);
+        assert_eq!(
+            tracked_allocations(|| {
+                assert_eq!(
+                    view.component_filter(),
+                    Some(TypeId::of::<GenericTile<u8>>())
+                );
+            }),
+            0
+        );
+        assert_eq!(
+            View::systems_only("unfiltered", &[]).component_filter(),
+            None
         );
     }
 
