@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+
+- Software rendering reads exact-size A1 glyph coverage without bilinear interpolation.
+
 ## [0.51.0] - 2026-10-21
 
 ### Fixed

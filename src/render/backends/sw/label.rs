@@ -1069,6 +1069,8 @@ impl SwRenderer<'_> {
         let Some(field) = ScalarField::new(coverage, stride, region, bpp) else {
             return;
         };
+        let exact_binary =
+            bpp == 1 && source_width == target_width && source_height == target_height;
         let scale_x = Fixed::from_int(source_width as i32) / Fixed::from_int(target_width as i32);
         let scale_y = Fixed::from_int(source_height as i32) / Fixed::from_int(target_height as i32);
         let half_texel = Fixed::HALF;
@@ -1080,14 +1082,19 @@ impl SwRenderer<'_> {
         for row in 0..target_height {
             let source_y = (Fixed::from_int(row as i32) + half_texel) * scale_y - half_texel;
             for col in 0..target_width {
-                let source_x = (Fixed::from_int(col as i32) + half_texel) * scale_x - half_texel;
-                let coverage = field.sample_bilinear(source_x, source_y);
-                if coverage <= Fixed::ZERO {
-                    continue;
-                }
-                let mut alpha = (coverage * Fixed::from_int(i32::from(base_opa)))
-                    .to_int()
-                    .clamp(0, 255) as u8;
+                let mut alpha = if exact_binary {
+                    if field.alpha(col, row) == 0 {
+                        continue;
+                    }
+                    base_opa
+                } else {
+                    let source_x =
+                        (Fixed::from_int(col as i32) + half_texel) * scale_x - half_texel;
+                    let coverage = field.sample_bilinear(source_x, source_y);
+                    (coverage * Fixed::from_int(i32::from(base_opa)))
+                        .to_int()
+                        .clamp(0, 255) as u8
+                };
                 if alpha == 0 {
                     continue;
                 }
@@ -1495,6 +1502,61 @@ mod tests {
         assert_eq!(pixel_alpha(&buf, 4, 0, 1), 0);
         assert_eq!(pixel_alpha(&buf, 4, 1, 1), 255);
         assert_eq!(pixel_alpha(&buf, 4, 2, 1), 0);
+    }
+
+    #[test]
+    fn exact_binary_coverage_matches_scalar_sampling_with_atlas_clipping_and_masks() {
+        let packed = [0xff, 0xff, 0x16, 0xa0, 0x09, 0x60, 0xff, 0xff];
+        let region = mirx::image::Region::new(3, 1, 9, 2).unwrap();
+        let field = ScalarField::new(&packed, 2, region, 1).unwrap();
+        let mut expanded = [0u8; 18];
+        for y in 0..2 {
+            for x in 0..9 {
+                expanded[(y * 9 + x) as usize] = field.alpha(x, y);
+            }
+        }
+        for opacity in [0, 1, 127, 254, 255] {
+            for offset in [-3, 0, 2] {
+                for masked in [false, true] {
+                    let render = |samples: &[u8], stride, region, bits| {
+                        let mut pixels = vec![37; 8 * 4 * 4];
+                        let texture =
+                            Texture::new(&mut pixels, 8, 4, ColorFormat::RGBA8888).unwrap();
+                        let mut renderer = SwRenderer::new(texture);
+                        if masked {
+                            renderer.scratch.clip_stack.push(super::super::ClipMask {
+                                alpha: (0..32).map(|index| (index * 7) as u8).collect(),
+                            });
+                        }
+                        renderer.blit_coverage_region(
+                            samples,
+                            stride,
+                            region,
+                            bits,
+                            offset,
+                            1,
+                            9,
+                            2,
+                            (1, 0, 7, 4),
+                            &Color::rgba(21, 154, 239, 255),
+                            opacity,
+                        );
+                        drop(renderer);
+                        pixels
+                    };
+                    assert_eq!(
+                        render(&packed, 2, region, 1),
+                        render(
+                            &expanded,
+                            9,
+                            mirx::image::Region::new(0, 0, 9, 2).unwrap(),
+                            8
+                        ),
+                        "opacity={opacity}, offset={offset}, masked={masked}",
+                    );
+                }
+            }
+        }
     }
 
     #[test]
