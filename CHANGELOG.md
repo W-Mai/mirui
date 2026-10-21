@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Fixed-point multiplication preserves representable results without overflowing partial products.
+
 - Transform property updates preserve existing component identity and leave unchanged values unpublished.
 
 - Three Body impulses no longer mark unrelated velocity components as changed.

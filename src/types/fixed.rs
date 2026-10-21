@@ -344,10 +344,8 @@ impl Mul for Fixed {
     type Output = Self;
     #[inline]
     fn mul(self, rhs: Self) -> Self {
-        // Split to avoid i64: a * b = a * b_int + (a * b_frac) >> 8
-        let b_int = rhs.0 >> FRAC_BITS;
-        let b_frac = rhs.0 & (SCALE - 1);
-        Self(self.0 * b_int + ((self.0 * b_frac) >> FRAC_BITS))
+        // Keep the full product until rescaling, including for representable results.
+        Self(((i64::from(self.0) * i64::from(rhs.0)) >> FRAC_BITS) as i32)
     }
 }
 
@@ -812,6 +810,24 @@ mod tests {
         let b = Fixed::from_f32(4.0);
         let c = a * b;
         assert_eq!(c.to_int(), 10);
+    }
+
+    #[test]
+    fn mul_preserves_representable_results_across_the_storage_range() {
+        for integer in [-65535, -40000, -32768, -1, 0, 1, 32768, 40000, 65535] {
+            let value = Fixed::from_int(integer);
+            for fraction in [-255, -192, -128, -1, 0, 1, 128, 192, 255, 256] {
+                let factor = Fixed(fraction);
+                let expected = ((i64::from(value.0) * i64::from(factor.0)) >> FRAC_BITS) as i32;
+                assert_eq!((value * factor).0, expected);
+                assert_eq!(value * factor, factor * value);
+            }
+        }
+        for value in [Fixed::MIN, Fixed(i32::MIN + 1), Fixed(-1), Fixed::MAX] {
+            assert_eq!(value * Fixed::ONE, value);
+            assert_eq!(value * Fixed::HALF, Fixed(value.0 >> 1));
+            assert_eq!(Fixed::HALF * value, Fixed(value.0 >> 1));
+        }
     }
 
     #[test]
