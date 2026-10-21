@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Type-level component presence checks reuse the shared storage lookup.
+
 - Packed pixel writes use fixed-length stores for each color format.
 
 - Physical redraw grouping stops scanning entries beyond each candidate's vertical bounds.

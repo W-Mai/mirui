@@ -709,7 +709,7 @@ impl World {
     /// True iff *any* live entity owns a component of `type_id`.
     /// Pairs with [`Self::has_type`] for per-entity checks.
     pub fn has_any_by_id(&self, type_id: TypeId) -> bool {
-        self.storages.get(&type_id).is_some_and(|s| !s.is_empty())
+        component_storage(&self.storages, type_id).is_some_and(|s| !s.is_empty())
     }
 
     pub fn query<T: 'static>(&self) -> super::query::QueryBuilder<'_, T> {
@@ -882,6 +882,9 @@ mod tests {
                 assert!(!world.has::<u64>(first));
                 assert!(world.has_type(first, TypeId::of::<u16>()));
                 assert!(!world.has_type(first, TypeId::of::<u64>()));
+                assert!(world.has_any_by_id(TypeId::of::<u16>()));
+                assert!(world.has_any_by_id(TypeId::of::<u32>()));
+                assert!(!world.has_any_by_id(TypeId::of::<u64>()));
                 assert_eq!(world.resource::<u16>(), Some(&41));
                 assert_eq!(world.resource::<u32>(), Some(&53));
                 assert_eq!(world.resource::<u64>(), None);
@@ -892,6 +895,8 @@ mod tests {
         assert!(world.despawn(first));
         assert!(!world.has::<u16>(first));
         assert!(!world.has_type(first, TypeId::of::<u16>()));
+        assert!(!world.has_any_by_id(TypeId::of::<u16>()));
+        assert!(!world.has_any_by_id(TypeId::of::<u32>()));
         let second = world.spawn_empty();
         assert_eq!(first.id, second.id);
         assert_ne!(first.generation, second.generation);
@@ -906,6 +911,8 @@ mod tests {
                 assert!(!world.has::<u32>(second));
                 assert!(!world.has_type(second, TypeId::of::<u32>()));
                 assert!(world.has_type(second, TypeId::of::<u16>()));
+                assert!(world.has_any_by_id(TypeId::of::<u16>()));
+                assert!(!world.has_any_by_id(TypeId::of::<u32>()));
                 assert_eq!(world.resource::<u16>(), Some(&41));
                 assert_eq!(world.resource::<u32>(), Some(&53));
             }),
