@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Physical redraw grouping stops scanning entries beyond each candidate's vertical bounds.
+
 - Component membership checks validate entity identity without borrowing component values.
 
 - Empty reactive flushes retain subscription cleanup and capacity preparation without installing a mutable execution window.

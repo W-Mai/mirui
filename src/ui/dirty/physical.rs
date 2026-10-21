@@ -75,10 +75,13 @@ impl PhysicalDamage {
             extra_area: area(bounds),
         };
         for (index, rect) in self.as_slice().iter().copied().enumerate() {
+            // Entries are ordered by top edge throughout coalescing.
+            if rect.y() >= bounds.bottom() {
+                break;
+            }
             if rect.right() <= bounds.x()
                 || rect.x() >= bounds.right()
                 || rect.bottom() <= bounds.y()
-                || rect.y() >= bounds.bottom()
             {
                 continue;
             }
@@ -220,6 +223,13 @@ mod tests {
             let before = plan.rects;
             let allocations = crate::test_support::tracked_allocations(|| plan.coalesce_redraw());
             assert_eq!(allocations, 0);
+            let mut reversed = PhysicalDamage {
+                rects: before,
+                len: before.len(),
+            };
+            reversed.rects.reverse();
+            reversed.coalesce_redraw();
+            assert_eq!(reversed.as_slice(), plan.as_slice());
             let original_area = before.iter().copied().map(area).map(u64::from).sum::<u64>();
             let after_area = plan
                 .as_slice()
