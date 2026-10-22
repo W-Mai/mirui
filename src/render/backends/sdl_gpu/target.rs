@@ -16,7 +16,7 @@ use crate::render::{
     BackendTarget, PlaneLayout, RenderError, RenderFeature, TargetAlpha, TargetDescriptor,
     TargetPlan, TargetUpdate,
 };
-use crate::types::{PhysicalRect, Viewport};
+use crate::types::Viewport;
 
 #[cfg(test)]
 #[path = "target_tests.rs"]
@@ -87,15 +87,14 @@ impl<T: RenderTarget + 'static> BackendTarget for Target<T> {
     fn as_any(&self) -> &dyn Any {
         self
     }
-    fn read_pixels_into(&self, dst: &mut TexturePixelsMut<'_>) -> Result<(), RenderError> {
+    fn read_pixels_into(
+        &self,
+        region: crate::render::texture::Region,
+        dst: &mut TexturePixelsMut<'_>,
+    ) -> Result<(), RenderError> {
+        let area = self.descriptor().readback_region(region, dst)?;
         self.validate()?;
-        let layout = self.descriptor().layout;
-        if !self.storage.completed.get()
-            || self.storage.active.get()
-            || dst.width() != layout.width()
-            || dst.height() != layout.height()
-            || dst.format() != layout.format()
-        {
+        if !self.storage.completed.get() || self.storage.active.get() {
             return Err(RenderError::InvalidTexture);
         }
         let device = &self.storage.device;
@@ -108,16 +107,11 @@ impl<T: RenderTarget + 'static> BackendTarget for Target<T> {
         let saved = DriverState::capture(&canvas)?;
         let result = target_state::select(&canvas, &texture).and_then(|_| {
             let stride = dst.stride();
-            readback::rgba8(
-                &canvas,
-                PhysicalRect::from_size(layout.width(), layout.height()),
-                dst.bytes_mut(),
-                stride,
-            )?;
+            readback::rgba8(&canvas, area, dst.bytes_mut(), stride)?;
             readback::convert_alpha(
                 dst.bytes_mut(),
-                layout.width(),
-                layout.height(),
+                area.width(),
+                area.height(),
                 stride,
                 TargetAlpha::Premultiplied,
                 TargetAlpha::Straight,

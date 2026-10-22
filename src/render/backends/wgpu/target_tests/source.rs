@@ -333,7 +333,10 @@ fn sample_color(
     storage.completed.set(true);
     let mut result = Texture::owned(4, 4, ColorFormat::RGBA8888).unwrap();
     target
-        .read_pixels_into(&mut result.pixels_mut().unwrap())
+        .read_pixels_into(
+            target.descriptor().region(),
+            &mut result.pixels_mut().unwrap(),
+        )
         .unwrap();
     result.read_pixels().unwrap().get_pixel(2, 2)
 }

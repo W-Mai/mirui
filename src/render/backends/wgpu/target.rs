@@ -11,7 +11,7 @@ use crate::render::{
     TargetDescriptor, TargetPlan, TargetUpdate,
 };
 use crate::surface::wgpu_surface::{WgpuDeviceContext, WgpuTarget};
-use crate::types::{PhysicalRect, Viewport};
+use crate::types::Viewport;
 
 #[cfg(test)]
 #[path = "target_tests.rs"]
@@ -73,12 +73,16 @@ impl BackendTarget for Target {
     fn as_any(&self) -> &dyn Any {
         self
     }
-    fn read_pixels_into(&self, destination: &mut TexturePixelsMut<'_>) -> Result<(), RenderError> {
+    fn read_pixels_into(
+        &self,
+        region: crate::render::texture::Region,
+        destination: &mut TexturePixelsMut<'_>,
+    ) -> Result<(), RenderError> {
+        let area = self.descriptor().readback_region(region, destination)?;
         self.validate()?;
         if self.storage.active.get() || !self.storage.completed.get() {
             return Err(RenderError::InvalidTexture);
         }
-        let layout = self.descriptor().layout;
         self.storage
             .readback
             .try_borrow_mut()
@@ -87,7 +91,7 @@ impl BackendTarget for Target {
                 &self.storage.context.device,
                 &self.storage.context.queue,
                 self.storage.frame.texture(),
-                PhysicalRect::from_size(layout.width(), layout.height()),
+                area,
                 destination,
             )?;
         self.storage.context.check()

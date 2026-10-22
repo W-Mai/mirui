@@ -202,7 +202,8 @@ impl NativeTexture {
             self.cache_bytes
                 .set(self.storage.bytes() + bytes.capacity() + self.readback.bytes());
             let mut destination = TexturePixelsMut::new(bytes, self.layout, AlphaMode::Blend);
-            self.target.read_pixels_into(&mut destination)?;
+            self.target
+                .read_pixels_into(self.target.descriptor().region(), &mut destination)?;
             mirror.revision = Some(revision);
         }
         self.pixels(revision)?.ok_or(RenderError::InvalidTexture)
@@ -382,8 +383,10 @@ mod tests {
         }
         fn read_pixels_into(
             &self,
+            region: Region,
             destination: &mut TexturePixelsMut<'_>,
         ) -> Result<(), RenderError> {
+            self.descriptor().readback_region(region, destination)?;
             self.0.reads.set(self.0.reads.get() + 1);
             let source = self.0.source.borrow().upgrade().unwrap();
             // Re-entry observes an in-flight read, not a held cache borrow.

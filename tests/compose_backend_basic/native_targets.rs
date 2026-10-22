@@ -48,7 +48,12 @@ impl BackendTarget for Target {
         self
     }
 
-    fn read_pixels_into(&self, dst: &mut TexturePixelsMut<'_>) -> Result<(), RenderError> {
+    fn read_pixels_into(
+        &self,
+        region: mirui::render::texture::Region,
+        dst: &mut TexturePixelsMut<'_>,
+    ) -> Result<(), RenderError> {
+        self.descriptor().readback_region(region, dst)?;
         if !self.slot.completed.get()
             || dst.width() != 1
             || dst.height() != 1
@@ -252,7 +257,7 @@ fn draw(renderer: &mut dyn Renderer) -> Result<(), RenderError> {
 fn read_color(target: &dyn BackendTarget) -> Result<Color, RenderError> {
     let mut bytes = [0; 4];
     let mut texture = Texture::new(&mut bytes[..], 1, 1, ColorFormat::RGBA8888)?;
-    target.read_pixels_into(&mut texture.pixels_mut()?)?;
+    target.read_pixels_into(target.descriptor().region(), &mut texture.pixels_mut()?)?;
     Ok(texture.read_pixels()?.get_pixel(0, 0))
 }
 

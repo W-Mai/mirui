@@ -37,7 +37,11 @@ impl BackendTarget for Target {
         self
     }
 
-    fn read_pixels_into(&self, _: &mut TexturePixelsMut<'_>) -> Result<(), RenderError> {
+    fn read_pixels_into(
+        &self,
+        _: mirui::render::texture::Region,
+        _: &mut TexturePixelsMut<'_>,
+    ) -> Result<(), RenderError> {
         Err(RenderError::BackendFailure)
     }
 }

@@ -3,6 +3,7 @@ use super::*;
 use crate::render::{
     DrawRequest, RenderRoute, Renderer, budget::MemoryBudget, command::CompositeMode,
 };
+use crate::types::PhysicalRect;
 use crate::types::{Color, Fixed};
 
 struct Producer {
@@ -242,7 +243,10 @@ fn source_texture_borrows_reject_reentry_without_poisoning_or_allocating() {
     {
         let _busy = target.storage.texture.borrow_mut();
         assert_eq!(
-            source.read_pixels_into(&mut destination.pixels_mut().unwrap()),
+            source.read_pixels_into(
+                source.descriptor().region(),
+                &mut destination.pixels_mut().unwrap()
+            ),
             Err(RenderError::InvalidScope)
         );
         assert!(matches!(
@@ -255,7 +259,10 @@ fn source_texture_borrows_reject_reentry_without_poisoning_or_allocating() {
             let binding = Binding::begin(&owner, &*source, TargetUpdate::Incremental).unwrap();
             binding.finish(&owner, true).unwrap();
             source
-                .read_pixels_into(&mut destination.pixels_mut().unwrap())
+                .read_pixels_into(
+                    source.descriptor().region(),
+                    &mut destination.pixels_mut().unwrap(),
+                )
                 .unwrap();
         }),
         0

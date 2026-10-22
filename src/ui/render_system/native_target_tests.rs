@@ -23,7 +23,11 @@ impl BackendTarget for Target {
         self
     }
 
-    fn read_pixels_into(&self, _: &mut TexturePixelsMut<'_>) -> Result<(), RenderError> {
+    fn read_pixels_into(
+        &self,
+        _: crate::render::texture::Region,
+        _: &mut TexturePixelsMut<'_>,
+    ) -> Result<(), RenderError> {
         Err(RenderError::Unsupported(
             crate::render::RenderFeature::Readback,
         ))

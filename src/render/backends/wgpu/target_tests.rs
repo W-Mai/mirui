@@ -45,6 +45,40 @@ fn completed(target: &dyn BackendTarget, color: wgpu::Color) {
 }
 
 #[test]
+fn source_region_read_preserves_padding_and_reuses_staging() {
+    let Some(context) = context() else {
+        return;
+    };
+    let layout = PlaneLayout::packed(8, 6, ColorFormat::RGBA8888).unwrap();
+    let plan = plan(&context, 1, layout).unwrap().unwrap();
+    let source = create(&context, 1, &plan).unwrap();
+    completed(
+        &*source,
+        wgpu::Color {
+            r: 0.25,
+            g: 0.0,
+            b: 0.0,
+            a: 0.5,
+        },
+    );
+    let mut bytes = [0xa5; 20];
+    let mut dst = Texture::new(&mut bytes, 2, 2, ColorFormat::RGBA8888)
+        .unwrap()
+        .with_stride(12)
+        .unwrap();
+    let area = crate::render::texture::Region::new(3, 2, 2, 2).unwrap();
+    for _ in 0..3 {
+        source
+            .read_pixels_into(area, &mut dst.pixels_mut().unwrap())
+            .unwrap();
+        let actual = dst.read_pixels().unwrap();
+        assert_eq!(actual.get_pixel(0, 0), Color::rgba(128, 0, 0, 128));
+        assert_eq!(actual.get_pixel(1, 1), Color::rgba(128, 0, 0, 128));
+        assert_eq!(&actual.bytes()[8..12], &[0xa5; 4]);
+    }
+}
+
+#[test]
 fn reuse_checks_device_and_attachments_without_changing_contents() {
     let (Some(first), Some(second)) = (context(), context()) else {
         return;
@@ -98,7 +132,10 @@ fn native_source_owns_device_and_checks_completed_contents() {
         .with_stride(16)
         .unwrap();
     assert_eq!(
-        target.read_pixels_into(&mut image.pixels_mut().unwrap()),
+        target.read_pixels_into(
+            target.descriptor().region(),
+            &mut image.pixels_mut().unwrap()
+        ),
         Err(RenderError::InvalidTexture)
     );
     completed(
@@ -113,14 +150,20 @@ fn native_source_owns_device_and_checks_completed_contents() {
     let storage = &target.as_any().downcast_ref::<Target>().unwrap().storage;
     storage.active.set(true);
     assert_eq!(
-        target.read_pixels_into(&mut image.pixels_mut().unwrap()),
+        target.read_pixels_into(
+            target.descriptor().region(),
+            &mut image.pixels_mut().unwrap()
+        ),
         Err(RenderError::InvalidTexture)
     );
     storage.active.set(false);
     {
         let _lease = storage.readback.borrow_mut();
         assert_eq!(
-            target.read_pixels_into(&mut image.pixels_mut().unwrap()),
+            target.read_pixels_into(
+                target.descriptor().region(),
+                &mut image.pixels_mut().unwrap()
+            ),
             Err(RenderError::InvalidScope)
         );
     }
@@ -128,7 +171,10 @@ fn native_source_owns_device_and_checks_completed_contents() {
     assert!(weak.upgrade().is_some());
     for _ in 0..3 {
         target
-            .read_pixels_into(&mut image.pixels_mut().unwrap())
+            .read_pixels_into(
+                target.descriptor().region(),
+                &mut image.pixels_mut().unwrap(),
+            )
             .unwrap();
         let pixels = image.read_pixels().unwrap();
         assert_eq!(pixels.get_pixel(0, 0), Color::rgba(128, 0, 0, 128));
@@ -191,7 +237,10 @@ fn native_target_plan_matches_attachments_and_rejects_invalid_requests() {
         completed(&*target, wgpu::Color::TRANSPARENT);
         let mut image = Texture::owned(8, 6, ColorFormat::RGBA8888).unwrap();
         target
-            .read_pixels_into(&mut image.pixels_mut().unwrap())
+            .read_pixels_into(
+                target.descriptor().region(),
+                &mut image.pixels_mut().unwrap(),
+            )
             .unwrap();
         assert!(
             image
@@ -265,7 +314,10 @@ fn device_loss_rejects_retained_native_source() {
     assert_eq!(target.validate(), Err(RenderError::BackendFailure));
     let mut image = Texture::owned(2, 2, ColorFormat::RGBA8888).unwrap();
     assert_eq!(
-        target.read_pixels_into(&mut image.pixels_mut().unwrap()),
+        target.read_pixels_into(
+            target.descriptor().region(),
+            &mut image.pixels_mut().unwrap()
+        ),
         Err(RenderError::BackendFailure)
     );
     assert!(

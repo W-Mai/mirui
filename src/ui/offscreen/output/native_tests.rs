@@ -60,7 +60,12 @@ impl BackendTarget for Target {
     fn as_any(&self) -> &dyn Any {
         self
     }
-    fn read_pixels_into(&self, pixels: &mut TexturePixelsMut<'_>) -> Result<(), RenderError> {
+    fn read_pixels_into(
+        &self,
+        region: crate::render::texture::Region,
+        pixels: &mut TexturePixelsMut<'_>,
+    ) -> Result<(), RenderError> {
+        self.descriptor().readback_region(region, pixels)?;
         self.validate()?;
         if !self.contents.completed.get() {
             return Err(RenderError::InvalidTexture);

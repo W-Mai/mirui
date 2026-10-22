@@ -38,9 +38,43 @@ fn fill(device: &TestDevice, rect: sdl2::rect::Rect, color: (u8, u8, u8, u8)) {
 fn pixels(target: &dyn BackendTarget) -> Texture<'static> {
     let mut image = Texture::owned(4, 4, ColorFormat::RGBA8888).unwrap();
     target
-        .read_pixels_into(&mut image.pixels_mut().unwrap())
+        .read_pixels_into(
+            target.descriptor().region(),
+            &mut image.pixels_mut().unwrap(),
+        )
         .unwrap();
     image
+}
+
+#[test]
+fn source_region_preserves_coordinates_padding_and_alpha() {
+    let device = device();
+    let source = target(&device);
+    let binding = Binding::begin(&device, &*source, TargetUpdate::Rebuild).unwrap();
+    fill(&device, sdl2::rect::Rect::new(0, 0, 2, 4), (255, 0, 0, 128));
+    fill(&device, sdl2::rect::Rect::new(2, 0, 2, 4), (0, 255, 0, 255));
+    binding.finish(&device, true).unwrap();
+    let full = pixels(&*source);
+    let full = full.read_pixels().unwrap();
+    let mut bytes = [0xa5; 20];
+    let mut dst = Texture::new(&mut bytes, 2, 2, ColorFormat::RGBA8888)
+        .unwrap()
+        .with_stride(12)
+        .unwrap();
+    let area = crate::render::texture::Region::new(1, 1, 2, 2).unwrap();
+    let allocations = tracked_allocations(|| {
+        source
+            .read_pixels_into(area, &mut dst.pixels_mut().unwrap())
+            .unwrap();
+    });
+    assert_eq!(allocations, 0);
+    let actual = dst.read_pixels().unwrap();
+    for y in 0..2 {
+        for x in 0..2 {
+            assert_eq!(actual.get_pixel(x, y), full.get_pixel(x + 1, y + 1));
+        }
+    }
+    assert_eq!(&actual.bytes()[8..12], &[0xa5; 4]);
 }
 
 #[test]
@@ -199,6 +233,7 @@ fn target_rebuild_incremental_failure_and_owner_lifetime() {
     assert!(
         target
             .read_pixels_into(
+                target.descriptor().region(),
                 &mut Texture::owned(4, 4, ColorFormat::RGBA8888)
                     .unwrap()
                     .pixels_mut()
@@ -250,13 +285,19 @@ fn nested_targets_restore_parent_state_and_reject_feedback() {
     let mut image = Texture::owned(4, 4, ColorFormat::RGBA8888).unwrap();
     assert!(
         outer
-            .read_pixels_into(&mut image.pixels_mut().unwrap())
+            .read_pixels_into(
+                outer.descriptor().region(),
+                &mut image.pixels_mut().unwrap()
+            )
             .is_err()
     );
     fill(&device, sdl2::rect::Rect::new(0, 0, 4, 4), (0, 255, 0, 255));
     child.finish(&device, true).unwrap();
     inner
-        .read_pixels_into(&mut image.pixels_mut().unwrap())
+        .read_pixels_into(
+            inner.descriptor().region(),
+            &mut image.pixels_mut().unwrap(),
+        )
         .unwrap();
     fill(&device, sdl2::rect::Rect::new(0, 0, 1, 1), (0, 0, 255, 255));
     parent.finish(&device, true).unwrap();
@@ -321,7 +362,10 @@ fn prepared_nested_scopes_and_source_readback_do_not_allocate_rust_storage() {
                 let b = Binding::begin(&device, &*inner, TargetUpdate::Incremental).unwrap();
                 b.finish(&device, true).unwrap();
                 inner
-                    .read_pixels_into(&mut image.pixels_mut().unwrap())
+                    .read_pixels_into(
+                        inner.descriptor().region(),
+                        &mut image.pixels_mut().unwrap(),
+                    )
                     .unwrap();
                 a.finish(&device, true).unwrap();
             }
