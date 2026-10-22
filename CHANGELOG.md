@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `Texture::pixels_in` borrows checked source regions without copying pixels. `TextureRegion` preserves source coordinates and row stride, with local pixel views and allocation-free iteration.
+
 ### Changed
 
 - The default ASCII font is embedded as MIRX and shares font providers, raster surfaces and rendering paths with other fonts. Explicit font sizes scale its metrics and glyphs; the default remains 8 px.

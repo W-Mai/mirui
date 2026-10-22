@@ -5,9 +5,12 @@ use crate::core::cache::HasSize;
 mod access;
 mod native;
 mod pixels;
+mod region;
 #[cfg(any(feature = "wgpu", target_arch = "wasm32", test))]
 mod upload;
 pub use access::{TexturePixels, TexturePixelsMut};
+pub use mirx::image::Region;
+pub use region::TextureRegion;
 
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
 mod cache_key;

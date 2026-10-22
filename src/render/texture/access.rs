@@ -26,6 +26,47 @@ enum PixelBorrow<'a> {
 }
 
 impl<'a> TexturePixels<'a> {
+    pub(super) fn into_region(self, region: super::Region) -> Result<Self, RenderError> {
+        let width = u16::try_from(region.width()).map_err(|_| RenderError::InvalidTexture)?;
+        let height = u16::try_from(region.height()).map_err(|_| RenderError::InvalidTexture)?;
+        if region.right() > u32::from(self.width()) || region.bottom() > u32::from(self.height()) {
+            return Err(RenderError::InvalidTexture);
+        }
+        let layout = PlaneLayout::new(
+            width,
+            height,
+            self.format(),
+            self.stride(),
+            PlaneRequirements::CPU,
+        )
+        .map_err(|_| RenderError::InvalidTexture)?;
+        let start = usize::try_from(region.y())
+            .ok()
+            .and_then(|y| y.checked_mul(self.stride()))
+            .and_then(|row| {
+                usize::try_from(region.x())
+                    .ok()?
+                    .checked_mul(self.format().bytes_per_pixel())?
+                    .checked_add(row)
+            })
+            .ok_or(RenderError::InvalidTexture)?;
+        let end = start
+            .checked_add(layout.minimum_bytes())
+            .filter(|end| *end <= self.bytes().len())
+            .ok_or(RenderError::InvalidTexture)?;
+        let bytes = match self.bytes {
+            PixelBorrow::Direct(bytes) => PixelBorrow::Direct(&bytes[start..end]),
+            PixelBorrow::Cached(bytes) => {
+                PixelBorrow::Cached(Ref::map(bytes, |bytes| &bytes[start..end]))
+            }
+        };
+        Ok(Self { bytes, layout })
+    }
+
+    pub(super) fn reborrow(&self) -> TexturePixels<'_> {
+        TexturePixels::new(self.bytes(), self.layout)
+    }
+
     pub(super) fn new(bytes: &'a [u8], layout: PlaneLayout) -> Self {
         Self {
             bytes: PixelBorrow::Direct(bytes),
