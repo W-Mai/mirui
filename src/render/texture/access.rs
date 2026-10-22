@@ -1,12 +1,18 @@
 use super::{AlphaMode, ColorFormat, Texture};
+use crate::core::cache::Handle;
 use crate::render::renderer::RenderError;
 use crate::render::scratch::{PlaneLayout, PlaneRequirements};
 use crate::types::{Color, Fixed};
-use core::cell::Ref;
+use core::ops::Range;
+
+pub(super) struct CachedPixels {
+    pub(super) bytes: alloc::vec::Vec<u8>,
+    pub(super) _allocation: crate::render::budget::Allocation,
+}
 
 /// Borrowed, CPU-readable pixels and their row layout. Reading a pixel never performs a transfer or allocation.
 ///
-/// The guard borrows CPU storage or a source-owned readback cache; it does not own a texture or copy pixels. Drop the guard before requesting mutable access to the texture.
+/// The guard borrows CPU storage or retains immutable source-owned cache storage; it does not copy pixels or hold a cache-manager borrow. Drop the guard before requesting mutable access to the texture.
 ///
 /// ```compile_fail,E0502
 /// use mirui::render::texture::{ColorFormat, Texture};
@@ -22,7 +28,10 @@ pub struct TexturePixels<'a> {
 
 enum PixelBorrow<'a> {
     Direct(&'a [u8]),
-    Cached(Ref<'a, [u8]>),
+    Cached {
+        owner: Handle<CachedPixels>,
+        range: Range<usize>,
+    },
 }
 
 impl<'a> TexturePixels<'a> {
@@ -56,9 +65,10 @@ impl<'a> TexturePixels<'a> {
             .ok_or(RenderError::InvalidTexture)?;
         let bytes = match self.bytes {
             PixelBorrow::Direct(bytes) => PixelBorrow::Direct(&bytes[start..end]),
-            PixelBorrow::Cached(bytes) => {
-                PixelBorrow::Cached(Ref::map(bytes, |bytes| &bytes[start..end]))
-            }
+            PixelBorrow::Cached { owner, range } => PixelBorrow::Cached {
+                owner,
+                range: range.start + start..range.start + end,
+            },
         };
         Ok(Self { bytes, layout })
     }
@@ -74,9 +84,10 @@ impl<'a> TexturePixels<'a> {
         }
     }
 
-    pub(super) fn cached(bytes: Ref<'a, [u8]>, layout: PlaneLayout) -> Self {
+    pub(super) fn cached(owner: Handle<CachedPixels>, layout: PlaneLayout) -> Self {
+        let range = 0..owner.bytes.len();
         Self {
-            bytes: PixelBorrow::Cached(bytes),
+            bytes: PixelBorrow::Cached { owner, range },
             layout,
         }
     }
@@ -84,7 +95,7 @@ impl<'a> TexturePixels<'a> {
     pub fn bytes(&self) -> &[u8] {
         match &self.bytes {
             PixelBorrow::Direct(bytes) => bytes,
-            PixelBorrow::Cached(bytes) => bytes,
+            PixelBorrow::Cached { owner, range } => &owner.bytes[range.clone()],
         }
     }
 
