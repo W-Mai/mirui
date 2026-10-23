@@ -34,7 +34,7 @@ Native WGPU readback reuses a device-specific staging buffer and mapping complet
 
 `poll_draw_request(request, text_run, cx)` runs the same route, preparation and submission sequence with the caller's task context and optional `TextRunIdentity`. Pending preparation never submits. Its default implementation uses the backend's existing methods; third-party renderers need no additional implementation. Independent preparation remains available for retained source leases and scene replay's saved routes.
 
-`draw_request(&request)` and `draw_text_run(&request, identity)` use this entry with a no-op waker and return `ResourcePending` for pending preparation. Use `poll_draw_request` with a task context when source readiness must wake the caller. Region and projective wrappers transform requests before forwarding prepared commands, without applying the transform during submission.
+`draw_request(&request)` and `draw_text_run(&request, identity)` use this entry with a no-op waker and return `ResourcePending` for pending preparation. Use `poll_draw_request` with a task context when source readiness must wake the caller. Region and projective wrappers normalize a polled request once before forwarding it, including its text identity and waker. Independent `route` and `prepare` calls each normalize their own input; submission never reapplies the transform.
 
 Software submission samples the retained source region using the original image dimensions, keeping integer row-copy and fractional sampling paths. SDL-GPU and WGPU sample compatible native sources directly. Upload-cache misses only consume resident pixels and never initiate source readback. Source and destination budgets remain separate.
 

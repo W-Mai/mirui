@@ -228,15 +228,11 @@ impl<'frame> PaintCtx<'frame> {
         }
         if let Some(clip) = self.clip.intersect(&clip) {
             let request = DrawRequest::new(command, clip);
-            let result = (|| {
-                let route = self.renderer.route(&request)?;
-                let draw = core::task::ready!(self.renderer.prepare(
-                    request,
-                    route,
-                    &mut Context::from_waker(self.waker)
-                ))?;
-                Poll::Ready(self.renderer.submit(&draw))
-            })();
+            let result = self.renderer.poll_draw_request(
+                request,
+                None,
+                &mut Context::from_waker(self.waker),
+            );
             match result {
                 Poll::Pending => self.resource_pending = true,
                 Poll::Ready(result) => self.retain_error(result),
@@ -528,15 +524,11 @@ impl<'frame> PaintCtx<'frame> {
             return;
         };
         let request = DrawRequest::new(command, clip);
-        let result = (|| {
-            let route = self.renderer.route(&request)?;
-            let draw = core::task::ready!(self.renderer.prepare(
-                request,
-                route,
-                &mut Context::from_waker(self.waker)
-            ))?;
-            Poll::Ready(self.renderer.submit_text_run(&draw, identity))
-        })();
+        let result = self.renderer.poll_draw_request(
+            request,
+            Some(identity),
+            &mut Context::from_waker(self.waker),
+        );
         match result {
             Poll::Pending => {
                 self.resource_pending = true;

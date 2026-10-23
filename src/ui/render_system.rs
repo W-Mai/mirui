@@ -195,6 +195,16 @@ impl<'a> ScopedRenderer<'a> {
 impl Renderer for ScopedRenderer<'_> {
     type TargetState = ();
 
+    fn poll_draw_request(
+        &mut self,
+        request: DrawRequest<'_, '_>,
+        text_run: Option<crate::render::TextRunIdentity>,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Result<(), RenderError>> {
+        self.inner
+            .poll_draw_request(self.request(&request), text_run, cx)
+    }
+
     fn plan_target(&self, layout: PlaneLayout) -> Result<Option<TargetPlan>, RenderError> {
         self.inner.plan_target(layout)
     }

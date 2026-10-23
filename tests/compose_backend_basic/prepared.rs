@@ -94,9 +94,12 @@ fn nested_preparation_pins_once_and_only_begins_ready_submissions() {
         composite: CompositeMode::SourceOver,
     };
     let request = DrawRequest::new(&cmd, Rect::new(1, 1, 2, 2));
-    assert_eq!(
-        renderer.draw_request(&request),
-        Err(RenderError::ResourcePending)
+    let mut cx = Context::from_waker(Waker::noop());
+    let dynamic: &mut dyn Renderer = &mut renderer;
+    assert!(
+        dynamic
+            .poll_draw_request(request, None, &mut cx)
+            .is_pending()
     );
     assert_eq!(
         (renderer.images.begin, renderer.target.images.begin),
@@ -158,9 +161,16 @@ fn nested_text_routes_preserve_run_identity() {
         },
         run_index: 2,
     };
-    renderer
-        .draw_text_run(&DrawRequest::new(&command, Rect::new(0, 0, 4, 4)), identity)
-        .unwrap();
+    let mut cx = Context::from_waker(Waker::noop());
+    let dynamic: &mut dyn Renderer = &mut renderer;
+    assert_eq!(
+        dynamic.poll_draw_request(
+            DrawRequest::new(&command, Rect::new(0, 0, 4, 4)),
+            Some(identity),
+            &mut cx,
+        ),
+        Poll::Ready(Ok(()))
+    );
     assert_eq!(renderer.images.text, Some(identity));
     assert_eq!(renderer.target.images.text, Some(identity));
     assert_eq!(

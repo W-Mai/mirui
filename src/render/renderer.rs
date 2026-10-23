@@ -410,6 +410,23 @@ impl RegionRenderer<'_> {
 impl Renderer for RegionRenderer<'_> {
     type TargetState = ();
 
+    fn poll_draw_request(
+        &mut self,
+        request: DrawRequest<'_, '_>,
+        text_run: Option<TextRunIdentity>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), RenderError>> {
+        if let Some(command) = self.local_command(&request) {
+            return self.inner.poll_draw_request(
+                self.local_request(&command, &request),
+                text_run,
+                cx,
+            );
+        }
+        self.inner
+            .poll_draw_request(self.request(&request), text_run, cx)
+    }
+
     fn plan_target(&self, layout: PlaneLayout) -> Result<Option<TargetPlan>, RenderError> {
         self.inner.plan_target(layout)
     }

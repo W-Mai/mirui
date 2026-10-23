@@ -142,3 +142,123 @@ fn immediate_helpers_preserve_text_identity_and_pending_semantics() {
         assert_eq!(*recorder.calls.borrow(), [1, 2]);
     }
 }
+
+#[test]
+fn nested_coordinate_wrappers_forward_one_request_and_preserve_pending_context() {
+    use crate::types::{Color, Point, Transform};
+    use crate::ui::render_system::ScopedRenderer;
+
+    struct Leaf {
+        calls: usize,
+        projection: Transform3D,
+        transform: Transform,
+        quad: Option<[Point; 4]>,
+        physical: Option<PhysicalRect>,
+        identity: TextRunIdentity,
+        waker: Waker,
+        result: Poll<Result<(), RenderError>>,
+    }
+    impl Renderer for Leaf {
+        type TargetState = ();
+        fn poll_draw_request(
+            &mut self,
+            request: DrawRequest<'_, '_>,
+            text: Option<TextRunIdentity>,
+            cx: &mut Context<'_>,
+        ) -> Poll<Result<(), RenderError>> {
+            self.calls += 1;
+            assert_eq!(request.projective, self.projection);
+            assert_eq!(request.physical_clip, self.physical);
+            assert_eq!(request.clip, Rect::new(-5, -7, 32, 32));
+            let DrawCommand::Fill {
+                transform, quad, ..
+            } = request.command
+            else {
+                panic!("command identity changed");
+            };
+            assert_eq!(*transform, self.transform);
+            assert_eq!(*quad, self.quad);
+            assert_eq!(text, Some(self.identity));
+            assert!(cx.waker().will_wake(&self.waker));
+            self.result
+        }
+        fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+            panic!("wrappers must forward the execution entry")
+        }
+        fn submit(&mut self, _: &PreparedDraw<'_>) -> Result<(), RenderError> {
+            panic!("wrappers must not separately submit")
+        }
+        fn flush(&mut self) -> Result<(), RenderError> {
+            Ok(())
+        }
+    }
+
+    let identity = TextRunIdentity {
+        entity: Entity {
+            id: 7,
+            generation: 2,
+        },
+        run_index: 4,
+    };
+    let waker = Waker::from(Arc::new(WakeCount::default()));
+    let mut cx = Context::from_waker(&waker);
+    let translation = Transform::translate(Fixed::from_int(-5), Fixed::from_int(-7));
+    let projection = Transform3D::rotate_y_perspective(Fixed::from_int(20), Fixed::from_int(400));
+    let quad = [
+        Point::new(8, 9),
+        Point::new(12, 9),
+        Point::new(12, 13),
+        Point::new(8, 13),
+    ];
+    for (projective, explicit) in [
+        (Transform3D::IDENTITY, None),
+        (projection, None),
+        (Transform3D::IDENTITY, Some(quad)),
+    ] {
+        for result in [
+            Poll::Pending,
+            Poll::Ready(Ok(())),
+            Poll::Ready(Err(RenderError::BackendFailure)),
+        ] {
+            let mut leaf = Leaf {
+                calls: 0,
+                projection: if projective.is_identity() {
+                    projective
+                } else {
+                    Transform3D::from_affine(translation).compose(&projective)
+                },
+                transform: if projective.is_identity() && explicit.is_none() {
+                    translation
+                } else {
+                    Transform::IDENTITY
+                },
+                quad: explicit.map(|q| q.map(|p| translation.apply_point(p))),
+                physical: Some(PhysicalRect::new(3, 3, 8, 8).unwrap()),
+                identity,
+                waker: waker.clone(),
+                result,
+            };
+            let command = DrawCommand::Fill {
+                area: Rect::new(8, 9, 4, 4),
+                transform: Transform::IDENTITY,
+                quad: explicit,
+                color: Color::rgb(1, 2, 3),
+                radius: Fixed::ZERO,
+                opa: 255,
+            };
+            let mut region = RegionRenderer::new(&mut leaf, (5, 7));
+            let mut scope = ScopedRenderer::new(
+                &mut region,
+                projective,
+                Some(PhysicalRect::new(8, 10, 8, 8).unwrap()),
+            );
+            let request = DrawRequest::new(&command, Rect::new(0, 0, 32, 32))
+                .with_physical_clip(PhysicalRect::new(6, 8, 20, 20).unwrap());
+            assert_eq!(
+                scope.poll_draw_request(request, Some(identity), &mut cx),
+                result
+            );
+            assert_eq!(leaf.calls, 1);
+        }
+    }
+}
