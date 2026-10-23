@@ -51,6 +51,8 @@ The image owns its resource handle. Replacing or removing it releases its loadin
 
 ## Byte providers
 
+Shared source reads retain up to eight distinct waiting contexts per physical read. Wakers from the same App share a slot regardless of widget count. Completion notifies all registered contexts; excess waiters receive `Capacity` without replacing earlier registrations or growing storage. Provider registration prepares this bounded metadata separately from pixel and byte-block budgets.
+
 `AssetProvider` opens an object by key; its `AssetReader` reports length, positioning and content consistency. Both operations use associated standard futures. A reader can expose a complete immutable mapping through `mapped()`. The built-in `&'static [u8]` reader borrows its mapping and supports immediate random reads.
 
 Each read takes ownership of an `AssetBuffer` and returns it in `ReadComplete`, including on failure. Moving the buffer does not move its bytes. A pending operation retains the buffer and its source session; cancelling a logical consumer is not permission to reuse memory still accessed by a device. Providers must stop physical access before releasing that storage or retain it in their physical completion record.

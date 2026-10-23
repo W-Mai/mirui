@@ -7,37 +7,43 @@ use core::{
     task::{RawWaker, RawWakerVTable, Waker},
 };
 
-struct WakeData {
+struct WakeData<const N: usize> {
     owners: usize,
     ready: bool,
-    parent: Option<Waker>,
+    parents: [Option<Waker>; N],
 }
 
-struct WakeState(critical_section::Mutex<RefCell<WakeData>>);
+struct WakeState<const N: usize>(critical_section::Mutex<RefCell<WakeData<N>>>);
 
-pub(crate) struct TaskWake {
+pub(crate) type TaskWake = WakeSet<1>;
+
+pub(crate) struct WakeSet<const N: usize> {
     waker: Waker,
 }
 
-impl TaskWake {
+impl<const N: usize> WakeSet<N> {
+    const VTABLE: RawWakerVTable =
+        RawWakerVTable::new(clone::<N>, wake::<N>, wake_by_ref::<N>, release::<N>);
+
     pub fn new() -> Self {
-        let state = Box::new(WakeState(critical_section::Mutex::new(RefCell::new(
+        assert!(N > 0);
+        let state = Box::new(WakeState::<N>(critical_section::Mutex::new(RefCell::new(
             WakeData {
                 owners: 1,
                 ready: true,
-                parent: None,
+                parents: core::array::from_fn(|_| None),
             },
         ))));
-        let raw = RawWaker::new(Box::into_raw(state).cast(), &VTABLE);
+        let raw = RawWaker::new(Box::into_raw(state).cast(), &Self::VTABLE);
         // SAFETY: the vtable owns the boxed state and synchronizes every reference-count and readiness access.
         Self {
             waker: unsafe { Waker::from_raw(raw) },
         }
     }
 
-    fn state(&self) -> &WakeState {
+    fn state(&self) -> &WakeState<N> {
         // SAFETY: construction is private and this Waker retains one strong state reference.
-        unsafe { &*self.waker.data().cast::<WakeState>() }
+        unsafe { &*self.waker.data().cast::<WakeState<N>>() }
     }
 
     pub fn take_ready(&self) -> bool {
@@ -53,8 +59,9 @@ impl TaskWake {
         let parent = parent.clone();
         let (old, notify) = critical_section::with(|cs| {
             let mut data = self.state().0.borrow(cs).borrow_mut();
-            let old = data.parent.replace(parent);
-            let notify = data.ready.then(|| data.parent.take()).flatten();
+            let old = core::mem::replace(&mut data.parents, core::array::from_fn(|_| None));
+            data.parents[0] = Some(parent);
+            let notify = data.ready.then(|| data.parents[0].take()).flatten();
             (old, notify)
         });
         // Arbitrary parent vtables run outside the critical section and outside every RefCell borrow.
@@ -63,6 +70,37 @@ impl TaskWake {
             parent.wake();
         }
         &self.waker
+    }
+
+    /// Register an additional consumer without replacing an earlier waiter or growing storage.
+    pub fn register_shared(&self, parent: &Waker) -> Option<&Waker> {
+        if parent.will_wake(&self.waker) {
+            return Some(&self.waker);
+        }
+        let mut parent = Some(parent.clone());
+        let (accepted, notify) = critical_section::with(|cs| {
+            let mut data = self.state().0.borrow(cs).borrow_mut();
+            if data.ready {
+                return (true, parent.take());
+            }
+            if data
+                .parents
+                .iter()
+                .flatten()
+                .any(|old| old.will_wake(parent.as_ref().unwrap()))
+            {
+                return (true, None);
+            }
+            if let Some(slot) = data.parents.iter_mut().find(|slot| slot.is_none()) {
+                *slot = parent.take();
+                return (true, None);
+            }
+            (false, None)
+        });
+        if let Some(parent) = notify {
+            parent.wake();
+        }
+        accepted.then_some(&self.waker)
     }
 
     pub fn schedule(&self) {
@@ -74,11 +112,9 @@ impl TaskWake {
     }
 }
 
-static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, release);
-
-unsafe fn clone(data: *const ()) -> RawWaker {
+unsafe fn clone<const N: usize>(data: *const ()) -> RawWaker {
     // SAFETY: every vtable invocation holds a live reference until it returns.
-    let state = unsafe { &*data.cast::<WakeState>() };
+    let state = unsafe { &*data.cast::<WakeState<N>>() };
     critical_section::with(|cs| {
         let mut state = state.0.borrow(cs).borrow_mut();
         state.owners = state
@@ -86,12 +122,12 @@ unsafe fn clone(data: *const ()) -> RawWaker {
             .checked_add(1)
             .expect("resource waker reference overflow");
     });
-    RawWaker::new(data, &VTABLE)
+    RawWaker::new(data, &WakeSet::<N>::VTABLE)
 }
 
-unsafe fn release(data: *const ()) {
+unsafe fn release<const N: usize>(data: *const ()) {
     // SAFETY: this invocation consumes exactly one counted reference.
-    let state = unsafe { &*data.cast::<WakeState>() };
+    let state = unsafe { &*data.cast::<WakeState<N>>() };
     let last = critical_section::with(|cs| {
         let mut state = state.0.borrow(cs).borrow_mut();
         state.owners -= 1;
@@ -99,34 +135,34 @@ unsafe fn release(data: *const ()) {
     });
     if last {
         // SAFETY: the final reference exclusively owns the original Box allocation; parent destruction runs unlocked.
-        drop(unsafe { Box::from_raw(data.cast_mut().cast::<WakeState>()) });
+        drop(unsafe { Box::from_raw(data.cast_mut().cast::<WakeState<N>>()) });
     }
 }
 
-unsafe fn wake_by_ref(data: *const ()) {
+unsafe fn wake_by_ref<const N: usize>(data: *const ()) {
     // SAFETY: wake_by_ref borrows an existing counted reference.
-    let state = unsafe { &*data.cast::<WakeState>() };
-    let parent = critical_section::with(|cs| {
+    let state = unsafe { &*data.cast::<WakeState<N>>() };
+    let parents = critical_section::with(|cs| {
         let mut state = state.0.borrow(cs).borrow_mut();
         state.ready = true;
-        state.parent.take()
+        core::mem::replace(&mut state.parents, core::array::from_fn(|_| None))
     });
-    if let Some(parent) = parent {
+    for parent in parents.into_iter().flatten() {
         parent.wake();
     }
 }
 
-unsafe fn wake(data: *const ()) {
-    struct Release(*const ());
-    impl Drop for Release {
+unsafe fn wake<const N: usize>(data: *const ()) {
+    struct Release<const N: usize>(*const ());
+    impl<const N: usize> Drop for Release<N> {
         fn drop(&mut self) {
             // SAFETY: this guard owns the reference consumed by wake, including during unwinding.
-            unsafe { release(self.0) };
+            unsafe { release::<N>(self.0) };
         }
     }
-    let _release = Release(data);
+    let _release = Release::<N>(data);
     // SAFETY: the guard retains the reference throughout notification.
-    unsafe { wake_by_ref(data) };
+    unsafe { wake_by_ref::<N>(data) };
 }
 
 #[cfg(test)]
@@ -192,5 +228,67 @@ mod tests {
         assert_eq!(parent.0.load(Ordering::Relaxed), 1);
         drop(task);
         io.wake();
+    }
+
+    #[test]
+    fn shared_waiters_deduplicate_reject_overflow_and_survive_owner_drop() {
+        let task = WakeSet::<2>::new();
+        let parents: [_; 3] = core::array::from_fn(|_| Arc::new(Parent(AtomicUsize::new(0))));
+        let wakers = parents.each_ref().map(|parent| Waker::from(parent.clone()));
+        assert!(task.take_ready());
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for _ in 0..3 {
+                    assert!(task.register_shared(&wakers[0]).is_some());
+                    assert!(task.register_shared(&wakers[1]).is_some());
+                    assert!(task.register_shared(&wakers[2]).is_none());
+                    task.schedule();
+                    assert!(task.take_ready());
+                }
+                assert!(task.register_shared(&wakers[0]).is_some());
+                assert!(task.register_shared(&wakers[1]).is_some());
+                let io = task.waker().clone();
+                drop(task);
+                io.wake();
+            }),
+            0
+        );
+        assert_eq!(parents[0].0.load(Ordering::Relaxed), 4);
+        assert_eq!(parents[1].0.load(Ordering::Relaxed), 4);
+        assert_eq!(parents[2].0.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn shared_registration_after_completion_notifies_each_late_consumer() {
+        let task = WakeSet::<2>::new();
+        let parent = Arc::new(Parent(AtomicUsize::new(0)));
+        let host: Waker = parent.clone().into();
+        assert!(task.register_shared(&host).is_some());
+        assert_eq!(parent.0.load(Ordering::Relaxed), 1);
+        assert!(task.take_ready());
+        assert!(task.register_shared(&host).is_some());
+        task.schedule();
+        assert_eq!(parent.0.load(Ordering::Relaxed), 2);
+        assert!(task.register_shared(&host).is_some());
+        assert_eq!(parent.0.load(Ordering::Relaxed), 3);
+    }
+
+    #[test]
+    fn shared_notification_allows_reentrant_registration() {
+        struct Reentrant(WakeSet<2>, Waker);
+        impl Wake for Reentrant {
+            fn wake(self: Arc<Self>) {
+                self.0.take_ready();
+                assert!(self.0.register_shared(&self.1).is_some());
+            }
+        }
+        let parent = Arc::new(Parent(AtomicUsize::new(0)));
+        let shared = Arc::new(Reentrant(WakeSet::new(), parent.clone().into()));
+        let host: Waker = shared.clone().into();
+        shared.0.take_ready();
+        shared.0.register_shared(&host).unwrap();
+        shared.0.schedule();
+        shared.0.schedule();
+        assert_eq!(parent.0.load(Ordering::Relaxed), 1);
     }
 }

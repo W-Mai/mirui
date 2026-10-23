@@ -14,6 +14,9 @@ use core::{
     task::{Context, Poll, Waker},
 };
 
+// Consumers within one App share a paint waker, independently of its widget count.
+type SourceWake = super::wake::WakeSet<8>;
+
 /// Shared byte-cache and prepared request limits. Static resource registrations do not use this storage.
 #[derive(Clone, Copy, Debug)]
 pub struct AssetCacheConfig {
@@ -90,7 +93,7 @@ trait Session {
     fn poll_retire(&mut self, cx: &mut Context<'_>, steps: &mut usize) -> Poll<()>;
     fn reset(&mut self);
     fn has_pending(&self) -> bool;
-    fn wake(&self) -> &TaskWake;
+    fn wake(&self) -> &SourceWake;
     fn retiring(&self) -> bool;
     fn set_retiring(&mut self);
 }
@@ -135,7 +138,7 @@ struct TypedSession<P: AssetProvider> {
     prefix: Box<[u8]>,
     filled: usize,
     eof: bool,
-    wake: TaskWake,
+    wake: SourceWake,
     retiring: bool,
 }
 
@@ -184,10 +187,14 @@ impl<P: AssetProvider> Session for TypedSession<P> {
                 return Poll::Ready(Ok(count));
             }
         }
-        self.reader
-            .as_mut()
-            .ok_or(AssetError::InvalidSource)?
-            .poll_read(offset, dst, cx, steps)
+        let reader = self.reader.as_mut().ok_or(AssetError::InvalidSource)?;
+        self.wake.take_ready();
+        let mut io = Context::from_waker(self.wake.waker());
+        let result = reader.poll_read(offset, dst, &mut io, steps);
+        if result.is_pending() && self.wake.register_shared(cx.waker()).is_none() {
+            return Poll::Ready(Err(AssetError::Capacity));
+        }
+        result
     }
     fn poll_prefix(
         &mut self,
@@ -255,7 +262,7 @@ impl<P: AssetProvider> Session for TypedSession<P> {
                 .as_ref()
                 .is_some_and(SourceRead::has_pending_read)
     }
-    fn wake(&self) -> &TaskWake {
+    fn wake(&self) -> &SourceWake {
         &self.wake
     }
     fn retiring(&self) -> bool {
@@ -364,7 +371,7 @@ impl AssetSource {
         self.session.as_ref().and_then(|session| session.info())
     }
 
-    /// Read a bounded prefix of `dst`, returning its initialized byte count. `Pending` retains no destination borrow. Resume with the same offset until ready, then advance by the returned count; zero means EOF for a nonempty destination. Reads use the original shared cache and execution allowance, and never reopen the provider key.
+    /// Read a bounded prefix of `dst`, returning its initialized byte count. `Pending` retains no destination borrow. Resume with the same offset until ready, then advance by the returned count; zero means EOF for a nonempty destination. Reads use the original shared cache and execution allowance, and never reopen the provider key. One pending read supports eight distinct waiting contexts; duplicate wakers share a slot, and excess waiters receive [`AssetError::Capacity`] without replacing earlier registrations.
     pub fn poll_read(
         &mut self,
         offset: u64,
@@ -511,7 +518,7 @@ impl AssetSources {
                 prefix: prefix.into_boxed_slice(),
                 filled: 0,
                 eof: false,
-                wake: TaskWake::new(),
+                wake: SourceWake::new(),
                 retiring: false,
             })));
         }

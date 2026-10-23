@@ -441,3 +441,44 @@ fn pending_offscreen_production_keeps_history_and_does_not_publish_partial_pixel
     }
     panic!("offscreen source never became drawable");
 }
+
+#[test]
+fn shared_pending_texture_wakes_both_app_consumers() {
+    shared_pending_apps(false);
+    shared_pending_apps(true);
+}
+
+fn shared_pending_apps(drop_last_poller: bool) {
+    let (bytes, _) = encoded_fixture(1, true);
+    let control = Rc::new(Control::default());
+    control.complete();
+    let mut first = app(bytes, control.clone(), 16 * 1024);
+    let texture = resolve(&first, "shared");
+    let mut second = App::headless(32, 32);
+    for app in [&mut first, &mut second] {
+        app.with_widget(strict_image::view());
+        let root = app.spawn_root().id();
+        app.world.insert(
+            root,
+            StrictImage {
+                texture: texture.clone(),
+                calls: Rc::new(Cell::new(0)),
+            },
+        );
+    }
+    control.ready.set(false);
+    assert_eq!(first.render_dirty(), Err(RenderError::ResourcePending));
+    assert_eq!(second.render_dirty(), Err(RenderError::ResourcePending));
+    let mut second = if drop_last_poller { None } else { Some(second) };
+    control.complete();
+    for _ in 0..64 {
+        let _ = first.render_dirty();
+        if let Some(second) = &mut second {
+            let _ = second.render_dirty();
+        }
+    }
+    assert_eq!(first.render_dirty(), Ok(()));
+    if let Some(second) = &mut second {
+        assert_eq!(second.render_dirty(), Ok(()));
+    }
+}
