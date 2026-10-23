@@ -191,6 +191,7 @@ pub(crate) const EXACT_DIRTY_REGION_CAPACITY: usize = 8;
 pub(crate) struct ExactDirtyRegions {
     regions: RegionSet<EXACT_DIRTY_REGION_CAPACITY>,
     prepared: bool,
+    revision: u64,
 }
 
 impl Default for ExactDirtyRegions {
@@ -198,14 +199,20 @@ impl Default for ExactDirtyRegions {
         Self {
             regions: RegionSet::new(),
             prepared: false,
+            revision: 0,
         }
     }
 }
 
 impl ExactDirtyRegions {
     fn mark(&mut self, rect: Rect) {
+        self.revision = self.revision.wrapping_add(1);
         self.prepared = false;
         self.regions.insert(rect);
+    }
+
+    pub(crate) fn revision(&self) -> u64 {
+        self.revision
     }
 
     pub(crate) fn is_empty(&self) -> bool {

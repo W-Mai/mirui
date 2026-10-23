@@ -10,6 +10,7 @@ use crate::render::renderer::{
 use crate::render::texture::{AlphaMode, ColorFormat, Texture};
 use crate::types::{Fixed, Point, Rect, Transform, Transform3D};
 use core::cell::Cell;
+use core::task::{Context, Poll, Waker};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReplayError {
@@ -175,6 +176,7 @@ pub struct ReplayScratch<'a> {
     rgba: &'a mut [u8],
     metrics: Option<&'a ReplayMetrics>,
     rgba_in_use: usize,
+    waker: &'a Waker,
 }
 
 impl<'a> ReplayScratch<'a> {
@@ -190,6 +192,7 @@ impl<'a> ReplayScratch<'a> {
             rgba: &mut [],
             metrics: None,
             rgba_in_use: 0,
+            waker: Waker::noop(),
         }
     }
 
@@ -206,6 +209,11 @@ impl<'a> ReplayScratch<'a> {
 
     fn with_rgba_usage(mut self, rgba_in_use: usize) -> Self {
         self.rgba_in_use = rgba_in_use;
+        self
+    }
+
+    pub(crate) fn with_waker(mut self, waker: &'a Waker) -> Self {
+        self.waker = waker;
         self
     }
 }
@@ -329,6 +337,8 @@ struct ReplayPassState<'a> {
     rgba_capacity: usize,
     metrics: Option<&'a ReplayMetrics>,
     rgba_in_use: usize,
+    waker: &'a Waker,
+    clip_depth: usize,
 }
 
 impl ReplayPassState<'_> {
@@ -368,20 +378,29 @@ impl ReplayPassState<'_> {
         while self.plan_cursor < *self.plan_len && self.plans[self.plan_cursor].ordinal < ordinal {
             self.plan_cursor += 1;
         }
-        if self.plan_cursor < *self.plan_len && self.plans[self.plan_cursor].ordinal == ordinal {
+        let route = if self.plan_cursor < *self.plan_len
+            && self.plans[self.plan_cursor].ordinal == ordinal
+        {
             let route = self.plans[self.plan_cursor].route;
             self.plan_cursor += 1;
-            let mut cx = core::task::Context::from_waker(core::task::Waker::noop());
-            let core::task::Poll::Ready(draw) = renderer.prepare(*request, route, &mut cx) else {
-                return Err(RenderError::ResourcePending);
-            };
-            renderer.submit(&draw?)
+            route
         } else {
             if let Some(metrics) = self.metrics {
                 metrics.update(|snapshot| snapshot.reclassified_commands += 1);
             }
-            renderer.draw_request(request)
+            renderer.route(request)?
+        };
+        let mut cx = Context::from_waker(self.waker);
+        let Poll::Ready(draw) = renderer.prepare(*request, route, &mut cx) else {
+            return Err(RenderError::ResourcePending);
+        };
+        renderer.submit(&draw?)?;
+        match request.command {
+            DrawCommand::PushClip { .. } => self.clip_depth += 1,
+            DrawCommand::PopClip => self.clip_depth = self.clip_depth.saturating_sub(1),
+            _ => {}
         }
+        Ok(())
     }
 
     fn retain_scope(
@@ -810,6 +829,8 @@ fn preflight_software_scope(
             rgba_capacity: preflight.rgba_capacity,
             metrics: None,
             rgba_in_use: 0,
+            waker: Waker::noop(),
+            clip_depth: 0,
         },
     )?;
     let required = scope_len.checked_add(nested_scope_required).ok_or(
@@ -867,6 +888,8 @@ fn probe_scope(
             rgba_capacity: 0,
             metrics: None,
             rgba_in_use: 0,
+            waker: Waker::noop(),
+            clip_depth: 0,
         },
     )?;
     if let Some(error) = probe.error.get() {
@@ -886,6 +909,7 @@ struct ScopeDraw<'a> {
     rgba: &'a mut [u8],
     metrics: Option<&'a ReplayMetrics>,
     rgba_in_use: usize,
+    waker: &'a Waker,
 }
 
 fn draw_scope(
@@ -905,7 +929,8 @@ fn draw_scope(
     let result = draw.renderer.render_scope(scope.region, &mut |local| {
         let scratch = ReplayScratch::new(draw.frames, draw.routes, draw.scopes)
             .with_rgba(draw.rgba)
-            .with_rgba_usage(draw.rgba_in_use);
+            .with_rgba_usage(draw.rgba_in_use)
+            .with_waker(draw.waker);
         let scratch = match draw.metrics {
             Some(metrics) => scratch.with_metrics(metrics),
             None => scratch,
@@ -1003,7 +1028,8 @@ fn draw_isolated_scope(
             }
             let scratch = ReplayScratch::new(draw.frames, draw.routes, draw.scopes)
                 .with_rgba(nested_rgba)
-                .with_rgba_usage(rgba_in_use);
+                .with_rgba_usage(rgba_in_use)
+                .with_waker(draw.waker);
             let scratch = match draw.metrics {
                 Some(metrics) => scratch.with_metrics(metrics),
                 None => scratch,
@@ -1127,6 +1153,7 @@ pub(crate) fn replay_scene_with_root(
         rgba,
         metrics,
         rgba_in_use,
+        waker,
     } = scratch;
     let mut plan_len = 0;
     let mut scope_len = 0;
@@ -1154,6 +1181,8 @@ pub(crate) fn replay_scene_with_root(
             rgba_capacity,
             metrics,
             rgba_in_use,
+            waker,
+            clip_depth: 0,
         },
     )?;
     let required_scopes = scope_len.checked_add(nested_scope_required).ok_or(
@@ -1190,11 +1219,37 @@ pub(crate) fn replay_scene_with_root(
             rgba_capacity,
             metrics,
             rgba_in_use,
+            waker,
+            clip_depth: 0,
         },
     )
 }
 
 fn replay_scene_pass(
+    ops: &[SceneOp],
+    renderer: &mut dyn Renderer,
+    clip: &Rect,
+    resolver: &dyn SceneResolver,
+    frames: &mut [ReplayFrame],
+    root: ReplayFrame,
+    state: &mut ReplayPassState<'_>,
+) -> Result<(), ReplayError> {
+    let result = replay_scene_pass_inner(ops, renderer, clip, resolver, frames, root, state);
+    if result.is_err() && state.pass == ReplayPass::Draw {
+        while state.clip_depth != 0 {
+            state.clip_depth -= 1;
+            if renderer
+                .draw_request(&DrawRequest::new(&DrawCommand::PopClip, *clip))
+                .is_err()
+            {
+                break;
+            }
+        }
+    }
+    result
+}
+
+fn replay_scene_pass_inner(
     ops: &[SceneOp],
     renderer: &mut dyn Renderer,
     clip: &Rect,
@@ -1246,6 +1301,7 @@ fn replay_scene_pass(
                         rgba: &mut *rgba,
                         metrics: state.metrics,
                         rgba_in_use: state.rgba_in_use,
+                        waker: state.waker,
                     },
                 );
                 state.rgba = Some(rgba);

@@ -285,7 +285,7 @@ fn image_render(
         let rc = crate::trace_span!("image.resolve", { resolve_image(img, manager.as_deref()) });
         let Some(rc) = rc else { return };
         crate::trace_span!("image.blit", {
-            paint.draw(&DrawCommand::Blit {
+            let command = DrawCommand::Blit {
                 pos: Point {
                     x: rect.x,
                     y: rect.y,
@@ -300,7 +300,17 @@ fn image_render(
                 opa: 255,
                 radius: img.radius,
                 composite: img.composite,
-            });
+            };
+            if paint.poll_draw(&command).is_pending()
+                && let Some(manager) = manager.as_ref()
+            {
+                let fallback = manager.fallback_value();
+                let mut command = command;
+                if let DrawCommand::Blit { texture, .. } = &mut command {
+                    *texture = &fallback;
+                }
+                paint.draw(&command);
+            }
         });
         crate::trace_span!("image.rc_drop", { drop(rc) });
     });

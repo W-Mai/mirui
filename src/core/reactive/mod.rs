@@ -67,6 +67,7 @@ enum WorldAccess {
 enum PaintRequestCondition {
     Always,
     OnChange,
+    OnResourceWake,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -335,13 +336,33 @@ fn enqueue_visual_widget(owner: Option<WorldId>, entity: Entity) {
 
 /// Prepare additional request slots before paint callbacks run. Existing work, including other Worlds' notifications, remains resident.
 pub(crate) fn reserve_paint_requests(additional: usize) -> bool {
-    with_reactive(|r| r.dirty_visual_widgets.try_reserve(additional).is_ok())
+    with_reactive(|r| {
+        r.dirty_visual_widgets
+            .try_reserve(additional.saturating_mul(2))
+            .is_ok()
+    })
+}
+
+/// Resource completion only sets readiness; entity invalidation stays on the owning thread.
+pub(crate) struct PaintWake(crate::core::resource::wake::TaskWake);
+
+impl PaintWake {
+    pub(crate) fn new() -> Self {
+        let wake = crate::core::resource::wake::TaskWake::new();
+        wake.take_ready();
+        Self(wake)
+    }
+
+    pub(crate) fn register(&self, parent: &core::task::Waker) {
+        self.0.register(parent);
+    }
 }
 
 /// Pending visual invalidations owned by one independently successful paint operation.
 pub(crate) struct PaintRequestScope {
     owner: WorldId,
     token: Option<NonZeroU64>,
+    wake: Option<Rc<PaintWake>>,
 }
 
 impl PaintRequestScope {
@@ -358,7 +379,37 @@ impl PaintRequestScope {
         Self {
             owner: world.id(),
             token: Some(token),
+            wake: world.resource::<Rc<PaintWake>>().cloned(),
         }
+    }
+
+    pub(crate) fn waker(&self) -> &core::task::Waker {
+        self.wake
+            .as_ref()
+            .map_or(core::task::Waker::noop(), |wake| wake.0.waker())
+    }
+
+    /// Waiting survives both fallback publication and a failed strict paint attempt.
+    pub(crate) fn wait_for_resource(&self, entity: Entity) -> bool {
+        if self.wake.is_none() {
+            return false;
+        }
+        let pending = VisualInvalidation {
+            owner: Some(self.owner),
+            entity,
+            pending: None,
+            condition: PaintRequestCondition::OnResourceWake,
+        };
+        with_reactive(|r| {
+            if r.dirty_visual_widgets.contains(&pending) {
+                return true;
+            }
+            if r.dirty_visual_widgets.len() == r.dirty_visual_widgets.capacity() {
+                return false;
+            }
+            r.dirty_visual_widgets.push_back(pending);
+            true
+        })
     }
 
     /// Record a request without growing the queue. A committed notification for the same entity remains independent until this operation commits.
@@ -816,7 +867,10 @@ fn pop_visual_widget_for(
     world_id: WorldId,
 ) -> Option<Entity> {
     let entry = queue.pop_front().expect("queued visual widget");
-    if entry.pending.is_none() && entry.owner.is_none_or(|owner| owner == world_id) {
+    if entry.pending.is_none()
+        && entry.condition != PaintRequestCondition::OnResourceWake
+        && entry.owner.is_none_or(|owner| owner == world_id)
+    {
         Some(entry.entity)
     } else {
         queue.push_back(entry);
@@ -829,6 +883,24 @@ fn pop_visual_widget_for(
 /// entities are skipped (no reverse index; subscriber lists may retain
 /// despawned entities).
 pub fn flush_signal_dirty(world: &mut World) {
+    let resource_ready = world
+        .resource::<Rc<PaintWake>>()
+        .is_some_and(|wake| wake.0.take_ready());
+    with_reactive(|r| {
+        r.dirty_visual_widgets.retain_mut(|entry| {
+            if entry.owner == Some(world.id())
+                && entry.condition == PaintRequestCondition::OnResourceWake
+            {
+                if !world.is_alive(entry.entity) {
+                    return false;
+                }
+                if resource_ready {
+                    entry.condition = PaintRequestCondition::Always;
+                }
+            }
+            true
+        });
+    });
     // Preserve cold preparation even when no callback needs a structural window.
     world.register_drop_hook::<ReactiveOwnerCleanup>(release_graph_owner);
     register_graph_owner(world.id());
@@ -1954,6 +2026,59 @@ mod tests {
 
     mod paint_requests {
         use super::*;
+
+        #[test]
+        fn resource_waits_survive_success_and_failure_without_requesting_busy_frames() {
+            reset();
+            let mut world = World::new();
+            let wake = Rc::new(PaintWake::new());
+            world.insert_resource(wake.clone());
+            let fallback = world.spawn_empty();
+            let strict = world.spawn_empty();
+            assert!(reserve_paint_requests(2));
+            let completed = PaintRequestScope::new(&world);
+            assert!(completed.wait_for_resource(fallback));
+            assert!(completed.wait_for_resource(fallback));
+            completed.commit();
+            let failed = PaintRequestScope::new(&world);
+            assert!(failed.wait_for_resource(strict));
+            drop(failed);
+            flush_signal_dirty(&mut world);
+            assert!(!world.has::<VisualDirty>(fallback));
+            assert!(!world.has::<VisualDirty>(strict));
+            wake.0.waker().wake_by_ref();
+            assert!(!world.has::<VisualDirty>(fallback));
+            flush_signal_dirty(&mut world);
+            assert!(world.has::<VisualDirty>(fallback));
+            assert!(world.has::<VisualDirty>(strict));
+            assert!(with_reactive(|r| r.dirty_visual_widgets.is_empty()));
+        }
+
+        #[test]
+        fn resource_waits_do_not_cross_worlds_or_revive_removed_entities() {
+            reset();
+            let mut first = World::new();
+            let mut second = World::new();
+            let first_wake = Rc::new(PaintWake::new());
+            let second_wake = Rc::new(PaintWake::new());
+            first.insert_resource(first_wake.clone());
+            second.insert_resource(second_wake.clone());
+            let removed = first.spawn_empty();
+            let survivor = second.spawn_empty();
+            assert!(reserve_paint_requests(2));
+            assert!(PaintRequestScope::new(&first).wait_for_resource(removed));
+            assert!(PaintRequestScope::new(&second).wait_for_resource(survivor));
+            first.despawn(removed);
+            let replacement = first.spawn_empty();
+            first_wake.0.waker().wake_by_ref();
+            flush_signal_dirty(&mut first);
+            flush_signal_dirty(&mut second);
+            assert!(!first.has::<VisualDirty>(replacement));
+            assert!(!second.has::<VisualDirty>(survivor));
+            second_wake.0.waker().wake_by_ref();
+            flush_signal_dirty(&mut second);
+            assert!(second.has::<VisualDirty>(survivor));
+        }
 
         #[test]
         fn pending_requests_are_deduplicated_and_flush_only_after_commit() {

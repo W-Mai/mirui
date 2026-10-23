@@ -18,7 +18,7 @@ mod probe;
 mod source;
 mod source_loader;
 mod source_read;
-mod wake;
+pub(crate) mod wake;
 
 pub(crate) use assets::AssetSources;
 pub use assets::{AssetCacheConfig, AssetSource};

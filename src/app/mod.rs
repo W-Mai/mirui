@@ -102,6 +102,7 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     dirty_plan: DirtyRegions,
     pending_frame: Option<PendingFrame>,
     needs_full_redraw: bool,
+    resource_wait_revision: Option<(u64, u64, u64)>,
     painted_root_hidden: bool,
     suspended: bool,
     started: bool,
@@ -257,6 +258,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         #[cfg(feature = "std")]
         install_default_log_sink_once();
         let mut world = World::new();
+        world.insert_resource(alloc::rc::Rc::new(crate::core::reactive::PaintWake::new()));
         crate::input::event::hit_test::prepare_geometry_tracking(&mut world);
         world.insert_resource(ScrollDragState::default());
         world.insert_resource(ScrollMotion::default());
@@ -300,6 +302,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             dirty_plan: DirtyRegions::with_rect_capacity(render_system::DIRTY_PLAN_RECT_CAPACITY),
             pending_frame: None,
             needs_full_redraw: true,
+            resource_wait_revision: None,
             painted_root_hidden: false,
             suspended: false,
             started: false,
@@ -1106,6 +1109,16 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.prepare_dirty_storage();
         ViewRegistry::reconcile_observations(&mut self.world);
         crate::core::reactive::flush_signal_dirty(&mut self.world);
+        if let Some(wake) = self
+            .world
+            .resource::<alloc::rc::Rc<crate::core::reactive::PaintWake>>()
+        {
+            let parent = self
+                .world
+                .resource::<plugins::resources::ResourceHostWake>()
+                .map_or(core::task::Waker::noop(), |host| &host.0);
+            wake.register(parent);
+        }
         crate::ui::offscreen::reconcile_texture_outputs(&self.world);
     }
 
@@ -1272,6 +1285,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.last_seed_prev_ns = self.clock_ns().saturating_sub(flush_end);
         self.dirty_plan.clear();
         self.needs_full_redraw = false;
+        self.resource_wait_revision = None;
         self.painted_root_hidden = root_hidden;
 
         {
@@ -1600,9 +1614,21 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     pub(crate) fn draw_tick(&mut self) {
         if let Err(error) = self.render_dirty()
             && error != crate::render::RenderError::SurfaceUnavailable
+            && error != crate::render::RenderError::ResourcePending
         {
             crate::warn!("dirty frame render failed: {:?}", error);
         }
+    }
+
+    fn paint_revision(&self) -> (u64, u64, u64) {
+        (
+            self.world.component_revision::<crate::ui::dirty::Dirty>(),
+            self.world
+                .component_revision::<crate::ui::dirty::VisualDirty>(),
+            self.world
+                .resource::<crate::ui::dirty::ExactDirtyRegions>()
+                .map_or(0, |regions| regions.revision()),
+        )
     }
 
     pub(crate) fn maintain_tick(&mut self) {
@@ -1682,6 +1708,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let transform = self.backend.viewport();
         self.prepare_text_raster_scratch(&transform);
         self.prepare_render(transform);
+        let revision = self.paint_revision();
+        if self.resource_wait_revision == Some(revision) {
+            return Err(crate::render::RenderError::ResourcePending);
+        }
+        self.resource_wait_revision = None;
         if self.text_content_failure(true).is_some() {
             self.world.mark_subtree_dirty(root);
             return Err(crate::render::RenderError::TextContent);
@@ -1815,6 +1846,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             if let Err(error) = render_result {
                 self.backend.abort_flush();
                 self.world.mark_subtree_dirty(root);
+                if error == crate::render::RenderError::ResourcePending {
+                    self.resource_wait_revision = Some(self.paint_revision());
+                }
                 self.dirty_plan = plan;
                 return Err(error);
             }
@@ -1853,6 +1887,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             render_system::acknowledge_painted_frame(&mut self.world, root, &transform);
             self.last_seed_prev_ns = self.clock_ns().saturating_sub(seed_start);
             self.needs_full_redraw = false;
+            self.resource_wait_revision = None;
             self.painted_root_hidden = root_hidden;
 
             {

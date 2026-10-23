@@ -257,3 +257,187 @@ fn encoded_region_cancellation_retires_io_and_releases_private_workspaces() {
     let replacement = resolve(&app, "replacement");
     assert!(region(&replacement, Region::new(0, 0, 24, 24).unwrap()).is_ok());
 }
+
+#[test]
+fn image_fallback_commits_without_losing_shared_source_readiness() {
+    let (bytes, _) = encoded_fixture(1, true);
+    let control = Rc::new(Control::default());
+    control.complete();
+    let mut app = app(bytes, control.clone(), 16 * 1024);
+    app.with_widget(mirui::ui::widgets::image::view());
+    let texture = resolve(&app, "image");
+    control.ready.set(false);
+    let root = app.spawn_root().id();
+    app.compose(root, |cx| {
+        ui! {
+            Column(width: 32, height: 32) {
+                Image(src: "image", width: 16, height: 16)
+                Image(src: "image", width: 16, height: 16)
+            }
+        }
+    });
+    app.tick();
+    assert!(control.wake.borrow().is_some());
+    assert!(texture.pixels().unwrap().is_none());
+    let calls = control.completions.get();
+    for _ in 0..4 {
+        app.tick();
+    }
+    assert_eq!(control.completions.get(), calls);
+    control.complete();
+    for _ in 0..64 {
+        app.tick();
+    }
+    assert_eq!(
+        tracking_allocator::tracked_allocations(|| {
+            for _ in 0..4 {
+                app.world.invalidate_visual(root);
+                app.tick();
+            }
+        }),
+        0,
+        "resident image repaint must reuse prepared storage"
+    );
+    let framebuffer = app.backend.framebuffer();
+    let pixels = framebuffer.read_pixels().unwrap();
+    assert_eq!(pixels.get_pixel(0, 0), Color::rgb(0, 0, 255));
+    assert_eq!(pixels.get_pixel(0, 16), Color::rgb(0, 0, 255));
+    assert_eq!(control.opens.get(), 1);
+}
+
+#[mirui::component]
+struct StrictImage {
+    texture: Rc<Texture<'static>>,
+    calls: Rc<Cell<usize>>,
+}
+
+#[mirui::view(component = StrictImage)]
+fn strict_image(image: component!(), paint: paint!()) {
+    image.calls.set(image.calls.get() + 1);
+    let rect = paint.rect();
+    paint.draw(&mirui::render::DrawCommand::Blit {
+        pos: mirui::types::Point::new(rect.x, rect.y),
+        size: mirui::types::Point::new(rect.w, rect.h),
+        transform: paint.transform(),
+        quad: paint.quad(),
+        texture: &image.texture,
+        opa: 255,
+        radius: mirui::types::Fixed::ZERO,
+        composite: Default::default(),
+    });
+}
+
+#[test]
+fn strict_paint_waits_for_readiness_but_new_damage_can_retry() {
+    let (bytes, _) = encoded_fixture(2, true);
+    let control = Rc::new(Control::default());
+    control.complete();
+    let mut app = app(bytes, control.clone(), 16 * 1024);
+    let texture = resolve(&app, "strict");
+    let calls = Rc::new(Cell::new(0));
+    app.with_widget(strict_image::view());
+    let root = app.spawn_root().id();
+    app.world.insert(
+        root,
+        StrictImage {
+            texture,
+            calls: calls.clone(),
+        },
+    );
+    control.ready.set(false);
+    assert_eq!(app.render_dirty(), Err(RenderError::ResourcePending));
+    let previous = calls.get();
+    for _ in 0..4 {
+        assert_eq!(app.render_dirty(), Err(RenderError::ResourcePending));
+    }
+    assert_eq!(
+        calls.get(),
+        previous,
+        "waiting must not replay paint every tick"
+    );
+    app.world
+        .invalidate_rect(mirui::types::Rect::new(0, 0, 4, 4));
+    assert_eq!(app.render_dirty(), Err(RenderError::ResourcePending));
+    assert!(calls.get() > previous);
+    control.complete();
+    for _ in 0..64 {
+        if app.render_dirty().is_ok() {
+            assert!(app.dirty_regions().unwrap().is_empty());
+            return;
+        }
+    }
+    panic!("strict source never became drawable");
+}
+
+#[mirui::component]
+#[retain_previous(mirui::ui::WidgetTexture)]
+struct ImageHistory;
+
+#[mirui::view(component = ImageHistory)]
+fn image_history(_history: component!(), _paint: paint!()) {}
+
+#[test]
+fn pending_offscreen_production_keeps_history_and_does_not_publish_partial_pixels() {
+    use mirui::ui::{OffscreenRender, Outputs, WidgetTexture};
+    let (bytes, _) = encoded_fixture(1, true);
+    let control = Rc::new(Control::default());
+    control.complete();
+    let mut app = app(bytes, control.clone(), 16 * 1024);
+    let texture = resolve(&app, "offscreen");
+    app.with_widget(strict_image::view());
+    app.with_widget(image_history::view());
+    app.with_offscreen_pool_budget(64 * 1024);
+    let root = app.spawn_root().id();
+    app.world.insert(root, OffscreenRender::default());
+    app.world.insert(root, ImageHistory);
+    let old = Texture::from_vec(vec![255, 0, 0, 255], 1, 1, ColorFormat::RGBA8888).unwrap();
+    let calls = Rc::new(Cell::new(0));
+    app.world.insert(
+        root,
+        StrictImage {
+            texture: Rc::new(old),
+            calls: calls.clone(),
+        },
+    );
+    app.render_dirty().unwrap();
+    {
+        let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+        let current = outputs.get(root).expect("completed initial output");
+        assert_eq!(
+            current.texture().read_pixels().unwrap().get_pixel(0, 0),
+            Color::rgb(255, 0, 0)
+        );
+    }
+    app.world.get_mut::<StrictImage>(root).unwrap().texture = texture;
+    app.world.mark_subtree_dirty(root);
+    control.ready.set(false);
+    assert_eq!(app.render_dirty(), Err(RenderError::ResourcePending));
+    {
+        let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+        assert!(
+            outputs.get(root).is_none(),
+            "failed production cannot be current"
+        );
+        let previous = outputs.previous(root).expect("frozen successful history");
+        assert_eq!(
+            previous.texture().read_pixels().unwrap().get_pixel(0, 0),
+            Color::rgb(255, 0, 0)
+        );
+    }
+    let before = calls.get();
+    assert_eq!(app.render_dirty(), Err(RenderError::ResourcePending));
+    assert_eq!(calls.get(), before);
+    control.complete();
+    for _ in 0..64 {
+        if app.render_dirty().is_ok() {
+            let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+            let current = outputs.get(root).expect("completed decoded output");
+            assert_eq!(
+                current.texture().read_pixels().unwrap().get_pixel(0, 0),
+                Color::rgb(0, 0, 255)
+            );
+            return;
+        }
+    }
+    panic!("offscreen source never became drawable");
+}

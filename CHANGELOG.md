@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `PaintCtx::poll_draw` supports resource-pending fallbacks through renderer preparation. Image fallbacks retain readiness notifications; strict drawing preserves damage until retry, and scene replay carries the paint task context through nested scopes.
 - Encoded MIRX image sources decode intersecting units through the shared source cache and scalar decoders. Metadata, input buffers, decoded workspace and pinned region pixels share the image decode budget; asynchronous reads never publish partial pixels.
 - MIRX image validation shares resident preflight limits across separately loaded metadata and unit inputs without retaining their buffers.
 - MIRX encoded image directory scans locate metadata windows with fixed storage and share section validation with resident images.

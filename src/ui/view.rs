@@ -6,6 +6,7 @@ use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::any::TypeId;
 use core::cell::Cell;
+use core::task::{Context, Poll, Waker};
 
 use crate::ecs::{Entity, World};
 use crate::render::command::DrawCommand;
@@ -24,6 +25,8 @@ use crate::ui::theme::WidgetState;
 
 #[cfg(test)]
 mod clip_tests;
+#[cfg(test)]
+mod pending_tests;
 #[cfg(test)]
 mod query_tests;
 
@@ -50,6 +53,8 @@ pub struct PaintCtx<'frame> {
     layout_offset: Point,
     frame_request: FrameRequest,
     query_reads_global: bool,
+    waker: &'frame Waker,
+    resource_pending: bool,
 }
 
 impl<'frame> PaintCtx<'frame> {
@@ -76,11 +81,21 @@ impl<'frame> PaintCtx<'frame> {
             layout_offset: Point::new(0, 0),
             frame_request: FrameRequest::None,
             query_reads_global: true,
+            waker: Waker::noop(),
+            resource_pending: false,
         }
     }
 
     pub fn style(&self) -> &Style {
         self.style
+    }
+
+    pub(crate) fn set_waker(&mut self, waker: &'frame Waker) {
+        self.waker = waker;
+    }
+
+    pub(crate) fn resource_pending(&self) -> bool {
+        self.resource_pending
     }
 
     /// Request one more paint after this output or main-target drawing batch succeeds. Repeated requests for the same entity coalesce; failed drawing discards its requests. State and dependency changes already invalidate their Views without this call.
@@ -125,7 +140,7 @@ impl<'frame> PaintCtx<'frame> {
         workspace.with_texture(layout, |texture| body(texture, self))
     }
 
-    /// Borrow source pixels and retain any read failure for the render walker. The pixels borrow the texture, not this paint context.
+    /// Borrow source pixels and retain any read failure for the render walker. Pending registers a resource wait and fails this paint attempt without publishing partial pixels. The pixels borrow the texture, not this paint context.
     pub fn read_pixels<'texture>(
         &mut self,
         texture: &'texture Texture<'_>,
@@ -133,10 +148,15 @@ impl<'frame> PaintCtx<'frame> {
         if self.error.is_some() {
             return None;
         }
-        match texture.read_pixels() {
-            Ok(pixels) => Some(pixels),
-            Err(error) => {
+        match texture.poll_read_pixels(&mut Context::from_waker(self.waker)) {
+            Poll::Ready(Ok(pixels)) => Some(pixels),
+            Poll::Ready(Err(error)) => {
                 self.fail(error);
+                None
+            }
+            Poll::Pending => {
+                self.resource_pending = true;
+                self.fail(RenderError::ResourcePending);
                 None
             }
         }
@@ -184,17 +204,46 @@ impl<'frame> PaintCtx<'frame> {
 
     /// Submit a draw with an explicit clip in render-target logical coordinates and retain its first failure. The command's transform does not transform this clip.
     pub fn draw_clipped(&mut self, command: &DrawCommand<'_>, clip: Rect) {
-        if self.error.is_some() {
-            return;
+        if self.poll_draw_clipped(command, clip).is_pending() {
+            self.fail(RenderError::ResourcePending);
+        }
+    }
+
+    /// Prepare and submit a command. Pending leaves this command unsubmitted and permits drawing a fallback; source readiness invalidates the View. A real error is retained even when the caller ignores the result.
+    pub fn poll_draw(&mut self, command: &DrawCommand<'_>) -> Poll<Result<(), RenderError>> {
+        self.poll_draw_clipped(command, *self.clip)
+    }
+
+    fn poll_draw_clipped(
+        &mut self,
+        command: &DrawCommand<'_>,
+        clip: Rect,
+    ) -> Poll<Result<(), RenderError>> {
+        if let Some(error) = self.error {
+            return Poll::Ready(Err(error));
         }
         if matches!(command, DrawCommand::PushClip { .. } | DrawCommand::PopClip) {
             self.fail(RenderError::InvalidScope);
-            return;
+            return Poll::Ready(Err(RenderError::InvalidScope));
         }
         if let Some(clip) = self.clip.intersect(&clip) {
-            let result = self.renderer.draw_request(&DrawRequest::new(command, clip));
-            self.retain_error(result);
+            let request = DrawRequest::new(command, clip);
+            let result = (|| {
+                let route = self.renderer.route(&request)?;
+                let draw = core::task::ready!(self.renderer.prepare(
+                    request,
+                    route,
+                    &mut Context::from_waker(self.waker)
+                ))?;
+                Poll::Ready(self.renderer.submit(&draw))
+            })();
+            match result {
+                Poll::Pending => self.resource_pending = true,
+                Poll::Ready(result) => self.retain_error(result),
+            }
+            return result;
         }
+        Poll::Ready(Ok(()))
     }
 
     /// Draw inside a path clip, using the renderer's software scope when native path clipping is unavailable. The callback borrows the scope's drawing context and executes at most once.
@@ -274,11 +323,14 @@ impl<'frame> PaintCtx<'frame> {
                 layout_offset: self.layout_offset,
                 frame_request: self.frame_request,
                 query_reads_global: self.query_reads_global,
+                waker: self.waker,
+                resource_pending: self.resource_pending,
             };
             paint.draw_clip_scope(push, body);
             self.background_handled = paint.background_handled;
             self.frame_request = paint.frame_request;
             self.query_reads_global = paint.query_reads_global;
+            self.resource_pending = paint.resource_pending;
             error = paint.error;
             error.map_or(Ok(()), Err)
         });
@@ -314,15 +366,13 @@ impl<'frame> PaintCtx<'frame> {
         if self.error.is_some() {
             return;
         }
-        self.error = crate::render::scene::replay::replay_scene_with_workspace(
+        let mut routes = [crate::render::scene::replay::ReplayPlan::EMPTY; 8];
+        let mut scopes = [crate::render::scene::replay::ReplayScopePlan::EMPTY; 8];
+        self.replay_with_scratch(
             ops,
-            self.renderer,
-            self.clip,
             resolver,
-            frames,
-        )
-        .err()
-        .map(Self::replay_error);
+            crate::render::scene::replay::ReplayScratch::new(frames, &mut routes, &mut scopes),
+        );
     }
 
     /// Replay a scene with caller-owned storage for isolated groups.
@@ -390,11 +440,12 @@ impl<'frame> PaintCtx<'frame> {
             self.renderer,
             self.clip,
             resolver,
-            scratch,
+            scratch.with_waker(self.waker),
             crate::render::scene::replay::ReplayFrame::with_transform(transform),
         )
         .err()
         .map(Self::replay_error);
+        self.resource_pending |= self.error == Some(RenderError::ResourcePending);
     }
 
     fn replay_error(error: crate::render::scene::replay::ReplayError) -> RenderError {
@@ -476,10 +527,23 @@ impl<'frame> PaintCtx<'frame> {
         let Some(clip) = self.clip.intersect(&clip) else {
             return;
         };
-        let result = self
-            .renderer
-            .draw_text_run(&DrawRequest::new(command, clip), identity);
-        self.retain_error(result);
+        let request = DrawRequest::new(command, clip);
+        let result = (|| {
+            let route = self.renderer.route(&request)?;
+            let draw = core::task::ready!(self.renderer.prepare(
+                request,
+                route,
+                &mut Context::from_waker(self.waker)
+            ))?;
+            Poll::Ready(self.renderer.submit_text_run(&draw, identity))
+        })();
+        match result {
+            Poll::Pending => {
+                self.resource_pending = true;
+                self.fail(RenderError::ResourcePending);
+            }
+            Poll::Ready(result) => self.retain_error(result),
+        }
     }
 
     pub(crate) fn fail(&mut self, error: RenderError) {

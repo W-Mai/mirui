@@ -2134,14 +2134,15 @@ fn draw_tree_content(
     Ok(())
 }
 
-fn render_views(
+fn render_views<'frame>(
     world: &World,
     entity: Entity,
-    ctx: &mut PaintCtx<'_>,
-    requests: &PaintRequestScope,
+    ctx: &mut PaintCtx<'frame>,
+    requests: &'frame PaintRequestScope,
     preparation: Option<&PreparedPaint>,
     position: usize,
 ) -> Result<(), RenderError> {
+    ctx.set_waker(requests.waker());
     let Some(registry) = world.resource::<ViewRegistry>() else {
         return Ok(());
     };
@@ -2165,6 +2166,9 @@ fn render_views(
             && let Some(preparation) = preparation
         {
             preparation.clear_coverage();
+        }
+        if ctx.resource_pending() && !requests.wait_for_resource(entity) {
+            return Err(RenderError::MissingWorkspace);
         }
         if let Some(error) = ctx.error() {
             return Err(error);

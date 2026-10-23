@@ -117,6 +117,10 @@ impl<T: HasSize + 'static> ResourceManager<T> {
         ResourceHandle::new(token, Rc::downgrade(&self.inner), fallback, revision)
     }
 
+    pub(crate) fn fallback_value(&self) -> Rc<T> {
+        self.inner.borrow().fallback_clone()
+    }
+
     pub fn resolve(&self, token: &str) -> Rc<T> {
         match manager_inner::resolve(&self.inner, token, true) {
             ResolveOutcome::CacheHit(rc) => rc,

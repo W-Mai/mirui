@@ -15,7 +15,7 @@ struct WakeData {
 
 struct WakeState(critical_section::Mutex<RefCell<WakeData>>);
 
-pub(super) struct TaskWake {
+pub(crate) struct TaskWake {
     waker: Waker,
 }
 
