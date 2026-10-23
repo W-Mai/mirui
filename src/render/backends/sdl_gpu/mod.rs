@@ -796,6 +796,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFact
             viewport,
             failure: None,
             physical_clip: None,
+            source_region: None,
             native_target: backend.device.persistent_frame_active(),
         }
     }
@@ -820,6 +821,7 @@ pub struct SdlGpuRenderer<'a, S = Box<[u8]>> {
     viewport: Viewport,
     failure: Option<RenderError>,
     physical_clip: Option<crate::types::PhysicalRect>,
+    source_region: Option<crate::render::texture::Region>,
     native_target: bool,
 }
 
@@ -1555,7 +1557,18 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
         if draw.output_scale() != self.viewport.scale() {
             return Err(RenderError::InvalidScope);
         }
+        let region = draw.texture_region().map(|source| source.region());
+        if region.is_some_and(|area| area.is_empty()) {
+            return Ok(());
+        }
+        let saved = self.source_region;
+        self.source_region = if draw.route() == RenderRoute::Native {
+            region
+        } else {
+            None
+        };
         let result = SdlGpuRenderer::submit_routed(self, request, draw.route());
+        self.source_region = saved;
         if let Err(error) = result {
             self.failure.get_or_insert(error);
         }
@@ -1581,7 +1594,16 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
                     self.viewport.scale(),
                 ));
             }
-            crate::render::PreparedDraw::poll_complete(request, route, self.viewport.scale(), cx)
+            if route == RenderRoute::Native {
+                crate::render::PreparedDraw::poll_upload(request, route, self.viewport.scale(), cx)
+            } else {
+                crate::render::PreparedDraw::poll_complete(
+                    request,
+                    route,
+                    self.viewport.scale(),
+                    cx,
+                )
+            }
         })();
         if let core::task::Poll::Ready(Err(error)) = result {
             self.failure.get_or_insert(error);

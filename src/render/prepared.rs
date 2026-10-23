@@ -18,6 +18,26 @@ pub struct PreparedDraw<'data> {
 }
 
 impl<'data> PreparedDraw<'data> {
+    /// Prepare a conservative source footprint for filtered device uploads.
+    #[cfg(any(
+        feature = "sdl-gpu",
+        feature = "wgpu",
+        all(feature = "web-canvas", target_arch = "wasm32"),
+        test
+    ))]
+    pub(crate) fn poll_upload(
+        request: DrawRequest<'_, 'data>,
+        route: RenderRoute,
+        scale: Fixed,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<Self, RenderError>> {
+        let mut draw = Self::native(request, route, scale)?;
+        if let DrawCommand::Blit { texture, .. } = *request.command {
+            let area = upload_region(&request, scale)?;
+            draw.source = Some(core::task::ready!(texture.poll_pixels_in(area, cx))?);
+        }
+        Poll::Ready(Ok(draw))
+    }
     #[cfg(any(
         feature = "sdl-gpu",
         feature = "wgpu",
@@ -95,6 +115,72 @@ impl<'data> PreparedDraw<'data> {
             source: None,
         })
     }
+}
+
+#[cfg(any(
+    feature = "sdl-gpu",
+    feature = "wgpu",
+    all(feature = "web-canvas", target_arch = "wasm32"),
+    test
+))]
+fn upload_region(request: &DrawRequest<'_, '_>, scale: Fixed) -> Result<Region, RenderError> {
+    let DrawCommand::Blit {
+        texture,
+        pos,
+        size,
+        transform,
+        quad,
+        opa,
+        ..
+    } = *request.command
+    else {
+        return Err(RenderError::InvalidGeometry);
+    };
+    let full = Region::new(0, 0, u32::from(texture.width), u32::from(texture.height))
+        .map_err(|_| RenderError::InvalidTexture)?;
+    if opa == 0 {
+        return Region::new(0, 0, 0, 0).map_err(|_| RenderError::InvalidGeometry);
+    }
+    if !request.projective.is_identity()
+        || quad.is_some()
+        || !matches!(
+            transform.classify(),
+            TransformClass::Identity | TransformClass::Translate
+        )
+    {
+        return Ok(full);
+    }
+    let pos = transform.apply_point(pos);
+    let area = Rect::new(pos.x * scale, pos.y * scale, size.x * scale, size.y * scale);
+    // Fractional device placement differs among rasterizers. Retain the complete
+    // source for that case rather than reuse software edge-sampling arithmetic.
+    if !area.is_aligned() {
+        return Ok(full);
+    }
+    let clip = Rect::new(
+        request.clip.x * scale,
+        request.clip.y * scale,
+        request.clip.w * scale,
+        request.clip.h * scale,
+    );
+    let clip = super::renderer::constrain_physical_clip(clip, request.physical_clip);
+    let Some(visible) = area.intersect(&clip) else {
+        return Region::new(0, 0, 0, 0).map_err(|_| RenderError::InvalidGeometry);
+    };
+    let (x0, y0, x1, y1) = visible.pixel_bounds();
+    let range = |start: i32, end: i32, origin: Fixed, extent: Fixed, count: u16| {
+        let count = i64::from(count);
+        let size = i64::from(extent.to_int());
+        // Include the complete pixel intervals and a texel on either side for
+        // filtering. Integer math also covers device pixel-center sampling.
+        let first = (i64::from(start - origin.to_int()) * count / size - 1).clamp(0, count);
+        let last =
+            ((i64::from(end - origin.to_int()) * count + size - 1) / size + 1).clamp(0, count);
+        (first as u32, last as u32)
+    };
+    let (left, right) = range(x0, x1, area.x, area.w, texture.width);
+    let (top, bottom) = range(y0, y1, area.y, area.h, texture.height);
+    Region::new(left, top, right - left, bottom - top).map_err(|_| RenderError::InvalidGeometry)
 }
 
 fn source_region(request: &DrawRequest<'_, '_>, scale: Fixed) -> Result<Region, RenderError> {
@@ -179,6 +265,24 @@ mod tests {
             radius: Fixed::ZERO,
             composite: CompositeMode::SourceOver,
         }
+    }
+
+    #[test]
+    fn upload_footprint_covers_pixel_centers_and_filter_neighbors() {
+        let bytes = [0u8; 400 * 4];
+        let source = Texture::from_ref(&bytes, 400, 1, ColorFormat::RGBA8888).unwrap();
+        let cmd = command(&source, Point::ZERO, Point::new(4, 1));
+        let request = DrawRequest::new(&cmd, Rect::new(1, 0, 1, 1));
+        let mut cx = Context::from_waker(core::task::Waker::noop());
+        let Poll::Ready(Ok(draw)) =
+            PreparedDraw::poll_upload(request, RenderRoute::Native, Fixed::ONE, &mut cx)
+        else {
+            panic!("resident upload");
+        };
+        let area = draw.texture_region().unwrap().region();
+        assert_eq!(area, Region::new(99, 0, 102, 1).unwrap());
+        // A center sample at 150 must not use the software left-edge footprint.
+        assert!(draw.texture_region().unwrap().get_pixel(150, 0).is_some());
     }
 
     #[test]

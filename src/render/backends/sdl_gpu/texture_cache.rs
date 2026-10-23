@@ -8,7 +8,7 @@ use super::SdlGpuRenderer;
 use super::device::Device;
 use crate::core::cache::{CacheInspect, HasSize, LruCache, MaxSize};
 use crate::render::renderer::RenderError;
-use crate::render::texture::{Texture, TextureKey};
+use crate::render::texture::{Region, Texture, TextureKey, UploadCoverage};
 use crate::render::{TargetAlpha, command::CompositeMode};
 
 pub(super) const DEFAULT_BUDGET: usize = 16 * 1024 * 1024;
@@ -16,6 +16,7 @@ pub(super) const DEFAULT_BUDGET: usize = 16 * 1024 * 1024;
 struct CachedTexture {
     texture: SdlTexture<'static>,
     bytes: usize,
+    coverage: UploadCoverage,
 }
 
 impl HasSize for CachedTexture {
@@ -71,6 +72,7 @@ impl<T: RenderTarget + 'static> TextureCache<T> {
         &mut self,
         src: &Texture,
         composite: CompositeMode,
+        region: Option<Region>,
         draw: impl FnOnce(&mut SdlTexture<'_>, TargetAlpha) -> R,
     ) -> Result<R, RenderError> {
         self.device.check()?;
@@ -81,45 +83,83 @@ impl<T: RenderTarget + 'static> TextureCache<T> {
         {
             return Ok(draw(&mut texture, TargetAlpha::Premultiplied));
         }
-        let bytes = usize::from(src.width) * usize::from(src.height) * 4;
+        let area = region.unwrap_or(
+            Region::new(0, 0, u32::from(src.width), u32::from(src.height))
+                .map_err(|_| RenderError::InvalidTexture)?,
+        );
+        if area.is_empty() {
+            return Err(RenderError::InvalidTexture);
+        }
+        let bytes = usize::from(src.width) * usize::from(src.height) * 4
+            + core::mem::size_of::<UploadCoverage>();
         let key = TextureKey::cacheable(src)
             .filter(|_| matches!(self.pool.max_size(), MaxSize::Bytes(limit) if bytes <= *limit));
         let Some(key) = key else {
-            let mut texture = upload(&self.device, src)?;
+            let mut texture = create(&self.device, src)?;
+            upload(&self.device, &mut texture, src, area)?;
             return Ok(draw(&mut texture, TargetAlpha::Straight));
         };
         let handle = self.pool.entry(key).or_try_insert_with(|| {
-            let texture = upload(&self.device, src)?;
+            let texture = create(&self.device, src)?;
             // Only this pool retains the erased lifetime; no handle escapes this module.
             // Its creator owns the renderer and is dropped after every cached texture.
             let texture =
                 unsafe { core::mem::transmute::<SdlTexture<'_>, SdlTexture<'static>>(texture) };
-            Ok::<_, RenderError>(RefCell::new(CachedTexture { texture, bytes }))
+            Ok::<_, RenderError>(RefCell::new(CachedTexture {
+                texture,
+                bytes,
+                coverage: UploadCoverage::default(),
+            }))
         })?;
         let mut cached = handle
             .try_borrow_mut()
             .map_err(|_| RenderError::InvalidScope)?;
+        if !cached.coverage.contains(area) {
+            upload(&self.device, &mut cached.texture, src, area)?;
+            cached.coverage.uploaded(area);
+        }
         Ok(draw(&mut cached.texture, TargetAlpha::Straight))
     }
 }
 
-fn upload<'a, T: RenderTarget>(
+fn create<'a, T: RenderTarget>(
     device: &'a Device<T>,
     src: &Texture,
 ) -> Result<SdlTexture<'a>, RenderError> {
-    let pixels = src.pixels()?.ok_or(RenderError::ResourcePending)?;
     let _lease = device.canvas()?;
-    let mut texture = device
+    let texture = device
         .creator
         .create_texture_streaming(
-            SdlGpuRenderer::<Box<[u8]>>::texture_format(pixels.format()),
-            u32::from(pixels.width()),
-            u32::from(pixels.height()),
+            SdlGpuRenderer::<Box<[u8]>>::texture_format(src.format()),
+            u32::from(src.width),
+            u32::from(src.height),
         )
         .map_err(|_| RenderError::BackendFailure)?;
-    SdlGpuRenderer::<Box<[u8]>>::upload_texture(&mut texture, &pixels)?;
     nearest(&texture)?;
     Ok(texture)
+}
+
+fn upload<T: RenderTarget>(
+    device: &Device<T>,
+    target: &mut SdlTexture<'_>,
+    src: &Texture,
+    area: Region,
+) -> Result<(), RenderError> {
+    let region = src.pixels_in(area)?.ok_or(RenderError::ResourcePending)?;
+    let _lease = device.canvas()?;
+    for (area, pixels) in region.tiles() {
+        SdlGpuRenderer::<Box<[u8]>>::upload_texture(
+            target,
+            &pixels,
+            Some(sdl2::rect::Rect::new(
+                area.x() as i32,
+                area.y() as i32,
+                area.width(),
+                area.height(),
+            )),
+        )?;
+    }
+    Ok(())
 }
 
 pub(super) fn nearest(texture: &SdlTexture<'_>) -> Result<(), RenderError> {

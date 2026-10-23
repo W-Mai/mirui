@@ -153,6 +153,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let uploaded = self.texture_cache.with_texture(
             src,
             crate::render::command::CompositeMode::SourceOver,
+            self.source_region,
             |tex, alpha| {
                 let mut canvas = self.device.canvas()?;
                 if alpha == crate::render::TargetAlpha::Straight {

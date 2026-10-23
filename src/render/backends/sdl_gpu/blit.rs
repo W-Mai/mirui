@@ -20,6 +20,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
     pub(super) fn upload_texture(
         dst: &mut SdlTexture,
         src: &TexturePixels<'_>,
+        area: Option<sdl2::rect::Rect>,
     ) -> Result<(), RenderError> {
         let swap = matches!(
             src.format(),
@@ -30,12 +31,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             .checked_mul(usize::from(src.height()))
             .is_some_and(|len| len <= src.bytes().len());
         if swap || !complete_pitch {
-            dst.with_lock(None, |pixels, pitch| {
+            dst.with_lock(area, |pixels, pitch| {
                 Self::write_rows(src, pixels, pitch, swap)
             })
             .map_err(|_| RenderError::BackendFailure)?
         } else {
-            dst.update(None, src.bytes(), src.stride())
+            dst.update(area, src.bytes(), src.stride())
                 .map_err(|_| RenderError::BackendFailure)
         }
     }
@@ -122,26 +123,26 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             return;
         };
 
-        let uploaded = self
-            .texture_cache
-            .with_texture(src, composite, |tex, alpha| {
-                let mut canvas = self.device.canvas()?;
-                if alpha == crate::render::TargetAlpha::Straight {
-                    tex.set_blend_mode(sdl_blend);
-                }
-                tex.set_alpha_mod(opa);
-                let rgb = if alpha == crate::render::TargetAlpha::Premultiplied {
-                    opa
-                } else {
-                    255
-                };
-                tex.set_color_mod(rgb, rgb, rgb);
+        let uploaded =
+            self.texture_cache
+                .with_texture(src, composite, self.source_region, |tex, alpha| {
+                    let mut canvas = self.device.canvas()?;
+                    if alpha == crate::render::TargetAlpha::Straight {
+                        tex.set_blend_mode(sdl_blend);
+                    }
+                    tex.set_alpha_mod(opa);
+                    let rgb = if alpha == crate::render::TargetAlpha::Premultiplied {
+                        opa
+                    } else {
+                        255
+                    };
+                    tex.set_color_mod(rgb, rgb, rgb);
 
-                canvas.set_clip_rect(sdl_clip);
-                let copied = canvas.copy(tex, Some(src_sdl), Some(dst_sdl)).is_ok();
-                canvas.set_clip_rect(None);
-                copied.then_some(()).ok_or(RenderError::BackendFailure)
-            });
+                    canvas.set_clip_rect(sdl_clip);
+                    let copied = canvas.copy(tex, Some(src_sdl), Some(dst_sdl)).is_ok();
+                    canvas.set_clip_rect(None);
+                    copied.then_some(()).ok_or(RenderError::BackendFailure)
+                });
         if let Err(error) = uploaded.and_then(core::convert::identity) {
             self.failure.get_or_insert(error);
         }

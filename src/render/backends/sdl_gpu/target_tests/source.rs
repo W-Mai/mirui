@@ -70,7 +70,7 @@ fn draw(
         Some(texture.read_pixels().unwrap())
     };
     cache
-        .with_texture(texture, CompositeMode::SourceOver, |source, alpha| {
+        .with_texture(texture, CompositeMode::SourceOver, None, |source, alpha| {
             let mut canvas = destination.canvas().unwrap();
             canvas.set_draw_color(sdl2::pixels::Color::RGBA(0, 0, 0, 0));
             canvas.clear();
@@ -95,7 +95,6 @@ fn draw(
         .unwrap()
 }
 
-#[cfg(all(feature = "wgpu", not(target_arch = "wasm32")))]
 pub(crate) fn native_source() -> Texture<'static> {
     let mut producer = Producer {
         device: device(),
@@ -165,7 +164,7 @@ fn native_sources_bridge_once_and_reject_feedback_before_cached_uploads() {
     assert_eq!(texture.pixels().unwrap().is_none(), storage.sampleable);
     // Uploads only consume resident pixels; prepare the foreign/composited source first.
     drop(texture.read_pixels().unwrap());
-    same.with_texture(&texture, CompositeMode::Add, |_, alpha| {
+    same.with_texture(&texture, CompositeMode::Add, None, |_, alpha| {
         assert_eq!(alpha, TargetAlpha::Straight);
     })
     .unwrap();
@@ -199,7 +198,9 @@ fn native_sources_bridge_once_and_reject_feedback_before_cached_uploads() {
         storage.active.set(true);
         for cache in [&mut same, &mut foreign] {
             assert!(matches!(
-                cache.with_texture(&texture, composite, |_, _| panic!("feedback must not draw")),
+                cache.with_texture(&texture, composite, None, |_, _| panic!(
+                    "feedback must not draw"
+                )),
                 Err(RenderError::InvalidTexture)
             ));
         }
@@ -207,7 +208,7 @@ fn native_sources_bridge_once_and_reject_feedback_before_cached_uploads() {
     }
     storage.completed.set(false);
     assert!(matches!(
-        foreign.with_texture(&texture, CompositeMode::SourceOver, |_, _| ()),
+        foreign.with_texture(&texture, CompositeMode::SourceOver, None, |_, _| ()),
         Err(RenderError::InvalidTexture)
     ));
     storage.completed.set(true);
@@ -229,14 +230,76 @@ fn native_sources_bridge_once_and_reject_feedback_before_cached_uploads() {
         Color::rgb(0, 255, 0)
     );
     assert!(matches!(
-        same.with_texture(&texture, CompositeMode::SourceOver, |_, _| ()),
+        same.with_texture(&texture, CompositeMode::SourceOver, None, |_, _| ()),
         Err(RenderError::BackendFailure)
     ));
     texture.cache_revision = 3;
     assert!(matches!(
-        foreign.with_texture(&texture, CompositeMode::SourceOver, |_, _| ()),
+        foreign.with_texture(&texture, CompositeMode::SourceOver, None, |_, _| ()),
         Err(RenderError::BackendFailure)
     ));
+}
+
+#[test]
+fn regional_uploads_do_not_publish_missing_coverage() {
+    use crate::render::texture::Region;
+    use core::task::{Context, Poll, Waker};
+    let texture = native_source();
+    let destination = device();
+    let mut cache = TextureCache::new(Rc::clone(&destination), 256);
+    let left = Region::new(0, 0, 2, 4).unwrap();
+    let right = Region::new(2, 0, 2, 4).unwrap();
+    let mut cx = Context::from_waker(Waker::noop());
+    let Poll::Ready(Ok(lease)) = texture.poll_pixels_in(left, &mut cx) else {
+        panic!("native region");
+    };
+    assert!(texture.pixels().unwrap().is_none());
+    cache
+        .with_texture(&texture, CompositeMode::SourceOver, Some(left), |_, _| ())
+        .unwrap();
+    drop(lease);
+    assert_eq!(
+        cache.with_texture(
+            &texture,
+            CompositeMode::SourceOver,
+            Some(right),
+            |_, _| panic!("missing pixels")
+        ),
+        Err(RenderError::ResourcePending)
+    );
+    let Poll::Ready(Ok(lease)) = texture.poll_pixels_in(right, &mut cx) else {
+        panic!("native region");
+    };
+    cache
+        .with_texture(&texture, CompositeMode::SourceOver, Some(right), |_, _| ())
+        .unwrap();
+    // The previous CPU region has been replaced, but its device pixels remain valid.
+    assert!(texture.pixels_in(left).unwrap().is_none());
+    assert_eq!(
+        tracked_allocations(|| cache
+            .with_texture(&texture, CompositeMode::SourceOver, Some(left), |_, _| ())
+            .unwrap()),
+        0
+    );
+    assert_eq!(cache.inspect().cache_len(), 1);
+    assert_eq!(cache.inspect().cache_stats().insert_count, 1);
+    drop(lease);
+    cache
+        .with_texture(&texture, CompositeMode::SourceOver, None, |uploaded, _| {
+            let mut canvas = destination.canvas().unwrap();
+            uploaded.set_blend_mode(sdl2::render::BlendMode::None);
+            canvas
+                .copy(uploaded, None, Some(sdl2::rect::Rect::new(0, 0, 4, 4)))
+                .unwrap();
+            let rgba = canvas
+                .read_pixels(
+                    Some(sdl2::rect::Rect::new(0, 0, 4, 4)),
+                    sdl2::pixels::PixelFormatEnum::RGBA32,
+                )
+                .unwrap();
+            assert!(rgba.chunks_exact(4).all(|pixel| pixel == [255, 0, 0, 128]));
+        })
+        .unwrap();
 }
 
 #[test]

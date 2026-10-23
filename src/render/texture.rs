@@ -3,9 +3,13 @@ use super::scratch::PlaneLayout;
 use crate::core::cache::HasSize;
 
 mod access;
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32", test))]
+mod coverage;
 mod native;
 mod pixels;
 mod region;
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32", test))]
+pub(crate) use coverage::UploadCoverage;
 #[cfg(any(feature = "wgpu", target_arch = "wasm32", test))]
 mod upload;
 pub use access::{TexturePixels, TexturePixelsMut};
