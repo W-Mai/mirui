@@ -12,6 +12,10 @@ use core::task::{Context, Poll, Waker};
 #[path = "physical_clip_tests.rs"]
 mod physical_clip_tests;
 
+#[cfg(all(test, feature = "std"))]
+#[path = "draw_dispatch_tests.rs"]
+mod draw_dispatch_tests;
+
 /// Stable identity of one run in a bounded `Text` widget.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct TextRunIdentity {
@@ -792,16 +796,32 @@ pub trait Renderer: super::target::__private::TargetScopeDispatch {
     /// Execute a prepared command without performing source I/O.
     fn submit(&mut self, draw: &PreparedDraw<'_>) -> Result<(), RenderError>;
 
+    /// Route, prepare and submit one request, preserving its task waker and optional text-run identity.
+    ///
+    /// Pending preparation never submits. Coordinate wrappers can normalize the request once before forwarding; independent preparation and scene pre-routing remain available through `route`, `prepare` and `submit`.
+    fn poll_draw_request(
+        &mut self,
+        request: DrawRequest<'_, '_>,
+        text_run: Option<TextRunIdentity>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), RenderError>> {
+        let route = self.route(&request)?;
+        let draw = core::task::ready!(self.prepare(request, route, cx))?;
+        Poll::Ready(match text_run {
+            Some(identity) => self.submit_text_run(&draw, identity),
+            None => self.submit(&draw),
+        })
+    }
+
     /// Prepare and submit an immediately available request. Pending sources return `ResourcePending`.
     ///
-    /// Use `prepare` with a task context when source readiness must wake the caller.
+    /// Use `poll_draw_request` with a task context when source readiness must wake the caller.
     fn draw_request(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-        let route = self.route(request)?;
         let mut cx = Context::from_waker(Waker::noop());
-        let Poll::Ready(draw) = self.prepare(*request, route, &mut cx) else {
+        let Poll::Ready(result) = self.poll_draw_request(*request, None, &mut cx) else {
             return Err(RenderError::ResourcePending);
         };
-        self.submit(&draw?)
+        result
     }
 
     /// Prepare and submit an immediately available bounded text run.
@@ -810,12 +830,11 @@ pub trait Renderer: super::target::__private::TargetScopeDispatch {
         request: &DrawRequest<'_, '_>,
         identity: TextRunIdentity,
     ) -> Result<(), RenderError> {
-        let route = self.route(request)?;
         let mut cx = Context::from_waker(Waker::noop());
-        let Poll::Ready(draw) = self.prepare(*request, route, &mut cx) else {
+        let Poll::Ready(result) = self.poll_draw_request(*request, Some(identity), &mut cx) else {
             return Err(RenderError::ResourcePending);
         };
-        self.submit_text_run(&draw?, identity)
+        result
     }
 
     /// Submit a bounded text run with its stable widget and run identity.

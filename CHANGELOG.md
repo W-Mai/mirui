@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Renderer::poll_draw_request` executes routing, preparation and submission with the caller's task context and optional text-run identity; pending sources do not submit.
+
 - Shared image-source reads notify each waiting App without replacing earlier consumers; waiter storage is bounded and reused across reads.
 
 - `PaintCtx::poll_draw` supports resource-pending fallbacks through renderer preparation. Image fallbacks retain readiness notifications; strict drawing preserves damage until retry, and scene replay carries the paint task context through nested scopes.
