@@ -62,7 +62,7 @@ impl Texture<'_> {
     ///
     /// `Ok(None)` means the requested data is not resident. Invalid ranges are rejected, not clipped. An in-bounds empty region is immediately ready and does not access the source device.
     pub fn pixels_in(&self, region: Region) -> Result<Option<TextureRegion<'_>>, RenderError> {
-        let layout = self.pixel_layout()?;
+        let layout = self.storage_layout()?;
         if region.right() > u32::from(layout.width())
             || region.bottom() > u32::from(layout.height())
         {

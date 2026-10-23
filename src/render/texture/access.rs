@@ -324,6 +324,14 @@ impl Texture<'_> {
     }
 
     pub(super) fn pixel_layout(&self) -> Result<PlaneLayout, RenderError> {
+        let layout = self.storage_layout()?;
+        if let super::TexBuf::Native(native) = &self.buf {
+            native.validate(self.cache_revision)?;
+        }
+        Ok(layout)
+    }
+
+    pub(super) fn storage_layout(&self) -> Result<PlaneLayout, RenderError> {
         let layout = PlaneLayout::new(
             self.width,
             self.height,
@@ -336,7 +344,7 @@ impl Texture<'_> {
             if layout != native.layout() {
                 return Err(RenderError::InvalidTexture);
             }
-            return native.validate(self.cache_revision).map(|()| layout);
+            return Ok(layout);
         }
         if self
             .buf

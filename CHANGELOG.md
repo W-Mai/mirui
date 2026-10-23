@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `Font::default()` replaces the bitmap constructor. `Font::provider` replaces `FontBackend`; raw bitmap exports and mono-only rendering paths are removed.
 - Gallery headers and labels fit the default font's explicit sizes.
 
+### Fixed
+
+- Empty texture regions validate geometry without accessing source devices or requiring completed native contents.
+
 ### Performance
 
 - Software rendering reads exact-size A1 glyph coverage without bilinear interpolation.

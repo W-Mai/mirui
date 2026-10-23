@@ -358,6 +358,8 @@ mod tests {
         reads: Cell<usize>,
         fail: Cell<bool>,
         panic: Cell<bool>,
+        invalid: Cell<bool>,
+        validations: Cell<usize>,
     }
 
     struct Target(Rc<Device>, PlaneLayout);
@@ -373,6 +375,10 @@ mod tests {
             self.1.required_bytes()
         }
         fn validate(&self) -> Result<(), RenderError> {
+            self.0.validations.set(self.0.validations.get() + 1);
+            if self.0.invalid.get() {
+                return Err(RenderError::InvalidTexture);
+            }
             if let Some(source) = self.0.source.borrow().upgrade() {
                 assert!(source.mirror.try_borrow_mut().is_ok());
             }
@@ -425,6 +431,37 @@ mod tests {
         });
         *device.source.borrow_mut() = Rc::downgrade(&source);
         (source, device, budget)
+    }
+
+    #[test]
+    fn empty_regions_validate_geometry_without_accessing_source_contents() {
+        for completed in [true, false] {
+            let (source, device, _) = source();
+            let mut source = Rc::try_unwrap(source).ok().unwrap();
+            source.completed = completed;
+            let layout = source.layout;
+            let texture = Texture::from_layout(TexBuf::Native(Box::new(source)), layout, true);
+            device.invalid.set(true);
+            let allocations = crate::test_support::tracked_allocations(|| {
+                let region = texture
+                    .pixels_in(Region::new(2, 2, 0, 0).unwrap())
+                    .unwrap()
+                    .unwrap();
+                assert_eq!(region.tiles().count(), 0);
+                assert!(matches!(
+                    texture.pixels_in(Region::new(3, 2, 0, 0).unwrap()),
+                    Err(RenderError::InvalidTexture)
+                ));
+            });
+            assert_eq!(allocations, 0);
+            assert_eq!(device.validations.get(), 0);
+            assert_eq!(device.reads.get(), 0);
+            assert!(matches!(
+                texture.pixels_in(Region::new(0, 0, 1, 1).unwrap()),
+                Err(RenderError::InvalidTexture)
+            ));
+            assert_eq!(device.validations.get(), usize::from(completed));
+        }
     }
 
     #[test]
