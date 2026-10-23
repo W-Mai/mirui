@@ -6,6 +6,7 @@ mod access;
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32", test))]
 mod coverage;
 mod native;
+mod pixel_cache;
 mod pixels;
 mod region;
 mod source;
