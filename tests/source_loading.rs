@@ -1,5 +1,11 @@
 #![cfg(feature = "std")]
 
+#[path = "source_loading/mapped.rs"]
+mod mapped;
+
+#[path = "support/tracking_allocator.rs"]
+mod tracking_allocator;
+
 use mirui::app::App;
 use mirui::app::plugins::{ImageResourcesPlugin, ResourcePlugin};
 use mirui::core::cache::MaxSize;

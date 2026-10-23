@@ -397,7 +397,7 @@ impl Texture<'_> {
     pub fn pixels_mut(&mut self) -> Result<TexturePixelsMut<'_>, RenderError> {
         let layout = self.pixel_layout()?;
         let bytes = match &mut self.buf {
-            super::TexBuf::Ref(_) | super::TexBuf::Native(_) => {
+            super::TexBuf::Ref(_) | super::TexBuf::Native(_) | super::TexBuf::Mapped(_) => {
                 return Err(RenderError::InvalidTexture);
             }
             super::TexBuf::Mut(bytes) => &mut **bytes,

@@ -72,6 +72,7 @@ trait Session {
     fn start(&mut self, key: Cow<'static, str>);
     fn poll_open(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), AssetError>>;
     fn info(&self) -> Option<SourceInfo>;
+    fn mapped(&self) -> Result<Option<&[u8]>, AssetError>;
     fn poll_read(
         &mut self,
         offset: u64,
@@ -160,6 +161,12 @@ impl<P: AssetProvider> Session for TypedSession<P> {
     }
     fn info(&self) -> Option<SourceInfo> {
         self.reader.as_ref().map(SourceRead::info)
+    }
+    fn mapped(&self) -> Result<Option<&[u8]>, AssetError> {
+        self.reader
+            .as_ref()
+            .ok_or(AssetError::InvalidSource)?
+            .mapped()
     }
     fn poll_read(
         &mut self,
@@ -344,6 +351,14 @@ pub struct AssetSource {
 }
 
 impl AssetSource {
+    /// Borrow the opened reader's complete immutable mapping without I/O or copying. `None` means reads are required; invalid mappings return an error. The borrow cannot outlive this source owner, which retains the provider and session.
+    pub fn mapped(&self) -> Result<Option<&[u8]>, AssetError> {
+        self.session
+            .as_ref()
+            .ok_or(AssetError::InvalidSource)?
+            .mapped()
+    }
+
     /// The opened object's length, access and consistency guarantees.
     pub fn info(&self) -> Option<SourceInfo> {
         self.session.as_ref().and_then(|session| session.info())

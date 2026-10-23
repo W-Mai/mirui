@@ -8,8 +8,10 @@ mod coverage;
 mod native;
 mod pixels;
 mod region;
+mod source;
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
 pub(crate) use coverage::UploadCoverage;
+pub(crate) use source::SourceMirxLoader;
 #[cfg(any(feature = "wgpu", target_arch = "wasm32", test))]
 mod upload;
 pub use access::{TexturePixels, TexturePixelsMut};
@@ -137,6 +139,7 @@ enum TexBuf<'a> {
     Owned(Vec<u8>),
     Aligned(AlignedBytes),
     Native(alloc::boxed::Box<native::NativeTexture>),
+    Mapped(alloc::boxed::Box<source::MappedTexture>),
 }
 
 impl TexBuf<'_> {
@@ -147,6 +150,7 @@ impl TexBuf<'_> {
             Self::Owned(v) => Some(v),
             Self::Aligned(v) => Some(v.as_slice()),
             Self::Native(_) => None,
+            Self::Mapped(source) => source.pixels(),
         }
     }
 
@@ -232,6 +236,7 @@ impl HasSize for Texture<'_> {
             TexBuf::Owned(bytes) => bytes.capacity(),
             TexBuf::Aligned(bytes) => bytes.storage.capacity(),
             TexBuf::Native(native) => native.cache_size(),
+            TexBuf::Mapped(source) => source.cache_size(),
         }
     }
 }

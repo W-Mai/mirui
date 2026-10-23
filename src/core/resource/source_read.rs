@@ -119,6 +119,16 @@ impl<R: AssetReader> SourceRead<R> {
             .expect("unmapped reader has block storage")
     }
 
+    pub(super) fn mapped(&self) -> Result<Option<&[u8]>, AssetError> {
+        let bytes = self.reader.mapped();
+        if let Some(bytes) = bytes
+            && self.info.len != u64::try_from(bytes.len()).ok()
+        {
+            return Err(AssetError::InvalidSource);
+        }
+        Ok(bytes)
+    }
+
     fn copy_block(block: &Block, offset: u64, dst: &mut [u8]) -> Option<usize> {
         let start = usize::try_from(offset.checked_sub(block.key().offset)?).ok()?;
         let remaining = block.bytes().get(start..)?;
@@ -162,10 +172,7 @@ impl<R: AssetReader> SourceRead<R> {
         if self.info.len.is_some_and(|len| offset > len) {
             return Poll::Ready(Err(AssetError::OutOfBounds));
         }
-        if let Some(bytes) = self.reader.mapped() {
-            if self.info.len != u64::try_from(bytes.len()).ok() {
-                return Poll::Ready(Err(AssetError::InvalidSource));
-            }
+        if let Some(bytes) = self.mapped()? {
             let start = usize::try_from(offset).map_err(|_| AssetError::OutOfBounds)?;
             let remaining = bytes.get(start..).ok_or(AssetError::OutOfBounds)?;
             let n = remaining.len().min(dst.len());

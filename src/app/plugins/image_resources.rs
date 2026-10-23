@@ -93,6 +93,8 @@ impl Default for ImageResourcesPlugin {
 
 impl ImageResourcesPlugin {
     /// Resolves image tokens to keys in a named byte provider. Bindings are checked after all plugins are built.
+    ///
+    /// Mapped MIRX FLAT images use the built-in byte decoder. Other formats can be registered through [`Self::with_loader`].
     pub fn with_source(
         mut self,
         name: &'static str,
@@ -208,6 +210,9 @@ where
             .resource::<Rc<AssetSources>>()
             .expect("ImageResourcesPlugin source requires ResourcePlugin")
             .clone();
+        if !self.sources.is_empty() {
+            images.add_probed_loader(crate::render::texture::SourceMirxLoader);
+        }
         images
             .bind_sources(sources, core::mem::take(&mut self.sources))
             .expect("unknown image byte source");

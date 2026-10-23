@@ -59,6 +59,8 @@ Each read takes ownership of an `AssetBuffer` and returns it in `ReadComplete`, 
 
 `ResourcePlugin` registers named providers. `ImageResourcesPlugin::with_source` maps image tokens to provider keys; its existing `with_loader` configuration installs byte recognizers and decoders. The plugins bind during App startup, after all plugin resources are installed. Decoders recognize `LoadInput::Bytes`, request bounded prefixes with `FormatMatch::Need`, and read through `LoadContext::poll_read_exact`. Multiple recognizers claiming the same content fail rather than choosing by registration order.
 
+Image source bindings include a MIRX byte decoder for mapped FLAT images. The texture retains the opened reader and borrows the checked pixel plane, preserving row stride without copying pixels. Opening can be asynchronous; completion updates existing Image subscriptions. The value cache charges the complete mapping length and its texture control storage. A mapping is read-only and must report its exact length; unsupported container layouts or nonmapped sources return `Unsupported`. Static `with_mirx_bytes` registrations retain their direct borrowing path and do not install source sessions.
+
 `LoadContext::poll_read(offset, dst)` reads a bounded prefix with the same invocation allowance as `poll_read_exact`. Advance by the returned count; zero on a nonempty destination confirms EOF. This permits strict trailing-byte checks when the source length is unknown without treating I/O failures as EOF. Empty reads do not establish EOF. Finish any pending exact read before starting a prefix read; both methods reuse the opened source, block cache and cancellation storage.
 
 ```rust,ignore
@@ -100,6 +102,8 @@ This binding does not require a separate `ImageResourcesPlugin::with_source`. Th
 ### Retaining an opened source
 
 `LoadContext::take_source()` transfers the opened `AssetSource` into decoder state or a completed resource. It does not reopen the key, copy source bytes or allocate another session. Complete any exact read before transferring; a repeated transfer or a transfer during an incomplete exact read fails. The context no longer supplies that source after transfer.
+
+`AssetSource::mapped()` borrows the complete resident mapping with the source's lifetime, returning `Ok(None)` when physical reads are required. It validates the mapping length and performs no I/O, copying or cache allocation. Retaining the source keeps the reader and provider alive; the borrowed slice cannot outlive that owner.
 
 `AssetSource::poll_read(offset, destination, context)` reads a bounded prefix and returns its byte count. It retains no destination reference across `Pending`; resume the same offset until ready, then advance by the returned count. A nonempty request returning zero bytes indicates EOF. Each call uses the same 4 KiB copy and 32-operation limits as loader polling, so a ready short result is not necessarily EOF. A decoder looping over these calls must still charge its own execution allowance with `consume_work`. The original provider, read session and shared cache remain alive independently of the manager or App. The retained source continues to occupy its prepared provider slot until dropped, and pending physical reads retire before that slot is reused.
 
