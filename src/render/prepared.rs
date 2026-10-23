@@ -27,12 +27,14 @@ impl<'data> PreparedDraw<'data> {
         scale: Fixed,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self, RenderError>> {
-        let mut draw = Self::native(request, route, scale)?;
-        if let DrawCommand::Blit { texture, .. } = *request.command {
+        Self::validate(&request, scale)?;
+        let source = if let DrawCommand::Blit { texture, .. } = *request.command {
             let area = upload_region(&request, scale)?;
-            draw.source = Some(core::task::ready!(texture.poll_pixels_in(area, cx))?);
-        }
-        Poll::Ready(Ok(draw))
+            Some(core::task::ready!(texture.poll_pixels_in(area, cx))?)
+        } else {
+            None
+        };
+        Poll::Ready(Ok(Self::ready(request, route, scale, source)))
     }
     /// Retain the complete source for backends that require full-image uploads or CPU fallback.
     ///
@@ -43,13 +45,15 @@ impl<'data> PreparedDraw<'data> {
         scale: Fixed,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self, RenderError>> {
-        let mut draw = Self::native(request, route, scale)?;
-        if let DrawCommand::Blit { texture, .. } = *request.command {
+        Self::validate(&request, scale)?;
+        let source = if let DrawCommand::Blit { texture, .. } = *request.command {
             let area = Region::new(0, 0, u32::from(texture.width), u32::from(texture.height))
                 .map_err(|_| RenderError::InvalidTexture)?;
-            draw.source = Some(core::task::ready!(texture.poll_pixels_in(area, cx))?);
-        }
-        Poll::Ready(Ok(draw))
+            Some(core::task::ready!(texture.poll_pixels_in(area, cx))?)
+        } else {
+            None
+        };
+        Poll::Ready(Ok(Self::ready(request, route, scale, source)))
     }
     pub fn request(&self) -> DrawRequest<'_, 'data> {
         DrawRequest {
@@ -79,12 +83,14 @@ impl<'data> PreparedDraw<'data> {
         output_scale: Fixed,
         cx: &mut Context<'_>,
     ) -> Poll<Result<Self, RenderError>> {
-        let mut draw = Self::native(request, route, output_scale)?;
-        if let DrawCommand::Blit { texture, .. } = *request.command {
+        Self::validate(&request, output_scale)?;
+        let source = if let DrawCommand::Blit { texture, .. } = *request.command {
             let area = source_region(&request, output_scale)?;
-            draw.source = Some(core::task::ready!(texture.poll_pixels_in(area, cx))?);
-        }
-        Poll::Ready(Ok(draw))
+            Some(core::task::ready!(texture.poll_pixels_in(area, cx))?)
+        } else {
+            None
+        };
+        Poll::Ready(Ok(Self::ready(request, route, output_scale, source)))
     }
 
     /// Retain native source identity without forcing CPU readback.
@@ -95,19 +101,32 @@ impl<'data> PreparedDraw<'data> {
         route: RenderRoute,
         output_scale: Fixed,
     ) -> Result<Self, RenderError> {
+        Self::validate(&request, output_scale)?;
+        Ok(Self::ready(request, route, output_scale, None))
+    }
+
+    fn validate(request: &DrawRequest<'_, '_>, output_scale: Fixed) -> Result<(), RenderError> {
         if output_scale <= Fixed::ZERO {
             return Err(RenderError::InvalidGeometry);
         }
-        request.validate()?;
-        Ok(Self {
+        request.validate()
+    }
+
+    fn ready(
+        request: DrawRequest<'_, 'data>,
+        route: RenderRoute,
+        scale: Fixed,
+        source: Option<TextureRegion<'data>>,
+    ) -> Self {
+        Self {
             command: *request.command,
             clip: request.clip,
             projective: request.projective,
             physical_clip: request.physical_clip,
             route,
-            scale: output_scale,
-            source: None,
-        })
+            scale,
+            source,
+        }
     }
 }
 
@@ -252,6 +271,40 @@ mod tests {
             opa: 255,
             radius: Fixed::ZERO,
             composite: CompositeMode::SourceOver,
+        }
+    }
+
+    #[test]
+    fn preparation_checks_geometry_and_storage_before_creating_a_ready_draw() {
+        let bytes = [255; 4 * 4 * 4];
+        let mut texture = Texture::from_ref(&bytes, 4, 4, ColorFormat::RGBA8888).unwrap();
+        for (width, size, scale, expected) in [
+            (
+                4,
+                Point::new(4, 4),
+                Fixed::ZERO,
+                RenderError::InvalidGeometry,
+            ),
+            (
+                4,
+                Point::new(0, 4),
+                Fixed::ONE,
+                RenderError::InvalidGeometry,
+            ),
+            (5, Point::new(4, 4), Fixed::ONE, RenderError::InvalidTexture),
+        ] {
+            texture.width = width;
+            let cmd = command(&texture, Point::ZERO, size);
+            let request = DrawRequest::new(&cmd, Rect::new(0, 0, 4, 4));
+            let mut cx = Context::from_waker(core::task::Waker::noop());
+            for result in [
+                PreparedDraw::poll_cpu(request, RenderRoute::Native, scale, &mut cx),
+                PreparedDraw::poll_upload(request, RenderRoute::Native, scale, &mut cx),
+                PreparedDraw::poll_complete(request, RenderRoute::Native, scale, &mut cx),
+                Poll::Ready(PreparedDraw::native(request, RenderRoute::Native, scale)),
+            ] {
+                assert!(matches!(result, Poll::Ready(Err(error)) if error == expected));
+            }
         }
     }
 

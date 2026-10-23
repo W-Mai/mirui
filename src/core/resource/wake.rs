@@ -182,6 +182,10 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        clippy::waker_clone_wake,
+        reason = "Exercise the owned RawWaker callback and its reference-count release"
+    )]
     fn wake_registration_handles_both_race_orders_and_coalesces_notifications() {
         let task = TaskWake::new();
         let parent = Arc::new(Parent(AtomicUsize::new(0)));
@@ -208,6 +212,10 @@ mod tests {
 
     #[cfg(feature = "std")]
     #[test]
+    #[expect(
+        clippy::waker_clone_wake,
+        reason = "Exercise concurrent owned RawWaker callbacks, including clone and release"
+    )]
     fn concurrent_completions_keep_one_owner_until_all_wakers_retire() {
         let task = TaskWake::new();
         let parent = Arc::new(Parent(AtomicUsize::new(0)));

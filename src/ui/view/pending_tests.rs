@@ -88,7 +88,6 @@ fn pending_does_not_submit_and_fallback_does_not_discard_the_wait() {
     );
     assert!(paint.resource_pending());
     assert_eq!(paint.error(), None);
-    drop(paint);
     assert_eq!(renderer.submissions, 1);
     renderer.waiter.take().unwrap().wake();
     assert!(wake.take_ready());
@@ -122,7 +121,6 @@ fn strict_pending_and_real_errors_preserve_the_first_failure() {
             paint.poll_draw(&rect(Color::rgb(0, 255, 0))),
             Poll::Ready(Err(failure))
         );
-        drop(paint);
         assert_eq!(renderer.submissions, usize::from(ready));
     }
 }

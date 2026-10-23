@@ -75,10 +75,13 @@ impl Texture<'_> {
             let pixels = match &self.buf {
                 super::TexBuf::Native(native) => native.pixels_in(self.cache_revision, region)?,
                 super::TexBuf::Decoded(source) => source.pixels_in(region)?,
-                _ => self
-                    .pixels()?
-                    .map(|pixels| pixels.into_region(region))
-                    .transpose()?,
+                _ => Some(
+                    TexturePixels::new(
+                        self.buf.cpu_bytes().ok_or(RenderError::InvalidTexture)?,
+                        layout,
+                    )
+                    .into_region(region)?,
+                ),
             };
             let Some(pixels) = pixels else {
                 return Ok(None);
