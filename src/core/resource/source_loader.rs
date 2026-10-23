@@ -183,7 +183,9 @@ impl<T: HasSize + 'static> SourceLoader<T> {
         let source = state.source.as_mut().unwrap();
         let waker = cx.waker().clone();
         let mut task_cx = Context::from_waker(&waker);
-        core::task::ready!(source.poll_open(&mut task_cx))?;
+        if state.decoder.is_none() {
+            core::task::ready!(source.poll_open(&mut task_cx))?;
+        }
         while state.decoder.is_none() {
             if !cx.consume_work() {
                 return Poll::Pending;

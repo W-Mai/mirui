@@ -4,9 +4,9 @@ use mirui::app::App;
 use mirui::app::plugins::{ImageResourcesPlugin, ResourcePlugin};
 use mirui::core::cache::MaxSize;
 use mirui::core::resource::{
-    AssetBuffer, AssetCacheConfig, AssetError, AssetReader, FormatMatch, LoadContext, LoadError,
-    LoadInput, Loader, ProbeLoader, ReadComplete, ReadPosition, ReadProgress, ResourceManager,
-    SourceAccess, SourceConsistency, SourceInfo,
+    AssetBuffer, AssetCacheConfig, AssetError, AssetReader, AssetSource, FormatMatch, LoadContext,
+    LoadError, LoadInput, Loader, ProbeLoader, ReadComplete, ReadPosition, ReadProgress,
+    ResourceManager, SourceAccess, SourceConsistency, SourceInfo,
 };
 use mirui::render::texture::{ColorFormat, Texture, TextureMeta};
 use mirui::surface::{FramebufferAccess, framebuf::FramebufSurface};
@@ -527,6 +527,173 @@ fn image_changes_release_pending_demand_before_the_next_visible_paint() {
             "retired images must not continue short reads"
         );
     }
+}
+
+struct RetainSource(Rc<RefCell<Option<AssetSource>>>);
+impl Loader<Texture<'static>> for RetainSource {
+    type State = ();
+    fn recognize(&self, _: LoadInput<'_>) -> FormatMatch {
+        FormatMatch::NoMatch
+    }
+    fn poll_load(
+        &self,
+        _: &mut (),
+        cx: &mut LoadContext<'_>,
+    ) -> Poll<Result<Texture<'static>, LoadError>> {
+        let source = cx.take_source()?;
+        assert!(cx.source_info().is_none());
+        assert!(matches!(
+            cx.take_source(),
+            Err(LoadError::Source(AssetError::InvalidSource))
+        ));
+        *self.0.borrow_mut() = Some(source);
+        Poll::Ready(Ok(Texture::from_static(
+            &RED[8..],
+            1,
+            1,
+            ColorFormat::RGBA8888,
+        )
+        .unwrap()))
+    }
+}
+
+#[derive(Default)]
+struct OwnedDecode {
+    source: Option<AssetSource>,
+    bytes: [u8; 12],
+    filled: usize,
+}
+struct OwnedDecoder;
+impl Loader<Texture<'static>> for OwnedDecoder {
+    type State = OwnedDecode;
+    fn recognize(&self, _: LoadInput<'_>) -> FormatMatch {
+        FormatMatch::NoMatch
+    }
+    fn poll_load(
+        &self,
+        state: &mut OwnedDecode,
+        cx: &mut LoadContext<'_>,
+    ) -> Poll<Result<Texture<'static>, LoadError>> {
+        if state.source.is_none() {
+            state.source = Some(cx.take_source()?);
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
+        while state.filled < state.bytes.len() {
+            if !cx.consume_work() {
+                return Poll::Pending;
+            }
+            let count = core::task::ready!(state.source.as_mut().unwrap().poll_read(
+                state.filled as u64,
+                &mut state.bytes[state.filled..],
+                &mut Context::from_waker(cx.waker()),
+            ))?;
+            if count == 0 {
+                return Poll::Ready(Err(AssetError::Truncated.into()));
+            }
+            state.filled += count;
+        }
+        assert_eq!(&state.bytes, RED);
+        Poll::Ready(
+            Texture::from_vec(state.bytes[8..].to_vec(), 1, 1, ColorFormat::RGBA8888)
+                .map_err(|_| AssetError::InvalidSource.into()),
+        )
+    }
+}
+
+#[test]
+fn transferred_source_state_resumes_and_retires_through_original_loader_slots() {
+    for cancel in [false, true] {
+        let control = Rc::new(Control::default());
+        let provider = control.clone();
+        let mut app = App::headless(8, 8);
+        app.add_plugin(ImageResourcesPlugin::empty().with_loader(|images| {
+            images.add_loader(OwnedDecoder.for_source("files", |_| Some("object".into())));
+        }));
+        app.add_plugin(
+            ResourcePlugin::new().with_source("files", move |_: Cow<'static, str>| {
+                provider.opens.set(provider.opens.get() + 1);
+                ready(Ok::<_, AssetError>(Reader {
+                    control: provider.clone(),
+                    cursor: Rc::new(Cell::new(0)),
+                    sequential: true,
+                }))
+            }),
+        );
+        app.tick();
+        let handle = app
+            .world
+            .resource::<ResourceManager<Texture<'static>>>()
+            .unwrap()
+            .load("data");
+        assert_eq!(handle.get().width(), 16);
+        app.tick();
+        assert_eq!(control.reads.get(), 1);
+        let handle = if cancel {
+            drop(handle);
+            None
+        } else {
+            Some(handle)
+        };
+        app.tick();
+        control.complete();
+        for _ in 0..4 {
+            app.tick();
+        }
+        if let Some(handle) = handle {
+            assert_eq!(handle.get().read_pixels().unwrap().bytes(), &RED[8..]);
+        } else {
+            assert_eq!(control.reads.get(), 1);
+            assert_eq!(control.completions.get(), 1);
+        }
+        assert_eq!(control.opens.get(), 1);
+    }
+}
+
+#[test]
+fn transferred_source_survives_loader_manager_and_app_without_reopening() {
+    let control = Rc::new(Control::default());
+    let provider = control.clone();
+    let retained = Rc::new(RefCell::new(None));
+    let output = retained.clone();
+    let mut app = App::headless(8, 8);
+    app.add_plugin(ImageResourcesPlugin::empty().with_loader(move |images| {
+        images.add_loader(RetainSource(output).for_source("files", |_| Some("object".into())));
+    }));
+    app.add_plugin(
+        ResourcePlugin::new().with_source("files", move |_: Cow<'static, str>| {
+            provider.opens.set(provider.opens.get() + 1);
+            ready(Ok::<_, AssetError>(Reader {
+                control: provider.clone(),
+                cursor: Rc::new(Cell::new(0)),
+                sequential: true,
+            }))
+        }),
+    );
+    app.tick();
+    app.world
+        .resource::<ResourceManager<Texture<'static>>>()
+        .unwrap()
+        .resolve("data");
+    assert_eq!(control.opens.get(), 1);
+    assert_eq!(
+        control.reads.get(),
+        0,
+        "transfer need not read the complete object"
+    );
+    let mut source = retained.borrow_mut().take().unwrap();
+    drop(app);
+    assert_eq!(source.info().unwrap().access, SourceAccess::Sequential);
+    let mut bytes = [0; 12];
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(source.poll_read(0, &mut bytes, &mut cx).is_pending());
+    control.complete();
+    assert_eq!(
+        source.poll_read(0, &mut bytes, &mut cx),
+        Poll::Ready(Ok(12))
+    );
+    assert_eq!(&bytes, RED);
+    assert_eq!(control.opens.get(), 1);
 }
 
 #[test]

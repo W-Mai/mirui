@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Loaders can transfer their opened byte source into retained state or resource values, preserving bounded reads, shared caches and pending-I/O retirement without reopening.
 - `Loader::for_source` binds a decoder to a named byte provider through the existing loader registration, preserving metadata support and rejecting overlapping source claims before opening.
 - Resource handles share pending demand and retire consumer-owned loads when the last handle leaves, while explicit prefetch and refresh remain active.
 - Mobile event loops receive resource-completion wakes while publication stays in owner-thread systems and respects suspension and tick pacing.

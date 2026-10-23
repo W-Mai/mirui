@@ -1,7 +1,7 @@
 //! Prepared byte-source sessions shared by typed resource managers.
 
 use super::blocks::BlockPool;
-use super::load_context::ReadStream;
+use super::load_context::{LoadBudget, ReadStream};
 use super::source_read::SourceRead;
 use super::wake::TaskWake;
 use super::{AssetError, AssetProvider, AssetReader, SourceInfo};
@@ -336,14 +336,38 @@ impl Drop for Retiring<'_> {
 }
 
 /// One opened byte object retained independently of the path used to open it.
-pub(super) struct AssetSource {
+///
+/// Obtained with [`super::LoadContext::take_source`]. This owner keeps its original provider, read session and cache alive; moving it does not move pending I/O. Dropping it retires submitted reads through the same prepared source storage.
+pub struct AssetSource {
     provider: Rc<ProviderSlots>,
     session: Option<Box<dyn Session>>,
 }
 
 impl AssetSource {
+    /// The opened object's length, access and consistency guarantees.
+    pub fn info(&self) -> Option<SourceInfo> {
+        self.session.as_ref().and_then(|session| session.info())
+    }
+
+    /// Read a bounded prefix of `dst`, returning its initialized byte count. `Pending` retains no destination borrow. Resume with the same offset until ready, then advance by the returned count; zero means EOF for a nonempty destination. Reads use the original shared cache and execution allowance, and never reopen the provider key.
+    pub fn poll_read(
+        &mut self,
+        offset: u64,
+        dst: &mut [u8],
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<usize, AssetError>> {
+        let length = u64::try_from(dst.len()).map_err(|_| AssetError::OutOfBounds)?;
+        offset.checked_add(length).ok_or(AssetError::OutOfBounds)?;
+        let mut budget = LoadBudget::default();
+        let count = dst.len().min(budget.bytes);
+        ReadStream::poll_read(self, offset, &mut dst[..count], cx, &mut budget.steps)
+    }
+
     pub(super) fn poll_open(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), AssetError>> {
-        self.session.as_mut().unwrap().poll_open(cx)
+        self.session
+            .as_mut()
+            .ok_or(AssetError::InvalidSource)?
+            .poll_open(cx)
     }
     pub(super) fn poll_prefix(
         &mut self,
@@ -361,12 +385,18 @@ impl AssetSource {
     }
 }
 impl ReadStream for AssetSource {
-    fn info(&self) -> SourceInfo {
-        self.session
-            .as_ref()
-            .unwrap()
-            .info()
-            .expect("source opened before decoding")
+    fn info(&self) -> Option<SourceInfo> {
+        self.info()
+    }
+    fn take_source(&mut self) -> Result<AssetSource, AssetError> {
+        let session = self.session.as_ref().ok_or(AssetError::InvalidSource)?;
+        if session.info().is_none() || session.has_pending() {
+            return Err(AssetError::InvalidSource);
+        }
+        Ok(Self {
+            provider: self.provider.clone(),
+            session: self.session.take(),
+        })
     }
     fn poll_read(
         &mut self,
@@ -377,13 +407,15 @@ impl ReadStream for AssetSource {
     ) -> Poll<Result<usize, AssetError>> {
         self.session
             .as_mut()
-            .unwrap()
+            .ok_or(AssetError::InvalidSource)?
             .poll_read(offset, dst, cx, steps)
     }
 }
 impl Drop for AssetSource {
     fn drop(&mut self) {
-        let mut session = self.session.take().unwrap();
+        let Some(mut session) = self.session.take() else {
+            return;
+        };
         let retiring = session.has_pending();
         if retiring {
             session.set_retiring();
@@ -609,10 +641,7 @@ mod tests {
                 assert_eq!(source.poll_prefix(4, &mut cx, &mut 8), Poll::Ready(Ok(())));
                 assert_eq!(source.prefix(), (b"abcd".as_slice(), false));
                 let mut bytes = [0; 2];
-                assert_eq!(
-                    source.poll_read(4, &mut bytes, &mut cx, &mut 8),
-                    Poll::Ready(Ok(2))
-                );
+                assert_eq!(source.poll_read(4, &mut bytes, &mut cx), Poll::Ready(Ok(2)));
                 assert_eq!(&bytes, b"ef");
             }
         });

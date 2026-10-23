@@ -110,10 +110,7 @@ impl<T: 'static, L: Loader<T>> Task<T, L> {
         source: Option<&mut dyn ReadStream>,
     ) -> Poll<Result<Loaded<T>, LoadError>> {
         let waker = self.call.wake.register(parent).clone();
-        let mut budget = LoadBudget {
-            steps: 32,
-            bytes: 4096,
-        };
+        let mut budget = LoadBudget::default();
         let mut cx = LoadContext::new(
             self.call.token.as_deref().unwrap(),
             &waker,

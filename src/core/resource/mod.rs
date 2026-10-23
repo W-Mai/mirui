@@ -20,8 +20,8 @@ mod source_loader;
 mod source_read;
 mod wake;
 
-pub use assets::AssetCacheConfig;
 pub(crate) use assets::AssetSources;
+pub use assets::{AssetCacheConfig, AssetSource};
 pub use handle::ResourceHandle;
 pub use load_context::LoadContext;
 pub use loader::{FormatMatch, LoadError, LoadInput, Loader, ProbeLoader};

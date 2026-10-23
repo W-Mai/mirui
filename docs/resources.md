@@ -95,6 +95,22 @@ app.add_plugin(
 
 This binding does not require a separate `ImageResourcesPlugin::with_source`. The provider is still registered with `ResourcePlugin`. Wrapping a loader prepares one resolver allocation during registration, with no additional per-poll decoder state or task queue.
 
+### Retaining an opened source
+
+`LoadContext::take_source()` transfers the opened `AssetSource` into decoder state or a completed resource. It does not reopen the key, copy source bytes or allocate another session. Complete any exact read before transferring; a repeated transfer or a transfer during an incomplete exact read fails. The context no longer supplies that source after transfer.
+
+`AssetSource::poll_read(offset, destination, context)` reads a bounded prefix and returns its byte count. It retains no destination reference across `Pending`; resume the same offset until ready, then advance by the returned count. A nonempty request returning zero bytes indicates EOF. Each call uses the same 4 KiB copy and 32-operation limits as loader polling, so a ready short result is not necessarily EOF. A decoder looping over these calls must still charge its own execution allowance with `consume_work`. The original provider, read session and shared cache remain alive independently of the manager or App. The retained source continues to occupy its prepared provider slot until dropped, and pending physical reads retire before that slot is reused.
+
+```rust,ignore
+// Inside poll_load, after metadata reads have completed:
+state.source = Some(cx.take_source()?);
+
+// Later, using the retained owner and the current task's waker:
+let source = state.source.as_mut().unwrap();
+let mut task = core::task::Context::from_waker(cx.waker());
+let count = core::task::ready!(source.poll_read(offset, destination, &mut task))?;
+```
+
 App systems advance ready image loads and retire submitted source operations on the owning thread, including when no UI root exists. An application driving `App::tick` delivers completions on a subsequent tick; an externally driven sleeping loop supplies its wake through the manager's polling context. Publication uses the same resource subscription that invalidates `Image`.
 
 ### Read storage

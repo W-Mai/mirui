@@ -1,9 +1,12 @@
 use super::source_read::SourceRead;
-use super::{AssetError, AssetReader, LoadError, SourceInfo};
+use super::{AssetError, AssetReader, AssetSource, LoadError, SourceInfo};
 use core::task::{Context, Poll, Waker};
 
 pub(super) trait ReadStream: 'static {
-    fn info(&self) -> SourceInfo;
+    fn info(&self) -> Option<SourceInfo>;
+    fn take_source(&mut self) -> Result<AssetSource, AssetError> {
+        Err(AssetError::Unsupported)
+    }
     fn poll_read(
         &mut self,
         offset: u64,
@@ -14,8 +17,8 @@ pub(super) trait ReadStream: 'static {
 }
 
 impl<R: AssetReader> ReadStream for SourceRead<R> {
-    fn info(&self) -> SourceInfo {
-        self.info()
+    fn info(&self) -> Option<SourceInfo> {
+        Some(self.info())
     }
     fn poll_read(
         &mut self,
@@ -36,6 +39,15 @@ pub(super) struct ExactRead {
 pub(super) struct LoadBudget {
     pub steps: usize,
     pub bytes: usize,
+}
+
+impl Default for LoadBudget {
+    fn default() -> Self {
+        Self {
+            steps: 32,
+            bytes: 4096,
+        }
+    }
 }
 
 /// Short-lived access to a loader's token, source and execution allowance.
@@ -73,7 +85,19 @@ impl<'a> LoadContext<'a> {
         self.waker
     }
     pub fn source_info(&self) -> Option<SourceInfo> {
-        self.source.as_ref().map(|source| source.info())
+        self.source.as_ref().and_then(|source| source.info())
+    }
+
+    /// Transfer the opened source into decoder state or the completed resource without reopening or copying it. Finish any `poll_read_exact` operation before taking the source. Further reads through this context fail; the returned owner can be polled independently and retains the prepared provider session until dropped.
+    pub fn take_source(&mut self) -> Result<AssetSource, LoadError> {
+        if self.read.active.is_some() {
+            return Err(AssetError::InvalidSource.into());
+        }
+        self.source
+            .as_mut()
+            .ok_or(AssetError::Unsupported)?
+            .take_source()
+            .map_err(Into::into)
     }
 
     /// Charge one bounded decoder operation. On exhaustion, schedule another poll and yield.
@@ -91,7 +115,12 @@ impl<'a> LoadContext<'a> {
         let length = u64::try_from(dst.len()).map_err(|_| AssetError::OutOfBounds)?;
         let end = offset.checked_add(length).ok_or(AssetError::OutOfBounds)?;
         let source = self.source.as_mut().ok_or(AssetError::Unsupported)?;
-        if source.info().len.is_some_and(|len| end > len) {
+        if source
+            .info()
+            .ok_or(AssetError::InvalidSource)?
+            .len
+            .is_some_and(|len| end > len)
+        {
             return Poll::Ready(Err(AssetError::Truncated.into()));
         }
         let (_, _, done) = self.read.active.get_or_insert((offset, dst.len(), 0));
@@ -131,6 +160,77 @@ impl<'a> LoadContext<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn source_transfer_reuses_storage_and_rejects_incomplete_exact_reads() {
+        use super::super::{AssetCacheConfig, AssetSources};
+        static BYTES: [u8; 8192] = [7; 8192];
+        let mut sources = AssetSources::new(AssetCacheConfig::new().max_requests(1)).unwrap();
+        sources
+            .register("files", |_| core::future::ready(Ok(BYTES.as_slice())))
+            .unwrap();
+        let mut source = sources.open("files", "large".into()).unwrap();
+        let mut task = Context::from_waker(Waker::noop());
+        assert_eq!(source.poll_open(&mut task), Poll::Ready(Ok(())));
+        let mut read = ExactRead::default();
+        let mut budget = LoadBudget { steps: 2, bytes: 1 };
+        let mut header = [0; 2];
+        {
+            let mut cx = LoadContext::new(
+                "large",
+                Waker::noop(),
+                Some(&mut source),
+                &mut read,
+                &mut budget,
+            );
+            assert!(cx.poll_read_exact(0, &mut header).is_pending());
+            assert!(matches!(
+                cx.take_source(),
+                Err(LoadError::Source(AssetError::InvalidSource))
+            ));
+        }
+        budget.bytes = 1;
+        budget.steps = 2;
+        let mut cx = LoadContext::new(
+            "large",
+            Waker::noop(),
+            Some(&mut source),
+            &mut read,
+            &mut budget,
+        );
+        assert_eq!(cx.poll_read_exact(0, &mut header), Poll::Ready(Ok(())));
+        let mut retained = None;
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                retained = Some(cx.take_source().unwrap());
+            }),
+            0
+        );
+        assert_eq!(cx.source_info(), None);
+        assert!(matches!(
+            sources.open("files", "other".into()),
+            Err(AssetError::Capacity)
+        ));
+        let mut retained = retained.unwrap();
+        let mut bytes = [0; 8192];
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                assert_eq!(
+                    retained.poll_read(0, &mut bytes, &mut task),
+                    Poll::Ready(Ok(4096))
+                );
+            }),
+            0
+        );
+        assert_eq!(&bytes[..4096], &BYTES[..4096]);
+        assert_eq!(bytes[4096], 0);
+        assert_eq!(
+            retained.poll_read(u64::MAX, &mut bytes, &mut task),
+            Poll::Ready(Err(AssetError::OutOfBounds))
+        );
+        drop(retained);
+        assert!(sources.open("files", "other".into()).is_ok());
+    }
 
     #[test]
     fn exact_reads_resume_bounded_prefixes_and_reject_changed_requests() {
