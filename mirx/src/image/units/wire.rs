@@ -1,6 +1,9 @@
 use core::ops::Range;
 
-use super::{GroupPlanes, ReferenceMode, SurfaceDescriptor, UnitGroup, UnitGroupError};
+use super::{
+    GroupLayout, GroupPlanes, GroupRules, ReferenceMode, SurfaceDescriptor, UnitGroup,
+    UnitGroupError,
+};
 use crate::ByteAlignment;
 #[cfg(test)]
 use crate::media::CodingTable;
@@ -254,23 +257,42 @@ impl UnitGroupRecord {
         indexes: &'a [u8],
         coding_at: impl FnOnce(u32) -> Option<crate::media::CodingRecord<'a>>,
     ) -> Result<(UnitGroup<'a>, Range<u32>), UnitGroupRecordError> {
+        let (layout, indexes) = self.layout_with(
+            surface,
+            u32::try_from(data.len()).map_err(|_| UnitGroupRecordError::SizeOverflow)?,
+            indexes,
+            coding_at,
+        )?;
+        let range = self.data_range();
+        Ok((
+            layout
+                .bind(&data[range.start as usize..range.end as usize])
+                .map_err(UnitGroupRecordError::Group)?,
+            indexes,
+        ))
+    }
+
+    pub(crate) fn layout_with<'a>(
+        self,
+        surface: SurfaceDescriptor,
+        data_len: u32,
+        indexes: &'a [u8],
+        coding_at: impl FnOnce(u32) -> Option<crate::media::CodingRecord<'a>>,
+    ) -> Result<(GroupLayout<'a>, Range<u32>), UnitGroupRecordError> {
         self.validate()?;
-        u32::try_from(data.len()).map_err(|_| UnitGroupRecordError::SizeOverflow)?;
         u32::try_from(indexes.len()).map_err(|_| UnitGroupRecordError::SizeOverflow)?;
         let coding = coding_at(self.coding_index)
             .ok_or(UnitGroupRecordError::MissingCoding(self.coding_index))?;
         let range = self.data_range();
-        let bytes = data
-            .get(range.start as usize..range.end as usize)
-            .ok_or(UnitGroupRecordError::DataOutOfBounds)?;
-        let mut builder = UnitGroup::builder(surface, coding, bytes)
-            .with_reference(self.reference)
-            .with_input_alignment(self.input_alignment);
-        if let Some((width, height)) = self.tiles {
-            builder = builder.with_tiles(width, height);
+        if range.end > data_len {
+            return Err(UnitGroupRecordError::DataOutOfBounds);
         }
+        let mut builder = GroupRules::new(surface, coding);
+        builder.reference = self.reference;
+        builder.input_alignment = self.input_alignment;
+        builder.tiles = self.tiles;
         if let Some(planes) = self.planes {
-            builder = builder.with_planes(planes);
+            builder.planes = planes;
         }
         let cell_count = builder.grid().map_err(UnitGroupRecordError::Group)?.len() as u32;
         let selection_len = match self.selection {
@@ -306,7 +328,7 @@ impl UnitGroupRecord {
         let encoded_ranges = indexes
             .get(selection_end..index_end)
             .ok_or(UnitGroupRecordError::IndexOutOfBounds)?;
-        builder = builder.with_selection(selection);
+        builder.selection = Some(selection);
         if let Some(encoding) = self.index_encoding {
             let ranges = match encoding {
                 UnitIndexEncoding::Offsets => UnitIndex::offsets(encoded_ranges),
@@ -322,13 +344,15 @@ impl UnitGroupRecord {
                 ),
             }
             .map_err(UnitGroupRecordError::Index)?;
-            builder = builder.with_index(ranges);
+            builder.index = Some(ranges);
         }
         if index_end == self.index_offset as usize && self.index_offset != 0 {
             return Err(UnitGroupRecordError::NonCanonical { offset: 12 });
         }
         Ok((
-            builder.build().map_err(UnitGroupRecordError::Group)?,
+            builder
+                .build(self.data_size)
+                .map_err(UnitGroupRecordError::Group)?,
             self.index_offset..index_end as u32,
         ))
     }
@@ -413,6 +437,37 @@ mod tests {
             ColorDescription::BT709_YUV_LIMITED,
         )
         .unwrap()
+    }
+
+    #[test]
+    fn group_ranges_validate_without_allocating_or_borrowing_data() {
+        let surface =
+            SurfaceDescriptor::new(1, u32::MAX, SampleLayout::A8, ColorDescription::NONE).unwrap();
+        let record = UnitGroupRecord::new(0, 0..u32::MAX).unwrap();
+        let (layout, indexes) = record
+            .layout_with(surface, u32::MAX, &[], |_| {
+                Some(crate::media::CodingRecord::RAW)
+            })
+            .unwrap();
+        assert_eq!(indexes, 0..0);
+        assert_eq!(layout.index.get(0), Some(0..u32::MAX));
+        assert_eq!(
+            layout.grid.get(0),
+            Some(Region::new(0, 0, 1, u32::MAX).unwrap())
+        );
+        assert!(matches!(
+            layout.bind(&[]),
+            Err(UnitGroupError::DataLengthMismatch {
+                expected: u32::MAX,
+                actual: 0
+            })
+        ));
+        assert_eq!(
+            record.layout_with(surface, u32::MAX - 1, &[], |_| Some(
+                crate::media::CodingRecord::RAW
+            )),
+            Err(UnitGroupRecordError::DataOutOfBounds)
+        );
     }
 
     #[test]
@@ -575,6 +630,15 @@ mod tests {
                     .unwrap()
                     .resolve(surface(), codings, &data, &indexes)
                     .unwrap();
+                let (layout, used) = UnitGroupRecord::open(&bytes)
+                    .unwrap()
+                    .layout_with(surface(), data.len() as u32, &indexes, |ordinal| {
+                        codings.get(ordinal as usize)
+                    })
+                    .unwrap();
+                assert_eq!(used, 0..indexes.len() as u32);
+                assert_eq!(layout.bind(&data).unwrap(), group);
+                assert!(layout.bind(&data[..data.len() - 1]).is_err());
                 assert!(
                     group
                         .iter()

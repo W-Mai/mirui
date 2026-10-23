@@ -147,15 +147,8 @@ impl<'a> UnitGroup<'a> {
         data: &'a [u8],
     ) -> UnitGroupBuilder<'a> {
         UnitGroupBuilder {
-            surface,
-            coding,
+            rules: GroupRules::new(surface, coding),
             data,
-            tiles: None,
-            planes: GroupPlanes::Joint((1 << surface.plane_count()) - 1),
-            selection: None,
-            index: None,
-            reference: ReferenceMode::Independent,
-            input_alignment: ByteAlignment::ONE,
         }
     }
     pub const fn surface(self) -> SurfaceDescriptor {
@@ -242,52 +235,78 @@ impl<'a> UnitGroup<'a> {
 /// Checked group construction from borrowed coding, selection, ranges and DATA.
 #[derive(Clone, Copy, Debug)]
 pub struct UnitGroupBuilder<'a> {
-    surface: SurfaceDescriptor,
-    coding: CodingRecord<'a>,
+    rules: GroupRules<'a>,
     data: &'a [u8],
-    tiles: Option<(u32, u32)>,
-    planes: GroupPlanes,
-    selection: Option<UnitSelection<'a>>,
-    index: Option<UnitIndex<'a>>,
-    reference: ReferenceMode,
-    input_alignment: ByteAlignment,
 }
 
-impl<'a> UnitGroupBuilder<'a> {
-    fn grid(&self) -> Result<TileGrid, UnitGroupError> {
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct GroupRules<'a> {
+    surface: SurfaceDescriptor,
+    coding: CodingRecord<'a>,
+    pub(super) tiles: Option<(u32, u32)>,
+    pub(super) planes: GroupPlanes,
+    pub(super) selection: Option<UnitSelection<'a>>,
+    pub(super) index: Option<UnitIndex<'a>>,
+    pub(super) reference: ReferenceMode,
+    pub(super) input_alignment: ByteAlignment,
+}
+
+impl<'a> GroupRules<'a> {
+    pub(super) const fn new(surface: SurfaceDescriptor, coding: CodingRecord<'a>) -> Self {
+        Self {
+            surface,
+            coding,
+            tiles: None,
+            planes: GroupPlanes::Joint((1 << surface.plane_count()) - 1),
+            selection: None,
+            index: None,
+            reference: ReferenceMode::Independent,
+            input_alignment: ByteAlignment::ONE,
+        }
+    }
+
+    pub(super) fn grid(&self) -> Result<TileGrid, UnitGroupError> {
         let (width, height) = self.planes.dimensions(self.surface)?;
         let (tile_width, tile_height) = self.tiles.unwrap_or((width.max(1), height.max(1)));
         TileGrid::new(width, height, tile_width, tile_height).map_err(UnitGroupError::Grid)
     }
+}
 
+impl<'a> UnitGroupBuilder<'a> {
     pub const fn with_tiles(mut self, width: u32, height: u32) -> Self {
-        self.tiles = Some((width, height));
+        self.rules.tiles = Some((width, height));
         self
     }
     pub const fn with_planes(mut self, planes: GroupPlanes) -> Self {
-        self.planes = planes;
+        self.rules.planes = planes;
         self
     }
     pub const fn with_selection(mut self, selection: UnitSelection<'a>) -> Self {
-        self.selection = Some(selection);
+        self.rules.selection = Some(selection);
         self
     }
     pub const fn with_index(mut self, index: UnitIndex<'a>) -> Self {
-        self.index = Some(index);
+        self.rules.index = Some(index);
         self
     }
     pub const fn with_reference(mut self, reference: ReferenceMode) -> Self {
-        self.reference = reference;
+        self.rules.reference = reference;
         self
     }
     /// Requires every unit start offset to align; actual pointer alignment remains separate.
     pub const fn with_input_alignment(mut self, alignment: ByteAlignment) -> Self {
-        self.input_alignment = alignment;
+        self.rules.input_alignment = alignment;
         self
     }
 
     pub fn build(self) -> Result<UnitGroup<'a>, UnitGroupError> {
         let data_len = u32::try_from(self.data.len()).map_err(|_| UnitGroupError::SizeOverflow)?;
+        self.rules.build(data_len)?.bind(self.data)
+    }
+}
+
+impl<'a> GroupRules<'a> {
+    pub(crate) fn build(self, data_len: u32) -> Result<GroupLayout<'a>, UnitGroupError> {
         let grid = self.grid()?;
         if let (GroupPlanes::Joint(_), Some(first)) = (self.planes, grid.get(0)) {
             for plane in 0..self.surface.plane_count() {
@@ -377,17 +396,54 @@ impl<'a> UnitGroupBuilder<'a> {
             }
             previous_end = range.end;
         }
-        Ok(UnitGroup {
+        Ok(GroupLayout {
             surface: self.surface,
             grid,
             planes: self.planes,
             coding: self.coding,
-            data: self.data,
             selection,
             index,
             reference: self.reference,
             input_alignment: self.input_alignment,
         })
+    }
+}
+
+/// Validated geometry and byte ranges, independent of DATA residency.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct GroupLayout<'a> {
+    pub(crate) surface: SurfaceDescriptor,
+    pub(crate) grid: TileGrid,
+    pub(crate) planes: GroupPlanes,
+    pub(crate) coding: CodingRecord<'a>,
+    pub(crate) selection: UnitSelection<'a>,
+    pub(crate) index: UnitIndex<'a>,
+    pub(crate) reference: ReferenceMode,
+    pub(crate) input_alignment: ByteAlignment,
+}
+
+impl<'a> GroupLayout<'a> {
+    pub(crate) fn bind(self, data: &'a [u8]) -> Result<UnitGroup<'a>, UnitGroupError> {
+        self.check_length(self.index.byte_len(), data)?;
+        Ok(UnitGroup {
+            surface: self.surface,
+            grid: self.grid,
+            planes: self.planes,
+            coding: self.coding,
+            data,
+            selection: self.selection,
+            index: self.index,
+            reference: self.reference,
+            input_alignment: self.input_alignment,
+        })
+    }
+
+    fn check_length(self, expected: u32, data: &[u8]) -> Result<(), UnitGroupError> {
+        let actual = u32::try_from(data.len()).map_err(|_| UnitGroupError::SizeOverflow)?;
+        if expected != actual {
+            return Err(UnitGroupError::DataLengthMismatch { expected, actual });
+        }
+        Ok(())
     }
 }
 
