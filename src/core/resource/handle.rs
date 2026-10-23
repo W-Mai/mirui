@@ -63,7 +63,7 @@ impl<T: HasSize + 'static> ResourceHandle<T> {
         if let Some(value) = self.get_cached() {
             return value;
         }
-        let (revision, value) = match manager_inner::resolve(&rc, &self.token) {
+        let (revision, value) = match manager_inner::resolve(&rc, &self.token, false) {
             ResolveOutcome::CacheHit(v) | ResolveOutcome::JustResolved(v) => {
                 (self.revision.get(), v)
             }
@@ -79,7 +79,7 @@ impl<T: HasSize + HasProbe + 'static> ResourceHandle<T> {
         &self,
         manager: &crate::core::resource::manager::ResourceManager<T>,
     ) -> Option<T::Meta> {
-        manager.probe(&self.token)
+        manager.probe_with_demand(&self.token, false)
     }
 }
 
@@ -101,7 +101,7 @@ impl<T: HasSize + 'static> Clone for ResourceHandle<T> {
 impl<T: HasSize + 'static> Drop for ResourceHandle<T> {
     fn drop(&mut self) {
         if let Some(rc) = self.manager.upgrade() {
-            rc.borrow_mut().drop_refcount(&self.token);
+            manager_inner::release_handle(&rc, &self.token);
         }
     }
 }

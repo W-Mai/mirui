@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Resource handles share pending demand and retire consumer-owned loads when the last handle leaves, while explicit prefetch and refresh remain active.
 - Mobile event loops receive resource-completion wakes while publication stays in owner-thread systems and respects suspension and tick pacing.
 - `ResourceManager::reload` schedules generation-checked refresh through the registered loaders while retaining cached successful values until replacement.
 - Named byte sources and image-source bindings use prepared sessions, shared bounded read blocks and content recognition through existing resource loaders. Cancelled requests retire submitted I/O before reusing storage.

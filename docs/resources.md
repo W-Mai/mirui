@@ -35,6 +35,8 @@ Each loader registration prepares four reusable invocation slots. Full capacity 
 
 Replacing or removing a pending token rejects its old completion. An invalidated invocation retires on the next owner-thread poll, including when the external producer has not sent a wake. Loaders that own asynchronous operations must ensure resetting their state cannot free memory still accessed by that operation. Metadata probing never falls through to full decoding.
 
+Handles share demand for a token. Releasing the last handle retires a pending load initiated through those handles, without discarding successful cached values. Submitted source reads still finish and return their buffers before storage can be reused. Direct manager calls to `resolve`, `probe`, `prefetch`, `prefetch_probe` or `reload` keep their pending request independently of handles; merging one of these requests into an existing load preserves that work until completion or explicit invalidation.
+
 `manager.reload(token)` schedules the registered loader chain for the next owner-thread poll. It does not run the resolver or provider at the call site and does not replay consumed one-shot factories. Requests for the same token coalesce into the newest generation; superseded completions cannot publish. No registered loaders returns `NotMine`, and exhausted prepared request capacity returns `Capacity`.
 
 Refresh leaves the previous successful value in the value cache until replacement succeeds. Failed refresh does not discard it. The old value remains subject to the existing cache budget and eviction policy; independently held values stay immutable and valid. A source binding resolves and opens its key again, so changing a resolver's captured directory or alias takes effect after an explicit reload.

@@ -118,7 +118,7 @@ impl<T: HasSize + 'static> ResourceManager<T> {
     }
 
     pub fn resolve(&self, token: &str) -> Rc<T> {
-        match manager_inner::resolve(&self.inner, token) {
+        match manager_inner::resolve(&self.inner, token, true) {
             ResolveOutcome::CacheHit(rc) => rc,
             ResolveOutcome::JustResolved(value) => value,
             ResolveOutcome::Fallback(rc) => rc,
@@ -233,6 +233,10 @@ impl<T: HasSize + HasProbe + 'static> ResourceManager<T> {
     }
 
     pub fn probe(&self, token: &str) -> Option<T::Meta> {
+        self.probe_with_demand(token, true)
+    }
+
+    pub(super) fn probe_with_demand(&self, token: &str, detached: bool) -> Option<T::Meta> {
         let revision = self.inner.borrow().revision_cell().get();
         self.with_sidecar_mut(|side| {
             if side.revision != revision {
@@ -277,7 +281,7 @@ impl<T: HasSize + HasProbe + 'static> ResourceManager<T> {
                 }
             };
         }
-        let mut resolution = manager_inner::Resolution::begin(&self.inner, token)?;
+        let mut resolution = manager_inner::Resolution::begin(&self.inner, token, detached)?;
 
         // Step 4: peek by_token kind (no borrow held across the dispatch)
         let entry_kind = self.inner.borrow().peek_entry_kind(token);

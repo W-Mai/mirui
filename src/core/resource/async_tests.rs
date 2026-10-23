@@ -91,6 +91,87 @@ fn tick(manager: &ResourceManager<Value>) {
 }
 
 #[test]
+fn only_the_last_handle_retires_consumer_owned_loading() {
+    let control = Rc::new(Control::default());
+    let manager = ResourceManager::new(MaxSize::Count(4), Value(0));
+    manager.add_loader(Decoder(control.clone()));
+    let first = manager.load("shared");
+    let second = first.clone();
+    assert_eq!(first.get().0, 0);
+    tick(&manager);
+    drop(first);
+    tick(&manager);
+    assert_eq!(control.resets.get(), 0);
+    drop(second);
+    assert_eq!(
+        control.resets.get(),
+        0,
+        "handle destruction does not poll a pending loader"
+    );
+    tick(&manager);
+    assert_eq!(control.resets.get(), 1);
+    let calls = control.calls.get();
+    control.complete();
+    tick(&manager);
+    assert_eq!(
+        control.calls.get(),
+        calls,
+        "late wakes cannot resume a retired request"
+    );
+    let replacement = manager.load("shared");
+    assert_eq!(
+        replacement.get().0,
+        40,
+        "a new demand does not inherit cancelled scratch"
+    );
+}
+
+#[test]
+fn explicit_requests_keep_shared_pending_work_after_handles_leave() {
+    for probe in [false, true] {
+        let control = Rc::new(Control::default());
+        let manager = ResourceManager::new(MaxSize::Count(4), Value(0));
+        manager.add_probed_loader(Decoder(control.clone()));
+        let handle = manager.load("shared");
+        if probe {
+            assert_eq!(handle.probe_via_manager(&manager), None);
+            manager.prefetch_probe("shared");
+        } else {
+            assert_eq!(handle.get().0, 0);
+            manager.prefetch("shared");
+        }
+        drop(handle);
+        tick(&manager);
+        assert_eq!(control.resets.get(), 0);
+        control.complete();
+        tick(&manager);
+        if probe {
+            assert_eq!(manager.probe("shared"), Some(Value(7)));
+        } else {
+            assert_eq!(manager.resolve("shared").0, 41);
+        }
+    }
+}
+
+#[test]
+fn completed_metadata_releases_its_prepared_state_with_the_last_handle() {
+    let control = Rc::new(Control::default());
+    control.ready.set(true);
+    let manager = ResourceManager::new(MaxSize::Count(4), Value(0));
+    manager.add_probed_loader(Decoder(control.clone()));
+    let handle = manager.load("metadata");
+    assert_eq!(handle.probe_via_manager(&manager), Some(Value(7)));
+    assert_eq!(control.calls.get(), 0);
+    drop(handle);
+    assert_eq!(control.resets.get(), 1);
+    assert_eq!(
+        control.calls.get(),
+        0,
+        "metadata retirement must not decode values"
+    );
+}
+
+#[test]
 fn refresh_is_deferred_coalesced_and_keeps_the_last_cached_value() {
     struct Refresh(Rc<Cell<u32>>, Rc<Cell<usize>>);
     impl Loader<Value> for Refresh {

@@ -75,6 +75,7 @@ struct Request {
     generation: u64,
     load: bool,
     queued: bool,
+    detached: bool,
 }
 
 impl<T: HasSize + 'static> ManagerInner<T> {
@@ -132,13 +133,15 @@ impl<T: HasSize + 'static> ManagerInner<T> {
         *self.refcounts.entry(Cow::Owned(token.into())).or_insert(0) += 1;
     }
 
-    pub(crate) fn drop_refcount(&mut self, token: &str) {
+    pub(crate) fn drop_refcount(&mut self, token: &str) -> bool {
         if let Some(c) = self.refcounts.get_mut(token) {
             *c = c.saturating_sub(1);
             if *c == 0 {
                 self.refcounts.remove(token);
+                return true;
             }
         }
+        false
     }
 
     pub(crate) fn signal_for(&mut self, token: Cow<'static, str>) -> Rc<Signal<()>> {
@@ -239,6 +242,26 @@ pub(crate) fn notify<T: HasSize + 'static>(rc: &Rc<RefCell<ManagerInner<T>>>, to
     }
 }
 
+pub(crate) fn release_handle<T: HasSize + 'static>(rc: &Rc<RefCell<ManagerInner<T>>>, token: &str) {
+    let retire = {
+        let mut inner = rc.borrow_mut();
+        if !inner.drop_refcount(token)
+            || inner
+                .resolving
+                .get(token)
+                .is_some_and(|request| request.detached)
+        {
+            false
+        } else {
+            inner.resolving.remove(token);
+            true
+        }
+    };
+    if retire {
+        invalidate_calls(rc, token);
+    }
+}
+
 /// Guards external calls, including unwinding and reentrant replacement.
 pub(crate) struct Resolution<'a, T: HasSize + 'static> {
     manager: &'a Rc<RefCell<ManagerInner<T>>>,
@@ -248,9 +271,14 @@ pub(crate) struct Resolution<'a, T: HasSize + 'static> {
 }
 
 impl<'a, T: HasSize + 'static> Resolution<'a, T> {
-    pub(crate) fn begin(manager: &'a Rc<RefCell<ManagerInner<T>>>, token: &'a str) -> Option<Self> {
+    pub(crate) fn begin(
+        manager: &'a Rc<RefCell<ManagerInner<T>>>,
+        token: &'a str,
+        detached: bool,
+    ) -> Option<Self> {
         let mut inner = manager.borrow_mut();
-        if inner.resolving.contains_key(token) {
+        if let Some(request) = inner.resolving.get_mut(token) {
+            request.detached |= detached;
             return None;
         }
         let request = inner
@@ -264,6 +292,7 @@ impl<'a, T: HasSize + 'static> Resolution<'a, T> {
                 generation: request,
                 load: false,
                 queued: false,
+                detached,
             },
         );
         Some(Self {
@@ -304,6 +333,7 @@ pub(crate) enum ResolveOutcome<T> {
 pub(crate) fn resolve<T: HasSize + 'static>(
     rc: &Rc<RefCell<ManagerInner<T>>>,
     token: &str,
+    detached: bool,
 ) -> ResolveOutcome<T> {
     // Step 1: values cache hit
     {
@@ -324,7 +354,7 @@ pub(crate) fn resolve<T: HasSize + 'static>(
     if let Some(Entry::Static(value)) = entry_taken {
         return publish_value(rc, token, value);
     }
-    let Some(mut resolution) = Resolution::begin(rc, token) else {
+    let Some(mut resolution) = Resolution::begin(rc, token, detached) else {
         if let Some(request) = rc.borrow_mut().resolving.get_mut(token) {
             request.load = true;
         }
@@ -541,6 +571,7 @@ pub(crate) fn reload<T: HasSize + 'static>(
                 generation,
                 load: true,
                 queued: true,
+                detached: true,
             },
         );
         inner.failed_values.remove(token);

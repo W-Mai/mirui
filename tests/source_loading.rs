@@ -296,6 +296,46 @@ fn multiple_format_claims_fail_before_decoding() {
 }
 
 #[test]
+fn last_consumer_retirement_returns_submitted_reads_without_continuing_decode() {
+    let control = Rc::new(Control::default());
+    let mut app = app(control.clone(), true, false);
+    app.tick();
+    let handle = app
+        .world
+        .resource::<ResourceManager<Texture<'static>>>()
+        .unwrap()
+        .load("shared");
+    let second = handle.clone();
+    assert_eq!(handle.get().width(), 16);
+    assert_eq!(control.reads.get(), 1);
+    drop(handle);
+    app.tick();
+    drop(second);
+    app.tick();
+    control.complete();
+    for _ in 0..4 {
+        app.tick();
+    }
+    assert_eq!(control.completions.get(), 1);
+    assert_eq!(
+        control.reads.get(),
+        1,
+        "retirement cannot issue the next short read"
+    );
+    let manager = app
+        .world
+        .resource::<ResourceManager<Texture<'static>>>()
+        .unwrap();
+    let replacement = manager.load("shared");
+    assert_eq!(replacement.get().width(), 1);
+    assert_eq!(
+        control.opens.get(),
+        2,
+        "the source slot was returned after physical retirement"
+    );
+}
+
+#[test]
 fn refreshing_an_alias_reopens_its_resolved_key_without_mutating_old_pixels() {
     static BLUE: &[u8] = b"R4IM\x01\x00\x01\x00\x00\x00\xff\xff";
     let selected = Rc::new(Cell::new(false));
