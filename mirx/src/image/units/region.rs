@@ -68,7 +68,7 @@ impl<'a> Iterator for RegionUnits<'a> {
 impl FusedIterator for RegionUnits<'_> {}
 
 #[derive(Clone, Debug)]
-struct RegionCells<'a> {
+pub(crate) struct RegionCells<'a> {
     selection: UnitSelection<'a>,
     columns: u32,
     first_column: u32,
@@ -82,7 +82,7 @@ struct RegionCells<'a> {
 }
 
 impl<'a> RegionCells<'a> {
-    fn new(
+    pub(crate) fn new(
         grid: TileGrid,
         selection: UnitSelection<'a>,
         region: Region,

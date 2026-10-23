@@ -13,6 +13,7 @@ mod wire;
 pub(crate) use decode::ScalarProfile;
 pub use decode::{DecodedUnit, UnitDecodeError, UnitDecodePlan};
 pub use plan::{UnitMemoryPlan, UnitPlane, UnitPlanes};
+pub(crate) use region::RegionCells;
 pub use region::RegionUnits;
 pub use wire::EncodedGroupError;
 pub(crate) use wire::{GroupSelection, UNIT_GROUP_RECORD_LEN, UnitGroupRecord};
@@ -223,6 +224,19 @@ impl<'a> UnitGroup<'a> {
         self.get(self.selection.position(cell)?)
     }
 
+    pub(crate) const fn layout(self) -> GroupLayout<'a> {
+        GroupLayout {
+            surface: self.surface,
+            grid: self.grid,
+            planes: self.planes,
+            coding: self.coding,
+            selection: self.selection,
+            index: self.index,
+            reference: self.reference,
+            input_alignment: self.input_alignment,
+        }
+    }
+
     pub fn iter(self) -> DecodeUnits<'a> {
         DecodeUnits {
             group: self,
@@ -423,6 +437,29 @@ pub(crate) struct GroupLayout<'a> {
 }
 
 impl<'a> GroupLayout<'a> {
+    pub(crate) fn bind_unit(
+        self,
+        ordinal: usize,
+        data: &'a [u8],
+    ) -> Option<Result<DecodeUnitRef<'a>, UnitGroupError>> {
+        let range = self.index.get(ordinal)?;
+        let cell = self.selection.get(ordinal)?;
+        Some(
+            self.check_length(range.end - range.start, data)
+                .map(|()| DecodeUnitRef {
+                    surface: self.surface,
+                    region: self.grid.get(cell as usize).expect("selected cell"),
+                    cell,
+                    planes: self.planes,
+                    coding: self.coding,
+                    data,
+                    offset: range.start,
+                    reference: self.reference,
+                    input_alignment: self.input_alignment,
+                }),
+        )
+    }
+
     pub(crate) fn bind(self, data: &'a [u8]) -> Result<UnitGroup<'a>, UnitGroupError> {
         self.check_length(self.index.byte_len(), data)?;
         Ok(UnitGroup {

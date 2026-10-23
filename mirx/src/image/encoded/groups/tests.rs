@@ -53,11 +53,17 @@ fn native_and_wire_groups_share_coverage_indexes_alignment_and_work() {
         };
         let bytes = payload(surface, &codings, Some(&records), None, &data, None, None);
         let wire = EncodedImageView::open(&bytes).unwrap().group_source();
-        assert_eq!(native.input_alignment(), wire.input_alignment());
+        assert_eq!(
+            native.metadata().unwrap().input_alignment(),
+            wire.metadata().unwrap().input_alignment()
+        );
         for work in [0, 1, 16, 128, 512, 2048] {
             let mut a = CoverageBudget::new(work);
             let mut b = CoverageBudget::new(work);
-            assert_eq!(native.validate_groups(&mut a), wire.validate_groups(&mut b));
+            assert_eq!(
+                native.metadata().unwrap().validate_groups(&mut a),
+                wire.metadata().unwrap().validate_groups(&mut b)
+            );
             assert_eq!(a.remaining(), b.remaining());
             let limits = PayloadLimits::EMBEDDED.with_max_raster_work(work);
             let mut a = Preflight::new(&limits, 2).unwrap();
@@ -68,7 +74,7 @@ fn native_and_wire_groups_share_coverage_indexes_alignment_and_work() {
             let mut preflight = Preflight::new(&PayloadLimits::EMBEDDED, 2).unwrap();
             preflight.groups(native).unwrap();
             assert_eq!(
-                native.record(2),
+                native.metadata().unwrap().record(2),
                 Err(EncodedImageError::GroupOutOfBounds(2))
             );
         }
@@ -89,6 +95,8 @@ fn native_records_cannot_bypass_wire_field_validation_or_implicit_rules() {
         data_offset: 0,
     };
     source
+        .metadata()
+        .unwrap()
         .validate_groups(&mut CoverageBudget::new(100))
         .unwrap();
     assert!(crate::ByteAlignment::new(3).is_err());
@@ -97,7 +105,10 @@ fn native_records_cannot_bypass_wire_field_validation_or_implicit_rules() {
         ..source
     };
     assert_eq!(
-        empty.validate_groups(&mut CoverageBudget::new(100)),
+        empty
+            .metadata()
+            .unwrap()
+            .validate_groups(&mut CoverageBudget::new(100)),
         Err(EncodedImageError::InvalidGroupTableLength(0))
     );
     let ambiguous = GroupSource {
@@ -105,7 +116,10 @@ fn native_records_cannot_bypass_wire_field_validation_or_implicit_rules() {
         ..source
     };
     assert_eq!(
-        ambiguous.validate_groups(&mut CoverageBudget::new(100)),
+        ambiguous
+            .metadata()
+            .unwrap()
+            .validate_groups(&mut CoverageBudget::new(100)),
         Err(EncodedImageError::AmbiguousImplicitGroup)
     );
 }

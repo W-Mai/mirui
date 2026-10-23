@@ -176,6 +176,8 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
                 + self
                     .image
                     .group_source()
+                    .metadata()
+                    .map_err(DecodeError::Image)?
                     .record(index)
                     .map_err(DecodeError::Image)?
                     .data_range()

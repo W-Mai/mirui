@@ -68,10 +68,11 @@ impl<'a> Preflight<'a> {
     }
 
     pub(super) fn groups(&mut self, source: GroupSource<'_>) -> Result<(), EncodedImageError> {
-        source.validate_groups(&mut self.budget)?;
-        for index in 0..source.group_count() {
-            let record = source.record(index)?;
-            self.spend(source.resolution_cost(record))?;
+        let metadata = source.metadata()?;
+        metadata.validate_groups(&mut self.budget)?;
+        for index in 0..metadata.group_count() {
+            let record = metadata.record(index)?;
+            self.spend(metadata.resolution_cost(record))?;
             self.group(index, source.resolve_record(index, record)?.0)?;
         }
         Ok(())

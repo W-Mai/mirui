@@ -848,6 +848,8 @@ impl<'a> StoragePlan<'a> {
             }
             _ => plan
                 .source()
+                .metadata()
+                .map_err(ImageEncodeError::Preflight)?
                 .input_alignment()
                 .map_err(ImageEncodeError::Preflight)?,
         };
@@ -953,7 +955,12 @@ impl<'a> StoragePlan<'a> {
         } else {
             let source = self.source();
             preflight
-                .add_groups(source.group_count())
+                .add_groups(
+                    source
+                        .metadata()
+                        .map_err(ImageEncodeError::Preflight)?
+                        .group_count(),
+                )
                 .map_err(ImageEncodeError::Preflight)?;
             preflight
                 .groups(source)

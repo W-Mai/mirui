@@ -13,9 +13,11 @@ use crate::palette::ColorTableView;
 mod decode;
 mod encode;
 mod groups;
+mod layout;
 #[cfg(test)]
 use super::UnitGroupRecord;
 pub(crate) use groups::{CodingRecords, GroupRecords, GroupSource};
+pub use layout::{EncodedImageLayout, ImageGroupLayout};
 mod preflight;
 pub use decode::{DecodeError, ImageDecodePlan};
 pub use encode::EncodedImageAsset;
@@ -91,7 +93,14 @@ impl<'a> EncodedImageView<'a> {
     /// This scans only group records, without expanding units or checking
     /// coverage, codec syntax or actual backing addresses.
     pub fn input_alignment(self) -> Result<ByteAlignment, EncodedImageError> {
-        self.group_source().input_alignment()
+        self.layout().input_alignment()
+    }
+
+    /// Borrows only the coding, group and index metadata; DATA is not retained by this view.
+    pub fn layout(self) -> EncodedImageLayout<'a> {
+        EncodedImageLayout::from_metadata(
+            self.group_source().metadata().expect("checked DATA length"),
+        )
     }
 
     pub(super) fn from_media(
@@ -244,7 +253,7 @@ impl<'a> EncodedImageView<'a> {
         self.surface
             .validate_coverage_by(
                 count,
-                |index, _| Ok(workspace[index].expect("prepared group")),
+                |index, _| Ok(workspace[index].expect("prepared group").layout()),
                 budget,
             )
             .map_err(EncodedImageError::Coverage)?;
@@ -263,7 +272,7 @@ impl<'a> EncodedImageView<'a> {
     /// workspace avoids those repeated scans. Codec syntax and DATA checksums
     /// remain separate checks.
     pub fn validate_groups(self, budget: &mut CoverageBudget) -> Result<(), EncodedImageError> {
-        self.group_source().validate_groups(budget)
+        self.layout().validate_groups(budget)
     }
 }
 
@@ -318,7 +327,14 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
             .data
             .descriptor()
             .offset()
-            .checked_add(self.image.group_source().record(group)?.data_range().start)
+            .checked_add(
+                self.image
+                    .group_source()
+                    .metadata()?
+                    .record(group)?
+                    .data_range()
+                    .start,
+            )
             .ok_or(EncodedImageError::SizeOverflow)?;
         let range = unit.data_range();
         let start = base

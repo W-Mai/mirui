@@ -88,8 +88,8 @@ pub use coverage::{CoverageBudget, CoverageError};
 pub use encode::{ImageEncodeError, RawImageAsset};
 pub(crate) use encoded::Preflight;
 pub use encoded::{
-    DecodeError, EncodedImageAsset, EncodedImageError, EncodedImageView, ImageDecodePlan,
-    ImageGroupIter, ImageGroups,
+    DecodeError, EncodedImageAsset, EncodedImageError, EncodedImageLayout, EncodedImageView,
+    ImageDecodePlan, ImageGroupIter, ImageGroupLayout, ImageGroups,
 };
 pub use execution::{
     CacheSync, DecodeExecution, DecodeRequest, DecodeRequestError, MemoryPlacement,

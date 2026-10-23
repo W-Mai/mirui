@@ -581,6 +581,7 @@ impl<'a> FrameGroupSource<'a> {
                 .ok_or(EncodedImageError::GroupOutOfBounds(index)),
             Self::Records(storage) => storage
                 .source()
+                .metadata()?
                 .record(index)
                 .map(UnitGroupRecord::reference),
         }
@@ -595,7 +596,10 @@ impl<'a> FrameGroupSource<'a> {
             Self::Groups { surface, groups } => surface
                 .validate_coverage(&groups[range], budget)
                 .map_err(EncodedImageError::Coverage),
-            Self::Records(storage) => storage.source().validate_group_range(range, budget),
+            Self::Records(storage) => storage
+                .source()
+                .metadata()?
+                .validate_group_range(range, budget),
         }
     }
 
@@ -610,6 +614,7 @@ impl<'a> FrameGroupSource<'a> {
                 .map_err(EncodedImageError::Coverage),
             Self::Records(storage) => storage
                 .source()
+                .metadata()?
                 .validate_disjoint_group_range(range, budget),
         }
     }
@@ -885,7 +890,7 @@ impl<'a> FramesView<'a> {
         if let Some(keyframes) = self.keyframes {
             return keyframes.previous(frame);
         }
-        let source = self.group_source();
+        let source = self.group_source().metadata().ok()?;
         let earliest = frame.saturating_sub(u32::from(self.sequence.max_delta_frames()));
         for candidate in (earliest..=frame).rev() {
             let range = self.map.get(candidate)?;
@@ -913,6 +918,8 @@ impl<'a> FramesView<'a> {
     /// does not describe the alignment required by a decoded destination.
     pub fn input_alignment(self) -> Result<crate::ByteAlignment, FramesError> {
         self.group_source()
+            .metadata()
+            .map_err(FramesError::Storage)?
             .input_alignment()
             .map_err(FramesError::Storage)
     }
@@ -964,10 +971,11 @@ impl<'a> FramesView<'a> {
         let workspace = &mut workspace[..count];
         workspace.fill(None);
         let source = self.group_source();
+        let metadata = source.metadata().map_err(FramesError::Storage)?;
         for (relative, global) in (range.start as usize..range.end as usize).enumerate() {
-            let record = source.record(global).map_err(FramesError::Storage)?;
+            let record = metadata.record(global).map_err(FramesError::Storage)?;
             budget
-                .spend_many(source.resolution_cost(record))
+                .spend_many(metadata.resolution_cost(record))
                 .map_err(|error| FramesError::Storage(EncodedImageError::Coverage(error)))?;
             workspace[relative] = Some(
                 source
@@ -1001,7 +1009,10 @@ impl<'a> FramesView<'a> {
     }
 
     fn validate_reference_runs(self, budget: &mut CoverageBudget) -> Result<(), FramesError> {
-        let source = self.group_source();
+        let source = self
+            .group_source()
+            .metadata()
+            .map_err(FramesError::Storage)?;
         let mut delta_frames = 0u32;
         for frame in 0..self.sequence.frame_count() {
             let range = self.map.get(frame).expect("validated frame map");
@@ -1142,7 +1153,11 @@ impl<'a, 'g> FrameGroups<'a, 'g> {
             .ok_or(FramesError::GroupOutOfBounds(group))?
             .get(ordinal)
             .ok_or(FramesError::UnitOutOfBounds { group, ordinal })?;
-        let source = self.frames.group_source();
+        let source = self
+            .frames
+            .group_source()
+            .metadata()
+            .map_err(FramesError::Storage)?;
         let base = self
             .frames
             .data

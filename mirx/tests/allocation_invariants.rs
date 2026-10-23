@@ -24,6 +24,34 @@ fn wire_fixed(bits: i32) -> Fixed {
 struct TrackingAllocator;
 
 #[test]
+fn encoded_metadata_addressing_needs_no_data_allocation() {
+    use mirx::image::{CoverageBudget, EncodedImageLayout};
+    let surface =
+        SurfaceDescriptor::new(1, u32::MAX, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    // One RAW revision-1 record, with no profile parameters.
+    let codings = [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0];
+    let (_, allocations) = count_allocations(|| {
+        let layout =
+            EncodedImageLayout::new(surface, &codings, None, None, u32::MAX, None).unwrap();
+        layout
+            .validate_groups(&mut CoverageBudget::new(u64::MAX))
+            .unwrap();
+        let group = layout.group(0).unwrap();
+        assert_eq!(group.unit_range(0), Some(0..u32::MAX));
+        assert_eq!(
+            group
+                .units_in(surface.region(0, 7, 1, 1).unwrap())
+                .unwrap()
+                .next(),
+            Some(0)
+        );
+        assert!(group.unit(0, &[]).is_err());
+        assert!(EncodedImageLayout::new(surface, &codings, None, None, u32::MAX, Some(1)).is_err());
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn raw_layout_validation_needs_only_metadata_not_declared_pixel_storage() {
     use mirx::image::RawImageViewError;
     let surface = SurfaceDescriptor::new(

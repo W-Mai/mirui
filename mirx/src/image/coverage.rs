@@ -1,3 +1,4 @@
+use super::units::GroupLayout;
 use super::{GroupPlanes, SurfaceDescriptor, TileGrid, UnitGroup};
 
 /// Remaining bounded operations for allocation-free surface coverage validation.
@@ -41,7 +42,7 @@ impl SurfaceDescriptor {
         groups: &[UnitGroup<'_>],
         budget: &mut CoverageBudget,
     ) -> Result<(), CoverageError> {
-        self.validate_coverage_by(groups.len(), |index, _| Ok(groups[index]), budget)
+        self.validate_coverage_by(groups.len(), |index, _| Ok(groups[index].layout()), budget)
     }
 
     /// Checks that every group targets this surface and no selected units overlap.
@@ -54,19 +55,23 @@ impl SurfaceDescriptor {
         groups: &[UnitGroup<'_>],
         budget: &mut CoverageBudget,
     ) -> Result<(), CoverageError> {
-        self.validate_disjoint_coverage_by(groups.len(), |index, _| Ok(groups[index]), budget)
+        self.validate_disjoint_coverage_by(
+            groups.len(),
+            |index, _| Ok(groups[index].layout()),
+            budget,
+        )
     }
 
     pub(crate) fn validate_coverage_by<'a>(
         self,
         count: usize,
-        group_at: impl Fn(usize, &mut CoverageBudget) -> Result<UnitGroup<'a>, CoverageError>,
+        group_at: impl Fn(usize, &mut CoverageBudget) -> Result<GroupLayout<'a>, CoverageError>,
         budget: &mut CoverageBudget,
     ) -> Result<(), CoverageError> {
         for index in 0..count {
             budget.spend()?;
             let group = group_at(index, budget)?;
-            if group.surface() != self {
+            if group.surface != self {
                 return Err(CoverageError::SurfaceMismatch);
             }
         }
@@ -103,13 +108,13 @@ impl SurfaceDescriptor {
     pub(crate) fn validate_disjoint_coverage_by<'a>(
         self,
         count: usize,
-        group_at: impl Fn(usize, &mut CoverageBudget) -> Result<UnitGroup<'a>, CoverageError>,
+        group_at: impl Fn(usize, &mut CoverageBudget) -> Result<GroupLayout<'a>, CoverageError>,
         budget: &mut CoverageBudget,
     ) -> Result<(), CoverageError> {
         for index in 0..count {
             budget.spend()?;
             let group = group_at(index, budget)?;
-            if group.surface() != self {
+            if group.surface != self {
                 return Err(CoverageError::SurfaceMismatch);
             }
         }
@@ -135,44 +140,57 @@ impl UnitGroup<'_> {
         plane: u8,
         budget: &mut CoverageBudget,
     ) -> Result<bool, CoverageError> {
+        self.layout().overlaps(other.layout(), plane, budget)
+    }
+}
+
+impl GroupLayout<'_> {
+    /// Reports overlap in one plane, including groups using different tile sizes.
+    pub(crate) fn overlaps(
+        self,
+        other: Self,
+        plane: u8,
+        budget: &mut CoverageBudget,
+    ) -> Result<bool, CoverageError> {
         budget.spend()?;
-        if self.surface() != other.surface() {
+        if self.surface != other.surface {
             return Err(CoverageError::SurfaceMismatch);
         }
-        if plane >= self.surface().plane_count() {
+        if plane >= self.surface.plane_count() {
             return Err(CoverageError::InvalidPlane(plane));
         }
-        if self.is_empty() || other.is_empty() {
+        if self.selection.is_empty() || other.selection.is_empty() {
             return Ok(false);
         }
         let (Some(grid), Some(other_grid)) = (self.plane_grid(plane), other.plane_grid(plane))
         else {
             return Ok(false);
         };
-        if self.len() == grid.len() || other.len() == other_grid.len() {
+        if self.selection.len() == grid.len() || other.selection.len() == other_grid.len() {
             return Ok(true);
         }
-        let (small, small_grid, large, large_grid) = if self.len() <= other.len() {
-            (self, grid, other, other_grid)
-        } else {
-            (other, other_grid, self, grid)
-        };
+        let (small, small_grid, large, large_grid) =
+            if self.selection.len() <= other.selection.len() {
+                (self, grid, other, other_grid)
+            } else {
+                (other, other_grid, self, grid)
+            };
         if small_grid == large_grid {
-            for cell in small.selection().iter() {
+            for cell in small.selection.iter() {
                 budget.spend()?;
-                if large.selection().contains(cell) {
+                if large.selection.contains(cell) {
                     return Ok(true);
                 }
             }
             return Ok(false);
         }
-        for cell in small.selection().iter() {
+        for cell in small.selection.iter() {
             budget.spend()?;
             let region = small_grid.get(cell as usize).unwrap();
             let first_row = region.y() / large_grid.tile_height();
             let end_row = region.bottom().div_ceil(large_grid.tile_height());
-            if (end_row - first_row) as usize > large.len() {
-                for other_cell in large.selection().iter() {
+            if (end_row - first_row) as usize > large.selection.len() {
+                for other_cell in large.selection.iter() {
                     budget.spend()?;
                     if region.intersects(large_grid.get(other_cell as usize).unwrap()) {
                         return Ok(true);
@@ -185,7 +203,7 @@ impl UnitGroup<'_> {
                     budget.spend()?;
                     let start = row * large_grid.columns() + first_column;
                     let end = row * large_grid.columns() + end_column;
-                    if large.selection().range(start..end).unwrap().len() != 0 {
+                    if large.selection.range(start..end).unwrap().len() != 0 {
                         return Ok(true);
                     }
                 }
@@ -195,13 +213,13 @@ impl UnitGroup<'_> {
     }
 
     fn plane_grid(self, plane: u8) -> Option<TileGrid> {
-        if !self.planes().contains(plane) {
+        if !self.planes.contains(plane) {
             return None;
         }
-        let geometry = self.surface().plane(plane)?;
-        let first = self.grid().get(0)?;
-        let first = match self.planes() {
-            GroupPlanes::Joint(_) => first.for_plane(self.surface(), plane).ok()?,
+        let geometry = self.surface.plane(plane)?;
+        let first = self.grid.get(0)?;
+        let first = match self.planes {
+            GroupPlanes::Joint(_) => first.for_plane(self.surface, plane).ok()?,
             GroupPlanes::Plane(_) => first,
         };
         TileGrid::new(
@@ -217,11 +235,11 @@ impl UnitGroup<'_> {
         let Some(grid) = self.plane_grid(plane) else {
             return Ok(0);
         };
-        if self.len() == grid.len() {
+        if self.selection.len() == grid.len() {
             return Ok(u64::from(grid.width()) * u64::from(grid.height()));
         }
         let mut area = 0u64;
-        for cell in self.selection().iter() {
+        for cell in self.selection.iter() {
             budget.spend()?;
             let region = grid.get(cell as usize).unwrap();
             area += u64::from(region.width()) * u64::from(region.height());

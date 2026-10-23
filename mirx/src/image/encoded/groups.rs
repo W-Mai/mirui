@@ -1,5 +1,6 @@
 use super::EncodedImageError;
 use crate::ByteAlignment;
+use crate::image::units::GroupLayout;
 use crate::image::{
     CoverageBudget, ReferenceMode, SurfaceDescriptor, UNIT_GROUP_RECORD_LEN, UnitGroup,
     UnitGroupRecord,
@@ -10,7 +11,7 @@ use core::{iter::FusedIterator, ops::Range};
 #[cfg(test)]
 mod tests;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum CodingRecords<'a> {
     Wire(CodingTable<'a>),
     Native(&'a [CodingRecord<'a>]),
@@ -130,7 +131,7 @@ impl DoubleEndedIterator for CodingRecordsIter<'_> {
 impl ExactSizeIterator for CodingRecordsIter<'_> {}
 impl FusedIterator for CodingRecordsIter<'_> {}
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) enum GroupRecords<'a> {
     Implicit,
     Wire(&'a [u8]),
@@ -149,7 +150,78 @@ pub(crate) struct GroupSource<'a> {
     pub(crate) data_offset: u32,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct GroupMetadata<'a> {
+    pub(crate) surface: SurfaceDescriptor,
+    pub(crate) codings: CodingRecords<'a>,
+    pub(crate) records: GroupRecords<'a>,
+    pub(crate) data_len: u32,
+    pub(crate) indexes: &'a [u8],
+    pub(crate) file_offset: Option<u32>,
+    pub(crate) data_offset: u32,
+}
+
 impl<'a> GroupSource<'a> {
+    pub(crate) fn metadata(self) -> Result<GroupMetadata<'a>, EncodedImageError> {
+        Ok(GroupMetadata {
+            surface: self.surface,
+            codings: self.codings,
+            records: self.records,
+            data_len: u32::try_from(self.data.len())
+                .map_err(|_| EncodedImageError::SizeOverflow)?,
+            indexes: self.indexes,
+            file_offset: self.file_offset,
+            data_offset: self.data_offset,
+        })
+    }
+
+    pub(crate) fn resolve_record(
+        self,
+        index: usize,
+        record: UnitGroupRecord,
+    ) -> Result<(UnitGroup<'a>, Range<u32>), EncodedImageError> {
+        record
+            .resolve_with(self.surface, self.data, self.indexes, |ordinal| {
+                self.codings.get(ordinal as usize)
+            })
+            .map_err(|error| EncodedImageError::Group { index, error })
+    }
+
+    pub(crate) fn visit_groups(
+        self,
+        budget: Option<&mut CoverageBudget>,
+        visit: impl FnMut(usize, UnitGroup<'a>),
+    ) -> Result<(), EncodedImageError> {
+        self.visit_groups_inner(false, budget, visit)
+    }
+
+    pub(crate) fn visit_groups_with_references(
+        self,
+        budget: Option<&mut CoverageBudget>,
+        visit: impl FnMut(usize, UnitGroup<'a>),
+    ) -> Result<(), EncodedImageError> {
+        self.visit_groups_inner(true, budget, visit)
+    }
+
+    fn visit_groups_inner(
+        self,
+        references: bool,
+        budget: Option<&mut CoverageBudget>,
+        mut visit: impl FnMut(usize, UnitGroup<'a>),
+    ) -> Result<(), EncodedImageError> {
+        let metadata = self.metadata()?;
+        metadata.visit_groups_inner(references, budget, |index, layout, range| {
+            visit(
+                index,
+                layout
+                    .bind(&self.data[range.start as usize..range.end as usize])
+                    .expect("validated DATA range"),
+            );
+        })
+    }
+}
+
+impl<'a> GroupMetadata<'a> {
     pub(crate) fn group_count(self) -> usize {
         match self.records {
             GroupRecords::Implicit => 1,
@@ -159,7 +231,6 @@ impl<'a> GroupSource<'a> {
     }
 
     pub(crate) fn validate_tables(self) -> Result<(), EncodedImageError> {
-        u32::try_from(self.data.len()).map_err(|_| EncodedImageError::SizeOverflow)?;
         u32::try_from(self.indexes.len()).map_err(|_| EncodedImageError::SizeOverflow)?;
         if self.codings.len() == 0 {
             return Err(EncodedImageError::Codings(CodingTableError::EmptyTable));
@@ -183,7 +254,7 @@ impl<'a> GroupSource<'a> {
             return Err(EncodedImageError::GroupOutOfBounds(index));
         }
         let record = match self.records {
-            GroupRecords::Implicit => UnitGroupRecord::new(0, 0..self.data.len() as u32),
+            GroupRecords::Implicit => UnitGroupRecord::new(0, 0..self.data_len),
             GroupRecords::Wire(bytes) => {
                 UnitGroupRecord::open(&bytes[index * UNIT_GROUP_RECORD_LEN..])
             }
@@ -281,9 +352,9 @@ impl<'a> GroupSource<'a> {
         self,
         index: usize,
         record: UnitGroupRecord,
-    ) -> Result<(UnitGroup<'a>, core::ops::Range<u32>), EncodedImageError> {
+    ) -> Result<(GroupLayout<'a>, core::ops::Range<u32>), EncodedImageError> {
         record
-            .resolve_with(self.surface, self.data, self.indexes, |ordinal| {
+            .layout_with(self.surface, self.data_len, self.indexes, |ordinal| {
                 self.codings.get(ordinal as usize)
             })
             .map_err(|error| EncodedImageError::Group { index, error })
@@ -292,25 +363,16 @@ impl<'a> GroupSource<'a> {
     pub(crate) fn visit_groups(
         self,
         budget: Option<&mut CoverageBudget>,
-        visit: impl FnMut(usize, UnitGroup<'a>),
+        mut visit: impl FnMut(usize, GroupLayout<'a>),
     ) -> Result<(), EncodedImageError> {
-        self.visit_groups_inner(false, budget, visit)
-    }
-
-    /// Validates canonical shared storage while leaving frame references intact.
-    pub(crate) fn visit_groups_with_references(
-        self,
-        budget: Option<&mut CoverageBudget>,
-        visit: impl FnMut(usize, UnitGroup<'a>),
-    ) -> Result<(), EncodedImageError> {
-        self.visit_groups_inner(true, budget, visit)
+        self.visit_groups_inner(false, budget, |index, layout, _| visit(index, layout))
     }
 
     fn visit_groups_inner(
         self,
         allow_references: bool,
         mut budget: Option<&mut CoverageBudget>,
-        mut visit: impl FnMut(usize, UnitGroup<'a>),
+        mut visit: impl FnMut(usize, GroupLayout<'a>, Range<u32>),
     ) -> Result<(), EncodedImageError> {
         self.validate_tables()?;
         let index_bytes = self.indexes;
@@ -353,7 +415,7 @@ impl<'a> GroupSource<'a> {
                 }
             }
             let (group, range) = self.resolve_record(index, record)?;
-            if group.is_empty() && !matches!(self.records, GroupRecords::Implicit) {
+            if group.selection.is_empty() && !matches!(self.records, GroupRecords::Implicit) {
                 return Err(EncodedImageError::EmptyGroup(index));
             }
             if !range.is_empty() {
@@ -367,9 +429,9 @@ impl<'a> GroupSource<'a> {
                 index_end = range.end;
             }
             data_end = record.data_range().end;
-            visit(index, group);
+            visit(index, group, record.data_range());
         }
-        if data_end != self.data.len() as u32 {
+        if data_end != self.data_len {
             return Err(EncodedImageError::UnreferencedData);
         }
         if index_end as usize != index_bytes.len() {
