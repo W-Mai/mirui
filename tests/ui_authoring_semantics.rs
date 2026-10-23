@@ -10,6 +10,40 @@ use mirui::{compose, ui};
 #[mirui::component]
 struct MountSeed(u8);
 
+mod encapsulated {
+    #[mirui::component]
+    pub struct PrivateState {
+        pub value: u16,
+        state: u16,
+    }
+    impl Default for PrivateState {
+        fn default() -> Self {
+            Self {
+                value: 0,
+                state: 42,
+            }
+        }
+    }
+    impl PrivateState {
+        pub fn state(&self) -> u16 {
+            self.state
+        }
+    }
+}
+
+#[test]
+fn component_properties_preserve_private_default_state() {
+    use encapsulated::PrivateState;
+    let mut app = mirui::app::App::headless(8, 8);
+    let root = app.spawn_root().id();
+    let entity = app.compose(root, |cx| {
+        ui! { PrivateState(value: 7_u16) }
+    });
+    let value = app.world.get::<PrivateState>(entity).unwrap();
+    assert_eq!(value.value, 7);
+    assert_eq!(value.state(), 42);
+}
+
 #[mirui::model]
 struct AttachmentModel {
     #[observe]

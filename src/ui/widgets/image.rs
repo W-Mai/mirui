@@ -60,6 +60,7 @@ pub struct Image {
     pub color: ThemedColor,
     pub viewbox: Fixed,
     pub scale: Fixed,
+    resource: RefCell<Option<ResourceHandle<Texture<'static>>>>,
 }
 
 impl Default for Image {
@@ -71,6 +72,7 @@ impl Default for Image {
             color: ThemedColor::Token(ColorToken::OnSurface),
             viewbox: Fixed::from_int(24),
             scale: Fixed::ONE,
+            resource: RefCell::new(None),
         }
     }
 }
@@ -125,36 +127,47 @@ pub struct ImageBuilder<P = (), B = ()> {
     bindings: B,
 }
 
-#[crate::component]
-struct ImageResource(RefCell<Option<ResourceHandle<Texture<'static>>>>);
-
 #[crate::event]
 pub(crate) fn attach_image_resource(
     entity: entity!(),
-    images: query!(Image, optional ImageResource),
+    images: query!(Image),
     manager: res!(optional ResourceManager<Texture<'static>>),
-    commands: commands!(),
 ) {
-    let Some((image, None)) = images.get(entity) else {
+    let Some(image) = images.get(entity) else {
         return;
     };
-    let handle = match &image.src {
-        ImageSource::Texture(token) => manager.map(|manager| manager.load(token.clone())),
-        ImageSource::Vector(_) => None,
-    };
-    commands.insert(entity, ImageResource(RefCell::new(handle)));
+    synchronize_resource(image, manager.as_deref());
+}
+
+fn synchronize_resource(image: &Image, manager: Option<&ResourceManager<Texture<'static>>>) {
+    let mut handle = image.resource.borrow_mut();
+    match &image.src {
+        ImageSource::Texture(token)
+            if handle
+                .as_ref()
+                .is_none_or(|current| current.token() != token.as_ref()) =>
+        {
+            *handle = manager.map(|manager| manager.load(token.clone()));
+        }
+        ImageSource::Vector(_) => {
+            *handle = None;
+        }
+        _ => {}
+    }
 }
 
 fn resolve_image(
     image: &Image,
-    cache: Option<&ImageResource>,
     manager: Option<&ResourceManager<Texture<'static>>>,
 ) -> Option<alloc::rc::Rc<Texture<'static>>> {
     let ImageSource::Texture(token) = &image.src else {
         return None;
     };
-    if let Some(cache) = cache {
-        let mut handle = cache.0.borrow_mut();
+    {
+        let mut handle = image.resource.borrow_mut();
+        if handle.is_none() {
+            return manager.map(|manager| manager.resolve(token));
+        }
         if let Some(current) = handle.as_ref()
             && current.token() == token.as_ref()
             && let Some(texture) = current.get_cached()
@@ -168,9 +181,8 @@ fn resolve_image(
         {
             *handle = Some(manager.load(token.clone()));
         }
-        return handle.as_ref().map(ResourceHandle::get);
+        handle.as_ref().map(ResourceHandle::get)
     }
-    manager.map(|manager| manager.resolve(token))
 }
 
 pub(crate) fn draw_vector_transformed(
@@ -246,7 +258,7 @@ impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::Ent
 
 #[crate::view(component = Image, name = "Image", priority = 70, attach = attach_image_resource::callback())]
 fn image_render(
-    rows: query!(Image, optional ImageResource),
+    rows: query!(Image),
     entity: entity!(),
     manager: res!(optional ResourceManager<Texture<'static>>),
     theme: res!(crate::ui::Theme),
@@ -254,7 +266,7 @@ fn image_render(
 ) {
     crate::trace_span!("image.render", {
         let row = crate::trace_span!("image.query_get", { rows.get(entity) });
-        let Some((img, cache)) = row else { return };
+        let Some(img) = row else { return };
         let rect = paint.rect();
         if let ImageSource::Vector(path) = &img.src {
             let size = rect.w.min(rect.h) * img.scale;
@@ -270,9 +282,7 @@ fn image_render(
             );
             return;
         }
-        let rc = crate::trace_span!("image.resolve", {
-            resolve_image(img, cache, manager.as_deref())
-        });
+        let rc = crate::trace_span!("image.resolve", { resolve_image(img, manager.as_deref()) });
         let Some(rc) = rc else { return };
         crate::trace_span!("image.blit", {
             paint.draw(&DrawCommand::Blit {
@@ -308,20 +318,12 @@ fn observe_image(
     bindings: &mut crate::ui::view::ViewObservationBindings,
 ) {
     let signal = world.get::<Image>(entity).and_then(|image| {
-        let ImageSource::Texture(token) = &image.src else {
-            return None;
-        };
-        if let Some(cache) = world.get::<ImageResource>(entity) {
-            let handle = cache.0.borrow();
-            if let Some(current) = handle.as_ref()
-                && current.token() == token.as_ref()
-            {
-                return current.signal();
-            }
-        }
-        world
-            .resource::<ResourceManager<Texture<'static>>>()
-            .map(|manager| manager.subscribe(token))
+        synchronize_resource(image, world.resource::<ResourceManager<Texture<'static>>>());
+        image
+            .resource
+            .borrow()
+            .as_ref()
+            .and_then(ResourceHandle::signal)
     });
     bindings.watch_signal(signal.as_deref(), world.id(), entity);
 }
@@ -412,7 +414,7 @@ mod tests {
         });
         let world = &app.world;
         assert!(world.has::<Image>(e));
-        assert!(world.has::<ImageResource>(e));
+        assert!(world.get::<Image>(e).unwrap().resource.borrow().is_none());
         assert!(world.has::<crate::ui::Style>(e));
         assert!(world.has::<crate::ui::Widget>(e));
     }
@@ -425,7 +427,7 @@ mod tests {
         let e = app.compose(parent, |tree| tree.spawn(Image::build("thumbs_up")));
         let world = &app.world;
         assert!(world.has::<Image>(e));
-        assert!(world.has::<ImageResource>(e));
+        assert!(world.get::<Image>(e).unwrap().resource.borrow().is_none());
         assert!(world.has::<crate::ui::Style>(e));
     }
 
@@ -445,7 +447,7 @@ mod tests {
             (dsl, builder)
         });
         for entity in [dsl, builder] {
-            let resource = app.world.get::<ImageResource>(entity).unwrap().0.borrow();
+            let resource = app.world.get::<Image>(entity).unwrap().resource.borrow();
             assert_eq!(resource.as_ref().unwrap().token(), "blue");
         }
     }
@@ -467,27 +469,22 @@ mod tests {
         view().auto_attach().unwrap().invoke(&mut world, entity);
 
         let image = world.get::<Image>(entity).unwrap();
-        let cache = world.get::<ImageResource>(entity);
         let manager = world.resource::<ResourceManager<Texture<'static>>>();
-        let first = resolve_image(image, cache, manager).unwrap();
-        let second = resolve_image(image, cache, manager).unwrap();
+        let first = resolve_image(image, manager).unwrap();
+        let second = resolve_image(image, manager).unwrap();
         assert!(alloc::rc::Rc::ptr_eq(&first, &second));
         assert_eq!(first.read_pixels().unwrap().bytes(), &BLUE);
 
         world.get_mut::<Image>(entity).unwrap().src = ImageSource::from("missing");
         let image = world.get::<Image>(entity).unwrap();
-        let fallback = resolve_image(
-            image,
-            world.get::<ImageResource>(entity),
-            world.resource::<ResourceManager<Texture<'static>>>(),
-        )
-        .unwrap();
+        let fallback =
+            resolve_image(image, world.resource::<ResourceManager<Texture<'static>>>()).unwrap();
         assert_eq!(fallback.read_pixels().unwrap().bytes(), &RED);
         assert_eq!(
             world
-                .get::<ImageResource>(entity)
+                .get::<Image>(entity)
                 .unwrap()
-                .0
+                .resource
                 .borrow()
                 .as_ref()
                 .unwrap()
@@ -520,15 +517,11 @@ mod tests {
 
         let image = world.get::<Image>(entity).unwrap();
         assert_eq!(
-            resolve_image(
-                image,
-                None,
-                world.resource::<ResourceManager<Texture<'static>>>(),
-            )
-            .unwrap()
-            .read_pixels()
-            .unwrap()
-            .bytes(),
+            resolve_image(image, world.resource::<ResourceManager<Texture<'static>>>(),)
+                .unwrap()
+                .read_pixels()
+                .unwrap()
+                .bytes(),
             &BLUE
         );
     }
@@ -549,21 +542,21 @@ mod tests {
             Texture::from_static(&RED, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage"),
         );
         let mut image = Image::new("blue");
-        let cache = ImageResource(RefCell::new(Some(original.load("blue"))));
-        assert!(resolve_image(&image, Some(&cache), None).is_none());
-        let first = resolve_image(&image, Some(&cache), Some(&original)).unwrap();
+        synchronize_resource(&image, Some(&original));
+        assert!(resolve_image(&image, None).is_none());
+        let first = resolve_image(&image, Some(&original)).unwrap();
         assert_eq!(first.read_pixels().unwrap().bytes(), &BLUE);
         assert!(alloc::rc::Rc::ptr_eq(
             &first,
-            &resolve_image(&image, Some(&cache), None).unwrap()
+            &resolve_image(&image, None).unwrap()
         ));
         original.add_static(
             "blue",
             Texture::from_static(&BLUE, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage"),
         );
-        assert!(resolve_image(&image, Some(&cache), None).is_none());
+        assert!(resolve_image(&image, None).is_none());
         assert_eq!(
-            resolve_image(&image, Some(&cache), Some(&replacement))
+            resolve_image(&image, Some(&replacement))
                 .unwrap()
                 .read_pixels()
                 .unwrap()
@@ -572,7 +565,7 @@ mod tests {
         );
         drop(original);
         assert_eq!(
-            resolve_image(&image, Some(&cache), None)
+            resolve_image(&image, None)
                 .unwrap()
                 .read_pixels()
                 .unwrap()
@@ -580,7 +573,7 @@ mod tests {
             &BLUE
         );
         assert_eq!(
-            resolve_image(&image, None, Some(&replacement))
+            resolve_image(&Image::new("blue"), Some(&replacement))
                 .unwrap()
                 .read_pixels()
                 .unwrap()
@@ -588,16 +581,16 @@ mod tests {
             &RED
         );
         image.src = ImageSource::from("other");
-        assert!(resolve_image(&image, Some(&cache), None).is_none());
+        assert!(resolve_image(&image, None).is_none());
         assert_eq!(
-            resolve_image(&image, Some(&cache), Some(&replacement))
+            resolve_image(&image, Some(&replacement))
                 .unwrap()
                 .read_pixels()
                 .unwrap()
                 .bytes(),
             &RED
         );
-        assert_eq!(cache.0.borrow().as_ref().unwrap().token(), "other");
+        assert_eq!(image.resource.borrow().as_ref().unwrap().token(), "other");
     }
 
     #[derive(Clone, Copy, Debug, PartialEq)]
@@ -800,11 +793,7 @@ mod tests {
             if cached {
                 view().auto_attach().unwrap().invoke(&mut world, entity);
                 let image = world.get::<Image>(entity).unwrap();
-                resolve_image(
-                    image,
-                    world.get::<ImageResource>(entity),
-                    world.resource::<ResourceManager<Texture<'static>>>(),
-                );
+                resolve_image(image, world.resource::<ResourceManager<Texture<'static>>>());
                 world.remove_resource::<ResourceManager<Texture<'static>>>();
             }
             for fail in [false, true] {
@@ -909,7 +898,7 @@ mod tests {
             &app.backend.framebuffer().read_pixels().unwrap().bytes()[..4],
             &BLUE
         );
-        app.world.remove::<ImageResource>(root);
+        app.world.insert(root, Image::new("blue"));
         app.render_dirty().unwrap();
         assert_eq!(
             &app.backend.framebuffer().read_pixels().unwrap().bytes()[..4],

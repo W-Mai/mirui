@@ -481,6 +481,55 @@ fn last_consumer_retirement_returns_submitted_reads_without_continuing_decode() 
 }
 
 #[test]
+fn image_changes_release_pending_demand_before_the_next_visible_paint() {
+    for change in 0..4 {
+        let control = Rc::new(Control::default());
+        let mut app = app(control.clone(), true, false);
+        let root = app.spawn_root().id();
+        let image = app.compose(root, |cx| {
+            ui! { Image(src: "pending", width: 8, height: 8) }
+        });
+        app.tick();
+        assert_eq!(control.reads.get(), 1);
+        match change {
+            0 => {
+                app.world.remove::<Image>(image);
+            }
+            1 => {
+                app.world.despawn(image);
+            }
+            2 => {
+                app.world.get_mut::<Image>(image).unwrap().src =
+                    mirui::render::path::Path::new().into();
+            }
+            _ => {
+                app.world
+                    .resource::<ResourceManager<Texture<'static>>>()
+                    .unwrap()
+                    .add_static(
+                        "ready",
+                        Texture::from_static(&RED[8..], 1, 1, ColorFormat::RGBA8888).unwrap(),
+                    );
+                app.world.get_mut::<Image>(image).unwrap().src = "ready".into();
+            }
+        }
+        // Querying the dirty plan reconciles component dependencies without painting.
+        app.dirty_regions().unwrap();
+        app.tick();
+        control.complete();
+        for _ in 0..4 {
+            app.tick();
+        }
+        assert_eq!(control.completions.get(), 1);
+        assert_eq!(
+            control.reads.get(),
+            1,
+            "retired images must not continue short reads"
+        );
+    }
+}
+
+#[test]
 fn refreshing_an_alias_reopens_its_resolved_key_without_mutating_old_pixels() {
     static BLUE: &[u8] = b"R4IM\x01\x00\x01\x00\x00\x00\xff\xff";
     let selected = Rc::new(Cell::new(false));

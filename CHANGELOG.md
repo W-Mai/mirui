@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `ui!` initializes ordinary components through `Default` and assigns their public properties, preserving private component state and rejecting duplicate properties.
 - Resource loaders retain typed state across `Pending` and resume only when woken. Prepared invocation slots, metadata-to-value promotion and generation checks share the existing manager and subscriptions.
 - Resource metadata probing uses explicitly registered `ProbeLoader` implementations instead of decoding through ordinary loaders. `MirxLoader` supports metadata-only registration with `add_probed_loader`.
 - Texture upload caches track bounded valid coverage without changing source coordinates or default cache budgets. SDL-GPU uploads prepared regions and reuses completed coverage.
@@ -38,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Image resource demand follows component ownership and source changes without retaining a detached cache component.
 - Images observe resource publication through View subscriptions and release old dependencies when their source or component changes.
 - Resource loaders run outside manager borrows, reject superseded results and guard same-token reentry. Token subscriptions survive removal and replacement, and metadata caches invalidate with resource revisions.
 - Empty texture regions validate geometry without accessing source devices or requiring completed native contents.

@@ -47,6 +47,8 @@ Image loaders advance in the existing owner-thread systems, including when an Ap
 
 `Image(src: "cover", ...)` observes its resource token through the registered View. Replacing or removing that token invalidates the image without changing `src`. Switching `src`, removing the `Image` component, or deleting its entity releases the old View subscription. Resource publication uses the existing reactive invalidation queues; rendering does not poll for changes.
 
+The image owns its resource handle. Replacing or removing it releases its loading demand through normal component ownership; switching to another token or a vector releases the previous demand when the component's dependencies are reconciled, even before another visible paint. Other images requesting the same token continue to share its pending work.
+
 ## Byte providers
 
 `AssetProvider` opens an object by key; its `AssetReader` reports length, positioning and content consistency. Both operations use associated standard futures. A reader can expose a complete immutable mapping through `mapped()`. The built-in `&'static [u8]` reader borrows its mapping and supports immediate random reads.

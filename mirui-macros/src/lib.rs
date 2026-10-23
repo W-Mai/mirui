@@ -430,6 +430,7 @@ impl MiruiRune {
         let mut errors = Vec::new();
         let mut component_inserts = Vec::new();
         let mut component_fields = Vec::new();
+        let mut component_field_names = std::collections::BTreeSet::new();
         let mut text_tuple_value: Option<proc_macro2::TokenStream> = None;
         let mut capacity: Option<proc_macro2::TokenStream> = None;
         let mut preedit_capacity: Option<proc_macro2::TokenStream> = None;
@@ -623,7 +624,11 @@ impl MiruiRune {
 
             if widget_kind == WidgetKind::Component && name == "text" {
                 let field_ident = syn::Ident::new(&name, attr_span);
-                component_fields.push(Self::field_init_tokens(&field_ident, value));
+                component_fields.push(Self::field_init_tokens(
+                    &field_ident,
+                    value,
+                    &mut component_field_names,
+                ));
                 continue;
             }
 
@@ -700,7 +705,11 @@ impl MiruiRune {
                 unknown => match widget_kind {
                     WidgetKind::Component => {
                         let field_ident = syn::Ident::new(unknown, attr_span);
-                        component_fields.push(Self::field_init_tokens(&field_ident, value));
+                        component_fields.push(Self::field_init_tokens(
+                            &field_ident,
+                            value,
+                            &mut component_field_names,
+                        ));
                     }
                     WidgetKind::Layout | WidgetKind::IllegalLowercase => {
                         let mut msg = format!("unknown widget attribute `{unknown}`");
@@ -747,7 +756,18 @@ impl MiruiRune {
         }
     }
 
-    fn field_init_tokens(field_ident: &syn::Ident, value: &syn::Expr) -> proc_macro2::TokenStream {
+    fn field_init_tokens(
+        field_ident: &syn::Ident,
+        value: &syn::Expr,
+        names: &mut std::collections::BTreeSet<String>,
+    ) -> proc_macro2::TokenStream {
+        if !names.insert(field_ident.to_string()) {
+            return syn::Error::new(
+                field_ident.span(),
+                format!("duplicate component property `{field_ident}`"),
+            )
+            .to_compile_error();
+        }
         let is_float_literal = matches!(
             value,
             syn::Expr::Lit(syn::ExprLit {
@@ -756,9 +776,9 @@ impl MiruiRune {
             })
         );
         if is_float_literal {
-            quote! { #field_ident: #value }
+            quote! { __c.#field_ident = #value; }
         } else {
-            quote! { #field_ident: (#value).into() }
+            quote! { __c.#field_ident = (#value).into(); }
         }
     }
 
@@ -1065,11 +1085,9 @@ impl MiruiRune {
                 let kind = quote::format_ident!("{var}_kind");
                 tokens.extend(quote! {
                     let #kind = {
-                        #[allow(clippy::needless_update)]
-                        let __c = #comp_name {
-                            #(#comp_fields,)*
-                            ..Default::default()
-                        };
+                        #[allow(unused_mut, clippy::field_reassign_with_default)]
+                        let mut __c = #comp_name::default();
+                        #(#comp_fields)*
                         let __kind = ::mirui::__macro_support::component_type(&__c);
                         (#world).insert(#var, __c);
                         __kind
@@ -3071,6 +3089,16 @@ pub fn event(args: TokenStream, item: TokenStream) -> TokenStream {
 #[cfg(test)]
 mod typed_on_tests {
     use super::*;
+
+    #[test]
+    fn repeated_component_properties_are_rejected_during_lowering() {
+        let output = expand_tree(quote! { PrivateState(value: 1_u16, value: 2_u16) });
+        assert!(
+            quote!(#output)
+                .to_string()
+                .contains("duplicate component property `value`")
+        );
+    }
 
     fn expand_tree(input: proc_macro2::TokenStream) -> syn::Expr {
         let (captures, input) = strip_bound_captures(input).unwrap();
