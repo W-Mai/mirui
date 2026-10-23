@@ -94,6 +94,8 @@ VECTOR keeps ordinary and path-posed glyph runs in separate fixed record layouts
 
 ## Runtime reading
 
+Range-based consumers can use `reader::ContainerLayout` without retaining a complete file. `header_len(prefix)` determines the 28- or 44-byte header from its eight-byte prefix; `parse(header, &ReadOptions)` checks the header, geometry and table extent. `chunk_record_range(index)` identifies a 16-byte record window, and `chunk(index, record)` validates that record and returns its type, flags and payload range. FLAT sources expose their main and optional extra plane ranges through `flat_image()`. These values own only metadata and allocate nothing; input windows can be reused immediately. This primitive does not validate unread records, physical source length or payload contents. It cannot replace the complete checks performed by `Reader::open`.
+
 `Reader` validates the common header, exact logical length, chunk table, payload ranges, primary selection, and configured resource limits. Chunk iteration and borrowed typed views continue to reference the input bytes.
 
 ```rust

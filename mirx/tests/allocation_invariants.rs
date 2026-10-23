@@ -24,6 +24,97 @@ fn wire_fixed(bits: i32) -> Fixed {
 struct TrackingAllocator;
 
 #[test]
+fn container_windows_share_reader_validation_without_payload_allocations() {
+    use mirx::reader::{ContainerLayout, ReadOptions};
+    let bytes = encode_chunks(&[(0xbeef, 0, b"payload"), (0xcafe, 0, b"other")]);
+    let expected = Reader::open(&bytes).unwrap();
+    let (_, allocations) = count_allocations(|| {
+        let size = ContainerLayout::header_len(&bytes[..8]).unwrap();
+        let mut header = [0; 44];
+        header[..size].copy_from_slice(&bytes[..size]);
+        let layout = ContainerLayout::parse(&header[..size], &ReadOptions::new()).unwrap();
+        header.fill(0);
+        assert_eq!(layout.logical_len(), bytes.len());
+        assert_eq!(layout.layout(), expected.layout());
+        assert_eq!(layout.chunk_count(), 2);
+        assert_eq!(layout.flat_image(), None);
+        assert_eq!(layout.chunk_record_range(usize::MAX), None);
+        assert_eq!(layout.chunk(2, &[]), Ok(None));
+        for expected in expected.chunks() {
+            let range = layout.chunk_record_range(expected.index()).unwrap();
+            let mut record = [0; 16];
+            record.copy_from_slice(&bytes[range]);
+            let chunk = layout.chunk(expected.index(), &record).unwrap().unwrap();
+            record.fill(0);
+            assert_eq!(chunk.index(), expected.index());
+            assert_eq!(chunk.chunk_type(), expected.chunk_type());
+            assert_eq!(chunk.flags(), expected.flags());
+            assert_eq!(&bytes[chunk.payload_range()], expected.payload());
+        }
+    });
+    assert_eq!(allocations, 0);
+    assert!(ContainerLayout::parse(&bytes[..44], &ReadOptions::new().with_max_chunks(1)).is_err());
+    for length in 0..44 {
+        assert!(ContainerLayout::parse(&bytes[..length], &ReadOptions::new()).is_err());
+    }
+}
+
+#[test]
+fn flat_windows_reuse_packed_geometry_without_reading_samples() {
+    use mirx::reader::{ContainerLayout, ReadOptions};
+    for format in [
+        ColorFormat::A1,
+        ColorFormat::A8,
+        ColorFormat::RGB565,
+        ColorFormat::RGBA8888,
+        ColorFormat::I4,
+        ColorFormat::RGB565A8,
+    ] {
+        let stride = format.minimum_stride(3).unwrap() + 2;
+        let main = vec![7; stride as usize * 2];
+        let extra = vec![0; format.extra_size(3, 2, stride).unwrap() as usize];
+        let mut image = ImageAsset::new(3, 2, format, stride, Cow::Borrowed(&main));
+        if !extra.is_empty() {
+            image = image.with_extra(Cow::Borrowed(&extra));
+        }
+        let document = Document::new_flat(image).unwrap();
+        let bytes = document.encode(&EncodeOptions::default()).unwrap();
+        let (_, allocations) = count_allocations(|| {
+            assert_eq!(ContainerLayout::header_len(&bytes[..8]), Ok(28));
+            let layout = ContainerLayout::parse(&bytes[..28], &ReadOptions::new()).unwrap();
+            let image = layout.flat_image().unwrap();
+            assert_eq!(
+                (
+                    image.width(),
+                    image.height(),
+                    image.stride(),
+                    image.format()
+                ),
+                (3, 2, stride, format)
+            );
+            assert_eq!(&bytes[image.main_range()], main.as_slice());
+            assert_eq!(
+                image
+                    .extra_range()
+                    .map(|range| &bytes[range])
+                    .unwrap_or_default(),
+                extra.as_slice()
+            );
+            assert_eq!(image.logical_len(), bytes.len());
+            assert_eq!(layout.logical_len(), bytes.len());
+            assert_eq!(layout.chunk_count(), 0);
+            assert_eq!(layout.chunk_record_range(0), None);
+            assert_eq!(layout.chunk(0, &[]), Ok(None));
+            assert_eq!(
+                Reader::open(&bytes).unwrap().logical_len(),
+                layout.logical_len()
+            );
+        });
+        assert_eq!(allocations, 0);
+    }
+}
+
+#[test]
 fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
     use mirx::{
         coding::{CodingId, CodingRecord, FrameDelta, ScalarFrameDelta},

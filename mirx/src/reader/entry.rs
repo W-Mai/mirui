@@ -11,11 +11,11 @@ use crate::wire::{read_u16_le, read_u32_le, slice};
 use crate::{ChunkFlags, ChunkType, PayloadLimits};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct EntryRecord {
-    chunk_type: ChunkType,
-    flags: ChunkFlags,
-    payload_offset: u32,
-    payload_size: u32,
+pub(super) struct EntryRecord {
+    pub(super) chunk_type: ChunkType,
+    pub(super) flags: ChunkFlags,
+    pub(super) payload_offset: u32,
+    pub(super) payload_size: u32,
 }
 
 fn decode_record(record: &[u8]) -> Option<EntryRecord> {
@@ -34,25 +34,21 @@ pub(crate) struct ChunkTableMeta {
 }
 
 impl ChunkTableMeta {
-    pub(crate) fn inspect(
-        bytes: &[u8],
-        header: ChunkFileHeader,
-        max_chunks: u16,
-    ) -> Result<Self, ReadError> {
-        let table = Self::from_header(header, max_chunks)?;
-        for index in 0..table.count {
-            let record_offset = table.record_offset(index)?;
+    pub(super) fn validate_records(self, bytes: &[u8], file_size: usize) -> Result<(), ReadError> {
+        let file_size = u32::try_from(file_size).map_err(|_| ReadError::SizeOverflow)?;
+        for index in 0..self.count {
+            let record_offset = self.record_offset(index)?;
             let record =
                 slice(bytes, record_offset, CHUNK_TABLE_ENTRY_LEN).ok_or(ReadError::Truncated {
                     needed: record_offset.saturating_add(CHUNK_TABLE_ENTRY_LEN),
                     available: bytes.len(),
                 })?;
-            table.validate_record(record, index, header.file_size)?;
+            self.validate_record(record, index, file_size)?;
         }
-        Ok(table)
+        Ok(())
     }
 
-    fn from_header(header: ChunkFileHeader, max_chunks: u16) -> Result<Self, ReadError> {
+    pub(super) fn from_header(header: ChunkFileHeader, max_chunks: u16) -> Result<Self, ReadError> {
         if header.chunk_count > max_chunks {
             return Err(ReadError::TooManyChunks {
                 count: header.chunk_count,
@@ -84,7 +80,7 @@ impl ChunkTableMeta {
         Ok(Self { offset, count })
     }
 
-    fn record_offset(self, index: usize) -> Result<usize, ReadError> {
+    pub(super) fn record_offset(self, index: usize) -> Result<usize, ReadError> {
         if index >= self.count {
             return Err(ReadError::SizeOverflow);
         }
@@ -98,7 +94,7 @@ impl ChunkTableMeta {
     }
 
     // `record` is one read window; payload bounds belong to the logical file.
-    fn validate_record(
+    pub(super) fn validate_record(
         self,
         record: &[u8],
         index: usize,

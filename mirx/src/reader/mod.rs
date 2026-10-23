@@ -1,5 +1,7 @@
+mod container_layout;
 mod entry;
 mod finding;
+mod flat_layout;
 #[cfg(test)]
 mod length;
 mod limits;
@@ -10,8 +12,10 @@ mod primary;
 mod ranges;
 
 pub use crate::error::ReadError;
+pub use container_layout::{ChunkLocation, ContainerLayout};
 pub use entry::{ChunkRef, EntryIter};
 pub use finding::{ComplianceFinding, FindingIter};
+pub use flat_layout::FlatImageLayout;
 pub use limits::PayloadLimits;
 pub use options::{ReadOptions, TrailingBytesPolicy};
 pub use preflight::{PayloadLocation, PayloadValidationError, PayloadValidationFailure};
@@ -78,31 +82,14 @@ impl<'a> Reader<'a> {
     }
 
     fn open_structural_impl(bytes: &'a [u8], options: &ReadOptions) -> Result<Self, ReadError> {
-        let file = parse_file_header(bytes)?;
-        let (header, flat_image, chunk_table, logical_len) = match file.layout {
-            Layout::Flat => {
-                let header = parse_flat_header(bytes, file)?;
-                let (image, logical_len) = ImageView::from_flat(bytes, header)?;
-                (
-                    ContainerHeader::Flat(header),
-                    Some(image),
-                    None,
-                    logical_len,
-                )
-            }
-            Layout::Chunk => {
-                let header = parse_chunk_header(bytes, file)?;
-                let logical_len = chunk_logical_len(header, bytes.len())?;
-                let logical_bytes = &bytes[..logical_len];
-                let table = ChunkTableMeta::inspect(logical_bytes, header, options.max_chunks())?;
-                (
-                    ContainerHeader::Chunk(header),
-                    None,
-                    Some(table),
-                    logical_len,
-                )
-            }
-        };
+        let (layout, flat) = ContainerLayout::inspect(bytes, Some(bytes.len()), options)?;
+        let header = layout.header;
+        let logical_len = layout.logical_len();
+        let flat_image = flat.map(|flat| ImageView::from_flat_layout(bytes, flat));
+        let chunk_table = layout.table;
+        if let Some(table) = chunk_table {
+            table.validate_records(&bytes[..logical_len], logical_len)?;
+        }
 
         if logical_len < bytes.len()
             && options.trailing_bytes_policy() == TrailingBytesPolicy::Reject

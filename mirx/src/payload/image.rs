@@ -1,14 +1,16 @@
 use alloc::{borrow::Cow, vec::Vec};
 
 use crate::ColorFormat;
-use crate::header::{FLAT_HEADER_LEN, FlatHeader};
+#[cfg(test)]
+use crate::header::FLAT_HEADER_LEN;
 use crate::image::{
     EncodedImageError, ImageEncodeError as SurfaceEncodeError, ImageReadError, RawImageView,
     RawImageViewError, SurfaceView,
 };
 use crate::palette::ColorTableView;
+use crate::reader::FlatImageLayout;
+#[cfg(test)]
 use crate::reader::ReadError;
-use crate::wire::slice;
 
 /// Failure while validating MIRX image metadata, planes, or an IMAGE payload.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -405,72 +407,12 @@ impl<'a> ImageView<'a> {
         ColorTableView::from_rgba_bytes(self.extra?)
     }
 
-    pub(crate) fn from_flat(
-        bytes: &'a [u8],
-        header: FlatHeader,
-    ) -> Result<(Self, usize), ReadError> {
-        let format = ColorFormat::from_u8(header.color_format)
-            .ok_or(ReadError::UnknownColorFormat(header.color_format))?;
-        let minimum = format
-            .minimum_stride(header.width)
-            .ok_or(ReadError::SizeOverflow)?;
-        if header.stride < minimum {
-            return Err(ReadError::StrideTooSmall {
-                minimum,
-                actual: header.stride,
-            });
+    pub(crate) fn from_flat_layout(bytes: &'a [u8], layout: FlatImageLayout) -> Self {
+        Self {
+            meta: layout.meta,
+            main: &bytes[layout.main_range()],
+            extra: layout.extra_range().map(|range| &bytes[range]),
         }
-
-        let stride = usize::try_from(header.stride).map_err(|_| ReadError::SizeOverflow)?;
-        let height = usize::try_from(header.height).map_err(|_| ReadError::SizeOverflow)?;
-        let main_len = stride.checked_mul(height).ok_or(ReadError::SizeOverflow)?;
-        let extra_len = usize::try_from(
-            format
-                .extra_size(header.width, header.height, header.stride)
-                .ok_or(ReadError::SizeOverflow)?,
-        )
-        .map_err(|_| ReadError::SizeOverflow)?;
-        let main_end = FLAT_HEADER_LEN
-            .checked_add(main_len)
-            .ok_or(ReadError::SizeOverflow)?;
-        let needed = main_end
-            .checked_add(extra_len)
-            .ok_or(ReadError::SizeOverflow)?;
-        if bytes.len() < needed {
-            return Err(ReadError::Truncated {
-                needed,
-                available: bytes.len(),
-            });
-        }
-
-        let main = slice(bytes, FLAT_HEADER_LEN, main_len).ok_or(ReadError::Truncated {
-            needed: main_end,
-            available: bytes.len(),
-        })?;
-        let extra = if extra_len == 0 {
-            None
-        } else {
-            Some(
-                slice(bytes, main_end, extra_len).ok_or(ReadError::Truncated {
-                    needed,
-                    available: bytes.len(),
-                })?,
-            )
-        };
-
-        Ok((
-            Self {
-                meta: ImageMeta {
-                    width: header.width,
-                    height: header.height,
-                    stride: header.stride,
-                    format,
-                },
-                main,
-                extra,
-            },
-            needed,
-        ))
     }
 
     /// Opens a sectioned RAW IMAGE representable by the packed FLAT model.
