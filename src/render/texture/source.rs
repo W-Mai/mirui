@@ -1,6 +1,6 @@
 use alloc::boxed::Box;
-#[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
 use alloc::rc::Rc;
+use core::cell::RefCell;
 use core::ops::Range;
 use core::task::{Poll, ready};
 
@@ -150,7 +150,30 @@ fn layout(image: FlatImageLayout) -> Result<PlaneLayout, LoadError> {
         .map_err(|_| LoadError::Failed("invalid MIRX pixel layout"))
 }
 
-pub(crate) struct SourceMirxLoader;
+pub(crate) struct SourceMirxLoader {
+    decode_budget: usize,
+    pool: RefCell<Option<Rc<RefCell<super::decoded::DecodePool>>>>,
+}
+
+impl SourceMirxLoader {
+    pub(crate) fn new(decode_budget: usize) -> Self {
+        Self {
+            decode_budget,
+            pool: RefCell::new(None),
+        }
+    }
+
+    fn pool(&self) -> Result<Rc<RefCell<super::decoded::DecodePool>>, LoadError> {
+        let mut pool = self.pool.borrow_mut();
+        if pool.is_none() {
+            *pool = Some(
+                super::decoded::DecodePool::new(self.decode_budget)
+                    .map_err(|_| AssetError::Capacity)?,
+            );
+        }
+        Ok(pool.as_ref().expect("prepared decode pool").clone())
+    }
+}
 
 struct SourceImage {
     layout: PlaneLayout,
@@ -231,13 +254,21 @@ impl Loader<Texture<'static>> for SourceMirxLoader {
         cx: &mut LoadContext<'_>,
     ) -> Poll<Result<Texture<'static>, LoadError>> {
         ready!(self.poll_probe(state, cx))?;
-        Poll::Ready(MappedTexture::into_texture(
-            match state.source.take() {
-                Some(source) => source,
-                None => cx.take_source()?,
-            },
-            state.image.take().expect("probed image"),
-        ))
+        let source = match state.source.take() {
+            Some(source) => source,
+            None => cx.take_source()?,
+        };
+        let image = state.image.take().expect("probed image");
+        if source.mapped()?.is_some() {
+            Poll::Ready(MappedTexture::into_texture(source, image))
+        } else {
+            Poll::Ready(super::decoded::DecodedTexture::into_texture(
+                source,
+                image.layout,
+                image.range.start,
+                self.pool()?,
+            ))
+        }
     }
 }
 

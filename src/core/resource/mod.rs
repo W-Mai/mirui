@@ -23,6 +23,7 @@ mod wake;
 pub(crate) use assets::AssetSources;
 pub use assets::{AssetCacheConfig, AssetSource};
 pub use handle::ResourceHandle;
+pub(crate) use load_context::LoadBudget;
 pub use load_context::LoadContext;
 pub use loader::{FormatMatch, LoadError, LoadInput, Loader, ProbeLoader};
 pub use manager::ResourceManager;

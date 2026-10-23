@@ -4,7 +4,7 @@ use super::access::CachedPixels;
 use super::{Region, TexturePixels};
 use crate::core::cache::Handle;
 use crate::core::cache::handle::{CacheEntry, EntryRc};
-use crate::render::budget::RetainedReservation;
+use crate::render::budget::{Allocation, MemoryBudget, RetainedAllocation, RetainedReservation};
 use crate::render::{PlaneLayout, RenderError, RenderResource};
 
 /// Immutable published pixels and reusable exclusive storage share one retained allowance.
@@ -18,6 +18,53 @@ pub(super) struct PixelCache {
 
 fn capacity_error() -> RenderError {
     RenderError::ResourceLimit(RenderResource::Texture)
+}
+
+pub(super) enum PixelAllocation {
+    Retained(RetainedAllocation),
+    Shared(Allocation),
+}
+
+impl PixelAllocation {
+    pub(super) fn bytes(&self) -> usize {
+        match self {
+            Self::Retained(allocation) => allocation.bytes(),
+            Self::Shared(allocation) => allocation.bytes(),
+        }
+    }
+}
+
+impl crate::core::cache::HasSize for CachedPixels {
+    fn cache_size(&self) -> usize {
+        self._allocation.bytes()
+    }
+}
+
+impl CachedPixels {
+    pub(super) fn shared(
+        layout: PlaneLayout,
+        budget: &MemoryBudget,
+    ) -> Result<Handle<Self>, RenderError> {
+        let charged = layout
+            .required_bytes()
+            .checked_add(Self::OWNER_BYTES)
+            .ok_or_else(capacity_error)?;
+        let reservation = budget.reserve(charged).ok_or_else(capacity_error)?;
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(layout.required_bytes())
+            .map_err(|_| capacity_error())?;
+        let actual = bytes
+            .capacity()
+            .checked_add(Self::OWNER_BYTES)
+            .ok_or_else(capacity_error)?;
+        let allocation = reservation.commit(actual).map_err(|_| capacity_error())?;
+        bytes.resize(layout.required_bytes(), 0);
+        Ok(Handle::from_rc(EntryRc::new(CacheEntry::new(Self {
+            bytes,
+            _allocation: PixelAllocation::Shared(allocation),
+        }))))
+    }
 }
 
 impl PixelCache {
@@ -128,7 +175,7 @@ impl PixelCache {
         self.pixels = Some(Handle::from_rc(EntryRc::new(CacheEntry::new(
             CachedPixels {
                 bytes,
-                _allocation: allocation,
+                _allocation: PixelAllocation::Retained(allocation),
             },
         ))));
         self.revision = None;

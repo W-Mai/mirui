@@ -20,6 +20,14 @@ impl TextureKey {
 
     pub fn from(src: &Texture) -> Self {
         let (ptr, len, owner) = match &src.buf {
+            super::TexBuf::Decoded(source) => {
+                let owner = source.identity();
+                (
+                    Rc::as_ptr(&owner) as usize,
+                    source.layout().required_bytes(),
+                    Some(owner),
+                )
+            }
             super::TexBuf::Mapped(source) => {
                 let owner = source.identity();
                 (

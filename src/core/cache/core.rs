@@ -37,6 +37,26 @@ struct NodeData<K, V> {
     size: usize,
 }
 
+impl<K: Eq, V> Cache<K, V, Lru, super::lookup::LinearLookup<K>> {
+    pub(crate) const INDEX_BYTES_PER_ENTRY: usize =
+        core::mem::size_of::<SlabSlot<NodeData<K, V>>>()
+            + super::algorithm::LruState::SLOT_BYTES
+            + super::lookup::LinearLookup::<K>::SLOT_BYTES;
+
+    /// Prepare a count-bounded index and report its actual retained allocation size.
+    pub(crate) fn prepared(
+        count: usize,
+    ) -> Result<(Self, usize), alloc::collections::TryReserveError> {
+        let mut cache = Self::new(MaxSize::Count(count));
+        cache.nodes.entries.try_reserve_exact(count)?;
+        let bytes = cache.nodes.entries.capacity()
+            * core::mem::size_of::<SlabSlot<NodeData<K, V>>>()
+            + cache.index.prepare(count)?
+            + cache.order.prepare(count)?;
+        Ok((cache, bytes))
+    }
+}
+
 impl<K, V> Cache<K, V, Lru, HashLookup<K>>
 where
     K: core::hash::Hash + Eq,

@@ -353,6 +353,58 @@ compose_backend! {
     route { default => target, blit => images }
 }
 
+pub(super) fn compare_region_routes(texture: &Texture<'_>, direct: &Texture<'_>, area: Rect) {
+    let mut results = Vec::new();
+    for texture in [texture, direct] {
+        let mut destination = [0; 32 * 32 * 4];
+        {
+            let mut renderer = MappedOuter::new(
+                MappedInner::new(
+                    SwRenderer::new(
+                        Texture::new(&mut destination, 32, 32, ColorFormat::RGBA8888).unwrap(),
+                    ),
+                    MappedEngine::default(),
+                ),
+                MappedEngine::default(),
+            );
+            let command = DrawCommand::Blit {
+                texture,
+                pos: Point::ZERO,
+                size: Point::new(32, 32),
+                transform: Transform::IDENTITY,
+                quad: None,
+                opa: 255,
+                radius: Fixed::ZERO,
+                composite: CompositeMode::SourceOver,
+            };
+            let request = DrawRequest::new(&command, area);
+            let route = renderer.route(&request).unwrap();
+            let mut cx = Context::from_waker(Waker::noop());
+            let prepared = (0..256)
+                .find_map(|_| match renderer.prepare(request, route, &mut cx) {
+                    Poll::Ready(result) => Some(result.unwrap()),
+                    Poll::Pending => None,
+                })
+                .expect("bounded source becomes ready");
+            renderer.submit(&prepared).unwrap();
+            assert_eq!(renderer.images.calls, 1);
+            assert_eq!(renderer.target.images.calls, 1);
+            assert_eq!(
+                tracking_allocator::tracked_allocations(|| {
+                    let Poll::Ready(Ok(prepared)) = renderer.prepare(request, route, &mut cx)
+                    else {
+                        panic!("warm region");
+                    };
+                    renderer.submit(&prepared).unwrap();
+                }),
+                0
+            );
+        }
+        results.push(destination);
+    }
+    assert_eq!(results[0], results[1]);
+}
+
 #[test]
 fn mapped_and_static_pixels_share_nested_routes_without_hot_allocations() {
     for bytes in [flat(), chunk()] {

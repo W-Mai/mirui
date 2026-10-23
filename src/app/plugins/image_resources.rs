@@ -21,6 +21,7 @@ const DEFAULT_VALUES_BUDGET: MaxSize = MaxSize::Bytes(256 * 1024);
 /// Default probes-cache count budget. One entry per registered token is
 /// enough for the full screen of widgets even on a busy app.
 const DEFAULT_PROBES_BUDGET: MaxSize = MaxSize::Count(1024);
+const DEFAULT_DECODE_BUDGET: usize = 128 * 1024;
 
 /// 16x16 checkerboard pixels (RGBA8888) used as the manager's fallback
 /// texture. Magenta on black so missing assets stand out at a glance.
@@ -70,6 +71,7 @@ type LoaderEntry = Box<dyn FnOnce(&ResourceManager<Texture<'static>>) + 'static>
 pub struct ImageResourcesPlugin {
     values_budget: MaxSize,
     probes_budget: MaxSize,
+    decode_budget: usize,
     bundle_thumbs_up: bool,
     statics: alloc::vec::Vec<StaticEntry>,
     mirx_bytes: alloc::vec::Vec<MirxEntry>,
@@ -82,6 +84,7 @@ impl Default for ImageResourcesPlugin {
         Self {
             values_budget: DEFAULT_VALUES_BUDGET,
             probes_budget: DEFAULT_PROBES_BUDGET,
+            decode_budget: DEFAULT_DECODE_BUDGET,
             bundle_thumbs_up: true,
             statics: alloc::vec::Vec::new(),
             mirx_bytes: alloc::vec::Vec::new(),
@@ -94,7 +97,7 @@ impl Default for ImageResourcesPlugin {
 impl ImageResourcesPlugin {
     /// Resolves image tokens to keys in a named byte provider. Bindings are checked after all plugins are built.
     ///
-    /// Mapped MIRX FLAT and CHUNK RAW images use the built-in byte decoder. Other formats can be registered through [`Self::with_loader`].
+    /// MIRX FLAT images support mapped storage and known-length random-access readers. Mapped CHUNK RAW images retain their direct pixel plane. Other formats can be registered through [`Self::with_loader`].
     pub fn with_source(
         mut self,
         name: &'static str,
@@ -114,6 +117,12 @@ impl ImageResourcesPlugin {
 
     pub fn with_values_budget(mut self, budget: MaxSize) -> Self {
         self.values_budget = budget;
+        self
+    }
+
+    /// Limit the built-in source decoder's shared pixel storage, including pending reads, pinned leases, read state and cache metadata. The default is 128 KiB, allocated on demand; static and mapped RAW pixels do not consume this budget. Resource indexes, source byte blocks and custom loader allocations have separate budgets.
+    pub fn with_decode_budget(mut self, bytes: usize) -> Self {
+        self.decode_budget = bytes;
         self
     }
 
@@ -211,7 +220,9 @@ where
             .expect("ImageResourcesPlugin source requires ResourcePlugin")
             .clone();
         if !self.sources.is_empty() {
-            images.add_probed_loader(crate::render::texture::SourceMirxLoader);
+            images.add_probed_loader(crate::render::texture::SourceMirxLoader::new(
+                self.decode_budget,
+            ));
         }
         images
             .bind_sources(sources, core::mem::take(&mut self.sources))

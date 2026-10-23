@@ -59,7 +59,25 @@ Each read takes ownership of an `AssetBuffer` and returns it in `ReadComplete`, 
 
 `ResourcePlugin` registers named providers. `ImageResourcesPlugin::with_source` maps image tokens to provider keys; its existing `with_loader` configuration installs byte recognizers and decoders. The plugins bind during App startup, after all plugin resources are installed. Decoders recognize `LoadInput::Bytes`, request bounded prefixes with `FormatMatch::Need`, and read through `LoadContext::poll_read_exact`. Multiple recognizers claiming the same content fail rather than choosing by registration order.
 
-Image source bindings include a MIRX byte decoder for mapped FLAT and CHUNK RAW images. CHUNK selects the declared primary image through the existing reader, including container and critical-payload validation. The texture retains the opened reader and borrows the checked single pixel plane, preserving row stride without copying pixels. Opening can be asynchronous; completion updates existing Image subscriptions. Metadata probing and value loading share the same opened source. The value cache charges the complete mapping length and its texture control storage. A mapping is read-only and must report its exact length; encoded CHUNK images, unsupported pixel layouts and nonmapped sources are not decoded by this loader. Static `with_mirx_bytes` registrations retain their direct borrowing path and do not install source sessions.
+Image source bindings include a MIRX byte decoder for mapped FLAT and CHUNK RAW images. CHUNK selects the declared primary image through the existing reader, including container and critical-payload validation. The texture retains the opened reader and borrows the checked single pixel plane, preserving row stride without copying pixels. Opening can be asynchronous; completion updates existing Image subscriptions. Metadata probing and value loading share the same opened source. The value cache charges the complete mapping length and its texture control storage. A mapping is read-only and must report its exact length. Static `with_mirx_bytes` registrations retain their direct borrowing path and do not install source sessions.
+
+Nonmapped FLAT images support known-length random-access sources. Loading publishes the image geometry and retained source, not a complete decoded bitmap. `Texture::poll_pixels_in(region, context)` reads the requested rows through the existing source block cache; short reads and `Pending` retain progress without exposing partial pixels. Returned regions preserve absolute source coordinates, while their continuous pixel views contain packed local rows. `poll_read_pixels` requests the complete image under the same budget. `pixels` and `pixels_in` only query residency; `read_pixels` returns `ResourcePending` when a complete view is unavailable, without starting I/O. Encoded CHUNK, nonmapped CHUNK, unknown-length and sequential image sources return `Unsupported` from this built-in decoder.
+
+`ImageResourcesPlugin::with_decode_budget(bytes)` limits the built-in source decoder's shared live storage. The default is 128 KiB, prepared on demand, including pixels, pending region reads, pinned evicted pixels, source read state and cache metadata. Static and mapped RAW images do not create or consume this pool. Region leases remain valid after cache eviction and App destruction; storage is charged until its last owner is released. Unpinned cold buffers can be reused. Exhaustion returns `ResourceLimit(Texture)` during pixel preparation, without growing the configured budget or blocking on pinned storage. The values budget still controls resource-index residency, the probes budget controls metadata residency, and `AssetCacheConfig` controls source byte blocks; these are separate limits. Custom loaders manage their own output allocations.
+
+```rust,ignore
+app.add_plugin(
+    ImageResourcesPlugin::empty()
+        .with_source("assets", |token| Some(format!("images/{token}.mirx").into()))
+        .with_decode_budget(64 * 1024),
+);
+
+// Inside an asynchronous consumer, using its current task context:
+let region = core::task::ready!(texture.poll_pixels_in(area, cx))?;
+for (source_rect, pixels) in region.tiles() {
+    consume_ready_pixels(source_rect, pixels);
+}
+```
 
 `LoadContext::poll_read(offset, dst)` reads a bounded prefix with the same invocation allowance as `poll_read_exact`. Advance by the returned count; zero on a nonempty destination confirms EOF. This permits strict trailing-byte checks when the source length is unknown without treating I/O failures as EOF. Empty reads do not establish EOF. Finish any pending exact read before starting a prefix read; both methods reuse the opened source, block cache and cancellation storage.
 

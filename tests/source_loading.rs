@@ -3,6 +3,9 @@
 #[path = "source_loading/mapped.rs"]
 mod mapped;
 
+#[path = "source_loading/decoded.rs"]
+mod decoded;
+
 #[path = "support/tracking_allocator.rs"]
 mod tracking_allocator;
 

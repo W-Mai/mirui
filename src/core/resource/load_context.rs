@@ -36,7 +36,7 @@ pub(super) struct ExactRead {
     active: Option<(u64, usize, usize)>,
 }
 
-pub(super) struct LoadBudget {
+pub(crate) struct LoadBudget {
     pub steps: usize,
     pub bytes: usize,
 }
@@ -163,7 +163,7 @@ impl<'a> LoadContext<'a> {
     }
 }
 
-fn read_prefix(
+pub(super) fn read_prefix(
     source: &mut dyn ReadStream,
     waker: &Waker,
     budget: &mut LoadBudget,

@@ -66,6 +66,18 @@ pub struct LinearLookup<K: PartialEq> {
     entries: alloc::vec::Vec<(K, NodeId)>,
 }
 
+impl<K: PartialEq> LinearLookup<K> {
+    pub(super) const SLOT_BYTES: usize = core::mem::size_of::<(K, NodeId)>();
+
+    pub(super) fn prepare(
+        &mut self,
+        count: usize,
+    ) -> Result<usize, alloc::collections::TryReserveError> {
+        self.entries.try_reserve_exact(count)?;
+        Ok(self.entries.capacity() * Self::SLOT_BYTES)
+    }
+}
+
 impl<K: PartialEq> Default for LinearLookup<K> {
     fn default() -> Self {
         Self {

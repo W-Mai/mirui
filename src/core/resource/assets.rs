@@ -378,6 +378,16 @@ impl AssetSource {
         ReadStream::poll_read(self, offset, &mut dst[..count], cx, &mut budget.steps)
     }
 
+    pub(crate) fn poll_read_budgeted(
+        &mut self,
+        offset: u64,
+        dst: &mut [u8],
+        cx: &mut Context<'_>,
+        budget: &mut LoadBudget,
+    ) -> Poll<Result<usize, super::LoadError>> {
+        super::load_context::read_prefix(self, cx.waker(), budget, offset, dst)
+    }
+
     pub(super) fn poll_open(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), AssetError>> {
         self.session
             .as_mut()

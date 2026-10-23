@@ -7,7 +7,7 @@ use core::ops::Range;
 
 pub(super) struct CachedPixels {
     pub(super) bytes: alloc::vec::Vec<u8>,
-    pub(super) _allocation: crate::render::budget::RetainedAllocation,
+    pub(super) _allocation: super::pixel_cache::PixelAllocation,
 }
 
 impl CachedPixels {
@@ -352,6 +352,13 @@ impl Texture<'_> {
             }
             return Ok(layout);
         }
+        if let super::TexBuf::Decoded(source) = &self.buf {
+            return if layout == source.layout() {
+                Ok(layout)
+            } else {
+                Err(RenderError::InvalidTexture)
+            };
+        }
         if self
             .buf
             .cpu_bytes()
@@ -366,7 +373,10 @@ impl Texture<'_> {
 
     /// Interpret CPU storage with a padded row stride, rejecting layouts that exceed the supplied bytes.
     pub fn with_stride(mut self, stride: usize) -> Result<Self, RenderError> {
-        if matches!(self.buf, super::TexBuf::Native(_)) {
+        if matches!(
+            self.buf,
+            super::TexBuf::Native(_) | super::TexBuf::Decoded(_)
+        ) {
             return Err(RenderError::InvalidTexture);
         }
         self.stride = stride;
@@ -374,10 +384,16 @@ impl Texture<'_> {
         Ok(self)
     }
 
-    /// Borrow resident CPU pixels without allocation or device work. `Ok(None)` means a valid source requires readback; invalid or conflicting access returns an error.
+    /// Borrow resident CPU pixels without allocation or source work. `Ok(None)` means a valid source requires preparation; invalid or conflicting access returns an error.
     pub fn pixels(&self) -> Result<Option<TexturePixels<'_>>, RenderError> {
         if let super::TexBuf::Native(native) = &self.buf {
             return native.pixels(self.cache_revision);
+        }
+        if let super::TexBuf::Decoded(source) = &self.buf {
+            return source.pixels_in(
+                super::Region::new(0, 0, u32::from(self.width), u32::from(self.height))
+                    .map_err(|_| RenderError::InvalidTexture)?,
+            );
         }
         Ok(Some(TexturePixels::new(
             self.buf.cpu_bytes().ok_or(RenderError::InvalidTexture)?,
@@ -385,19 +401,22 @@ impl Texture<'_> {
         )))
     }
 
-    /// Obtain readable pixels, preparing and caching a source-owned CPU copy when necessary. Repeated reads of unchanged resident pixels borrow the same storage; source readback may allocate or wait for its device.
+    /// Obtain readable pixels, preparing and caching a native source's CPU copy when necessary. Native readback may allocate or wait for its device. Nonresident asynchronous sources return `ResourcePending` without starting I/O; use [`Self::poll_read_pixels`] with a task context to prepare them.
     pub fn read_pixels(&self) -> Result<TexturePixels<'_>, RenderError> {
         if let super::TexBuf::Native(native) = &self.buf {
             return native.read_pixels(self.cache_revision);
         }
-        self.pixels()?.ok_or(RenderError::InvalidTexture)
+        self.pixels()?.ok_or(RenderError::ResourcePending)
     }
 
     /// Borrow writable CPU storage. Read-only and native storage are rejected without copying; native CPU copies cannot be edited independently of their source.
     pub fn pixels_mut(&mut self) -> Result<TexturePixelsMut<'_>, RenderError> {
         let layout = self.pixel_layout()?;
         let bytes = match &mut self.buf {
-            super::TexBuf::Ref(_) | super::TexBuf::Native(_) | super::TexBuf::Mapped(_) => {
+            super::TexBuf::Ref(_)
+            | super::TexBuf::Native(_)
+            | super::TexBuf::Mapped(_)
+            | super::TexBuf::Decoded(_) => {
                 return Err(RenderError::InvalidTexture);
             }
             super::TexBuf::Mut(bytes) => &mut **bytes,

@@ -12,6 +12,8 @@ struct Ledger {
 pub(crate) struct MemoryBudget(Option<Rc<Ledger>>);
 
 impl MemoryBudget {
+    pub(crate) const OWNER_BYTES: usize =
+        core::mem::size_of::<Ledger>() + 2 * core::mem::size_of::<usize>();
     pub(crate) fn new(limit: usize) -> Self {
         Self((limit != 0).then(|| {
             Rc::new(Ledger {
@@ -140,6 +142,9 @@ pub(crate) struct RetainedAllocation {
 }
 
 impl RetainedAllocation {
+    pub(crate) fn bytes(&self) -> usize {
+        self.bytes
+    }
     pub(crate) fn resize(&mut self, bytes: usize) -> bool {
         let state = &self.reservation.0;
         if bytes > self.bytes && bytes - self.bytes > state.available.get() {

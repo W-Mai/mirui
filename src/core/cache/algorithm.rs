@@ -33,6 +33,18 @@ pub struct LruState {
     list: IntrusiveList,
 }
 
+impl LruState {
+    pub(super) const SLOT_BYTES: usize = core::mem::size_of::<Option<LinkSlot>>();
+
+    pub(super) fn prepare(
+        &mut self,
+        count: usize,
+    ) -> Result<usize, alloc::collections::TryReserveError> {
+        self.list.slots.try_reserve_exact(count)?;
+        Ok(self.list.slots.capacity() * Self::SLOT_BYTES)
+    }
+}
+
 impl Algorithm for Lru {
     type State = LruState;
 

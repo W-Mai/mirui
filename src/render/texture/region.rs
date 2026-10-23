@@ -74,6 +74,7 @@ impl Texture<'_> {
         } else {
             let pixels = match &self.buf {
                 super::TexBuf::Native(native) => native.pixels_in(self.cache_revision, region)?,
+                super::TexBuf::Decoded(source) => source.pixels_in(region)?,
                 _ => self
                     .pixels()?
                     .map(|pixels| pixels.into_region(region))
@@ -97,10 +98,19 @@ impl Texture<'_> {
     pub fn poll_pixels_in(
         &self,
         region: Region,
-        _cx: &mut Context<'_>,
+        cx: &mut Context<'_>,
     ) -> Poll<Result<TextureRegion<'_>, RenderError>> {
         if let Some(ready) = self.pixels_in(region)? {
             return Poll::Ready(Ok(ready));
+        }
+        if let super::TexBuf::Decoded(source) = &self.buf {
+            return source.poll_pixels_in(region, cx).map(|result| {
+                result.map(|pixels| TextureRegion {
+                    region,
+                    format: self.format(),
+                    pixels: Some(pixels),
+                })
+            });
         }
         let super::TexBuf::Native(native) = &self.buf else {
             return Poll::Ready(Err(RenderError::InvalidTexture));
@@ -121,8 +131,15 @@ impl Texture<'_> {
     /// Native readback is synchronous; this method does not make driver waits asynchronous.
     pub fn poll_read_pixels(
         &self,
-        _cx: &mut Context<'_>,
+        cx: &mut Context<'_>,
     ) -> Poll<Result<TexturePixels<'_>, RenderError>> {
+        if let super::TexBuf::Decoded(source) = &self.buf {
+            return source.poll_pixels_in(
+                Region::new(0, 0, u32::from(self.width), u32::from(self.height))
+                    .map_err(|_| RenderError::InvalidTexture)?,
+                cx,
+            );
+        }
         Poll::Ready(self.read_pixels())
     }
 }

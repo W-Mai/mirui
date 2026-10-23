@@ -5,6 +5,7 @@ use crate::core::cache::HasSize;
 mod access;
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32", test))]
 mod coverage;
+mod decoded;
 mod native;
 mod pixel_cache;
 mod pixels;
@@ -141,6 +142,7 @@ enum TexBuf<'a> {
     Aligned(AlignedBytes),
     Native(alloc::boxed::Box<native::NativeTexture>),
     Mapped(alloc::boxed::Box<source::MappedTexture>),
+    Decoded(alloc::boxed::Box<decoded::DecodedTexture>),
 }
 
 impl TexBuf<'_> {
@@ -150,7 +152,7 @@ impl TexBuf<'_> {
             Self::Mut(s) => Some(s),
             Self::Owned(v) => Some(v),
             Self::Aligned(v) => Some(v.as_slice()),
-            Self::Native(_) => None,
+            Self::Native(_) | Self::Decoded(_) => None,
             Self::Mapped(source) => source.pixels(),
         }
     }
@@ -238,6 +240,7 @@ impl HasSize for Texture<'_> {
             TexBuf::Aligned(bytes) => bytes.storage.capacity(),
             TexBuf::Native(native) => native.cache_size(),
             TexBuf::Mapped(source) => source.cache_size(),
+            TexBuf::Decoded(source) => source.cache_size(),
         }
     }
 }

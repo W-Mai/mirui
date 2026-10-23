@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Nonmapped MIRX FLAT images support asynchronous regional reads through the shared source cache. `ImageResourcesPlugin::with_decode_budget` bounds decoded pixels, pending reads, pinned leases and cache metadata across image sources; static and mapped pixels retain direct access.
 - Image source bindings decode mapped MIRX FLAT and CHUNK RAW images through the existing loader, preserving primary-image selection, source ownership, row stride and direct pixel borrowing across renderer preparation and upload caches.
 - Loader prefix reads distinguish EOF from source failures and share exact reads' execution allowances, source ownership and block cache.
 - MIRX whole-DATA checksums support bounded source windows without retaining sample buffers; directory validation and checksum comparison share the slice reader's rules.
