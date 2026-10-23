@@ -214,6 +214,14 @@ pub(crate) struct SourceMirxState {
     header_len: Option<usize>,
     image: Option<SourceImage>,
     source: Option<AssetSource>,
+    length_check: LengthCheck,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LengthCheck {
+    Unchecked,
+    EndPresent,
+    Complete,
 }
 
 impl Default for SourceMirxState {
@@ -223,6 +231,7 @@ impl Default for SourceMirxState {
             header_len: None,
             image: None,
             source: None,
+            length_check: LengthCheck::Unchecked,
         }
     }
 }
@@ -310,6 +319,32 @@ impl ProbeLoader<Texture<'static>> for SourceMirxLoader {
                 let source = state.source.insert(cx.take_source()?);
                 SourceImage::mapped(source.mapped()?.ok_or(AssetError::Unsupported)?)?
             });
+        }
+        if state.length_check != LengthCheck::Complete {
+            let info = state
+                .source
+                .as_ref()
+                .and_then(AssetSource::info)
+                .or_else(|| cx.source_info())
+                .ok_or(AssetError::InvalidSource)?;
+            if info.len.is_none() {
+                if info.access != crate::core::resource::SourceAccess::Random {
+                    return Poll::Ready(Err(AssetError::Unsupported.into()));
+                }
+                let end = state.image.as_ref().expect("probed image").logical_len as u64;
+                let mut byte = [0u8; 1];
+                if state.length_check == LengthCheck::Unchecked {
+                    ready!(cx.poll_read_exact(
+                        end.checked_sub(1).ok_or(AssetError::InvalidSource)?,
+                        &mut byte
+                    ))?;
+                    state.length_check = LengthCheck::EndPresent;
+                }
+                if ready!(cx.poll_read(end, &mut byte))? != 0 {
+                    return Poll::Ready(Err(AssetError::InvalidSource.into()));
+                }
+            }
+            state.length_check = LengthCheck::Complete;
         }
         let layout = state.image.as_ref().expect("probed image").layout;
         Poll::Ready(Ok(TextureMeta {

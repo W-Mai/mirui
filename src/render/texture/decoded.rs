@@ -227,7 +227,7 @@ impl DecodedTexture {
         pool: Rc<RefCell<DecodePool>>,
     ) -> Result<Texture<'static>, LoadError> {
         let info = source.info().ok_or(AssetError::InvalidSource)?;
-        if info.access != SourceAccess::Random || info.len.is_none() {
+        if info.access != SourceAccess::Random {
             return Err(AssetError::Unsupported.into());
         }
         let bytes = core::mem::size_of::<Self>();

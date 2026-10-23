@@ -6,6 +6,7 @@ use mirui::types::Color;
 struct File {
     bytes: Rc<Vec<u8>>,
     control: Rc<Control>,
+    known_length: bool,
 }
 
 struct ReadFile {
@@ -19,15 +20,17 @@ impl Future for ReadFile {
     type Output = ReadComplete;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if !self.control.ready.get() {
+        if !self.control.ready.get() && self.offset >= 64 {
             self.control.wake.replace(Some(cx.waker().clone()));
             return Poll::Pending;
         }
         let mut buffer = self.buffer.take().unwrap();
         let remaining = self.bytes.len().saturating_sub(self.offset);
         let filled = remaining.min(buffer.len()).min(13);
-        buffer.as_mut_slice()[..filled]
-            .copy_from_slice(&self.bytes[self.offset..self.offset + filled]);
+        if filled != 0 {
+            buffer.as_mut_slice()[..filled]
+                .copy_from_slice(&self.bytes[self.offset..self.offset + filled]);
+        }
         self.control
             .completions
             .set(self.control.completions.get() + 1);
@@ -46,7 +49,7 @@ impl AssetReader for File {
 
     fn info(&self) -> SourceInfo {
         SourceInfo {
-            len: Some(self.bytes.len() as u64),
+            len: self.known_length.then_some(self.bytes.len() as u64),
             access: SourceAccess::Random,
             consistency: SourceConsistency::Stable,
         }
@@ -107,6 +110,15 @@ fn fixture(format: ColorFormat) -> Rc<Vec<u8>> {
 }
 
 fn app(bytes: Rc<Vec<u8>>, control: Rc<Control>, budget: usize) -> Headless {
+    source_app(bytes, control, budget, true)
+}
+
+fn source_app(
+    bytes: Rc<Vec<u8>>,
+    control: Rc<Control>,
+    budget: usize,
+    known_length: bool,
+) -> Headless {
     let mut app = App::headless(32, 32);
     app.add_plugin(
         ImageResourcesPlugin::empty()
@@ -128,6 +140,7 @@ fn app(bytes: Rc<Vec<u8>>, control: Rc<Control>, budget: usize) -> Headless {
                 ready(Ok(File {
                     bytes: bytes.clone(),
                     control: control.clone(),
+                    known_length,
                 }))
             }),
     );
@@ -331,4 +344,65 @@ fn dropping_a_pending_texture_retires_its_original_read_without_more_rows() {
     );
     assert_eq!(control.completions.get(), completions + 1);
     assert_eq!(resolve(&app, "replacement").width(), 32);
+}
+
+#[test]
+fn unknown_lengths_require_exact_source_boundaries_without_reading_whole_images() {
+    let original = fixture(ColorFormat::RGBA8888);
+    for difference in [-1, 0, 1] {
+        let mut bytes = original.as_ref().clone();
+        if difference < 0 {
+            bytes.pop();
+        }
+        if difference > 0 {
+            bytes.push(0);
+        }
+        let control = Rc::new(Control::default());
+        control.ready.set(true);
+        let app = source_app(Rc::new(bytes), control.clone(), 8192, false);
+        let images = app
+            .world
+            .resource::<ResourceManager<Texture<'static>>>()
+            .unwrap();
+        let mut cx = Context::from_waker(Waker::noop());
+        for _ in 0..16 {
+            images.resolve("image");
+            images.poll_pending(&mut cx);
+        }
+        let image = images.resolve("image");
+        assert_eq!(image.width(), if difference == 0 { 32 } else { 16 });
+        assert!(
+            control.completions.get() * 13 < original.len() / 2,
+            "length validation only needs header and tail windows"
+        );
+        if difference == 0 {
+            let read = region(&image, Region::new(3, 13, 2, 2).unwrap()).unwrap();
+            assert_eq!(read.get_pixel(3, 13), Some(Color::rgb(24, 104, 255)));
+        }
+    }
+}
+
+#[test]
+fn metadata_waits_for_unknown_length_validation_and_resumes_the_same_source() {
+    let control = Rc::new(Control::default());
+    let app = source_app(fixture(ColorFormat::RGBA8888), control.clone(), 8192, false);
+    let images = app
+        .world
+        .resource::<ResourceManager<Texture<'static>>>()
+        .unwrap();
+    assert_eq!(images.resolve("image").width(), 16);
+    assert!(
+        control.wake.borrow().is_some(),
+        "tail read registered its real loader waker"
+    );
+    control.complete();
+    let image = resolve(&app, "image");
+    assert_eq!(control.opens.get(), 1);
+    assert!(image.pixels().unwrap().is_none());
+    assert_eq!(
+        region(&image, Region::new(3, 13, 2, 2).unwrap())
+            .unwrap()
+            .get_pixel(3, 13),
+        Some(Color::rgb(24, 104, 255))
+    );
 }
