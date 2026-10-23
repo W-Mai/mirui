@@ -9,11 +9,16 @@ mod loader;
 mod manager;
 mod manager_inner;
 mod probe;
+mod source;
 
 pub use handle::ResourceHandle;
 pub use loader::{LoadError, Loader, ProbeLoader};
 pub use manager::ResourceManager;
 pub use probe::HasProbe;
+pub use source::{
+    AssetBuffer, AssetError, AssetProvider, AssetReader, ReadComplete, ReadPosition, ReadProgress,
+    SourceAccess, SourceConsistency, SourceInfo,
+};
 
 #[cfg(test)]
 mod tests {
