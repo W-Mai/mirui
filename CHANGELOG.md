@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Loader::for_source` binds a decoder to a named byte provider through the existing loader registration, preserving metadata support and rejecting overlapping source claims before opening.
 - Resource handles share pending demand and retire consumer-owned loads when the last handle leaves, while explicit prefetch and refresh remain active.
 - Mobile event loops receive resource-completion wakes while publication stays in owner-thread systems and respects suspension and tick pacing.
 - `ResourceManager::reload` schedules generation-checked refresh through the registered loaders while retaining cached successful values until replacement.

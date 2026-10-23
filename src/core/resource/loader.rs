@@ -1,5 +1,6 @@
-use super::LoadContext;
+use super::{BoundLoader, LoadContext, SourceBinding};
 use crate::core::resource::probe::HasProbe;
+use alloc::borrow::Cow;
 use core::task::Poll;
 
 /// Outcome of [`Loader::poll_load`] (and [`ProbeLoader::poll_probe`]) when the
@@ -44,6 +45,23 @@ impl From<super::AssetError> for LoadError {
 pub trait Loader<T>: 'static {
     /// Prepared once per concurrent invocation slot. Reuse owned scratch in `reset` when possible.
     type State: Default + 'static;
+
+    /// Optional explicit source binding. Wrappers forward this descriptor when retaining a bound decoder.
+    fn source_binding(&self) -> Option<&SourceBinding> {
+        None
+    }
+
+    /// Bind this decoder to a named source and token resolver. Matching tokens bypass format recognition; the decoder must validate its own input. Conflicting source claims fail before opening the source. Binding prepares one resolver allocation at registration, not per poll.
+    fn for_source(
+        self,
+        name: &'static str,
+        resolve: impl Fn(&str) -> Option<Cow<'static, str>> + 'static,
+    ) -> BoundLoader<Self>
+    where
+        Self: Sized,
+    {
+        BoundLoader::new(self, SourceBinding::new(name, resolve))
+    }
 
     /// Reject unrelated tokens without decoding. Byte recognition consumes only the supplied prefix.
     fn recognize(&self, input: LoadInput<'_>) -> FormatMatch;

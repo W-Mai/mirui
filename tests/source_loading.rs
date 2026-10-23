@@ -295,6 +295,151 @@ fn multiple_format_claims_fail_before_decoding() {
     );
 }
 
+struct ExplicitDecoder;
+impl Loader<Texture<'static>> for ExplicitDecoder {
+    type State = Decode;
+    fn recognize(&self, _: LoadInput<'_>) -> FormatMatch {
+        panic!("explicit source selection must not guess the content format");
+    }
+    fn poll_load(
+        &self,
+        state: &mut Decode,
+        cx: &mut LoadContext<'_>,
+    ) -> Poll<Result<Texture<'static>, LoadError>> {
+        Decoder.poll_load(state, cx)
+    }
+}
+impl ProbeLoader<Texture<'static>> for ExplicitDecoder {
+    fn poll_probe(
+        &self,
+        state: &mut Decode,
+        cx: &mut LoadContext<'_>,
+    ) -> Poll<Result<TextureMeta, LoadError>> {
+        Decoder.poll_probe(state, cx)
+    }
+}
+
+fn mapped_app(plugin: ImageResourcesPlugin, opens: Rc<Cell<usize>>) -> Headless {
+    let mut app = App::headless(8, 8);
+    app.add_plugin(plugin);
+    app.add_plugin(
+        ResourcePlugin::new().with_source("files", move |_: Cow<'static, str>| {
+            opens.set(opens.get() + 1);
+            ready(Ok::<_, AssetError>(RED))
+        }),
+    );
+    app.tick();
+    app
+}
+
+#[test]
+fn explicit_binding_reuses_metadata_and_value_state_without_recognition() {
+    let opens = Rc::new(Cell::new(0));
+    let app = mapped_app(
+        ImageResourcesPlugin::empty().with_loader(|images| {
+            images.add_probed_loader(ExplicitDecoder.for_source("files", |token| {
+                (token == "cover").then(|| "raw/image".into())
+            }));
+        }),
+        opens.clone(),
+    );
+    let manager = app
+        .world
+        .resource::<ResourceManager<Texture<'static>>>()
+        .unwrap();
+    assert_eq!(manager.probe("cover").unwrap().width, 1);
+    assert_eq!(
+        manager.resolve("cover").read_pixels().unwrap().bytes(),
+        &[255, 0, 0, 255]
+    );
+    assert_eq!(opens.get(), 1);
+    assert_eq!(manager.resolve("unclaimed").width(), 16);
+    assert_eq!(opens.get(), 1);
+}
+
+#[test]
+fn explicit_source_conflicts_fail_before_opening_in_either_registration_order() {
+    for reverse in [false, true] {
+        for automatic in [false, true] {
+            let opens = Rc::new(Cell::new(0));
+            let mut plugin = ImageResourcesPlugin::empty();
+            if automatic {
+                plugin = plugin.with_source("files", |_| Some("automatic".into()));
+            }
+            plugin = plugin.with_loader(move |images| {
+                if reverse && !automatic {
+                    images.add_loader(Decoder.for_source("files", |_| Some("other".into())));
+                }
+                images.add_probed_loader(
+                    ExplicitDecoder.for_source("files", |_| Some("explicit".into())),
+                );
+                if !reverse && !automatic {
+                    images.add_loader(Decoder.for_source("files", |_| Some("other".into())));
+                }
+            });
+            let app = mapped_app(plugin, opens.clone());
+            let manager = app
+                .world
+                .resource::<ResourceManager<Texture<'static>>>()
+                .unwrap();
+            assert_eq!(manager.resolve("ambiguous").width(), 16);
+            assert_eq!(opens.get(), 0);
+        }
+    }
+}
+
+#[test]
+fn automatic_recognition_does_not_consult_explicit_decoders() {
+    let app = mapped_app(
+        ImageResourcesPlugin::empty()
+            .with_source("files", |token| {
+                (token == "automatic").then(|| "auto".into())
+            })
+            .with_loader(|images| {
+                images.add_probed_loader(
+                    ExplicitDecoder
+                        .for_source("files", |token| (token == "explicit").then(|| "raw".into())),
+                );
+                images.add_probed_loader(Decoder);
+            }),
+        Rc::new(Cell::new(0)),
+    );
+    let manager = app
+        .world
+        .resource::<ResourceManager<Texture<'static>>>()
+        .unwrap();
+    assert_eq!(manager.resolve("automatic").width(), 1);
+    assert_eq!(manager.resolve("explicit").width(), 1);
+}
+
+#[test]
+fn bound_loader_without_probe_never_decodes_for_metadata() {
+    let opens = Rc::new(Cell::new(0));
+    let app = mapped_app(
+        ImageResourcesPlugin::empty().with_loader(|images| {
+            images.add_loader(ExplicitDecoder.for_source("files", |_| Some("raw".into())));
+        }),
+        opens.clone(),
+    );
+    let manager = app
+        .world
+        .resource::<ResourceManager<Texture<'static>>>()
+        .unwrap();
+    assert!(manager.probe("cover").is_none());
+    assert_eq!(manager.resolve("cover").width(), 1);
+}
+
+#[test]
+#[should_panic(expected = "unknown image byte source")]
+fn explicit_binding_validates_provider_before_loading() {
+    mapped_app(
+        ImageResourcesPlugin::empty().with_loader(|images| {
+            images.add_loader(Decoder.for_source("missing", |_| None));
+        }),
+        Rc::new(Cell::new(0)),
+    );
+}
+
 #[test]
 fn last_consumer_retirement_returns_submitted_reads_without_continuing_decode() {
     let control = Rc::new(Control::default());

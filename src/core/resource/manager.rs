@@ -156,6 +156,13 @@ impl<T: HasSize + 'static> ResourceManager<T> {
 /// when the resource type opts into [`HasProbe`]. The probe sidecar is
 /// initialised by [`ResourceManager::enable_probes`] (or [`ResourceManager::with_probes`]). Without a sidecar, available metadata is returned without caching it.
 impl<T: HasSize + HasProbe + 'static> ResourceManager<T> {
+    pub(crate) fn has_source_bindings(&self) -> bool {
+        let count = self.inner.borrow().loader_count();
+        (0..count).any(|index| {
+            let loader = self.inner.borrow().source_decoder(index);
+            loader.source_binding().is_some()
+        })
+    }
     pub(crate) fn bind_sources(
         &self,
         sources: Rc<super::assets::AssetSources>,

@@ -78,7 +78,22 @@ app.add_plugin(
 
 The resolver runs when starting a request, not on each frame. A borrowed key avoids a key allocation; an owned `Cow` transfers a dynamically constructed key. The provider owns path interpretation, permissions and content-stability guarantees. Metadata and decoded contents reuse the same opened object and decoder state. Static image registrations need neither a source plugin nor a byte cache.
 
-App systems advance ready image loads and retire submitted source operations on the owning thread, including when no UI root exists. An application driving `App::tick` delivers completions on a subsequent tick. This polling does not itself wake a sleeping platform event loop. Publication uses the same resource subscription that invalidates `Image`.
+Use `decoder.for_source(name, resolver)` to select a decoder explicitly, including formats without a recognizable header. Register the returned `BoundLoader` through the same `add_loader` or `add_probed_loader` method. Its state, reset and metadata behavior remain those of the wrapped decoder. Explicitly bound decoders do not participate in automatic content recognition; they still validate their input while decoding. Overlapping automatic and explicit source claims, or two explicit claims, fail before opening a provider. Unknown provider names fail during App startup.
+
+```rust,ignore
+app.add_plugin(
+    ImageResourcesPlugin::empty().with_loader(|images| {
+        images.add_probed_loader(decoder.for_source("assets", |token| {
+            let id = token.strip_prefix("raw/")?;
+            Some(format!("images/{id}.raw").into())
+        }));
+    }),
+);
+```
+
+This binding does not require a separate `ImageResourcesPlugin::with_source`. The provider is still registered with `ResourcePlugin`. Wrapping a loader prepares one resolver allocation during registration, with no additional per-poll decoder state or task queue.
+
+App systems advance ready image loads and retire submitted source operations on the owning thread, including when no UI root exists. An application driving `App::tick` delivers completions on a subsequent tick; an externally driven sleeping loop supplies its wake through the manager's polling context. Publication uses the same resource subscription that invalidates `Image`.
 
 ### Read storage
 

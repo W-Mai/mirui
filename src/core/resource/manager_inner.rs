@@ -79,6 +79,9 @@ struct Request {
 }
 
 impl<T: HasSize + 'static> ManagerInner<T> {
+    pub(super) fn loader_count(&self) -> usize {
+        self.loaders.len()
+    }
     pub(super) fn source_request(&self, token: &str) -> Option<(u64, usize)> {
         Some((self.resolving.get(token)?.generation, self.loaders.len()))
     }
@@ -399,6 +402,9 @@ fn walk_chain<T: HasSize + 'static>(
     let n = rc.borrow().loaders.len();
     for i in start..n {
         let loader = rc.borrow().loaders[i].clone();
+        if loader.source_binding().is_some() {
+            continue;
+        }
         match loader.recognize(LoadInput::Token(token)) {
             FormatMatch::NoMatch => continue,
             FormatMatch::Need(_) => {

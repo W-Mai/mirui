@@ -98,7 +98,7 @@ impl ImageResourcesPlugin {
         name: &'static str,
         resolve: impl Fn(&str) -> Option<Cow<'static, str>> + 'static,
     ) -> Self {
-        self.sources.push((name, Box::new(resolve)));
+        self.sources.push(SourceBinding::new(name, resolve));
         self
     }
     /// Empty plugin — no built-in `thumbs_up`, no statics, no loaders.
@@ -198,16 +198,17 @@ where
     }
 
     fn on_start(&mut self, world: &mut World) {
-        if self.sources.is_empty() {
+        let images = world
+            .resource::<ResourceManager<Texture<'static>>>()
+            .expect("image resources installed");
+        if self.sources.is_empty() && !images.has_source_bindings() {
             return;
         }
         let sources = world
             .resource::<Rc<AssetSources>>()
             .expect("ImageResourcesPlugin source requires ResourcePlugin")
             .clone();
-        world
-            .resource::<ResourceManager<Texture<'static>>>()
-            .expect("image resources installed")
+        images
             .bind_sources(sources, core::mem::take(&mut self.sources))
             .expect("unknown image byte source");
     }

@@ -18,8 +18,68 @@ use core::{
     task::{Context, Poll},
 };
 
-pub(crate) type SourceResolver = Box<dyn Fn(&str) -> Option<Cow<'static, str>>>;
-pub(crate) type SourceBinding = (&'static str, SourceResolver);
+type SourceResolver = Box<dyn Fn(&str) -> Option<Cow<'static, str>>>;
+
+/// A named byte source and its token-to-key resolver. Constructed by [`Loader::for_source`].
+pub struct SourceBinding {
+    name: &'static str,
+    resolve: SourceResolver,
+}
+
+impl SourceBinding {
+    pub(crate) fn new(
+        name: &'static str,
+        resolve: impl Fn(&str) -> Option<Cow<'static, str>> + 'static,
+    ) -> Self {
+        Self {
+            name,
+            resolve: Box::new(resolve),
+        }
+    }
+}
+
+/// A decoder bound to a named byte source. Reuses the decoder's state and optional metadata capability.
+pub struct BoundLoader<L> {
+    loader: L,
+    binding: SourceBinding,
+}
+
+impl<L> BoundLoader<L> {
+    pub(crate) fn new(loader: L, binding: SourceBinding) -> Self {
+        Self { loader, binding }
+    }
+}
+
+impl<T, L: Loader<T>> Loader<T> for BoundLoader<L> {
+    type State = L::State;
+
+    fn source_binding(&self) -> Option<&SourceBinding> {
+        Some(&self.binding)
+    }
+    fn recognize(&self, input: LoadInput<'_>) -> FormatMatch {
+        self.loader.recognize(input)
+    }
+    fn poll_load(
+        &self,
+        state: &mut Self::State,
+        cx: &mut LoadContext<'_>,
+    ) -> Poll<Result<T, LoadError>> {
+        self.loader.poll_load(state, cx)
+    }
+    fn reset(&self, state: &mut Self::State) {
+        self.loader.reset(state);
+    }
+}
+
+impl<T: HasProbe, L: ProbeLoader<T>> ProbeLoader<T> for BoundLoader<L> {
+    fn poll_probe(
+        &self,
+        state: &mut Self::State,
+        cx: &mut LoadContext<'_>,
+    ) -> Poll<Result<T::Meta, LoadError>> {
+        self.loader.poll_probe(state, cx)
+    }
+}
 
 pub(super) struct SourceLoader<T: HasSize + 'static> {
     manager: Weak<RefCell<ManagerInner<T>>>,
@@ -58,8 +118,19 @@ impl<T: HasSize + 'static> SourceLoader<T> {
         sources: Rc<AssetSources>,
         bindings: Vec<SourceBinding>,
     ) -> Result<Self, AssetError> {
-        for (name, _) in &bindings {
-            if !sources.contains(name) {
+        for binding in &bindings {
+            if !sources.contains(binding.name) {
+                return Err(AssetError::NotFound);
+            }
+        }
+        let inner = manager.upgrade().ok_or(AssetError::InvalidSource)?;
+        let count = inner.borrow().loader_count();
+        for index in 0..count {
+            let loader = inner.borrow().source_decoder(index);
+            if loader
+                .source_binding()
+                .is_some_and(|binding| !sources.contains(binding.name))
+            {
                 return Err(AssetError::NotFound);
             }
         }
@@ -78,20 +149,33 @@ impl<T: HasSize + 'static> SourceLoader<T> {
     ) -> Poll<Result<Loaded<T>, LoadError>> {
         let manager = self.manager.upgrade().ok_or(AssetError::InvalidSource)?;
         if state.source.is_none() {
-            let mut resolved = None;
-            for (name, resolve) in &self.bindings {
-                if let Some(key) = resolve(cx.token()) {
-                    if resolved.is_some() {
-                        return Poll::Ready(Err(LoadError::Failed("ambiguous resource source")));
-                    }
-                    resolved = Some((*name, key));
-                }
-            }
-            let (name, key) = resolved.ok_or(LoadError::NotMine)?;
             let (generation, count) = manager
                 .borrow()
                 .source_request(cx.token())
                 .ok_or(AssetError::InvalidSource)?;
+            let mut resolved = None;
+            for binding in &self.bindings {
+                if let Some(key) = (binding.resolve)(cx.token()) {
+                    if resolved.is_some() {
+                        return Poll::Ready(Err(LoadError::Failed("ambiguous resource source")));
+                    }
+                    resolved = Some((binding.name, key));
+                }
+            }
+            for index in 0..count {
+                let loader = manager.borrow().source_decoder(index);
+                if let Some(binding) = loader.source_binding()
+                    && let Some(key) = (binding.resolve)(cx.token())
+                {
+                    if resolved.is_some() {
+                        return Poll::Ready(Err(LoadError::Failed("ambiguous resource source")));
+                    }
+                    resolved = Some((binding.name, key));
+                    state.candidate = Some(loader);
+                    state.scan = count;
+                }
+            }
+            let (name, key) = resolved.ok_or(LoadError::NotMine)?;
             state.generation = generation;
             state.count = count;
             state.source = Some(self.sources.open(name, key)?);
@@ -112,6 +196,9 @@ impl<T: HasSize + 'static> SourceLoader<T> {
                 }
                 let decoder = manager.borrow().source_decoder(state.scan);
                 state.scan += 1;
+                if decoder.source_binding().is_some() {
+                    continue;
+                }
                 match decoder.recognize(LoadInput::Bytes {
                     token: cx.token(),
                     prefix,

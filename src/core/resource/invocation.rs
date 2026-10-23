@@ -39,6 +39,7 @@ pub(super) trait Invocation<T>: 'static {
 }
 
 pub(super) trait InstalledLoader<T>: 'static {
+    fn source_binding(&self) -> Option<&super::SourceBinding>;
     fn recognize(&self, input: LoadInput<'_>) -> FormatMatch;
     fn has_probe(&self) -> bool;
     fn take(&self, token: &str, generation: u64, probe: bool) -> Option<Box<dyn Invocation<T>>>;
@@ -157,6 +158,9 @@ impl<T: 'static> Drop for SlotGuard<'_, T> {
 }
 
 impl<T: 'static, L: Loader<T>> InstalledLoader<T> for Adapter<T, L> {
+    fn source_binding(&self) -> Option<&super::SourceBinding> {
+        self.loader.source_binding()
+    }
     fn recognize(&self, input: LoadInput<'_>) -> FormatMatch {
         self.loader.recognize(input)
     }

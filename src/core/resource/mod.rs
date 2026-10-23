@@ -31,7 +31,7 @@ pub use source::{
     AssetBuffer, AssetError, AssetProvider, AssetReader, ReadComplete, ReadPosition, ReadProgress,
     SourceAccess, SourceConsistency, SourceInfo,
 };
-pub(crate) use source_loader::SourceBinding;
+pub use source_loader::{BoundLoader, SourceBinding};
 
 #[cfg(test)]
 mod tests {
