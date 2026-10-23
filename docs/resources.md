@@ -51,6 +51,8 @@ The image owns its resource handle. Replacing or removing it releases its loadin
 
 ## Byte providers
 
+After a source-backed Texture has been published, its retained read progress belongs to that value, not to an individual Image. Removing or changing an Image stops driving its old pixels but does not remove successful cached values or invalidate independent Texture owners. Cached values retain their budget charges and can resume on a later request. Releasing the final Texture owner retires submitted physical reads through the original provider sessions without continuing decoding.
+
 Shared source reads retain up to eight distinct waiting contexts per physical read. Wakers from the same App share a slot regardless of widget count. Completion notifies all registered contexts; excess waiters receive `Capacity` without replacing earlier registrations or growing storage. Provider registration prepares this bounded metadata separately from pixel and byte-block budgets.
 
 `AssetProvider` opens an object by key; its `AssetReader` reports length, positioning and content consistency. Both operations use associated standard futures. A reader can expose a complete immutable mapping through `mapped()`. The built-in `&'static [u8]` reader borrows its mapping and supports immediate random reads.

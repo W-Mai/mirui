@@ -311,6 +311,81 @@ struct StrictImage {
     calls: Rc<Cell<usize>>,
 }
 
+#[test]
+fn changed_images_do_not_resume_cached_pixels_until_requested_again() {
+    for change in 0..4 {
+        let (bytes, _) = encoded_fixture(1, true);
+        let control = Rc::new(Control::default());
+        control.complete();
+        let mut app = app(bytes, control.clone(), 16 * 1024);
+        app.with_widget(mirui::ui::widgets::image::view());
+        let texture = resolve(&app, "old");
+        let root = app.spawn_root().id();
+        let image = app.compose(root, |cx| {
+            ui! { Image(src: "old", width: 32, height: 32) }
+        });
+        control.ready.set(false);
+        app.tick();
+        assert!(control.wake.borrow().is_some());
+        assert!(texture.pixels().unwrap().is_none());
+        match change {
+            0 => {
+                app.world.remove::<Image>(image);
+            }
+            1 => {
+                app.world.despawn(image);
+            }
+            2 => {
+                app.world.get_mut::<Image>(image).unwrap().src =
+                    mirui::render::path::Path::new().into();
+            }
+            _ => {
+                app.world
+                    .resource::<ResourceManager<Texture<'static>>>()
+                    .unwrap()
+                    .add_static(
+                        "replacement",
+                        Texture::from_static(&RED[8..], 1, 1, ColorFormat::RGBA8888).unwrap(),
+                    );
+                app.world.get_mut::<Image>(image).unwrap().src = "replacement".into();
+            }
+        }
+        app.dirty_regions().unwrap();
+        app.tick();
+        let submitted = control.reads.get();
+        let completed = control.completions.get();
+        control.complete();
+        for _ in 0..4 {
+            app.tick();
+        }
+        assert_eq!(
+            control.reads.get(),
+            submitted,
+            "retired UI must not drive old pixels"
+        );
+        assert_eq!(control.completions.get(), completed);
+        if change == 3 {
+            assert_eq!(
+                app.backend
+                    .framebuffer()
+                    .read_pixels()
+                    .unwrap()
+                    .get_pixel(0, 0),
+                Color::rgb(255, 0, 0)
+            );
+        }
+        // Successful values remain usable through their cache and independent owners.
+        assert!(Rc::ptr_eq(&texture, &resolve(&app, "old")));
+        assert_eq!(
+            region(&texture, Region::new(0, 0, 32, 32).unwrap())
+                .unwrap()
+                .get_pixel(0, 0),
+            Some(Color::rgb(0, 0, 255))
+        );
+        assert_eq!(control.opens.get(), 1);
+    }
+}
+
 #[mirui::view(component = StrictImage)]
 fn strict_image(image: component!(), paint: paint!()) {
     image.calls.set(image.calls.get() + 1);
