@@ -4,15 +4,21 @@
 
 extern crate alloc;
 
+#[cfg(test)]
+mod async_tests;
 mod handle;
+mod invocation;
+mod load_context;
 mod loader;
 mod manager;
 mod manager_inner;
 mod probe;
 mod source;
+mod wake;
 
 pub use handle::ResourceHandle;
-pub use loader::{LoadError, Loader, ProbeLoader};
+pub use load_context::LoadContext;
+pub use loader::{FormatMatch, LoadError, LoadInput, Loader, ProbeLoader};
 pub use manager::ResourceManager;
 pub use probe::HasProbe;
 pub use source::{
@@ -364,12 +370,25 @@ mod tests {
     fn explicit_probe_can_reenter_and_cannot_publish_after_replacement() {
         struct Prober(alloc::rc::Weak<ResourceManager<Img>>);
         impl Loader<Img> for Prober {
-            fn try_load(&self, _: &str) -> Result<Img, LoadError> {
+            type State = ();
+            fn recognize(&self, _: LoadInput<'_>) -> FormatMatch {
+                FormatMatch::Match
+            }
+            fn poll_load(
+                &self,
+                _: &mut (),
+                _: &mut LoadContext<'_>,
+            ) -> core::task::Poll<Result<Img, LoadError>> {
                 panic!("metadata must not decode pixels");
             }
         }
         impl ProbeLoader<Img> for Prober {
-            fn try_probe(&self, token: &str) -> Result<ImgMeta, LoadError> {
+            fn poll_probe(
+                &self,
+                _: &mut (),
+                cx: &mut LoadContext<'_>,
+            ) -> core::task::Poll<Result<ImgMeta, LoadError>> {
+                let token = cx.token();
                 let manager = self.0.upgrade().unwrap();
                 assert_eq!(manager.probe(token), None);
                 manager.add_static(
@@ -380,7 +399,7 @@ mod tests {
                         h: 8,
                     },
                 );
-                Ok(ImgMeta { w: 1, h: 2 })
+                core::task::Poll::Ready(Ok(ImgMeta { w: 1, h: 2 }))
             }
         }
         let manager = Rc::new(img_manager());

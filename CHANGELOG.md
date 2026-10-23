@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Resource loaders retain typed state across `Pending` and resume only when woken. Prepared invocation slots, metadata-to-value promotion and generation checks share the existing manager and subscriptions.
 - Resource metadata probing uses explicitly registered `ProbeLoader` implementations instead of decoding through ordinary loaders. `MirxLoader` supports metadata-only registration with `add_probed_loader`.
 - Texture upload caches track bounded valid coverage without changing source coordinates or default cache budgets. SDL-GPU uploads prepared regions and reuses completed coverage.
 - WGPU uploads prepared regions through its existing texture pool, preserving padded RGBA rows and queued resource lifetimes.

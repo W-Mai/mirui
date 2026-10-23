@@ -3,6 +3,7 @@ use alloc::boxed::Box;
 use alloc::rc::Rc;
 use core::any::Any;
 use core::cell::RefCell;
+use core::task::{Context, Poll};
 
 use hashbrown::HashSet;
 
@@ -12,6 +13,8 @@ use crate::core::resource::handle::ResourceHandle;
 use crate::core::resource::loader::{Loader, ProbeLoader};
 use crate::core::resource::manager_inner::{self, Entry, EntryKind, ManagerInner, ResolveOutcome};
 use crate::core::resource::probe::HasProbe;
+
+const DEFAULT_LOAD_CAPACITY: usize = 4;
 
 /// Optional probe state held alongside [`ManagerInner`]. The user opts in by
 /// calling [`ResourceManager::enable_probes`] (or [`ResourceManager::with_probes`]).
@@ -75,6 +78,7 @@ impl<T: HasSize + 'static> ResourceManager<T> {
         self.inner
             .borrow_mut()
             .insert_entry(token.clone(), Entry::Static(value));
+        manager_inner::invalidate_calls(&self.inner, &token);
         manager_inner::notify(&self.inner, &token);
     }
 
@@ -87,15 +91,18 @@ impl<T: HasSize + 'static> ResourceManager<T> {
         self.inner
             .borrow_mut()
             .insert_entry(token.clone(), Entry::Factory(Box::new(factory)));
+        manager_inner::invalidate_calls(&self.inner, &token);
         manager_inner::notify(&self.inner, &token);
     }
 
     pub fn add_loader(&self, loader: impl Loader<T>) {
+        let loader = super::invocation::install_loader(loader, DEFAULT_LOAD_CAPACITY);
         self.inner.borrow_mut().add_loader(loader);
     }
 
     pub fn remove_token(&self, token: &str) {
         self.inner.borrow_mut().unregister(token);
+        manager_inner::invalidate_calls(&self.inner, token);
         manager_inner::notify(&self.inner, token);
     }
 
@@ -120,6 +127,11 @@ impl<T: HasSize + 'static> ResourceManager<T> {
 
     pub fn prefetch(&self, token: &str) {
         let _ = self.resolve(token);
+    }
+
+    /// Advances ready loads on the owning thread and registers the caller's wake notification. Pending I/O is not polled again until it wakes.
+    pub fn poll_pending(&self, cx: &mut Context<'_>) {
+        manager_inner::poll_pending(&self.inner, cx.waker());
     }
 
     pub fn subscribe(&self, token: &str) -> Rc<Signal<()>> {
@@ -168,7 +180,8 @@ impl<T: HasSize + HasProbe + 'static> ResourceManager<T> {
 
     /// Registers value loading and metadata probing in the same loader entry. Probing does not invoke value loading.
     pub fn add_probed_loader(&self, loader: impl ProbeLoader<T>) {
-        self.inner.borrow_mut().add_probed_loader(loader);
+        let loader = super::invocation::install_probed_loader(loader, DEFAULT_LOAD_CAPACITY);
+        self.inner.borrow_mut().add_loader(loader);
     }
 
     pub fn set_probes_budget(&self, max: MaxSize) {
@@ -198,6 +211,7 @@ impl<T: HasSize + HasProbe + 'static> ResourceManager<T> {
                 factory: Box::new(factory),
             },
         );
+        manager_inner::invalidate_calls(&self.inner, &token);
         manager_inner::notify(&self.inner, &token);
     }
 
@@ -234,7 +248,19 @@ impl<T: HasSize + HasProbe + 'static> ResourceManager<T> {
             return Some(meta);
         }
 
-        let resolution = manager_inner::Resolution::begin(&self.inner, token)?;
+        if let Some(result) = manager_inner::completed_probe::<T>(&self.inner, token) {
+            return match result {
+                Ok(meta) => {
+                    self.insert_probe(token, meta.clone());
+                    Some(meta)
+                }
+                Err(_) => {
+                    self.mark_failed_probe(token);
+                    None
+                }
+            };
+        }
+        let mut resolution = manager_inner::Resolution::begin(&self.inner, token)?;
 
         // Step 4: peek by_token kind (no borrow held across the dispatch)
         let entry_kind = self.inner.borrow().peek_entry_kind(token);
@@ -287,20 +313,21 @@ impl<T: HasSize + HasProbe + 'static> ResourceManager<T> {
         }
 
         // Step 5: loader chain
-        match manager_inner::walk_probe_chain::<T>(&self.inner, token) {
-            Some(Ok(meta)) => {
+        match manager_inner::walk_probe_chain::<T>(&self.inner, token, &mut resolution) {
+            Poll::Ready(Some(meta)) => {
                 if !resolution.is_current() {
                     return None;
                 }
                 self.insert_probe(token, meta.clone());
                 Some(meta)
             }
-            Some(Err(_)) | None => {
+            Poll::Ready(None) => {
                 if resolution.is_current() {
                     self.mark_failed_probe(token);
                 }
                 None
             }
+            Poll::Pending => None,
         }
     }
 

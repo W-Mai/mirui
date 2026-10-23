@@ -1,6 +1,8 @@
+use super::LoadContext;
 use crate::core::resource::probe::HasProbe;
+use core::task::Poll;
 
-/// Outcome of [`Loader::try_load`] (and [`ProbeLoader::try_probe`]) when the
+/// Outcome of [`Loader::poll_load`] (and [`ProbeLoader::poll_probe`]) when the
 /// loader did not return a value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoadError {
@@ -8,9 +10,11 @@ pub enum LoadError {
     /// walking the loader chain.
     NotMine,
     /// The loader claimed the token but failed to produce a value. The
-    /// manager logs the message once and marks the token as failed (no retry
+    /// manager marks the token as failed (no retry
     /// until [`crate::core::resource::ResourceManager::clear_failed`] is called).
     Failed(&'static str),
+    /// Opening or reading the claimed byte source failed.
+    Source(super::AssetError),
 }
 
 impl LoadError {
@@ -19,7 +23,14 @@ impl LoadError {
         match self {
             LoadError::NotMine => None,
             LoadError::Failed(m) => Some(m),
+            LoadError::Source(_) => Some("resource source failed"),
         }
+    }
+}
+
+impl From<super::AssetError> for LoadError {
+    fn from(error: super::AssetError) -> Self {
+        Self::Source(error)
     }
 }
 
@@ -31,20 +42,65 @@ impl LoadError {
 /// `Fn(&str) -> Result<T, LoadError>` is automatically a [`Loader<T>`] via a
 /// blanket impl, so simple loaders can be passed as closures.
 pub trait Loader<T>: 'static {
-    fn try_load(&self, token: &str) -> Result<T, LoadError>;
+    /// Prepared once per concurrent invocation slot. Reuse owned scratch in `reset` when possible.
+    type State: Default + 'static;
+
+    /// Reject unrelated tokens without decoding. Byte recognition consumes only the supplied prefix.
+    fn recognize(&self, input: LoadInput<'_>) -> FormatMatch;
+    /// Retain progress in `state` and arrange a wake through `cx.waker()` before returning `Pending`. No reference to `cx` may escape this call.
+    fn poll_load(
+        &self,
+        state: &mut Self::State,
+        cx: &mut LoadContext<'_>,
+    ) -> Poll<Result<T, LoadError>>;
+    /// Retire an invocation after completion, failure or invalidation. Any externally owned I/O must remain memory-safe when this state is reset.
+    fn reset(&self, state: &mut Self::State) {
+        *state = Self::State::default();
+    }
+}
+
+/// Bounded content recognition. `Need` requests a prefix length, not a full decode.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FormatMatch {
+    NoMatch,
+    Need(usize),
+    Match,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum LoadInput<'a> {
+    Token(&'a str),
+    Bytes {
+        token: &'a str,
+        prefix: &'a [u8],
+        eof: bool,
+    },
 }
 
 /// Metadata access without producing the decoded resource. Register this capability with [`super::ResourceManager::add_probed_loader`].
 pub trait ProbeLoader<T: HasProbe>: Loader<T> {
-    fn try_probe(&self, token: &str) -> Result<T::Meta, LoadError>;
+    fn poll_probe(
+        &self,
+        state: &mut Self::State,
+        cx: &mut LoadContext<'_>,
+    ) -> Poll<Result<T::Meta, LoadError>>;
 }
 
 impl<T, F> Loader<T> for F
 where
     F: Fn(&str) -> Result<T, LoadError> + 'static,
 {
-    fn try_load(&self, token: &str) -> Result<T, LoadError> {
-        self(token)
+    type State = ();
+
+    fn recognize(&self, input: LoadInput<'_>) -> FormatMatch {
+        match input {
+            LoadInput::Token(_) => FormatMatch::Match,
+            LoadInput::Bytes { .. } => FormatMatch::NoMatch,
+        }
+    }
+
+    fn poll_load(&self, _: &mut (), cx: &mut LoadContext<'_>) -> Poll<Result<T, LoadError>> {
+        Poll::Ready(self(cx.token()))
     }
 }
 
@@ -103,21 +159,43 @@ mod tests {
                 Err(LoadError::NotMine)
             }
         };
-        assert_eq!(loader.try_load("logo").map(|i| (i.w, i.h)), Ok((16, 16)));
-        assert_eq!(loader.try_load("other"), Err(LoadError::NotMine));
+        let mut cx = LoadContext::new("logo", core::task::Waker::noop(), 4);
+        assert_eq!(
+            loader
+                .poll_load(&mut (), &mut cx)
+                .map(|result| result.map(|i| (i.w, i.h))),
+            Poll::Ready(Ok((16, 16)))
+        );
+        let mut cx = LoadContext::new("other", core::task::Waker::noop(), 4);
+        assert_eq!(
+            loader.poll_load(&mut (), &mut cx),
+            Poll::Ready(Err(LoadError::NotMine))
+        );
     }
 
     #[test]
-    fn override_try_probe_avoids_full_load() {
+    fn explicit_probe_avoids_full_load() {
         struct ProbeAware;
         impl Loader<Img> for ProbeAware {
-            fn try_load(&self, _t: &str) -> Result<Img, LoadError> {
-                panic!("try_load should not run when try_probe is overridden");
+            type State = ();
+            fn recognize(&self, _: LoadInput<'_>) -> FormatMatch {
+                FormatMatch::Match
+            }
+            fn poll_load(
+                &self,
+                _: &mut (),
+                _: &mut LoadContext<'_>,
+            ) -> Poll<Result<Img, LoadError>> {
+                panic!("metadata must not decode pixels");
             }
         }
         impl ProbeLoader<Img> for ProbeAware {
-            fn try_probe(&self, _t: &str) -> Result<ImgMeta, LoadError> {
-                Ok(ImgMeta { w: 64, h: 32 })
+            fn poll_probe(
+                &self,
+                _: &mut (),
+                _: &mut LoadContext<'_>,
+            ) -> Poll<Result<ImgMeta, LoadError>> {
+                Poll::Ready(Ok(ImgMeta { w: 64, h: 32 }))
             }
         }
         let manager = super::super::ResourceManager::new(

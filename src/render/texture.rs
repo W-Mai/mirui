@@ -869,9 +869,26 @@ impl<F> crate::core::resource::Loader<Texture<'static>> for MirxLoader<F>
 where
     F: Fn(&str) -> Option<&'static [u8]> + 'static,
 {
-    fn try_load(&self, token: &str) -> Result<Texture<'static>, crate::core::resource::LoadError> {
-        let bytes = (self.fetch)(token).ok_or(crate::core::resource::LoadError::NotMine)?;
-        Texture::from_mirx_with(bytes, self.options).map_err(Into::into)
+    type State = ();
+
+    fn recognize(
+        &self,
+        input: crate::core::resource::LoadInput<'_>,
+    ) -> crate::core::resource::FormatMatch {
+        use crate::core::resource::{FormatMatch, LoadInput};
+        match input {
+            LoadInput::Token(_) => FormatMatch::Match,
+            LoadInput::Bytes { .. } => FormatMatch::NoMatch,
+        }
+    }
+
+    fn poll_load(
+        &self,
+        _: &mut (),
+        cx: &mut crate::core::resource::LoadContext<'_>,
+    ) -> core::task::Poll<Result<Texture<'static>, crate::core::resource::LoadError>> {
+        let bytes = (self.fetch)(cx.token()).ok_or(crate::core::resource::LoadError::NotMine)?;
+        core::task::Poll::Ready(Texture::from_mirx_with(bytes, self.options).map_err(Into::into))
     }
 }
 
@@ -879,9 +896,13 @@ impl<F> crate::core::resource::ProbeLoader<Texture<'static>> for MirxLoader<F>
 where
     F: Fn(&str) -> Option<&'static [u8]> + 'static,
 {
-    fn try_probe(&self, token: &str) -> Result<TextureMeta, crate::core::resource::LoadError> {
-        let bytes = (self.fetch)(token).ok_or(crate::core::resource::LoadError::NotMine)?;
-        Texture::probe_mirx(bytes).map_err(Into::into)
+    fn poll_probe(
+        &self,
+        _: &mut (),
+        cx: &mut crate::core::resource::LoadContext<'_>,
+    ) -> core::task::Poll<Result<TextureMeta, crate::core::resource::LoadError>> {
+        let bytes = (self.fetch)(cx.token()).ok_or(crate::core::resource::LoadError::NotMine)?;
+        core::task::Poll::Ready(Texture::probe_mirx(bytes).map_err(Into::into))
     }
 }
 

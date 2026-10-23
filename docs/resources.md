@@ -25,6 +25,16 @@ Loader and probe callbacks run without a borrow of the resource manager. Resolvi
 
 Resource notifications are issued after publication and after releasing the manager borrow. A token's existing subscription remains attached when that token is removed and registered again. Cache hits and warmed handle reads do not allocate call guards or invoke external loaders.
 
+## Deferred loading
+
+`Loader` provides `State`, `recognize`, `poll_load` and `reset`; `ProbeLoader` provides `poll_probe` using the same state. A pending invocation retains its progress and returns the fallback to consumers. The loader must register `LoadContext::waker()` with its completion mechanism. `LoadContext::consume_work()` bounds cooperative decoding work and schedules another poll when the allowance is exhausted. Simple `Fn(&str) -> Result<T, LoadError>` loaders complete immediately through this same protocol.
+
+An owner-thread executor calls `manager.poll_pending(&mut context)`. This registers its standard `Waker`, advances ready invocations and publishes completed values through existing token subscriptions. I/O wake notifications never invoke a loader, access UI state or publish resources from another thread. Self-driven callers can poll on their normal tick with a no-op waker; an event-driven executor must supply a waker that schedules another turn.
+
+Each loader registration prepares four reusable invocation slots. Full capacity returns the fallback and marks the attempted value load failed; `clear_failed(token)` permits an explicit retry. Pending invocations are not evicted. Completed probe state can be reused by value loading or retired to admit another token. Slot and wake storage is prepared at registration; token strings, completed values, metadata and third-party decoding allocations are separate from the value-cache budget. Static-only managers allocate no invocation slots or wake state.
+
+Replacing or removing a pending token rejects its old completion. An invalidated invocation retires on the next owner-thread poll, including when the external producer has not sent a wake. Loaders that own asynchronous operations must ensure resetting their state cannot free memory still accessed by that operation. Metadata probing never falls through to full decoding.
+
 ## Image updates
 
 `Image(src: "cover", ...)` observes its resource token through the registered View. Replacing or removing that token invalidates the image without changing `src`. Switching `src`, removing the `Image` component, or deleting its entity releases the old View subscription. Resource publication uses the existing reactive invalidation queues; rendering does not poll for changes.
@@ -37,4 +47,4 @@ Each read takes ownership of an `AssetBuffer` and returns it in `ReadComplete`, 
 
 `ReadProgress::filled` and `eof` are independent: a short read may continue, while zero bytes without EOF on a nonempty request is invalid. `SourceConsistency::Stable` guarantees one immutable content version across reads, not merely an open file descriptor. `Unverified` must not be used to assemble a supposedly consistent media object.
 
-These traits define the byte-provider boundary. They do not register a provider with `ResourceManager` or change the synchronous loader entry points documented above.
+These traits define the byte-provider boundary. They do not register a byte source with `ResourceManager`; token loaders use the polling entry points described above.
