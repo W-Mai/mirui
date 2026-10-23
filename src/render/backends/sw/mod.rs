@@ -960,10 +960,6 @@ impl SwRenderer<'_> {
                 .map_err(RenderError::from)?;
             return Ok(RenderRoute::Native);
         }
-        let affine = !matches!(
-            request.command.transform().classify(),
-            TransformClass::Identity | TransformClass::Translate
-        );
         match request.command {
             DrawCommand::FillPath {
                 path,
@@ -1006,8 +1002,14 @@ impl SwRenderer<'_> {
                 radius,
                 composite,
                 opa,
+                transform,
                 ..
-            } if affine && quad.is_none() => {
+            } if quad.is_none()
+                && !matches!(
+                    transform.classify(),
+                    TransformClass::Identity | TransformClass::Translate
+                ) =>
+            {
                 if *radius != Fixed::ZERO {
                     return Err(RenderError::Unsupported(RenderFeature::RoundedBlit));
                 }

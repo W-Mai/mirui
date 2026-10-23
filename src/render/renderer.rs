@@ -113,13 +113,12 @@ impl<'cmd, 'data> DrawRequest<'cmd, 'data> {
     }
 
     pub(crate) fn validate_projection(&self) -> Result<(), RenderError> {
-        if !self.projective.is_identity()
-            && matches!(
-                self.command,
-                DrawCommand::Fill { quad: Some(_), .. }
-                    | DrawCommand::Border { quad: Some(_), .. }
-                    | DrawCommand::Blit { quad: Some(_), .. }
-            )
+        if matches!(
+            self.command,
+            DrawCommand::Fill { quad: Some(_), .. }
+                | DrawCommand::Border { quad: Some(_), .. }
+                | DrawCommand::Blit { quad: Some(_), .. }
+        ) && !self.projective.is_identity()
         {
             return Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry));
         }
