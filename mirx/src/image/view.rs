@@ -1,8 +1,8 @@
 use core::iter::FusedIterator;
 
 use super::{
-    PLANE_RECORD_LEN, PlaneGeometry, PlaneMemoryError, PlaneMemoryLayout, PlaneMemoryRecordError,
-    SURFACE_RECORD_LEN, SampleLayout, SurfaceDescriptor, SurfaceRecordError,
+    PlaneGeometry, PlaneMemoryLayout, PlaneMemoryRecordError, RawImageLayout, SampleLayout,
+    SurfaceDescriptor, SurfaceRecordError,
 };
 use crate::media::{MediaPayload, MediaPayloadError, MediaSection, MediaSectionKind};
 use crate::palette::ColorTableView;
@@ -114,9 +114,7 @@ impl<'a> RawImageView<'a> {
 
         let surface_section =
             surface_section.ok_or(RawImageViewError::MissingSection(MediaSectionKind::SURFACE))?;
-        validate_section_size(surface_section, SURFACE_RECORD_LEN)?;
-        let surface = SurfaceDescriptor::from_record(surface_section.bytes())
-            .map_err(RawImageViewError::Surface)?;
+        let surface = super::raw_layout::parse_surface(surface_section.bytes())?;
         let data = data.ok_or(RawImageViewError::MissingSection(MediaSectionKind::DATA))?;
 
         let color_table = surface
@@ -135,13 +133,6 @@ impl<'a> RawImageView<'a> {
     }
 
     fn validate_planes(self, payload_file_offset: Option<u32>) -> Result<(), RawImageViewError> {
-        if let Some(section) = self.plane_records {
-            let expected = usize::from(self.plane_count())
-                .checked_mul(PLANE_RECORD_LEN)
-                .ok_or(RawImageViewError::SizeOverflow)?;
-            validate_section_size(section, expected)?;
-        }
-
         let data_file_offset = match payload_file_offset {
             Some(payload_offset) => Some(
                 payload_offset
@@ -152,48 +143,13 @@ impl<'a> RawImageView<'a> {
         };
         let data_len =
             u32::try_from(self.data.bytes().len()).map_err(|_| RawImageViewError::SizeOverflow)?;
-        let mut previous_end = 0;
-        for index in 0..self.plane_count() {
-            let geometry = self
-                .surface
-                .plane(index)
-                .expect("validated surface plane index");
-            let memory = self.plane_memory(index, geometry)?;
-            if memory.data_offset() < previous_end {
-                return Err(RawImageViewError::PlaneRangesOverlap {
-                    previous: index - 1,
-                    next: index,
-                });
-            }
-            if memory.data_end() > data_len {
-                return Err(RawImageViewError::PlaneDataOutOfBounds {
-                    index,
-                    offset: memory.data_offset(),
-                    size: memory.byte_len(),
-                    data_size: data_len,
-                });
-            }
-            if let Some(data_offset) = data_file_offset {
-                if !memory.file_address_is_aligned(data_offset) {
-                    let absolute_offset = data_offset
-                        .checked_add(memory.data_offset())
-                        .ok_or(RawImageViewError::SizeOverflow)?;
-                    return Err(RawImageViewError::PlaneFileAddressUnaligned {
-                        index,
-                        absolute_offset,
-                        alignment: memory.required_alignment(),
-                    });
-                }
-            }
-            previous_end = memory.data_end();
-        }
-        if self.plane_records.is_none() && previous_end != data_len {
-            return Err(RawImageViewError::CanonicalDataSizeMismatch {
-                expected: previous_end,
-                actual: data_len,
-            });
-        }
-        Ok(())
+        RawImageLayout::new(
+            self.surface,
+            self.plane_records.map(|section| section.bytes()),
+            data_len,
+            data_file_offset,
+        )
+        .map(|_| ())
     }
 
     fn plane_memory(
@@ -201,30 +157,12 @@ impl<'a> RawImageView<'a> {
         index: u8,
         geometry: PlaneGeometry,
     ) -> Result<PlaneMemoryLayout, RawImageViewError> {
-        match self.plane_records {
-            Some(records) => {
-                let start = usize::from(index)
-                    .checked_mul(PLANE_RECORD_LEN)
-                    .ok_or(RawImageViewError::SizeOverflow)?;
-                let record = records
-                    .bytes()
-                    .get(
-                        start
-                            ..start
-                                .checked_add(PLANE_RECORD_LEN)
-                                .ok_or(RawImageViewError::SizeOverflow)?,
-                    )
-                    .ok_or(RawImageViewError::SizeOverflow)?;
-                PlaneMemoryLayout::from_record(geometry, record)
-                    .map_err(|error| RawImageViewError::InvalidPlaneRecord { index, error })
-            }
-            None => canonical_plane_memory(self.surface, index).map_err(|error| {
-                RawImageViewError::InvalidPlaneRecord {
-                    index,
-                    error: PlaneMemoryRecordError::InvalidLayout(error),
-                }
-            }),
-        }
+        super::raw_layout::plane_memory(
+            self.surface,
+            self.plane_records.map(|section| section.bytes()),
+            index,
+            geometry,
+        )
     }
 }
 
@@ -345,22 +283,6 @@ pub enum RawImageViewError {
     SizeOverflow,
 }
 
-fn validate_section_size(
-    section: MediaSection<'_>,
-    expected: usize,
-) -> Result<(), RawImageViewError> {
-    let kind = section.descriptor().kind();
-    let actual = section.bytes().len();
-    if actual != expected {
-        return Err(RawImageViewError::SectionSizeMismatch {
-            kind,
-            expected,
-            actual,
-        });
-    }
-    Ok(())
-}
-
 impl From<super::color_table::ColorTableError> for RawImageViewError {
     fn from(error: super::color_table::ColorTableError) -> Self {
         use super::color_table::ColorTableError;
@@ -377,31 +299,13 @@ impl From<super::color_table::ColorTableError> for RawImageViewError {
     }
 }
 
-fn canonical_plane_memory(
-    surface: SurfaceDescriptor,
-    requested: u8,
-) -> Result<PlaneMemoryLayout, PlaneMemoryError> {
-    let mut offset = 0;
-    for index in 0..surface.plane_count() {
-        let geometry = surface.plane(index).ok_or(PlaneMemoryError::SizeOverflow)?;
-        let memory = PlaneMemoryLayout::builder(geometry)
-            .with_data_offset(offset)
-            .build()?;
-        if index == requested {
-            return Ok(memory);
-        }
-        offset = memory.data_end();
-    }
-    Err(PlaneMemoryError::SizeOverflow)
-}
-
 #[cfg(test)]
 mod tests {
     use alloc::vec;
     use alloc::vec::Vec;
 
     use super::*;
-    use crate::image::{ColorDescription, PlaneMemoryFlags};
+    use crate::image::{ColorDescription, PLANE_RECORD_LEN, PlaneMemoryFlags, SURFACE_RECORD_LEN};
     use crate::media::{
         MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION, MediaSectionFlags,
     };
@@ -552,6 +456,19 @@ mod tests {
         assert_eq!(plane.memory().allocation_height(), 192);
         assert_eq!(plane.memory().stride(), 1_280);
         assert_eq!(plane.memory().required_alignment(), 64);
+        let metadata =
+            RawImageLayout::new(surface, Some(&record), data.len() as u32, Some(64)).unwrap();
+        assert_eq!(metadata.plane(0), Some(plane.memory()));
+        assert!(matches!(
+            RawImageLayout::new(surface, Some(&record), data.len() as u32, Some(65)),
+            Err(RawImageViewError::PlaneFileAddressUnaligned { .. })
+        ));
+        for len in 0..record.len() {
+            assert!(matches!(
+                RawImageLayout::new(surface, Some(&record[..len]), data.len() as u32, None),
+                Err(RawImageViewError::SectionSizeMismatch { .. })
+            ));
+        }
     }
 
     #[test]

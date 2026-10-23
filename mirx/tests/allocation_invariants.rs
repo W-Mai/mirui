@@ -6,8 +6,8 @@ mod support;
 
 use mirx::frames::{FrameSequence, FramesEncoder};
 use mirx::image::{
-    ColorDescription, ColorFormat, ImageAsset, PlaneMemoryLayout, RawImageAsset, RawImageView,
-    SampleLayout, SurfaceDescriptor, SurfaceRequirements,
+    ColorDescription, ColorFormat, ImageAsset, PlaneMemoryLayout, RawImageAsset, RawImageLayout,
+    RawImageView, SampleLayout, SurfaceDescriptor, SurfaceRequirements,
 };
 use mirx::meta::{Meta, MetaEntry};
 use mirx::palette::Palette;
@@ -22,6 +22,42 @@ fn wire_fixed(bits: i32) -> Fixed {
 }
 
 struct TrackingAllocator;
+
+#[test]
+fn raw_layout_validation_needs_only_metadata_not_declared_pixel_storage() {
+    use mirx::image::RawImageViewError;
+    let surface = SurfaceDescriptor::new(
+        32_768,
+        32_768,
+        SampleLayout::RGBA8888,
+        ColorDescription::SRGB,
+    )
+    .unwrap();
+    // A four-GiB declaration cannot fit the wire DATA range, regardless of host memory.
+    let (_, allocations) = count_allocations(|| {
+        assert!(RawImageLayout::new(surface, None, u32::MAX, Some(0)).is_err());
+        let surface = SurfaceDescriptor::new(
+            32_768,
+            16_384,
+            SampleLayout::RGBA8888,
+            ColorDescription::SRGB,
+        )
+        .unwrap();
+        let layout = RawImageLayout::new(surface, None, 1 << 31, Some(0)).unwrap();
+        assert_eq!(layout.surface(), surface);
+        assert_eq!(layout.plane(0).unwrap().byte_len(), 1 << 31);
+        assert_eq!(layout.plane(1), None);
+        assert!(matches!(
+            RawImageLayout::new(surface, None, (1 << 31) - 1, None),
+            Err(RawImageViewError::PlaneDataOutOfBounds { .. })
+        ));
+        assert!(matches!(
+            RawImageLayout::new(surface, None, (1 << 31) + 1, None),
+            Err(RawImageViewError::CanonicalDataSizeMismatch { .. })
+        ));
+    });
+    assert_eq!(allocations, 0);
+}
 
 #[test]
 fn indexed_coverage_windows_retain_no_table_or_data_buffers() {
@@ -98,6 +134,7 @@ fn media_windows_scan_without_owning_the_directory_or_samples() {
         let mut scan = layout.sections();
         let mut count = 0;
         let mut data = None;
+        let mut surface_window = None;
         while let Some(range) = scan.record_range() {
             let mut record = [0; 12];
             record.copy_from_slice(&bytes[range]);
@@ -106,10 +143,30 @@ fn media_windows_scan_without_owning_the_directory_or_samples() {
             if descriptor.kind() == MediaSectionKind::DATA {
                 data = Some(descriptor);
             }
+            if descriptor.kind() == MediaSectionKind::SURFACE {
+                surface_window = Some(descriptor);
+            }
             count += 1;
         }
         assert_eq!(count, layout.header().section_count());
         let data = data.unwrap();
+        let record = surface_window.unwrap();
+        let record = &bytes[record.offset() as usize..(record.offset() + record.size()) as usize];
+        let raw = RawImageLayout::parse(record, None, data.size(), Some(data.offset())).unwrap();
+        assert_eq!(raw.surface(), surface);
+        assert_eq!(
+            raw.plane(0),
+            Some(
+                RawImageView::open(&bytes)
+                    .unwrap()
+                    .plane(0)
+                    .unwrap()
+                    .memory()
+            )
+        );
+        for length in 0..record.len() {
+            assert!(RawImageLayout::parse(&record[..length], None, data.size(), None).is_err());
+        }
         assert_eq!(
             &bytes[data.offset() as usize..(data.offset() + data.size()) as usize],
             &source

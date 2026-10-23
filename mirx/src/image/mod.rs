@@ -65,6 +65,7 @@ mod grid;
 mod layout;
 mod memory;
 mod plan;
+mod raw_layout;
 mod reference;
 mod region;
 pub(crate) mod samples;
@@ -103,6 +104,7 @@ pub use plan::{
     BufferRequirementError, BufferRequirements, SurfaceMemoryPlan, SurfaceMemoryPlanes,
     SurfacePlanError, SurfaceRequirements,
 };
+pub use raw_layout::RawImageLayout;
 pub use reference::{ImageReadError, ImageRef};
 pub use region::RegionMemoryPlan;
 pub(crate) use surface::SURFACE_RECORD_LEN;
