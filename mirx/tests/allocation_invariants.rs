@@ -27,7 +27,7 @@ struct TrackingAllocator;
 fn encoded_directory_windows_bind_metadata_without_allocating() {
     use mirx::{
         coding::Rle,
-        image::{EncodedImageAsset, EncodedImageScan},
+        image::{EncodedImageAsset, EncodedImageScan, ImageValidation},
         reader::{MediaLayout, MediaSectionKind},
     };
     let surface = SurfaceDescriptor::new(4, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
@@ -46,6 +46,13 @@ fn encoded_directory_windows_bind_metadata_without_allocating() {
         let layout = scan.finish(codings, None, None).unwrap();
         assert_eq!(layout.surface(), surface);
         assert_eq!(layout.group(0).unwrap().unit_range(0), Some(0..2));
+        let mut validation = ImageValidation::new(&PayloadLimits::EMBEDDED);
+        validation.validate_layout(layout).unwrap();
+        validation
+            .validate_unit(0, 0, layout.group(0).unwrap().unit(0, &[0x83, 42]).unwrap())
+            .unwrap();
+        validation.charge_data(2).unwrap();
+        assert_eq!(validation.unit_count(), 1);
     });
     assert_eq!(allocations, 0);
 }

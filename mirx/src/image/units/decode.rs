@@ -57,6 +57,10 @@ pub(crate) enum ScalarProfile {
 }
 
 impl ScalarProfile {
+    pub(crate) fn for_unit(unit: DecodeUnitRef<'_>) -> Result<Self, UnitDecodeError> {
+        Self::new(unit.coding, unit.surface.sample_layout())
+    }
+
     pub(crate) fn new(
         coding: CodingRecord<'_>,
         layout: SampleLayout,
@@ -178,7 +182,7 @@ impl<'a> DecodeUnitRef<'a> {
         self,
         requirements: SurfaceRequirements,
     ) -> Result<UnitDecodePlan<'a>, UnitDecodeError> {
-        let profile = ScalarProfile::new(self.coding, self.surface.sample_layout())?;
+        let profile = ScalarProfile::for_unit(self)?;
         if matches!(profile, ScalarProfile::FrameDelta(_))
             && self.reference != ReferenceMode::Previous
         {

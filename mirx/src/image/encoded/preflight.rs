@@ -17,6 +17,68 @@ pub(crate) struct Preflight<'a> {
     total_units: u64,
 }
 
+/// Bounded validation shared by source-backed IMAGE metadata and unit reads.
+///
+/// This retains only limits and counters, not metadata or DATA borrows. Submit each image layout once and every stored unit exactly once, and charge all DATA bytes before checksum scanning. Individual successful calls do not establish completeness or verify checksums; the caller owns traversal and immutable source identity.
+pub struct ImageValidation<'a> {
+    inner: Preflight<'a>,
+}
+
+impl<'a> ImageValidation<'a> {
+    pub fn new(limits: &'a PayloadLimits) -> Self {
+        Self {
+            inner: Preflight::new(limits, 0).expect("zero groups fit every limit"),
+        }
+    }
+
+    /// Checks canonical group ranges, exact coverage, supported profiles and aggregate group/unit limits without retaining the supplied layout. Input syntax and decoded-size limits are checked by `validate_unit` when bytes are available.
+    pub fn validate_layout(
+        &mut self,
+        image: super::EncodedImageLayout<'_>,
+    ) -> Result<(), EncodedImageError> {
+        self.inner.add_groups(image.group_count())?;
+        image.validate_groups(&mut self.inner.budget)?;
+        for index in 0..image.group_count() {
+            let record = image.metadata.record(index)?;
+            self.inner.spend(image.metadata.resolution_cost(record))?;
+            let group = image.metadata.resolve_record(index, record)?.0;
+            self.inner.add_units(group.selection.len() as u64)?;
+            ScalarProfile::new(group.coding, group.surface.sample_layout()).map_err(|error| {
+                EncodedImageError::Coding {
+                    group: index,
+                    error,
+                }
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Validates one complete unit using the resident reader's scalar syntax, decoded-size limit and work accounting. Group and ordinal identify diagnostics; the caller must not omit or duplicate units.
+    pub fn validate_unit(
+        &mut self,
+        group: usize,
+        ordinal: usize,
+        unit: DecodeUnitRef<'_>,
+    ) -> Result<UnitMemoryPlan, EncodedImageError> {
+        let profile = ScalarProfile::for_unit(unit)
+            .map_err(|error| EncodedImageError::Coding { group, error })?;
+        self.inner.unit(group, ordinal, unit, profile)
+    }
+
+    /// Charges checksum input work. Checksum comparison belongs to the existing integrity scanners.
+    pub fn charge_data(&mut self, bytes: u32) -> Result<(), EncodedImageError> {
+        self.inner.spend(u64::from(bytes))
+    }
+
+    pub fn work(&self) -> u64 {
+        self.inner.work()
+    }
+    /// Total units declared by admitted layouts, not the number of inputs validated.
+    pub fn unit_count(&self) -> u64 {
+        self.inner.total_units()
+    }
+}
+
 impl<'a> Preflight<'a> {
     pub(crate) fn new(limits: &'a PayloadLimits, groups: usize) -> Result<Self, EncodedImageError> {
         let mut preflight = Self {

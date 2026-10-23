@@ -12,6 +12,83 @@ use crate::{
 };
 
 #[test]
+fn detached_unit_validation_shares_resident_limits_and_work_accounting() {
+    let surface = SurfaceDescriptor::new(2, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    for input in [&[0x83, 42][..], &[0x84, 42][..], &[][..]] {
+        let bytes = payload(
+            surface,
+            &[Rle::new().record()],
+            None,
+            None,
+            input,
+            None,
+            None,
+        );
+        let image = EncodedImageView::open(&bytes).unwrap();
+        for max_groups in [0, 1] {
+            for max_units in [0, 1] {
+                for max_bytes in [3, 4] {
+                    let limits = PayloadLimits::EMBEDDED
+                        .with_max_raster_groups(max_groups)
+                        .with_max_raster_units(max_units)
+                        .with_max_decoded_bytes(max_bytes);
+                    let mut resident = Preflight::new(&limits, 0).unwrap();
+                    let expected = resident
+                        .image(image)
+                        .and_then(|()| resident.data(image.media, image.checksum_bytes));
+                    let mut windows = ImageValidation::new(&limits);
+                    let actual = (|| {
+                        windows.validate_layout(image.layout())?;
+                        let unit = image.layout().group(0)?.unit(0, input)?;
+                        windows.validate_unit(0, 0, unit)?;
+                        windows.charge_data(image.checksum_bytes)
+                    })();
+                    assert_eq!(actual, expected);
+                    assert_eq!(windows.work(), resident.work());
+                    assert_eq!(windows.unit_count(), resident.total_units());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn detached_validation_keeps_one_budget_across_images_and_short_lived_inputs() {
+    let surface = SurfaceDescriptor::new(2, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let bytes = EncodedImageAsset::new(surface, Rle::new().record(), &[0x83, 42])
+        .encode()
+        .unwrap();
+    let image = EncodedImageView::open(&bytes).unwrap();
+    let mut resident = Preflight::new(&PayloadLimits::EMBEDDED, 0).unwrap();
+    resident.image(image).unwrap();
+    resident.data(image.media, image.checksum_bytes).unwrap();
+    let once = resident.work();
+    for budget in [once - 1, once, once * 2 - 1, once * 2] {
+        let limits = PayloadLimits::EMBEDDED.with_max_raster_work(budget);
+        let mut windows = ImageValidation::new(&limits);
+        for iteration in 0..2 {
+            let result = (|| {
+                windows.validate_layout(image.layout())?;
+                {
+                    let input = [0x83, 42];
+                    windows.validate_unit(0, 0, image.layout().group(0)?.unit(0, &input)?)?;
+                }
+                windows.charge_data(image.checksum_bytes)
+            })();
+            if budget < once * (iteration + 1) {
+                assert!(matches!(
+                    result,
+                    Err(EncodedImageError::Coverage(CoverageError::BudgetExceeded))
+                ));
+                break;
+            }
+            result.unwrap();
+            assert_eq!(windows.work(), once * (iteration + 1));
+        }
+    }
+}
+
+#[test]
 fn shared_surface_admission_accumulates_limits_and_checksums_once() {
     let surface = SurfaceDescriptor::new(2, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let bytes = EncodedImageAsset::new(surface, Rle::new().record(), &[0x83, 42])
@@ -251,6 +328,9 @@ fn empty_surfaces_still_require_an_understood_active_profile() {
             .unwrap()
             .preflight(&limits)
             .unwrap();
+        ImageValidation::new(&limits)
+            .validate_layout(EncodedImageView::open(&bytes).unwrap().layout())
+            .unwrap();
     }
     for coding in [
         CodingRecord::new(CodingId::new(511), 1, &[]),
@@ -263,6 +343,11 @@ fn empty_surfaces_still_require_an_understood_active_profile() {
             .unwrap();
         assert!(matches!(
             EncodedImageView::open(&bytes).unwrap().preflight(&limits),
+            Err(EncodedImageError::Coding { group: 0, .. })
+        ));
+        assert!(matches!(
+            ImageValidation::new(&limits)
+                .validate_layout(EncodedImageView::open(&bytes).unwrap().layout()),
             Err(EncodedImageError::Coding { group: 0, .. })
         ));
     }

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- MIRX image validation shares resident preflight limits across separately loaded metadata and unit inputs without retaining their buffers.
 - MIRX encoded image directory scans locate metadata windows with fixed storage and share section validation with resident images.
 - MIRX encoded image layouts resolve regional unit inputs from separate metadata windows without retaining DATA, sharing coverage and decoding rules with resident images.
 - Nonmapped MIRX CHUNK RAW images validate primary and critical image payloads through bounded source windows, including whole-DATA and indexed checksums, then provide regional pixel reads under the shared decode budget.

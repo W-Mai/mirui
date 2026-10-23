@@ -90,6 +90,7 @@ pub(crate) use encoded::Preflight;
 pub use encoded::{
     DecodeError, EncodedImageAsset, EncodedImageError, EncodedImageLayout, EncodedImageScan,
     EncodedImageView, ImageDecodePlan, ImageGroupIter, ImageGroupLayout, ImageGroups,
+    ImageValidation,
 };
 pub use execution::{
     CacheSync, DecodeExecution, DecodeRequest, DecodeRequestError, MemoryPlacement,

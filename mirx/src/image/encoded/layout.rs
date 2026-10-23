@@ -41,7 +41,7 @@ mod tests;
 /// ```
 #[derive(Clone, Copy, Debug)]
 pub struct EncodedImageLayout<'a> {
-    metadata: GroupMetadata<'a>,
+    pub(super) metadata: GroupMetadata<'a>,
 }
 
 impl<'a> EncodedImageLayout<'a> {

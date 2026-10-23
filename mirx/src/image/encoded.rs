@@ -24,6 +24,7 @@ mod preflight;
 pub use decode::{DecodeError, ImageDecodePlan};
 pub use encode::EncodedImageAsset;
 pub(crate) use encode::StoragePlan;
+pub use preflight::ImageValidation;
 pub(crate) use preflight::Preflight;
 
 #[cfg(test)]
