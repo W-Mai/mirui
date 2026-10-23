@@ -240,8 +240,7 @@ fn source_region(request: &DrawRequest<'_, '_>, scale: Fixed) -> Result<Region, 
             (sample(first), sample(end - 1) + 1)
         } else {
             let sample = |pixel| {
-                super::sampling::SampleAxis::new(pixel, origin, extent, i32::from(samples))
-                    .next(i32::from(samples)) as u32
+                super::sampling::SampleAxis::at(pixel, origin, extent, i32::from(samples)) as u32
             };
             (sample(first), sample(end - 1) + 1)
         }
