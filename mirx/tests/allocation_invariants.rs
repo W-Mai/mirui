@@ -132,6 +132,14 @@ fn media_windows_scan_without_owning_the_directory_or_samples() {
             window.fill(0);
         }
         assert!(integrity.finish().unwrap().is_none());
+        let mut data = layout.whole_data().unwrap();
+        while let Some(range) = data.read_range() {
+            let count = range.len().min(window.len());
+            window[..count].copy_from_slice(&bytes[range.start..range.start + count]);
+            data.accept(&window[..count]).unwrap();
+            window.fill(0);
+        }
+        data.finish().unwrap();
     });
     assert_eq!(allocations, 0);
 }

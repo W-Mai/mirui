@@ -7,9 +7,11 @@
 use core::iter::FusedIterator;
 
 pub(crate) mod coding;
+mod data_scan;
 pub(crate) mod index;
 pub(crate) mod integrity;
 mod layout;
+pub use data_scan::WholeDataScan;
 pub use layout::{MediaLayout, SectionScan};
 mod metadata_scan;
 use metadata_scan::MetadataCoverage;
@@ -337,10 +339,7 @@ impl<'a> MediaPayload<'a> {
         let expected = read_u32_le(self.payload, self.payload.len() - MEDIA_CRC_LEN)
             .expect("validated DATA checksum trailer");
         let actual = self.data_crc();
-        if actual != expected {
-            return Err(MediaPayloadError::DataCrcMismatch { expected, actual });
-        }
-        Ok(())
+        data_scan::verify_checksum(expected, actual)
     }
 
     /// Returns indexed coverage, or `None` for the whole-DATA checksum form.
@@ -647,6 +646,141 @@ mod tests {
             scan.accept(&bytes[range.start..end])?;
         }
         scan.finish()
+    }
+
+    fn scan_whole_data(bytes: &[u8], window: usize) -> Result<(), MediaPayloadError> {
+        let layout = MediaLayout::parse(&bytes[..bytes.len().min(8)], bytes.len())?;
+        let mut scan = layout.whole_data().unwrap();
+        while let Some(range) = scan.read_range() {
+            let end = range.end.min(range.start + window);
+            scan.accept(&bytes[range.start..end])?;
+        }
+        scan.finish()
+    }
+
+    #[test]
+    fn whole_data_windows_match_slice_checksums_without_covering_padding() {
+        let bytes = payload(
+            &[
+                TestSection {
+                    kind: MediaSectionKind::DATA.raw(),
+                    flags: 1,
+                    offset: 80,
+                    bytes: &[1; 4],
+                },
+                TestSection {
+                    kind: MediaSectionKind::DATA.raw(),
+                    flags: 1,
+                    offset: 84,
+                    bytes: &[],
+                },
+                TestSection {
+                    kind: MediaSectionKind::DATA.raw(),
+                    flags: 1,
+                    offset: 84,
+                    bytes: &[2; 4],
+                },
+                TestSection {
+                    kind: MediaSectionKind::SURFACE.raw(),
+                    flags: 1,
+                    offset: 92,
+                    bytes: &[3; 8],
+                },
+                TestSection {
+                    kind: MediaSectionKind::DATA.raw(),
+                    flags: 1,
+                    offset: 104,
+                    bytes: &[4; 4],
+                },
+            ],
+            0,
+        );
+        for source in [&bytes, &payload(&[], 0)] {
+            let media = MediaPayload::open(source).unwrap();
+            for window in [1, 2, 3, 7, 12, 31, source.len()] {
+                let layout = MediaLayout::parse(&source[..8], source.len()).unwrap();
+                assert!(layout.whole_data().unwrap().finish().is_err());
+                let mut scan = layout.whole_data().unwrap();
+                let mut reads = vec![0; source.len()];
+                while let Some(range) = scan.read_range() {
+                    assert_eq!(scan.accept(&[]), Err(MediaPayloadError::InvalidDataRange));
+                    assert_eq!(scan.read_range(), Some(range.clone()));
+                    let end = range.end.min(range.start + window);
+                    for count in &mut reads[range.start..end] {
+                        *count += 1;
+                    }
+                    scan.accept(&source[range.start..end]).unwrap();
+                }
+                assert_eq!(scan.accept(&[0]), Err(MediaPayloadError::InvalidDataRange));
+                scan.finish().unwrap();
+                for (index, count) in reads.into_iter().enumerate() {
+                    let covered = layout.directory_range().contains(&index)
+                        || layout.checksum_trailer().unwrap().contains(&index)
+                        || media
+                            .sections_of_kind(MediaSectionKind::DATA)
+                            .any(|section| {
+                                let start = section.descriptor().offset() as usize;
+                                (start..start + section.bytes().len()).contains(&index)
+                            });
+                    assert_eq!(count, usize::from(covered));
+                }
+            }
+            // DATA checks remain independent of the metadata CRC.
+            for offset in 8..source.len() {
+                for value in [0, 1, 0x7f, 0xff] {
+                    let mut changed = source.clone();
+                    changed[offset] = value;
+                    assert_eq!(
+                        scan_whole_data(&changed, 3),
+                        MediaPayload::parse(&changed).and_then(MediaPayload::validate_data),
+                        "changed byte {offset} to {value}"
+                    );
+                }
+            }
+        }
+        let indexed = indexed_image();
+        assert!(
+            MediaLayout::parse(&indexed[..8], indexed.len())
+                .unwrap()
+                .whole_data()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn whole_data_window_retries_preserve_partial_records_and_crc() {
+        let bytes = payload(
+            &[TestSection {
+                kind: MediaSectionKind::DATA.raw(),
+                flags: 1,
+                offset: 24,
+                bytes: &[0x51; 257],
+            }],
+            0,
+        );
+        let layout = MediaLayout::parse(&bytes[..8], bytes.len()).unwrap();
+        let mut scan = layout.whole_data().unwrap();
+        scan.accept(&bytes[8..11]).unwrap();
+        assert_eq!(scan.read_range(), Some(11..20));
+        assert_eq!(
+            scan.accept(&bytes[11..21]),
+            Err(MediaPayloadError::InvalidDataRange)
+        );
+        let mut invalid = bytes[11..20].to_vec();
+        invalid[1..5].copy_from_slice(&0u32.to_le_bytes());
+        assert!(scan.accept(&invalid).is_err());
+        assert_eq!(scan.read_range(), Some(11..20));
+        scan.accept(&bytes[11..20]).unwrap();
+        scan.accept(&bytes[24..280]).unwrap();
+        assert_eq!(scan.read_range(), Some(280..281));
+        assert_eq!(
+            scan.accept(&[0; 2]),
+            Err(MediaPayloadError::InvalidDataRange)
+        );
+        while let Some(range) = scan.read_range() {
+            scan.accept(&bytes[range.start..range.start + 1]).unwrap();
+        }
+        scan.finish().unwrap();
     }
 
     fn scan_integrity(

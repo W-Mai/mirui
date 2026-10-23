@@ -104,6 +104,8 @@ Range-based consumers can use `reader::ContainerLayout` without retaining a comp
 
 `MediaLayout::integrity()` prepares that coverage check. Its `read_range()` and `accept(bytes)` alternate directory and integrity-record windows without reading DATA. `finish()` rejects incomplete scans and returns the checked table descriptor, or `None` for whole-DATA integrity. Missing, duplicate or optional integrity tables, gaps, cross-section partitions and extra records are rejected. Metadata CRC and requested DATA checksums must still be verified independently.
 
+`MediaLayout::whole_data()` returns a `WholeDataScan` for whole-DATA integrity, or `None` for indexed integrity. The scan alternates directory records and DATA ranges, then reads the checksum trailer. `read_range()`, `accept(bytes)` and `finish()` support reusable short windows with constant storage; DATA bytes are checksummed once, excluding metadata and padding. Ranges may move backwards, and all reads must refer to the same immutable source. Metadata, integrity-table association and typed payload validation remain separate checks.
+
 `Reader` validates the common header, exact logical length, chunk table, payload ranges, primary selection, and configured resource limits. Chunk iteration and borrowed typed views continue to reference the input bytes.
 
 ```rust

@@ -16,6 +16,11 @@ pub struct MediaLayout {
 }
 
 impl MediaLayout {
+    /// Prepare a whole-DATA checksum scan, or return `None` when this payload uses indexed integrity. Metadata and typed contents require separate validation.
+    pub fn whole_data(self) -> Option<super::WholeDataScan> {
+        super::WholeDataScan::new(self)
+    }
+
     /// Validate integrity-table association and exact DATA partition coverage through bounded metadata reads. This does not checksum metadata or DATA bytes.
     pub fn integrity(self) -> Result<super::integrity::MediaIntegrityScan, MediaPayloadError> {
         super::integrity::MediaIntegrityScan::new(self)

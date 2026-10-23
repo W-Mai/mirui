@@ -17,7 +17,7 @@ pub use crate::media::integrity::{
 };
 pub use crate::media::{
     MediaFlags, MediaHeader, MediaLayout, MediaPayloadError, MediaSectionDescriptor,
-    MediaSectionFlags, MediaSectionKind, MetadataScan, SectionScan,
+    MediaSectionFlags, MediaSectionKind, MetadataScan, SectionScan, WholeDataScan,
 };
 pub use container_layout::{ChunkLocation, ContainerLayout};
 pub use entry::{ChunkRef, EntryIter};
