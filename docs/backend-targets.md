@@ -44,6 +44,8 @@ Web Canvas copies prepared regions into its existing offscreen texture cache usi
 
 Third-party CPU renderers can use the default `prepare` implementation and read `draw.texture_region()`. Native renderers override preparation to check source-device compatibility and return `PreparedDraw::native`, or prepare CPU pixels before using an upload path. A renderer must recheck destination state and reject a changed output scale before submitting; a prepared source does not reserve destination workspace. Engines that specialize text runs can override `submit_text_run`; its default uses the engine's ordinary `submit` implementation.
 
+Third-party upload backends can call `PreparedDraw::poll_upload(request, route, scale, cx)` for conservative nearest/bilinear source coverage, or `poll_complete` if their cache requires complete images. Both preserve the original draw request and retain the source lease through submission. They are available without enabling an internal GPU backend. Upload from `draw.texture_region().tiles()` instead of querying the source cache again: a retained lease remains valid even after another preparation replaces its cache index. Device textures retain their original dimensions, and partial coverage must never be exposed as a complete native output.
+
 ```rust
 use core::task::{Context, Poll};
 use mirui::render::{DrawRequest, RenderError, Renderer};

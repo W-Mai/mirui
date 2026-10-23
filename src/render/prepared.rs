@@ -18,14 +18,10 @@ pub struct PreparedDraw<'data> {
 }
 
 impl<'data> PreparedDraw<'data> {
-    /// Prepare a conservative source footprint for filtered device uploads.
-    #[cfg(any(
-        feature = "sdl-gpu",
-        feature = "wgpu",
-        all(feature = "web-canvas", target_arch = "wasm32"),
-        test
-    ))]
-    pub(crate) fn poll_upload(
+    /// Retain a conservative source footprint for nearest or bilinear device sampling.
+    ///
+    /// Integer-aligned draws include filtering neighbors; fractional placement and arbitrary transforms retain the complete source. The backend must preserve original texture coordinates and track uploaded coverage. This does not prepare mipmaps or wider filter kernels.
+    pub fn poll_upload(
         request: DrawRequest<'_, 'data>,
         route: RenderRoute,
         scale: Fixed,
@@ -38,12 +34,10 @@ impl<'data> PreparedDraw<'data> {
         }
         Poll::Ready(Ok(draw))
     }
-    #[cfg(any(
-        feature = "sdl-gpu",
-        feature = "wgpu",
-        all(feature = "web-canvas", target_arch = "wasm32")
-    ))]
-    pub(crate) fn poll_complete(
+    /// Retain the complete source for backends that require full-image uploads or CPU fallback.
+    ///
+    /// The returned request keeps its original clip and geometry. Full-source preparation uses the same source cache and admission budget as regional preparation.
+    pub fn poll_complete(
         request: DrawRequest<'_, 'data>,
         route: RenderRoute,
         scale: Fixed,
@@ -117,12 +111,6 @@ impl<'data> PreparedDraw<'data> {
     }
 }
 
-#[cfg(any(
-    feature = "sdl-gpu",
-    feature = "wgpu",
-    all(feature = "web-canvas", target_arch = "wasm32"),
-    test
-))]
 fn upload_region(request: &DrawRequest<'_, '_>, scale: Fixed) -> Result<Region, RenderError> {
     let DrawCommand::Blit {
         texture,

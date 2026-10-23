@@ -211,3 +211,120 @@ fn nested_routes_keep_each_prepared_region_independent() {
         (2, 2)
     );
 }
+
+#[derive(Default)]
+struct UploadBackend {
+    complete: bool,
+    submitted: Option<mirui::render::texture::Region>,
+}
+
+impl Renderer for UploadBackend {
+    type TargetState = ();
+    fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        Ok(RenderRoute::Native)
+    }
+
+    fn prepare<'data>(
+        &mut self,
+        request: DrawRequest<'_, 'data>,
+        route: RenderRoute,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<PreparedDraw<'data>, RenderError>> {
+        if self.complete {
+            PreparedDraw::poll_complete(request, route, self.output_scale(), cx)
+        } else {
+            PreparedDraw::poll_upload(request, route, self.output_scale(), cx)
+        }
+    }
+
+    fn submit(&mut self, draw: &PreparedDraw<'_>) -> Result<(), RenderError> {
+        let source = draw.texture_region().unwrap();
+        self.submitted = Some(source.region());
+        assert_eq!(draw.request().clip, Rect::new(1, 1, 2, 2));
+        let DrawCommand::Blit { size, .. } = *draw.request().command else {
+            panic!("texture");
+        };
+        assert_eq!(size, Point::new(8, 8));
+        for (area, pixels) in source.tiles() {
+            assert_eq!(area, source.region());
+            assert_eq!(
+                (u32::from(pixels.width()), u32::from(pixels.height())),
+                (area.width(), area.height())
+            );
+            assert!(pixels.bytes().iter().all(|byte| *byte == 255));
+        }
+        Ok(())
+    }
+
+    fn flush(&mut self) -> Result<(), RenderError> {
+        Ok(())
+    }
+}
+
+impl<T: Renderer> RenderEngine<T> for UploadBackend {
+    fn prepare<'data>(
+        &mut self,
+        _: &mut T,
+        request: DrawRequest<'_, 'data>,
+        route: RenderRoute,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<PreparedDraw<'data>, RenderError>> {
+        Renderer::prepare(self, request, route, cx)
+    }
+
+    fn submit(&mut self, _: &mut T, draw: &PreparedDraw<'_>) -> Result<(), RenderError> {
+        Renderer::submit(self, draw)
+    }
+}
+
+#[test]
+fn third_party_upload_preparation_is_available_through_nested_routes() {
+    use mirui::render::texture::Region;
+    static BYTES: [u8; 256] = [255; 256];
+    let texture = Texture::from_static(&BYTES, 8, 8, ColorFormat::RGBA8888).unwrap();
+    let command = DrawCommand::Blit {
+        texture: &texture,
+        pos: Point::ZERO,
+        size: Point::new(8, 8),
+        transform: Transform::IDENTITY,
+        quad: None,
+        opa: 255,
+        radius: Fixed::ZERO,
+        composite: CompositeMode::SourceOver,
+    };
+    for complete in [false, true] {
+        let mut renderer = PreparedOuter::new(
+            PreparedInner::new(
+                Dummy::new(),
+                UploadBackend {
+                    complete,
+                    ..Default::default()
+                },
+            ),
+            LeaseEngine::default(),
+        );
+        assert_eq!(
+            tracking_allocator::tracked_allocations(|| {
+                let dynamic: &mut dyn Renderer = &mut renderer;
+                dynamic
+                    .draw_request(&DrawRequest::new(&command, Rect::new(1, 1, 2, 2)))
+                    .unwrap();
+            }),
+            0
+        );
+        assert_eq!(
+            renderer.target.images.submitted,
+            Some(
+                Region::new(
+                    0,
+                    0,
+                    if complete { 8 } else { 4 },
+                    if complete { 8 } else { 4 }
+                )
+                .unwrap()
+            )
+        );
+        assert_eq!(renderer.images.source, Some(BYTES.as_ptr()));
+        assert_eq!((renderer.images.begin, renderer.images.end), (1, 1));
+    }
+}
