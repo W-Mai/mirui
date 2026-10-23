@@ -59,6 +59,20 @@ impl TextureRegion<'_> {
 }
 
 impl Texture<'_> {
+    pub(crate) fn direct_region(&self) -> Result<Option<TextureRegion<'_>>, RenderError> {
+        let Some(bytes) = self.buf.cpu_bytes() else {
+            return Ok(None);
+        };
+        let layout = self.storage_layout()?;
+        let region = Region::new(0, 0, u32::from(layout.width()), u32::from(layout.height()))
+            .map_err(|_| RenderError::InvalidTexture)?;
+        Ok(Some(TextureRegion {
+            region,
+            format: layout.format(),
+            pixels: Some(TexturePixels::new(bytes, layout)),
+        }))
+    }
+
     /// Borrow a resident source region without allocation, readback or decoding.
     ///
     /// `Ok(None)` means the requested data is not resident. Invalid ranges are rejected, not clipped. An in-bounds empty region is immediately ready and does not access the source device.

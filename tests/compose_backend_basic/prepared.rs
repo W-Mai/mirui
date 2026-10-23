@@ -11,6 +11,7 @@ struct LeaseEngine {
     pending: bool,
     reject: bool,
     source: Option<*const u8>,
+    clip: Option<Rect>,
     text: Option<TextRunIdentity>,
 }
 
@@ -38,6 +39,7 @@ impl<T: Renderer> RenderEngine<T> for LeaseEngine {
     }
     fn submit(&mut self, target: &mut T, draw: &PreparedDraw<'_>) -> Result<(), RenderError> {
         self.submit += 1;
+        self.clip = Some(draw.request().clip);
         self.source = draw
             .texture_region()
             .and_then(|region| region.pixels())
@@ -114,7 +116,7 @@ fn nested_preparation_pins_once_and_only_begins_ready_submissions() {
         }),
         0
     );
-    assert_eq!(renderer.images.source, Some(bytes[20..].as_ptr()));
+    assert_eq!(renderer.images.source, Some(bytes.as_ptr()));
     assert_eq!(renderer.target.images.source, renderer.images.source);
     assert_eq!(
         (renderer.images.prepare, renderer.target.images.prepare),
@@ -169,7 +171,7 @@ fn nested_text_routes_preserve_run_identity() {
 }
 
 #[test]
-fn nested_routes_keep_each_prepared_region_independent() {
+fn nested_routes_keep_each_prepared_request_independent() {
     let bytes = [255; 256];
     let texture = Texture::from_ref(&bytes, 8, 8, ColorFormat::RGBA8888).unwrap();
     let mut renderer = PreparedOuter::new(
@@ -198,9 +200,13 @@ fn nested_routes_keep_each_prepared_region_independent() {
                 panic!("second region");
             };
             renderer.submit(&b).unwrap();
-            assert_eq!(renderer.images.source, Some(bytes[144..].as_ptr()));
+            assert_eq!(renderer.images.source, Some(bytes.as_ptr()));
+            assert_eq!(renderer.images.clip, Some(Rect::new(4, 4, 2, 2)));
+            assert_eq!(renderer.target.images.clip, renderer.images.clip);
             renderer.submit(&a).unwrap();
-            assert_eq!(renderer.images.source, Some(bytes[36..].as_ptr()));
+            assert_eq!(renderer.images.source, Some(bytes.as_ptr()));
+            assert_eq!(renderer.images.clip, Some(Rect::new(1, 1, 2, 2)));
+            assert_eq!(renderer.target.images.clip, renderer.images.clip);
             assert_eq!(renderer.target.images.source, renderer.images.source);
         }),
         0

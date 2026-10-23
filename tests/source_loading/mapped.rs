@@ -444,7 +444,7 @@ fn mapped_nested_routes(bytes: Rc<Vec<u8>>) {
         .unwrap();
     let mut results = Vec::new();
     for texture in [mapped.as_ref(), &direct] {
-        let expected_pointer = texture.read_pixels().unwrap().bytes()[8..].as_ptr();
+        let expected_pointer = texture.read_pixels().unwrap().bytes().as_ptr();
         let mut destination = [0; 8];
         {
             let mut renderer = MappedOuter::new(

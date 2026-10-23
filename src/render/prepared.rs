@@ -77,6 +77,8 @@ impl<'data> PreparedDraw<'data> {
     }
 
     /// Retain CPU source pixels without changing their original geometry or sampling phase.
+    ///
+    /// Direct CPU storage remains a complete borrowed view. Sources requiring preparation retain a sampling footprint instead; no full-image readback or decoding is implied.
     pub fn poll_cpu(
         request: DrawRequest<'_, 'data>,
         route: RenderRoute,
@@ -85,8 +87,13 @@ impl<'data> PreparedDraw<'data> {
     ) -> Poll<Result<Self, RenderError>> {
         Self::validate(&request, output_scale)?;
         let source = if let DrawCommand::Blit { texture, .. } = *request.command {
-            let area = source_region(&request, output_scale)?;
-            Some(core::task::ready!(texture.poll_pixels_in(area, cx))?)
+            Some(match texture.direct_region()? {
+                Some(pixels) => pixels,
+                None => {
+                    let area = source_region(&request, output_scale)?;
+                    core::task::ready!(texture.poll_pixels_in(area, cx))?
+                }
+            })
         } else {
             None
         };
@@ -345,11 +352,8 @@ mod tests {
                     draw
                 };
                 let source = draw.texture_region().unwrap();
-                assert_eq!(source.region(), Region::new(2, 3, 3, 2).unwrap());
-                assert_eq!(
-                    source.pixels().unwrap().bytes().as_ptr(),
-                    bytes[104..].as_ptr()
-                );
+                assert_eq!(source.region(), Region::new(0, 0, 8, 8).unwrap());
+                assert_eq!(source.pixels().unwrap().bytes().as_ptr(), bytes.as_ptr());
                 assert_eq!(draw.request().clip, Rect::new(4, 6, 3, 2));
                 assert_eq!(draw.route(), RenderRoute::Native);
             }),
