@@ -9,6 +9,8 @@ use core::iter::FusedIterator;
 pub(crate) mod coding;
 pub(crate) mod index;
 pub(crate) mod integrity;
+mod layout;
+pub use layout::{MediaLayout, SectionScan};
 pub(crate) mod selection;
 pub(crate) use coding::{CODING_RECORD_LEN, CodingRecord, CodingTable, CodingTableError};
 pub(crate) use index::{UnitIndex, UnitIndexEncoding, UnitIndexError};
@@ -287,38 +289,13 @@ impl<'a> MediaPayload<'a> {
     }
 
     fn parse(payload: &'a [u8]) -> Result<Self, MediaPayloadError> {
-        if let Some(&version) = payload.first() {
-            if version != MEDIA_VERSION {
-                return Err(MediaPayloadError::UnsupportedVersion(version));
-            }
+        let layout = MediaLayout::parse(payload, payload.len())?;
+        let header = layout.header();
+        let directory = &payload[layout.directory_range()];
+        let mut scan = layout.sections();
+        for record in directory.chunks_exact(MEDIA_SECTION_LEN) {
+            scan.accept(record)?;
         }
-        let trailer_len = if payload
-            .get(1)
-            .is_some_and(|&flags| MediaFlags::from_bits_retain(flags).has_indexed_integrity())
-        {
-            0
-        } else {
-            MEDIA_CRC_LEN
-        };
-        let needed = MEDIA_HEADER_LEN + trailer_len;
-        if payload.len() < needed {
-            return Err(MediaPayloadError::Truncated {
-                needed,
-                available: payload.len(),
-            });
-        }
-        u32::try_from(payload.len()).map_err(|_| MediaPayloadError::SizeOverflow)?;
-        let header = MediaHeader::read(payload);
-        let covered = &payload[..payload.len() - trailer_len];
-        let directory_end = usize::from(header.section_count)
-            .checked_mul(MEDIA_SECTION_LEN)
-            .and_then(|len| MEDIA_HEADER_LEN.checked_add(len))
-            .ok_or(MediaPayloadError::SizeOverflow)?;
-        if directory_end > covered.len() {
-            return Err(MediaPayloadError::SectionTableOutOfBounds);
-        }
-        let directory = &covered[MEDIA_HEADER_LEN..directory_end];
-        validate_sections(covered, directory, header.section_count, directory_end)?;
         let mut media = Self {
             payload,
             header,
@@ -636,60 +613,6 @@ impl DoubleEndedIterator for MediaSectionsOfKind<'_> {
 
 impl FusedIterator for MediaSectionsOfKind<'_> {}
 
-fn validate_sections(
-    covered: &[u8],
-    directory: &[u8],
-    section_count: u16,
-    bodies_start: usize,
-) -> Result<(), MediaPayloadError> {
-    let minimum = u32::try_from(bodies_start).map_err(|_| MediaPayloadError::SizeOverflow)?;
-    let covered_len = u32::try_from(covered.len()).map_err(|_| MediaPayloadError::SizeOverflow)?;
-    let mut previous: Option<(u16, u32, u32)> = None;
-
-    for index in 0..section_count {
-        let entry_start = usize::from(index) * MEDIA_SECTION_LEN;
-        let entry = &directory[entry_start..entry_start + MEDIA_SECTION_LEN];
-        let Some(descriptor) = MediaSectionDescriptor::read(entry) else {
-            return Err(MediaPayloadError::InvalidSectionKind { index });
-        };
-        if descriptor.offset < minimum {
-            return Err(MediaPayloadError::SectionBeforeBodies {
-                index,
-                offset: descriptor.offset,
-                minimum,
-            });
-        }
-        let end = descriptor
-            .offset
-            .checked_add(descriptor.size)
-            .ok_or(MediaPayloadError::SizeOverflow)?;
-        if end > covered_len {
-            return Err(MediaPayloadError::SectionOutOfBounds {
-                index,
-                offset: descriptor.offset,
-                size: descriptor.size,
-            });
-        }
-
-        if let Some((previous_index, previous_offset, previous_end)) = previous {
-            if descriptor.offset < previous_offset {
-                return Err(MediaPayloadError::SectionsOutOfOrder {
-                    previous: previous_index,
-                    next: index,
-                });
-            }
-            if descriptor.offset < previous_end {
-                return Err(MediaPayloadError::SectionsOverlap {
-                    previous: previous_index,
-                    next: index,
-                });
-            }
-        }
-        previous = Some((index, descriptor.offset, end));
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 pub(crate) fn refresh_checksums(payload: &mut [u8]) {
     let Ok(media) = MediaPayload::parse(payload) else {
@@ -727,6 +650,71 @@ mod tests {
 
     use super::*;
     use crate::wire::{write_u16_le, write_u32_le};
+
+    #[test]
+    fn section_windows_reject_ranges_atomically_with_the_slice_parser() {
+        let base = payload(
+            &[
+                TestSection {
+                    kind: MediaSectionKind::SURFACE.raw(),
+                    flags: 1,
+                    offset: 40,
+                    bytes: &[0; 8],
+                },
+                TestSection {
+                    kind: MediaSectionKind::DATA.raw(),
+                    flags: 1,
+                    offset: 52,
+                    bytes: &[7; 4],
+                },
+            ],
+            0,
+        );
+        for offset in [0, 31, 32, 39, 40, 47, 48, 52, 56, 57, u32::MAX] {
+            for size in [0, 1, 4, u32::MAX] {
+                let mut bytes = base.clone();
+                write_u32_le(&mut bytes, 24, offset);
+                write_u32_le(&mut bytes, 28, size);
+                let layout = MediaLayout::parse(&bytes[..8], bytes.len()).unwrap();
+                let mut scan = layout.sections();
+                scan.accept(&bytes[8..20]).unwrap().unwrap();
+                let before = scan;
+                let result = scan.accept(&bytes[20..32]);
+                assert_eq!(
+                    result.as_ref().err(),
+                    MediaPayload::parse(&bytes).as_ref().err()
+                );
+                if result.is_err() {
+                    assert_eq!(scan, before);
+                    scan.accept(&base[20..32]).unwrap().unwrap();
+                }
+                assert_eq!(scan.record_range(), None);
+                assert_eq!(scan.accept(&[]), Ok(None));
+            }
+        }
+        let layout = MediaLayout::parse(&base[..8], base.len()).unwrap();
+        let mut scan = layout.sections();
+        for length in 0..12 {
+            let before = scan;
+            assert_eq!(
+                scan.accept(&base[8..8 + length]),
+                Err(MediaPayloadError::Truncated {
+                    needed: 20,
+                    available: 8 + length
+                })
+            );
+            assert_eq!(scan, before);
+        }
+        assert_eq!(layout.directory_range(), 8..32);
+        assert_eq!(layout.checksum_trailer(), Some(base.len() - 4..base.len()));
+        let indexed = indexed_image();
+        assert_eq!(
+            MediaLayout::parse(&indexed[..8], indexed.len())
+                .unwrap()
+                .checksum_trailer(),
+            None
+        );
+    }
 
     #[test]
     fn direct_ordinals_and_skips_read_only_the_selected_descriptor() {

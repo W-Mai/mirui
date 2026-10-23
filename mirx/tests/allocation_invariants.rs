@@ -24,6 +24,43 @@ fn wire_fixed(bits: i32) -> Fixed {
 struct TrackingAllocator;
 
 #[test]
+fn media_windows_scan_without_owning_the_directory_or_samples() {
+    use mirx::reader::{MediaLayout, MediaSectionKind};
+    let source = [1, 2, 3, 4];
+    let surface = SurfaceDescriptor::new(2, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let planes = [source.as_slice()];
+    let asset = RawImageAsset::new(surface, &planes);
+    let bytes = asset.encode().unwrap();
+    let (_, allocations) = count_allocations(|| {
+        let mut header = [0; 8];
+        header.copy_from_slice(&bytes[..8]);
+        let layout = MediaLayout::parse(&header, bytes.len()).unwrap();
+        header.fill(0);
+        let mut scan = layout.sections();
+        let mut count = 0;
+        let mut data = None;
+        while let Some(range) = scan.record_range() {
+            let mut record = [0; 12];
+            record.copy_from_slice(&bytes[range]);
+            let descriptor = scan.accept(&record).unwrap().unwrap();
+            record.fill(0);
+            if descriptor.kind() == MediaSectionKind::DATA {
+                data = Some(descriptor);
+            }
+            count += 1;
+        }
+        assert_eq!(count, layout.header().section_count());
+        let data = data.unwrap();
+        assert_eq!(
+            &bytes[data.offset() as usize..(data.offset() + data.size()) as usize],
+            &source
+        );
+        assert_eq!(scan.accept(&[]), Ok(None));
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn container_windows_share_reader_validation_without_payload_allocations() {
     use mirx::reader::{ContainerLayout, ReadOptions};
     let bytes = encode_chunks(&[(0xbeef, 0, b"payload"), (0xcafe, 0, b"other")]);
