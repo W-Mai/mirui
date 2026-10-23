@@ -111,6 +111,22 @@ impl<'a> LoadContext<'a> {
         }
     }
 
+    /// Read a bounded prefix using this invocation's shared byte and work allowances. For a nonempty destination, zero means EOF; errors remain errors, including truncation reported by the provider. Empty reads do not establish EOF or perform I/O. A pending exact read must complete before switching to prefix reads.
+    ///
+    /// No destination borrow is retained. On `Pending`, retry the same offset; on `Ready(Ok(n))`, consume those bytes and advance by `n`. The source's positioning capabilities still apply.
+    pub fn poll_read(&mut self, offset: u64, dst: &mut [u8]) -> Poll<Result<usize, LoadError>> {
+        if self.read.active.is_some() {
+            return Poll::Ready(Err(AssetError::InvalidSource.into()));
+        }
+        read_prefix(
+            *self.source.as_mut().ok_or(AssetError::Unsupported)?,
+            self.waker,
+            self.budget,
+            offset,
+            dst,
+        )
+    }
+
     pub fn poll_read_exact(&mut self, offset: u64, dst: &mut [u8]) -> Poll<Result<(), LoadError>> {
         let length = u64::try_from(dst.len()).map_err(|_| AssetError::OutOfBounds)?;
         let end = offset.checked_add(length).ok_or(AssetError::OutOfBounds)?;
@@ -129,27 +145,17 @@ impl<'a> LoadContext<'a> {
             return Poll::Ready(Err(AssetError::InvalidSource.into()));
         }
         while done < dst.len() {
-            if self.budget.steps == 0 || self.budget.bytes == 0 {
-                self.waker.wake_by_ref();
-                return Poll::Pending;
-            }
-            self.budget.steps -= 1;
-            let count = (dst.len() - done).min(self.budget.bytes);
-            let mut cx = Context::from_waker(self.waker);
-            let n = core::task::ready!(source.poll_read(
+            let n = core::task::ready!(read_prefix(
+                *source,
+                self.waker,
+                self.budget,
                 offset + done as u64,
-                &mut dst[done..done + count],
-                &mut cx,
-                &mut self.budget.steps
+                &mut dst[done..],
             ))?;
             if n == 0 {
                 return Poll::Ready(Err(AssetError::Truncated.into()));
             }
-            if n > count {
-                return Poll::Ready(Err(AssetError::InvalidSource.into()));
-            }
             done += n;
-            self.budget.bytes -= n;
             self.read.active = Some((offset, dst.len(), done));
         }
         self.read.active = None;
@@ -157,9 +163,167 @@ impl<'a> LoadContext<'a> {
     }
 }
 
+fn read_prefix(
+    source: &mut dyn ReadStream,
+    waker: &Waker,
+    budget: &mut LoadBudget,
+    offset: u64,
+    dst: &mut [u8],
+) -> Poll<Result<usize, LoadError>> {
+    let length = u64::try_from(dst.len()).map_err(|_| AssetError::OutOfBounds)?;
+    offset.checked_add(length).ok_or(AssetError::OutOfBounds)?;
+    if dst.is_empty() {
+        return Poll::Ready(Ok(0));
+    }
+    if budget.steps == 0 || budget.bytes == 0 {
+        waker.wake_by_ref();
+        return Poll::Pending;
+    }
+    budget.steps -= 1;
+    let count = dst.len().min(budget.bytes);
+    let n = core::task::ready!(source.poll_read(
+        offset,
+        &mut dst[..count],
+        &mut Context::from_waker(waker),
+        &mut budget.steps,
+    ))?;
+    if n > count {
+        return Poll::Ready(Err(AssetError::InvalidSource.into()));
+    }
+    budget.bytes -= n;
+    Poll::Ready(Ok(n))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prefix_reads_share_exact_read_allowances_and_preserve_pending_progress() {
+        let mut source = SourceRead::new(b"abcdefghij".as_slice(), None).unwrap();
+        let mut read = ExactRead::default();
+        let mut budget = LoadBudget { steps: 8, bytes: 3 };
+        let mut bytes = [0; 8];
+        let mut exact = [0; 3];
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                let mut cx = LoadContext::new(
+                    "data",
+                    Waker::noop(),
+                    Some(&mut source),
+                    &mut read,
+                    &mut budget,
+                );
+                assert_eq!(cx.poll_read(0, &mut bytes), Poll::Ready(Ok(3)));
+                assert_eq!(&bytes[..3], b"abc");
+                assert_eq!(&bytes[3..], &[0; 5]);
+                assert!(cx.poll_read(3, &mut bytes).is_pending());
+                assert_eq!(cx.poll_read(u64::MAX, &mut []), Poll::Ready(Ok(0)));
+                assert_eq!(
+                    cx.poll_read(u64::MAX, &mut bytes),
+                    Poll::Ready(Err(AssetError::OutOfBounds.into()))
+                );
+                let mut budget = LoadBudget { steps: 8, bytes: 2 };
+                let mut cx = LoadContext::new(
+                    "data",
+                    Waker::noop(),
+                    Some(&mut source),
+                    &mut read,
+                    &mut budget,
+                );
+                assert!(cx.poll_read_exact(3, &mut exact).is_pending());
+                assert_eq!(&exact[..2], b"de");
+                assert_eq!(
+                    cx.poll_read(5, &mut bytes),
+                    Poll::Ready(Err(AssetError::InvalidSource.into()))
+                );
+                let mut budget = LoadBudget { steps: 8, bytes: 8 };
+                let mut cx = LoadContext::new(
+                    "data",
+                    Waker::noop(),
+                    Some(&mut source),
+                    &mut read,
+                    &mut budget,
+                );
+                assert_eq!(cx.poll_read_exact(3, &mut exact), Poll::Ready(Ok(())));
+                assert_eq!(&exact, b"def");
+                assert_eq!(cx.poll_read(9, &mut bytes), Poll::Ready(Ok(1)));
+                assert_eq!(bytes[0], b'j');
+                assert_eq!(cx.poll_read(10, &mut bytes), Poll::Ready(Ok(0)));
+                assert_eq!(
+                    cx.poll_read(11, &mut bytes),
+                    Poll::Ready(Err(AssetError::OutOfBounds.into()))
+                );
+            }),
+            0
+        );
+    }
+
+    #[test]
+    fn unknown_length_prefix_reads_do_not_turn_source_errors_into_eof() {
+        struct Stream {
+            result: Poll<Result<usize, AssetError>>,
+        }
+        impl ReadStream for Stream {
+            fn info(&self) -> Option<SourceInfo> {
+                Some(SourceInfo {
+                    len: None,
+                    access: super::super::SourceAccess::Random,
+                    consistency: super::super::SourceConsistency::Stable,
+                })
+            }
+            fn poll_read(
+                &mut self,
+                _: u64,
+                _: &mut [u8],
+                cx: &mut Context<'_>,
+                _: &mut usize,
+            ) -> Poll<Result<usize, AssetError>> {
+                if self.result.is_pending() {
+                    cx.waker().wake_by_ref();
+                }
+                self.result
+            }
+        }
+        for result in [
+            Poll::Pending,
+            Poll::Ready(Ok(0)),
+            Poll::Ready(Ok(1)),
+            Poll::Ready(Err(AssetError::Truncated)),
+            Poll::Ready(Err(AssetError::Io("read failed"))),
+        ] {
+            let mut source = Stream { result };
+            let mut read = ExactRead::default();
+            let mut budget = LoadBudget::default();
+            let mut cx = LoadContext::new(
+                "data",
+                Waker::noop(),
+                Some(&mut source),
+                &mut read,
+                &mut budget,
+            );
+            assert_eq!(
+                cx.poll_read(42, &mut [0]),
+                result.map(|result| result.map_err(Into::into))
+            );
+        }
+        let mut source = Stream {
+            result: Poll::Ready(Ok(2)),
+        };
+        let mut read = ExactRead::default();
+        let mut budget = LoadBudget::default();
+        let mut cx = LoadContext::new(
+            "data",
+            Waker::noop(),
+            Some(&mut source),
+            &mut read,
+            &mut budget,
+        );
+        assert_eq!(
+            cx.poll_read(42, &mut [0]),
+            Poll::Ready(Err(AssetError::InvalidSource.into()))
+        );
+    }
 
     #[test]
     fn source_transfer_reuses_storage_and_rejects_incomplete_exact_reads() {

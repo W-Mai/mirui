@@ -118,6 +118,7 @@ struct Decode {
     header: [u8; 8],
     pixels: [u8; 4],
     probed: bool,
+    pixels_read: bool,
 }
 struct Decoder;
 impl Loader<Texture<'static>> for Decoder {
@@ -137,7 +138,14 @@ impl Loader<Texture<'static>> for Decoder {
         cx: &mut LoadContext<'_>,
     ) -> Poll<Result<Texture<'static>, LoadError>> {
         core::task::ready!(self.poll_probe(state, cx))?;
-        core::task::ready!(cx.poll_read_exact(8, &mut state.pixels))?;
+        if !state.pixels_read {
+            core::task::ready!(cx.poll_read_exact(8, &mut state.pixels))?;
+            state.pixels_read = true;
+        }
+        // Strict formats distinguish a confirmed EOF from provider failures.
+        if core::task::ready!(cx.poll_read(12, &mut [0]))? != 0 {
+            return Poll::Ready(Err(LoadError::Failed("unexpected trailing bytes")));
+        }
         Poll::Ready(
             Texture::from_vec(state.pixels.to_vec(), 1, 1, ColorFormat::RGBA8888)
                 .map_err(|_| LoadError::Failed("invalid test texture")),
@@ -330,6 +338,27 @@ fn mapped_app(plugin: ImageResourcesPlugin, opens: Rc<Cell<usize>>) -> Headless 
     );
     app.tick();
     app
+}
+
+#[test]
+fn strict_source_decoders_reject_trailing_bytes_without_publishing_pixels() {
+    for bytes in [RED, b"R4IM\x01\x00\x01\x00\xff\x00\x00\xffextra".as_slice()] {
+        let mut app: Headless = App::headless(8, 8);
+        app.add_plugin(ImageResourcesPlugin::empty().with_loader(|images| {
+            images.add_probed_loader(Decoder.for_source("files", |_| Some("image".into())));
+        }));
+        app.add_plugin(ResourcePlugin::new().with_source("files", move |_| ready(Ok(bytes))));
+        app.tick();
+        let images = app
+            .world
+            .resource::<ResourceManager<Texture<'static>>>()
+            .unwrap();
+        assert_eq!(images.probe("image").unwrap().width, 1);
+        assert_eq!(
+            images.resolve("image").width(),
+            if bytes.len() == RED.len() { 1 } else { 16 }
+        );
+    }
 }
 
 #[test]

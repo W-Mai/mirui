@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Loader prefix reads distinguish EOF from source failures and share exact reads' execution allowances, source ownership and block cache.
 - MIRX whole-DATA checksums support bounded source windows without retaining sample buffers; directory validation and checksum comparison share the slice reader's rules.
 - MIRX section directories support constant-storage window scans with checked ordering and payload bounds; rejected records do not advance the scan.
 - MIRX metadata checksums can be verified through bounded source windows without retaining payloads or directory arrays.

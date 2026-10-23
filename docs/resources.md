@@ -59,6 +59,8 @@ Each read takes ownership of an `AssetBuffer` and returns it in `ReadComplete`, 
 
 `ResourcePlugin` registers named providers. `ImageResourcesPlugin::with_source` maps image tokens to provider keys; its existing `with_loader` configuration installs byte recognizers and decoders. The plugins bind during App startup, after all plugin resources are installed. Decoders recognize `LoadInput::Bytes`, request bounded prefixes with `FormatMatch::Need`, and read through `LoadContext::poll_read_exact`. Multiple recognizers claiming the same content fail rather than choosing by registration order.
 
+`LoadContext::poll_read(offset, dst)` reads a bounded prefix with the same invocation allowance as `poll_read_exact`. Advance by the returned count; zero on a nonempty destination confirms EOF. This permits strict trailing-byte checks when the source length is unknown without treating I/O failures as EOF. Empty reads do not establish EOF. Finish any pending exact read before starting a prefix read; both methods reuse the opened source, block cache and cancellation storage.
+
 ```rust,ignore
 app.add_plugin(
     ResourcePlugin::new()
