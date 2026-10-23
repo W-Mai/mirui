@@ -151,6 +151,18 @@ impl<T: HasSize + 'static> ResourceManager<T> {
 /// when the resource type opts into [`HasProbe`]. The probe sidecar is
 /// initialised by [`ResourceManager::enable_probes`] (or [`ResourceManager::with_probes`]). Without a sidecar, available metadata is returned without caching it.
 impl<T: HasSize + HasProbe + 'static> ResourceManager<T> {
+    pub(crate) fn bind_sources(
+        &self,
+        sources: Rc<super::assets::AssetSources>,
+        bindings: alloc::vec::Vec<super::source_loader::SourceBinding>,
+    ) -> Result<(), super::AssetError> {
+        let capacity = sources.max_requests();
+        let loader =
+            super::source_loader::SourceLoader::new(Rc::downgrade(&self.inner), sources, bindings)?;
+        let loader = super::invocation::install_probed_loader(loader, capacity);
+        self.inner.borrow_mut().add_loader(loader);
+        Ok(())
+    }
     /// Chain-style alias for `enable_probes` (init-time variant). See the
     /// `with_fallback` doc on the generic impl for the lifecycle convention.
     pub fn with_probes(self, probes_budget: MaxSize, fallback_meta: T::Meta) -> Self {

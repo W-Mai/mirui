@@ -1,10 +1,13 @@
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
+use alloc::rc::Rc;
+use core::task::{Context, Waker};
 
 use crate::app::plugin::Plugin;
 use crate::app::{App, RendererFactory};
 use crate::core::cache::MaxSize;
-use crate::core::resource::ResourceManager;
+use crate::core::resource::{AssetSources, ResourceManager, SourceBinding};
+use crate::ecs::World;
 use crate::render::texture::{ColorFormat, MirxTextureOptions, Texture, TextureMeta};
 use crate::surface::Surface;
 use crate::ui::widgets::assets::IMG_THUMBS_UP;
@@ -58,6 +61,11 @@ type LoaderEntry = Box<dyn FnOnce(&ResourceManager<Texture<'static>>) + 'static>
 /// Inserts a [`ResourceManager<Texture<'static>>`] into the world and seeds
 /// it with built-in assets. Use `with_static` / `with_mirx_bytes` /
 /// `with_loader` to extend before `app.add_plugin(...)`.
+///
+/// **Inserts**
+/// - resource: `ResourceManager<Texture<'static>>`
+/// - system: owner-thread loader polling when loaders or sources are configured
+/// - hooks: `on_start` binds named byte providers
 pub struct ImageResourcesPlugin {
     values_budget: MaxSize,
     probes_budget: MaxSize,
@@ -65,6 +73,7 @@ pub struct ImageResourcesPlugin {
     statics: alloc::vec::Vec<StaticEntry>,
     mirx_bytes: alloc::vec::Vec<MirxEntry>,
     loaders: alloc::vec::Vec<LoaderEntry>,
+    sources: alloc::vec::Vec<SourceBinding>,
 }
 
 impl Default for ImageResourcesPlugin {
@@ -76,11 +85,21 @@ impl Default for ImageResourcesPlugin {
             statics: alloc::vec::Vec::new(),
             mirx_bytes: alloc::vec::Vec::new(),
             loaders: alloc::vec::Vec::new(),
+            sources: alloc::vec::Vec::new(),
         }
     }
 }
 
 impl ImageResourcesPlugin {
+    /// Resolves image tokens to keys in a named byte provider. Bindings are checked after all plugins are built.
+    pub fn with_source(
+        mut self,
+        name: &'static str,
+        resolve: impl Fn(&str) -> Option<Cow<'static, str>> + 'static,
+    ) -> Self {
+        self.sources.push((name, Box::new(resolve)));
+        self
+    }
     /// Empty plugin — no built-in `thumbs_up`, no statics, no loaders.
     /// Caller is responsible for registering every token they reference.
     pub fn empty() -> Self {
@@ -143,6 +162,7 @@ where
     F: RendererFactory<B>,
 {
     fn build(&mut self, app: &mut App<B, F>) {
+        let poll_loaders = !self.loaders.is_empty() || !self.sources.is_empty();
         let manager =
             ResourceManager::<Texture<'static>>::new(self.values_budget, FALLBACK_TEXTURE)
                 .with_probes(self.probes_budget, FALLBACK_META);
@@ -167,11 +187,34 @@ where
         }
 
         app.world.insert_resource(manager);
+        if poll_loaders {
+            app.add_system(poll_images::system());
+        }
     }
 
     fn name(&self) -> &'static str {
         "ImageResourcesPlugin"
     }
+
+    fn on_start(&mut self, world: &mut World) {
+        if self.sources.is_empty() {
+            return;
+        }
+        let sources = world
+            .resource::<Rc<AssetSources>>()
+            .expect("ImageResourcesPlugin source requires ResourcePlugin")
+            .clone();
+        world
+            .resource::<ResourceManager<Texture<'static>>>()
+            .expect("image resources installed")
+            .bind_sources(sources, core::mem::take(&mut self.sources))
+            .expect("unknown image byte source");
+    }
+}
+
+#[crate::system]
+fn poll_images(images: res!(ResourceManager<Texture<'static>>)) {
+    images.poll_pending(&mut Context::from_waker(Waker::noop()));
 }
 
 #[cfg(test)]

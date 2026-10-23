@@ -77,6 +77,13 @@ struct Request {
 }
 
 impl<T: HasSize + 'static> ManagerInner<T> {
+    pub(super) fn source_request(&self, token: &str) -> Option<(u64, usize)> {
+        Some((self.resolving.get(token)?.generation, self.loaders.len()))
+    }
+
+    pub(super) fn source_decoder(&self, index: usize) -> Rc<dyn InstalledLoader<T>> {
+        self.loaders[index].clone()
+    }
     pub(crate) fn new(values_budget: MaxSize, fallback: T) -> Self {
         Self {
             values: LruCache::new(values_budget),

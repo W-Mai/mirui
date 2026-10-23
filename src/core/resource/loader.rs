@@ -159,14 +159,31 @@ mod tests {
                 Err(LoadError::NotMine)
             }
         };
-        let mut cx = LoadContext::new("logo", core::task::Waker::noop(), 4);
+        let mut read = super::super::load_context::ExactRead::default();
+        let mut budget = super::super::load_context::LoadBudget {
+            steps: 4,
+            bytes: 16,
+        };
+        let mut cx = LoadContext::new(
+            "logo",
+            core::task::Waker::noop(),
+            None,
+            &mut read,
+            &mut budget,
+        );
         assert_eq!(
             loader
                 .poll_load(&mut (), &mut cx)
                 .map(|result| result.map(|i| (i.w, i.h))),
             Poll::Ready(Ok((16, 16)))
         );
-        let mut cx = LoadContext::new("other", core::task::Waker::noop(), 4);
+        let mut cx = LoadContext::new(
+            "other",
+            core::task::Waker::noop(),
+            None,
+            &mut read,
+            &mut budget,
+        );
         assert_eq!(
             loader.poll_load(&mut (), &mut cx),
             Poll::Ready(Err(LoadError::NotMine))

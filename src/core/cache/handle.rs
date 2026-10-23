@@ -74,6 +74,11 @@ impl<V> Handle<V> {
     pub fn ref_count(&self) -> usize {
         EntryRcImpl::strong_count(&self.inner)
     }
+
+    /// Exclusive storage access is possible only after the cache and every reader release their handles.
+    pub(crate) fn get_mut(&mut self) -> Option<&mut V> {
+        EntryRcImpl::get_mut(&mut self.inner).map(|entry| &mut entry.payload)
+    }
 }
 
 impl<V> core::ops::Deref for Handle<V> {

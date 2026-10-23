@@ -4,8 +4,10 @@
 
 extern crate alloc;
 
+mod assets;
 #[cfg(test)]
 mod async_tests;
+mod blocks;
 mod handle;
 mod invocation;
 mod load_context;
@@ -14,8 +16,12 @@ mod manager;
 mod manager_inner;
 mod probe;
 mod source;
+mod source_loader;
+mod source_read;
 mod wake;
 
+pub use assets::AssetCacheConfig;
+pub(crate) use assets::AssetSources;
 pub use handle::ResourceHandle;
 pub use load_context::LoadContext;
 pub use loader::{FormatMatch, LoadError, LoadInput, Loader, ProbeLoader};
@@ -25,6 +31,7 @@ pub use source::{
     AssetBuffer, AssetError, AssetProvider, AssetReader, ReadComplete, ReadPosition, ReadProgress,
     SourceAccess, SourceConsistency, SourceInfo,
 };
+pub(crate) use source_loader::SourceBinding;
 
 #[cfg(test)]
 mod tests {

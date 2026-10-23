@@ -246,6 +246,10 @@ where
 
     fn insert_value(&mut self, key: K, value: V, size: usize) -> Handle<V> {
         let entry = Rc::new(CacheEntry::new(value));
+        self.insert_owner(key, entry, size)
+    }
+
+    fn insert_owner(&mut self, key: K, entry: super::handle::EntryRc<V>, size: usize) -> Handle<V> {
         let node_id = self.nodes.insert(NodeData {
             key: key.clone(),
             entry: entry.clone(),
@@ -364,6 +368,19 @@ where
             entry.invalid_set(true);
             Handle::from_rc(Rc::new(entry))
         }
+    }
+
+    /// Reattach exclusively owned storage without allocating another reference-counted owner.
+    pub(crate) fn reinsert(self, mut handle: Handle<V>) -> Result<Handle<V>, Handle<V>> {
+        if handle.get_mut().is_none() {
+            return Err(handle);
+        }
+        let size = handle.cache_size().max(1);
+        if !self.cache.ensure_room(size) {
+            return Err(handle);
+        }
+        handle.inner.invalid_set(false);
+        Ok(self.cache.insert_owner(self.key, handle.inner, size))
     }
 }
 

@@ -52,23 +52,25 @@ pub enum ReadPosition {
 /// Moving this value does not move its bytes. A read future owns the buffer until completion, including when its logical consumer is cancelled. Providers must stop hardware access before dropping a buffer, or transfer ownership to their physical completion record. The buffer has byte alignment; devices needing stronger alignment must use their own admitted staging.
 pub struct AssetBuffer {
     pub(super) bytes: Box<[u8]>,
+    pub(super) start: usize,
+    pub(super) end: usize,
 }
 
 impl AssetBuffer {
     pub fn len(&self) -> usize {
-        self.bytes.len()
+        self.end - self.start
     }
 
     pub fn is_empty(&self) -> bool {
-        self.bytes.is_empty()
+        self.start == self.end
     }
 
     pub fn as_slice(&self) -> &[u8] {
-        &self.bytes
+        &self.bytes[self.start..self.end]
     }
 
     pub fn as_mut_slice(&mut self) -> &mut [u8] {
-        &mut self.bytes
+        &mut self.bytes[self.start..self.end]
     }
 }
 
@@ -174,6 +176,8 @@ mod tests {
     fn buffer(len: usize) -> AssetBuffer {
         AssetBuffer {
             bytes: vec![0; len].into_boxed_slice(),
+            start: 0,
+            end: len,
         }
     }
 

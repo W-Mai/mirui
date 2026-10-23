@@ -1,5 +1,7 @@
 //! Type-preserving loader state prepared at registration and leased for calls.
 
+use super::load_context::ReadStream;
+use super::load_context::{ExactRead, LoadBudget};
 use super::wake::TaskWake;
 use super::{FormatMatch, HasProbe, LoadContext, LoadError, LoadInput, Loader, ProbeLoader};
 use alloc::{borrow::Cow, boxed::Box, rc::Rc, vec::Vec};
@@ -18,6 +20,7 @@ pub(super) struct CallState {
     pub token: Option<Cow<'static, str>>,
     pub generation: u64,
     pub probe: bool,
+    pub exact: ExactRead,
     pub wake: TaskWake,
     pub meta: Option<Result<Box<dyn Any>, LoadError>>,
 }
@@ -26,6 +29,11 @@ pub(super) trait Invocation<T>: 'static {
     fn call(&self) -> &CallState;
     fn call_mut(&mut self) -> &mut CallState;
     fn poll(&mut self, parent: &Waker) -> Poll<Result<Loaded<T>, LoadError>>;
+    fn poll_source(
+        &mut self,
+        parent: &Waker,
+        source: &mut dyn ReadStream,
+    ) -> Poll<Result<Loaded<T>, LoadError>>;
     fn clone_meta(&self) -> Option<Result<Box<dyn Any>, LoadError>>;
     fn reset(&mut self);
 }
@@ -66,19 +74,14 @@ impl<T: 'static, L: Loader<T>> Invocation<T> for Task<T, L> {
         &mut self.call
     }
     fn poll(&mut self, parent: &Waker) -> Poll<Result<Loaded<T>, LoadError>> {
-        let waker = self.call.wake.register(parent).clone();
-        let mut cx = LoadContext::new(self.call.token.as_deref().unwrap(), &waker, 32);
-        if self.call.probe {
-            match self.probe {
-                Some(probe) => probe(&self.loader, &mut self.state, &mut cx)
-                    .map(|result| result.map(Loaded::Meta)),
-                None => Poll::Ready(Err(LoadError::NotMine)),
-            }
-        } else {
-            self.loader
-                .poll_load(&mut self.state, &mut cx)
-                .map(|result| result.map(Loaded::Value))
-        }
+        self.poll_on(parent, None)
+    }
+    fn poll_source(
+        &mut self,
+        parent: &Waker,
+        source: &mut dyn ReadStream,
+    ) -> Poll<Result<Loaded<T>, LoadError>> {
+        self.poll_on(parent, Some(source))
     }
     fn clone_meta(&self) -> Option<Result<Box<dyn Any>, LoadError>> {
         let clone = self.clone_meta?;
@@ -94,7 +97,40 @@ impl<T: 'static, L: Loader<T>> Invocation<T> for Task<T, L> {
     fn reset(&mut self) {
         self.call.token = None;
         self.call.meta = None;
+        self.call.exact = ExactRead::default();
         self.loader.reset(&mut self.state);
+    }
+}
+
+impl<T: 'static, L: Loader<T>> Task<T, L> {
+    fn poll_on(
+        &mut self,
+        parent: &Waker,
+        source: Option<&mut dyn ReadStream>,
+    ) -> Poll<Result<Loaded<T>, LoadError>> {
+        let waker = self.call.wake.register(parent).clone();
+        let mut budget = LoadBudget {
+            steps: 32,
+            bytes: 4096,
+        };
+        let mut cx = LoadContext::new(
+            self.call.token.as_deref().unwrap(),
+            &waker,
+            source,
+            &mut self.call.exact,
+            &mut budget,
+        );
+        if self.call.probe {
+            match self.probe {
+                Some(probe) => probe(&self.loader, &mut self.state, &mut cx)
+                    .map(|result| result.map(Loaded::Meta)),
+                None => Poll::Ready(Err(LoadError::NotMine)),
+            }
+        } else {
+            self.loader
+                .poll_load(&mut self.state, &mut cx)
+                .map(|result| result.map(Loaded::Value))
+        }
     }
 }
 
@@ -256,6 +292,7 @@ fn install<T: 'static, L: Loader<T>>(
                 token: None,
                 generation: 0,
                 probe: false,
+                exact: ExactRead::default(),
                 wake: TaskWake::new(),
                 meta: None,
             },

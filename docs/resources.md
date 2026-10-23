@@ -47,4 +47,35 @@ Each read takes ownership of an `AssetBuffer` and returns it in `ReadComplete`, 
 
 `ReadProgress::filled` and `eof` are independent: a short read may continue, while zero bytes without EOF on a nonempty request is invalid. `SourceConsistency::Stable` guarantees one immutable content version across reads, not merely an open file descriptor. `Unverified` must not be used to assemble a supposedly consistent media object.
 
-These traits define the byte-provider boundary. They do not register a byte source with `ResourceManager`; token loaders use the polling entry points described above.
+`ResourcePlugin` registers named providers. `ImageResourcesPlugin::with_source` maps image tokens to provider keys; its existing `with_loader` configuration installs byte recognizers and decoders. The plugins bind during App startup, after all plugin resources are installed. Decoders recognize `LoadInput::Bytes`, request bounded prefixes with `FormatMatch::Need`, and read through `LoadContext::poll_read_exact`. Multiple recognizers claiming the same content fail rather than choosing by registration order.
+
+```rust,ignore
+app.add_plugin(
+    ResourcePlugin::new()
+        .with_source("assets", provider)
+        .with_cache(AssetCacheConfig::new()
+            .block_size(1024)
+            .budget(MaxSize::Bytes(8 * 1024))
+            .max_in_flight(2)),
+);
+app.add_plugin(
+    ImageResourcesPlugin::empty()
+        .with_source("assets", |token| {
+            let id = token.strip_prefix("cover/")?;
+            Some(format!("covers/{id}/thumbnail.r4").into())
+        })
+        .with_loader(|images| images.add_probed_loader(decoder)),
+);
+```
+
+The resolver runs when starting a request, not on each frame. A borrowed key avoids a key allocation; an owned `Cow` transfers a dynamically constructed key. The provider owns path interpretation, permissions and content-stability guarantees. Metadata and decoded contents reuse the same opened object and decoder state. Static image registrations need neither a source plugin nor a byte cache.
+
+App systems advance ready image loads and retire submitted source operations on the owning thread, including when no UI root exists. An application driving `App::tick` delivers completions on a subsequent tick. This polling does not itself wake a sleeping platform event loop. Publication uses the same resource subscription that invalidates `Image`.
+
+### Read storage
+
+`AssetCacheConfig` defaults to 1 KiB blocks, a 4 KiB shared payload budget, two physical reads in flight, four prepared sessions per provider, 1 KiB keys and 256-byte recognition prefixes. `max_requests`, `max_key_bytes` and `probe_bytes` adjust the latter limits. `MaxSize::Count` limits payload blocks; `Disabled` disables residency but retains `max_in_flight` working blocks. Unbounded source storage is rejected. These settings do not limit third-party decoder output or driver-owned storage.
+
+Cached blocks, evicted blocks held by readers and physical reads charge the same prepared payload capacity. Session objects, pinned open/read future slots, recognition prefixes and cache metadata are separate cold allocations. Short reads reuse the original block and future slot. Mapped reads bypass block storage. Polling and warmed mapped-session reuse do not allocate framework buffers; dynamic keys, resource values and decoder allocations remain separate.
+
+Cancelling a request stops decoding and new reads. A submitted open or read retains its prepared session until completion; retirement returns the original buffer without starting another short read or publishing cancelled data. Exhausted session/read capacity returns an error rather than expanding storage. Recognition prefixes are retained separately so sequential decoders can reread their header after format selection.

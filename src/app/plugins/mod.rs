@@ -8,6 +8,7 @@ pub mod frame_rate;
 pub mod image_resources;
 pub mod input_feedback;
 pub mod perf_report;
+pub mod resources;
 #[cfg(feature = "std")]
 pub mod std_clock;
 
@@ -23,5 +24,6 @@ pub use input_feedback::InputFeedbackPlugin;
 pub use perf_report::{
     PerfReport, PerfReportPlugin, PerfettoLineSink, SystemPerfSnapshot, SystemStat,
 };
+pub use resources::ResourcePlugin;
 #[cfg(feature = "std")]
 pub use std_clock::StdInstantClockPlugin;
