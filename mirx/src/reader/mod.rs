@@ -14,7 +14,7 @@ mod ranges;
 pub use crate::error::ReadError;
 pub use crate::media::{
     MediaFlags, MediaHeader, MediaLayout, MediaPayloadError, MediaSectionDescriptor,
-    MediaSectionFlags, MediaSectionKind, SectionScan,
+    MediaSectionFlags, MediaSectionKind, MetadataScan, SectionScan,
 };
 pub use container_layout::{ChunkLocation, ContainerLayout};
 pub use entry::{ChunkRef, EntryIter};

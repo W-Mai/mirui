@@ -56,6 +56,15 @@ fn media_windows_scan_without_owning_the_directory_or_samples() {
             &source
         );
         assert_eq!(scan.accept(&[]), Ok(None));
+        let mut metadata = layout.metadata();
+        let mut window = [0; 3];
+        while let Some(range) = metadata.read_range() {
+            let count = range.len().min(window.len());
+            window[..count].copy_from_slice(&bytes[range.start..range.start + count]);
+            metadata.accept(&window[..count]).unwrap();
+            window.fill(0);
+        }
+        metadata.finish().unwrap();
     });
     assert_eq!(allocations, 0);
 }

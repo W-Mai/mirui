@@ -11,6 +11,9 @@ pub(crate) mod index;
 pub(crate) mod integrity;
 mod layout;
 pub use layout::{MediaLayout, SectionScan};
+mod metadata_scan;
+use metadata_scan::MetadataCoverage;
+pub use metadata_scan::MetadataScan;
 pub(crate) mod selection;
 pub(crate) use coding::{CODING_RECORD_LEN, CodingRecord, CodingTable, CodingTableError};
 pub(crate) use index::{UnitIndex, UnitIndexEncoding, UnitIndexError};
@@ -391,13 +394,11 @@ impl<'a> MediaPayload<'a> {
     fn metadata_crc(self) -> u32 {
         let mut crc = Crc32::new();
         crc.update(&self.payload[..4]);
-        let mut start = MEDIA_HEADER_LEN;
+        let mut coverage = MetadataCoverage::new(self.payload.len());
         for section in self.sections_of_kind(MediaSectionKind::DATA) {
-            let offset = section.descriptor.offset as usize;
-            crc.update(&self.payload[start..offset]);
-            start = offset + section.bytes.len();
+            crc.update(&self.payload[coverage.before_data(section.descriptor)]);
         }
-        crc.update(&self.payload[start..]);
+        crc.update(&self.payload[coverage.tail()]);
         crc.finish()
     }
 
@@ -650,6 +651,110 @@ mod tests {
 
     use super::*;
     use crate::wire::{write_u16_le, write_u32_le};
+
+    fn scan_metadata(bytes: &[u8], window: usize) -> Result<(), MediaPayloadError> {
+        let layout = MediaLayout::parse(&bytes[..bytes.len().min(8)], bytes.len())?;
+        let mut scan = layout.metadata();
+        while let Some(range) = scan.read_range() {
+            let end = range.end.min(range.start + window);
+            scan.accept(&bytes[range.start..end])?;
+        }
+        scan.finish()
+    }
+
+    #[test]
+    fn metadata_windows_keep_checksum_coverage_and_ignore_data_bodies() {
+        let bytes = payload(
+            &[
+                TestSection {
+                    kind: MediaSectionKind::SURFACE.raw(),
+                    flags: 1,
+                    offset: 80,
+                    bytes: &[1; 8],
+                },
+                TestSection {
+                    kind: MediaSectionKind::DATA.raw(),
+                    flags: 1,
+                    offset: 96,
+                    bytes: &[2; 4],
+                },
+                TestSection {
+                    kind: 0x8000,
+                    flags: 0,
+                    offset: 108,
+                    bytes: &[3; 4],
+                },
+                TestSection {
+                    kind: MediaSectionKind::DATA.raw(),
+                    flags: 1,
+                    offset: 120,
+                    bytes: &[4; 4],
+                },
+            ],
+            0,
+        );
+        for source in [&bytes, &indexed_image(), &payload(&[], 0)] {
+            let media = MediaPayload::open(source).unwrap();
+            for window in [1, 2, 3, 7, 12, 31, source.len()] {
+                let layout = MediaLayout::parse(&source[..8], source.len()).unwrap();
+                let mut scan = layout.metadata();
+                assert!(scan.finish().is_err());
+                scan = layout.metadata();
+                while let Some(range) = scan.read_range() {
+                    let end = range.end.min(range.start + window);
+                    for data in media.sections_of_kind(MediaSectionKind::DATA) {
+                        let start = data.descriptor().offset() as usize;
+                        let data_end = start + data.bytes().len();
+                        assert!(range.start >= data_end || end <= start);
+                    }
+                    scan.accept(&source[range.start..end]).unwrap();
+                }
+                assert_eq!(scan.accept(&[]), Err(MediaPayloadError::InvalidDataRange));
+                scan.finish().unwrap();
+            }
+            for offset in 0..source.len() {
+                let mut changed = source.clone();
+                changed[offset] ^= 1;
+                let is_data = media
+                    .sections_of_kind(MediaSectionKind::DATA)
+                    .any(|section| {
+                        let start = section.descriptor().offset() as usize;
+                        (start..start + section.bytes().len()).contains(&offset)
+                    });
+                assert_eq!(
+                    scan_metadata(&changed, 3).is_ok(),
+                    is_data,
+                    "changed byte {offset}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn metadata_window_errors_preserve_partial_record_position() {
+        let bytes = indexed_image();
+        let layout = MediaLayout::parse(&bytes[..8], bytes.len()).unwrap();
+        let mut scan = layout.metadata();
+        scan.accept(&bytes[8..11]).unwrap();
+        assert_eq!(scan.read_range(), Some(11..20));
+        assert_eq!(scan.accept(&[]), Err(MediaPayloadError::InvalidDataRange));
+        assert_eq!(
+            scan.accept(&bytes[11..21]),
+            Err(MediaPayloadError::InvalidDataRange)
+        );
+        assert_eq!(scan.read_range(), Some(11..20));
+        scan.accept(&bytes[11..20]).unwrap();
+        assert_eq!(scan.read_range(), Some(20..32));
+        let mut invalid = [0; 12];
+        invalid.copy_from_slice(&bytes[20..32]);
+        invalid[4..8].copy_from_slice(&0u32.to_le_bytes());
+        assert!(scan.accept(&invalid).is_err());
+        assert_eq!(scan.read_range(), Some(20..32));
+        while let Some(range) = scan.read_range() {
+            scan.accept(&bytes[range]).unwrap();
+        }
+        scan.finish().unwrap();
+    }
 
     #[test]
     fn section_windows_reject_ranges_atomically_with_the_slice_parser() {

@@ -16,6 +16,19 @@ pub struct MediaLayout {
 }
 
 impl MediaLayout {
+    pub(super) fn payload_len(self) -> usize {
+        self.covered_len as usize
+            + if self.header.flags.has_indexed_integrity() {
+                0
+            } else {
+                MEDIA_CRC_LEN
+            }
+    }
+
+    /// Prepare a bounded metadata-checksum scan. The returned ranges may revisit the directory; the source must support those reads without buffering the complete payload.
+    pub fn metadata(self) -> super::MetadataScan {
+        super::MetadataScan::new(self)
+    }
     pub fn parse(header: &[u8], payload_len: usize) -> Result<Self, MediaPayloadError> {
         if let Some(&version) = header.first() {
             if version != MEDIA_VERSION {
@@ -90,6 +103,9 @@ pub struct SectionScan {
 }
 
 impl SectionScan {
+    pub(super) const fn layout(&self) -> MediaLayout {
+        self.layout
+    }
     pub fn record_range(&self) -> Option<Range<usize>> {
         if self.next >= self.layout.header.section_count {
             return None;

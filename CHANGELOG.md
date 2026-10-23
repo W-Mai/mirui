@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - MIRX section directories support constant-storage window scans with checked ordering and payload bounds; rejected records do not advance the scan.
+- MIRX metadata checksums can be verified through bounded source windows without retaining payloads or directory arrays.
 - MIRX container layouts expose checked header, directory-record and FLAT plane ranges without retaining complete source buffers, sharing validation with the slice reader.
 - Loaders can transfer their opened byte source into retained state or resource values, preserving bounded reads, shared caches and pending-I/O retirement without reopening.
 - `Loader::for_source` binds a decoder to a named byte provider through the existing loader registration, preserving metadata support and rejecting overlapping source claims before opening.
