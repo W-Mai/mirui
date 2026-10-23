@@ -39,6 +39,20 @@ impl ChunkTableMeta {
         header: ChunkFileHeader,
         max_chunks: u16,
     ) -> Result<Self, ReadError> {
+        let table = Self::from_header(header, max_chunks)?;
+        for index in 0..table.count {
+            let record_offset = table.record_offset(index)?;
+            let record =
+                slice(bytes, record_offset, CHUNK_TABLE_ENTRY_LEN).ok_or(ReadError::Truncated {
+                    needed: record_offset.saturating_add(CHUNK_TABLE_ENTRY_LEN),
+                    available: bytes.len(),
+                })?;
+            table.validate_record(record, index, header.file_size)?;
+        }
+        Ok(table)
+    }
+
+    fn from_header(header: ChunkFileHeader, max_chunks: u16) -> Result<Self, ReadError> {
         if header.chunk_count > max_chunks {
             return Err(ReadError::TooManyChunks {
                 count: header.chunk_count,
@@ -59,7 +73,7 @@ impl ChunkTableMeta {
         let table_end = offset
             .checked_add(table_len)
             .ok_or(ReadError::SizeOverflow)?;
-        if bytes.len() < table_end {
+        if usize::try_from(header.file_size).map_err(|_| ReadError::SizeOverflow)? < table_end {
             return Err(ReadError::ChunkTableOutOfBounds {
                 offset: header.chunk_table_offset,
                 count: header.chunk_count,
@@ -67,63 +81,73 @@ impl ChunkTableMeta {
             });
         }
 
-        for index in 0..count {
-            let record_offset = offset
-                .checked_add(
-                    index
-                        .checked_mul(CHUNK_TABLE_ENTRY_LEN)
-                        .ok_or(ReadError::SizeOverflow)?,
-                )
-                .ok_or(ReadError::SizeOverflow)?;
-            let record =
-                slice(bytes, record_offset, CHUNK_TABLE_ENTRY_LEN).ok_or(ReadError::Truncated {
-                    needed: record_offset.saturating_add(CHUNK_TABLE_ENTRY_LEN),
-                    available: bytes.len(),
-                })?;
-
-            if let Some(relative) = record[12..16].iter().position(|&byte| byte != 0) {
-                return Err(ReadError::ReservedNonZero {
-                    offset: record_offset + 12 + relative,
-                });
-            }
-
-            let decoded = decode_record(record).ok_or(ReadError::InvalidChunkType)?;
-            let payload_end = decoded
-                .payload_offset
-                .checked_add(decoded.payload_size)
-                .ok_or(ReadError::ChunkPayloadOutOfBounds {
-                    index: index as u16,
-                    offset: decoded.payload_offset,
-                    size: decoded.payload_size,
-                })?;
-            let payload_end = usize::try_from(payload_end).map_err(|_| ReadError::SizeOverflow)?;
-            if bytes.len() < payload_end {
-                return Err(ReadError::ChunkPayloadOutOfBounds {
-                    index: index as u16,
-                    offset: decoded.payload_offset,
-                    size: decoded.payload_size,
-                });
-            }
-
-            let payload_start =
-                usize::try_from(decoded.payload_offset).map_err(|_| ReadError::SizeOverflow)?;
-            if overlaps_or_points_into(payload_start, payload_end, 0, CHUNK_FILE_HEADER_LEN) {
-                return Err(ReadError::ChunkPayloadOverlapsHeader {
-                    index: index as u16,
-                    offset: decoded.payload_offset,
-                    size: decoded.payload_size,
-                });
-            }
-            if overlaps_or_points_into(payload_start, payload_end, offset, table_end) {
-                return Err(ReadError::ChunkPayloadOverlapsTable {
-                    index: index as u16,
-                    offset: decoded.payload_offset,
-                    size: decoded.payload_size,
-                });
-            }
-        }
-
         Ok(Self { offset, count })
+    }
+
+    fn record_offset(self, index: usize) -> Result<usize, ReadError> {
+        if index >= self.count {
+            return Err(ReadError::SizeOverflow);
+        }
+        self.offset
+            .checked_add(
+                index
+                    .checked_mul(CHUNK_TABLE_ENTRY_LEN)
+                    .ok_or(ReadError::SizeOverflow)?,
+            )
+            .ok_or(ReadError::SizeOverflow)
+    }
+
+    // `record` is one read window; payload bounds belong to the logical file.
+    fn validate_record(
+        self,
+        record: &[u8],
+        index: usize,
+        file_size: u32,
+    ) -> Result<EntryRecord, ReadError> {
+        let record_offset = self.record_offset(index)?;
+        if record.len() < CHUNK_TABLE_ENTRY_LEN {
+            return Err(ReadError::Truncated {
+                needed: record_offset.saturating_add(CHUNK_TABLE_ENTRY_LEN),
+                available: record_offset.saturating_add(record.len()),
+            });
+        }
+        if let Some(relative) = record[12..16].iter().position(|&byte| byte != 0) {
+            return Err(ReadError::ReservedNonZero {
+                offset: record_offset + 12 + relative,
+            });
+        }
+        let decoded = decode_record(record).ok_or(ReadError::InvalidChunkType)?;
+        let out_of_bounds = ReadError::ChunkPayloadOutOfBounds {
+            index: index as u16,
+            offset: decoded.payload_offset,
+            size: decoded.payload_size,
+        };
+        let payload_end = decoded
+            .payload_offset
+            .checked_add(decoded.payload_size)
+            .ok_or_else(|| out_of_bounds.clone())?;
+        if payload_end > file_size {
+            return Err(out_of_bounds);
+        }
+        let payload_start =
+            usize::try_from(decoded.payload_offset).map_err(|_| ReadError::SizeOverflow)?;
+        let payload_end = usize::try_from(payload_end).map_err(|_| ReadError::SizeOverflow)?;
+        if overlaps_or_points_into(payload_start, payload_end, 0, CHUNK_FILE_HEADER_LEN) {
+            return Err(ReadError::ChunkPayloadOverlapsHeader {
+                index: index as u16,
+                offset: decoded.payload_offset,
+                size: decoded.payload_size,
+            });
+        }
+        let table_end = self.offset + self.count * CHUNK_TABLE_ENTRY_LEN;
+        if overlaps_or_points_into(payload_start, payload_end, self.offset, table_end) {
+            return Err(ReadError::ChunkPayloadOverlapsTable {
+                index: index as u16,
+                offset: decoded.payload_offset,
+                size: decoded.payload_size,
+            });
+        }
+        Ok(decoded)
     }
 }
 
@@ -328,6 +352,70 @@ impl DoubleEndedIterator for EntryIter<'_> {
 }
 
 impl ExactSizeIterator for EntryIter<'_> {}
+
+#[cfg(test)]
+mod range_tests {
+    use super::*;
+    use crate::{Reader, encode_chunks};
+
+    #[test]
+    fn isolated_records_and_complete_sources_enforce_identical_ranges() {
+        let original = encode_chunks(&[(crate::header::chunk_type::META, 0, b"payload")]);
+        let file = crate::reader::parse_file_header(&original).unwrap();
+        let header = crate::reader::parse_chunk_header(&original, file).unwrap();
+        let table = ChunkTableMeta::from_header(header, 1).unwrap();
+        let start = table.record_offset(0).unwrap();
+        for offset in [0, 43, 44, 59, 60, 61, header.file_size, u32::MAX] {
+            for size in [0, 1, 7, u32::MAX] {
+                let mut bytes = original.clone();
+                bytes[start + 4..start + 8].copy_from_slice(&offset.to_le_bytes());
+                bytes[start + 8..start + 12].copy_from_slice(&size.to_le_bytes());
+                let bounded = table.validate_record(&bytes[start..start + 16], 0, header.file_size);
+                assert_eq!(bounded.err(), Reader::open(&bytes).err());
+            }
+        }
+        let mut record = [0; CHUNK_TABLE_ENTRY_LEN];
+        record.copy_from_slice(&original[start..start + CHUNK_TABLE_ENTRY_LEN]);
+        record[15] = 1;
+        assert_eq!(
+            table.validate_record(&record, 0, header.file_size),
+            Err(ReadError::ReservedNonZero { offset: start + 15 })
+        );
+        assert_eq!(
+            table.validate_record(&record[..15], 0, header.file_size),
+            Err(ReadError::Truncated {
+                needed: start + 16,
+                available: start + 15,
+            })
+        );
+    }
+
+    #[test]
+    fn isolated_table_validation_does_not_require_payload_storage() {
+        let bytes = encode_chunks(&[(crate::header::chunk_type::META, 0, b"")]);
+        let file = crate::reader::parse_file_header(&bytes).unwrap();
+        let mut header = crate::reader::parse_chunk_header(&bytes, file).unwrap();
+        header.file_size = u32::MAX;
+        let table = ChunkTableMeta::from_header(header, 1).unwrap();
+        let mut record = [0; CHUNK_TABLE_ENTRY_LEN];
+        record[..2].copy_from_slice(&crate::header::chunk_type::META.to_le_bytes());
+        record[4..8].copy_from_slice(&(u32::MAX - 8).to_le_bytes());
+        record[8..12].copy_from_slice(&8u32.to_le_bytes());
+        assert_eq!(
+            table
+                .validate_record(&record, 0, header.file_size)
+                .unwrap()
+                .payload_size,
+            8
+        );
+        assert!(table.record_offset(1).is_err());
+        assert!(table.record_offset(usize::MAX).is_err());
+        assert_eq!(
+            core::mem::size_of::<ChunkTableMeta>(),
+            2 * core::mem::size_of::<usize>()
+        );
+    }
+}
 impl FusedIterator for EntryIter<'_> {}
 
 #[cfg(test)]
