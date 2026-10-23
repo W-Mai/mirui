@@ -12,7 +12,9 @@ mod primary;
 mod ranges;
 
 pub use crate::error::ReadError;
-pub use crate::media::integrity::{IntegrityError, IntegrityRange, IntegrityScan, RangeCheck};
+pub use crate::media::integrity::{
+    IntegrityError, IntegrityRange, IntegrityScan, MediaIntegrityScan, RangeCheck,
+};
 pub use crate::media::{
     MediaFlags, MediaHeader, MediaLayout, MediaPayloadError, MediaSectionDescriptor,
     MediaSectionFlags, MediaSectionKind, MetadataScan, SectionScan,

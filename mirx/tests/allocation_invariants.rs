@@ -24,6 +24,38 @@ fn wire_fixed(bits: i32) -> Fixed {
 struct TrackingAllocator;
 
 #[test]
+fn indexed_coverage_windows_retain_no_table_or_data_buffers() {
+    use mirx::{coding::Rle, image::EncodedImageAsset, reader::MediaLayout, types::DataIntegrity};
+    for ends in [&[2, 4][..], &[][..]] {
+        let width = if ends.is_empty() { 0 } else { 4 };
+        let surface =
+            SurfaceDescriptor::new(width, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+        let data = if ends.is_empty() {
+            &[][..]
+        } else {
+            &[0x81, 1, 0x81, 2][..]
+        };
+        let bytes = EncodedImageAsset::new(surface, Rle::new().record(), data)
+            .with_integrity(DataIntegrity::Indexed(ends))
+            .encode()
+            .unwrap();
+        let (_, allocations) = count_allocations(|| {
+            let layout = MediaLayout::parse(&bytes[..8], bytes.len()).unwrap();
+            let mut scan = layout.integrity().unwrap();
+            let mut window = [0; 3];
+            while let Some(range) = scan.read_range() {
+                let count = range.len().min(window.len());
+                window[..count].copy_from_slice(&bytes[range.start..range.start + count]);
+                scan.accept(&window[..count]).unwrap();
+                window.fill(0);
+            }
+            assert!(scan.finish().unwrap().is_some());
+        });
+        assert_eq!(allocations, 0);
+    }
+}
+
+#[test]
 fn integrity_windows_reuse_records_and_checksum_buffers_without_allocating() {
     use mirx::reader::IntegrityScan;
     let bytes = [0x51; 8192];
@@ -92,6 +124,14 @@ fn media_windows_scan_without_owning_the_directory_or_samples() {
             window.fill(0);
         }
         metadata.finish().unwrap();
+        let mut integrity = layout.integrity().unwrap();
+        while let Some(range) = integrity.read_range() {
+            let count = range.len().min(window.len());
+            window[..count].copy_from_slice(&bytes[range.start..range.start + count]);
+            integrity.accept(&window[..count]).unwrap();
+            window.fill(0);
+        }
+        assert!(integrity.finish().unwrap().is_none());
     });
     assert_eq!(allocations, 0);
 }

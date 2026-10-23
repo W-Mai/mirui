@@ -102,6 +102,8 @@ Range-based consumers can use `reader::ContainerLayout` without retaining a comp
 
 `reader::IntegrityScan::new(section_len)` validates isolated 12-byte integrity records in order through `record_range()` and `accept(record)`. Each returned `IntegrityRange` can create a `check()` for its DATA partition: supply prefixes of `read_range()` to `accept(bytes)` and call `finish()` to verify the CRC. Checks require constant storage even when a partition exceeds the read buffer. The integrity table must also partition the DATA sections exactly; record ordering and individual CRC checks alone do not establish that coverage.
 
+`MediaLayout::integrity()` prepares that coverage check. Its `read_range()` and `accept(bytes)` alternate directory and integrity-record windows without reading DATA. `finish()` rejects incomplete scans and returns the checked table descriptor, or `None` for whole-DATA integrity. Missing, duplicate or optional integrity tables, gaps, cross-section partitions and extra records are rejected. Metadata CRC and requested DATA checksums must still be verified independently.
+
 `Reader` validates the common header, exact logical length, chunk table, payload ranges, primary selection, and configured resource limits. Chunk iteration and borrowed typed views continue to reference the input bytes.
 
 ```rust

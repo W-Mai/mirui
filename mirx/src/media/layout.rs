@@ -16,6 +16,10 @@ pub struct MediaLayout {
 }
 
 impl MediaLayout {
+    /// Validate integrity-table association and exact DATA partition coverage through bounded metadata reads. This does not checksum metadata or DATA bytes.
+    pub fn integrity(self) -> Result<super::integrity::MediaIntegrityScan, MediaPayloadError> {
+        super::integrity::MediaIntegrityScan::new(self)
+    }
     pub(super) fn payload_len(self) -> usize {
         self.covered_len as usize
             + if self.header.flags.has_indexed_integrity() {

@@ -7,6 +7,41 @@ mod check;
 pub use check::DataCheckPlan;
 mod scan;
 pub use scan::{IntegrityScan, RangeCheck};
+mod coverage_scan;
+pub use coverage_scan::MediaIntegrityScan;
+
+pub(super) fn advance_coverage(
+    cursor: u32,
+    end: u32,
+    range: IntegrityRange,
+) -> Result<u32, IntegrityError> {
+    if range.offset != cursor || range.range().end > end {
+        return Err(IntegrityError::InvalidCoverage {
+            offset: range.offset,
+        });
+    }
+    Ok(range.range().end)
+}
+
+pub(super) fn check_table(
+    indexed: bool,
+    table: Option<super::MediaSectionDescriptor>,
+    duplicate: bool,
+) -> Result<Option<super::MediaSectionDescriptor>, super::MediaPayloadError> {
+    use super::MediaPayloadError;
+    if duplicate {
+        return Err(MediaPayloadError::DuplicateIntegrityTable);
+    }
+    match (indexed, table) {
+        (false, None) => Ok(None),
+        (false, Some(_)) => Err(MediaPayloadError::UnexpectedIntegrityTable),
+        (true, None) => Err(MediaPayloadError::MissingIntegrityTable),
+        (true, Some(table)) if !table.flags().is_required() => {
+            Err(MediaPayloadError::IntegrityTableMustBeRequired)
+        }
+        (true, Some(table)) => Ok(Some(table)),
+    }
+}
 
 pub const INTEGRITY_RECORD_LEN: usize = 12;
 
@@ -228,12 +263,7 @@ impl<'a> IntegrityTable<'a> {
                 let range = ranges
                     .next()
                     .ok_or(IntegrityError::IncompleteCoverage { offset: cursor })?;
-                if range.offset != cursor || range.range().end > end {
-                    return Err(IntegrityError::InvalidCoverage {
-                        offset: range.offset,
-                    });
-                }
-                cursor = range.range().end;
+                cursor = advance_coverage(cursor, end, range)?;
             }
         }
         if let Some(range) = ranges.next() {
