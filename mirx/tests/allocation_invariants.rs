@@ -24,6 +24,33 @@ fn wire_fixed(bits: i32) -> Fixed {
 struct TrackingAllocator;
 
 #[test]
+fn encoded_directory_windows_bind_metadata_without_allocating() {
+    use mirx::{
+        coding::Rle,
+        image::{EncodedImageAsset, EncodedImageScan},
+        reader::{MediaLayout, MediaSectionKind},
+    };
+    let surface = SurfaceDescriptor::new(4, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let bytes = EncodedImageAsset::new(surface, Rle::new().record(), &[0x83, 42])
+        .encode()
+        .unwrap();
+    let (_, allocations) = count_allocations(|| {
+        let mut scan =
+            EncodedImageScan::new(MediaLayout::parse(&bytes[..8], bytes.len()).unwrap(), 0);
+        while let Some(range) = scan.read_range() {
+            scan.accept(&bytes[range.start..range.start + 1]).unwrap();
+        }
+        let section = scan.section(MediaSectionKind::CODINGS).unwrap();
+        let codings =
+            &bytes[section.offset() as usize..(section.offset() + section.size()) as usize];
+        let layout = scan.finish(codings, None, None).unwrap();
+        assert_eq!(layout.surface(), surface);
+        assert_eq!(layout.group(0).unwrap().unit_range(0), Some(0..2));
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn encoded_metadata_addressing_needs_no_data_allocation() {
     use mirx::image::{CoverageBudget, EncodedImageLayout};
     let surface =

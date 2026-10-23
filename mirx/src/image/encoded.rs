@@ -1,8 +1,8 @@
 use core::iter::FusedIterator;
 
 use super::{
-    AccessCapabilities, CoverageBudget, CoverageError, EncodedGroupError, SURFACE_RECORD_LEN,
-    SurfaceDescriptor, SurfaceRecordError, UNIT_GROUP_RECORD_LEN, UnitGroup,
+    AccessCapabilities, CoverageBudget, CoverageError, EncodedGroupError, SurfaceDescriptor,
+    SurfaceRecordError, UNIT_GROUP_RECORD_LEN, UnitGroup,
 };
 use crate::ByteAlignment;
 use crate::media::{
@@ -14,10 +14,12 @@ mod decode;
 mod encode;
 mod groups;
 mod layout;
+mod scan;
 #[cfg(test)]
 use super::UnitGroupRecord;
 pub(crate) use groups::{CodingRecords, GroupRecords, GroupSource};
 pub use layout::{EncodedImageLayout, ImageGroupLayout};
+pub use scan::EncodedImageScan;
 mod preflight;
 pub use decode::{DecodeError, ImageDecodePlan};
 pub use encode::EncodedImageAsset;
@@ -107,57 +109,25 @@ impl<'a> EncodedImageView<'a> {
         media: MediaPayload<'a>,
         file_offset: Option<u32>,
     ) -> Result<Self, EncodedImageError> {
-        let mut surface = None;
-        let mut codings = None;
-        let mut data = None;
-        let mut records = None;
-        let mut indexes = None;
-        let mut color_table = None;
+        let mut sections = scan::ImageSections::default();
         for section in media.sections() {
-            let kind = section.descriptor().kind();
-            let slot = match kind {
-                MediaSectionKind::SURFACE => Some(&mut surface),
-                MediaSectionKind::CODINGS => Some(&mut codings),
-                MediaSectionKind::DATA => Some(&mut data),
-                MediaSectionKind::UNIT_GROUPS => Some(&mut records),
-                MediaSectionKind::UNIT_INDEX => Some(&mut indexes),
-                MediaSectionKind::COLOR_TABLE => Some(&mut color_table),
-                MediaSectionKind::INTEGRITY => None,
-                MediaSectionKind::PLANES => return Err(EncodedImageError::UnexpectedSection(kind)),
-                _ if section.descriptor().flags().is_required() => {
-                    return Err(EncodedImageError::UnknownRequiredSection(kind));
-                }
-                _ => None,
-            };
-            if let Some(slot) = slot {
-                if slot.replace(section).is_some() {
-                    return Err(EncodedImageError::DuplicateSection(kind));
-                }
-                if !section.descriptor().flags().is_required() {
-                    return Err(EncodedImageError::SectionMustBeRequired(kind));
-                }
-            }
+            sections.accept(section, section.descriptor())?;
         }
-        let surface =
-            surface.ok_or(EncodedImageError::MissingSection(MediaSectionKind::SURFACE))?;
-        if surface.bytes().len() != SURFACE_RECORD_LEN {
-            return Err(EncodedImageError::SectionSizeMismatch {
-                kind: MediaSectionKind::SURFACE,
-                expected: SURFACE_RECORD_LEN,
-                actual: surface.bytes().len(),
-            });
-        }
-        let surface =
-            SurfaceDescriptor::from_record(surface.bytes()).map_err(EncodedImageError::Surface)?;
+        let surface = scan::parse_surface(
+            sections
+                .surface
+                .ok_or(EncodedImageError::MissingSection(MediaSectionKind::SURFACE))?
+                .bytes(),
+        )?;
         Self::from_sections(
             media,
             surface,
             EncodedSections {
-                codings,
-                data,
-                records,
-                indexes,
-                color_table,
+                codings: sections.codings,
+                data: sections.data,
+                records: sections.records,
+                indexes: sections.indexes,
+                color_table: sections.color_table,
             },
             file_offset,
         )
