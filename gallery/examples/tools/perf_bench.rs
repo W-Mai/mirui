@@ -270,7 +270,9 @@ fn run_micro_blit() {
                     radius: Fixed::ZERO,
                     composite: CompositeMode::SourceOver,
                 };
-                renderer.submit(&DrawRequest::new(&cmd, clip)).unwrap();
+                renderer
+                    .draw_request(&DrawRequest::new(&cmd, clip))
+                    .unwrap();
             }
         });
     });

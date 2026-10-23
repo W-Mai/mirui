@@ -41,7 +41,8 @@ impl Renderer for SceneRenderer<'_> {
         Ok(RenderRoute::Native)
     }
 
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+        let request = &draw.request();
         self.route(request)?;
         match record_command(request.command, self.resolver) {
             Ok(op) => {
@@ -53,6 +54,20 @@ impl Renderer for SceneRenderer<'_> {
                 Err(RenderError::BackendFailure)
             }
         }
+    }
+
+    fn prepare<'data>(
+        &mut self,
+        request: DrawRequest<'_, 'data>,
+        route: RenderRoute,
+        _: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Result<crate::render::PreparedDraw<'data>, RenderError>> {
+        // Recording retains resource references, not sampled pixels.
+        core::task::Poll::Ready(crate::render::PreparedDraw::native(
+            request,
+            route,
+            self.output_scale(),
+        ))
     }
 
     fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
@@ -116,7 +131,7 @@ mod tests {
         let mut resolver = PanicResolver;
         let mut renderer = scene.renderer(&mut resolver);
         assert_eq!(
-            renderer.submit(&DrawRequest::new(&command, Rect::new(0, 0, 2, 2))),
+            renderer.draw_request(&DrawRequest::new(&command, Rect::new(0, 0, 2, 2))),
             Err(RenderError::InvalidGeometry)
         );
         assert!(renderer.scene.ops.is_empty());
@@ -136,7 +151,7 @@ mod tests {
                 width: Fixed::from_int(1),
                 opa: 255,
             };
-            r.submit(&DrawRequest::new(&line, *clip)).unwrap();
+            r.draw_request(&DrawRequest::new(&line, *clip)).unwrap();
             let fill = DrawCommand::Fill {
                 area: Rect {
                     x: Fixed::ZERO,
@@ -150,7 +165,7 @@ mod tests {
                 radius: Fixed::ZERO,
                 opa: 200,
             };
-            r.submit(&DrawRequest::new(&fill, *clip)).unwrap();
+            r.draw_request(&DrawRequest::new(&fill, *clip)).unwrap();
             r.flush().unwrap();
         }
 
@@ -203,7 +218,7 @@ mod tests {
             region: clip,
         };
         assert_eq!(
-            sink.submit(&DrawRequest::new(&blur, clip)),
+            sink.draw_request(&DrawRequest::new(&blur, clip)),
             Err(RenderError::Unsupported(RenderFeature::Blur))
         );
         assert!(sink.scene.ops.is_empty());
@@ -228,7 +243,7 @@ mod tests {
         let request = DrawRequest::new(&command, clip)
             .with_projective(Transform3D::translate(Fixed::from_int(4), Fixed::ZERO));
         assert_eq!(
-            sink.submit(&request),
+            sink.draw_request(&request),
             Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry))
         );
         assert!(sink.scene.ops.is_empty());

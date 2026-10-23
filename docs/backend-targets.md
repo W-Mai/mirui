@@ -30,6 +30,29 @@ Native WGPU readback reuses a device-specific staging buffer and mapping complet
 
 ## Source reads
 
+`Renderer::route` classifies a request, `prepare(request, route, cx)` retains its ready source storage, and `submit(&PreparedDraw)` consumes that storage. Preparation does not borrow the renderer across its return. `RenderEngine<T>` exposes the same preparation step; `compose_backend!` forwards preparation and submission through the same concrete field, including nested compositions. An engine's `begin` runs only after preparation succeeds, and `end` still runs after a submission error.
+
+`draw_request(&request)` performs these steps for immediately available sources; `draw_text_run(&request, identity)` also preserves text-run identity. Both return `ResourcePending` for pending preparation. Call `prepare` with a task context to register a meaningful wake instead of the immediate helpers' no-op wake. Scene replay prepares sources using its saved routes. Region and projective wrappers transform the request during preparation and forward the prepared command without applying the transform twice.
+
+Software submission samples the retained source region using the original image dimensions, keeping integer row-copy and fractional sampling paths. SDL-GPU and WGPU sample compatible native sources directly. Uploads and Canvas sources prepare a complete CPU view and retain it through submission; upload-cache misses only consume resident pixels and never initiate source readback. Existing source and destination budgets remain separate and unchanged. Partial device uploads are not exposed by these caches.
+
+Third-party CPU renderers can use the default `prepare` implementation and read `draw.texture_region()`. Native renderers override preparation to check source-device compatibility and return `PreparedDraw::native`, or prepare CPU pixels before using an upload path. A renderer must recheck destination state and reject a changed output scale before submitting; a prepared source does not reserve destination workspace. Engines that specialize text runs can override `submit_text_run`; its default uses the engine's ordinary `submit` implementation.
+
+```rust
+use core::task::{Context, Poll};
+use mirui::render::{DrawRequest, RenderError, Renderer};
+
+fn poll_draw(
+    renderer: &mut dyn Renderer,
+    request: DrawRequest<'_, '_>,
+    cx: &mut Context<'_>,
+) -> Poll<Result<(), RenderError>> {
+    let route = renderer.route(&request)?;
+    let draw = core::task::ready!(renderer.prepare(request, route, cx))?;
+    Poll::Ready(renderer.submit(&draw))
+}
+```
+
 `PreparedDraw::poll_cpu(request, route, output_scale, cx)` retains the source pixels needed by a draw. Axis-aligned requests use the same integer and fractional sampling calculations as software rendering; arbitrary transforms conservatively retain the complete source. `texture_region()` exposes the ready lease without performing another read. `PreparedDraw::native` retains command and source identity without CPU readback, leaving device compatibility and feedback checks to the backend. The token copies the existing command description, borrows its resources and does not borrow the destination renderer. `request()` returns the retained original geometry, not the cropped region's dimensions.
 
 `Texture::backend_target()` gives backend implementations a checked, read-only native payload without submitting work or reading pixels. `Some` permits inspection with `as_any`; consumers must still check destination device identity and reject active-target feedback. `None` selects CPU handling, including when invalid native storage has a current CPU copy. Unfinished contents and access conflicts return errors; the method cannot be used to acquire a writable target.

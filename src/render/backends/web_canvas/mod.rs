@@ -551,27 +551,37 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
         WebCanvasRenderer::route(self, request)
     }
 
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-        WebCanvasRenderer::submit(self, request)
+    fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+        let request = &draw.request();
+        if draw.output_scale() != self.viewport.scale() {
+            return Err(RenderError::InvalidScope);
+        }
+        WebCanvasRenderer::submit_routed(self, request, draw.route())
     }
 
     fn submit_text_run(
         &mut self,
-        request: &DrawRequest<'_, '_>,
+        draw: &::mirui::render::PreparedDraw<'_>,
         identity: TextRunIdentity,
     ) -> Result<(), RenderError> {
         self.current_text_run = Some(identity);
-        let result = WebCanvasRenderer::submit(self, request);
+        let result = <Self as Renderer>::submit(self, draw);
         self.current_text_run = None;
         result
     }
 
-    fn submit_with_route(
+    fn prepare<'data>(
         &mut self,
-        request: &DrawRequest<'_, '_>,
+        request: DrawRequest<'_, 'data>,
         route: RenderRoute,
-    ) -> Result<(), RenderError> {
-        WebCanvasRenderer::submit_with_route(self, request, route)
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Result<crate::render::PreparedDraw<'data>, RenderError>> {
+        let result =
+            crate::render::PreparedDraw::poll_complete(request, route, self.viewport.scale(), cx);
+        if let core::task::Poll::Ready(Err(error)) = result {
+            self.failure.get_or_insert(error);
+        }
+        result
     }
 
     fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
@@ -1184,6 +1194,10 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
 
 impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+        // Restoring a clip does not sample geometry or require fallback storage.
+        if matches!(request.command, DrawCommand::PopClip) {
+            return Ok(RenderRoute::Native);
+        }
         request.validate_projection()?;
         request.validate_texture()?;
         request.validate_write_boundary(self.viewport)?;
@@ -1230,18 +1244,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         Ok(RenderRoute::ExactFallback(plan.region()))
     }
 
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-        if matches!(request.command, DrawCommand::PopClip) {
-            return self.end_path_clip();
-        }
-        if let Some(error) = self.failure {
-            return Err(error);
-        }
-        let route = self.route(request)?;
-        self.submit_with_route(request, route)
-    }
-
-    fn submit_with_route(
+    fn submit_routed(
         &mut self,
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,

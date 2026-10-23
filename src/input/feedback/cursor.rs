@@ -230,10 +230,14 @@ mod tests {
         impl Renderer for RejectRenderer {
             type TargetState = ();
 
-            fn submit(
-                &mut self,
-                _: &crate::render::renderer::DrawRequest<'_, '_>,
-            ) -> Result<(), RenderError> {
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
+            fn submit(&mut self, _: &crate::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
             }
 

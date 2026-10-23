@@ -1,7 +1,7 @@
 use super::SwRenderer;
 use super::blit_fast::{blit_1to1_fast, blit_2to2_fast, blit_composite_dda, blit_dda};
 use crate::render::command::CompositeMode;
-use crate::render::texture::Texture;
+use crate::render::texture::{Texture, TexturePixels};
 use crate::types::{Fixed, Point, Rect};
 
 impl SwRenderer<'_> {
@@ -9,6 +9,29 @@ impl SwRenderer<'_> {
     pub(super) fn blit_inner(
         &mut self,
         src: &Texture,
+        src_rect: &Rect,
+        dst: Point,
+        dst_size: Point,
+        clip: &Rect,
+        opa: u8,
+        radius: Fixed,
+        composite: CompositeMode,
+    ) {
+        if opa == 0 || dst_size.x <= Fixed::ZERO || dst_size.y <= Fixed::ZERO {
+            return;
+        }
+        let Some(pixels) = self.source_pixels(src) else {
+            return;
+        };
+        self.blit_pixels_inner(
+            &pixels, src_rect, dst, dst_size, clip, opa, radius, composite,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn blit_pixels_inner(
+        &mut self,
+        src: &TexturePixels<'_>,
         src_rect: &Rect,
         dst: Point,
         dst_size: Point,
@@ -45,11 +68,6 @@ impl SwRenderer<'_> {
         if opa == 0 {
             return;
         }
-
-        let Some(pixels) = self.source_pixels(src) else {
-            return;
-        };
-        let src = &pixels;
 
         let Some(mut target) = super::write_pixels(&mut self.target, &mut self.failure) else {
             return;

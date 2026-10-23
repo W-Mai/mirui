@@ -119,7 +119,8 @@ impl Renderer for Recorder {
         Ok(RenderRoute::Native)
     }
 
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+        let request = &draw.request();
         self.route(request)?;
         let DrawCommand::Fill { quad, .. } = request.command else {
             return Err(RenderError::InvalidGeometry);
@@ -156,8 +157,7 @@ fn draw(renderer: &mut dyn Renderer, quad: Option<[Point; 4]>) -> Result<(), Ren
         opa: 255,
     };
     let request = DrawRequest::new(&command, Rect::new(7, 9, 10, 11));
-    let route = renderer.route(&request)?;
-    renderer.submit_with_route(&request, route)
+    renderer.draw_request(&request)
 }
 
 #[test]

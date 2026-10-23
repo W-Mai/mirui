@@ -183,7 +183,28 @@ impl Renderer for Fixture {
         request.validate()?;
         Ok(RenderRoute::Native)
     }
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn prepare<'data>(
+        &mut self,
+        request: DrawRequest<'_, 'data>,
+        route: RenderRoute,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Result<crate::render::PreparedDraw<'data>, RenderError>> {
+        if let DrawCommand::Blit { texture, .. } = request.command
+            && let Some(target) = texture
+                .backend_target()?
+                .and_then(|target| target.as_any().downcast_ref::<Target>())
+            && Rc::ptr_eq(&target.device, &self.device)
+        {
+            return core::task::Poll::Ready(crate::render::PreparedDraw::native(
+                request,
+                route,
+                Fixed::ONE,
+            ));
+        }
+        crate::render::PreparedDraw::poll_cpu(request, route, Fixed::ONE, cx)
+    }
+    fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+        let request = &draw.request();
         let color = match request.command {
             DrawCommand::Fill { color, .. } => *color,
             DrawCommand::Blit { texture, .. } => {
@@ -196,7 +217,10 @@ impl Renderer for Fixture {
                         self.device.samples.set(self.device.samples.get() + 1);
                         target.contents.color.get()
                     }
-                    _ => texture.read_pixels()?.get_pixel(0, 0),
+                    _ => draw
+                        .texture_region()
+                        .and_then(|region| region.get_pixel(0, 0))
+                        .ok_or(RenderError::InvalidTexture)?,
                 }
             }
             _ if self.active.is_none() => return Ok(()),
@@ -654,7 +678,7 @@ fn draw(
         Viewport::new(4, 4, Fixed::ONE),
         &mut [],
         &mut |renderer| {
-            renderer.submit(&DrawRequest::new(
+            renderer.draw_request(&DrawRequest::new(
                 &DrawCommand::Fill {
                     area: Rect::new(0, 0, 4, 4),
                     transform: Transform::IDENTITY,
@@ -1130,7 +1154,7 @@ fn native_sources_use_the_existing_software_blit_and_error_path() {
     target.alpha_mode = crate::render::texture::AlphaMode::Blend;
     let mut software = SwRenderer::new(target);
     let blit = |software: &mut SwRenderer<'_>, texture: &Texture<'_>| {
-        software.submit(&DrawRequest::new(
+        software.draw_request(&DrawRequest::new(
             &DrawCommand::Blit {
                 pos: Point::new(0, 0),
                 size: Point::new(4, 4),
@@ -1171,6 +1195,54 @@ fn native_sources_use_the_existing_software_blit_and_error_path() {
         color
     );
     assert_eq!(renderer.device.reads.get(), 2);
+}
+
+#[test]
+fn software_submission_uses_pinned_native_region_without_source_access() {
+    use crate::render::{CompositeMode, SwRenderer};
+    use crate::types::Point;
+    use core::task::{Context, Poll, Waker};
+    let mut producer = Fixture::default();
+    let plan = plan(&producer);
+    let budget = MemoryBudget::new(native_bytes());
+    let mut source = Texture::native(&mut producer, plan, &budget).unwrap();
+    let color = Color::rgb(20, 70, 130);
+    draw(&mut source, &mut producer, color, false).unwrap();
+    let mut software = SwRenderer::new(Texture::owned(4, 4, ColorFormat::RGBA8888).unwrap());
+    let command = DrawCommand::Blit {
+        texture: &source,
+        pos: Point::ZERO,
+        size: Point::new(4, 4),
+        transform: Transform::IDENTITY,
+        quad: None,
+        opa: 255,
+        radius: Fixed::ZERO,
+        composite: CompositeMode::SourceOver,
+    };
+    let request = DrawRequest::new(&command, Rect::new(1, 2, 2, 1));
+    let route = Renderer::route(&software, &request).unwrap();
+    let Poll::Ready(Ok(prepared)) =
+        software.prepare(request, route, &mut Context::from_waker(Waker::noop()))
+    else {
+        panic!("ready native region");
+    };
+    assert_eq!(
+        prepared.texture_region().unwrap().region(),
+        crate::render::texture::Region::new(1, 2, 2, 1).unwrap()
+    );
+    assert!(source.pixels().unwrap().is_none());
+    assert_eq!(producer.device.reads.get(), 1);
+    let charged = budget.allocated();
+    producer.device.access_failure.set(true);
+    assert_eq!(
+        tracked_allocations(|| software.submit(&prepared).unwrap()),
+        0
+    );
+    assert_eq!(producer.device.reads.get(), 1);
+    assert_eq!(budget.allocated(), charged);
+    let pixels = software.target.read_pixels().unwrap();
+    assert_eq!(pixels.get_pixel(1, 2), color);
+    assert_eq!(pixels.get_pixel(0, 0), Color::rgba(0, 0, 0, 0));
 }
 
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]

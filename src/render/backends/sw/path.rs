@@ -85,7 +85,7 @@ mod linear_transform_tests {
     use super::*;
     use crate::render::command::DrawCommand;
     use crate::render::raster::{LineCap, LineJoin};
-    use crate::render::renderer::{DrawRequest, RenderError};
+    use crate::render::renderer::{DrawRequest, RenderError, Renderer};
     use crate::render::texture::{ColorFormat, Texture};
     use alloc::borrow::Cow;
     use mirx::scene::{GradientStop, GradientUnits, LinearGradient, RadialGradient, SpreadMode};
@@ -157,7 +157,7 @@ mod linear_transform_tests {
         };
         let clip = Rect::new(0, 0, 32, 32);
         assert_eq!(
-            renderer.submit(&DrawRequest::new(&command, clip)),
+            renderer.draw_request(&DrawRequest::new(&command, clip)),
             Err(RenderError::InvalidGeometry)
         );
         assert_eq!(
@@ -241,7 +241,10 @@ mod linear_transform_tests {
             dash: &[],
         };
         let clip = Rect::new(0, 0, 48, 24);
-        assert_eq!(renderer.submit(&DrawRequest::new(&command, clip)), Ok(()));
+        assert_eq!(
+            renderer.draw_request(&DrawRequest::new(&command, clip)),
+            Ok(())
+        );
         assert!((100..=150).contains(&renderer.target.read_pixels().unwrap().get_pixel(24, 12).r));
     }
 
@@ -284,7 +287,10 @@ mod linear_transform_tests {
             fill_rule: FillRule::EvenOdd,
         };
         let clip = Rect::new(0, 0, 104, 54);
-        assert_eq!(renderer.submit(&DrawRequest::new(&command, clip)), Ok(()));
+        assert_eq!(
+            renderer.draw_request(&DrawRequest::new(&command, clip)),
+            Ok(())
+        );
         assert!((83..=87).contains(&renderer.target.read_pixels().unwrap().get_pixel(50, 25).r));
         assert!(renderer.target.read_pixels().unwrap().get_pixel(98, 25).r > 240);
     }

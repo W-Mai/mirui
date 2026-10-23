@@ -151,7 +151,7 @@ pub(crate) fn write_overlay_layout(
 mod tests {
     use super::*;
     use crate::ecs::World;
-    use crate::render::renderer::{DrawRequest, RenderError, Renderer};
+    use crate::render::renderer::{RenderError, Renderer};
     use crate::test_support::tracked_allocations;
     use crate::types::Transform;
     use crate::ui::Style;
@@ -166,7 +166,14 @@ mod tests {
     impl Renderer for CountingRenderer {
         type TargetState = ();
 
-        fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        fn route(
+            &self,
+            _: &crate::render::DrawRequest<'_, '_>,
+        ) -> Result<crate::render::RenderRoute, RenderError> {
+            Ok(crate::render::RenderRoute::Native)
+        }
+
+        fn submit(&mut self, _: &crate::render::PreparedDraw<'_>) -> Result<(), RenderError> {
             self.0 += 1;
             Ok(())
         }

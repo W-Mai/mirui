@@ -73,7 +73,7 @@ fn draw_fixture(
         radius: Fixed::ZERO,
         opa: 255,
     };
-    renderer.submit(&DrawRequest::new(&background, clip))?;
+    renderer.draw_request(&DrawRequest::new(&background, clip))?;
 
     if gradient {
         let path = Path::rounded_rect(
@@ -106,7 +106,7 @@ fn draw_fixture(
             units: GradientUnits::UserSpaceOnUse,
             transform: mirx::types::Transform::IDENTITY,
         });
-        renderer.submit(&DrawRequest::new(
+        renderer.draw_request(&DrawRequest::new(
             &DrawCommand::FillPath {
                 path: &path,
                 transform: Transform::IDENTITY,
@@ -136,14 +136,14 @@ fn draw_fixture(
             radius: Fixed::from_int(18),
             composite,
         };
-        renderer.submit(&DrawRequest::new(&image, clip))?;
+        renderer.draw_request(&DrawRequest::new(&image, clip))?;
     }
     if blurred {
         let blur = DrawCommand::ApplyBlur {
             alpha: Fixed::ONE / Fixed::from_int(3),
             region: Rect::new(68, 34, 184, 174),
         };
-        renderer.submit(&DrawRequest::new(&blur, clip))?;
+        renderer.draw_request(&DrawRequest::new(&blur, clip))?;
     }
     renderer.prepare_readback(&clip)?;
     renderer

@@ -16,7 +16,8 @@ impl Renderer for GracefulSkipRenderer {
     fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         Ok(RenderRoute::Native)
     }
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+        let request = &draw.request();
         self.route(request)?;
         self.draws += 1;
         Ok(())
@@ -81,7 +82,14 @@ fn background_blur_reports_unsupported_readback() {
     impl Renderer for NoReadback {
         type TargetState = ();
 
-        fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        fn route(
+            &self,
+            _: &::mirui::render::DrawRequest<'_, '_>,
+        ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+            Ok(::mirui::render::RenderRoute::Native)
+        }
+
+        fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
             Ok(())
         }
 

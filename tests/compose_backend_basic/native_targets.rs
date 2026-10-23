@@ -203,10 +203,10 @@ impl RenderEngine<BorrowedDummy<'_>> for Inner<'_> {
     fn submit(
         &mut self,
         target: &mut BorrowedDummy<'_>,
-        request: &DrawRequest<'_, '_>,
+        draw: &::mirui::render::PreparedDraw<'_>,
     ) -> Result<(), RenderError> {
         self.0.set(self.0.get() + 1);
-        target.submit(request)
+        target.submit(draw)
     }
 }
 
@@ -223,11 +223,10 @@ impl RenderEngine<NativeInner<BorrowedDummy<'_>, Inner<'_>>> for Outer<'_> {
     fn submit(
         &mut self,
         target: &mut NativeInner<BorrowedDummy<'_>, Inner<'_>>,
-        request: &DrawRequest<'_, '_>,
+        draw: &::mirui::render::PreparedDraw<'_>,
     ) -> Result<(), RenderError> {
         self.0.set(self.0.get() + 1);
-        let route = target.route(request)?;
-        target.submit_with_route(request, route)
+        target.submit(draw)
     }
 }
 
@@ -250,8 +249,7 @@ fn draw(renderer: &mut dyn Renderer) -> Result<(), RenderError> {
         fill_rule: mirui::render::raster::FillRule::NonZero,
     };
     let request = DrawRequest::new(&command, Rect::new(0, 0, 1, 1));
-    let route = renderer.route(&request)?;
-    renderer.submit_with_route(&request, route)
+    renderer.draw_request(&request)
 }
 
 fn read_color(target: &dyn BackendTarget) -> Result<Color, RenderError> {

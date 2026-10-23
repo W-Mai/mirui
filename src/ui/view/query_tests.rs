@@ -1,5 +1,4 @@
 use super::*;
-use crate::render::renderer::DrawRequest;
 use crate::test_support::tracked_allocations;
 use crate::ui::dirty::{Dirty, VisualDirty};
 
@@ -47,7 +46,7 @@ struct Sink;
 impl Renderer for Sink {
     type TargetState = ();
 
-    fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
         Ok(())
     }
 

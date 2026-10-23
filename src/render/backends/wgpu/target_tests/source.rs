@@ -50,7 +50,7 @@ impl Renderer for SourceProducer {
     fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         Err(RenderError::InvalidScope)
     }
-    fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
         Err(RenderError::InvalidScope)
     }
     fn flush(&mut self) -> Result<(), RenderError> {
@@ -104,6 +104,11 @@ fn native_texture_sources_share_views_or_bridge_through_the_upload_cache() {
     assert_eq!(pool.len(), 0);
     assert_eq!(budget.allocated(), plan.storage_bytes);
     assert!(texture.pixels().unwrap().is_none());
+    assert!(matches!(
+        source_view(&mut pool, 128, &destination, &texture),
+        Err(RenderError::ResourcePending)
+    ));
+    drop(texture.read_pixels().unwrap());
     let uploaded = source_view(&mut pool, 128, &destination, &texture).unwrap();
     assert!(
         uploaded
@@ -156,6 +161,7 @@ fn native_texture_sources_share_views_or_bridge_through_the_upload_cache() {
         .unwrap();
     texture.set_output_revision(2);
     assert!(texture.pixels().unwrap().is_none());
+    drop(texture.read_pixels().unwrap());
     let changed = source_view(&mut pool, 128, &destination, &texture).unwrap();
     assert_ne!(changed.view.texture(), uploaded.view.texture());
     assert_eq!(
@@ -186,6 +192,7 @@ fn sdl_and_wgpu_sources_bridge_without_consumer_specific_readback() {
     };
     let source = native_source();
     assert!(source.pixels().unwrap().is_none());
+    drop(source.read_pixels().unwrap());
     let mut pool = new_pool(256);
     for _ in 0..2 {
         let uploaded = source_view(&mut pool, 256, &context, &source).unwrap();

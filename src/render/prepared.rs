@@ -18,6 +18,25 @@ pub struct PreparedDraw<'data> {
 }
 
 impl<'data> PreparedDraw<'data> {
+    #[cfg(any(
+        feature = "sdl-gpu",
+        feature = "wgpu",
+        all(feature = "web-canvas", target_arch = "wasm32")
+    ))]
+    pub(crate) fn poll_complete(
+        request: DrawRequest<'_, 'data>,
+        route: RenderRoute,
+        scale: Fixed,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<Self, RenderError>> {
+        let mut draw = Self::native(request, route, scale)?;
+        if let DrawCommand::Blit { texture, .. } = *request.command {
+            let area = Region::new(0, 0, u32::from(texture.width), u32::from(texture.height))
+                .map_err(|_| RenderError::InvalidTexture)?;
+            draw.source = Some(core::task::ready!(texture.poll_pixels_in(area, cx))?);
+        }
+        Poll::Ready(Ok(draw))
+    }
     pub fn request(&self) -> DrawRequest<'_, 'data> {
         DrawRequest {
             command: &self.command,
@@ -230,7 +249,7 @@ mod tests {
                             let mut renderer = SwRenderer::new(target)
                                 .with_alpha_mode(crate::render::texture::AlphaMode::Blend);
                             renderer.viewport = crate::types::Viewport::new(24, 24, scale);
-                            renderer.submit(&request).unwrap();
+                            renderer.draw_request(&request).unwrap();
                             let pixels = renderer.target.read_pixels().unwrap();
                             for y in 0..24 {
                                 for x in 0..24 {

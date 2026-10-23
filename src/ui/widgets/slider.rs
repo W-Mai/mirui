@@ -799,7 +799,7 @@ mod tests {
 
     #[test]
     fn fill_clip_follows_the_same_transform_as_the_track() {
-        use crate::render::renderer::{DrawRequest, RenderError, Renderer};
+        use crate::render::renderer::{RenderError, Renderer};
         use crate::types::Transform;
         use crate::ui::theme::WidgetState;
         use crate::ui::view::PaintCtx;
@@ -813,7 +813,18 @@ mod tests {
         impl Renderer for Trace {
             type TargetState = ();
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 let DrawCommand::Fill { transform, .. } = request.command else {
                     panic!("expected slider fill")
                 };

@@ -109,8 +109,9 @@ mod tests {
 
         fn submit(
             &mut self,
-            request: &crate::render::renderer::DrawRequest<'_, '_>,
+            draw: &::mirui::render::PreparedDraw<'_>,
         ) -> Result<(), crate::render::renderer::RenderError> {
+            let request = &draw.request();
             self.route(request)?;
             if let DrawCommand::Blit { texture, .. } = request.command {
                 self.sizes.push((texture.width, texture.height));
@@ -129,7 +130,7 @@ mod tests {
         SceneOp::Blit {
             texture: ref_,
             pos: Point::ZERO,
-            size: Point::ZERO,
+            size: Point::new(2, 1),
             transform: Transform::IDENTITY,
             quad: None,
             opa: 255,

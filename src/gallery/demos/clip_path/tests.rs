@@ -21,7 +21,8 @@ impl Renderer for FailingRenderer {
         Ok(RenderRoute::Native)
     }
 
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn submit(&mut self, draw: &crate::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+        let request = draw.request();
         if self.pushed && matches!(request.command, DrawCommand::Fill { .. }) {
             return Err(RenderError::BackendFailure);
         }

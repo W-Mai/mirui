@@ -1068,12 +1068,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         Ok(RenderRoute::ExactFallback(plan.region()))
     }
 
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-        let route = self.route(request)?;
-        self.submit_with_route(request, route)
-    }
-
-    fn submit_with_route(
+    fn submit_routed(
         &mut self,
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,
@@ -1555,21 +1550,40 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
         SdlGpuRenderer::route(self, request)
     }
 
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-        let result = SdlGpuRenderer::submit(self, request);
+    fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+        let request = &draw.request();
+        if draw.output_scale() != self.viewport.scale() {
+            return Err(RenderError::InvalidScope);
+        }
+        let result = SdlGpuRenderer::submit_routed(self, request, draw.route());
         if let Err(error) = result {
             self.failure.get_or_insert(error);
         }
         result
     }
 
-    fn submit_with_route(
+    fn prepare<'data>(
         &mut self,
-        request: &DrawRequest<'_, '_>,
+        request: DrawRequest<'_, 'data>,
         route: RenderRoute,
-    ) -> Result<(), RenderError> {
-        let result = SdlGpuRenderer::submit_with_route(self, request, route);
-        if let Err(error) = result {
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Result<crate::render::PreparedDraw<'data>, RenderError>> {
+        let result = (|| {
+            if let DrawCommand::Blit {
+                texture, composite, ..
+            } = request.command
+                && route == RenderRoute::Native
+                && self.texture_cache.can_sample(texture, *composite)?
+            {
+                return core::task::Poll::Ready(crate::render::PreparedDraw::native(
+                    request,
+                    route,
+                    self.viewport.scale(),
+                ));
+            }
+            crate::render::PreparedDraw::poll_complete(request, route, self.viewport.scale(), cx)
+        })();
+        if let core::task::Poll::Ready(Err(error)) = result {
             self.failure.get_or_insert(error);
         }
         result

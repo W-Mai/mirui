@@ -22,6 +22,7 @@ mod label;
 mod label_sdf;
 pub mod mix;
 mod path;
+mod prepared;
 mod quad;
 mod quad_aa;
 mod rect_fill;
@@ -708,6 +709,20 @@ impl SwRenderer<'_> {
         let Some(pixels) = self.source_pixels(texture) else {
             return;
         };
+        self.dispatch_blit_quad_pixels(q, &pixels, size, clip, radius, opa, composite);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn dispatch_blit_quad_pixels(
+        &mut self,
+        q: &[Point; 4],
+        pixels: &TexturePixels<'_>,
+        size: Point,
+        clip: &Rect,
+        radius: Fixed,
+        opa: u8,
+        composite: CompositeMode,
+    ) {
         #[cfg(feature = "perf")]
         let t0 = quad_perf::now();
         let phys_clip = self.physical_draw_clip(*clip);
@@ -724,7 +739,7 @@ impl SwRenderer<'_> {
         };
         blit_quad(
             &mut target,
-            &pixels,
+            pixels,
             &phys_q,
             phys_clip,
             Point {
@@ -1010,7 +1025,7 @@ impl SwRenderer<'_> {
         Ok(RenderRoute::Native)
     }
 
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn submit_raw(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
         let saved = self.physical_clip;
         request.validate_write_boundary(self.viewport)?;
         self.physical_clip = request.physical_clip;
@@ -1816,8 +1831,21 @@ impl Renderer for SwRenderer<'_> {
         SwRenderer::route(self, request)
     }
 
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-        SwRenderer::submit(self, request)
+    fn prepare<'data>(
+        &mut self,
+        request: DrawRequest<'_, 'data>,
+        route: RenderRoute,
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Result<crate::render::PreparedDraw<'data>, RenderError>> {
+        let result = crate::render::PreparedDraw::poll_cpu(request, route, self.output_scale(), cx);
+        if let core::task::Poll::Ready(Err(error)) = result {
+            self.failure.get_or_insert(error);
+        }
+        result
+    }
+
+    fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+        self.submit_prepared(draw)
     }
 
     fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
@@ -1918,7 +1946,7 @@ mod tests {
                     Err(RenderError::InvalidTexture)
                 );
                 assert_eq!(
-                    renderer.submit(&DrawRequest::new(&command, clip)),
+                    renderer.draw_request(&DrawRequest::new(&command, clip)),
                     Err(RenderError::InvalidTexture)
                 );
                 assert!(
@@ -2006,7 +2034,7 @@ mod tests {
             Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry))
         );
         assert_eq!(
-            renderer.submit(&DrawRequest::new(&blur, clip).with_projective(projective)),
+            renderer.draw_request(&DrawRequest::new(&blur, clip).with_projective(projective)),
             Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry))
         );
     }
@@ -2025,7 +2053,9 @@ mod tests {
             radius: Fixed::ZERO,
             opa: 255,
         };
-        renderer.submit(&DrawRequest::new(&fill, clip)).unwrap();
+        renderer
+            .draw_request(&DrawRequest::new(&fill, clip))
+            .unwrap();
         assert_eq!(
             renderer.target.read_pixels().unwrap().get_pixel(3, 4),
             Color::rgb(20, 30, 40)
@@ -2068,7 +2098,9 @@ mod tests {
                         *tf = Transform::IDENTITY;
                         *quad = Some(transform.apply_rect(area));
                     }
-                    expected.submit(&DrawRequest::new(&explicit, clip)).unwrap();
+                    expected
+                        .draw_request(&DrawRequest::new(&explicit, clip))
+                        .unwrap();
                     assert!(
                         expected
                             .target
@@ -2090,12 +2122,14 @@ mod tests {
                             let region = actual.plan_scope(&clip).unwrap();
                             actual
                                 .render_scope(region, &mut |local| {
-                                    local.submit(&DrawRequest::new(&command, clip))
+                                    local.draw_request(&DrawRequest::new(&command, clip))
                                 })
                                 .unwrap();
                         } else {
                             let allocations = crate::test_support::tracked_allocations(|| {
-                                actual.submit(&DrawRequest::new(&command, clip)).unwrap();
+                                actual
+                                    .draw_request(&DrawRequest::new(&command, clip))
+                                    .unwrap();
                             });
                             assert_eq!(allocations, 0);
                         }
@@ -2621,7 +2655,7 @@ mod tests {
             opa: 255,
         };
         let clip = Rect::new(0, 0, 16, 16);
-        backend.submit(&DrawRequest::new(&cmd, clip)).unwrap();
+        backend.draw_request(&DrawRequest::new(&cmd, clip)).unwrap();
 
         assert!(backend.target.read_pixels().unwrap().get_pixel(8, 8).r > 0);
     }
@@ -2647,7 +2681,7 @@ mod tests {
             opa: 255,
         };
         let clip = Rect::new(0, 0, 32, 32);
-        backend.submit(&DrawRequest::new(&cmd, clip)).unwrap();
+        backend.draw_request(&DrawRequest::new(&cmd, clip)).unwrap();
 
         let hit = backend.target.read_pixels().unwrap().get_pixel(26, 16).g > 0
             || backend.target.read_pixels().unwrap().get_pixel(25, 16).g > 0;
@@ -2847,7 +2881,10 @@ mod tests {
             opa: opacity,
         };
 
-        assert_eq!(actual.submit(&DrawRequest::new(&command, clip)), Ok(()));
+        assert_eq!(
+            actual.draw_request(&DrawRequest::new(&command, clip)),
+            Ok(())
+        );
         let path = Path::arc(center, radius, start, end);
         expected.stroke_path_transformed(
             &path,
@@ -2869,7 +2906,10 @@ mod tests {
         let capacity = actual.scratch.primitive_path.command_capacity();
         assert!(capacity >= path.commands().len());
         actual.target.pixels_mut().unwrap().bytes_mut().fill(0);
-        assert_eq!(actual.submit(&DrawRequest::new(&command, clip)), Ok(()));
+        assert_eq!(
+            actual.draw_request(&DrawRequest::new(&command, clip)),
+            Ok(())
+        );
         assert_eq!(actual.scratch.primitive_path.command_capacity(), capacity);
     }
 
@@ -3678,9 +3718,13 @@ mod tests {
         };
         let allocations = crate::test_support::tracked_allocations(|| {
             for revision in 1..=4 {
-                renderer.submit(&DrawRequest::new(&fill, area)).unwrap();
+                renderer
+                    .draw_request(&DrawRequest::new(&fill, area))
+                    .unwrap();
                 assert_eq!(renderer.target.cache_revision, revision * 2 - 1);
-                renderer.submit(&DrawRequest::new(&blur, area)).unwrap();
+                renderer
+                    .draw_request(&DrawRequest::new(&blur, area))
+                    .unwrap();
                 assert_eq!(renderer.target.cache_revision, revision * 2);
             }
         });
@@ -3712,7 +3756,7 @@ mod tests {
             let mut renderer = SwRenderer::new(texture);
             let allocations = crate::test_support::tracked_allocations(|| {
                 assert_eq!(
-                    renderer.submit(&DrawRequest::new(command, area)),
+                    renderer.draw_request(&DrawRequest::new(command, area)),
                     Err(RenderError::InvalidTexture)
                 );
                 assert_eq!(
@@ -4458,7 +4502,8 @@ mod tests {
                             composite: CompositeMode::SourceOver,
                         };
                         assert_eq!(
-                            renderer.submit(&DrawRequest::new(&command, Rect::new(0, 0, 3, 3))),
+                            renderer
+                                .draw_request(&DrawRequest::new(&command, Rect::new(0, 0, 3, 3))),
                             Ok(())
                         );
                         let edge = renderer.target.read_pixels().unwrap().get_pixel(1, 1);
@@ -4518,7 +4563,10 @@ mod tests {
         };
         let clip = Rect::new(0, 0, 12, 12);
 
-        assert_eq!(renderer.submit(&DrawRequest::new(&command, clip)), Ok(()));
+        assert_eq!(
+            renderer.draw_request(&DrawRequest::new(&command, clip)),
+            Ok(())
+        );
         let corner = renderer.target.read_pixels().unwrap().get_pixel(2, 2);
         let center = renderer.target.read_pixels().unwrap().get_pixel(6, 6);
         assert!(center.r > 0 && center.b > 0);
@@ -4553,7 +4601,7 @@ mod tests {
             Transform3D::rotate_y_perspective(Fixed::from_int(10), Fixed::from_int(400));
 
         assert_eq!(
-            renderer.submit(&DrawRequest::new(&command, clip).with_projective(projection)),
+            renderer.draw_request(&DrawRequest::new(&command, clip).with_projective(projection)),
             Ok(())
         );
         let center = renderer.target.read_pixels().unwrap().get_pixel(6, 6);
@@ -4866,7 +4914,7 @@ mod tests {
             Ok(RenderRoute::Native)
         );
         renderer
-            .submit(&DrawRequest::new(&command, clip).with_projective(projection))
+            .draw_request(&DrawRequest::new(&command, clip).with_projective(projection))
             .unwrap();
         let left = renderer.target.read_pixels().unwrap().get_pixel(4, 3);
         let right = renderer.target.read_pixels().unwrap().get_pixel(9, 3);
@@ -4957,7 +5005,7 @@ mod tests {
         let projection = Transform3D::translate(Fixed::from_int(3), Fixed::ONE);
 
         renderer
-            .submit(&DrawRequest::new(&command, clip).with_projective(projection))
+            .draw_request(&DrawRequest::new(&command, clip).with_projective(projection))
             .unwrap();
         let left = renderer.target.read_pixels().unwrap().get_pixel(5, 4);
         let right = renderer.target.read_pixels().unwrap().get_pixel(10, 4);
@@ -4987,7 +5035,7 @@ mod tests {
             Ok(RenderRoute::Native)
         );
         assert_eq!(
-            renderer.submit(&DrawRequest::new(&command, clip).with_projective(projection)),
+            renderer.draw_request(&DrawRequest::new(&command, clip).with_projective(projection)),
             Ok(())
         );
         assert_eq!(
@@ -5020,7 +5068,7 @@ mod tests {
         let projection = Transform3D::translate(Fixed::ONE, Fixed::from_int(2));
 
         assert_eq!(
-            renderer.submit(&DrawRequest::new(&command, clip).with_projective(projection)),
+            renderer.draw_request(&DrawRequest::new(&command, clip).with_projective(projection)),
             Ok(())
         );
         let capacity = renderer.scratch.primitive_path.command_capacity();
@@ -5037,7 +5085,7 @@ mod tests {
 
         renderer.target.pixels_mut().unwrap().bytes_mut().fill(0);
         assert_eq!(
-            renderer.submit(&DrawRequest::new(&command, clip).with_projective(projection)),
+            renderer.draw_request(&DrawRequest::new(&command, clip).with_projective(projection)),
             Ok(())
         );
         assert_eq!(renderer.scratch.primitive_path.command_capacity(), capacity);
@@ -5072,11 +5120,15 @@ mod tests {
         let projection = Transform3D::translate(Fixed::ONE, Fixed::ZERO);
 
         renderer
-            .submit(&DrawRequest::new(&push, clip).with_projective(projection))
+            .draw_request(&DrawRequest::new(&push, clip).with_projective(projection))
             .unwrap();
-        renderer.submit(&DrawRequest::new(&fill, clip)).unwrap();
         renderer
-            .submit(&DrawRequest::new(&DrawCommand::PopClip, clip).with_projective(projection))
+            .draw_request(&DrawRequest::new(&fill, clip))
+            .unwrap();
+        renderer
+            .draw_request(
+                &DrawRequest::new(&DrawCommand::PopClip, clip).with_projective(projection),
+            )
             .unwrap();
 
         assert_eq!(

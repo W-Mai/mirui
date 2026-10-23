@@ -434,8 +434,9 @@ mod tests {
 
         fn submit(
             &mut self,
-            request: &crate::render::DrawRequest<'_, '_>,
+            draw: &::mirui::render::PreparedDraw<'_>,
         ) -> Result<(), crate::render::RenderError> {
+            let request = &draw.request();
             self.route(request)?;
             match request.command {
                 DrawCommand::GlyphRun { pos, glyphs, .. } => {
@@ -750,10 +751,18 @@ mod tests {
         impl Renderer for Trace {
             type TargetState = ();
 
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
             fn submit(
                 &mut self,
-                request: &crate::render::DrawRequest<'_, '_>,
+                draw: &::mirui::render::PreparedDraw<'_>,
             ) -> Result<(), crate::render::RenderError> {
+                let request = &draw.request();
                 let transform = match request.command {
                     DrawCommand::GlyphRun { transform, .. } => {
                         self.glyphs += 1;
@@ -886,9 +895,16 @@ mod tests {
         impl Renderer for Trace {
             type TargetState = ();
 
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
             fn submit(
                 &mut self,
-                _: &crate::render::DrawRequest<'_, '_>,
+                _: &::mirui::render::PreparedDraw<'_>,
             ) -> Result<(), crate::render::RenderError> {
                 self.0 += 1;
                 Ok(())
@@ -1012,10 +1028,18 @@ mod tests {
         impl Renderer for Trace {
             type TargetState = ();
 
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
             fn submit(
                 &mut self,
-                request: &crate::render::DrawRequest<'_, '_>,
+                draw: &::mirui::render::PreparedDraw<'_>,
             ) -> Result<(), crate::render::RenderError> {
+                let request = &draw.request();
                 self.commands += 1;
                 match request.command {
                     DrawCommand::GlyphRun { glyphs, .. } => self.glyphs += glyphs.len(),

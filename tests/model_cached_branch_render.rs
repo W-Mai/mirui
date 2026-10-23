@@ -122,7 +122,8 @@ impl Renderer for FillColors {
         Ok(RenderRoute::Native)
     }
 
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+        let request = &draw.request();
         if let DrawCommand::Fill { color, .. } = request.command {
             self.0.push(*color);
         }

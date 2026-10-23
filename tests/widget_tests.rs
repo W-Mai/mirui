@@ -24,7 +24,8 @@ mod tests {
             Ok(RenderRoute::Native)
         }
 
-        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+            let request = &draw.request();
             self.route(request)?;
             if let DrawCommand::Fill { area, color, .. } = request.command {
                 self.commands.push((*area, *color));

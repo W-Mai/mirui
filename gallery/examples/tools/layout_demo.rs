@@ -55,7 +55,7 @@ fn draw_node(renderer: &mut SwRenderer, node: &LayoutNode, clip: &Rect, depth: u
             opa: 220,
         };
         renderer
-            .submit(&mirui::render::DrawRequest::new(&command, *clip))
+            .draw_request(&mirui::render::DrawRequest::new(&command, *clip))
             .unwrap();
     }
     for child in &node.children {
@@ -146,7 +146,7 @@ fn main() {
         opa: 255,
     };
     renderer
-        .submit(&mirui::render::DrawRequest::new(&background, clip))
+        .draw_request(&mirui::render::DrawRequest::new(&background, clip))
         .unwrap();
 
     draw_node(&mut renderer, &root, &clip, 0);

@@ -25,12 +25,12 @@ fn physical_write_boundary_does_not_shrink_in_place_filter_sampling() {
         Err(RenderError::Unsupported(RenderFeature::Blur))
     );
     assert_eq!(
-        renderer.submit(&request),
+        renderer.draw_request(&request),
         Err(RenderError::Unsupported(RenderFeature::Blur))
     );
     assert_eq!(renderer.target.read_pixels().unwrap().bytes(), before);
     renderer
-        .submit(
+        .draw_request(
             &DrawRequest::new(&blur, request.clip)
                 .with_physical_clip(PhysicalRect::from_size(10, 8)),
         )
@@ -81,7 +81,7 @@ fn physical_scissors_partition_draws_without_rescaling_geometry() {
         split.viewport = viewport;
         split.clear(&PhysicalRect::from_size(31, 23), &background);
         for command in &commands {
-            full.submit(&DrawRequest::new(command, area)).unwrap();
+            full.draw_request(&DrawRequest::new(command, area)).unwrap();
         }
         for clip in [
             PhysicalRect::new(0, 0, 7, 23).unwrap(),
@@ -90,7 +90,7 @@ fn physical_scissors_partition_draws_without_rescaling_geometry() {
         ] {
             for command in &commands {
                 split
-                    .submit(&DrawRequest::new(command, area).with_physical_clip(clip))
+                    .draw_request(&DrawRequest::new(command, area).with_physical_clip(clip))
                     .unwrap();
             }
         }
@@ -101,10 +101,14 @@ fn physical_scissors_partition_draws_without_rescaling_geometry() {
         );
         let before = split.target.read_pixels().unwrap().bytes().to_vec();
         split
-            .submit(&DrawRequest::new(&commands[0], area).with_physical_clip(PhysicalRect::EMPTY))
+            .draw_request(
+                &DrawRequest::new(&commands[0], area).with_physical_clip(PhysicalRect::EMPTY),
+            )
             .unwrap();
         assert_eq!(split.target.read_pixels().unwrap().bytes(), before);
-        split.submit(&DrawRequest::new(&commands[0], area)).unwrap();
+        split
+            .draw_request(&DrawRequest::new(&commands[0], area))
+            .unwrap();
         assert_ne!(split.target.read_pixels().unwrap().bytes(), before);
     }
 }
@@ -116,7 +120,11 @@ fn region_rebases_physical_boundaries_without_fractional_roundtrip() {
     }
     impl Renderer for Recorder {
         type TargetState = ();
-        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+            Ok(RenderRoute::Native)
+        }
+        fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+            let request = &draw.request();
             self.clip = request.physical_clip;
             Ok(())
         }
@@ -131,7 +139,7 @@ fn region_rebases_physical_boundaries_without_fractional_roundtrip() {
     let mut recorder = Recorder { clip: None };
     let mut region = RegionRenderer::new(&mut recorder, (13, 17));
     region
-        .submit(
+        .draw_request(
             &DrawRequest::new(&command, Rect::new(0, 0, 100, 100))
                 .with_physical_clip(PhysicalRect::new(10, 19, 9, 5).unwrap()),
         )

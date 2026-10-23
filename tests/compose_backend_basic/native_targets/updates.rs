@@ -254,16 +254,16 @@ fn nested_incremental_scopes_and_flushes_preserve_pixels_without_allocating() {
                     TargetUpdate::Incremental,
                     &mut [],
                     &mut |outer| {
-                        outer.submit_with_route(&request, outer.route(&request)?)?;
+                        outer.draw_request(&request)?;
                         outer.flush()?;
                         outer.with_target(
                             second.as_mut(),
                             viewport,
                             TargetUpdate::Incremental,
                             &mut [],
-                            &mut |inner| inner.submit_with_route(&request, inner.route(&request)?),
+                            &mut |inner| inner.draw_request(&request),
                         )?;
-                        outer.submit_with_route(&request, outer.route(&request)?)
+                        outer.draw_request(&request)
                     },
                 )
                 .unwrap();

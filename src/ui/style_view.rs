@@ -71,7 +71,7 @@ fn style_measurement(
 mod tests {
     use super::*;
     use crate::ecs::World;
-    use crate::render::renderer::{DrawRequest, RenderError, Renderer};
+    use crate::render::renderer::{RenderError, Renderer};
     use crate::test_support::tracked_allocations;
     use crate::types::{Color, Rect, Transform};
     use crate::ui::theme::WidgetState;
@@ -89,7 +89,15 @@ mod tests {
     impl Renderer for Trace {
         type TargetState = ();
 
-        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        fn route(
+            &self,
+            _: &crate::render::DrawRequest<'_, '_>,
+        ) -> Result<crate::render::RenderRoute, RenderError> {
+            Ok(crate::render::RenderRoute::Native)
+        }
+
+        fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+            let request = &draw.request();
             match *request.command {
                 DrawCommand::Fill { color, .. } => self.colors[0] = Some(color),
                 DrawCommand::Border { color, .. } => self.colors[1] = Some(color),

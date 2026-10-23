@@ -348,7 +348,7 @@ mod tests {
                 Err(RenderError::BackendFailure)
             }
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(&mut self, _: &crate::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 panic!("failed preflight must not submit draws");
             }
 

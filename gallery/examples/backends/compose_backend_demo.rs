@@ -7,7 +7,7 @@ use mirui::render::canvas::{Canvas, Paint};
 use mirui::render::command::CompositeMode;
 use mirui::render::engine::RenderEngine;
 use mirui::render::path::Path;
-use mirui::render::renderer::{DrawRequest, RenderError, Renderer};
+use mirui::render::renderer::{RenderError, Renderer};
 use mirui::render::sw::SwRenderer;
 use mirui::render::texture::{ColorFormat, Texture};
 use mirui_macros::compose_backend;
@@ -31,9 +31,13 @@ impl Logging {
 }
 
 impl<T: Renderer> RenderEngine<T> for Logging {
-    fn submit(&mut self, target: &mut T, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn submit(
+        &mut self,
+        target: &mut T,
+        draw: &::mirui::render::PreparedDraw<'_>,
+    ) -> Result<(), RenderError> {
         *self.calls.borrow_mut() += 1;
-        target.submit(request)
+        target.submit(draw)
     }
 }
 
@@ -173,7 +177,7 @@ fn main() {
         canvas.present();
 
         frame += 1;
-        if frame % 60 == 0 {
+        if frame.is_multiple_of(60) {
             eprintln!(
                 "[summary] frame {frame}, Logging invocations so far: {}",
                 hybrid.gpu.calls.borrow()

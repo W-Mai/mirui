@@ -337,7 +337,7 @@ impl BoundedGlyphScratch {
 }
 
 pub fn upload(src: &Texture) -> Result<CachedOffscreen, RenderError> {
-    let pixels = src.read_pixels()?;
+    let pixels = src.pixels()?.ok_or(RenderError::ResourcePending)?;
     let rgba = pixels.rgba8_upload_pixels()?;
     let canvas = OffscreenCanvas::new(src.width as u32, src.height as u32)
         .map_err(|_| RenderError::BackendFailure)?;

@@ -40,10 +40,11 @@ impl Renderer for ScopeRenderer<'_> {
         }
     }
 
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+        let request = &draw.request();
         self.submissions += 1;
         self.route(request)?;
-        self.target.submit(request)
+        self.target.submit(draw)
     }
 
     fn flush(&mut self) -> Result<(), RenderError> {

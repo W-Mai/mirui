@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `Renderer` and `RenderEngine` prepare source leases before submitting `PreparedDraw`. Composed backends retain concrete routing and text-run identity; immediate drawing uses `draw_request` or `draw_text_run`. Scene replay reuses saved routes without bypassing preparation.
+- Software rendering consumes prepared source regions without changing sampling coordinates. Native GPU sampling avoids CPU readback; upload paths consume resident source pixels under existing cache budgets.
 - `BackendTarget::read_pixels_into` accepts a checked source region. Native readback uses region-sized destinations with independent row strides; full reads pass the descriptor's complete region.
 - Source-owned readback views retain immutable cache storage without holding a cache-manager borrow. Failed and unwound reads preserve reusable storage without exposing partial pixels.
 - The default ASCII font is embedded as MIRX and shares font providers, raster surfaces and rendering paths with other fonts. Explicit font sizes scale its metrics and glyphs; the default remains 8 px.

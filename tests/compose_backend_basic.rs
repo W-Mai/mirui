@@ -14,6 +14,9 @@ use mirui_macros::compose_backend;
 #[path = "compose_backend_basic/native_targets.rs"]
 mod native_targets;
 
+#[path = "compose_backend_basic/prepared.rs"]
+mod prepared;
+
 #[path = "support/tracking_allocator.rs"]
 mod tracking_allocator;
 
@@ -175,7 +178,8 @@ impl Renderer for Dummy {
         }
     }
 
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+        let request = &draw.request();
         self.route(request)?;
         match request.command {
             mirui::render::DrawCommand::FillPath {
@@ -240,9 +244,13 @@ impl<T: Renderer> RenderEngine<T> for CountingEngine {
         }
     }
 
-    fn submit(&mut self, target: &mut T, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn submit(
+        &mut self,
+        target: &mut T,
+        draw: &::mirui::render::PreparedDraw<'_>,
+    ) -> Result<(), RenderError> {
         self.counts.submit += 1;
-        target.submit(request)
+        target.submit(draw)
     }
 
     fn end(&mut self, _: &mut T) {
@@ -286,7 +294,7 @@ fn nested_composed_engines_preserve_physical_write_boundaries() {
         opa: 255,
     };
     renderer
-        .submit(
+        .draw_request(
             &DrawRequest::new(&command, area)
                 .with_physical_clip(PhysicalRect::new(3, 1, 2, 3).unwrap()),
         )
@@ -341,7 +349,7 @@ fn renderer_preserves_nonzero_path_fill_rule() {
         fill_rule: mirui::render::raster::FillRule::NonZero,
     };
     hybrid
-        .submit(&DrawRequest::new(&command, zero_rect()))
+        .draw_request(&DrawRequest::new(&command, zero_rect()))
         .unwrap();
     assert_eq!(
         hybrid.sw.counts.fill_rule.get(),
@@ -364,7 +372,7 @@ fn checked_renderer_rejects_commands_the_canvas_router_would_change() {
         opa: 255,
     };
     assert_eq!(
-        hybrid.submit(&DrawRequest::new(&command, clip)),
+        hybrid.draw_request(&DrawRequest::new(&command, clip)),
         Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
     );
 
@@ -382,7 +390,7 @@ fn checked_renderer_rejects_commands_the_canvas_router_would_change() {
         opa: 255,
     };
     assert_eq!(
-        hybrid.submit(&DrawRequest::new(&command, clip)),
+        hybrid.draw_request(&DrawRequest::new(&command, clip)),
         Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry))
     );
 
@@ -391,13 +399,13 @@ fn checked_renderer_rejects_commands_the_canvas_router_would_change() {
         region: clip,
     };
     assert_eq!(
-        hybrid.submit(&DrawRequest::new(&command, clip)),
+        hybrid.draw_request(&DrawRequest::new(&command, clip)),
         Err(RenderError::Unsupported(RenderFeature::Blur))
     );
     assert_eq!(hybrid.sw.counts.fill_rule.get(), None);
-    assert_eq!(hybrid.gpu.counts.begin, 2);
-    assert_eq!(hybrid.gpu.counts.submit, 2);
-    assert_eq!(hybrid.gpu.counts.end, 2);
+    assert_eq!(hybrid.gpu.counts.begin, 0);
+    assert_eq!(hybrid.gpu.counts.submit, 0);
+    assert_eq!(hybrid.gpu.counts.end, 0);
 }
 
 fn zero_rect() -> Rect {
@@ -669,7 +677,8 @@ impl Renderer for BorrowedDummy<'_> {
         Ok(RenderRoute::Native)
     }
 
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+        let request = &draw.request();
         self.route(request)?;
         if let mirui::render::DrawCommand::FillPath {
             path,
@@ -763,9 +772,9 @@ impl<'a> RenderEngine<BorrowedDummy<'a>> for PlainDummy {
     fn submit(
         &mut self,
         target: &mut BorrowedDummy<'_>,
-        request: &DrawRequest<'_, '_>,
+        draw: &::mirui::render::PreparedDraw<'_>,
     ) -> Result<(), RenderError> {
-        target.submit(request)
+        target.submit(draw)
     }
 }
 
@@ -803,7 +812,7 @@ fn hybrid_is_a_renderer_and_dispatches_drawcommands() {
         radius: Fixed::ZERO,
         composite: mirui::render::CompositeMode::SourceOver,
     };
-    h.submit(&DrawRequest::new(&command, rect)).unwrap();
+    h.draw_request(&DrawRequest::new(&command, rect)).unwrap();
 
     assert_eq!(h.sw.counts.blit.get(), 1);
     assert_eq!(h.gpu.counts.begin, 1);
@@ -830,7 +839,7 @@ fn engine_begin_failure_refuses_before_target_submission() {
     };
 
     assert_eq!(
-        h.submit(&DrawRequest::new(&command, rect)),
+        h.draw_request(&DrawRequest::new(&command, rect)),
         Err(RenderError::BackendFailure)
     );
     assert_eq!(h.gpu.counts.begin, 1);

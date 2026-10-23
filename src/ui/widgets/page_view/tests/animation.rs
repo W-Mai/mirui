@@ -631,18 +631,25 @@ fn a_renderer_without_offscreen_support_draws_the_destination_inline() {
         crate::anim::Transition::from(crate::anim::INTERACTIVE),
         crate::anim::TweenConfig::new(300, &crate::anim::ease::OUT_CUBIC).into(),
     ] {
-        use crate::render::renderer::{DrawRequest, Renderer};
+        use crate::render::renderer::Renderer;
         use crate::render::sw::SwRenderer;
         use crate::render::texture::{ColorFormat, Texture};
         struct InlineOnly<'a>(SwRenderer<'a>);
         impl Renderer for InlineOnly<'_> {
             type TargetState = ();
 
+            fn route(
+                &self,
+                request: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                self.0.route(request)
+            }
+
             fn submit(
                 &mut self,
-                request: &DrawRequest<'_, '_>,
+                draw: &::mirui::render::PreparedDraw<'_>,
             ) -> Result<(), crate::render::RenderError> {
-                self.0.submit(request)
+                self.0.submit(draw)
             }
             fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
                 self.0.flush()

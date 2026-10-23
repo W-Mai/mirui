@@ -9,7 +9,9 @@ const W: u32 = 480;
 const H: u32 = 320;
 
 fn submit(renderer: &mut SwRenderer<'_>, command: &DrawCommand<'_>, clip: &Rect) {
-    renderer.submit(&DrawRequest::new(command, *clip)).unwrap();
+    renderer
+        .draw_request(&DrawRequest::new(command, *clip))
+        .unwrap();
 }
 
 fn main() {

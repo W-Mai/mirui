@@ -1,10 +1,12 @@
 use crate::ecs::Entity;
 use crate::types::{Fixed, PhysicalRect, Rect, Transform3D, Viewport};
 
+use super::PreparedDraw;
 use super::command::{CompositeMode, DrawCommand};
 use super::scratch::{PlaneLayout, PlaneRequirements};
 use super::target::{BackendTarget, TargetPlan, TargetUpdate};
 use super::texture::{ColorFormat, Texture};
+use core::task::{Context, Poll, Waker};
 
 #[cfg(test)]
 #[path = "physical_clip_tests.rs"]
@@ -443,37 +445,30 @@ impl Renderer for RegionRenderer<'_> {
         self.inner.route(&self.request(request))
     }
 
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-        if let Some(command) = self.local_command(request) {
-            return self.inner.submit(&self.local_request(&command, request));
-        }
-        self.inner.submit(&self.request(request))
+    fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+        self.inner.submit(draw)
     }
 
     fn submit_text_run(
         &mut self,
-        request: &DrawRequest<'_, '_>,
+        draw: &::mirui::render::PreparedDraw<'_>,
         identity: TextRunIdentity,
     ) -> Result<(), RenderError> {
-        if let Some(command) = self.local_command(request) {
-            return self
-                .inner
-                .submit_text_run(&self.local_request(&command, request), identity);
-        }
-        self.inner.submit_text_run(&self.request(request), identity)
+        self.inner.submit_text_run(draw, identity)
     }
 
-    fn submit_with_route(
+    fn prepare<'data>(
         &mut self,
-        request: &DrawRequest<'_, '_>,
+        request: DrawRequest<'_, 'data>,
         route: RenderRoute,
-    ) -> Result<(), RenderError> {
-        if let Some(command) = self.local_command(request) {
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<PreparedDraw<'data>, RenderError>> {
+        if let Some(command) = self.local_command(&request) {
             return self
                 .inner
-                .submit_with_route(&self.local_request(&command, request), route);
+                .prepare(self.local_request(&command, &request), route, cx);
         }
-        self.inner.submit_with_route(&self.request(request), route)
+        self.inner.prepare(self.request(&request), route, cx)
     }
 
     fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
@@ -552,6 +547,8 @@ pub enum RenderResource {
 /// Failure to preserve a requested draw without approximation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RenderError {
+    /// Source preparation has not completed; no ready draw was submitted.
+    ResourcePending,
     Unsupported(RenderFeature),
     /// A bounded label has no valid initial value; query the App for the widget and cause.
     TextContent,
@@ -783,32 +780,53 @@ pub trait Renderer: super::target::__private::TargetScopeDispatch {
         Err(RenderError::Unsupported(feature))
     }
 
-    /// Execute one validated draw request without silently changing its
-    /// semantics.
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError>;
+    /// Prepare source storage using the route for this request, without modifying the target.
+    fn prepare<'data>(
+        &mut self,
+        request: DrawRequest<'_, 'data>,
+        route: RenderRoute,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<PreparedDraw<'data>, RenderError>> {
+        PreparedDraw::poll_cpu(request, route, self.output_scale(), cx)
+    }
+
+    /// Execute a prepared command without performing source I/O.
+    fn submit(&mut self, draw: &PreparedDraw<'_>) -> Result<(), RenderError>;
+
+    /// Prepare and submit an immediately available request. Pending sources return `ResourcePending`.
+    ///
+    /// Use `prepare` with a task context when source readiness must wake the caller.
+    fn draw_request(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        let route = self.route(request)?;
+        let mut cx = Context::from_waker(Waker::noop());
+        let Poll::Ready(draw) = self.prepare(*request, route, &mut cx) else {
+            return Err(RenderError::ResourcePending);
+        };
+        self.submit(&draw?)
+    }
+
+    /// Prepare and submit an immediately available bounded text run.
+    fn draw_text_run(
+        &mut self,
+        request: &DrawRequest<'_, '_>,
+        identity: TextRunIdentity,
+    ) -> Result<(), RenderError> {
+        let route = self.route(request)?;
+        let mut cx = Context::from_waker(Waker::noop());
+        let Poll::Ready(draw) = self.prepare(*request, route, &mut cx) else {
+            return Err(RenderError::ResourcePending);
+        };
+        self.submit_text_run(&draw?, identity)
+    }
 
     /// Submit a bounded text run with its stable widget and run identity.
     /// Other renderers use the ordinary draw path.
     fn submit_text_run(
         &mut self,
-        request: &DrawRequest<'_, '_>,
+        draw: &::mirui::render::PreparedDraw<'_>,
         _identity: TextRunIdentity,
     ) -> Result<(), RenderError> {
-        self.submit(request)
-    }
-
-    /// Execute a request with the exact route returned by an earlier
-    /// [`Self::route`] call for the same request.
-    ///
-    /// The default keeps custom renderers correct by submitting normally.
-    /// Backends with measurable fallback work can override this to reuse the
-    /// prepared physical region.
-    fn submit_with_route(
-        &mut self,
-        request: &DrawRequest<'_, '_>,
-        _route: RenderRoute,
-    ) -> Result<(), RenderError> {
-        self.submit(request)
+        self.submit(draw)
     }
 
     /// Submit pending drawing work and report any submission failure. Dropping a renderer does not submit its pending work.
@@ -1217,7 +1235,11 @@ mod tests {
         impl Renderer for NoScroll {
             type TargetState = ();
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 self.route(request).map(|_| ())
             }
 
@@ -1240,7 +1262,11 @@ mod tests {
         impl Renderer for NoTargetEdit {
             type TargetState = ();
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 self.route(request).map(|_| ())
             }
 
@@ -1264,7 +1290,7 @@ mod tests {
         impl Renderer for BorrowedTarget<'_> {
             type TargetState = ();
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 Ok(())
             }
             fn flush(&mut self) -> Result<(), RenderError> {
@@ -1313,7 +1339,7 @@ mod tests {
 
         let rendered = renderer
             .render_scope(region, &mut |local| {
-                local.submit(&DrawRequest::new(&command, Rect::new(0, 0, 12, 10)))
+                local.draw_request(&DrawRequest::new(&command, Rect::new(0, 0, 12, 10)))
             })
             .unwrap();
 
@@ -1353,7 +1379,7 @@ mod tests {
 
         renderer
             .render_scope(region, &mut |local| {
-                local.submit(&DrawRequest::new(&command, Rect::new(0, 0, 12, 10)))
+                local.draw_request(&DrawRequest::new(&command, Rect::new(0, 0, 12, 10)))
             })
             .unwrap();
 
@@ -1389,15 +1415,20 @@ mod tests {
         impl Renderer for Recorder {
             type TargetState = ();
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+                Ok(RenderRoute::Native)
+            }
+
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 Ok(())
             }
 
             fn submit_text_run(
                 &mut self,
-                request: &DrawRequest<'_, '_>,
+                draw: &::mirui::render::PreparedDraw<'_>,
                 identity: TextRunIdentity,
             ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 let DrawCommand::ApplyBlur { region, .. } = request.command else {
                     panic!("test command changed");
                 };
@@ -1424,7 +1455,7 @@ mod tests {
         };
         let mut recorder = Recorder::default();
         RegionRenderer::new(&mut recorder, (3, 4))
-            .submit_text_run(&DrawRequest::new(&command, clip), identity)
+            .draw_text_run(&DrawRequest::new(&command, clip), identity)
             .unwrap();
         assert_eq!(
             recorder.seen,
@@ -1466,7 +1497,8 @@ mod tests {
     impl Renderer for NoopRenderer {
         type TargetState = ();
 
-        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+            let request = &draw.request();
             self.route(request).map(|_| ())
         }
         fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
@@ -1497,11 +1529,11 @@ mod tests {
             region: clip,
         };
         assert_eq!(
-            renderer.submit(&DrawRequest::new(&command, clip)),
+            renderer.draw_request(&DrawRequest::new(&command, clip)),
             Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
         );
         assert_eq!(
-            renderer.submit(&DrawRequest::new(&command, clip).with_projective(
+            renderer.draw_request(&DrawRequest::new(&command, clip).with_projective(
                 Transform3D::rotate_y_perspective(Fixed::from_int(20), Fixed::from_int(400)),
             )),
             Err(RenderError::Unsupported(RenderFeature::ProjectiveGeometry))
@@ -1515,7 +1547,11 @@ mod tests {
         impl Renderer for CountingRenderer {
             type TargetState = ();
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 self.route(request)?;
                 self.0 += 1;
                 Ok(())
@@ -1533,7 +1569,7 @@ mod tests {
         };
         let mut renderer = CountingRenderer(0);
         assert_eq!(
-            renderer.submit(&DrawRequest::new(&command, clip)),
+            renderer.draw_request(&DrawRequest::new(&command, clip)),
             Err(RenderError::Unsupported(RenderFeature::AffineGeometry))
         );
         assert_eq!(renderer.0, 0);

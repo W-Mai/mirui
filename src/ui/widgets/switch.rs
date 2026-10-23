@@ -327,7 +327,7 @@ pub use switch_render::view;
 mod tests {
     use super::*;
     use crate::input::event::gesture::GestureEvent;
-    use crate::render::renderer::{DrawRequest, RenderError, Renderer};
+    use crate::render::renderer::{RenderError, Renderer};
     use crate::test_support::tracked_allocations;
     use crate::types::{Point, Transform};
     use crate::ui::dirty::VisualDirty;
@@ -356,7 +356,15 @@ mod tests {
     impl Renderer for Trace {
         type TargetState = ();
 
-        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        fn route(
+            &self,
+            _: &::mirui::render::DrawRequest<'_, '_>,
+        ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+            Ok(::mirui::render::RenderRoute::Native)
+        }
+
+        fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+            let request = &draw.request();
             let DrawCommand::Fill {
                 area,
                 transform,

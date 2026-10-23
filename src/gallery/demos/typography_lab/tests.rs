@@ -348,7 +348,15 @@ fn caret_overlay_places_source_local_segments_in_the_current_paint_space() {
     impl Renderer for Trace {
         type TargetState = ();
 
-        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        fn route(
+            &self,
+            _: &DrawRequest<'_, '_>,
+        ) -> Result<crate::render::RenderRoute, RenderError> {
+            Ok(crate::render::RenderRoute::Native)
+        }
+
+        fn submit(&mut self, draw: &crate::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+            let request = draw.request();
             if self.first_line.is_none()
                 && let DrawCommand::Line {
                     p1, p2, transform, ..

@@ -192,7 +192,7 @@ impl<'frame> PaintCtx<'frame> {
             return;
         }
         if let Some(clip) = self.clip.intersect(&clip) {
-            let result = self.renderer.submit(&DrawRequest::new(command, clip));
+            let result = self.renderer.draw_request(&DrawRequest::new(command, clip));
             self.retain_error(result);
         }
     }
@@ -236,7 +236,7 @@ impl<'frame> PaintCtx<'frame> {
 
     fn draw_clip_scope(&mut self, push: &DrawCommand<'_>, body: impl FnOnce(&mut PaintCtx<'_>)) {
         let clip = *self.clip;
-        let result = self.renderer.submit(&DrawRequest::new(push, clip));
+        let result = self.renderer.draw_request(&DrawRequest::new(push, clip));
         self.retain_error(result);
         if self.error.is_some() {
             return;
@@ -246,7 +246,7 @@ impl<'frame> PaintCtx<'frame> {
 
         let result = self
             .renderer
-            .submit(&DrawRequest::new(&DrawCommand::PopClip, clip));
+            .draw_request(&DrawRequest::new(&DrawCommand::PopClip, clip));
         self.retain_error(result);
     }
 
@@ -478,7 +478,7 @@ impl<'frame> PaintCtx<'frame> {
         };
         let result = self
             .renderer
-            .submit_text_run(&DrawRequest::new(command, clip), identity);
+            .draw_text_run(&DrawRequest::new(command, clip), identity);
         self.retain_error(result);
     }
 
@@ -1485,7 +1485,14 @@ mod tests {
         impl Renderer for StubRenderer {
             type TargetState = ();
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 Ok(())
             }
             fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
@@ -1634,7 +1641,11 @@ mod tests {
                 Ok(crate::render::RenderRoute::Native)
             }
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 assert_eq!(request.clip, Rect::new(13, 17, 460, 340));
                 match *request.command {
                     DrawCommand::Arc { color, .. } | DrawCommand::Fill { color, .. } => {
@@ -2373,7 +2384,14 @@ mod tests {
         impl Renderer for CountingRenderer {
             type TargetState = ();
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 self.0 += 1;
                 Ok(())
             }
@@ -3288,7 +3306,14 @@ mod tests {
         impl Renderer for StubRenderer {
             type TargetState = ();
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 Ok(())
             }
             fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
@@ -3333,7 +3358,14 @@ mod tests {
         impl Renderer for StubRenderer {
             type TargetState = ();
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 Ok(())
             }
             fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
@@ -3385,7 +3417,14 @@ mod tests {
         impl Renderer for StubRenderer {
             type TargetState = ();
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 Ok(())
             }
             fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
@@ -3559,7 +3598,14 @@ mod tests {
         impl Renderer for StubRenderer {
             type TargetState = ();
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 Ok(())
             }
             fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
@@ -3660,7 +3706,14 @@ mod tests {
         impl Renderer for StubRenderer {
             type TargetState = ();
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 Ok(())
             }
             fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
@@ -3719,7 +3772,11 @@ mod tests {
                 Ok(RenderRoute::Native)
             }
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 match request.command {
                     DrawCommand::PushClip { .. } => {
                         self.pushed = true;
@@ -3786,7 +3843,14 @@ mod tests {
         impl Renderer for CountingRenderer {
             type TargetState = ();
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 self.submissions += 1;
                 Ok(())
             }
@@ -3829,7 +3893,14 @@ mod tests {
         impl Renderer for DrawCounter {
             type TargetState = ();
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 self.0 += 1;
                 Ok(())
             }
@@ -3898,7 +3969,14 @@ mod tests {
         impl Renderer for ReadbackRenderer {
             type TargetState = ();
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 Ok(())
             }
 
@@ -3969,14 +4047,21 @@ mod tests {
         impl Renderer for TextRenderer {
             type TargetState = ();
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 self.draws += 1;
                 Ok(())
             }
 
             fn submit_text_run(
                 &mut self,
-                _: &DrawRequest<'_, '_>,
+                _: &::mirui::render::PreparedDraw<'_>,
                 _: TextRunIdentity,
             ) -> Result<(), RenderError> {
                 self.text_runs += 1;
@@ -4032,7 +4117,11 @@ mod tests {
         impl Renderer for RejectingRenderer {
             type TargetState = ();
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 self.route(request).map(|_| ())
             }
 
@@ -4090,7 +4179,11 @@ mod tests {
                 Ok(crate::render::renderer::RenderRoute::Native)
             }
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 self.transform = Some(request.command.transform());
                 Ok(())
             }

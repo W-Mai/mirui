@@ -29,7 +29,7 @@ mod tests {
             w: Fixed::from_int(10),
             h: Fixed::from_int(10),
         };
-        r.submit(&DrawRequest::new(&cmd, clip)).unwrap();
+        r.draw_request(&DrawRequest::new(&cmd, clip)).unwrap();
 
         // pixel at (2,2) should be red
         let idx = (2 * 10 + 2) * 4;
@@ -71,7 +71,7 @@ mod tests {
             w: Fixed::from_int(5),
             h: Fixed::from_int(5),
         };
-        r.submit(&DrawRequest::new(&cmd, clip)).unwrap();
+        r.draw_request(&DrawRequest::new(&cmd, clip)).unwrap();
 
         // (3,3) inside clip → green
         let idx = (3 * 10 + 3) * 4;
@@ -116,7 +116,7 @@ mod tests {
             w: Fixed::from_int(4),
             h: Fixed::from_int(4),
         };
-        r.submit(&DrawRequest::new(&cmd, clip)).unwrap();
+        r.draw_request(&DrawRequest::new(&cmd, clip)).unwrap();
 
         // should be roughly half: (0*128 + 255*127)/255 ≈ 127
         let idx = 0;

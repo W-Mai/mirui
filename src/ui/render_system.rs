@@ -227,24 +227,25 @@ impl Renderer for ScopedRenderer<'_> {
         self.inner.route(&self.request(request))
     }
 
-    fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-        self.inner.submit(&self.request(request))
+    fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+        self.inner.submit(draw)
     }
 
     fn submit_text_run(
         &mut self,
-        request: &DrawRequest<'_, '_>,
+        draw: &::mirui::render::PreparedDraw<'_>,
         identity: crate::render::renderer::TextRunIdentity,
     ) -> Result<(), RenderError> {
-        self.inner.submit_text_run(&self.request(request), identity)
+        self.inner.submit_text_run(draw, identity)
     }
 
-    fn submit_with_route(
+    fn prepare<'data>(
         &mut self,
-        request: &DrawRequest<'_, '_>,
+        request: DrawRequest<'_, 'data>,
         route: RenderRoute,
-    ) -> Result<(), RenderError> {
-        self.inner.submit_with_route(&self.request(request), route)
+        cx: &mut core::task::Context<'_>,
+    ) -> core::task::Poll<Result<crate::render::PreparedDraw<'data>, RenderError>> {
+        self.inner.prepare(self.request(&request), route, cx)
     }
 
     fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
@@ -2198,7 +2199,8 @@ mod projective_transform_tests {
     impl Renderer for AffineOnlyRenderer {
         type TargetState = ();
 
-        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+            let request = &draw.request();
             self.route(request)?;
             self.draws += 1;
             Ok(())
@@ -2219,7 +2221,8 @@ mod projective_transform_tests {
             Ok(crate::render::RenderRoute::Native)
         }
 
-        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+            let request = &draw.request();
             self.route(request)?;
             if let DrawCommand::Fill { quad, .. } = request.command {
                 self.quad_was_none = Some(quad.is_none());
@@ -2295,7 +2298,7 @@ mod projective_transform_tests {
             opa: u8::MAX,
         };
         assert_eq!(
-            scoped.submit(&DrawRequest::new(&command, Rect::new(0, 0, 16, 16))),
+            scoped.draw_request(&DrawRequest::new(&command, Rect::new(0, 0, 16, 16))),
             Err(RenderError::Unsupported(
                 crate::render::RenderFeature::ProjectiveGeometry
             ))
@@ -2313,15 +2316,23 @@ mod projective_transform_tests {
         impl Renderer for Recorder {
             type TargetState = ();
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 Ok(())
             }
 
             fn submit_text_run(
                 &mut self,
-                request: &DrawRequest<'_, '_>,
+                draw: &::mirui::render::PreparedDraw<'_>,
                 identity: crate::render::TextRunIdentity,
             ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 self.seen = Some((identity, request.projective));
                 Ok(())
             }
@@ -2350,7 +2361,7 @@ mod projective_transform_tests {
             inner: &mut recorder,
             transform: projection,
         }
-        .submit_text_run(&DrawRequest::new(&command, clip), identity)
+        .draw_text_run(&DrawRequest::new(&command, clip), identity)
         .unwrap();
         assert_eq!(recorder.seen, Some((identity, projection)));
     }
@@ -2736,7 +2747,7 @@ fn draw_prepared_output(
             radius: Fixed::ZERO,
             composite: CompositeMode::SourceOver,
         };
-        renderer.submit(&DrawRequest::new(&blit_cmd, *clip))?;
+        renderer.draw_request(&DrawRequest::new(&blit_cmd, *clip))?;
     }
     *idx += count_nodes(node);
     Ok(true)
@@ -4522,7 +4533,11 @@ mod layout_snapshot_reuse_check {
                 Ok(RenderRoute::Native)
             }
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 if matches!(request.command, DrawCommand::GlyphRun { .. }) {
                     self.0 += 1;
                 }
@@ -5499,7 +5514,11 @@ mod text_layout_check {
                 Ok(RenderRoute::Native)
             }
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 self.route(request)?;
                 if let DrawCommand::GlyphRun { pos, .. } = request.command {
                     self.pos = Some(*pos);
@@ -5509,11 +5528,11 @@ mod text_layout_check {
 
             fn submit_text_run(
                 &mut self,
-                request: &DrawRequest<'_, '_>,
+                draw: &::mirui::render::PreparedDraw<'_>,
                 identity: crate::render::TextRunIdentity,
             ) -> Result<(), RenderError> {
                 self.text_run = Some(identity);
-                self.submit(request)
+                self.submit(draw)
             }
 
             fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {
@@ -5604,7 +5623,11 @@ mod text_layout_check {
                 Ok(RenderRoute::Native)
             }
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 self.route(request)?;
                 if matches!(request.command, DrawCommand::GlyphRun { .. }) {
                     self.clip = Some(request.clip);
@@ -5677,7 +5700,11 @@ mod text_layout_check {
                 Ok(RenderRoute::Native)
             }
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 self.route(request)?;
                 if let DrawCommand::Fill { area, .. } = request.command {
                     self.fills.push(*area);
@@ -6497,7 +6524,11 @@ mod text_layout_check {
                 Ok(RenderRoute::Native)
             }
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 self.route(request)?;
                 if matches!(request.command, DrawCommand::PosedGlyphRun { .. }) {
                     self.posed_runs += 1;
@@ -6750,7 +6781,11 @@ mod text_layout_check {
                 Ok(RenderRoute::Native)
             }
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 self.route(request)?;
                 if let DrawCommand::PosedGlyphRun { pos, .. } = request.command {
                     self.clip = Some(request.clip);
@@ -7759,7 +7794,18 @@ mod offscreen_render_check {
         impl Renderer for Target {
             type TargetState = ();
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 let DrawCommand::Fill { area, .. } = request.command else {
                     panic!("unexpected output command");
                 };
@@ -8032,7 +8078,14 @@ mod offscreen_render_check {
         impl Renderer for PreparationTarget {
             type TargetState = ();
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 panic!("source preparation must not write to the parent target");
             }
 
@@ -8115,7 +8168,14 @@ mod offscreen_render_check {
         impl Renderer for FailingRead {
             type TargetState = ();
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 Ok(())
             }
 
@@ -10885,7 +10945,11 @@ mod scroll_plan_check {
                 Ok(RenderRoute::Native)
             }
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 self.route(request)?;
                 let static_cmd: &DrawCommand<'static> =
                     unsafe { core::mem::transmute(request.command) };

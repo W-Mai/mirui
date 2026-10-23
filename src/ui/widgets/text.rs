@@ -1511,8 +1511,9 @@ mod tests {
 
         fn submit(
             &mut self,
-            request: &crate::render::DrawRequest<'_, '_>,
+            draw: &::mirui::render::PreparedDraw<'_>,
         ) -> Result<(), crate::render::RenderError> {
+            let request = &draw.request();
             self.route(request)?;
             if let DrawCommand::GlyphRun { pos, glyphs, .. } = request.command {
                 self.glyph_runs.push((*pos, glyphs.len()));
@@ -1575,8 +1576,8 @@ mod tests {
     #[cfg(feature = "std")]
     #[test]
     fn static_run_typed_roles_refetch_resources_and_borrow_glyphs_without_allocating() {
+        use crate::render::RenderError;
         use crate::render::font::{Font, FontToken};
-        use crate::render::{DrawRequest, RenderError};
         use crate::test_support::tracked_allocations;
         use core::any::TypeId;
 
@@ -1594,7 +1595,18 @@ mod tests {
         impl Renderer for Trace {
             type TargetState = ();
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 assert_eq!(request.clip, Rect::new(4, 6, 18, 8));
                 let DrawCommand::GlyphRun {
                     pos,

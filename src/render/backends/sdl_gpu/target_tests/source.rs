@@ -48,7 +48,7 @@ impl Renderer for Producer {
     fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
         Err(RenderError::InvalidScope)
     }
-    fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
         Err(RenderError::InvalidScope)
     }
     fn flush(&mut self) -> Result<(), RenderError> {
@@ -61,6 +61,14 @@ fn draw(
     destination: &Rc<TestDevice>,
     texture: &Texture<'_>,
 ) -> Color {
+    let _pixels = if cache
+        .can_sample(texture, CompositeMode::SourceOver)
+        .unwrap()
+    {
+        None
+    } else {
+        Some(texture.read_pixels().unwrap())
+    };
     cache
         .with_texture(texture, CompositeMode::SourceOver, |source, alpha| {
             let mut canvas = destination.canvas().unwrap();
@@ -155,6 +163,8 @@ fn native_sources_bridge_once_and_reject_feedback_before_cached_uploads() {
     );
     assert_eq!(same.inspect().cache_len(), usize::from(!storage.sampleable));
     assert_eq!(texture.pixels().unwrap().is_none(), storage.sampleable);
+    // Uploads only consume resident pixels; prepare the foreign/composited source first.
+    drop(texture.read_pixels().unwrap());
     same.with_texture(&texture, CompositeMode::Add, |_, alpha| {
         assert_eq!(alpha, TargetAlpha::Straight);
     })

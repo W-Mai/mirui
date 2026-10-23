@@ -51,6 +51,22 @@ impl<T: RenderTarget + 'static> TextureCache<T> {
         &self.pool
     }
 
+    pub(super) fn can_sample(
+        &self,
+        src: &Texture,
+        composite: CompositeMode,
+    ) -> Result<bool, RenderError> {
+        self.device.check()?;
+        if let Some(target) = src.backend_target()?
+            && let Some(target) = target.as_any().downcast_ref::<super::target::Target<T>>()
+        {
+            return Ok(target
+                .sample_texture(&self.device, composite == CompositeMode::SourceOver)?
+                .is_some());
+        }
+        Ok(false)
+    }
+
     pub(super) fn with_texture<R>(
         &mut self,
         src: &Texture,
@@ -91,7 +107,7 @@ fn upload<'a, T: RenderTarget>(
     device: &'a Device<T>,
     src: &Texture,
 ) -> Result<SdlTexture<'a>, RenderError> {
-    let pixels = src.read_pixels()?;
+    let pixels = src.pixels()?.ok_or(RenderError::ResourcePending)?;
     let _lease = device.canvas()?;
     let mut texture = device
         .creator

@@ -295,7 +295,7 @@ impl Renderer for ScopeProbe<'_> {
         Ok(RenderRoute::Native)
     }
 
-    fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
         Err(RenderError::BackendFailure)
     }
 
@@ -371,12 +371,16 @@ impl ReplayPassState<'_> {
         if self.plan_cursor < *self.plan_len && self.plans[self.plan_cursor].ordinal == ordinal {
             let route = self.plans[self.plan_cursor].route;
             self.plan_cursor += 1;
-            renderer.submit_with_route(request, route)
+            let mut cx = core::task::Context::from_waker(core::task::Waker::noop());
+            let core::task::Poll::Ready(draw) = renderer.prepare(*request, route, &mut cx) else {
+                return Err(RenderError::ResourcePending);
+            };
+            renderer.submit(&draw?)
         } else {
             if let Some(metrics) = self.metrics {
                 metrics.update(|snapshot| snapshot.reclassified_commands += 1);
             }
-            renderer.submit(request)
+            renderer.draw_request(request)
         }
     }
 
@@ -989,7 +993,7 @@ fn draw_isolated_scope(
                     fill_rule: crate::render::raster::FillRule::EvenOdd,
                 };
                 local
-                    .submit(
+                    .draw_request(
                         &DrawRequest::new(&command, *draw.clip)
                             .with_projective(group.projective.unwrap_or(Transform3D::IDENTITY)),
                     )
@@ -1014,7 +1018,7 @@ fn draw_isolated_scope(
             )?;
             if group_clip.is_some() {
                 local
-                    .submit(
+                    .draw_request(
                         &DrawRequest::new(&DrawCommand::PopClip, *draw.clip)
                             .with_projective(group.projective.unwrap_or(Transform3D::IDENTITY)),
                     )
@@ -1039,7 +1043,7 @@ fn draw_isolated_scope(
     let source = Texture::from_ref(target, local_w, local_h, ColorFormat::RGBA8888)
         .map_err(ReplayError::Render)?;
     draw.renderer
-        .submit(&DrawRequest::new(
+        .draw_request(&DrawRequest::new(
             &DrawCommand::Blit {
                 pos: Point::new(origin_x, origin_y),
                 size: Point::new(Fixed::from(local_w) / scale, Fixed::from(local_h) / scale),
@@ -1784,7 +1788,7 @@ mod tests {
             Ok(RenderRoute::Native)
         }
 
-        fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
             self.outer_submits += 1;
             Ok(())
         }
@@ -1910,7 +1914,6 @@ mod tests {
     fn replay_reuses_exact_routes_from_caller_scratch() {
         struct RoutedCapture {
             route_calls: Cell<usize>,
-            plain_submits: usize,
             routed_submits: usize,
         }
 
@@ -1924,17 +1927,11 @@ mod tests {
                 )))
             }
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-                self.plain_submits += 1;
-                Ok(())
-            }
-
-            fn submit_with_route(
+            fn submit(
                 &mut self,
-                _: &DrawRequest<'_, '_>,
-                route: RenderRoute,
+                draw: &crate::render::PreparedDraw<'_>,
             ) -> Result<(), RenderError> {
-                assert!(matches!(route, RenderRoute::ExactFallback(_)));
+                assert!(matches!(draw.route(), RenderRoute::ExactFallback(_)));
                 self.routed_submits += 1;
                 Ok(())
             }
@@ -1954,7 +1951,6 @@ mod tests {
         }];
         let mut renderer = RoutedCapture {
             route_calls: Cell::new(0),
-            plain_submits: 0,
             routed_submits: 0,
         };
         let mut frames = [ReplayFrame::EMPTY; 1];
@@ -1971,7 +1967,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(renderer.route_calls.get(), 1);
-        assert_eq!(renderer.plain_submits, 0);
         assert_eq!(renderer.routed_submits, 1);
         assert_eq!(
             metrics.snapshot(),
@@ -2251,7 +2246,7 @@ mod tests {
                 Ok(RenderRoute::Native)
             }
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 Ok(())
             }
 
@@ -2323,7 +2318,7 @@ mod tests {
                 Ok(RenderRoute::Native)
             }
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 Ok(())
             }
 
@@ -2402,7 +2397,7 @@ mod tests {
                 Ok(RenderRoute::Native)
             }
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 Ok(())
             }
 
@@ -2528,7 +2523,8 @@ mod tests {
             Ok(RenderRoute::Native)
         }
 
-        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+            let request = &draw.request();
             self.route(request)?;
             if let DrawCommand::Fill { transform, opa, .. } = request.command {
                 self.transforms.push(*transform);
@@ -2554,7 +2550,8 @@ mod tests {
             Ok(RenderRoute::Native)
         }
 
-        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+            let request = &draw.request();
             self.route(request)?;
             self.command_transform = Some(request.command.transform());
             self.scope = Some(request.projective);
@@ -2592,7 +2589,8 @@ mod tests {
             Ok(RenderRoute::Native)
         }
 
-        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+            let request = &draw.request();
             self.route(request)?;
             self.draws += 1;
             Ok(())
@@ -2849,7 +2847,11 @@ mod tests {
                 }
             }
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 self.route(request)?;
                 self.draws += 1;
                 Ok(())
@@ -2892,7 +2894,7 @@ mod tests {
                 Ok(RenderRoute::Native)
             }
 
-            fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
                 Err(RenderError::ResourceLimit(RenderResource::Uniforms))
             }
 
@@ -3075,7 +3077,11 @@ mod tests {
                 Ok(RenderRoute::Native)
             }
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 self.route(request)?;
                 if let DrawCommand::GlyphRun { glyphs, font, .. } = request.command {
                     self.glyphs = glyphs.len();
@@ -3135,7 +3141,11 @@ mod tests {
                 Ok(RenderRoute::Native)
             }
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 self.route(request)?;
                 if let DrawCommand::PosedGlyphRun { glyphs, .. } = request.command {
                     self.origin = glyphs.frames().first().map(|frame| frame.local_origin);

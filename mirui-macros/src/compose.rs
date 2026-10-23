@@ -292,7 +292,7 @@ impl ComposeInput {
                 quote! {
                     ::mirui::render::renderer::Renderer::submit(
                         &mut self.#default_field,
-                        request,
+                        draw,
                     )
                 }
             } else {
@@ -304,7 +304,7 @@ impl ComposeInput {
                     let result = ::mirui::render::engine::RenderEngine::submit(
                         &mut self.#field,
                         &mut self.#default_field,
-                        request,
+                        draw,
                     );
                     ::mirui::render::engine::RenderEngine::end(
                         &mut self.#field,
@@ -314,35 +314,27 @@ impl ComposeInput {
                 }}
             }
         };
-        let routed_submit_call = |field: &Ident| {
+        let prepare_call = |field: &Ident| {
             if field == default_field {
-                quote! {
-                    ::mirui::render::renderer::Renderer::submit_with_route(
-                        &mut self.#default_field,
-                        request,
-                        route,
-                    )
-                }
+                quote! { ::mirui::render::Renderer::prepare(&mut self.#default_field, request, route, cx) }
+            } else {
+                quote! { ::mirui::render::RenderEngine::prepare(&mut self.#field, &mut self.#default_field, request, route, cx) }
+            }
+        };
+        let text_submit_call = |field: &Ident| {
+            if field == default_field {
+                quote! { ::mirui::render::Renderer::submit_text_run(&mut self.#default_field, draw, identity) }
             } else {
                 quote! {{
-                    ::mirui::render::engine::RenderEngine::begin(
-                        &mut self.#field,
-                        &mut self.#default_field,
-                    )?;
-                    let result = ::mirui::render::engine::RenderEngine::submit_with_route(
-                        &mut self.#field,
-                        &mut self.#default_field,
-                        request,
-                        route,
-                    );
-                    ::mirui::render::engine::RenderEngine::end(
-                        &mut self.#field,
-                        &mut self.#default_field,
-                    );
+                    ::mirui::render::RenderEngine::begin(&mut self.#field, &mut self.#default_field)?;
+                    let result = ::mirui::render::RenderEngine::submit_text_run(&mut self.#field, &mut self.#default_field, draw, identity);
+                    ::mirui::render::RenderEngine::end(&mut self.#field, &mut self.#default_field);
                     result
                 }}
             }
         };
+        let glyph_submit_text = text_submit_call(routed_field("draw_glyph_run"));
+        let posed_submit_text = text_submit_call(routed_field("draw_posed_glyph_run"));
 
         let fill_route = route_call(routed_field("fill_rect"));
         let border_route = route_call(routed_field("stroke_rect"));
@@ -367,17 +359,17 @@ impl ComposeInput {
         let stroke_path_submit = submit_call(routed_field("stroke_path"));
         let scope_submit = submit_call(default_field);
         let blur_submit = submit_call(routed_field("blur"));
-        let fill_routed_submit = routed_submit_call(routed_field("fill_rect"));
-        let border_routed_submit = routed_submit_call(routed_field("stroke_rect"));
-        let blit_routed_submit = routed_submit_call(routed_field("blit"));
-        let glyph_routed_submit = routed_submit_call(routed_field("draw_glyph_run"));
-        let posed_routed_submit = routed_submit_call(routed_field("draw_posed_glyph_run"));
-        let line_routed_submit = routed_submit_call(routed_field("draw_line"));
-        let arc_routed_submit = routed_submit_call(routed_field("draw_arc"));
-        let fill_path_routed_submit = routed_submit_call(routed_field("fill_path"));
-        let stroke_path_routed_submit = routed_submit_call(routed_field("stroke_path"));
-        let scope_routed_submit = routed_submit_call(default_field);
-        let blur_routed_submit = routed_submit_call(routed_field("blur"));
+        let fill_prepare = prepare_call(routed_field("fill_rect"));
+        let border_prepare = prepare_call(routed_field("stroke_rect"));
+        let blit_prepare = prepare_call(routed_field("blit"));
+        let glyph_prepare = prepare_call(routed_field("draw_glyph_run"));
+        let posed_prepare = prepare_call(routed_field("draw_posed_glyph_run"));
+        let line_prepare = prepare_call(routed_field("draw_line"));
+        let arc_prepare = prepare_call(routed_field("draw_arc"));
+        let fill_path_prepare = prepare_call(routed_field("fill_path"));
+        let stroke_path_prepare = prepare_call(routed_field("stroke_path"));
+        let scope_prepare = prepare_call(default_field);
+        let blur_prepare = prepare_call(routed_field("blur"));
 
         quote! {
             #vis struct #name<#(#generic_params),*> {
@@ -473,9 +465,9 @@ impl ComposeInput {
 
                 fn submit(
                     &mut self,
-                    request: &::mirui::render::renderer::DrawRequest<'_, '_>,
+                    draw: &::mirui::render::PreparedDraw<'_>,
                 ) -> Result<(), ::mirui::render::renderer::RenderError> {
-                    match request.command {
+                    match draw.request().command {
                         ::mirui::render::DrawCommand::Fill { .. } => #fill_submit,
                         ::mirui::render::DrawCommand::Border { .. } => #border_submit,
                         ::mirui::render::DrawCommand::Blit { .. } => #blit_submit,
@@ -491,24 +483,37 @@ impl ComposeInput {
                     }
                 }
 
-                fn submit_with_route(
+                fn submit_text_run(
                     &mut self,
-                    request: &::mirui::render::renderer::DrawRequest<'_, '_>,
-                    route: ::mirui::render::renderer::RenderRoute,
-                ) -> Result<(), ::mirui::render::renderer::RenderError> {
+                    draw: &::mirui::render::PreparedDraw<'_>,
+                    identity: ::mirui::render::TextRunIdentity,
+                ) -> Result<(), ::mirui::render::RenderError> {
+                    match draw.request().command {
+                        ::mirui::render::DrawCommand::GlyphRun { .. } => #glyph_submit_text,
+                        ::mirui::render::DrawCommand::PosedGlyphRun { .. } => #posed_submit_text,
+                        _ => ::mirui::render::Renderer::submit(self, draw),
+                    }
+                }
+
+                fn prepare<'data>(
+                    &mut self,
+                    request: ::mirui::render::DrawRequest<'_, 'data>,
+                    route: ::mirui::render::RenderRoute,
+                    cx: &mut ::core::task::Context<'_>,
+                ) -> ::core::task::Poll<Result<::mirui::render::PreparedDraw<'data>, ::mirui::render::RenderError>> {
                     match request.command {
-                        ::mirui::render::DrawCommand::Fill { .. } => #fill_routed_submit,
-                        ::mirui::render::DrawCommand::Border { .. } => #border_routed_submit,
-                        ::mirui::render::DrawCommand::Blit { .. } => #blit_routed_submit,
-                        ::mirui::render::DrawCommand::GlyphRun { .. } => #glyph_routed_submit,
-                        ::mirui::render::DrawCommand::PosedGlyphRun { .. } => #posed_routed_submit,
-                        ::mirui::render::DrawCommand::Line { .. } => #line_routed_submit,
-                        ::mirui::render::DrawCommand::Arc { .. } => #arc_routed_submit,
-                        ::mirui::render::DrawCommand::FillPath { .. } => #fill_path_routed_submit,
-                        ::mirui::render::DrawCommand::StrokePath { .. } => #stroke_path_routed_submit,
+                        ::mirui::render::DrawCommand::Fill { .. } => #fill_prepare,
+                        ::mirui::render::DrawCommand::Border { .. } => #border_prepare,
+                        ::mirui::render::DrawCommand::Blit { .. } => #blit_prepare,
+                        ::mirui::render::DrawCommand::GlyphRun { .. } => #glyph_prepare,
+                        ::mirui::render::DrawCommand::PosedGlyphRun { .. } => #posed_prepare,
+                        ::mirui::render::DrawCommand::Line { .. } => #line_prepare,
+                        ::mirui::render::DrawCommand::Arc { .. } => #arc_prepare,
+                        ::mirui::render::DrawCommand::FillPath { .. } => #fill_path_prepare,
+                        ::mirui::render::DrawCommand::StrokePath { .. } => #stroke_path_prepare,
                         ::mirui::render::DrawCommand::PushClip { .. }
-                        | ::mirui::render::DrawCommand::PopClip => #scope_routed_submit,
-                        ::mirui::render::DrawCommand::ApplyBlur { .. } => #blur_routed_submit,
+                        | ::mirui::render::DrawCommand::PopClip => #scope_prepare,
+                        ::mirui::render::DrawCommand::ApplyBlur { .. } => #blur_prepare,
                     }
                 }
 

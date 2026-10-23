@@ -3,8 +3,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use mirui::render::texture::{ColorFormat, TexturePixelsMut};
 use mirui::render::{
-    BackendTarget, DrawRequest, PlaneLayout, RenderError, Renderer, TargetAlpha, TargetDescriptor,
-    TargetUpdate,
+    BackendTarget, PlaneLayout, RenderError, Renderer, TargetAlpha, TargetDescriptor, TargetUpdate,
 };
 use mirui::types::{Fixed, Viewport};
 
@@ -60,7 +59,7 @@ struct Recorder {
 impl Renderer for Recorder {
     type TargetState = u8;
 
-    fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
         self.flush()
     }
 

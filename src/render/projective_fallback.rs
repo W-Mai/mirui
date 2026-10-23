@@ -555,7 +555,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
                     &mut renderer,
                     (plan.region.x(), plan.region.y()),
                 );
-                return local.submit(&crate::render::renderer::DrawRequest::new(
+                return local.draw_request(&crate::render::renderer::DrawRequest::new(
                     command,
                     Rect::new(
                         plan.logical_origin.x,
@@ -619,7 +619,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
                 .compose(projective)
                 .compose(&Transform3D::from_affine(*transform));
             let affine = affine_from_homography(local).ok_or(ProjectiveDrawError::Unsupported)?;
-            renderer.submit(&crate::render::renderer::DrawRequest::new(
+            renderer.draw_request(&crate::render::renderer::DrawRequest::new(
                 &DrawCommand::FillPath {
                     path,
                     transform: affine,
@@ -645,7 +645,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> ProjectiveFallback<S> {
                 .compose(projective)
                 .compose(&Transform3D::from_affine(*transform));
             let affine = affine_from_homography(local).ok_or(ProjectiveDrawError::Unsupported)?;
-            renderer.submit(&crate::render::renderer::DrawRequest::new(
+            renderer.draw_request(&crate::render::renderer::DrawRequest::new(
                 &DrawCommand::StrokePath {
                     path,
                     transform: affine,
@@ -727,7 +727,9 @@ mod tests {
                         let mut direct = SwRenderer::new(texture);
                         direct.viewport = viewport;
                         direct
-                            .submit(&DrawRequest::new(&command, clip).with_projective(projective))
+                            .draw_request(
+                                &DrawRequest::new(&command, clip).with_projective(projective),
+                            )
                             .unwrap();
                         direct.flush().unwrap();
                         drop(direct);

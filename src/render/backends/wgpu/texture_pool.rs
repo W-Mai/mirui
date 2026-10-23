@@ -14,6 +14,23 @@ pub(super) struct BlitSource {
     pub(super) alpha: TargetAlpha,
 }
 
+pub(super) fn can_sample(
+    context: &Arc<WgpuDeviceContext>,
+    src: &Texture,
+) -> Result<bool, RenderError> {
+    context.check()?;
+    let native = src.backend_target()?;
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(target) =
+        native.and_then(|target| target.as_any().downcast_ref::<super::target::Target>())
+    {
+        return Ok(target.sample_view(context)?.is_some());
+    }
+    #[cfg(target_arch = "wasm32")]
+    let _ = native;
+    Ok(false)
+}
+
 pub(super) fn source_view(
     pool: &mut TexturePool,
     budget: usize,
@@ -37,7 +54,7 @@ pub(super) fn source_view(
     let key = TextureKey::cacheable(src)
         .filter(|_| usize::from(src.width) * usize::from(src.height) * 4 <= budget);
     let upload = || {
-        let pixels = src.read_pixels()?;
+        let pixels = src.pixels()?.ok_or(RenderError::ResourcePending)?;
         let rgba = pixels.rgba8_upload_pixels()?;
         Ok(CachedTexture(upload_blit_source(
             &context.device,

@@ -80,7 +80,7 @@ pub(crate) fn draw(
     let transform = screen_to_target
         .compose(&Transform3D::translate(source_clip.x, source_clip.y))
         .compose(&Transform3D::scale(source_clip.w, source_clip.h));
-    renderer.submit(
+    renderer.draw_request(
         &DrawRequest::new(
             &DrawCommand::PushClip {
                 path: &UNIT_RECT,
@@ -92,6 +92,6 @@ pub(crate) fn draw(
         .with_projective(transform),
     )?;
     let result = body(renderer, clip);
-    let pop = renderer.submit(&DrawRequest::new(&DrawCommand::PopClip, clip));
+    let pop = renderer.draw_request(&DrawRequest::new(&DrawCommand::PopClip, clip));
     result.and(pop)
 }

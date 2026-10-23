@@ -280,7 +280,7 @@ impl Renderer for SubmissionRenderer {
         Ok(crate::render::RenderRoute::Native)
     }
 
-    fn submit(&mut self, _: &crate::render::DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
         Ok(())
     }
 

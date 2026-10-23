@@ -1,4 +1,6 @@
+use super::PreparedDraw;
 use super::renderer::{DrawRequest, RenderError, RenderRoute, Renderer};
+use core::task::{Context, Poll};
 
 /// An execution engine that borrows a renderer's output target for each
 /// ordered session.
@@ -19,20 +21,34 @@ pub trait RenderEngine<T: Renderer> {
         Ok(())
     }
 
-    /// Execute one request against the shared target.
-    fn submit(&mut self, target: &mut T, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-        target.submit(request)
-    }
-
-    /// Execute a request using a route previously returned by this engine for
-    /// the same target and request.
-    fn submit_with_route(
+    /// Prepare sources through the same engine that will submit the command.
+    fn prepare<'data>(
         &mut self,
         target: &mut T,
-        request: &DrawRequest<'_, '_>,
-        _route: RenderRoute,
+        request: DrawRequest<'_, 'data>,
+        route: RenderRoute,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<PreparedDraw<'data>, RenderError>> {
+        target.prepare(request, route, cx)
+    }
+
+    /// Execute one prepared command against the shared target.
+    fn submit(
+        &mut self,
+        target: &mut T,
+        draw: &::mirui::render::PreparedDraw<'_>,
     ) -> Result<(), RenderError> {
-        self.submit(target, request)
+        target.submit(draw)
+    }
+
+    /// Execute a prepared text run while preserving the engine's ordinary submission semantics.
+    fn submit_text_run(
+        &mut self,
+        target: &mut T,
+        draw: &PreparedDraw<'_>,
+        _identity: super::TextRunIdentity,
+    ) -> Result<(), RenderError> {
+        self.submit(target, draw)
     }
 
     /// Finish pending work before another engine accesses the target. This is

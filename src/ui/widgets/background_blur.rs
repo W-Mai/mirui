@@ -77,7 +77,7 @@ pub use background_blur_render::view;
 mod tests {
     use super::*;
     use crate::ecs::World;
-    use crate::render::renderer::{DrawRequest, RenderError, Renderer};
+    use crate::render::renderer::{RenderError, Renderer};
     use crate::render::texture::{ColorFormat, Texture};
     use crate::types::Rect;
     use crate::ui::Style;
@@ -89,7 +89,14 @@ mod tests {
     impl Renderer for FailingReadback {
         type TargetState = ();
 
-        fn submit(&mut self, _: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        fn route(
+            &self,
+            _: &::mirui::render::DrawRequest<'_, '_>,
+        ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+            Ok(::mirui::render::RenderRoute::Native)
+        }
+
+        fn submit(&mut self, _: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
             panic!("readback preparation failure must stop the draw")
         }
 
@@ -148,6 +155,13 @@ mod tests {
         impl Renderer for PreparedReadback {
             type TargetState = ();
 
+            fn route(
+                &self,
+                _: &::mirui::render::DrawRequest<'_, '_>,
+            ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+                Ok(::mirui::render::RenderRoute::Native)
+            }
+
             fn prepare_readback(&mut self, region: &Rect) -> Result<(), RenderError> {
                 assert_eq!(*region, self.bounds);
                 assert!(!self.prepared.replace(true));
@@ -163,7 +177,11 @@ mod tests {
                 Ok(self.texture.borrow_mut().take())
             }
 
-            fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+            fn submit(
+                &mut self,
+                draw: &::mirui::render::PreparedDraw<'_>,
+            ) -> Result<(), RenderError> {
+                let request = &draw.request();
                 let DrawCommand::Blit {
                     pos,
                     size,

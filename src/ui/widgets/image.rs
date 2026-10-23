@@ -323,7 +323,7 @@ mod tests {
     use crate::render::command::Paint;
     use crate::render::path::PathCmd;
     use crate::render::raster::FillRule;
-    use crate::render::renderer::{DrawRequest, RenderError, Renderer};
+    use crate::render::renderer::{RenderError, Renderer};
     use crate::render::texture::ColorFormat;
     use crate::test_support::tracked_allocations;
     use crate::ui::theme::WidgetState;
@@ -607,7 +607,15 @@ mod tests {
     impl Renderer for Trace {
         type TargetState = ();
 
-        fn submit(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+        fn route(
+            &self,
+            _: &::mirui::render::DrawRequest<'_, '_>,
+        ) -> Result<::mirui::render::RenderRoute, ::mirui::render::RenderError> {
+            Ok(::mirui::render::RenderRoute::Native)
+        }
+
+        fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
+            let request = &draw.request();
             self.request = Some(match *request.command {
                 DrawCommand::Blit {
                     pos,

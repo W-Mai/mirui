@@ -12,7 +12,7 @@ use std::rc::Rc;
 use mirui::app::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::app::{App, RendererFactory};
 use mirui::render::engine::RenderEngine;
-use mirui::render::renderer::{DrawRequest, RenderError, Renderer};
+use mirui::render::renderer::{RenderError, Renderer};
 use mirui::render::sw::SwRenderer;
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed, Viewport};
@@ -28,9 +28,13 @@ struct Logging {
 }
 
 impl<T: Renderer> RenderEngine<T> for Logging {
-    fn submit(&mut self, target: &mut T, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
+    fn submit(
+        &mut self,
+        target: &mut T,
+        draw: &::mirui::render::PreparedDraw<'_>,
+    ) -> Result<(), RenderError> {
         *self.calls.borrow_mut() += 1;
-        target.submit(request)
+        target.submit(draw)
     }
 }
 
