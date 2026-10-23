@@ -592,8 +592,8 @@ pub fn blit_dda(
     opa: u8,
     clip_mask: Option<&[u8]>,
 ) {
-    let sx_step = ((sw as u32) << 16) / dw as u32;
-    let sy_step = ((sh as u32) << 16) / dh as u32;
+    let sx_step = crate::render::sampling::dda_step(sw, dw);
+    let sy_step = crate::render::sampling::dda_step(sh, dh);
     let target_w = dst.width() as usize;
 
     let mut sy_acc: u32 = 0;
@@ -675,8 +675,8 @@ pub fn blit_composite_dda(
         return;
     }
 
-    let sx_step = ((sw as u32) << 16) / dw as u32;
-    let sy_step = ((sh as u32) << 16) / dh as u32;
+    let sx_step = crate::render::sampling::dda_step(sw, dw);
+    let sy_step = crate::render::sampling::dda_step(sh, dh);
     let dst_w_logical = Fixed::from_int(dw);
     let dst_h_logical = Fixed::from_int(dh);
     let target_w = dst.width() as usize;

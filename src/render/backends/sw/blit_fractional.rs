@@ -1,64 +1,8 @@
 use super::rect_fill::{pixel_axis_coverage, rounded_rect_coverage};
 use crate::render::command::CompositeMode;
+use crate::render::sampling::SampleAxis;
 use crate::render::texture::{TexturePixels, TexturePixelsMut};
-use crate::types::fixed::storage;
 use crate::types::{Fixed, Rect};
-
-#[derive(Clone, Copy)]
-struct SampleAxis {
-    index: i64,
-    remainder: u32,
-    step: i64,
-    step_remainder: u32,
-    extent: u32,
-}
-
-impl SampleAxis {
-    fn new(first_pixel: i32, origin: Fixed, extent: Fixed, samples: i32) -> Self {
-        let scale = i64::from(storage::to_i32(Fixed::ONE));
-        let first = i64::from(first_pixel) * scale + i64::from(storage::to_i32(Fixed::HALF))
-            - i64::from(storage::to_i32(origin));
-        if extent == Fixed::from_int(samples) {
-            return Self {
-                index: first.div_euclid(scale),
-                remainder: 0,
-                step: 1,
-                step_remainder: 0,
-                extent: 1,
-            };
-        }
-        let extent = i64::from(storage::to_i32(extent));
-        let step = i64::from(samples) * scale;
-        let position = first * i64::from(samples);
-        let mut index = position / extent;
-        let mut remainder = position - index * extent;
-        if remainder < 0 {
-            index -= 1;
-            remainder += extent;
-        }
-        let whole_step = step / extent;
-        Self {
-            index,
-            remainder: remainder as u32,
-            step: whole_step,
-            step_remainder: (step - whole_step * extent) as u32,
-            extent: extent as u32,
-        }
-    }
-
-    fn next(&mut self, samples: i32) -> i32 {
-        let sample = self.index.clamp(0, i64::from(samples - 1)) as i32;
-        self.index += self.step;
-        // Both remainders are below the positive Q24.8 extent, so their
-        // sum fits u32 even when the extent reaches i32::MAX.
-        self.remainder += self.step_remainder;
-        if self.remainder >= self.extent {
-            self.remainder -= self.extent;
-            self.index += 1;
-        }
-        sample
-    }
-}
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn blit_fractional(

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `Texture::pixels_in` borrows checked source regions without copying pixels. `TextureRegion` preserves source coordinates and row stride, with local pixel views and allocation-free iteration.
 - `Texture::poll_pixels_in` prepares region-sized native readback; `poll_read_pixels` prepares a contiguous complete view. Regional cache leases share the admitted CPU budget, include owner metadata, and preserve pinned pixels while reusing unpinned buffers.
+- `PreparedDraw` retains routed command descriptions and source-region leases. CPU preparation shares the software rasterizer's sampling calculations and leaves source geometry unchanged.
 
 ### Changed
 
