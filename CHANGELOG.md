@@ -70,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Software submission keeps texture sampling and projection branches outside primitive submission stack frames.
 - Draw submission borrows successful preparation results in place instead of moving the retained command and pixel lease.
 - Software preparation directly borrows complete resident CPU images; asynchronous and native sources retain regional preparation, and GPU upload coverage remains unchanged.
 - Texture footprints calculate sampling endpoints without constructing unused iteration state, sharing the rasterizer's pixel-center arithmetic.

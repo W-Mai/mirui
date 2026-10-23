@@ -21,6 +21,8 @@ impl SwRenderer<'_> {
         result
     }
 
+    // Keep texture sampling and projection branches out of primitive submission frames.
+    #[inline(never)]
     fn blit_prepared(&mut self, draw: &PreparedDraw<'_>) -> Result<(), RenderError> {
         let request = draw.request();
         let DrawCommand::Blit {
