@@ -1,11 +1,14 @@
+use alloc::{boxed::Box, rc::Rc};
+use core::cell::RefCell;
 use core::task::{Poll, ready};
 
+use super::super::decoded::{DecodePool, EncodedImage, EncodedPreparation};
 use super::{
     AssetError, ContainerLayout, LoadContext, LoadError, PlaneLayout, PlaneRequirements,
     SourceImage, map_mirx_format,
 };
 use crate::render::budget::Allocation;
-use mirx::image::RawImageScan;
+use mirx::image::{EncodedImageScan, RawImageScan};
 use mirx::reader::{
     IntegrityScan, MediaIntegrityScan, MediaLayout, MetadataScan, RangeCheck, WholeDataScan,
 };
@@ -15,6 +18,8 @@ enum Stage {
     Header,
     Metadata(MetadataScan),
     Typed(RawImageScan),
+    Encoded(EncodedImageScan),
+    EncodedRead(EncodedPreparation),
     Coverage(MediaIntegrityScan),
     Whole(WholeDataScan),
     Indexed {
@@ -34,18 +39,12 @@ pub(super) struct ChunkRead {
     media: Option<MediaLayout>,
     window: [u8; 256],
     stage: Stage,
+    encoded: Option<Box<EncodedImage>>,
     _allocation: Allocation,
 }
 
 fn invalid(_: impl core::fmt::Debug) -> LoadError {
     LoadError::Failed("invalid MIRX image payload")
-}
-
-fn typed_error(error: mirx::image::RawImageViewError) -> LoadError {
-    match error {
-        mirx::image::RawImageViewError::UnexpectedSection(_) => AssetError::Unsupported.into(),
-        error => invalid(error),
-    }
 }
 
 impl ChunkRead {
@@ -66,6 +65,7 @@ impl ChunkRead {
             media: None,
             window: [0; 256],
             stage: Stage::Directory,
+            encoded: None,
             _allocation: allocation,
         })
     }
@@ -73,6 +73,7 @@ impl ChunkRead {
     pub(super) fn poll(
         &mut self,
         cx: &mut LoadContext<'_>,
+        pool: &Rc<RefCell<DecodePool>>,
     ) -> Poll<Result<SourceImage, LoadError>> {
         loop {
             match &mut self.stage {
@@ -134,7 +135,15 @@ impl ChunkRead {
                 Stage::Typed(scan) => {
                     if let Some(range) = scan.read_range() {
                         let n = ready!(read_window(cx, self.offset, range, &mut self.window))?;
-                        scan.accept(&self.window[..n]).map_err(typed_error)?;
+                        match scan.accept(&self.window[..n]) {
+                            Err(mirx::image::RawImageViewError::UnexpectedSection(_)) => {
+                                self.stage = Stage::Encoded(EncodedImageScan::new(
+                                    self.media.unwrap(),
+                                    self.offset as u32,
+                                ));
+                            }
+                            result => result.map_err(invalid)?,
+                        }
                     } else {
                         let layout = scan.finish().map_err(invalid)?;
                         if self.primary {
@@ -167,11 +176,55 @@ impl ChunkRead {
                                 layout,
                                 range: start..start + memory.byte_len() as usize,
                                 logical_len: self.container.logical_len(),
+                                encoded: None,
                             });
                         }
                         self.stage =
                             Stage::Coverage(self.media.unwrap().integrity().map_err(invalid)?);
                     }
+                }
+                Stage::Encoded(scan) => {
+                    if let Some(range) = scan.read_range() {
+                        let n = ready!(read_window(cx, self.offset, range, &mut self.window))?;
+                        scan.accept(&self.window[..n]).map_err(invalid)?;
+                    } else {
+                        self.encoded = Some(EncodedImage::new(scan, self.offset, pool)?);
+                        self.stage = Stage::EncodedRead(EncodedPreparation::default());
+                    }
+                }
+                Stage::EncodedRead(progress) => {
+                    ready!(
+                        self.encoded
+                            .as_mut()
+                            .expect("encoded metadata")
+                            .poll_prepare(progress, pool, cx)
+                    )?;
+                    let image = self.encoded.take().unwrap();
+                    if self.primary {
+                        let surface = image.surface();
+                        if surface.plane_count() != 1 {
+                            return Poll::Ready(Err(AssetError::Unsupported.into()));
+                        }
+                        let format = map_mirx_format(
+                            surface
+                                .sample_layout()
+                                .color_format()
+                                .ok_or(AssetError::Unsupported)?,
+                        )?;
+                        let layout = PlaneLayout::packed(
+                            surface.width().try_into().map_err(invalid)?,
+                            surface.height().try_into().map_err(invalid)?,
+                            format,
+                        )
+                        .map_err(invalid)?;
+                        self.selected = Some(SourceImage {
+                            layout,
+                            range: image.data_range(),
+                            logical_len: self.container.logical_len(),
+                            encoded: Some(image),
+                        });
+                    }
+                    self.stage = Stage::Coverage(self.media.unwrap().integrity().map_err(invalid)?);
                 }
                 Stage::Coverage(scan) => {
                     if let Some(range) = scan.read_range() {

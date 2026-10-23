@@ -3,6 +3,9 @@ use mirui::render::texture::{Region, TextureRegion};
 use mirui::render::{RenderError, RenderResource};
 use mirui::types::Color;
 
+#[path = "encoded.rs"]
+mod encoded;
+
 struct File {
     bytes: Rc<Vec<u8>>,
     control: Rc<Control>,

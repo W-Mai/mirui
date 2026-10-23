@@ -313,7 +313,23 @@ fn mapped_source_does_not_promote_encoded_storage_to_implicit_full_decode() {
         .world
         .resource::<ResourceManager<Texture<'static>>>()
         .unwrap();
-    assert_eq!(images.resolve("cover").width(), 16);
+    let texture = images.resolve("cover");
+    assert_eq!(texture.width(), 1);
+    assert!(texture.pixels().unwrap().is_none());
+    assert!(matches!(
+        texture.read_pixels(),
+        Err(RenderError::ResourcePending)
+    ));
+    let Poll::Ready(Ok(pixels)) = texture.poll_pixels_in(
+        Region::new(0, 0, 1, 1).unwrap(),
+        &mut Context::from_waker(Waker::noop()),
+    ) else {
+        panic!("mapped encoded region");
+    };
+    assert_eq!(
+        pixels.get_pixel(0, 0),
+        Some(mirui::types::Color::rgb(255, 0, 0))
+    );
 }
 
 #[derive(Default)]

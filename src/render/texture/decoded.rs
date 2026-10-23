@@ -10,6 +10,14 @@ use crate::core::resource::{AssetError, AssetSource, LoadBudget, LoadError, Sour
 use crate::render::budget::{Allocation, MemoryBudget};
 use crate::render::{PlaneLayout, RenderError, RenderResource};
 
+mod encoded;
+pub(super) use encoded::{EncodedImage, EncodedPreparation};
+
+pub(super) struct DecodeBuffer {
+    bytes: alloc::vec::Vec<u8>,
+    _allocation: Allocation,
+}
+
 fn capacity_error() -> RenderError {
     RenderError::ResourceLimit(RenderResource::Texture)
 }
@@ -118,6 +126,23 @@ impl DecodePool {
             .map_err(|_| capacity_error())
     }
 
+    fn buffer(&mut self, size: usize) -> Result<DecodeBuffer, RenderError> {
+        self.make_room(size)?;
+        let reservation = self.budget.reserve(size).ok_or_else(capacity_error)?;
+        let mut bytes = alloc::vec::Vec::new();
+        bytes
+            .try_reserve_exact(size)
+            .map_err(|_| capacity_error())?;
+        let allocation = reservation
+            .commit(bytes.capacity())
+            .map_err(|_| capacity_error())?;
+        bytes.resize(size, 0);
+        Ok(DecodeBuffer {
+            bytes,
+            _allocation: allocation,
+        })
+    }
+
     fn begin(
         &mut self,
         key: Key,
@@ -192,11 +217,14 @@ struct ReadRegion {
     key: Key,
     pixels: Handle<CachedPixels>,
     filled: usize,
+    group: usize,
+    ordinal: usize,
 }
 
 struct ReadState {
     source: AssetSource,
     pending: Option<ReadRegion>,
+    encoded: Option<Box<EncodedImage>>,
 }
 
 // Provider callbacks run without a cache or texture-state RefMut. Reentry fails explicitly.
@@ -228,6 +256,7 @@ impl DecodedTexture {
         layout: PlaneLayout,
         start: usize,
         pool: Rc<RefCell<DecodePool>>,
+        encoded: Option<Box<EncodedImage>>,
     ) -> Result<Texture<'static>, LoadError> {
         let info = source.info().ok_or(AssetError::InvalidSource)?;
         if info.access != SourceAccess::Random {
@@ -245,6 +274,7 @@ impl DecodedTexture {
                 state: RefCell::new(Some(ReadState {
                     source,
                     pending: None,
+                    encoded,
                 })),
                 pool,
                 source: id,
@@ -308,6 +338,8 @@ impl DecodedTexture {
                 key: wanted,
                 pixels,
                 filled: 0,
+                group: 0,
+                ordinal: 0,
             });
         }
         let result = self.poll_region(state, cx);
@@ -339,6 +371,9 @@ impl DecodedTexture {
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), RenderError>> {
         let pending = state.pending.as_mut().expect("admitted region");
+        if let Some(encoded) = state.encoded.as_mut() {
+            return encoded.poll_region(&mut state.source, pending, &self.pool, cx);
+        }
         let bpp = self.layout.format().bytes_per_pixel();
         let row_bytes = pending.key.width as usize * bpp;
         let pixels = &mut pending

@@ -181,12 +181,13 @@ struct SourceImage {
     layout: PlaneLayout,
     range: Range<usize>,
     logical_len: usize,
+    encoded: Option<Box<super::decoded::EncodedImage>>,
 }
 
 impl SourceImage {
-    fn mapped(bytes: &[u8]) -> Result<Self, LoadError> {
+    fn mapped(bytes: &[u8]) -> Result<Option<Self>, LoadError> {
         let mirx::image::ImageRef::Raw(surface) = open_mirx_image(bytes)? else {
-            return Err(AssetError::Unsupported.into());
+            return Ok(None);
         };
         let texture = texture_from_surface(surface)?;
         let layout = texture
@@ -203,11 +204,12 @@ impl SourceImage {
             .checked_add(pixels.bytes().len())
             .filter(|end| *end <= bytes.len())
             .ok_or(AssetError::InvalidSource)?;
-        Ok(Self {
+        Ok(Some(Self {
             layout,
             range: start..end,
             logical_len: bytes.len(),
-        })
+            encoded: None,
+        }))
     }
 }
 
@@ -291,7 +293,7 @@ impl Loader<Texture<'static>> for SourceMirxLoader {
             None => cx.take_source()?,
         };
         let image = state.image.take().expect("probed image");
-        if source.mapped()?.is_some() {
+        if image.encoded.is_none() && source.mapped()?.is_some() {
             Poll::Ready(MappedTexture::into_texture(source, image))
         } else {
             Poll::Ready(super::decoded::DecodedTexture::into_texture(
@@ -299,6 +301,7 @@ impl Loader<Texture<'static>> for SourceMirxLoader {
                 image.layout,
                 image.range.start,
                 self.pool()?,
+                image.encoded,
             ))
         }
     }
@@ -340,6 +343,7 @@ impl ProbeLoader<Texture<'static>> for SourceMirxLoader {
                     layout: layout(image)?,
                     range: image.main_range(),
                     logical_len: image.logical_len(),
+                    encoded: None,
                 }
             } else {
                 // Retain the same opened object across metadata and value publication.
@@ -347,8 +351,17 @@ impl ProbeLoader<Texture<'static>> for SourceMirxLoader {
                     state.source = Some(cx.take_source()?);
                 }
                 let source = state.source.as_mut().unwrap();
-                if let Some(bytes) = source.mapped()? {
-                    SourceImage::mapped(bytes)?
+                let mapped = if state.chunk.is_none() {
+                    source
+                        .mapped()?
+                        .map(SourceImage::mapped)
+                        .transpose()?
+                        .flatten()
+                } else {
+                    None
+                };
+                if let Some(image) = mapped {
+                    image
                 } else {
                     if source.info().ok_or(AssetError::InvalidSource)?.access
                         != crate::core::resource::SourceAccess::Random
@@ -368,7 +381,7 @@ impl ProbeLoader<Texture<'static>> for SourceMirxLoader {
                             .chunk
                             .as_mut()
                             .unwrap()
-                            .poll(&mut cx.using_source(source))
+                            .poll(&mut cx.using_source(source), &self.pool()?)
                     )?;
                     state.chunk = None;
                     image

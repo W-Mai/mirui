@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Encoded MIRX image sources decode intersecting units through the shared source cache and scalar decoders. Metadata, input buffers, decoded workspace and pinned region pixels share the image decode budget; asynchronous reads never publish partial pixels.
 - MIRX image validation shares resident preflight limits across separately loaded metadata and unit inputs without retaining their buffers.
 - MIRX encoded image directory scans locate metadata windows with fixed storage and share section validation with resident images.
 - MIRX encoded image layouts resolve regional unit inputs from separate metadata windows without retaining DATA, sharing coverage and decoding rules with resident images.
