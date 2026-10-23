@@ -98,6 +98,13 @@ impl Transform {
     /// first then `self`. Parent × child convention.
     #[inline]
     pub fn compose(&self, other: &Self) -> Self {
+        if self.is_translation() {
+            return Self {
+                tx: other.tx + self.tx,
+                ty: other.ty + self.ty,
+                ..*other
+            };
+        }
         Self {
             m00: self.m00 * other.m00 + self.m01 * other.m10,
             m01: self.m00 * other.m01 + self.m01 * other.m11,
@@ -110,10 +117,25 @@ impl Transform {
 
     #[inline]
     pub fn apply_point(&self, p: Point) -> Point {
+        if self.is_translation() {
+            return Point {
+                x: p.x + self.tx,
+                y: p.y + self.ty,
+            };
+        }
         Point {
             x: self.m00 * p.x + self.m01 * p.y + self.tx,
             y: self.m10 * p.x + self.m11 * p.y + self.ty,
         }
+    }
+
+    #[inline]
+    fn is_translation(&self) -> bool {
+        // Arithmetic shortcuts require exact coefficients, not classify's tolerance.
+        self.m00 == Fixed::ONE
+            && self.m11 == Fixed::ONE
+            && self.m01 == Fixed::ZERO
+            && self.m10 == Fixed::ZERO
     }
 
     pub fn apply_rect_bbox(&self, r: Rect) -> Rect {
@@ -422,5 +444,68 @@ mod tests {
         assert!((ab_c.m00 - a_bc.m00).abs() < eps);
         assert!((ab_c.tx - a_bc.tx).abs() < eps);
         assert!((ab_c.ty - a_bc.ty).abs() < eps);
+    }
+
+    #[test]
+    fn translation_shortcuts_preserve_exact_fixed_point_arithmetic() {
+        let step = Fixed::from_ratio(1, 256);
+        let reference = |left: Transform, right: Transform| Transform {
+            m00: left.m00 * right.m00 + left.m01 * right.m10,
+            m01: left.m00 * right.m01 + left.m01 * right.m11,
+            tx: left.m00 * right.tx + left.m01 * right.ty + left.tx,
+            m10: left.m10 * right.m00 + left.m11 * right.m10,
+            m11: left.m10 * right.m01 + left.m11 * right.m11,
+            ty: left.m10 * right.tx + left.m11 * right.ty + left.ty,
+        };
+        for translation in [Point::ZERO, Point::new(step, -step), Point::new(-123, 456)] {
+            let exact = Transform::translate(translation.x, translation.y);
+            for left in [
+                exact,
+                Transform {
+                    m00: Fixed::ONE - step,
+                    ..exact
+                },
+                Transform { m01: step, ..exact },
+                Transform {
+                    m10: -step,
+                    ..exact
+                },
+                Transform {
+                    m11: Fixed::ONE + step,
+                    ..exact
+                },
+            ] {
+                for right in [
+                    Transform::IDENTITY,
+                    exact,
+                    Transform::rotate_deg(37.into()),
+                    Transform::scale(Fixed::HALF, Fixed::from_int(-2)),
+                    Transform {
+                        m01: step,
+                        m10: -step,
+                        ..exact
+                    },
+                ] {
+                    assert_eq!(left.compose(&right), reference(left, right));
+                }
+                for point in [
+                    Point::ZERO,
+                    Point::new(step, -step),
+                    Point::new(4096, -4096),
+                ] {
+                    assert_eq!(
+                        left.apply_point(point),
+                        Point {
+                            x: left.m00 * point.x + left.m01 * point.y + left.tx,
+                            y: left.m10 * point.x + left.m11 * point.y + left.ty,
+                        }
+                    );
+                }
+            }
+        }
+        for value in [Fixed::MIN, Fixed::MAX] {
+            let point = Point::new(value, value);
+            assert_eq!(Transform::IDENTITY.apply_point(point), point);
+        }
     }
 }

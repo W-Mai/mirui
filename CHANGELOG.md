@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Exact translations compose and transform points without matrix multiplications; nontranslation coefficients retain the full fixed-point calculation.
 - Software rendering reads exact-size A1 glyph coverage without bilinear interpolation.
 
 ## [0.51.0] - 2026-10-21
