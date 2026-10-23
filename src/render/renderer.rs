@@ -823,11 +823,14 @@ pub trait Renderer: super::target::__private::TargetScopeDispatch {
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), RenderError>> {
         let route = self.route(&request)?;
-        let draw = core::task::ready!(self.prepare(request, route, cx))?;
-        Poll::Ready(match text_run {
-            Some(identity) => self.submit_text_run(&draw, identity),
-            None => self.submit(&draw),
-        })
+        match &self.prepare(request, route, cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(Err(error)) => Poll::Ready(Err(*error)),
+            Poll::Ready(Ok(draw)) => Poll::Ready(match text_run {
+                Some(identity) => self.submit_text_run(draw, identity),
+                None => self.submit(draw),
+            }),
+        }
     }
 
     /// Prepare and submit an immediately available request. Pending sources return `ResourcePending`.
