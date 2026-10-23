@@ -371,16 +371,9 @@ impl<'a> MediaPayload<'a> {
 
     fn validate_integrity_range(self, range: IntegrityRange) -> Result<(), MediaPayloadError> {
         let bytes = &self.payload[range.offset() as usize..range.range().end as usize];
-        let actual = crate::crc32::compute(bytes);
-        let expected = range.checksum();
-        if actual != expected {
-            return Err(MediaPayloadError::RangeCrcMismatch {
-                offset: range.offset(),
-                expected,
-                actual,
-            });
-        }
-        Ok(())
+        let mut check = range.check();
+        check.accept(bytes)?;
+        check.finish()
     }
 
     fn data_crc(self) -> u32 {

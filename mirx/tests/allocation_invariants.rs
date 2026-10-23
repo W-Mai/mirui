@@ -24,6 +24,33 @@ fn wire_fixed(bits: i32) -> Fixed {
 struct TrackingAllocator;
 
 #[test]
+fn integrity_windows_reuse_records_and_checksum_buffers_without_allocating() {
+    use mirx::reader::IntegrityScan;
+    let bytes = [0x51; 8192];
+    let checksum = crc32(&bytes);
+    let mut record = [0u8; 12];
+    record[..4].copy_from_slice(&100u32.to_le_bytes());
+    record[4..8].copy_from_slice(&(bytes.len() as u32).to_le_bytes());
+    record[8..].copy_from_slice(&checksum.to_le_bytes());
+    let (_, allocations) = count_allocations(|| {
+        let mut scan = IntegrityScan::new(record.len()).unwrap();
+        let partition = scan.accept(&record).unwrap().unwrap();
+        record.fill(0);
+        let mut check = partition.check();
+        let mut window = [0u8; 31];
+        while let Some(range) = check.read_range() {
+            let offset = (range.start - partition.offset()) as usize;
+            let count = (bytes.len() - offset).min(window.len());
+            window[..count].copy_from_slice(&bytes[offset..offset + count]);
+            check.accept(&window[..count]).unwrap();
+            window.fill(0);
+        }
+        check.finish().unwrap();
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn media_windows_scan_without_owning_the_directory_or_samples() {
     use mirx::reader::{MediaLayout, MediaSectionKind};
     let source = [1, 2, 3, 4];

@@ -100,6 +100,8 @@ Range-based consumers can use `reader::ContainerLayout` without retaining a comp
 
 `MediaLayout::metadata()` verifies the metadata checksum with constant storage. Read any nonempty prefix of `read_range()`, pass it to `accept(bytes)`, and call `finish()` after all ranges are consumed. Input windows may be reused immediately. The scan includes padding and checksum trailers but skips DATA bodies; it revisits directory records and therefore requires a source that supports those reads. DATA integrity and typed payload validation remain separate checks.
 
+`reader::IntegrityScan::new(section_len)` validates isolated 12-byte integrity records in order through `record_range()` and `accept(record)`. Each returned `IntegrityRange` can create a `check()` for its DATA partition: supply prefixes of `read_range()` to `accept(bytes)` and call `finish()` to verify the CRC. Checks require constant storage even when a partition exceeds the read buffer. The integrity table must also partition the DATA sections exactly; record ordering and individual CRC checks alone do not establish that coverage.
+
 `Reader` validates the common header, exact logical length, chunk table, payload ranges, primary selection, and configured resource limits. Chunk iteration and borrowed typed views continue to reference the input bytes.
 
 ```rust

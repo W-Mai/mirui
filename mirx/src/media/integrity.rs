@@ -5,6 +5,8 @@ use crate::wire::{read_u32_le, write_u32_le};
 
 mod check;
 pub use check::DataCheckPlan;
+mod scan;
+pub use scan::{IntegrityScan, RangeCheck};
 
 pub const INTEGRITY_RECORD_LEN: usize = 12;
 
@@ -94,6 +96,11 @@ impl IntegrityRange {
         self.offset..self.offset + self.size
     }
 
+    /// Prepare incremental checksum verification of this payload-relative partition. This does not establish that the partition belongs to a validated DATA coverage table.
+    pub fn check(self) -> RangeCheck {
+        RangeCheck::new(self)
+    }
+
     fn read(bytes: &[u8]) -> Result<Self, IntegrityError> {
         let offset = read_u32_le(bytes, 0).ok_or(IntegrityError::Truncated)?;
         let size = read_u32_le(bytes, 4).ok_or(IntegrityError::Truncated)?;
@@ -126,19 +133,9 @@ pub struct IntegrityTable<'a> {
 
 impl<'a> IntegrityTable<'a> {
     pub fn open(bytes: &'a [u8]) -> Result<Self, IntegrityError> {
-        u32::try_from(bytes.len()).map_err(|_| IntegrityError::SizeOverflow)?;
-        if bytes.len() % INTEGRITY_RECORD_LEN != 0 {
-            return Err(IntegrityError::Truncated);
-        }
-        let mut previous_end = 0;
-        for (index, record) in bytes.chunks_exact(INTEGRITY_RECORD_LEN).enumerate() {
-            let range = IntegrityRange::read(record)?;
-            if range.offset < previous_end {
-                return Err(IntegrityError::RangesOverlapOrReversed {
-                    index: index as u32,
-                });
-            }
-            previous_end = range.range().end;
+        let mut scan = IntegrityScan::new(bytes.len())?;
+        for record in bytes.chunks_exact(INTEGRITY_RECORD_LEN) {
+            scan.accept(record)?;
         }
         Ok(Self { bytes })
     }
