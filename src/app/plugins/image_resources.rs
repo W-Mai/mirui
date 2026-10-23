@@ -4,6 +4,7 @@ use alloc::rc::Rc;
 use core::task::{Context, Waker};
 
 use crate::app::plugin::Plugin;
+use crate::app::plugins::resources::ResourceHostWake;
 use crate::app::{App, RendererFactory};
 use crate::core::cache::MaxSize;
 use crate::core::resource::{AssetSources, ResourceManager, SourceBinding};
@@ -213,8 +214,12 @@ where
 }
 
 #[crate::system]
-fn poll_images(images: res!(ResourceManager<Texture<'static>>)) {
-    images.poll_pending(&mut Context::from_waker(Waker::noop()));
+fn poll_images(
+    images: res!(ResourceManager<Texture<'static>>),
+    host: res!(optional ResourceHostWake),
+) {
+    let parent = host.as_ref().map_or(Waker::noop(), |host| &host.0);
+    images.poll_pending(&mut Context::from_waker(parent));
 }
 
 #[cfg(test)]

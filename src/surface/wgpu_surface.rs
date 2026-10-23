@@ -1618,6 +1618,25 @@ where
     build: Option<Build>,
     app: Option<crate::app::App<B, F>>,
     window: Option<Arc<Window>>,
+    resource_wake: Option<core::task::Waker>,
+}
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+struct ResourceReady;
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+struct ResourceLoopWake(winit::event_loop::EventLoopProxy<ResourceReady>);
+
+#[cfg(any(target_os = "android", target_os = "ios"))]
+impl alloc::task::Wake for ResourceLoopWake {
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        // Readiness stays in the resource task; a closed host only discards its notification.
+        let _ = self.0.send_event(ResourceReady);
+    }
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
@@ -1635,6 +1654,7 @@ where
             build: Some(build),
             app: None,
             window: None,
+            resource_wake: None,
         }
     }
 
@@ -1642,9 +1662,10 @@ where
     pub fn run_android(mut self, android_app: winit::platform::android::activity::AndroidApp) -> ! {
         use winit::platform::android::EventLoopBuilderExtAndroid;
 
-        let mut builder = EventLoop::builder();
+        let mut builder = EventLoop::<ResourceReady>::with_user_event();
         builder.with_android_app(android_app);
         let event_loop = builder.build().expect("winit Android event loop");
+        self.resource_wake = Some(Arc::new(ResourceLoopWake(event_loop.create_proxy())).into());
         event_loop.set_control_flow(ControlFlow::Poll);
         event_loop
             .run_app(&mut self)
@@ -1655,7 +1676,10 @@ where
     /// Runs the iOS application on the main thread. The application manifest must declare a single application scene; the host binds each native window before creating or resuming its surface.
     #[cfg(target_os = "ios")]
     pub fn run_ios(mut self) -> ! {
-        let event_loop = EventLoop::new().expect("winit iOS event loop");
+        let event_loop = EventLoop::<ResourceReady>::with_user_event()
+            .build()
+            .expect("winit iOS event loop");
+        self.resource_wake = Some(Arc::new(ResourceLoopWake(event_loop.create_proxy())).into());
         event_loop.set_control_flow(ControlFlow::Poll);
         event_loop
             .run_app(&mut self)
@@ -1665,7 +1689,7 @@ where
 }
 
 #[cfg(any(target_os = "android", target_os = "ios"))]
-impl<B, F, Create, Build> ApplicationHandler for MobileHost<B, F, Create, Build>
+impl<B, F, Create, Build> ApplicationHandler<ResourceReady> for MobileHost<B, F, Create, Build>
 where
     B: MobileSurface + 'static,
     F: crate::render::factory::RendererFactory<B> + 'static,
@@ -1716,7 +1740,15 @@ where
                 }
             };
             let build = self.build.take().expect("mobile app builder consumed once");
-            self.app = Some(build(surface));
+            let mut app = build(surface);
+            app.world
+                .insert_resource(crate::app::plugins::resources::ResourceHostWake(
+                    self.resource_wake
+                        .as_ref()
+                        .expect("mobile event loop started")
+                        .clone(),
+                ));
+            self.app = Some(app);
         }
         self.window = Some(window.clone());
         window.request_redraw();

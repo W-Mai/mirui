@@ -41,6 +41,8 @@ Refresh leaves the previous successful value in the value cache until replacemen
 
 ## Image updates
 
+Image loaders advance in the existing owner-thread systems, including when an App has no UI root. Mobile hosts connect completion wakes to their event loop without running loaders on the notifying thread. Suspended Apps retain readiness until resume; active Apps respect the existing tick deadline. Desktop, Web and self-driven embedded hosts advance ready work on their next tick. Pending work does not schedule additional animation frames, and an unobserved resource completion does not request drawing.
+
 `Image(src: "cover", ...)` observes its resource token through the registered View. Replacing or removing that token invalidates the image without changing `src`. Switching `src`, removing the `Image` component, or deleting its entity releases the old View subscription. Resource publication uses the existing reactive invalidation queues; rendering does not poll for changes.
 
 ## Byte providers
