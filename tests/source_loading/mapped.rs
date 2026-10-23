@@ -71,6 +71,48 @@ fn flat() -> Rc<Vec<u8>> {
     )
 }
 
+fn chunk() -> Rc<Vec<u8>> {
+    let mut document = mirx::Document::new();
+    document
+        .push_image_with_flags(
+            &mirx::image::ImageAsset::new(
+                1,
+                1,
+                mirx::image::ColorFormat::RGB565,
+                2,
+                Cow::Borrowed(&[0, 0]),
+            ),
+            mirx::ChunkFlags::CRITICAL,
+        )
+        .unwrap();
+    let primary = document
+        .push_image(&mirx::image::ImageAsset::new(
+            1,
+            2,
+            mirx::image::ColorFormat::RGBA8888,
+            8,
+            Cow::Borrowed(&PIXELS),
+        ))
+        .unwrap();
+    document.set_primary(primary).unwrap();
+    Rc::new(document.finish().unwrap().into_owned())
+}
+
+fn pixel_offset(bytes: &[u8]) -> usize {
+    let reader = mirx::Reader::open(bytes).unwrap();
+    let surface = if let Some(image) = reader.flat_image() {
+        image.surface().unwrap()
+    } else {
+        let mirx::image::ImageRef::Raw(surface) =
+            reader.primary().unwrap().unwrap().image().unwrap().unwrap()
+        else {
+            panic!("raw fixture");
+        };
+        surface
+    };
+    surface.plane(0).unwrap().bytes().as_ptr() as usize - bytes.as_ptr() as usize
+}
+
 fn app(bytes: Rc<Vec<u8>>, control: Rc<Control>, known_length: bool) -> Headless {
     let mut app: Headless = App::headless(1, 2);
     app.with_widget(mirui::ui::widgets::image::view());
@@ -92,7 +134,12 @@ fn app(bytes: Rc<Vec<u8>>, control: Rc<Control>, known_length: bool) -> Headless
 
 #[test]
 fn mapped_mirx_publishes_after_open_and_keeps_pixels_beyond_app_lifetime() {
-    let bytes = flat();
+    for bytes in [flat(), chunk()] {
+        mapped_lifetime(bytes);
+    }
+}
+
+fn mapped_lifetime(bytes: Rc<Vec<u8>>) {
     let weak = Rc::downgrade(&bytes);
     let control = Rc::new(Control::default());
     let mut app = app(Rc::clone(&bytes), Rc::clone(&control), true);
@@ -119,7 +166,7 @@ fn mapped_mirx_publishes_after_open_and_keeps_pixels_beyond_app_lifetime() {
     assert_eq!(images.probe("cover").unwrap().height, 2);
     assert_eq!(control.opens.get(), 1, "probe and value share the source");
     assert!(texture.cache_size() >= bytes.len());
-    let original_pixels = bytes[28..].as_ptr();
+    let original_pixels = bytes[pixel_offset(&bytes)..].as_ptr();
     assert_eq!(
         texture.read_pixels().unwrap().bytes().as_ptr(),
         original_pixels
@@ -155,7 +202,12 @@ fn mapped_mirx_publishes_after_open_and_keeps_pixels_beyond_app_lifetime() {
 
 #[test]
 fn mapped_mirx_rejects_corruption_and_exact_length_mismatches() {
-    let valid = flat();
+    for valid in [flat(), chunk()] {
+        mapped_invalid(valid);
+    }
+}
+
+fn mapped_invalid(valid: Rc<Vec<u8>>) {
     let mut corrupt_header = (*valid).clone();
     corrupt_header[12] ^= 1;
     let mut trailing = (*valid).clone();
@@ -178,6 +230,90 @@ fn mapped_mirx_rejects_corruption_and_exact_length_mismatches() {
             );
         }
     }
+}
+
+#[test]
+fn mapped_chunk_probe_retains_the_same_source_until_value_publication() {
+    let bytes = chunk();
+    let control = Rc::new(Control::default());
+    control.complete();
+    let mut app = app(bytes, Rc::clone(&control), true);
+    app.tick();
+    let images = app
+        .world
+        .resource::<ResourceManager<Texture<'static>>>()
+        .unwrap();
+    let meta = images.probe("cover").unwrap();
+    assert_eq!((meta.width, meta.height), (1, 2));
+    let first = images.resolve("cover");
+    assert_eq!((first.width(), first.height()), (1, 2));
+    assert_eq!(control.opens.get(), 1);
+    images.remove_token("cover");
+    let second = images.resolve("cover");
+    assert_eq!(control.opens.get(), 2);
+    assert_eq!(
+        first.read_pixels().unwrap().bytes(),
+        second.read_pixels().unwrap().bytes()
+    );
+}
+
+#[test]
+fn mapped_chunk_validates_critical_payloads_outside_the_selected_image() {
+    let valid = chunk();
+    let first = mirx::Reader::open(&valid)
+        .unwrap()
+        .chunks()
+        .find(|chunk| chunk.chunk_type() == mirx::ChunkType::IMAGE && chunk.flags().is_critical())
+        .unwrap();
+    assert!(first.flags().is_critical());
+    let offset = first.payload_offset() as usize;
+    let mut corrupted = (*valid).clone();
+    corrupted[offset] = 0xff;
+    assert!(mirx::Reader::open(&corrupted).is_err());
+    let control = Rc::new(Control::default());
+    control.complete();
+    let mut app = app(Rc::new(corrupted), control, true);
+    app.tick();
+    let images = app
+        .world
+        .resource::<ResourceManager<Texture<'static>>>()
+        .unwrap();
+    assert_eq!(images.resolve("cover").width(), 16);
+}
+
+#[test]
+fn mapped_source_does_not_promote_encoded_storage_to_implicit_full_decode() {
+    use mirx::image::{ColorDescription, EncodedImageAsset, SampleLayout, SurfaceDescriptor};
+    let codec = mirx::coding::Pixel::new(SampleLayout::RGB888).unwrap();
+    let surface =
+        SurfaceDescriptor::new(1, 1, SampleLayout::RGB888, ColorDescription::SRGB).unwrap();
+    let samples = [255, 0, 0];
+    let mut encoded = [0; 32];
+    let len = codec.encode_into(&samples, &mut encoded).unwrap();
+    let image = EncodedImageAsset::new(surface, codec.record(), &encoded[..len]);
+    let mut document = mirx::Document::new();
+    let primary = document.push_encoded_image(&image).unwrap();
+    document.set_primary(primary).unwrap();
+    let bytes = Rc::new(document.finish().unwrap().into_owned());
+    assert!(matches!(
+        mirx::Reader::open(&bytes)
+            .unwrap()
+            .primary()
+            .unwrap()
+            .unwrap()
+            .image()
+            .unwrap(),
+        Some(mirx::image::ImageRef::Encoded(_))
+    ));
+    let control = Rc::new(Control::default());
+    control.complete();
+    let mut app = app(bytes, control, true);
+    app.tick();
+    let images = app
+        .world
+        .resource::<ResourceManager<Texture<'static>>>()
+        .unwrap();
+    assert_eq!(images.resolve("cover").width(), 16);
 }
 
 #[derive(Default)]
@@ -219,7 +355,12 @@ compose_backend! {
 
 #[test]
 fn mapped_and_static_pixels_share_nested_routes_without_hot_allocations() {
-    let bytes = flat();
+    for bytes in [flat(), chunk()] {
+        mapped_nested_routes(bytes);
+    }
+}
+
+fn mapped_nested_routes(bytes: Rc<Vec<u8>>) {
     let control = Rc::new(Control::default());
     control.complete();
     let mut app = app(Rc::clone(&bytes), control, true);

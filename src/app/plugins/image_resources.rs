@@ -94,7 +94,7 @@ impl Default for ImageResourcesPlugin {
 impl ImageResourcesPlugin {
     /// Resolves image tokens to keys in a named byte provider. Bindings are checked after all plugins are built.
     ///
-    /// Mapped MIRX FLAT images use the built-in byte decoder. Other formats can be registered through [`Self::with_loader`].
+    /// Mapped MIRX FLAT and CHUNK RAW images use the built-in byte decoder. Other formats can be registered through [`Self::with_loader`].
     pub fn with_source(
         mut self,
         name: &'static str,

@@ -4,7 +4,7 @@ use alloc::rc::Rc;
 use core::ops::Range;
 use core::task::{Poll, ready};
 
-use super::{TexBuf, Texture, TextureMeta, map_mirx_format};
+use super::{TexBuf, Texture, TextureMeta, map_mirx_format, open_mirx_image, texture_from_surface};
 use crate::core::resource::{
     AssetError, AssetSource, FormatMatch, LoadContext, LoadError, LoadInput, Loader, ProbeLoader,
 };
@@ -38,14 +38,14 @@ impl MappedTexture {
 
     fn into_texture(
         source: AssetSource,
-        image: FlatImageLayout,
+        image: SourceImage,
     ) -> Result<Texture<'static>, LoadError> {
-        let layout = layout(image)?;
+        let layout = image.layout;
         let bytes = source.mapped()?.ok_or(AssetError::Unsupported)?.len();
-        if bytes != image.logical_len() {
+        if bytes != image.logical_len {
             return Err(AssetError::InvalidSource.into());
         }
-        let range = image.main_range();
+        let range = image.range;
         if range.len() < layout.minimum_bytes() || range.end > bytes {
             return Err(AssetError::Truncated.into());
         }
@@ -152,11 +152,56 @@ fn layout(image: FlatImageLayout) -> Result<PlaneLayout, LoadError> {
 
 pub(crate) struct SourceMirxLoader;
 
-#[derive(Default)]
+struct SourceImage {
+    layout: PlaneLayout,
+    range: Range<usize>,
+    logical_len: usize,
+}
+
+impl SourceImage {
+    fn mapped(bytes: &[u8]) -> Result<Self, LoadError> {
+        let mirx::image::ImageRef::Raw(surface) = open_mirx_image(bytes)? else {
+            return Err(AssetError::Unsupported.into());
+        };
+        let texture = texture_from_surface(surface)?;
+        let layout = texture
+            .storage_layout()
+            .map_err(super::MirxLoadError::Texture)?;
+        let pixels = texture
+            .read_pixels()
+            .map_err(super::MirxLoadError::Texture)?;
+        // The checked reader supplies a plane inside the original immutable mapping.
+        let start = (pixels.bytes().as_ptr() as usize)
+            .checked_sub(bytes.as_ptr() as usize)
+            .ok_or(AssetError::InvalidSource)?;
+        let end = start
+            .checked_add(pixels.bytes().len())
+            .filter(|end| *end <= bytes.len())
+            .ok_or(AssetError::InvalidSource)?;
+        Ok(Self {
+            layout,
+            range: start..end,
+            logical_len: bytes.len(),
+        })
+    }
+}
+
 pub(crate) struct SourceMirxState {
-    header: [u8; 28],
+    header: [u8; 44],
     header_len: Option<usize>,
-    image: Option<FlatImageLayout>,
+    image: Option<SourceImage>,
+    source: Option<AssetSource>,
+}
+
+impl Default for SourceMirxState {
+    fn default() -> Self {
+        Self {
+            header: [0; 44],
+            header_len: None,
+            image: None,
+            source: None,
+        }
+    }
 }
 
 impl Loader<Texture<'static>> for SourceMirxLoader {
@@ -187,8 +232,11 @@ impl Loader<Texture<'static>> for SourceMirxLoader {
     ) -> Poll<Result<Texture<'static>, LoadError>> {
         ready!(self.poll_probe(state, cx))?;
         Poll::Ready(MappedTexture::into_texture(
-            cx.take_source()?,
-            state.image.expect("probed image"),
+            match state.source.take() {
+                Some(source) => source,
+                None => cx.take_source()?,
+            },
+            state.image.take().expect("probed image"),
         ))
     }
 }
@@ -204,27 +252,35 @@ impl ProbeLoader<Texture<'static>> for SourceMirxLoader {
                 ready!(cx.poll_read_exact(0, &mut state.header[..8]))?;
                 let len = ContainerLayout::header_len(&state.header[..8])
                     .map_err(|_| LoadError::Failed("invalid MIRX header"))?;
-                if len != state.header.len() {
+                if len > state.header.len() {
                     return Poll::Ready(Err(AssetError::Unsupported.into()));
                 }
                 state.header_len = Some(len);
             }
-            ready!(cx.poll_read_exact(8, &mut state.header[8..]))?;
-            let container = ContainerLayout::parse(&state.header, &ReadOptions::default())
+            let len = state.header_len.expect("parsed header length");
+            ready!(cx.poll_read_exact(8, &mut state.header[8..len]))?;
+            let container = ContainerLayout::parse(&state.header[..len], &ReadOptions::default())
                 .map_err(|_| LoadError::Failed("invalid MIRX container"))?;
-            let image = container.flat_image().ok_or(AssetError::Unsupported)?;
             if cx
                 .source_info()
                 .and_then(|info| info.len)
-                .is_some_and(|len| len != image.logical_len() as u64)
+                .is_some_and(|len| len != container.logical_len() as u64)
             {
                 return Poll::Ready(Err(AssetError::InvalidSource.into()));
             }
-            // The immutable descriptor contains no borrowed header or pixel storage.
-            layout(image)?;
-            state.image = Some(image);
+            state.image = Some(if let Some(image) = container.flat_image() {
+                SourceImage {
+                    layout: layout(image)?,
+                    range: image.main_range(),
+                    logical_len: image.logical_len(),
+                }
+            } else {
+                // Retain the same opened object across metadata and value publication.
+                let source = state.source.insert(cx.take_source()?);
+                SourceImage::mapped(source.mapped()?.ok_or(AssetError::Unsupported)?)?
+            });
         }
-        let layout = layout(state.image.expect("probed image"))?;
+        let layout = state.image.as_ref().expect("probed image").layout;
         Poll::Ready(Ok(TextureMeta {
             width: layout.width(),
             height: layout.height(),
