@@ -8,7 +8,7 @@ mod coverage;
 mod native;
 mod pixels;
 mod region;
-#[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32", test))]
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
 pub(crate) use coverage::UploadCoverage;
 #[cfg(any(feature = "wgpu", target_arch = "wasm32", test))]
 mod upload;
@@ -872,6 +872,16 @@ where
     fn try_load(&self, token: &str) -> Result<Texture<'static>, crate::core::resource::LoadError> {
         let bytes = (self.fetch)(token).ok_or(crate::core::resource::LoadError::NotMine)?;
         Texture::from_mirx_with(bytes, self.options).map_err(Into::into)
+    }
+}
+
+impl<F> crate::core::resource::ProbeLoader<Texture<'static>> for MirxLoader<F>
+where
+    F: Fn(&str) -> Option<&'static [u8]> + 'static,
+{
+    fn try_probe(&self, token: &str) -> Result<TextureMeta, crate::core::resource::LoadError> {
+        let bytes = (self.fetch)(token).ok_or(crate::core::resource::LoadError::NotMine)?;
+        Texture::probe_mirx(bytes).map_err(Into::into)
     }
 }
 

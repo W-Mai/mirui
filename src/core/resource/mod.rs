@@ -284,6 +284,125 @@ mod tests {
     }
 
     #[test]
+    fn loader_reentry_is_borrow_free_and_does_not_recurse_same_token() {
+        let manager = Rc::new(ResourceManager::new(MaxSize::Count(8), fb_note()));
+        let weak = Rc::downgrade(&manager);
+        manager.add_loader(move |token: &str| {
+            let manager = weak.upgrade().unwrap();
+            assert_eq!(*manager.resolve(token), fb_note());
+            manager.add_static("other", Note("registered inside loader".into()));
+            assert_eq!(manager.resolve("other").0, "registered inside loader");
+            Ok(Note("loaded".into()))
+        });
+        assert_eq!(manager.resolve("item").0, "loaded");
+        assert_eq!(manager.resolve("item").0, "loaded");
+    }
+
+    #[test]
+    fn reentrant_replacement_and_removal_reject_old_completion() {
+        for replacement in [false, true] {
+            let manager = Rc::new(ResourceManager::new(MaxSize::Count(8), fb_note()));
+            let handle = manager.load("item");
+            let weak = Rc::downgrade(&manager);
+            manager.add_factory("item", move || {
+                let manager = weak.upgrade().unwrap();
+                if replacement {
+                    manager.add_static("item", Note("new".into()));
+                } else {
+                    manager.remove_token("item");
+                }
+                Some(Note("obsolete".into()))
+            });
+            assert_eq!(*handle.get(), fb_note());
+            assert_eq!(handle.get().0, if replacement { "new" } else { "FALLBACK" });
+        }
+    }
+
+    #[test]
+    fn token_subscriptions_survive_removal_and_reregistration() {
+        let manager = ResourceManager::new(MaxSize::Count(8), fb_note());
+        let subscription = manager.subscribe("item");
+        manager.remove_token("item");
+        manager.add_static("item", Note("new".into()));
+        assert!(Rc::ptr_eq(&subscription, &manager.subscribe("item")));
+    }
+
+    #[test]
+    fn metadata_cache_tracks_replacement_failure_and_value_publication() {
+        let manager = img_manager();
+        manager.add_probed_factory("item", ImgMeta { w: 1, h: 2 }, || None);
+        assert_eq!(manager.probe("item"), Some(ImgMeta { w: 1, h: 2 }));
+        manager.add_static(
+            "item",
+            Img {
+                bytes: "new".into(),
+                w: 3,
+                h: 4,
+            },
+        );
+        assert_eq!(manager.probe("item"), Some(ImgMeta { w: 3, h: 4 }));
+        manager.remove_token("item");
+        assert_eq!(manager.probe("item"), None);
+        manager.add_factory("item", || {
+            Some(Img {
+                bytes: "decoded".into(),
+                w: 5,
+                h: 6,
+            })
+        });
+        assert_eq!(manager.probe("item"), None);
+        manager.load("item").get();
+        assert_eq!(manager.probe("item"), Some(ImgMeta { w: 5, h: 6 }));
+    }
+
+    #[test]
+    fn explicit_probe_can_reenter_and_cannot_publish_after_replacement() {
+        struct Prober(alloc::rc::Weak<ResourceManager<Img>>);
+        impl Loader<Img> for Prober {
+            fn try_load(&self, _: &str) -> Result<Img, LoadError> {
+                panic!("metadata must not decode pixels");
+            }
+        }
+        impl ProbeLoader<Img> for Prober {
+            fn try_probe(&self, token: &str) -> Result<ImgMeta, LoadError> {
+                let manager = self.0.upgrade().unwrap();
+                assert_eq!(manager.probe(token), None);
+                manager.add_static(
+                    token.to_string(),
+                    Img {
+                        bytes: "new".into(),
+                        w: 7,
+                        h: 8,
+                    },
+                );
+                Ok(ImgMeta { w: 1, h: 2 })
+            }
+        }
+        let manager = Rc::new(img_manager());
+        manager.add_probed_loader(Prober(Rc::downgrade(&manager)));
+        assert_eq!(manager.probe("item"), None);
+        assert_eq!(manager.probe("item"), Some(ImgMeta { w: 7, h: 8 }));
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn loader_unwind_retires_the_reentry_guard() {
+        use core::cell::Cell;
+        let manager = ResourceManager::new(MaxSize::Count(8), fb_note());
+        let calls = Cell::new(0);
+        manager.add_loader(move |_: &str| {
+            calls.set(calls.get() + 1);
+            assert!(calls.get() > 1, "first attempt fails");
+            Ok(Note("recovered".into()))
+        });
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| manager.resolve("item")))
+                .is_err()
+        );
+        assert_eq!(manager.resolve("item").0, "recovered");
+    }
+
+    #[test]
     fn probe_via_static_extracts_meta_without_full_decode() {
         let m = img_manager();
         m.add_static(
@@ -356,7 +475,7 @@ mod tests {
     }
 
     #[test]
-    fn probe_loader_chain_returns_meta_only() {
+    fn unprobed_loader_does_not_decode_for_metadata() {
         let m = img_manager();
         m.add_loader(|t: &str| -> Result<Img, LoadError> {
             if let Some(rest) = t.strip_prefix("img/") {
@@ -371,7 +490,9 @@ mod tests {
         });
 
         let meta = m.probe("img/foo");
-        assert_eq!(meta, Some(ImgMeta { w: 24, h: 24 }));
+        assert_eq!(meta, None);
+        assert_eq!(m.resolve("img/foo").w, 24);
+        assert_eq!(m.probe("img/foo"), Some(ImgMeta { w: 24, h: 24 }));
     }
 
     #[test]

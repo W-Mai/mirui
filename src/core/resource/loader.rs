@@ -34,18 +34,10 @@ pub trait Loader<T>: 'static {
     fn try_load(&self, token: &str) -> Result<T, LoadError>;
 }
 
-/// Companion trait that gives every [`Loader<T>`] a default `try_probe`
-/// running `try_load` then downgrading via [`HasProbe::extract_meta`].
-/// Override on the concrete impl when partial fetch is meaningfully cheaper
-/// than full decode (e.g. a mirx FLAT loader can read 28 bytes for the
-/// header instead of the full pixel payload).
+/// Metadata access without producing the decoded resource. Register this capability with [`super::ResourceManager::add_probed_loader`].
 pub trait ProbeLoader<T: HasProbe>: Loader<T> {
-    fn try_probe(&self, token: &str) -> Result<T::Meta, LoadError> {
-        self.try_load(token).map(|v| v.extract_meta())
-    }
+    fn try_probe(&self, token: &str) -> Result<T::Meta, LoadError>;
 }
-
-impl<T: HasProbe, L: Loader<T> + ?Sized> ProbeLoader<T> for L {}
 
 impl<T, F> Loader<T> for F
 where
@@ -68,6 +60,12 @@ mod tests {
         data: String,
         w: u16,
         h: u16,
+    }
+
+    impl HasSize for Img {
+        fn cache_size(&self) -> usize {
+            self.data.len()
+        }
     }
 
     #[derive(Clone, Debug, PartialEq)]
@@ -110,39 +108,27 @@ mod tests {
     }
 
     #[test]
-    fn default_try_probe_runs_full_load() {
-        // Closure-based loader; the blanket ProbeLoader impl gives it the
-        // default try_probe that just calls try_load and extracts meta.
-        let loader = |_t: &str| -> Result<Img, LoadError> {
-            Ok(Img {
-                data: "bytes".to_string(),
-                w: 32,
-                h: 32,
-            })
-        };
-        let meta: Result<ImgMeta, _> = ProbeLoader::<Img>::try_probe(&loader, "anything");
-        assert_eq!(meta, Ok(ImgMeta { w: 32, h: 32 }));
-    }
-
-    #[test]
     fn override_try_probe_avoids_full_load() {
-        // A concrete loader can implement try_probe directly to skip a heavy
-        // try_load when only metadata is needed.
         struct ProbeAware;
         impl Loader<Img> for ProbeAware {
             fn try_load(&self, _t: &str) -> Result<Img, LoadError> {
                 panic!("try_load should not run when try_probe is overridden");
             }
         }
-        impl ProbeAware {
-            fn try_probe_override(&self, _t: &str) -> Result<ImgMeta, LoadError> {
+        impl ProbeLoader<Img> for ProbeAware {
+            fn try_probe(&self, _t: &str) -> Result<ImgMeta, LoadError> {
                 Ok(ImgMeta { w: 64, h: 32 })
             }
         }
-        // Demonstrate the *intent* — the manager calls try_probe via dynamic
-        // dispatch on a type that overrides it. Real overrides land on
-        // production loaders (MirxLoader etc).
-        let p = ProbeAware;
-        assert_eq!(p.try_probe_override("hero"), Ok(ImgMeta { w: 64, h: 32 }));
+        let manager = super::super::ResourceManager::new(
+            crate::core::cache::MaxSize::Count(4),
+            Img {
+                data: String::new(),
+                w: 1,
+                h: 1,
+            },
+        );
+        manager.add_probed_loader(ProbeAware);
+        assert_eq!(manager.probe("hero"), Some(ImgMeta { w: 64, h: 32 }));
     }
 }

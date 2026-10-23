@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Resource metadata probing uses explicitly registered `ProbeLoader` implementations instead of decoding through ordinary loaders. `MirxLoader` supports metadata-only registration with `add_probed_loader`.
 - Texture upload caches track bounded valid coverage without changing source coordinates or default cache budgets. SDL-GPU uploads prepared regions and reuses completed coverage.
 - WGPU uploads prepared regions through its existing texture pool, preserving padded RGBA rows and queued resource lifetimes.
 - Web Canvas updates prepared source regions in its texture cache and reuses completed coverage without changing glyph caches.
@@ -30,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Resource loaders run outside manager borrows, reject superseded results and guard same-token reentry. Token subscriptions survive removal and replacement, and metadata caches invalidate with resource revisions.
 - Empty texture regions validate geometry without accessing source devices or requiring completed native contents.
 
 ### Performance

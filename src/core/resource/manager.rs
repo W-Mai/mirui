@@ -9,7 +9,7 @@ use hashbrown::HashSet;
 use crate::core::cache::{HasSize, LruCache, MaxSize};
 use crate::core::reactive::Signal;
 use crate::core::resource::handle::ResourceHandle;
-use crate::core::resource::loader::Loader;
+use crate::core::resource::loader::{Loader, ProbeLoader};
 use crate::core::resource::manager_inner::{self, Entry, EntryKind, ManagerInner, ResolveOutcome};
 use crate::core::resource::probe::HasProbe;
 
@@ -21,6 +21,7 @@ struct ProbeSidecar<T: HasProbe + 'static> {
     probes: LruCache<Cow<'static, str>, T::Meta>,
     fallback_meta: T::Meta,
     failed_probes: HashSet<Cow<'static, str>>,
+    revision: u64,
 }
 
 /// Token-indexed resources shared through reference-counted values. Resource values do not need to implement `Clone`.
@@ -70,9 +71,11 @@ impl<T: HasSize + 'static> ResourceManager<T> {
     }
 
     pub fn add_static(&self, token: impl Into<Cow<'static, str>>, value: T) {
+        let token = token.into();
         self.inner
             .borrow_mut()
-            .insert_entry(token.into(), Entry::Static(value));
+            .insert_entry(token.clone(), Entry::Static(value));
+        manager_inner::notify(&self.inner, &token);
     }
 
     pub fn add_factory(
@@ -80,17 +83,20 @@ impl<T: HasSize + 'static> ResourceManager<T> {
         token: impl Into<Cow<'static, str>>,
         factory: impl FnOnce() -> Option<T> + 'static,
     ) {
+        let token = token.into();
         self.inner
             .borrow_mut()
-            .insert_entry(token.into(), Entry::Factory(Box::new(factory)));
+            .insert_entry(token.clone(), Entry::Factory(Box::new(factory)));
+        manager_inner::notify(&self.inner, &token);
     }
 
     pub fn add_loader(&self, loader: impl Loader<T>) {
-        self.inner.borrow_mut().add_loader(Box::new(loader));
+        self.inner.borrow_mut().add_loader(loader);
     }
 
     pub fn remove_token(&self, token: &str) {
         self.inner.borrow_mut().unregister(token);
+        manager_inner::notify(&self.inner, token);
     }
 
     pub fn load(&self, token: impl Into<Cow<'static, str>>) -> ResourceHandle<T> {
@@ -107,13 +113,7 @@ impl<T: HasSize + 'static> ResourceManager<T> {
     pub fn resolve(&self, token: &str) -> Rc<T> {
         match manager_inner::resolve(&self.inner, token) {
             ResolveOutcome::CacheHit(rc) => rc,
-            ResolveOutcome::JustResolved {
-                value,
-                precomputed_probe,
-            } => {
-                self.try_mirror_probe(token, &value, precomputed_probe);
-                value
-            }
+            ResolveOutcome::JustResolved(value) => value,
             ResolveOutcome::Fallback(rc) => rc,
         }
     }
@@ -133,18 +133,11 @@ impl<T: HasSize + 'static> ResourceManager<T> {
     pub fn clear_all_failed(&self) {
         self.inner.borrow_mut().clear_all_failed();
     }
-
-    // Default no-op: when T: !HasProbe the sidecar is always None. The
-    // `T: HasProbe` impl block overrides this method so resolved values
-    // get mirrored into the probes cache.
-    fn try_mirror_probe(&self, _token: &str, _value: &T, _precomputed: Option<Box<dyn Any>>) {}
 }
 
 /// Probe-aware API gated on `T: HasProbe`. These methods are only visible
 /// when the resource type opts into [`HasProbe`]. The probe sidecar is
-/// initialised by [`ResourceManager::enable_probes`] (or
-/// [`ResourceManager::with_probes`]) — until that's called, `probe()`
-/// returns `None` for every token.
+/// initialised by [`ResourceManager::enable_probes`] (or [`ResourceManager::with_probes`]). Without a sidecar, available metadata is returned without caching it.
 impl<T: HasSize + HasProbe + 'static> ResourceManager<T> {
     /// Chain-style alias for `enable_probes` (init-time variant). See the
     /// `with_fallback` doc on the generic impl for the lifecycle convention.
@@ -168,8 +161,14 @@ impl<T: HasSize + HasProbe + 'static> ResourceManager<T> {
             probes: LruCache::new(probes_budget),
             fallback_meta,
             failed_probes: HashSet::new(),
+            revision: self.inner.borrow().revision_cell().get(),
         };
         *self.probe_sidecar.borrow_mut() = Some(Box::new(sidecar));
+    }
+
+    /// Registers value loading and metadata probing in the same loader entry. Probing does not invoke value loading.
+    pub fn add_probed_loader(&self, loader: impl ProbeLoader<T>) {
+        self.inner.borrow_mut().add_probed_loader(loader);
     }
 
     pub fn set_probes_budget(&self, max: MaxSize) {
@@ -191,16 +190,26 @@ impl<T: HasSize + HasProbe + 'static> ResourceManager<T> {
         probe: T::Meta,
         factory: impl FnOnce() -> Option<T> + 'static,
     ) {
+        let token = token.into();
         self.inner.borrow_mut().insert_entry(
-            token.into(),
+            token.clone(),
             Entry::FactoryWithProbe {
                 probe: Box::new(probe),
                 factory: Box::new(factory),
             },
         );
+        manager_inner::notify(&self.inner, &token);
     }
 
     pub fn probe(&self, token: &str) -> Option<T::Meta> {
+        let revision = self.inner.borrow().revision_cell().get();
+        self.with_sidecar_mut(|side| {
+            if side.revision != revision {
+                side.probes.clear();
+                side.failed_probes.clear();
+                side.revision = revision;
+            }
+        });
         // Step 1: probes cache hit / failed-set. The closure returns
         // `Some(answer)` to short-circuit, `None` to fall through to step 3.
         // The outer `Option<...>` from with_sidecar_mut is None when the
@@ -218,11 +227,14 @@ impl<T: HasSize + HasProbe + 'static> ResourceManager<T> {
         }
 
         // Step 3: values cache hit → derive meta and mirror it forward
-        if let Some(rc) = self.inner.borrow_mut().try_acquire_value_clone(token) {
+        let cached = self.inner.borrow_mut().try_acquire_value_clone(token);
+        if let Some(rc) = cached {
             let meta = (*rc).extract_meta();
             self.insert_probe(token, meta.clone());
             return Some(meta);
         }
+
+        let resolution = manager_inner::Resolution::begin(&self.inner, token)?;
 
         // Step 4: peek by_token kind (no borrow held across the dispatch)
         let entry_kind = self.inner.borrow().peek_entry_kind(token);
@@ -231,9 +243,12 @@ impl<T: HasSize + HasProbe + 'static> ResourceManager<T> {
                 let entry = self.inner.borrow_mut().take_entry(token);
                 if let Some(Entry::Static(v)) = entry {
                     let meta = v.extract_meta();
+                    if !resolution.is_current() {
+                        return None;
+                    }
                     self.inner
                         .borrow_mut()
-                        .insert_entry(Cow::Owned(token.into()), Entry::Static(v));
+                        .restore_entry(Cow::Owned(token.into()), Entry::Static(v));
                     self.insert_probe(token, meta.clone());
                     return Some(meta);
                 }
@@ -247,10 +262,13 @@ impl<T: HasSize + HasProbe + 'static> ResourceManager<T> {
                 let meta: T::Meta = entry
                     .factory_probe()
                     .expect("FactoryWithProbe::probe type mismatch");
+                if !resolution.is_current() {
+                    return None;
+                }
                 let Entry::FactoryWithProbe { factory, .. } = entry else {
                     unreachable!("EntryKind::FactoryWithProbe must match Entry::FactoryWithProbe");
                 };
-                self.inner.borrow_mut().insert_entry(
+                self.inner.borrow_mut().restore_entry(
                     Cow::Owned(token.into()),
                     Entry::FactoryWithProbe {
                         probe: Box::new(meta.clone()),
@@ -271,11 +289,16 @@ impl<T: HasSize + HasProbe + 'static> ResourceManager<T> {
         // Step 5: loader chain
         match manager_inner::walk_probe_chain::<T>(&self.inner, token) {
             Some(Ok(meta)) => {
+                if !resolution.is_current() {
+                    return None;
+                }
                 self.insert_probe(token, meta.clone());
                 Some(meta)
             }
             Some(Err(_)) | None => {
-                self.mark_failed_probe(token);
+                if resolution.is_current() {
+                    self.mark_failed_probe(token);
+                }
                 None
             }
         }

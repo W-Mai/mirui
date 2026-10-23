@@ -58,10 +58,11 @@ impl<T: HasSize + 'static> ResourceHandle<T> {
         if let Some(value) = self.get_cached() {
             return value;
         }
-        let value = match manager_inner::resolve(&rc, &self.token) {
-            ResolveOutcome::CacheHit(v) => v,
-            ResolveOutcome::JustResolved { value, .. } => value,
-            ResolveOutcome::Fallback(v) => v,
+        let (revision, value) = match manager_inner::resolve(&rc, &self.token) {
+            ResolveOutcome::CacheHit(v) | ResolveOutcome::JustResolved(v) => {
+                (self.revision.get(), v)
+            }
+            ResolveOutcome::Fallback(v) => (revision, v),
         };
         *self.cached.borrow_mut() = Some((revision, value.clone()));
         value

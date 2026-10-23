@@ -57,12 +57,21 @@ impl<T: 'static> Entry<T> {
 pub struct ManagerInner<T: HasSize + 'static> {
     values: LruCache<Cow<'static, str>, Rc<T>>,
     by_token: HashMap<Cow<'static, str>, Entry<T>, FxBuildHasher>,
-    loaders: Vec<Box<dyn Loader<T>>>,
+    loaders: Vec<LoaderEntry<T>>,
     fallback: Rc<T>,
     failed_values: HashSet<Cow<'static, str>, FxBuildHasher>,
     signals: HashMap<Cow<'static, str>, Rc<Signal<()>>, FxBuildHasher>,
     refcounts: HashMap<Cow<'static, str>, u32, FxBuildHasher>,
     revision: Rc<Cell<u64>>,
+    resolving: HashMap<Cow<'static, str>, u64, FxBuildHasher>,
+    next_request: u64,
+}
+
+type ProbeCallback = dyn Fn(&str) -> Result<Box<dyn Any>, LoadError>;
+
+struct LoaderEntry<T> {
+    loader: Rc<dyn Loader<T>>,
+    probe: Option<Rc<ProbeCallback>>,
 }
 
 impl<T: HasSize + 'static> ManagerInner<T> {
@@ -76,6 +85,8 @@ impl<T: HasSize + 'static> ManagerInner<T> {
             signals: HashMap::default(),
             refcounts: HashMap::default(),
             revision: Rc::new(Cell::new(0)),
+            resolving: HashMap::default(),
+            next_request: 0,
         }
     }
 
@@ -90,8 +101,28 @@ impl<T: HasSize + 'static> ManagerInner<T> {
         self.fallback.clone()
     }
 
-    pub(crate) fn add_loader(&mut self, loader: Box<dyn Loader<T>>) {
-        self.loaders.push(loader);
+    pub(crate) fn add_loader(&mut self, loader: impl Loader<T>) {
+        self.loaders.push(LoaderEntry {
+            loader: Rc::new(loader),
+            probe: None,
+        });
+        self.advance_revision();
+    }
+
+    pub(crate) fn add_probed_loader(&mut self, loader: impl ProbeLoader<T>)
+    where
+        T: HasProbe,
+    {
+        let loader = Rc::new(loader);
+        let probe = loader.clone();
+        self.loaders.push(LoaderEntry {
+            loader,
+            probe: Some(Rc::new(move |token| {
+                probe
+                    .try_probe(token)
+                    .map(|meta| Box::new(meta) as Box<dyn Any>)
+            })),
+        });
         self.advance_revision();
     }
 
@@ -123,18 +154,16 @@ impl<T: HasSize + 'static> ManagerInner<T> {
             .clone()
     }
 
-    fn notify(&self, token: &str) {
-        if let Some(sig) = self.signals.get(token) {
-            sig.set(());
-        }
+    pub(crate) fn signal(&self, token: &str) -> Option<Rc<Signal<()>>> {
+        self.signals.get(token).cloned()
     }
 
     // ---- entry registration / removal ----
 
     pub(crate) fn insert_entry(&mut self, token: Cow<'static, str>, entry: Entry<T>) {
+        self.resolving.remove(token.as_ref());
         self.failed_values.remove(token.as_ref());
         self.values.drop(token.as_ref());
-        self.notify(&token);
         self.by_token.insert(token, entry);
         self.advance_revision();
     }
@@ -143,16 +172,26 @@ impl<T: HasSize + 'static> ManagerInner<T> {
         self.by_token.remove(token)
     }
 
+    pub(crate) fn restore_entry(&mut self, token: Cow<'static, str>, entry: Entry<T>) {
+        self.by_token.insert(token, entry);
+    }
+
     pub(crate) fn peek_entry_kind(&self, token: &str) -> Option<EntryKind> {
         self.by_token.get(token).map(Entry::kind)
     }
 
     pub(crate) fn unregister(&mut self, token: &str) {
+        self.resolving.remove(token);
         self.by_token.remove(token);
         self.failed_values.remove(token);
         self.values.drop(token);
-        self.notify(token);
-        self.signals.remove(token);
+        if self
+            .signals
+            .get(token)
+            .is_some_and(|signal| Rc::strong_count(signal) == 1)
+        {
+            self.signals.remove(token);
+        }
         self.advance_revision();
     }
 
@@ -194,17 +233,60 @@ impl<T: HasSize + 'static> ManagerInner<T> {
             .entry(token.clone())
             .or_insert_with(|| rc.clone());
         let result = (*handle).clone();
-        self.notify(&token);
+        self.advance_revision();
         result
+    }
+}
+
+pub(crate) fn notify<T: HasSize + 'static>(rc: &Rc<RefCell<ManagerInner<T>>>, token: &str) {
+    let signal = rc.borrow().signal(token);
+    if let Some(signal) = signal {
+        signal.set(());
+    }
+}
+
+/// Guards external calls, including unwinding and reentrant replacement.
+pub(crate) struct Resolution<'a, T: HasSize + 'static> {
+    manager: &'a Rc<RefCell<ManagerInner<T>>>,
+    token: &'a str,
+    request: u64,
+}
+
+impl<'a, T: HasSize + 'static> Resolution<'a, T> {
+    pub(crate) fn begin(manager: &'a Rc<RefCell<ManagerInner<T>>>, token: &'a str) -> Option<Self> {
+        let mut inner = manager.borrow_mut();
+        if inner.resolving.contains_key(token) {
+            return None;
+        }
+        let request = inner
+            .next_request
+            .checked_add(1)
+            .expect("resource request exhausted");
+        inner.next_request = request;
+        inner.resolving.insert(Cow::Owned(token.into()), request);
+        Some(Self {
+            manager,
+            token,
+            request,
+        })
+    }
+
+    pub(crate) fn is_current(&self) -> bool {
+        self.manager.borrow().resolving.get(self.token) == Some(&self.request)
+    }
+}
+
+impl<T: HasSize + 'static> Drop for Resolution<'_, T> {
+    fn drop(&mut self) {
+        if self.is_current() {
+            self.manager.borrow_mut().resolving.remove(self.token);
+        }
     }
 }
 
 pub(crate) enum ResolveOutcome<T> {
     CacheHit(Rc<T>),
-    JustResolved {
-        value: Rc<T>,
-        precomputed_probe: Option<Box<dyn Any>>,
-    },
+    JustResolved(Rc<T>),
     Fallback(Rc<T>),
 }
 
@@ -226,15 +308,22 @@ pub(crate) fn resolve<T: HasSize + 'static>(
         }
     }
 
-    // Step 3: by_token
     let entry_taken = rc.borrow_mut().take_entry(token);
+    // Static values have no loader callback or pending task to guard.
+    if let Some(Entry::Static(value)) = entry_taken {
+        return publish_value(rc, token, value);
+    }
+    let Some(resolution) = Resolution::begin(rc, token) else {
+        return ResolveOutcome::Fallback(rc.borrow().fallback_clone());
+    };
+
+    // Step 3: by_token
     if let Some(entry) = entry_taken {
-        let (value, precomputed_probe) = match entry {
-            Entry::Static(v) => (Some(v), None),
-            Entry::Factory(f) => (f(), None),
-            Entry::FactoryWithProbe { probe, factory } => (factory(), Some(probe)),
+        let value = match entry {
+            Entry::Static(v) => Some(v),
+            Entry::Factory(f) | Entry::FactoryWithProbe { factory: f, .. } => f(),
         };
-        return finish::<T>(rc, token, value, precomputed_probe);
+        return finish::<T>(rc, token, value, resolution);
     }
 
     // Step 4: loader chain. Walk through loaders and, on the first claim, pull
@@ -243,11 +332,9 @@ pub(crate) fn resolve<T: HasSize + 'static>(
     // borrow_mut panic).
     let chain_outcome = walk_load_chain(rc, token);
     match chain_outcome {
-        ChainOutcome::Loaded(v) => finish::<T>(rc, token, Some(v), None),
+        ChainOutcome::Loaded(v) => finish::<T>(rc, token, Some(v), resolution),
         ChainOutcome::Failed(_) | ChainOutcome::AllNotMine => {
-            let mut inner = rc.borrow_mut();
-            inner.mark_failed(token);
-            ResolveOutcome::Fallback(inner.fallback_clone())
+            finish::<T>(rc, token, None, resolution)
         }
     }
 }
@@ -265,13 +352,8 @@ fn walk_load_chain<T: HasSize + 'static>(
 ) -> ChainOutcome<T> {
     let n = rc.borrow().loaders.len();
     for i in 0..n {
-        // Hold the borrow only while reading the trait-object slot so a
-        // loader that re-enters the manager from try_load doesn't trip a
-        // RefCell already-borrowed panic.
-        let outcome = {
-            let inner = rc.borrow();
-            inner.loaders[i].try_load(token)
-        };
+        let loader = rc.borrow().loaders[i].loader.clone();
+        let outcome = loader.try_load(token);
         match outcome {
             Ok(v) => return ChainOutcome::Loaded(v),
             Err(LoadError::NotMine) => continue,
@@ -285,20 +367,35 @@ fn finish<T: HasSize + 'static>(
     rc: &Rc<RefCell<ManagerInner<T>>>,
     token: &str,
     value: Option<T>,
-    precomputed_probe: Option<Box<dyn Any>>,
+    resolution: Resolution<'_, T>,
 ) -> ResolveOutcome<T> {
-    let token_owned: Cow<'static, str> = Cow::Owned(token.into());
+    if !resolution.is_current() {
+        let mut inner = rc.borrow_mut();
+        let value = inner
+            .try_acquire_value_clone(token)
+            .unwrap_or_else(|| inner.fallback_clone());
+        return ResolveOutcome::Fallback(value);
+    }
     let Some(v) = value else {
         let mut inner = rc.borrow_mut();
         inner.mark_failed(token);
         return ResolveOutcome::Fallback(inner.fallback_clone());
     };
 
-    let value_rc = rc.borrow_mut().insert_value(token_owned, v);
-    ResolveOutcome::JustResolved {
-        value: value_rc,
-        precomputed_probe,
-    }
+    drop(resolution);
+    publish_value(rc, token, v)
+}
+
+fn publish_value<T: HasSize + 'static>(
+    rc: &Rc<RefCell<ManagerInner<T>>>,
+    token: &str,
+    value: T,
+) -> ResolveOutcome<T> {
+    let value_rc = rc
+        .borrow_mut()
+        .insert_value(Cow::Owned(token.into()), value);
+    notify(rc, token);
+    ResolveOutcome::JustResolved(value_rc)
 }
 
 /// Walk the loader chain calling [`ProbeLoader::try_probe`] on each. Lives
@@ -311,12 +408,15 @@ pub(crate) fn walk_probe_chain<T: HasSize + HasProbe + 'static>(
 ) -> Option<Result<T::Meta, &'static str>> {
     let n = rc.borrow().loaders.len();
     for i in 0..n {
-        let outcome = {
-            let inner = rc.borrow();
-            ProbeLoader::<T>::try_probe(&*inner.loaders[i], token)
-        };
+        // An unprobed loader may own this token. Do not borrow metadata from a later loader that might produce a different value.
+        let probe = rc.borrow().loaders[i].probe.clone()?;
+        let outcome = probe(token);
         match outcome {
-            Ok(meta) => return Some(Ok(meta)),
+            Ok(meta) => {
+                return Some(Ok(*meta
+                    .downcast::<T::Meta>()
+                    .expect("typed probe registration")));
+            }
             Err(LoadError::NotMine) => continue,
             Err(LoadError::Failed(msg)) => return Some(Err(msg)),
         }
