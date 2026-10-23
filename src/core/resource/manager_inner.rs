@@ -74,6 +74,7 @@ pub struct ManagerInner<T: HasSize + 'static> {
 struct Request {
     generation: u64,
     load: bool,
+    queued: bool,
 }
 
 impl<T: HasSize + 'static> ManagerInner<T> {
@@ -262,6 +263,7 @@ impl<'a, T: HasSize + 'static> Resolution<'a, T> {
             Request {
                 generation: request,
                 load: false,
+                queued: false,
             },
         );
         Some(Self {
@@ -440,9 +442,15 @@ fn publish_value<T: HasSize + 'static>(
     token: &str,
     value: T,
 ) -> ResolveOutcome<T> {
-    let value_rc = rc
-        .borrow_mut()
-        .insert_value(Cow::Owned(token.into()), value);
+    let (old, value_rc) = {
+        let mut inner = rc.borrow_mut();
+        let old = inner.try_acquire_value_clone(token);
+        inner.values.drop(token);
+        inner.failed_values.remove(token);
+        let value = inner.insert_value(Cow::Owned(token.into()), value);
+        (old, value)
+    };
+    drop(old);
     notify(rc, token);
     ResolveOutcome::JustResolved(value_rc)
 }
@@ -504,6 +512,45 @@ pub(crate) fn invalidate_calls<T: HasSize + 'static>(
     }
 }
 
+pub(crate) fn reload<T: HasSize + 'static>(
+    rc: &Rc<RefCell<ManagerInner<T>>>,
+    token: &str,
+) -> Result<(), LoadError> {
+    let capacity: usize = rc
+        .borrow()
+        .loaders
+        .iter()
+        .map(|loader| loader.capacity())
+        .sum();
+    if capacity == 0 {
+        return Err(LoadError::NotMine);
+    }
+    let wake = {
+        let mut inner = rc.borrow_mut();
+        if !inner.resolving.contains_key(token) && inner.resolving.len() >= capacity {
+            return Err(super::AssetError::Capacity.into());
+        }
+        let generation = inner
+            .next_request
+            .checked_add(1)
+            .ok_or(super::AssetError::Capacity)?;
+        inner.next_request = generation;
+        inner.resolving.insert(
+            Cow::Owned(token.into()),
+            Request {
+                generation,
+                load: true,
+                queued: true,
+            },
+        );
+        inner.failed_values.remove(token);
+        inner.wake.as_ref().unwrap().clone()
+    };
+    invalidate_calls(rc, token);
+    wake.schedule();
+    Ok(())
+}
+
 /// Poll each ready slot at most once. Waking during a poll schedules a later turn.
 pub(crate) fn poll_pending<T: HasSize + 'static>(
     rc: &Rc<RefCell<ManagerInner<T>>>,
@@ -518,6 +565,7 @@ pub(crate) fn poll_pending<T: HasSize + 'static>(
         return;
     }
     let parent = wake.waker();
+    let queued_through = rc.borrow().next_request;
     let n = rc.borrow().loaders.len();
     for i in 0..n {
         let owner = rc.borrow().loaders[i].clone();
@@ -648,6 +696,37 @@ pub(crate) fn poll_pending<T: HasSize + 'static>(
                     rc.borrow().advance_revision();
                     notify(rc, &token);
                 }
+            }
+        }
+    }
+    loop {
+        let queued = {
+            let mut inner = rc.borrow_mut();
+            inner.resolving.iter_mut().find_map(|(token, request)| {
+                if request.queued && request.generation <= queued_through {
+                    request.queued = false;
+                    Some((token.clone(), request.generation))
+                } else {
+                    None
+                }
+            })
+        };
+        let Some((token, generation)) = queued else {
+            break;
+        };
+        let mut resolution = Resolution {
+            manager: rc,
+            token: &token,
+            request: generation,
+            retained: false,
+        };
+        match walk_chain(rc, &token, generation, false, 0, parent) {
+            Poll::Pending => resolution.retain(),
+            Poll::Ready(Ok(Loaded::Value(value))) => {
+                finish(rc, &token, Some(value), resolution);
+            }
+            Poll::Ready(_) => {
+                finish(rc, &token, None, resolution);
             }
         }
     }

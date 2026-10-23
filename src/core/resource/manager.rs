@@ -129,6 +129,11 @@ impl<T: HasSize + 'static> ResourceManager<T> {
         let _ = self.resolve(token);
     }
 
+    /// Schedule a new loader invocation without discarding the cached value. The next owner-thread poll starts it; repeated requests for the same token supersede the earlier generation. Consumed one-shot factories are not replayed.
+    pub fn reload(&self, token: &str) -> Result<(), super::LoadError> {
+        manager_inner::reload(&self.inner, token)
+    }
+
     /// Advances ready loads on the owning thread and registers the caller's wake notification. Pending I/O is not polled again until it wakes.
     pub fn poll_pending(&self, cx: &mut Context<'_>) {
         manager_inner::poll_pending(&self.inner, cx.waker());

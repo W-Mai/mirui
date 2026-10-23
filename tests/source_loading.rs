@@ -294,3 +294,45 @@ fn multiple_format_claims_fail_before_decoding() {
         "only the four-byte recognition prefix was read"
     );
 }
+
+#[test]
+fn refreshing_an_alias_reopens_its_resolved_key_without_mutating_old_pixels() {
+    static BLUE: &[u8] = b"R4IM\x01\x00\x01\x00\x00\x00\xff\xff";
+    let selected = Rc::new(Cell::new(false));
+    let resolver = selected.clone();
+    let opens = Rc::new(Cell::new(0));
+    let count = opens.clone();
+    let mut app = App::headless(8, 8);
+    app.add_plugin(
+        ResourcePlugin::new().with_source("files", move |key: Cow<'static, str>| {
+            count.set(count.get() + 1);
+            ready(Ok::<_, AssetError>(if key == "blue" { BLUE } else { RED }))
+        }),
+    );
+    app.add_plugin(
+        ImageResourcesPlugin::empty()
+            .with_source("files", move |_| {
+                Some(if resolver.get() { "blue" } else { "red" }.into())
+            })
+            .with_loader(|images| images.add_probed_loader(Decoder)),
+    );
+    app.tick();
+    let manager = app
+        .world
+        .resource::<ResourceManager<Texture<'static>>>()
+        .unwrap();
+    let handle = manager.load("alias");
+    let old = handle.get();
+    assert_eq!(old.read_pixels().unwrap().bytes(), &[255, 0, 0, 255]);
+    selected.set(true);
+    manager.reload("alias").unwrap();
+    assert_eq!(opens.get(), 1);
+    assert!(Rc::ptr_eq(&old, &handle.get()));
+    app.tick();
+    assert_eq!(opens.get(), 2);
+    assert_eq!(
+        handle.get().read_pixels().unwrap().bytes(),
+        &[0, 0, 255, 255]
+    );
+    assert_eq!(old.read_pixels().unwrap().bytes(), &[255, 0, 0, 255]);
+}

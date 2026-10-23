@@ -35,6 +35,10 @@ Each loader registration prepares four reusable invocation slots. Full capacity 
 
 Replacing or removing a pending token rejects its old completion. An invalidated invocation retires on the next owner-thread poll, including when the external producer has not sent a wake. Loaders that own asynchronous operations must ensure resetting their state cannot free memory still accessed by that operation. Metadata probing never falls through to full decoding.
 
+`manager.reload(token)` schedules the registered loader chain for the next owner-thread poll. It does not run the resolver or provider at the call site and does not replay consumed one-shot factories. Requests for the same token coalesce into the newest generation; superseded completions cannot publish. No registered loaders returns `NotMine`, and exhausted prepared request capacity returns `Capacity`.
+
+Refresh leaves the previous successful value in the value cache until replacement succeeds. Failed refresh does not discard it. The old value remains subject to the existing cache budget and eviction policy; independently held values stay immutable and valid. A source binding resolves and opens its key again, so changing a resolver's captured directory or alias takes effect after an explicit reload.
+
 ## Image updates
 
 `Image(src: "cover", ...)` observes its resource token through the registered View. Replacing or removing that token invalidates the image without changing `src`. Switching `src`, removing the `Image` component, or deleting its entity releases the old View subscription. Resource publication uses the existing reactive invalidation queues; rendering does not poll for changes.

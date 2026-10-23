@@ -91,6 +91,98 @@ fn tick(manager: &ResourceManager<Value>) {
 }
 
 #[test]
+fn refresh_is_deferred_coalesced_and_keeps_the_last_cached_value() {
+    struct Refresh(Rc<Cell<u32>>, Rc<Cell<usize>>);
+    impl Loader<Value> for Refresh {
+        type State = ();
+        fn recognize(&self, _: LoadInput<'_>) -> FormatMatch {
+            FormatMatch::Match
+        }
+        fn poll_load(&self, _: &mut (), _: &mut LoadContext<'_>) -> Poll<Result<Value, LoadError>> {
+            self.1.set(self.1.get() + 1);
+            Poll::Ready(if self.0.get() == 99 {
+                Err(LoadError::Failed("read failed"))
+            } else {
+                Ok(Value(self.0.get()))
+            })
+        }
+    }
+    let value = Rc::new(Cell::new(1));
+    let calls = Rc::new(Cell::new(0));
+    let manager = ResourceManager::new(MaxSize::Count(4), Value(0));
+    manager.add_loader(Refresh(value.clone(), calls.clone()));
+    let handle = manager.load("item");
+    let original = handle.get();
+    assert_eq!(original.0, 1);
+    value.set(2);
+    manager.reload("item").unwrap();
+    manager.reload("item").unwrap();
+    assert_eq!(calls.get(), 1);
+    assert!(Rc::ptr_eq(&original, &handle.get()));
+    tick(&manager);
+    assert_eq!(calls.get(), 2);
+    assert_eq!(handle.get().0, 2);
+    assert_eq!(original.0, 1, "published old values remain immutable");
+    value.set(99);
+    manager.reload("item").unwrap();
+    tick(&manager);
+    assert_eq!(handle.get().0, 2, "failed refresh retains cached success");
+    value.set(3);
+    manager.reload("item").unwrap();
+    tick(&manager);
+    assert_eq!(handle.get().0, 3);
+}
+
+#[test]
+fn refresh_retires_superseded_state_and_limits_queued_work() {
+    let manager = ResourceManager::new(MaxSize::Count(8), Value(0));
+    let control = Rc::new(Control::default());
+    manager.add_loader(Decoder(control.clone()));
+    assert_eq!(manager.resolve("same").0, 0);
+    manager.reload("same").unwrap();
+    manager.reload("b").unwrap();
+    manager.reload("c").unwrap();
+    manager.reload("d").unwrap();
+    assert_eq!(manager.reload("full"), Err(AssetError::Capacity.into()));
+    manager.remove_token("b");
+    manager.remove_token("c");
+    manager.remove_token("d");
+    tick(&manager);
+    assert_eq!(control.resets.get(), 1);
+    assert_eq!(control.calls.get(), 2);
+    control.complete();
+    tick(&manager);
+    assert_eq!(manager.resolve("same").0, 41);
+    assert_eq!(
+        control.calls.get(),
+        3,
+        "late wake cannot resume retired generation"
+    );
+}
+
+#[test]
+fn refresh_requested_inside_loader_waits_for_another_poll() {
+    let manager = Rc::new(ResourceManager::new(MaxSize::Count(4), Value(0)));
+    let weak = Rc::downgrade(&manager);
+    let calls = Rc::new(Cell::new(0));
+    let called = calls.clone();
+    manager.add_loader(move |token: &str| {
+        called.set(called.get() + 1);
+        if called.get() == 1 {
+            weak.upgrade().unwrap().reload(token).unwrap();
+        }
+        Ok(Value(called.get()))
+    });
+    manager.reload("item").unwrap();
+    tick(&manager);
+    assert_eq!(calls.get(), 1);
+    assert_eq!(manager.resolve("item").0, 0);
+    tick(&manager);
+    assert_eq!(calls.get(), 2);
+    assert_eq!(manager.resolve("item").0, 2);
+}
+
+#[test]
 fn pending_tasks_sleep_until_woken_then_publish_to_existing_handles() {
     let manager = ResourceManager::new(MaxSize::Count(8), Value(0));
     let control = Rc::new(Control::default());
