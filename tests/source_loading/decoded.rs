@@ -154,7 +154,7 @@ fn resolve(app: &Headless, name: &str) -> Rc<Texture<'static>> {
         .resource::<ResourceManager<Texture<'static>>>()
         .unwrap();
     let mut cx = Context::from_waker(Waker::noop());
-    for _ in 0..16 {
+    for _ in 0..256 {
         let value = images.resolve(name);
         if value.width() == 32 {
             return value;
@@ -162,6 +162,264 @@ fn resolve(app: &Headless, name: &str) -> Rc<Texture<'static>> {
         images.poll_pending(&mut cx);
     }
     panic!("source metadata did not resolve");
+}
+
+fn chunk_fixture(indexed: bool) -> Rc<Vec<u8>> {
+    let flat = fixture(ColorFormat::RGBA8888);
+    let reader = mirx::Reader::open(&flat).unwrap();
+    let image = reader.flat_image().unwrap();
+    let view = image.surface().unwrap();
+    let plane = view.plane(0).unwrap();
+    let buffers = [plane.bytes()];
+    let memory = [plane.memory()];
+    let image =
+        mirx::image::RawImageAsset::new(view.surface(), &buffers).with_memory_layouts(&memory);
+    let mut document = mirx::Document::new();
+    document
+        .push_image_with_flags(
+            &mirx::image::ImageAsset::new(
+                1,
+                1,
+                mirx::image::ColorFormat::RGB565,
+                2,
+                Cow::Borrowed(&[0, 0]),
+            ),
+            mirx::ChunkFlags::CRITICAL,
+        )
+        .unwrap();
+    let primary = document.push_image(&image).unwrap();
+    document.set_primary(primary).unwrap();
+    let bytes = document.finish().unwrap().into_owned();
+    Rc::new(if indexed {
+        indexed_primary(bytes)
+    } else {
+        bytes
+    })
+}
+
+// Test-only wire fixture: retain the canonical RAW sections and replace whole-DATA integrity with one indexed partition.
+fn indexed_primary(mut file: Vec<u8>) -> Vec<u8> {
+    use mirx::reader::{ContainerLayout, MediaLayout, MediaSectionKind, ReadOptions};
+    let reader = mirx::Reader::open(&file).unwrap();
+    let primary = reader.primary().unwrap().unwrap();
+    let record = ContainerLayout::parse(&file[..44], &ReadOptions::default())
+        .unwrap()
+        .chunk_record_range(primary.index())
+        .unwrap();
+    let payload = primary.payload();
+    let media = MediaLayout::parse(&payload[..8], payload.len()).unwrap();
+    let mut sections = media.sections();
+    let directory_end = media.directory_range().end;
+    let mut out = vec![0; payload.len() - 4 + 24];
+    out[..directory_end].copy_from_slice(&payload[..directory_end]);
+    out[0] = payload[0];
+    out[1] = mirx::reader::MediaFlags::INDEXED_INTEGRITY.bits();
+    out[2..4].copy_from_slice(&(media.header().section_count() + 1).to_le_bytes());
+    out[directory_end + 12..payload.len() - 4 + 12]
+        .copy_from_slice(&payload[directory_end..payload.len() - 4]);
+    let mut data = 0..0;
+    while let Some(range) = sections.record_range() {
+        let section = sections.accept(&payload[range.clone()]).unwrap().unwrap();
+        let offset = section.offset() + 12;
+        out[range.start + 4..range.start + 8].copy_from_slice(&offset.to_le_bytes());
+        if section.kind() == MediaSectionKind::DATA {
+            data = offset as usize..(offset + section.size()) as usize;
+        }
+    }
+    let integrity = out.len() - 12;
+    out[directory_end..directory_end + 2]
+        .copy_from_slice(&MediaSectionKind::INTEGRITY.raw().to_le_bytes());
+    out[directory_end + 2..directory_end + 4].copy_from_slice(&1u16.to_le_bytes());
+    out[directory_end + 4..directory_end + 8].copy_from_slice(&(integrity as u32).to_le_bytes());
+    out[directory_end + 8..directory_end + 12].copy_from_slice(&12u32.to_le_bytes());
+    out[integrity..integrity + 4].copy_from_slice(&(data.start as u32).to_le_bytes());
+    out[integrity + 4..integrity + 8].copy_from_slice(&(data.len() as u32).to_le_bytes());
+    let crc = crc32fast::hash(&out[data.clone()]);
+    out[integrity + 8..].copy_from_slice(&crc.to_le_bytes());
+    let mut metadata = crc32fast::Hasher::new();
+    metadata.update(&out[..4]);
+    metadata.update(&out[8..data.start]);
+    metadata.update(&out[data.end..]);
+    out[4..8].copy_from_slice(&metadata.finalize().to_le_bytes());
+    let offset = file.len() as u32;
+    file.extend_from_slice(&out);
+    file[record.start + 4..record.start + 8].copy_from_slice(&offset.to_le_bytes());
+    file[record.start + 8..record.start + 12].copy_from_slice(&(out.len() as u32).to_le_bytes());
+    let len = file.len() as u32;
+    file[16..20].copy_from_slice(&len.to_le_bytes());
+    let crc = crc32fast::hash(&file[..40]);
+    file[40..44].copy_from_slice(&crc.to_le_bytes());
+    mirx::Reader::open(&file)
+        .unwrap()
+        .primary()
+        .unwrap()
+        .unwrap()
+        .image()
+        .unwrap();
+    file
+}
+
+#[test]
+fn chunk_sources_share_raw_validation_and_regional_render_routes() {
+    for indexed in [false, true] {
+        for known_length in [false, true] {
+            let bytes = chunk_fixture(indexed);
+            let reader = mirx::Reader::open(&bytes).unwrap();
+            let surface = reader
+                .primary()
+                .unwrap()
+                .unwrap()
+                .image()
+                .unwrap()
+                .unwrap()
+                .raw()
+                .unwrap();
+            let plane = surface.plane(0).unwrap();
+            let reference = Texture::from_ref(plane.bytes(), 32, 32, ColorFormat::RGBA8888)
+                .unwrap()
+                .with_stride(plane.memory().stride() as usize)
+                .unwrap();
+            let control = Rc::new(Control::default());
+            control.complete();
+            let app = source_app(bytes.clone(), control.clone(), 8 * 1024, known_length);
+            let texture = resolve(&app, "chunk");
+            assert_eq!(control.opens.get(), 1);
+            assert!(texture.pixels().unwrap().is_none());
+            let area = Region::new(3, 13, 7, 4).unwrap();
+            let pixels = region(&texture, area).unwrap();
+            let reference_pixels = reference.read_pixels().unwrap();
+            for y in area.y()..area.bottom() {
+                for x in area.x()..area.right() {
+                    assert_eq!(
+                        pixels.get_pixel(x, y),
+                        Some(reference_pixels.get_pixel(x as i32, y as i32))
+                    );
+                }
+            }
+            super::mapped::compare_region_routes(
+                &texture,
+                &reference,
+                mirui::types::Rect::new(3, 13, 7, 4),
+            );
+            let before = control.reads.get();
+            let allocations = tracking_allocator::tracked_allocations(|| {
+                assert_eq!(
+                    region(&texture, area).unwrap().get_pixel(3, 13),
+                    pixels.get_pixel(3, 13)
+                );
+            });
+            assert_eq!(allocations, 0);
+            assert_eq!(before, control.reads.get());
+        }
+    }
+}
+
+#[test]
+fn chunk_sources_never_publish_unchecked_primary_or_critical_pixels() {
+    for indexed in [false, true] {
+        let bytes = chunk_fixture(indexed);
+        let reader = mirx::Reader::open(&bytes).unwrap();
+        for chunk in reader.chunks() {
+            let surface = chunk.image().unwrap().unwrap().raw().unwrap();
+            let pixels = surface.plane(0).unwrap().bytes();
+            let offset = pixels.as_ptr() as usize - bytes.as_ptr() as usize;
+            let mut corrupt = (*bytes).clone();
+            corrupt[offset] ^= 1;
+            let control = Rc::new(Control::default());
+            control.complete();
+            let app = app(Rc::new(corrupt), control, 8 * 1024);
+            let images = app
+                .world
+                .resource::<ResourceManager<Texture<'static>>>()
+                .unwrap();
+            let mut cx = Context::from_waker(Waker::noop());
+            for _ in 0..256 {
+                assert_ne!(images.resolve("bad").width(), 32);
+                images.poll_pending(&mut cx);
+            }
+        }
+    }
+}
+
+#[test]
+fn chunk_probe_waits_for_real_io_and_reuses_its_opened_source() {
+    let control = Rc::new(Control::default());
+    let app = app(chunk_fixture(true), control.clone(), 8 * 1024);
+    let images = app
+        .world
+        .resource::<ResourceManager<Texture<'static>>>()
+        .unwrap();
+    assert!(images.probe("delayed").is_none());
+    let mut cx = Context::from_waker(Waker::noop());
+    for _ in 0..16 {
+        images.poll_pending(&mut cx);
+    }
+    assert!(images.probe("delayed").is_none());
+    control.complete();
+    let texture = resolve(&app, "delayed");
+    assert_eq!(control.opens.get(), 1);
+    assert_eq!(images.probe("delayed").unwrap().width, texture.width());
+}
+
+#[test]
+fn chunk_sources_enforce_workspace_admission_and_critical_type_support() {
+    let valid = chunk_fixture(false);
+    let reader = mirx::Reader::open(&valid).unwrap();
+    let critical = reader
+        .chunks()
+        .find(|chunk| chunk.flags().is_critical())
+        .unwrap();
+    let container =
+        mirx::reader::ContainerLayout::parse(&valid[..44], &mirx::reader::ReadOptions::default())
+            .unwrap();
+    let record = container.chunk_record_range(critical.index()).unwrap();
+    let mut unknown = (*valid).clone();
+    unknown[record.start..record.start + 2].copy_from_slice(&0xbeefu16.to_le_bytes());
+    for (bytes, budget) in [(valid.clone(), 512), (Rc::new(unknown), 8 * 1024)] {
+        let control = Rc::new(Control::default());
+        control.complete();
+        let app = app(bytes, control, budget);
+        let images = app
+            .world
+            .resource::<ResourceManager<Texture<'static>>>()
+            .unwrap();
+        let mut cx = Context::from_waker(Waker::noop());
+        for _ in 0..256 {
+            assert_ne!(images.resolve("rejected").width(), 32);
+            images.poll_pending(&mut cx);
+        }
+    }
+    let control = Rc::new(Control::default());
+    let mut app = app(valid, control.clone(), 8 * 1024);
+    let images = app
+        .world
+        .resource::<ResourceManager<Texture<'static>>>()
+        .unwrap();
+    let mut cx = Context::from_waker(Waker::noop());
+    images.probe("retired");
+    for _ in 0..16 {
+        images.poll_pending(&mut cx);
+    }
+    images.remove_token("retired");
+    control.complete();
+    for _ in 0..16 {
+        app.tick();
+    }
+    let images = app
+        .world
+        .resource::<ResourceManager<Texture<'static>>>()
+        .unwrap();
+    for i in 0..8 {
+        let token = format!("replacement-{i}");
+        let texture = resolve(&app, &token);
+        assert_eq!(
+            region(&texture, Region::new(0, 0, 1, 1).unwrap())
+                .unwrap()
+                .get_pixel(0, 0),
+            Some(Color::rgb(0, 0, 255))
+        );
+        images.remove_token(&token);
+    }
 }
 
 fn region<'a>(texture: &'a Texture<'_>, area: Region) -> Result<TextureRegion<'a>, RenderError> {

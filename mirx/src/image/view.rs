@@ -80,50 +80,26 @@ impl<'a> RawImageView<'a> {
         media: MediaPayload<'a>,
         payload_file_offset: Option<u32>,
     ) -> Result<Self, RawImageViewError> {
-        let mut surface_section = None;
-        let mut plane_records = None;
-        let mut color_table_section = None;
-        let mut data = None;
+        let mut sections = super::raw_scan::RawSections::default();
         for section in media.sections() {
-            let kind = section.descriptor().kind();
-            let slot = match kind {
-                MediaSectionKind::SURFACE => Some(&mut surface_section),
-                MediaSectionKind::PLANES => Some(&mut plane_records),
-                MediaSectionKind::COLOR_TABLE => Some(&mut color_table_section),
-                MediaSectionKind::DATA => Some(&mut data),
-                MediaSectionKind::INTEGRITY => None,
-                MediaSectionKind::CODINGS
-                | MediaSectionKind::UNIT_GROUPS
-                | MediaSectionKind::UNIT_INDEX => {
-                    return Err(RawImageViewError::UnexpectedSection(kind));
-                }
-                _ if section.descriptor().flags().is_required() => {
-                    return Err(RawImageViewError::UnknownRequiredSection(kind));
-                }
-                _ => None,
-            };
-            if let Some(slot) = slot {
-                if slot.replace(section).is_some() {
-                    return Err(RawImageViewError::DuplicateSection(kind));
-                }
-                if !section.descriptor().flags().is_required() {
-                    return Err(RawImageViewError::SectionMustBeRequired(kind));
-                }
-            }
+            sections.accept(section, section.descriptor())?;
         }
 
-        let surface_section =
-            surface_section.ok_or(RawImageViewError::MissingSection(MediaSectionKind::SURFACE))?;
+        let surface_section = sections
+            .surface
+            .ok_or(RawImageViewError::MissingSection(MediaSectionKind::SURFACE))?;
         let surface = super::raw_layout::parse_surface(surface_section.bytes())?;
-        let data = data.ok_or(RawImageViewError::MissingSection(MediaSectionKind::DATA))?;
+        let data = sections
+            .data
+            .ok_or(RawImageViewError::MissingSection(MediaSectionKind::DATA))?;
 
         let color_table = surface
-            .read_color_table(color_table_section.map(|section| section.bytes()))
+            .read_color_table(sections.colors.map(|section| section.bytes()))
             .map_err(RawImageViewError::from)?;
         let view = Self {
             media,
             surface,
-            plane_records,
+            plane_records: sections.planes,
             color_table,
             data,
         };

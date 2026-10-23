@@ -78,6 +78,10 @@ impl ContainerLayout {
     pub const fn layout(self) -> Layout {
         self.header.file().layout
     }
+    /// The declared primary type. Resolve its first matching directory entry; this hint does not validate a payload or guarantee that an entry exists.
+    pub fn primary_type(self) -> Option<ChunkType> {
+        self.header.primary_type()
+    }
     pub const fn logical_len(self) -> usize {
         self.logical_len
     }

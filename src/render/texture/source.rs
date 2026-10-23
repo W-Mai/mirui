@@ -11,6 +11,8 @@ use crate::core::resource::{
 use crate::render::{PlaneLayout, PlaneRequirements};
 use mirx::reader::{ContainerLayout, FlatImageLayout, ReadOptions};
 
+mod chunk;
+
 pub(super) struct MappedTexture {
     source: AssetSource,
     range: Range<usize>,
@@ -212,6 +214,8 @@ impl SourceImage {
 pub(crate) struct SourceMirxState {
     header: [u8; 44],
     header_len: Option<usize>,
+    container: Option<ContainerLayout>,
+    chunk: Option<Box<chunk::ChunkRead>>,
     image: Option<SourceImage>,
     source: Option<AssetSource>,
     length_check: LengthCheck,
@@ -224,11 +228,30 @@ enum LengthCheck {
     Complete,
 }
 
+impl LengthCheck {
+    fn poll(&mut self, end: u64, cx: &mut LoadContext<'_>) -> Poll<Result<(), LoadError>> {
+        let mut byte = [0u8; 1];
+        if *self == Self::Unchecked {
+            ready!(cx.poll_read_exact(
+                end.checked_sub(1).ok_or(AssetError::InvalidSource)?,
+                &mut byte
+            ))?;
+            *self = Self::EndPresent;
+        }
+        if ready!(cx.poll_read(end, &mut byte))? != 0 {
+            return Poll::Ready(Err(AssetError::InvalidSource.into()));
+        }
+        Poll::Ready(Ok(()))
+    }
+}
+
 impl Default for SourceMirxState {
     fn default() -> Self {
         Self {
             header: [0; 44],
             header_len: None,
+            container: None,
+            chunk: None,
             image: None,
             source: None,
             length_check: LengthCheck::Unchecked,
@@ -287,7 +310,7 @@ impl ProbeLoader<Texture<'static>> for SourceMirxLoader {
         state: &mut Self::State,
         cx: &mut LoadContext<'_>,
     ) -> Poll<Result<TextureMeta, LoadError>> {
-        if state.image.is_none() {
+        if state.container.is_none() {
             if state.header_len.is_none() {
                 ready!(cx.poll_read_exact(0, &mut state.header[..8]))?;
                 let len = ContainerLayout::header_len(&state.header[..8])
@@ -308,6 +331,10 @@ impl ProbeLoader<Texture<'static>> for SourceMirxLoader {
             {
                 return Poll::Ready(Err(AssetError::InvalidSource.into()));
             }
+            state.container = Some(container);
+        }
+        if state.image.is_none() {
+            let container = state.container.expect("parsed container");
             state.image = Some(if let Some(image) = container.flat_image() {
                 SourceImage {
                     layout: layout(image)?,
@@ -316,8 +343,36 @@ impl ProbeLoader<Texture<'static>> for SourceMirxLoader {
                 }
             } else {
                 // Retain the same opened object across metadata and value publication.
-                let source = state.source.insert(cx.take_source()?);
-                SourceImage::mapped(source.mapped()?.ok_or(AssetError::Unsupported)?)?
+                if state.source.is_none() {
+                    state.source = Some(cx.take_source()?);
+                }
+                let source = state.source.as_mut().unwrap();
+                if let Some(bytes) = source.mapped()? {
+                    SourceImage::mapped(bytes)?
+                } else {
+                    if source.info().ok_or(AssetError::InvalidSource)?.access
+                        != crate::core::resource::SourceAccess::Random
+                    {
+                        return Poll::Ready(Err(AssetError::Unsupported.into()));
+                    }
+                    if state.chunk.is_none() {
+                        let allocation = self
+                            .pool()?
+                            .borrow_mut()
+                            .workspace(core::mem::size_of::<chunk::ChunkRead>())
+                            .map_err(|_| AssetError::Capacity)?;
+                        state.chunk = Some(Box::new(chunk::ChunkRead::new(container, allocation)?));
+                    }
+                    let image = ready!(
+                        state
+                            .chunk
+                            .as_mut()
+                            .unwrap()
+                            .poll(&mut cx.using_source(source))
+                    )?;
+                    state.chunk = None;
+                    image
+                }
             });
         }
         if state.length_check != LengthCheck::Complete {
@@ -332,16 +387,10 @@ impl ProbeLoader<Texture<'static>> for SourceMirxLoader {
                     return Poll::Ready(Err(AssetError::Unsupported.into()));
                 }
                 let end = state.image.as_ref().expect("probed image").logical_len as u64;
-                let mut byte = [0u8; 1];
-                if state.length_check == LengthCheck::Unchecked {
-                    ready!(cx.poll_read_exact(
-                        end.checked_sub(1).ok_or(AssetError::InvalidSource)?,
-                        &mut byte
-                    ))?;
-                    state.length_check = LengthCheck::EndPresent;
-                }
-                if ready!(cx.poll_read(end, &mut byte))? != 0 {
-                    return Poll::Ready(Err(AssetError::InvalidSource.into()));
+                if let Some(source) = state.source.as_mut() {
+                    ready!(state.length_check.poll(end, &mut cx.using_source(source)))?;
+                } else {
+                    ready!(state.length_check.poll(end, cx))?;
                 }
             }
             state.length_check = LengthCheck::Complete;

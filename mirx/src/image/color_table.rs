@@ -6,25 +6,29 @@ impl SurfaceDescriptor {
         self,
         bytes: Option<&[u8]>,
     ) -> Result<Option<ColorTableView<'_>>, ColorTableError> {
-        match (self.sample_layout().color_table_entries(), bytes) {
-            (Some(entries), Some(bytes)) => {
+        self.validate_color_table_size(bytes.map(<[u8]>::len))?;
+        Ok(bytes
+            .map(|bytes| ColorTableView::from_rgba_bytes(bytes).expect("checked palette length")))
+    }
+
+    pub(crate) fn validate_color_table_size(
+        self,
+        size: Option<usize>,
+    ) -> Result<(), ColorTableError> {
+        match (self.sample_layout().color_table_entries(), size) {
+            (Some(entries), Some(actual)) => {
                 let expected = usize::try_from(entries)
                     .ok()
                     .and_then(|entries| entries.checked_mul(4))
                     .ok_or(ColorTableError::SizeOverflow)?;
-                if bytes.len() != expected {
-                    return Err(ColorTableError::SizeMismatch {
-                        expected,
-                        actual: bytes.len(),
-                    });
+                if actual != expected {
+                    return Err(ColorTableError::SizeMismatch { expected, actual });
                 }
-                Ok(Some(
-                    ColorTableView::from_rgba_bytes(bytes).expect("checked palette length"),
-                ))
+                Ok(())
             }
             (Some(_), None) => Err(ColorTableError::Missing),
             (None, Some(_)) => Err(ColorTableError::Unexpected),
-            (None, None) => Ok(None),
+            (None, None) => Ok(()),
         }
     }
 }

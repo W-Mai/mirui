@@ -88,6 +88,16 @@ impl<'a> LoadContext<'a> {
         self.source.as_ref().and_then(|source| source.info())
     }
 
+    pub(crate) fn using_source<'b>(&'b mut self, source: &'b mut AssetSource) -> LoadContext<'b> {
+        LoadContext {
+            token: self.token,
+            waker: self.waker,
+            source: Some(source),
+            read: self.read,
+            budget: self.budget,
+        }
+    }
+
     /// Transfer the opened source into decoder state or the completed resource without reopening or copying it. Finish any `poll_read_exact` operation before taking the source. Further reads through this context fail; the returned owner can be polled independently and retains the prepared provider session until dropped.
     pub fn take_source(&mut self) -> Result<AssetSource, LoadError> {
         if self.read.active.is_some() {

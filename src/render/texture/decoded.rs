@@ -104,15 +104,18 @@ impl DecodePool {
     fn source(&mut self, bytes: usize) -> Result<(u64, Allocation), RenderError> {
         let id = self.next_source;
         let next = id.checked_add(1).ok_or_else(capacity_error)?;
+        let allocation = self.workspace(bytes)?;
+        self.next_source = next;
+        Ok((id, allocation))
+    }
+
+    pub(super) fn workspace(&mut self, bytes: usize) -> Result<Allocation, RenderError> {
         self.make_room(bytes)?;
-        let allocation = self
-            .budget
+        self.budget
             .reserve(bytes)
             .ok_or_else(capacity_error)?
             .commit(bytes)
-            .map_err(|_| capacity_error())?;
-        self.next_source = next;
-        Ok((id, allocation))
+            .map_err(|_| capacity_error())
     }
 
     fn begin(

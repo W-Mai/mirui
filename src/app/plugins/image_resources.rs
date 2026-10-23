@@ -97,7 +97,7 @@ impl Default for ImageResourcesPlugin {
 impl ImageResourcesPlugin {
     /// Resolves image tokens to keys in a named byte provider. Bindings are checked after all plugins are built.
     ///
-    /// MIRX FLAT images support mapped storage and random-access readers with checked source boundaries. Mapped CHUNK RAW images retain their direct pixel plane. Other formats can be registered through [`Self::with_loader`].
+    /// MIRX FLAT and CHUNK RAW images support mapped storage and random-access readers with checked source boundaries. Nonmapped CHUNK sources validate the primary and critical RAW images through bounded windows; other critical payload types and encoded storage require a custom loader. Other formats can be registered through [`Self::with_loader`].
     pub fn with_source(
         mut self,
         name: &'static str,

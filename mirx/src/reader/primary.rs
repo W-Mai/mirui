@@ -1,13 +1,10 @@
 use super::{ContainerHeader, ReadError, Reader};
-use crate::{ChunkRef, ChunkType, PrimaryHints};
+use crate::{ChunkRef, PrimaryHints};
 
 impl<'a> Reader<'a> {
     /// Resolves the first table entry matching the wire primary type.
     pub fn primary(&self) -> Result<Option<ChunkRef<'a>>, ReadError> {
-        let ContainerHeader::Chunk(header) = self.header else {
-            return Ok(None);
-        };
-        let Some(chunk_type) = ChunkType::new(header.primary_chunk_type) else {
+        let Some(chunk_type) = self.header.primary_type() else {
             return Ok(None);
         };
         Ok(self.chunks().find(|chunk| chunk.chunk_type() == chunk_type))
@@ -39,7 +36,7 @@ mod tests {
 
     use super::*;
     use crate::header::{CHUNK_FILE_HEADER_LEN, VERSION_MINOR, chunk_type};
-    use crate::{ColorFormat, Layout, crc32, encode_chunks};
+    use crate::{ChunkType, ColorFormat, Layout, crc32, encode_chunks};
 
     fn set_primary(
         bytes: &mut [u8],

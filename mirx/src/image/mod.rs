@@ -66,6 +66,7 @@ mod layout;
 mod memory;
 mod plan;
 mod raw_layout;
+mod raw_scan;
 mod reference;
 mod region;
 pub(crate) mod samples;
@@ -105,6 +106,7 @@ pub use plan::{
     SurfacePlanError, SurfaceRequirements,
 };
 pub use raw_layout::RawImageLayout;
+pub use raw_scan::RawImageScan;
 pub use reference::{ImageReadError, ImageRef};
 pub use region::RegionMemoryPlan;
 pub(crate) use surface::SURFACE_RECORD_LEN;

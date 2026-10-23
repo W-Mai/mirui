@@ -45,6 +45,12 @@ pub(crate) enum ContainerHeader {
 }
 
 impl ContainerHeader {
+    pub(crate) fn primary_type(self) -> Option<crate::ChunkType> {
+        match self {
+            Self::Flat(_) => None,
+            Self::Chunk(header) => crate::ChunkType::new(header.primary_chunk_type),
+        }
+    }
     pub(crate) const fn file(self) -> FileHeader {
         match self {
             Self::Flat(header) => header.file,

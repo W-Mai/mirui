@@ -14,7 +14,7 @@ use crate::{ColorFormat, ImageView};
 
 // All decodable sample layouts have at most three planes. Unknown layouts
 // remain opaque and cannot construct a SurfaceDescriptor.
-const MAX_PLANES: usize = 3;
+pub(super) const MAX_PLANES: usize = 3;
 
 /// Validated decoded pixels independent of their containing wire layout.
 ///

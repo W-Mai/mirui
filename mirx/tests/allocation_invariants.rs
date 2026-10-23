@@ -197,6 +197,24 @@ fn media_windows_scan_without_owning_the_directory_or_samples() {
             window.fill(0);
         }
         data.finish().unwrap();
+        let mut raw = mirx::image::RawImageScan::new(layout, 0);
+        while let Some(range) = raw.read_range() {
+            let count = range.len().min(window.len());
+            window[..count].copy_from_slice(&bytes[range.start..range.start + count]);
+            raw.accept(&window[..count]).unwrap();
+            window.fill(0);
+        }
+        assert_eq!(raw.finish().unwrap().surface(), surface);
+        assert_eq!(
+            raw.finish().unwrap().plane(0),
+            Some(
+                RawImageView::open(&bytes)
+                    .unwrap()
+                    .plane(0)
+                    .unwrap()
+                    .memory()
+            )
+        );
     });
     assert_eq!(allocations, 0);
 }
@@ -215,6 +233,10 @@ fn container_windows_share_reader_validation_without_payload_allocations() {
         assert_eq!(layout.logical_len(), bytes.len());
         assert_eq!(layout.layout(), expected.layout());
         assert_eq!(layout.chunk_count(), 2);
+        assert_eq!(
+            layout.primary_type(),
+            expected.primary().unwrap().map(|chunk| chunk.chunk_type())
+        );
         assert_eq!(layout.flat_image(), None);
         assert_eq!(layout.chunk_record_range(usize::MAX), None);
         assert_eq!(layout.chunk(2, &[]), Ok(None));
