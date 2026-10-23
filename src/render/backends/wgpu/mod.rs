@@ -784,6 +784,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         cmd: &DrawCommand,
         clip: &Rect,
         projective: &Transform3D,
+        source: Option<&crate::render::texture::TextureRegion<'_>>,
     ) -> Result<(), crate::render::ProjectiveDrawError> {
         use crate::render::ProjectiveDrawError;
 
@@ -836,6 +837,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                     clip,
                     *opa,
                     *composite,
+                    source,
                 );
             }
             DrawCommand::GlyphRun {
@@ -1032,6 +1034,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                 self.factory.texture_cache_budget,
                 state.context(),
                 &texture,
+                None,
             )?
         };
         let scale = self.viewport.scale();
@@ -1409,11 +1412,15 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         });
     }
 
-    fn blit_source_view(&mut self, src: &Texture) -> Option<BlitSource> {
+    fn blit_source_view(
+        &mut self,
+        src: &Texture,
+        source: Option<&crate::render::texture::TextureRegion<'_>>,
+    ) -> Option<BlitSource> {
         if self.failure.is_some() {
             return None;
         }
-        match self.blit_source_view_checked(src) {
+        match self.blit_source_view_checked(src, source) {
             Ok(view) => Some(view),
             Err(error) => {
                 self.failure.get_or_insert(error);
@@ -1422,7 +1429,11 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         }
     }
 
-    fn blit_source_view_checked(&mut self, src: &Texture) -> Result<BlitSource, RenderError> {
+    fn blit_source_view_checked(
+        &mut self,
+        src: &Texture,
+        source: Option<&crate::render::texture::TextureRegion<'_>>,
+    ) -> Result<BlitSource, RenderError> {
         let state = self
             .surface
             .state()
@@ -1432,6 +1443,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             self.factory.texture_cache_budget,
             state.context(),
             src,
+            source,
         )
     }
 
@@ -1446,6 +1458,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         opa: u8,
         radius: Fixed,
         composite: CompositeMode,
+        source: Option<&crate::render::texture::TextureRegion<'_>>,
     ) {
         if opa == 0 {
             return;
@@ -1458,7 +1471,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             return;
         }
 
-        let Some(tex_view) = self.blit_source_view(src) else {
+        let Some(tex_view) = self.blit_source_view(src, source) else {
             return;
         };
 
@@ -2035,6 +2048,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     }
 
     /// Perspective-correct quad blit via `Transform3D::from_quad`.
+    #[allow(clippy::too_many_arguments)]
     fn blit_quad_inner(
         &mut self,
         src: &Texture,
@@ -2043,6 +2057,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         clip: &Rect,
         opa: u8,
         composite: CompositeMode,
+        source: Option<&crate::render::texture::TextureRegion<'_>>,
     ) {
         if opa == 0 {
             return;
@@ -2099,7 +2114,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         }
         let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
 
-        let Some(source) = self.blit_source_view(src) else {
+        let Some(source) = self.blit_source_view(src, source) else {
             return;
         };
 
@@ -2724,7 +2739,7 @@ mod route_tests {
             physical_clip: None,
         };
         let source = Texture::owned(1, 1, ColorFormat::RGBA8888).unwrap();
-        assert!(renderer.blit_source_view(&source).is_none());
+        assert!(renderer.blit_source_view(&source, None).is_none());
         assert_eq!(renderer.failure, Some(RenderError::SurfaceUnavailable));
         let clip = Rect::new(0, 0, 2, 2);
         let command = DrawCommand::Fill {
@@ -2735,10 +2750,10 @@ mod route_tests {
             radius: Fixed::ZERO,
             opa: 255,
         };
-        renderer.draw(&command, &clip);
+        renderer.draw(&command, &clip, None);
         let request = DrawRequest::new(&command, clip);
         assert_eq!(
-            renderer.submit_routed(&request, RenderRoute::Native),
+            renderer.submit_routed(&request, RenderRoute::Native, None),
             Err(RenderError::SurfaceUnavailable)
         );
         assert_eq!(
@@ -4292,13 +4307,14 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         &mut self,
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,
+        source: Option<&crate::render::texture::TextureRegion<'_>>,
     ) -> Result<(), RenderError> {
         let saved = self.physical_clip;
         request.validate_write_boundary(self.viewport)?;
         self.physical_clip = request.physical_clip;
         let result = request
             .clip_route(route)
-            .and_then(|route| self.submit_clipped(request, route));
+            .and_then(|route| self.submit_clipped(request, route, source));
         self.physical_clip = saved;
         result
     }
@@ -4307,6 +4323,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         &mut self,
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,
+        source: Option<&crate::render::texture::TextureRegion<'_>>,
     ) -> Result<(), RenderError> {
         if let Some(error) = self.failure {
             return Err(error);
@@ -4361,15 +4378,19 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             return Err(RenderError::BackendFailure);
         }
         if request.projective.is_identity() {
-            self.draw(request.command, &request.clip);
+            self.draw(request.command, &request.clip, source);
             return if let Some(error) = self.failure {
                 Err(error)
             } else {
                 Ok(())
             };
         }
-        let result =
-            self.draw_projective_validated(request.command, &request.clip, &request.projective);
+        let result = self.draw_projective_validated(
+            request.command,
+            &request.clip,
+            &request.projective,
+            source,
+        );
         match self.failure {
             Some(error) => Err(error),
             None => result.map_err(RenderError::from),
@@ -4380,7 +4401,12 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         self.viewport.scale()
     }
 
-    fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
+    fn draw(
+        &mut self,
+        cmd: &DrawCommand,
+        clip: &Rect,
+        source: Option<&crate::render::texture::TextureRegion<'_>>,
+    ) {
         if self.failure.is_some() {
             return;
         }
@@ -4432,6 +4458,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                     clip,
                     *opa,
                     *composite,
+                    source,
                 );
                 return;
             }
@@ -4557,7 +4584,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
                 let pos = offset_point(pos, tx, ty);
                 self.blit_inner(
-                    texture, &src_rect, pos, *size, clip, *opa, *radius, *composite,
+                    texture, &src_rect, pos, *size, clip, *opa, *radius, *composite, source,
                 );
             }
             DrawCommand::Border {
@@ -4890,7 +4917,12 @@ impl<B: WgpuTarget> Renderer for WgpuRenderer<'_, B> {
         if draw.output_scale() != self.viewport.scale() {
             return Err(RenderError::InvalidScope);
         }
-        let result = WgpuRenderer::submit_routed(self, request, draw.route());
+        let region = draw.texture_region().map(|source| source.region());
+        if region.is_some_and(|area| area.is_empty()) {
+            return Ok(());
+        }
+        let result =
+            WgpuRenderer::submit_routed(self, request, draw.route(), draw.texture_region());
         if let Err(error) = result {
             self.failure.get_or_insert(error);
         }
@@ -4919,7 +4951,16 @@ impl<B: WgpuTarget> Renderer for WgpuRenderer<'_, B> {
                     ));
                 }
             }
-            crate::render::PreparedDraw::poll_complete(request, route, self.viewport.scale(), cx)
+            if route == RenderRoute::Native {
+                crate::render::PreparedDraw::poll_upload(request, route, self.viewport.scale(), cx)
+            } else {
+                crate::render::PreparedDraw::poll_complete(
+                    request,
+                    route,
+                    self.viewport.scale(),
+                    cx,
+                )
+            }
         })();
         if let core::task::Poll::Ready(Err(error)) = result {
             self.failure.get_or_insert(error);
@@ -5033,7 +5074,9 @@ impl<B: WgpuTarget> Canvas for WgpuRenderer<'_, B> {
         radius: Fixed,
         composite: CompositeMode,
     ) {
-        self.blit_inner(src, src_rect, dst, dst_size, clip, opa, radius, composite);
+        self.blit_inner(
+            src, src_rect, dst, dst_size, clip, opa, radius, composite, None,
+        );
     }
 
     fn clear(&mut self, area: &PhysicalRect, color: &Color) {

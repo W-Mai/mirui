@@ -82,6 +82,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         clip: &Rect,
         opa: u8,
         composite: CompositeMode,
+        source: Option<&crate::render::texture::TextureRegion<'_>>,
     ) {
         if opa == 0 {
             return;
@@ -123,26 +124,26 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             return;
         };
 
-        let uploaded =
-            self.texture_cache
-                .with_texture(src, composite, self.source_region, |tex, alpha| {
-                    let mut canvas = self.device.canvas()?;
-                    if alpha == crate::render::TargetAlpha::Straight {
-                        tex.set_blend_mode(sdl_blend);
-                    }
-                    tex.set_alpha_mod(opa);
-                    let rgb = if alpha == crate::render::TargetAlpha::Premultiplied {
-                        opa
-                    } else {
-                        255
-                    };
-                    tex.set_color_mod(rgb, rgb, rgb);
+        let uploaded = self
+            .texture_cache
+            .with_texture(src, composite, source, |tex, alpha| {
+                let mut canvas = self.device.canvas()?;
+                if alpha == crate::render::TargetAlpha::Straight {
+                    tex.set_blend_mode(sdl_blend);
+                }
+                tex.set_alpha_mod(opa);
+                let rgb = if alpha == crate::render::TargetAlpha::Premultiplied {
+                    opa
+                } else {
+                    255
+                };
+                tex.set_color_mod(rgb, rgb, rgb);
 
-                    canvas.set_clip_rect(sdl_clip);
-                    let copied = canvas.copy(tex, Some(src_sdl), Some(dst_sdl)).is_ok();
-                    canvas.set_clip_rect(None);
-                    copied.then_some(()).ok_or(RenderError::BackendFailure)
-                });
+                canvas.set_clip_rect(sdl_clip);
+                let copied = canvas.copy(tex, Some(src_sdl), Some(dst_sdl)).is_ok();
+                canvas.set_clip_rect(None);
+                copied.then_some(()).ok_or(RenderError::BackendFailure)
+            });
         if let Err(error) = uploaded.and_then(core::convert::identity) {
             self.failure.get_or_insert(error);
         }

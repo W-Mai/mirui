@@ -98,18 +98,18 @@ fn native_texture_sources_share_views_or_bridge_through_the_upload_cache() {
             .storage,
     );
     let mut pool = new_pool(128);
-    let source = source_view(&mut pool, 128, &source_device, &texture).unwrap();
+    let source = source_view(&mut pool, 128, &source_device, &texture, None).unwrap();
     assert_eq!(source.view.texture(), storage.frame.texture());
     assert_eq!(source.alpha, TargetAlpha::Premultiplied);
     assert_eq!(pool.len(), 0);
     assert_eq!(budget.allocated(), plan.storage_bytes);
     assert!(texture.pixels().unwrap().is_none());
     assert!(matches!(
-        source_view(&mut pool, 128, &destination, &texture),
+        source_view(&mut pool, 128, &destination, &texture, None),
         Err(RenderError::ResourcePending)
     ));
     drop(texture.read_pixels().unwrap());
-    let uploaded = source_view(&mut pool, 128, &destination, &texture).unwrap();
+    let uploaded = source_view(&mut pool, 128, &destination, &texture, None).unwrap();
     assert!(
         uploaded
             .view
@@ -133,20 +133,20 @@ fn native_texture_sources_share_views_or_bridge_through_the_upload_cache() {
     );
     {
         let _readback_busy = storage.readback.borrow_mut();
-        let reused = source_view(&mut pool, 128, &destination, &texture).unwrap();
+        let reused = source_view(&mut pool, 128, &destination, &texture, None).unwrap();
         assert_eq!(reused.view.texture(), uploaded.view.texture());
     }
     storage.active.set(true);
     for device in [&source_device, &destination] {
         assert!(matches!(
-            source_view(&mut pool, 128, device, &texture),
+            source_view(&mut pool, 128, device, &texture, None),
             Err(RenderError::InvalidTexture)
         ));
     }
     storage.active.set(false);
     storage.completed.set(false);
     assert!(matches!(
-        source_view(&mut pool, 128, &destination, &texture),
+        source_view(&mut pool, 128, &destination, &texture, None),
         Err(RenderError::InvalidTexture)
     ));
     storage.completed.set(true);
@@ -162,7 +162,7 @@ fn native_texture_sources_share_views_or_bridge_through_the_upload_cache() {
     texture.set_output_revision(2);
     assert!(texture.pixels().unwrap().is_none());
     drop(texture.read_pixels().unwrap());
-    let changed = source_view(&mut pool, 128, &destination, &texture).unwrap();
+    let changed = source_view(&mut pool, 128, &destination, &texture, None).unwrap();
     assert_ne!(changed.view.texture(), uploaded.view.texture());
     assert_eq!(
         texture.pixels().unwrap().unwrap().get_pixel(0, 0),
@@ -170,12 +170,12 @@ fn native_texture_sources_share_views_or_bridge_through_the_upload_cache() {
     );
     source_device.invalidate();
     assert!(texture.backend_target().unwrap().is_none());
-    let retained = source_view(&mut pool, 128, &destination, &texture).unwrap();
+    let retained = source_view(&mut pool, 128, &destination, &texture, None).unwrap();
     assert_eq!(retained.view.texture(), changed.view.texture());
     assert_eq!(sample_color(&destination, &retained), Color::rgb(0, 255, 0));
     texture.cache_revision = 3;
     assert!(matches!(
-        source_view(&mut pool, 128, &destination, &texture),
+        source_view(&mut pool, 128, &destination, &texture, None),
         Err(RenderError::BackendFailure)
     ));
 }
@@ -195,7 +195,7 @@ fn sdl_and_wgpu_sources_bridge_without_consumer_specific_readback() {
     drop(source.read_pixels().unwrap());
     let mut pool = new_pool(256);
     for _ in 0..2 {
-        let uploaded = source_view(&mut pool, 256, &context, &source).unwrap();
+        let uploaded = source_view(&mut pool, 256, &context, &source, None).unwrap();
         assert_eq!(uploaded.alpha, TargetAlpha::Straight);
         assert_eq!(
             sample_color(&context, &uploaded),
@@ -348,4 +348,74 @@ fn sample_color(
         )
         .unwrap();
     result.read_pixels().unwrap().get_pixel(2, 2)
+}
+
+#[cfg(feature = "sdl-gpu")]
+#[test]
+fn partial_uploads_share_storage_and_require_complete_sample_coverage() {
+    use super::super::super::texture_pool::{new_pool, source_view};
+    use crate::render::texture::Region;
+    use core::task::{Context, Poll, Waker};
+    let Some(context) = context() else {
+        return;
+    };
+    let source = crate::render::backends::sdl_gpu::native_source();
+    let left = Region::new(0, 0, 2, 4).unwrap();
+    let right = Region::new(2, 0, 2, 4).unwrap();
+    let mut pool = new_pool(256);
+    let mut cx = Context::from_waker(Waker::noop());
+    let Poll::Ready(Ok(lease)) = source.poll_pixels_in(left, &mut cx) else {
+        panic!("native region");
+    };
+    let first = source_view(&mut pool, 256, &context, &source, Some(&lease)).unwrap();
+    drop(lease);
+    assert!(source.pixels().unwrap().is_none());
+    assert!(matches!(
+        source_view(&mut pool, 256, &context, &source, None),
+        Err(RenderError::ResourcePending)
+    ));
+    let Poll::Ready(Ok(lease)) = source.poll_pixels_in(right, &mut cx) else {
+        panic!("native region");
+    };
+    let second = source_view(&mut pool, 256, &context, &source, Some(&lease)).unwrap();
+    assert_eq!(first.view.texture(), second.view.texture());
+    drop(lease);
+    assert!(source.pixels_in(left).unwrap().is_none());
+    let complete = source_view(&mut pool, 256, &context, &source, None).unwrap();
+    assert_eq!(complete.view.texture(), first.view.texture());
+    assert_eq!(
+        sample_color(&context, &complete),
+        Color::rgba(255, 0, 0, 128)
+    );
+    assert_eq!(pool.stats().insert_count, 1);
+}
+
+#[cfg(feature = "sdl-gpu")]
+#[test]
+fn regional_upload_consumes_lease_after_source_cache_replacement() {
+    use super::super::super::texture_pool::{new_pool, source_view};
+    use crate::render::texture::Region;
+    use core::task::{Context, Poll, Waker};
+    let Some(context) = context() else {
+        return;
+    };
+    let source = crate::render::backends::sdl_gpu::native_source_sized(16);
+    let first = Region::new(0, 0, 2, 2).unwrap();
+    let second = Region::new(2, 2, 2, 2).unwrap();
+    let mut cx = Context::from_waker(Waker::noop());
+    let Poll::Ready(Ok(lease)) = source.poll_pixels_in(first, &mut cx) else {
+        panic!("first region");
+    };
+    let Poll::Ready(Ok(_other)) = source.poll_pixels_in(second, &mut cx) else {
+        panic!("second region");
+    };
+    assert!(source.pixels_in(first).unwrap().is_none());
+    let mut pool = new_pool(2048);
+    let uploaded = source_view(&mut pool, 2048, &context, &source, Some(&lease)).unwrap();
+    assert_eq!(uploaded.view.texture().width(), 16);
+    assert!(matches!(
+        source_view(&mut pool, 2048, &context, &source, None),
+        Err(RenderError::ResourcePending)
+    ));
+    assert_eq!(pool.stats().insert_count, 1);
 }

@@ -19,7 +19,7 @@ mod tessellation;
 mod texture_cache;
 
 #[cfg(all(test, feature = "wgpu", not(target_arch = "wasm32")))]
-pub(crate) use target::tests::source::{check_foreign_source, native_source};
+pub(crate) use target::tests::source::{check_foreign_source, native_source, native_source_sized};
 
 use alloc::rc::Rc;
 use std::time::Instant;
@@ -796,7 +796,6 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFact
             viewport,
             failure: None,
             physical_clip: None,
-            source_region: None,
             native_target: backend.device.persistent_frame_active(),
         }
     }
@@ -821,7 +820,6 @@ pub struct SdlGpuRenderer<'a, S = Box<[u8]>> {
     viewport: Viewport,
     failure: Option<RenderError>,
     physical_clip: Option<crate::types::PhysicalRect>,
-    source_region: Option<crate::render::texture::Region>,
     native_target: bool,
 }
 
@@ -1074,13 +1072,14 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         &mut self,
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,
+        source: Option<&crate::render::texture::TextureRegion<'_>>,
     ) -> Result<(), RenderError> {
         let saved = self.physical_clip;
         request.validate_write_boundary(self.viewport)?;
         self.physical_clip = request.physical_clip;
         let result = request
             .clip_route(route)
-            .and_then(|route| self.submit_clipped(request, route));
+            .and_then(|route| self.submit_clipped(request, route, source));
         self.physical_clip = saved;
         result
     }
@@ -1089,6 +1088,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         &mut self,
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,
+        source: Option<&crate::render::texture::TextureRegion<'_>>,
     ) -> Result<(), RenderError> {
         self.device.check()?;
         if let Some(error) = self.failure {
@@ -1109,7 +1109,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             if route != RenderRoute::Native {
                 return Err(RenderError::InvalidGeometry);
             }
-            self.draw(request.command, &request.clip);
+            self.draw(request.command, &request.clip, source);
             return if let Some(error) = self.failure {
                 Err(error)
             } else {
@@ -1143,7 +1143,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         self.viewport.scale()
     }
 
-    fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
+    fn draw(
+        &mut self,
+        cmd: &DrawCommand,
+        clip: &Rect,
+        source: Option<&crate::render::texture::TextureRegion<'_>>,
+    ) {
         if self.failure.is_some() {
             return;
         }
@@ -1180,7 +1185,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 opa,
                 ..
             } => {
-                self.blit_quad_inner(texture, q, clip, *opa);
+                self.blit_quad_inner(texture, q, clip, *opa, source);
                 return;
             }
             DrawCommand::FillPath {
@@ -1327,15 +1332,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                 }
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
                 let pos = offset_point(pos, tx, ty);
-                self.blit(
-                    texture,
-                    &src_rect,
-                    pos,
-                    *size,
-                    clip,
-                    *opa,
-                    Fixed::ZERO,
-                    *composite,
+                self.blit_inner(
+                    texture, &src_rect, pos, *size, clip, *opa, *composite, source,
                 );
             }
             DrawCommand::Arc {
@@ -1561,14 +1559,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for SdlGpuRenderer<'_, S> {
         if region.is_some_and(|area| area.is_empty()) {
             return Ok(());
         }
-        let saved = self.source_region;
-        self.source_region = if draw.route() == RenderRoute::Native {
-            region
-        } else {
-            None
-        };
-        let result = SdlGpuRenderer::submit_routed(self, request, draw.route());
-        self.source_region = saved;
+        let result =
+            SdlGpuRenderer::submit_routed(self, request, draw.route(), draw.texture_region());
         if let Err(error) = result {
             self.failure.get_or_insert(error);
         }
@@ -1793,7 +1785,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for SdlGpuRenderer<'_, S> {
         if radius != Fixed::ZERO {
             unimplemented!("sdl_gpu backend: Blit.radius mask not implemented; use SwRenderer");
         }
-        self.blit_inner(src, src_rect, dst, dst_size, clip, opa, composite);
+        self.blit_inner(src, src_rect, dst, dst_size, clip, opa, composite, None);
     }
 
     fn clear(&mut self, area: &PhysicalRect, color: &Color) {

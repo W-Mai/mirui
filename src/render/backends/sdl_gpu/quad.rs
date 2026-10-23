@@ -90,7 +90,14 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
     }
 
-    pub(super) fn blit_quad_inner(&mut self, src: &Texture, q: &[Point; 4], clip: &Rect, opa: u8) {
+    pub(super) fn blit_quad_inner(
+        &mut self,
+        src: &Texture,
+        q: &[Point; 4],
+        clip: &Rect,
+        opa: u8,
+        source: Option<&crate::render::texture::TextureRegion<'_>>,
+    ) {
         if opa == 0 {
             return;
         }
@@ -153,7 +160,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         let uploaded = self.texture_cache.with_texture(
             src,
             crate::render::command::CompositeMode::SourceOver,
-            self.source_region,
+            source,
             |tex, alpha| {
                 let mut canvas = self.device.canvas()?;
                 if alpha == crate::render::TargetAlpha::Straight {

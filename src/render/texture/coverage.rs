@@ -3,7 +3,7 @@ use super::Region;
 /// Bounded upload validity for one immutable texture revision.
 ///
 /// Forgetting coverage permits a later upload; it never permits sampling a hole.
-#[derive(Default)]
+#[derive(Clone, Copy, Default)]
 pub(crate) struct UploadCoverage(Option<Region>);
 
 impl UploadCoverage {

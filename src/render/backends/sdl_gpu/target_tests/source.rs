@@ -96,18 +96,22 @@ fn draw(
 }
 
 pub(crate) fn native_source() -> Texture<'static> {
+    native_source_sized(4)
+}
+
+pub(crate) fn native_source_sized(size: u16) -> Texture<'static> {
     let mut producer = Producer {
         device: device(),
         color: (255, 0, 0, 128),
     };
-    let layout = PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap();
+    let layout = PlaneLayout::packed(size, size, ColorFormat::RGBA8888).unwrap();
     let plan = producer.plan_target(layout).unwrap().unwrap();
     let budget = MemoryBudget::new(plan.storage_bytes + Texture::native_cpu_bytes(layout).unwrap());
     let mut texture = Texture::native(&mut producer, plan, &budget).unwrap();
     texture
         .render_native(
             &mut producer,
-            Viewport::new(4, 4, Fixed::ONE),
+            Viewport::new(size, size, Fixed::ONE),
             &mut [],
             &mut |_| Ok(()),
         )
@@ -255,29 +259,26 @@ fn regional_uploads_do_not_publish_missing_coverage() {
     };
     assert!(texture.pixels().unwrap().is_none());
     cache
-        .with_texture(&texture, CompositeMode::SourceOver, Some(left), |_, _| ())
+        .with_texture(&texture, CompositeMode::SourceOver, Some(&lease), |_, _| ())
         .unwrap();
     drop(lease);
     assert_eq!(
-        cache.with_texture(
-            &texture,
-            CompositeMode::SourceOver,
-            Some(right),
-            |_, _| panic!("missing pixels")
-        ),
+        cache.with_texture(&texture, CompositeMode::SourceOver, None, |_, _| panic!(
+            "missing pixels"
+        )),
         Err(RenderError::ResourcePending)
     );
     let Poll::Ready(Ok(lease)) = texture.poll_pixels_in(right, &mut cx) else {
         panic!("native region");
     };
     cache
-        .with_texture(&texture, CompositeMode::SourceOver, Some(right), |_, _| ())
+        .with_texture(&texture, CompositeMode::SourceOver, Some(&lease), |_, _| ())
         .unwrap();
     // The previous CPU region has been replaced, but its device pixels remain valid.
     assert!(texture.pixels_in(left).unwrap().is_none());
     assert_eq!(
         tracked_allocations(|| cache
-            .with_texture(&texture, CompositeMode::SourceOver, Some(left), |_, _| ())
+            .with_texture(&texture, CompositeMode::SourceOver, None, |_, _| ())
             .unwrap()),
         0
     );
@@ -299,6 +300,50 @@ fn regional_uploads_do_not_publish_missing_coverage() {
                 .unwrap();
             assert!(rgba.chunks_exact(4).all(|pixel| pixel == [255, 0, 0, 128]));
         })
+        .unwrap();
+}
+
+#[test]
+fn upload_uses_pinned_region_after_residency_index_replacement() {
+    use crate::render::texture::Region;
+    use core::task::{Context, Poll, Waker};
+    let texture = native_source_sized(16);
+    let destination = device();
+    let mut cache = TextureCache::new(Rc::clone(&destination), 2048);
+    let first = Region::new(0, 0, 1, 1).unwrap();
+    let second = Region::new(3, 3, 1, 1).unwrap();
+    let mut cx = Context::from_waker(Waker::noop());
+    let Poll::Ready(Ok(lease)) = texture.poll_pixels_in(first, &mut cx) else {
+        panic!("first region");
+    };
+    let Poll::Ready(Ok(_other)) = texture.poll_pixels_in(second, &mut cx) else {
+        panic!("second region");
+    };
+    assert!(texture.pixels_in(first).unwrap().is_none());
+    cache
+        .with_texture(
+            &texture,
+            CompositeMode::SourceOver,
+            Some(&lease),
+            |uploaded, _| {
+                let mut canvas = destination.canvas().unwrap();
+                uploaded.set_blend_mode(sdl2::render::BlendMode::None);
+                canvas
+                    .copy(
+                        uploaded,
+                        Some(sdl2::rect::Rect::new(0, 0, 1, 1)),
+                        Some(sdl2::rect::Rect::new(0, 0, 1, 1)),
+                    )
+                    .unwrap();
+                let bytes = canvas
+                    .read_pixels(
+                        Some(sdl2::rect::Rect::new(0, 0, 1, 1)),
+                        sdl2::pixels::PixelFormatEnum::RGBA32,
+                    )
+                    .unwrap();
+                assert_eq!(bytes, [255, 0, 0, 128]);
+            },
+        )
         .unwrap();
 }
 

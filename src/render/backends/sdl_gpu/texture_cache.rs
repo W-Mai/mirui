@@ -72,7 +72,7 @@ impl<T: RenderTarget + 'static> TextureCache<T> {
         &mut self,
         src: &Texture,
         composite: CompositeMode,
-        region: Option<Region>,
+        prepared: Option<&crate::render::texture::TextureRegion<'_>>,
         draw: impl FnOnce(&mut SdlTexture<'_>, TargetAlpha) -> R,
     ) -> Result<R, RenderError> {
         self.device.check()?;
@@ -83,7 +83,7 @@ impl<T: RenderTarget + 'static> TextureCache<T> {
         {
             return Ok(draw(&mut texture, TargetAlpha::Premultiplied));
         }
-        let area = region.unwrap_or(
+        let area = prepared.map(|region| region.region()).unwrap_or(
             Region::new(0, 0, u32::from(src.width), u32::from(src.height))
                 .map_err(|_| RenderError::InvalidTexture)?,
         );
@@ -96,7 +96,7 @@ impl<T: RenderTarget + 'static> TextureCache<T> {
             .filter(|_| matches!(self.pool.max_size(), MaxSize::Bytes(limit) if bytes <= *limit));
         let Some(key) = key else {
             let mut texture = create(&self.device, src)?;
-            upload(&self.device, &mut texture, src, area)?;
+            upload(&self.device, &mut texture, src, area, prepared)?;
             return Ok(draw(&mut texture, TargetAlpha::Straight));
         };
         let handle = self.pool.entry(key).or_try_insert_with(|| {
@@ -115,7 +115,7 @@ impl<T: RenderTarget + 'static> TextureCache<T> {
             .try_borrow_mut()
             .map_err(|_| RenderError::InvalidScope)?;
         if !cached.coverage.contains(area) {
-            upload(&self.device, &mut cached.texture, src, area)?;
+            upload(&self.device, &mut cached.texture, src, area, prepared)?;
             cached.coverage.uploaded(area);
         }
         Ok(draw(&mut cached.texture, TargetAlpha::Straight))
@@ -144,8 +144,16 @@ fn upload<T: RenderTarget>(
     target: &mut SdlTexture<'_>,
     src: &Texture,
     area: Region,
+    prepared: Option<&crate::render::texture::TextureRegion<'_>>,
 ) -> Result<(), RenderError> {
-    let region = src.pixels_in(area)?.ok_or(RenderError::ResourcePending)?;
+    let resident;
+    let region = match prepared {
+        Some(region) => region,
+        None => {
+            resident = src.pixels_in(area)?.ok_or(RenderError::ResourcePending)?;
+            &resident
+        }
+    };
     let _lease = device.canvas()?;
     for (area, pixels) in region.tiles() {
         SdlGpuRenderer::<Box<[u8]>>::upload_texture(

@@ -167,3 +167,47 @@ fn nested_text_routes_preserve_run_identity() {
     );
     assert_eq!((renderer.images.begin, renderer.images.end), (1, 1));
 }
+
+#[test]
+fn nested_routes_keep_each_prepared_region_independent() {
+    let bytes = [255; 256];
+    let texture = Texture::from_ref(&bytes, 8, 8, ColorFormat::RGBA8888).unwrap();
+    let mut renderer = PreparedOuter::new(
+        PreparedInner::new(Dummy::new(), LeaseEngine::default()),
+        LeaseEngine::default(),
+    );
+    let command = DrawCommand::Blit {
+        texture: &texture,
+        pos: Point::ZERO,
+        size: Point::new(8, 8),
+        transform: Transform::IDENTITY,
+        quad: None,
+        opa: 255,
+        radius: Fixed::ZERO,
+        composite: CompositeMode::SourceOver,
+    };
+    let mut cx = Context::from_waker(Waker::noop());
+    assert_eq!(
+        tracking_allocator::tracked_allocations(|| {
+            let a = DrawRequest::new(&command, Rect::new(1, 1, 2, 2));
+            let b = DrawRequest::new(&command, Rect::new(4, 4, 2, 2));
+            let Poll::Ready(Ok(a)) = renderer.prepare(a, RenderRoute::Native, &mut cx) else {
+                panic!("first region");
+            };
+            let Poll::Ready(Ok(b)) = renderer.prepare(b, RenderRoute::Native, &mut cx) else {
+                panic!("second region");
+            };
+            renderer.submit(&b).unwrap();
+            assert_eq!(renderer.images.source, Some(bytes[144..].as_ptr()));
+            renderer.submit(&a).unwrap();
+            assert_eq!(renderer.images.source, Some(bytes[36..].as_ptr()));
+            assert_eq!(renderer.target.images.source, renderer.images.source);
+        }),
+        0
+    );
+    assert_eq!((renderer.images.begin, renderer.images.end), (2, 2));
+    assert_eq!(
+        (renderer.target.images.begin, renderer.target.images.end),
+        (2, 2)
+    );
+}
