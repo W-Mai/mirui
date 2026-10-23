@@ -4,6 +4,7 @@
 #![cfg(target_arch = "wasm32")]
 
 use alloc::vec::Vec;
+use core::cell::Cell;
 
 use js_sys::Uint8ClampedArray;
 use wasm_bindgen::Clamped;
@@ -11,14 +12,16 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen::JsValue;
 use web_sys::{ImageData, OffscreenCanvas, OffscreenCanvasRenderingContext2d};
 
-use crate::core::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
+use crate::core::cache::{Cache, Handle, HasSize, HashLookup, Lru, MaxSize};
 use crate::render::backends::sw::{SwRenderer, SwScratch};
 use crate::render::backends::web_glyph_slot::{SlotSelection, select_slot};
 use crate::render::backends::web_raster_budget::RasterScratchPlan;
 use crate::render::canvas::Canvas;
 use crate::render::font::{Font, RasterRunBounds, RasterRunKey};
 use crate::render::renderer::{RenderError, RenderResource, TextRunIdentity};
-use crate::render::texture::{AlphaMode, ColorFormat, Texture, TextureKey};
+use crate::render::texture::{
+    AlphaMode, ColorFormat, Region, Texture, TextureKey, TextureRegion, UploadCoverage,
+};
 use crate::types::{Color, Fixed, Point, Rect, Viewport};
 
 use super::WebScratchResourceUsage;
@@ -38,7 +41,116 @@ impl HasSize for CachedOffscreen {
 
 const TEXTURE_BUDGET: usize = 16 * 1024 * 1024;
 
-pub type TexturePool = Cache<TextureKey, CachedOffscreen, Lru, HashLookup<TextureKey>>;
+pub struct CachedTexture {
+    image: CachedOffscreen,
+    coverage: Cell<UploadCoverage>,
+}
+
+impl HasSize for CachedTexture {
+    fn cache_size(&self) -> usize {
+        self.image.cache_size() + core::mem::size_of::<UploadCoverage>()
+    }
+}
+
+pub type TexturePool = Cache<TextureKey, CachedTexture, Lru, HashLookup<TextureKey>>;
+
+pub(super) enum SourceCanvas {
+    Cached(Handle<CachedTexture>),
+    Transient(CachedTexture),
+}
+
+impl SourceCanvas {
+    pub(super) fn canvas(&self) -> &OffscreenCanvas {
+        match self {
+            Self::Cached(cached) => &cached.image.canvas,
+            Self::Transient(image) => &image.image.canvas,
+        }
+    }
+}
+
+pub(super) fn source_canvas(
+    pool: &mut TexturePool,
+    src: &Texture,
+    prepared: Option<&TextureRegion<'_>>,
+) -> Result<SourceCanvas, RenderError> {
+    let area = prepared.map(|region| region.region()).unwrap_or(
+        Region::new(0, 0, u32::from(src.width), u32::from(src.height))
+            .map_err(|_| RenderError::InvalidTexture)?,
+    );
+    if area.is_empty() {
+        return Err(RenderError::InvalidTexture);
+    }
+    let bytes = usize::from(src.width) * usize::from(src.height) * 4
+        + core::mem::size_of::<UploadCoverage>();
+    let create = || {
+        Ok(CachedTexture {
+            image: CachedOffscreen {
+                canvas: OffscreenCanvas::new(u32::from(src.width), u32::from(src.height))
+                    .map_err(|_| RenderError::BackendFailure)?,
+                width: src.width,
+                height: src.height,
+            },
+            coverage: Cell::default(),
+        })
+    };
+    match TextureKey::cacheable(src).filter(|_| bytes <= TEXTURE_BUDGET) {
+        Some(key) => {
+            let handle = pool
+                .entry(key)
+                .or_try_insert_with::<_, RenderError>(create)?;
+            upload_region(&handle, src, area, prepared)?;
+            Ok(SourceCanvas::Cached(handle))
+        }
+        None => {
+            let image = create()?;
+            upload_region(&image, src, area, prepared)?;
+            Ok(SourceCanvas::Transient(image))
+        }
+    }
+}
+
+fn upload_region(
+    target: &CachedTexture,
+    src: &Texture,
+    area: Region,
+    prepared: Option<&TextureRegion<'_>>,
+) -> Result<(), RenderError> {
+    let mut coverage = target.coverage.get();
+    if coverage.contains(area) {
+        return Ok(());
+    }
+    let resident;
+    let region = match prepared {
+        Some(region) => region,
+        None => {
+            resident = src.pixels_in(area)?.ok_or(RenderError::ResourcePending)?;
+            &resident
+        }
+    };
+    let context = target
+        .image
+        .canvas
+        .get_context("2d")
+        .map_err(|_| RenderError::BackendFailure)?
+        .ok_or(RenderError::BackendFailure)?
+        .dyn_into::<OffscreenCanvasRenderingContext2d>()
+        .map_err(|_| RenderError::BackendFailure)?;
+    for (area, pixels) in region.tiles() {
+        let rgba = pixels.rgba8_upload_pixels()?;
+        let data = ImageData::new_with_u8_clamped_array_and_sh(
+            Clamped(rgba.as_ref()),
+            area.width(),
+            area.height(),
+        )
+        .map_err(|_| RenderError::BackendFailure)?;
+        context
+            .put_image_data(&data, f64::from(area.x()), f64::from(area.y()))
+            .map_err(|_| RenderError::BackendFailure)?;
+    }
+    coverage.uploaded(area);
+    target.coverage.set(coverage);
+    Ok(())
+}
 
 pub fn new_pool() -> TexturePool {
     Cache::builder()

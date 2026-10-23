@@ -32,7 +32,6 @@ use crate::render::renderer::{
     DrawRequest, FallbackRegion, ProjectiveDrawError, RenderError, RenderFeature, RenderRoute,
     Renderer, TextRunIdentity,
 };
-use crate::render::texture::TextureKey;
 use crate::render::texture::{AlphaMode, ColorFormat, Texture};
 use crate::surface::web_canvas::WebCanvasSurface;
 use crate::types::{Color, Fixed, PhysicalRect, Point, Rect, Transform, Transform3D, Viewport};
@@ -556,7 +555,13 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
         if draw.output_scale() != self.viewport.scale() {
             return Err(RenderError::InvalidScope);
         }
-        WebCanvasRenderer::submit_routed(self, request, draw.route())
+        if draw
+            .texture_region()
+            .is_some_and(|source| source.region().is_empty())
+        {
+            return Ok(());
+        }
+        WebCanvasRenderer::submit_routed(self, request, draw.route(), draw.texture_region())
     }
 
     fn submit_text_run(
@@ -576,8 +581,11 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Renderer for WebCanvasRenderer<'_, S> {
         route: RenderRoute,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Result<crate::render::PreparedDraw<'data>, RenderError>> {
-        let result =
-            crate::render::PreparedDraw::poll_complete(request, route, self.viewport.scale(), cx);
+        let result = if route == RenderRoute::Native {
+            crate::render::PreparedDraw::poll_upload(request, route, self.viewport.scale(), cx)
+        } else {
+            crate::render::PreparedDraw::poll_complete(request, route, self.viewport.scale(), cx)
+        };
         if let core::task::Poll::Ready(Err(error)) = result {
             self.failure.get_or_insert(error);
         }
@@ -850,6 +858,111 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn blit_inner(
+        &mut self,
+        src: &Texture,
+        src_rect: &Rect,
+        dst: Point,
+        dst_size: Point,
+        clip: &Rect,
+        opa: u8,
+        radius: Fixed,
+        composite: CompositeMode,
+        source: Option<&crate::render::texture::TextureRegion<'_>>,
+    ) {
+        if opa == 0 {
+            return;
+        }
+        let uploaded =
+            match texture_pool::source_canvas(&mut self.factory.texture_pool, src, source) {
+                Ok(uploaded) => uploaded,
+                Err(error) => {
+                    self.failure.get_or_insert(error);
+                    return;
+                }
+            };
+        let canvas_ref = uploaded.canvas();
+
+        self.push_rect_clip(clip);
+        let ctx = self.ctx();
+        let prev_alpha = ctx.global_alpha();
+        let prev_composite = ctx.global_composite_operation().unwrap_or_default();
+        let prev_smoothing = ctx.image_smoothing_enabled();
+        ctx.set_global_alpha(opa as f64 / 255.0);
+        ctx.set_image_smoothing_enabled(false);
+        let op = match composite {
+            CompositeMode::SourceOver => "source-over",
+            CompositeMode::Add => "lighter",
+            CompositeMode::Screen => "screen",
+            CompositeMode::Multiply => "multiply",
+            CompositeMode::Darken => "darken",
+            CompositeMode::Lighten => "lighten",
+            CompositeMode::Difference => "difference",
+        };
+        let _ = ctx.set_global_composite_operation(op);
+
+        if radius > Fixed::ZERO {
+            let saved = self.context_transform();
+            let d = self.dpr();
+            ctx.set_transform(d, 0.0, 0.0, d, 0.0, 0.0)
+                .expect("setTransform(dpr)");
+            ctx.save();
+            ctx.begin_path();
+            let x = dst.x.to_f32() as f64;
+            let y = dst.y.to_f32() as f64;
+            let w = dst_size.x.to_f32() as f64;
+            let h = dst_size.y.to_f32() as f64;
+            let r = radius.to_f32() as f64;
+            let r = r.min(w / 2.0).min(h / 2.0);
+            ctx.move_to(x + r, y);
+            let _ = ctx.arc(x + w - r, y + r, r, -std::f64::consts::FRAC_PI_2, 0.0);
+            let _ = ctx.arc(x + w - r, y + h - r, r, 0.0, std::f64::consts::FRAC_PI_2);
+            let _ = ctx.arc(
+                x + r,
+                y + h - r,
+                r,
+                std::f64::consts::FRAC_PI_2,
+                std::f64::consts::PI,
+            );
+            let _ = ctx.arc(
+                x + r,
+                y + r,
+                r,
+                std::f64::consts::PI,
+                std::f64::consts::FRAC_PI_2 * 3.0,
+            );
+            ctx.close_path();
+            ctx.clip();
+            ctx.set_transform(saved[0], saved[1], saved[2], saved[3], saved[4], saved[5])
+                .expect("setTransform(restore)");
+        }
+
+        let result = ctx
+            .draw_image_with_offscreen_canvas_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
+                canvas_ref,
+                src_rect.x.to_f32() as f64,
+                src_rect.y.to_f32() as f64,
+                src_rect.w.to_f32() as f64,
+                src_rect.h.to_f32() as f64,
+                dst.x.to_f32() as f64,
+                dst.y.to_f32() as f64,
+                dst_size.x.to_f32() as f64,
+                dst_size.y.to_f32() as f64,
+            );
+        if radius > Fixed::ZERO {
+            ctx.restore();
+        }
+
+        ctx.set_global_alpha(prev_alpha);
+        ctx.set_image_smoothing_enabled(prev_smoothing);
+        let _ = ctx.set_global_composite_operation(&prev_composite);
+        self.pop_rect_clip();
+        if result.is_err() {
+            self.failure.get_or_insert(RenderError::BackendFailure);
+        }
+    }
+
     /// Affine quads use `setTransform` + `roundRect`; perspective
     /// quads fall back to `Path::rounded_quad`'s cubic bezier
     /// approximation — Canvas 2D has no homography.
@@ -964,42 +1077,28 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
 
     /// Affine quads use a direct Canvas transform. Projective quads retain
     /// the legacy mesh approximation until the checked fallback owns them.
-    fn blit_quad_inner(&mut self, src: &Texture, q: &[Point; 4], clip: &Rect, opa: u8) {
+    fn blit_quad_inner(
+        &mut self,
+        src: &Texture,
+        q: &[Point; 4],
+        clip: &Rect,
+        opa: u8,
+        source: Option<&crate::render::texture::TextureRegion<'_>>,
+    ) {
         if opa == 0 {
             return;
         }
         const MESH_N: i32 = 8;
 
-        let transient_up;
-        let pooled_handle;
-        let canvas_ref: &web_sys::OffscreenCanvas = if let Some(key) = TextureKey::cacheable(src) {
-            pooled_handle = match self
-                .factory
-                .texture_pool
-                .entry(key)
-                .or_try_insert_with(|| texture_pool::upload(src))
-            {
-                Ok(h) => h,
+        let uploaded =
+            match texture_pool::source_canvas(&mut self.factory.texture_pool, src, source) {
+                Ok(uploaded) => uploaded,
                 Err(error) => {
                     self.failure.get_or_insert(error);
                     return;
                 }
             };
-            if pooled_handle.is_invalid() {
-                self.failure.get_or_insert(RenderError::BackendFailure);
-                return;
-            }
-            &pooled_handle.canvas
-        } else {
-            transient_up = match texture_pool::upload(src) {
-                Ok(up) => up,
-                Err(error) => {
-                    self.failure.get_or_insert(error);
-                    return;
-                }
-            };
-            &transient_up.canvas
-        };
+        let canvas_ref = uploaded.canvas();
 
         self.push_rect_clip(clip);
         let ctx = self.ctx();
@@ -1248,6 +1347,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         &mut self,
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,
+        source: Option<&crate::render::texture::TextureRegion<'_>>,
     ) -> Result<(), RenderError> {
         if matches!(request.command, DrawCommand::PopClip) {
             return self.end_path_clip();
@@ -1260,7 +1360,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         self.physical_clip = request.physical_clip;
         let result = request
             .clip_route(route)
-            .and_then(|route| self.submit_clipped(request, route));
+            .and_then(|route| self.submit_clipped(request, route, source));
         self.physical_clip = saved;
         result
     }
@@ -1269,6 +1369,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         &mut self,
         request: &DrawRequest<'_, '_>,
         route: RenderRoute,
+        source: Option<&crate::render::texture::TextureRegion<'_>>,
     ) -> Result<(), RenderError> {
         request.validate_projection()?;
         request.validate_texture()?;
@@ -1289,7 +1390,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
             if route != RenderRoute::Native {
                 return Err(RenderError::InvalidGeometry);
             }
-            self.draw(request.command, &request.clip);
+            self.draw(request.command, &request.clip, source);
             return if let Some(error) = self.failure {
                 Err(error)
             } else {
@@ -1403,7 +1504,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
         Ok(true)
     }
 
-    fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
+    fn draw(
+        &mut self,
+        cmd: &DrawCommand,
+        clip: &Rect,
+        source: Option<&crate::render::texture::TextureRegion<'_>>,
+    ) {
         if self.failure.is_some() {
             return;
         }
@@ -1525,7 +1631,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 opa,
                 ..
             } => {
-                self.blit_quad_inner(texture, q, clip, *opa);
+                self.blit_quad_inner(texture, q, clip, *opa, source);
             }
             DrawCommand::Blit {
                 pos,
@@ -1537,8 +1643,8 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> WebCanvasRenderer<'_, S> {
                 ..
             } => {
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
-                self.blit(
-                    texture, &src_rect, *pos, *size, clip, *opa, *radius, *composite,
+                self.blit_inner(
+                    texture, &src_rect, *pos, *size, clip, *opa, *radius, *composite, source,
                 );
             }
             DrawCommand::Line {
@@ -1972,120 +2078,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> Canvas for WebCanvasRenderer<'_, S> {
         radius: Fixed,
         composite: CompositeMode,
     ) {
-        if opa == 0 {
-            return;
-        }
-        // Transient textures (sample_target_region results) reuse heap
-        // slots, so TextureKey ptr collisions would return a stale
-        // cached OffscreenCanvas. Upload fresh, skip the pool.
-        let transient_up;
-        let pooled_handle;
-        let canvas_ref: &web_sys::OffscreenCanvas = if let Some(key) = TextureKey::cacheable(src) {
-            pooled_handle = match self
-                .factory
-                .texture_pool
-                .entry(key)
-                .or_try_insert_with(|| texture_pool::upload(src))
-            {
-                Ok(h) => h,
-                Err(error) => {
-                    self.failure.get_or_insert(error);
-                    return;
-                }
-            };
-            if pooled_handle.is_invalid() {
-                self.failure.get_or_insert(RenderError::BackendFailure);
-                return;
-            }
-            &pooled_handle.canvas
-        } else {
-            transient_up = match texture_pool::upload(src) {
-                Ok(up) => up,
-                Err(error) => {
-                    self.failure.get_or_insert(error);
-                    return;
-                }
-            };
-            &transient_up.canvas
-        };
-
-        self.push_rect_clip(clip);
-        let ctx = self.ctx();
-        let prev_alpha = ctx.global_alpha();
-        let prev_composite = ctx.global_composite_operation().unwrap_or_default();
-        let prev_smoothing = ctx.image_smoothing_enabled();
-        ctx.set_global_alpha(opa as f64 / 255.0);
-        ctx.set_image_smoothing_enabled(false);
-        let op = match composite {
-            CompositeMode::SourceOver => "source-over",
-            CompositeMode::Add => "lighter",
-            CompositeMode::Screen => "screen",
-            CompositeMode::Multiply => "multiply",
-            CompositeMode::Darken => "darken",
-            CompositeMode::Lighten => "lighten",
-            CompositeMode::Difference => "difference",
-        };
-        let _ = ctx.set_global_composite_operation(op);
-
-        if radius > Fixed::ZERO {
-            let saved = self.context_transform();
-            let d = self.dpr();
-            ctx.set_transform(d, 0.0, 0.0, d, 0.0, 0.0)
-                .expect("setTransform(dpr)");
-            ctx.save();
-            ctx.begin_path();
-            let x = dst.x.to_f32() as f64;
-            let y = dst.y.to_f32() as f64;
-            let w = dst_size.x.to_f32() as f64;
-            let h = dst_size.y.to_f32() as f64;
-            let r = radius.to_f32() as f64;
-            let r = r.min(w / 2.0).min(h / 2.0);
-            ctx.move_to(x + r, y);
-            let _ = ctx.arc(x + w - r, y + r, r, -std::f64::consts::FRAC_PI_2, 0.0);
-            let _ = ctx.arc(x + w - r, y + h - r, r, 0.0, std::f64::consts::FRAC_PI_2);
-            let _ = ctx.arc(
-                x + r,
-                y + h - r,
-                r,
-                std::f64::consts::FRAC_PI_2,
-                std::f64::consts::PI,
-            );
-            let _ = ctx.arc(
-                x + r,
-                y + r,
-                r,
-                std::f64::consts::PI,
-                std::f64::consts::FRAC_PI_2 * 3.0,
-            );
-            ctx.close_path();
-            ctx.clip();
-            ctx.set_transform(saved[0], saved[1], saved[2], saved[3], saved[4], saved[5])
-                .expect("setTransform(restore)");
-        }
-
-        let result = ctx
-            .draw_image_with_offscreen_canvas_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
-                canvas_ref,
-                src_rect.x.to_f32() as f64,
-                src_rect.y.to_f32() as f64,
-                src_rect.w.to_f32() as f64,
-                src_rect.h.to_f32() as f64,
-                dst.x.to_f32() as f64,
-                dst.y.to_f32() as f64,
-                dst_size.x.to_f32() as f64,
-                dst_size.y.to_f32() as f64,
-            );
-        if radius > Fixed::ZERO {
-            ctx.restore();
-        }
-
-        ctx.set_global_alpha(prev_alpha);
-        ctx.set_image_smoothing_enabled(prev_smoothing);
-        let _ = ctx.set_global_composite_operation(&prev_composite);
-        self.pop_rect_clip();
-        if result.is_err() {
-            self.failure.get_or_insert(RenderError::BackendFailure);
-        }
+        self.blit_inner(
+            src, src_rect, dst, dst_size, clip, opa, radius, composite, None,
+        );
     }
 
     fn clear(&mut self, area: &PhysicalRect, color: &Color) {

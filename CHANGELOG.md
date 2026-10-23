@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Texture upload caches track bounded valid coverage without changing source coordinates or default cache budgets. SDL-GPU uploads prepared regions and reuses completed coverage.
 - WGPU uploads prepared regions through its existing texture pool, preserving padded RGBA rows and queued resource lifetimes.
+- Web Canvas updates prepared source regions in its texture cache and reuses completed coverage without changing glyph caches.
 
 - `Renderer` and `RenderEngine` prepare source leases before submitting `PreparedDraw`. Composed backends retain concrete routing and text-run identity; immediate drawing uses `draw_request` or `draw_text_run`. Scene replay reuses saved routes without bypassing preparation.
 - Software rendering consumes prepared source regions without changing sampling coordinates. Native GPU sampling avoids CPU readback; upload paths consume resident source pixels under existing cache budgets.
