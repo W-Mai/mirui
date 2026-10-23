@@ -41,6 +41,11 @@ impl<T: HasSize + 'static> ResourceHandle<T> {
         &self.token
     }
 
+    pub(crate) fn signal(&self) -> Option<Rc<crate::core::reactive::Signal<()>>> {
+        let manager = self.manager.upgrade()?;
+        Some(manager.borrow_mut().signal_for(self.token.clone()))
+    }
+
     pub(crate) fn get_cached(&self) -> Option<Rc<T>> {
         let revision = self.revision.get();
         self.cached

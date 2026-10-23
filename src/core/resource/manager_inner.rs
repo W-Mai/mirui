@@ -188,7 +188,7 @@ impl<T: HasSize + 'static> ManagerInner<T> {
         if self
             .signals
             .get(token)
-            .is_some_and(|signal| Rc::strong_count(signal) == 1)
+            .is_some_and(|signal| Rc::strong_count(signal) == 1 && !signal.has_subscribers())
         {
             self.signals.remove(token);
         }

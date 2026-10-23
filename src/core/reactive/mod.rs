@@ -1059,6 +1059,38 @@ impl<T: 'static> Drop for Signal<T> {
 }
 
 impl<T: 'static> Signal<T> {
+    pub(crate) fn has_subscribers(&self) -> bool {
+        let inner = self.inner.borrow();
+        if !inner.subscribers.is_empty() {
+            return true;
+        }
+        with_reactive(|r| {
+            let mut observed = false;
+            r.graph
+                .for_each_subscriber(inner.graph_source, |_, _| observed = true)
+                .expect("live Signal source");
+            observed
+        })
+    }
+
+    pub(crate) fn observe_view(
+        &self,
+        world: WorldId,
+        entity: Entity,
+        visual: bool,
+    ) -> ViewSubscription {
+        let source = self.inner.borrow().graph_source;
+        ViewSubscription::new(
+            source,
+            world,
+            if visual {
+                Subscriber::VisualWidget(entity)
+            } else {
+                Subscriber::Widget(entity)
+            },
+        )
+    }
+
     #[cfg(feature = "persistence")]
     pub(crate) fn source_id(&self) -> SourceId {
         self.inner.borrow().id
@@ -1207,11 +1239,53 @@ enum ModelSourceLifecycle {
 }
 
 /// One graph consumer owned by a View observation binding.
-pub(crate) struct ModelViewSubscription {
+pub(crate) struct ViewSubscription {
     consumer: ConsumerKey,
 }
 
-impl Drop for ModelViewSubscription {
+impl ViewSubscription {
+    fn new(source: SourceKey, world: WorldId, target: Subscriber) -> Self {
+        let consumer = with_reactive(|r| {
+            let partition = r
+                .graph
+                .owner_key(world)
+                .expect("View owner is not registered");
+            r.reserve_owned_consumer_slot(partition);
+            match target {
+                Subscriber::Widget(_) => {
+                    let count = r
+                        .graph
+                        .count_consumers_matching(|target| matches!(target, Subscriber::Widget(_)));
+                    reserve_queue_total(&mut r.dirty_widgets, count + 1);
+                }
+                Subscriber::VisualWidget(_) => {
+                    let count = r.graph.count_consumers_matching(|target| {
+                        matches!(target, Subscriber::VisualWidget(_))
+                    });
+                    reserve_queue_total(
+                        &mut r.dirty_visual_widgets,
+                        r.model_visual_subscriptions + count + 1,
+                    );
+                }
+                Subscriber::Effect(_) | Subscriber::Computed(_) => {
+                    unreachable!("View subscriptions target widgets")
+                }
+            }
+            let consumer = r
+                .graph
+                .register_explicit_consumer(partition, target)
+                .expect("reactive View consumer registration failed");
+            if let Err(error) = r.graph.subscribe(source, consumer) {
+                let _ = r.graph.remove_consumer(consumer);
+                panic!("reactive View dependency subscription failed: {error:?}");
+            }
+            consumer
+        });
+        Self { consumer }
+    }
+}
+
+impl Drop for ViewSubscription {
     fn drop(&mut self) {
         try_with_reactive(|r| {
             let _ = r.graph.remove_consumer(self.consumer);
@@ -1308,7 +1382,7 @@ impl ModelSource {
         }
     }
 
-    fn subscribe_view(&self, world: WorldId, target: Subscriber) -> ModelViewSubscription {
+    fn subscribe_view(&self, world: WorldId, target: Subscriber) -> ViewSubscription {
         assert!(
             self.lifecycle.get() == ModelSourceLifecycle::Active,
             "model source is retired"
@@ -1317,7 +1391,7 @@ impl ModelSource {
             .graph_source
             .get()
             .expect("View model source must be registered");
-        let consumer = with_reactive(|r| {
+        with_reactive(|r| {
             let partition = r
                 .graph
                 .owner_key(world)
@@ -1326,41 +1400,11 @@ impl ModelSource {
                 source.partition, partition,
                 "model belongs to a different App"
             );
-            r.reserve_owned_consumer_slot(partition);
-            match target {
-                Subscriber::Widget(_) => {
-                    let graph_widgets = r
-                        .graph
-                        .count_consumers_matching(|target| matches!(target, Subscriber::Widget(_)));
-                    reserve_queue_total(&mut r.dirty_widgets, graph_widgets + 1);
-                }
-                Subscriber::VisualWidget(_) => {
-                    let graph_visuals = r.graph.count_consumers_matching(|target| {
-                        matches!(target, Subscriber::VisualWidget(_))
-                    });
-                    reserve_queue_total(
-                        &mut r.dirty_visual_widgets,
-                        r.model_visual_subscriptions + graph_visuals + 1,
-                    );
-                }
-                Subscriber::Effect(_) | Subscriber::Computed(_) => {
-                    unreachable!("model View subscriptions target widgets")
-                }
-            }
-            let consumer = r
-                .graph
-                .register_explicit_consumer(partition, target)
-                .expect("reactive View consumer registration failed");
-            if let Err(error) = r.graph.subscribe(source, consumer) {
-                let _ = r.graph.remove_consumer(consumer);
-                panic!("reactive View dependency subscription failed: {error:?}");
-            }
-            consumer
         });
-        ModelViewSubscription { consumer }
+        ViewSubscription::new(source, world, target)
     }
 
-    pub(crate) fn subscribe_widget(&self, world: WorldId, entity: Entity) -> ModelViewSubscription {
+    pub(crate) fn subscribe_widget(&self, world: WorldId, entity: Entity) -> ViewSubscription {
         self.subscribe_view(world, Subscriber::Widget(entity))
     }
 
@@ -1368,7 +1412,7 @@ impl ModelSource {
         &self,
         world: WorldId,
         entity: Entity,
-    ) -> ModelViewSubscription {
+    ) -> ViewSubscription {
         self.subscribe_view(world, Subscriber::VisualWidget(entity))
     }
 
@@ -2269,7 +2313,7 @@ mod tests {
         assert_eq!(second.consumer.slot.slot, stale_key.slot.slot);
         assert_ne!(second.consumer.slot.generation, stale_key.slot.generation);
 
-        drop(ModelViewSubscription {
+        drop(ViewSubscription {
             consumer: stale_key,
         });
         source.notify();

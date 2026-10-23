@@ -333,10 +333,14 @@ pub struct ModelWatch {
 /// One explicit View subscription to a registered model source.
 #[doc(hidden)]
 pub struct ModelSubscription {
-    _consumer: Option<crate::core::reactive::ModelViewSubscription>,
+    _consumer: Option<crate::core::reactive::ViewSubscription>,
 }
 
 impl ModelSubscription {
+    pub(crate) fn into_consumer(self) -> Option<crate::core::reactive::ViewSubscription> {
+        self._consumer
+    }
+
     /// Fill one statically declared View observation slot without subscribing.
     #[doc(hidden)]
     pub const fn inert() -> Self {
@@ -398,7 +402,7 @@ impl ModelWatch {
         owner: WorldId,
         entity: crate::ecs::Entity,
         invalidation: ModelInvalidation,
-    ) -> crate::core::reactive::ModelViewSubscription {
+    ) -> crate::core::reactive::ViewSubscription {
         match invalidation {
             ModelInvalidation::Visual => self.source.subscribe_visual_widget(owner, entity),
             ModelInvalidation::Layout => self.source.subscribe_widget(owner, entity),
@@ -863,7 +867,7 @@ fn subscribe_source(
     owner: WorldId,
     entity: crate::ecs::Entity,
     invalidation: ModelInvalidation,
-) -> crate::core::reactive::ModelViewSubscription {
+) -> crate::core::reactive::ViewSubscription {
     match invalidation {
         ModelInvalidation::Visual => source.subscribe_visual_widget(owner, entity),
         ModelInvalidation::Layout => source.subscribe_widget(owner, entity),

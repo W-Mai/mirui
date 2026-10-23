@@ -530,7 +530,7 @@ pub(crate) mod generated {
 
     /// Collects subscriptions for one entity and one View registration.
     pub struct ViewObservationBindings {
-        pub(super) subscriptions: Vec<crate::core::model::ModelSubscription>,
+        pub(super) subscriptions: Vec<Option<crate::core::reactive::ViewSubscription>>,
         invalidation: crate::core::model::ModelInvalidation,
         subscription_count: usize,
     }
@@ -546,7 +546,26 @@ pub(crate) mod generated {
                 self.subscriptions.len() < self.subscription_count,
                 "View observer exceeded its declared subscription count"
             );
-            self.subscriptions.push(subscribe(self.invalidation));
+            self.subscriptions
+                .push(subscribe(self.invalidation).into_consumer());
+        }
+
+        pub(crate) fn watch_signal(
+            &mut self,
+            signal: Option<&crate::core::reactive::Signal<()>>,
+            owner: crate::ecs::world::WorldId,
+            entity: Entity,
+        ) {
+            assert!(
+                self.subscriptions.len() < self.subscription_count,
+                "View observer exceeded its declared subscription count"
+            );
+            let visual = matches!(
+                self.invalidation,
+                crate::core::model::ModelInvalidation::Visual
+            );
+            self.subscriptions
+                .push(signal.map(|signal| signal.observe_view(owner, entity, visual)));
         }
 
         pub(super) fn reset(&mut self, invalidation: ViewInvalidation, subscription_count: usize) {
@@ -804,7 +823,6 @@ impl<Systems> View<Systems> {
         self
     }
 
-    #[cfg(test)]
     pub(crate) const fn with_observation(
         mut self,
         observe: ViewObserve,

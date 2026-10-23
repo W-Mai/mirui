@@ -297,7 +297,33 @@ fn image_render(
 }
 
 pub fn view() -> crate::ui::view::View {
-    image_render::view().with_measurement(image_measurement)
+    image_render::view()
+        .with_observation(observe_image, 1)
+        .with_measurement(image_measurement)
+}
+
+fn observe_image(
+    world: &World,
+    entity: Entity,
+    bindings: &mut crate::ui::view::ViewObservationBindings,
+) {
+    let signal = world.get::<Image>(entity).and_then(|image| {
+        let ImageSource::Texture(token) = &image.src else {
+            return None;
+        };
+        if let Some(cache) = world.get::<ImageResource>(entity) {
+            let handle = cache.0.borrow();
+            if let Some(current) = handle.as_ref()
+                && current.token() == token.as_ref()
+            {
+                return current.signal();
+            }
+        }
+        world
+            .resource::<ResourceManager<Texture<'static>>>()
+            .map(|manager| manager.subscribe(token))
+    });
+    bindings.watch_signal(signal.as_deref(), world.id(), entity);
 }
 
 fn image_measurement(
@@ -889,5 +915,70 @@ mod tests {
             &app.backend.framebuffer().read_pixels().unwrap().bytes()[..4],
             &BLUE
         );
+    }
+
+    #[test]
+    fn resource_publication_uses_view_subscription_lifetime() {
+        use crate::surface::FramebufferAccess;
+        let mut app = crate::app::App::headless(8, 8);
+        app.with_widget(view());
+        app.add_resource(image_manager());
+        let root = app.spawn_root().id();
+        app.world.insert(root, Image::new("blue"));
+        app.render_dirty().unwrap();
+        let signal = app
+            .world
+            .resource::<ResourceManager<Texture<'static>>>()
+            .unwrap()
+            .subscribe("blue");
+        assert!(signal.has_subscribers());
+        app.world
+            .resource::<ResourceManager<Texture<'static>>>()
+            .unwrap()
+            .add_static(
+                "blue",
+                Texture::from_static(&RED, 1, 1, ColorFormat::RGBA8888).unwrap(),
+            );
+        app.render_dirty().unwrap();
+        assert_eq!(
+            &app.backend.framebuffer().read_pixels().unwrap().bytes()[..4],
+            &RED
+        );
+        // Publication while absent must keep the same dependency alive.
+        drop(signal);
+        app.world
+            .resource::<ResourceManager<Texture<'static>>>()
+            .unwrap()
+            .remove_token("blue");
+        app.render_dirty().unwrap();
+        app.world
+            .resource::<ResourceManager<Texture<'static>>>()
+            .unwrap()
+            .add_static(
+                "blue",
+                Texture::from_static(&BLUE, 1, 1, ColorFormat::RGBA8888).unwrap(),
+            );
+        app.render_dirty().unwrap();
+        assert_eq!(
+            &app.backend.framebuffer().read_pixels().unwrap().bytes()[..4],
+            &BLUE
+        );
+        let signal = app
+            .world
+            .resource::<ResourceManager<Texture<'static>>>()
+            .unwrap()
+            .subscribe("blue");
+        app.world.get_mut::<Image>(root).unwrap().src = ImageSource::from("missing");
+        app.render_dirty().unwrap();
+        assert!(!signal.has_subscribers());
+        let missing = app
+            .world
+            .resource::<ResourceManager<Texture<'static>>>()
+            .unwrap()
+            .subscribe("missing");
+        assert!(missing.has_subscribers());
+        app.world.remove::<Image>(root);
+        app.render_dirty().unwrap();
+        assert!(!missing.has_subscribers());
     }
 }

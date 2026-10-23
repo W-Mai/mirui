@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Images observe resource publication through View subscriptions and release old dependencies when their source or component changes.
 - Resource loaders run outside manager borrows, reject superseded results and guard same-token reentry. Token subscriptions survive removal and replacement, and metadata caches invalidate with resource revisions.
 - Empty texture regions validate geometry without accessing source devices or requiring completed native contents.
 
