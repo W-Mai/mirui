@@ -7,7 +7,13 @@ use core::ops::Range;
 
 pub(super) struct CachedPixels {
     pub(super) bytes: alloc::vec::Vec<u8>,
-    pub(super) _allocation: crate::render::budget::Allocation,
+    pub(super) _allocation: crate::render::budget::RetainedAllocation,
+}
+
+impl CachedPixels {
+    pub(super) const OWNER_BYTES: usize = core::mem::size_of::<
+        crate::core::cache::handle::CacheEntry<Self>,
+    >() + 2 * core::mem::size_of::<usize>();
 }
 
 /// Borrowed, CPU-readable pixels and their row layout. Reading a pixel never performs a transfer or allocation.

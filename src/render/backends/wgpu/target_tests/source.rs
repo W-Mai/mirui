@@ -78,8 +78,9 @@ fn native_texture_sources_share_views_or_bridge_through_the_upload_cache() {
     };
     let layout = PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap();
     let plan = producer.plan_target(layout).unwrap().unwrap();
-    let budget =
-        MemoryBudget::new(plan.storage_bytes + plan.readback_bytes + layout.required_bytes());
+    let budget = MemoryBudget::new(
+        plan.storage_bytes + plan.readback_bytes + Texture::native_cpu_bytes(layout).unwrap(),
+    );
     let mut texture = Texture::native(&mut producer, plan, &budget).unwrap();
     let viewport = Viewport::new(4, 4, Fixed::ONE);
     texture
@@ -213,8 +214,9 @@ fn sdl_and_wgpu_sources_bridge_without_consumer_specific_readback() {
     };
     let layout = PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap();
     let plan = producer.plan_target(layout).unwrap().unwrap();
-    let budget =
-        MemoryBudget::new(plan.storage_bytes + plan.readback_bytes + layout.required_bytes());
+    let budget = MemoryBudget::new(
+        plan.storage_bytes + plan.readback_bytes + Texture::native_cpu_bytes(layout).unwrap(),
+    );
     let mut source = Texture::native(&mut producer, plan, &budget).unwrap();
     source
         .render_native(

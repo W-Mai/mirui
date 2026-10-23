@@ -11,6 +11,11 @@ use core::{any::Any, cell::Cell};
 
 mod consumers;
 
+fn native_bytes() -> usize {
+    let layout = PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap();
+    128 + Texture::native_cpu_bytes(layout).unwrap()
+}
+
 #[derive(Default)]
 struct Device {
     lost: Cell<bool>,
@@ -256,7 +261,7 @@ fn output_production_reserves_binding_and_paint_workspaces_together() {
         }));
     }
 
-    for budget in [287, 288] {
+    for budget in [native_bytes() + 95, native_bytes() + 96] {
         let mut app = App::headless(4, 4);
         app.world.insert_resource(Calls(Cell::new(0)));
         app.with_default_widgets()
@@ -280,7 +285,7 @@ fn output_production_reserves_binding_and_paint_workspaces_together() {
         )
         .unwrap();
         assert_eq!(app.world.resource::<Calls>().unwrap().0.get(), 1);
-        if budget == 287 {
+        if budget == native_bytes() + 95 {
             assert_eq!(renderer.bindings, 0);
             assert_eq!(renderer.device.creates.get(), 0);
             let source = outputs.get(root).unwrap();
@@ -316,7 +321,7 @@ fn output_production_reserves_binding_and_paint_workspaces_together() {
 
 #[test]
 fn automatic_admission_preserves_cpu_slots_and_shared_workspace_at_budget_boundaries() {
-    for budget in [223, 224] {
+    for budget in [native_bytes() + 31, native_bytes() + 32] {
         let outputs = Outputs::<WidgetTexture>::with_budget(budget);
         let mut working = outputs.take_texture_plan().unwrap();
         let key = super::tests::key(1, 1);
@@ -335,7 +340,7 @@ fn automatic_admission_preserves_cpu_slots_and_shared_workspace_at_budget_bounda
             .unwrap()
             .texture
             .is_native();
-        assert_eq!(native, budget == 224);
+        assert_eq!(native, budget == native_bytes() + 32);
         let creates = renderer.device.creates.get();
         assert_eq!(
             tracked_allocations(|| {
@@ -377,7 +382,7 @@ fn automatic_admission_preserves_cpu_slots_and_shared_workspace_at_budget_bounda
 
 #[test]
 fn automatic_cpu_selection_keeps_frozen_native_history() {
-    let outputs = Outputs::<WidgetTexture>::with_budget(256);
+    let outputs = Outputs::<WidgetTexture>::with_budget(native_bytes() + 64);
     let mut working = outputs.take_texture_plan().unwrap();
     let key = super::tests::key(1, 1);
     outputs.reserve(1).unwrap();
@@ -480,7 +485,7 @@ fn retained_native_pixels_do_not_require_binding_workspace_for_software_producti
     for paint_bytes in [0, 64] {
         let mut app = App::headless(4, 4);
         app.with_default_widgets()
-            .with_offscreen_pool_budget(256 + paint_bytes);
+            .with_offscreen_pool_budget(native_bytes() + 64 + paint_bytes);
         app.world.insert_resource(Scene {
             workspace: false,
             calls: Cell::new(0),
@@ -533,7 +538,7 @@ fn retained_native_pixels_do_not_require_binding_workspace_for_software_producti
 
 #[test]
 fn software_admission_preserves_binding_storage_needed_by_prior_native_outputs() {
-    for budget in [287, 288] {
+    for budget in [native_bytes() + 95, native_bytes() + 96] {
         let outputs = Outputs::<WidgetTexture>::with_budget(budget);
         outputs.reserve(2).unwrap();
         let mut working = outputs.take_texture_plan().unwrap();
@@ -565,7 +570,7 @@ fn software_admission_preserves_binding_storage_needed_by_prior_native_outputs()
                     true
                 )
                 .unwrap(),
-            budget == 288
+            budget == native_bytes() + 96
         );
         assert_eq!(working.target_workspace.capacity(), 32);
         let mut write = outputs.prepare_texture(first).unwrap();
@@ -582,7 +587,7 @@ fn software_admission_preserves_binding_storage_needed_by_prior_native_outputs()
             })
             .unwrap();
         assert!(write.publish());
-        if budget == 288 {
+        if budget == native_bytes() + 96 {
             let mut write = outputs.prepare_texture(second).unwrap();
             assert!(!write.texture_mut().is_native());
             assert!(write.publish());
@@ -610,7 +615,8 @@ fn automatic_native_failure_runs_the_view_once_and_does_not_publish_or_retry_in_
         });
     }
     let mut app = App::headless(4, 4);
-    app.with_default_widgets().with_offscreen_pool_budget(192);
+    app.with_default_widgets()
+        .with_offscreen_pool_budget(native_bytes());
     app.world.insert_resource(Calls(Cell::new(0)));
     app.with_widget(View::new("FailingNative", 90, paint));
     let root = app.spawn_root().id();
@@ -669,15 +675,65 @@ fn draw(
 }
 
 #[test]
+fn public_region_preparation_shares_the_full_source_budget_and_revision() {
+    use crate::render::texture::Region;
+    use core::task::{Context, Poll, Waker};
+
+    let mut renderer = Fixture::default();
+    let budget = MemoryBudget::new(native_bytes());
+    let target_plan = plan(&renderer);
+    let mut texture = Texture::native(&mut renderer, target_plan, &budget).unwrap();
+    let color = Color::rgb(20, 40, 60);
+    draw(&mut texture, &mut renderer, color, false).unwrap();
+    let area = Region::new(1, 2, 2, 1).unwrap();
+    let mut cx = Context::from_waker(Waker::noop());
+    assert!(texture.pixels_in(area).unwrap().is_none());
+    let Poll::Ready(Ok(view)) = texture.poll_pixels_in(area, &mut cx) else {
+        panic!("synchronous native region must be ready");
+    };
+    assert_eq!(view.region(), area);
+    assert_eq!(view.get_pixel(1, 2), Some(color));
+    assert_eq!(view.get_pixel(0, 2), None);
+    assert_eq!(view.pixels().unwrap().bytes().len(), 8);
+    assert!(texture.pixels().unwrap().is_none());
+    assert_eq!(renderer.device.reads.get(), 1);
+    assert!(matches!(
+        texture.poll_read_pixels(&mut cx),
+        Poll::Ready(Err(RenderError::ResourceLimit(_)))
+    ));
+    assert_eq!(view.get_pixel(2, 2), Some(color));
+    drop(view);
+    let Poll::Ready(Ok(full)) = texture.poll_read_pixels(&mut cx) else {
+        panic!("released region must permit the admitted full read");
+    };
+    assert_eq!(full.bytes().len(), 64);
+    assert_eq!(renderer.device.reads.get(), 2);
+    assert_eq!(budget.available(), 0);
+    drop(full);
+    let updated = Color::rgb(100, 120, 140);
+    draw(&mut texture, &mut renderer, updated, false).unwrap();
+    assert!(texture.pixels_in(area).unwrap().is_none());
+    assert_eq!(
+        tracked_allocations(|| {
+            let Poll::Ready(Ok(view)) = texture.poll_pixels_in(area, &mut cx) else {
+                panic!("warm cache must be reusable");
+            };
+            assert_eq!(view.get_pixel(1, 2), Some(updated));
+        }),
+        0
+    );
+}
+
+#[test]
 fn source_pixels_are_lazy_borrowed_budgeted_and_survive_the_renderer() {
     let mut renderer = Fixture::default();
     let device = Rc::downgrade(&renderer.device);
-    let budget = MemoryBudget::new(192);
+    let budget = MemoryBudget::new(native_bytes());
     let plan = plan(&renderer);
-    assert!(Texture::native(&mut renderer, plan, &MemoryBudget::new(191)).is_err());
+    assert!(Texture::native(&mut renderer, plan, &MemoryBudget::new(native_bytes() - 1)).is_err());
     assert_eq!(renderer.device.creates.get(), 0);
     let mut texture = Texture::native(&mut renderer, plan, &budget).unwrap();
-    assert_eq!(texture.cache_size(), 192);
+    assert_eq!(texture.cache_size(), native_bytes());
     assert_eq!(budget.available(), 0);
     assert_eq!(budget.allocated(), 64);
     assert!(matches!(texture.pixels(), Err(RenderError::InvalidTexture)));
@@ -707,9 +763,9 @@ fn source_pixels_are_lazy_borrowed_budgeted_and_survive_the_renderer() {
         let second = texture.pixels().unwrap().unwrap();
         assert_eq!(first.bytes().as_ptr(), second.bytes().as_ptr());
         assert_eq!(first.get_pixel(3, 3), color);
-        assert_eq!(budget.allocated(), 128);
+        assert_eq!(budget.allocated(), native_bytes() - 64);
         assert_eq!(budget.available(), 0);
-        assert_eq!(texture.cache_size(), 192);
+        assert_eq!(texture.cache_size(), native_bytes());
     }
     let allocations = tracked_allocations(|| {
         for _ in 0..8 {
@@ -734,7 +790,7 @@ fn source_pixels_are_lazy_borrowed_budgeted_and_survive_the_renderer() {
     assert_eq!(texture.read_pixels().unwrap().get_pixel(0, 0), updated);
     drop(texture);
     assert!(device.upgrade().is_none());
-    assert_eq!(budget.available(), 192);
+    assert_eq!(budget.available(), native_bytes());
     assert_eq!(budget.allocated(), 0);
 }
 
@@ -742,7 +798,8 @@ fn source_pixels_are_lazy_borrowed_budgeted_and_survive_the_renderer() {
 fn failed_reads_and_writes_never_expose_partial_or_previous_pixels() {
     let mut renderer = Fixture::default();
     let plan = plan(&renderer);
-    let mut texture = Texture::native(&mut renderer, plan, &MemoryBudget::new(192)).unwrap();
+    let mut texture =
+        Texture::native(&mut renderer, plan, &MemoryBudget::new(native_bytes())).unwrap();
     let color = Color::rgb(1, 2, 3);
     draw(&mut texture, &mut renderer, color, false).unwrap();
     renderer.device.read_failure.set(true);
@@ -794,19 +851,19 @@ fn incompatible_fresh_target_releases_all_reservations() {
         ..Fixture::default()
     };
     let requested = plan(&renderer);
-    let budget = MemoryBudget::new(192);
+    let budget = MemoryBudget::new(native_bytes());
     assert!(matches!(
         Texture::native(&mut renderer, requested, &budget),
         Err(RenderError::InvalidTexture)
     ));
-    assert_eq!(budget.available(), 192);
+    assert_eq!(budget.available(), native_bytes());
     assert_eq!(renderer.device.creates.get(), 1);
     assert_eq!(renderer.bindings, 0);
 }
 
 #[test]
 fn cached_sources_remain_readable_across_consumers_but_invalid_sources_are_not_ready() {
-    let outputs = Outputs::<WidgetTexture>::with_budget(192);
+    let outputs = Outputs::<WidgetTexture>::with_budget(native_bytes());
     let key = super::tests::key(1, 1);
     let mut producer = Fixture::default();
     let mut consumer = Fixture::default();
@@ -854,7 +911,7 @@ fn cached_sources_remain_readable_across_consumers_but_invalid_sources_are_not_r
 
 #[test]
 fn native_write_slot_replacement_preserves_frozen_history_and_reuses_warm_storage() {
-    let outputs = Outputs::<WidgetTexture>::with_budget(384);
+    let outputs = Outputs::<WidgetTexture>::with_budget(2 * native_bytes());
     let key = super::tests::key(1, 1);
     outputs.reserve(1).unwrap();
     outputs.set_retained(key.entity, true).unwrap();
@@ -926,7 +983,7 @@ fn native_write_slot_replacement_preserves_frozen_history_and_reuses_warm_storag
 #[test]
 fn failed_reuse_check_does_not_replace_storage_and_budget_failure_preserves_history() {
     let key = super::tests::key(1, 1);
-    let outputs = Outputs::<WidgetTexture>::with_budget(383);
+    let outputs = Outputs::<WidgetTexture>::with_budget(2 * native_bytes() - 1);
     let mut first = Fixture::default();
     let requested = plan(&first);
     outputs.reserve(1).unwrap();
@@ -984,7 +1041,7 @@ fn failed_reuse_check_does_not_replace_storage_and_budget_failure_preserves_hist
 fn native_output_writes_share_publication_history_and_failed_slot_reuse() {
     let mut renderer = Fixture::default();
     let plan = plan(&renderer);
-    let outputs = Outputs::<WidgetTexture>::with_budget(384);
+    let outputs = Outputs::<WidgetTexture>::with_budget(2 * native_bytes());
     let source = super::tests::key(1, 1);
     outputs.reserve(1).unwrap();
     outputs.set_retained(source.entity, true).unwrap();
@@ -1054,7 +1111,7 @@ fn native_output_writes_share_publication_history_and_failed_slot_reuse() {
         assert_eq!(pixels.get_pixel(0, 0), Color::rgb(70, 80, 90));
     }
     outputs.trim_memory();
-    assert_eq!(outputs.storage().budget.available(), 384);
+    assert_eq!(outputs.storage().budget.available(), 2 * native_bytes());
 }
 
 #[test]
@@ -1065,7 +1122,8 @@ fn native_sources_use_the_existing_software_blit_and_error_path() {
 
     let mut renderer = Fixture::default();
     let plan = plan(&renderer);
-    let mut texture = Texture::native(&mut renderer, plan, &MemoryBudget::new(192)).unwrap();
+    let mut texture =
+        Texture::native(&mut renderer, plan, &MemoryBudget::new(native_bytes())).unwrap();
     let color = Color::rgba(10, 20, 30, 128);
     draw(&mut texture, &mut renderer, color, false).unwrap();
     let mut target = Texture::owned(4, 4, ColorFormat::RGBA8888).unwrap();
@@ -1123,7 +1181,7 @@ fn native_upload_keys_retain_identity_without_retaining_the_device() {
     let mut renderer = Fixture::default();
     let device = Rc::downgrade(&renderer.device);
     let plan = plan(&renderer);
-    let budget = MemoryBudget::new(384);
+    let budget = MemoryBudget::new(2 * native_bytes());
     let mut first = Texture::native(&mut renderer, plan, &budget).unwrap();
     let second = Texture::native(&mut renderer, plan, &budget).unwrap();
     let key = TextureKey::from(&first);
@@ -1139,7 +1197,7 @@ fn native_upload_keys_retain_identity_without_retaining_the_device() {
     assert_ne!(key, TextureKey::from(&replacement));
     drop((renderer, second, replacement));
     assert!(device.upgrade().is_none());
-    assert_eq!(budget.available(), 384);
+    assert_eq!(budget.available(), 2 * native_bytes());
     drop(key);
 }
 
@@ -1147,7 +1205,7 @@ fn native_upload_keys_retain_identity_without_retaining_the_device() {
 fn unwinding_native_production_invalidates_pixels_and_restores_the_parent() {
     let mut renderer = Fixture::default();
     let plan = plan(&renderer);
-    let budget = MemoryBudget::new(192);
+    let budget = MemoryBudget::new(native_bytes());
     let mut texture = Texture::native(&mut renderer, plan, &budget).unwrap();
     draw(&mut texture, &mut renderer, Color::rgb(1, 2, 3), false).unwrap();
     texture.read_pixels().unwrap();

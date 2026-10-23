@@ -106,8 +106,8 @@ impl WidgetTextureStorage {
         let storage_bytes = if reusable {
             Some(0)
         } else {
-            plan.storage_bytes
-                .checked_add(plan.descriptor.layout.required_bytes())
+            Texture::native_cpu_bytes(plan.descriptor.layout)
+                .and_then(|bytes| bytes.checked_add(plan.storage_bytes))
                 .and_then(|bytes| bytes.checked_add(plan.readback_bytes))
         };
         let required = storage_bytes.and_then(|bytes| bytes.checked_add(paint_bytes));

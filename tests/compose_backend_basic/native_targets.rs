@@ -505,7 +505,7 @@ fn automatic_output_production_preserves_both_concrete_engine_routes() {
     };
     let mut app = mirui::app::App::with_factory(surface, NativeFactory::default());
     app.with_default_widgets()
-        .with_offscreen_pool_budget(8)
+        .with_offscreen_pool_budget(1024)
         .with_widget(output_paint::view());
     let root = app.spawn_root().id();
     app.world.insert(root, OutputMarker);

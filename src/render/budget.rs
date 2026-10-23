@@ -53,6 +53,14 @@ pub(crate) struct Reservation {
 }
 
 impl Reservation {
+    pub(crate) fn retain(mut self) -> RetainedReservation {
+        RetainedReservation(Rc::new(Retained {
+            ledger: self.ledger.take().expect("active reservation"),
+            available: Cell::new(self.bytes),
+            capacity: self.bytes,
+        }))
+    }
+
     pub(crate) fn bytes(&self) -> usize {
         self.bytes
     }
@@ -77,6 +85,85 @@ impl Drop for Reservation {
         if let Some(ledger) = &self.ledger {
             ledger.reserved.set(ledger.reserved.get() - self.bytes);
         }
+    }
+}
+
+// Suballocations return to the original reservation, not to another consumer.
+// The shared ledger remains the only authority for the global byte limit.
+#[derive(Clone, Debug)]
+pub(crate) struct RetainedReservation(Rc<Retained>);
+
+#[derive(Debug)]
+struct Retained {
+    ledger: Rc<Ledger>,
+    available: Cell<usize>,
+    capacity: usize,
+}
+
+impl Drop for Retained {
+    fn drop(&mut self) {
+        self.ledger
+            .reserved
+            .set(self.ledger.reserved.get() - self.available.get());
+    }
+}
+
+impl RetainedReservation {
+    pub(crate) fn capacity(&self) -> usize {
+        self.0.capacity
+    }
+
+    pub(crate) fn allocate(&self, bytes: usize) -> Option<RetainedAllocation> {
+        if bytes > self.0.available.get() {
+            return None;
+        }
+        self.0.available.set(self.0.available.get() - bytes);
+        self.0
+            .ledger
+            .reserved
+            .set(self.0.ledger.reserved.get() - bytes);
+        self.0
+            .ledger
+            .allocated
+            .set(self.0.ledger.allocated.get() + bytes);
+        Some(RetainedAllocation {
+            reservation: self.clone(),
+            bytes,
+        })
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct RetainedAllocation {
+    reservation: RetainedReservation,
+    bytes: usize,
+}
+
+impl RetainedAllocation {
+    pub(crate) fn resize(&mut self, bytes: usize) -> bool {
+        let state = &self.reservation.0;
+        if bytes > self.bytes && bytes - self.bytes > state.available.get() {
+            return false;
+        }
+        state
+            .available
+            .set(state.available.get() + self.bytes - bytes);
+        state
+            .ledger
+            .allocated
+            .set(state.ledger.allocated.get() - self.bytes + bytes);
+        state
+            .ledger
+            .reserved
+            .set(state.ledger.reserved.get() + self.bytes - bytes);
+        self.bytes = bytes;
+        true
+    }
+}
+
+impl Drop for RetainedAllocation {
+    fn drop(&mut self) {
+        self.resize(0);
     }
 }
 
@@ -111,6 +198,37 @@ impl Drop for Allocation {
 mod tests {
     use super::*;
     use crate::test_support::tracked_allocations;
+
+    #[test]
+    fn retained_allocations_preserve_the_original_admission_until_last_release() {
+        let budget = MemoryBudget::new(256);
+        let retained = budget.reserve(192).unwrap().retain();
+        assert_eq!(retained.capacity(), 192);
+        let allocations = tracked_allocations(|| {
+            let first = retained.allocate(64).unwrap();
+            let mut second = retained.allocate(96).unwrap();
+            assert_eq!(budget.allocated(), 160);
+            assert_eq!(budget.available(), 64);
+            assert!(!second.resize(129));
+            assert_eq!(budget.allocated(), 160);
+            drop(first);
+            assert_eq!(budget.available(), 64);
+            assert!(second.resize(192));
+            assert!(retained.allocate(1).is_none());
+            assert!(second.resize(32));
+            let third = retained.allocate(160).unwrap();
+            drop(second);
+            drop(third);
+        });
+        assert_eq!(allocations, 0);
+        let pinned = retained.allocate(48).unwrap();
+        drop(retained);
+        assert_eq!(budget.allocated(), 48);
+        assert_eq!(budget.available(), 64);
+        drop(pinned);
+        assert_eq!(budget.allocated(), 0);
+        assert_eq!(budget.available(), 256);
+    }
 
     #[test]
     fn reservations_and_allocations_share_one_limit_and_release_on_drop() {

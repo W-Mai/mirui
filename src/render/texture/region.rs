@@ -1,6 +1,7 @@
 use super::{ColorFormat, Region, Texture, TexturePixels};
 use crate::render::RenderError;
 use crate::types::Color;
+use core::task::{Context, Poll};
 
 /// A ready, read-only source region. Sampling and iteration never perform I/O or allocate.
 ///
@@ -71,16 +72,58 @@ impl Texture<'_> {
         let pixels = if region.is_empty() {
             None
         } else {
-            let Some(pixels) = self.pixels()? else {
+            let pixels = match &self.buf {
+                super::TexBuf::Native(native) => native.pixels_in(self.cache_revision, region)?,
+                _ => self
+                    .pixels()?
+                    .map(|pixels| pixels.into_region(region))
+                    .transpose()?,
+            };
+            let Some(pixels) = pixels else {
                 return Ok(None);
             };
-            Some(pixels.into_region(region)?)
+            Some(pixels)
         };
         Ok(Some(TextureRegion {
             region,
             format: layout.format(),
             pixels,
         }))
+    }
+
+    /// Prepare a complete source region. Native device reads may synchronously wait for their device.
+    ///
+    /// Resident storage is borrowed immediately. Source preparation retains the requested pixels until the returned view is dropped. Capacity failures do not overwrite other live views.
+    pub fn poll_pixels_in(
+        &self,
+        region: Region,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Result<TextureRegion<'_>, RenderError>> {
+        if let Some(ready) = self.pixels_in(region)? {
+            return Poll::Ready(Ok(ready));
+        }
+        let super::TexBuf::Native(native) = &self.buf else {
+            return Poll::Ready(Err(RenderError::InvalidTexture));
+        };
+        Poll::Ready(
+            native
+                .read_pixels_in(self.cache_revision, region)
+                .map(|pixels| TextureRegion {
+                    region,
+                    format: self.format(),
+                    pixels: Some(pixels),
+                }),
+        )
+    }
+
+    /// Prepare a complete contiguous CPU view, sharing the source's regional readback budget.
+    ///
+    /// Native readback is synchronous; this method does not make driver waits asynchronous.
+    pub fn poll_read_pixels(
+        &self,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Result<TexturePixels<'_>, RenderError>> {
+        Poll::Ready(self.read_pixels())
     }
 }
 
@@ -112,6 +155,16 @@ mod tests {
             let area = Region::new(1, 1, 2, 2).unwrap();
             let allocations = crate::test_support::tracked_allocations(|| {
                 let region = texture.pixels_in(area).unwrap().unwrap();
+                let mut cx = Context::from_waker(core::task::Waker::noop());
+                let Poll::Ready(Ok(prepared)) = texture.poll_pixels_in(area, &mut cx) else {
+                    panic!("resident region must be immediately ready");
+                };
+                assert_eq!(prepared.region(), area);
+                assert_eq!(prepared.get_pixel(2, 2), region.get_pixel(2, 2));
+                let Poll::Ready(Ok(complete)) = texture.poll_read_pixels(&mut cx) else {
+                    panic!("resident pixels must be immediately ready");
+                };
+                assert_eq!(complete.bytes().as_ptr(), full.bytes().as_ptr());
                 assert_eq!(region.region(), area);
                 assert_eq!(region.format(), format);
                 let pixels = region.pixels().unwrap();

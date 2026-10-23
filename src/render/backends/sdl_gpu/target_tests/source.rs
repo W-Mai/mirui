@@ -95,7 +95,7 @@ pub(crate) fn native_source() -> Texture<'static> {
     };
     let layout = PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap();
     let plan = producer.plan_target(layout).unwrap().unwrap();
-    let budget = MemoryBudget::new(plan.storage_bytes + layout.required_bytes());
+    let budget = MemoryBudget::new(plan.storage_bytes + Texture::native_cpu_bytes(layout).unwrap());
     let mut texture = Texture::native(&mut producer, plan, &budget).unwrap();
     texture
         .render_native(
@@ -130,7 +130,7 @@ fn native_sources_bridge_once_and_reject_feedback_before_cached_uploads() {
     };
     let layout = PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap();
     let plan = producer.plan_target(layout).unwrap().unwrap();
-    let budget = MemoryBudget::new(plan.storage_bytes + layout.required_bytes());
+    let budget = MemoryBudget::new(plan.storage_bytes + Texture::native_cpu_bytes(layout).unwrap());
     let mut texture = Texture::native(&mut producer, plan, &budget).unwrap();
     let viewport = Viewport::new(4, 4, Fixed::ONE);
     texture

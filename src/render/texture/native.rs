@@ -1,13 +1,13 @@
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
 use alloc::rc::Rc;
 use alloc::{boxed::Box, vec::Vec};
-use core::cell::{Cell, RefCell};
+use core::cell::RefCell;
 
 use super::access::CachedPixels;
-use super::{AlphaMode, TexBuf, Texture, TexturePixels, TexturePixelsMut};
+use super::{AlphaMode, Region, TexBuf, Texture, TexturePixels, TexturePixelsMut};
 use crate::core::cache::handle::{CacheEntry, EntryRc};
 use crate::core::cache::{Handle, HasSize};
-use crate::render::budget::{Allocation, MemoryBudget, Reservation};
+use crate::render::budget::{Allocation, MemoryBudget, Reservation, RetainedReservation};
 use crate::render::{
     BackendTarget, PlaneLayout, RenderError, RenderResource, Renderer, TargetPlan, TargetUpdate,
 };
@@ -16,9 +16,9 @@ use crate::types::Viewport;
 pub(super) struct NativeTexture {
     target: Box<dyn BackendTarget>,
     mirror: RefCell<Option<Mirror>>,
-    storage: Allocation,
+    _storage: Allocation,
     readback: Reservation,
-    cache_bytes: Cell<usize>,
+    cache_bytes: usize,
     #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
     identity: Rc<()>,
     layout: PlaneLayout,
@@ -28,8 +28,10 @@ pub(super) struct NativeTexture {
 
 struct Mirror {
     pixels: Option<Handle<CachedPixels>>,
-    reservation: Option<Reservation>,
+    reservation: RetainedReservation,
     revision: Option<u64>,
+    region: Region,
+    layout: PlaneLayout,
 }
 
 fn capacity_error() -> RenderError {
@@ -38,21 +40,42 @@ fn capacity_error() -> RenderError {
 
 impl Mirror {
     fn prepare(&mut self, layout: PlaneLayout) -> Result<(), RenderError> {
-        if self.pixels.is_some() {
-            return Ok(());
+        if let Some(pixels) = self.pixels.as_mut()
+            && let Some(entry) = EntryRc::get_mut(&mut pixels.inner)
+        {
+            if entry.payload.bytes.capacity() >= layout.required_bytes() {
+                entry.payload.bytes.resize(layout.required_bytes(), 0);
+                self.revision = None;
+                self.layout = layout;
+                return Ok(());
+            }
+            // Release only an unpinned entry before reserving a larger one.
+            self.pixels = None;
+            self.revision = None;
         }
+        let charged = layout
+            .required_bytes()
+            .checked_add(CachedPixels::OWNER_BYTES)
+            .ok_or_else(capacity_error)?;
+        if charged > self.reservation.capacity() {
+            return Err(capacity_error());
+        }
+        let mut allocation = self
+            .reservation
+            .allocate(charged)
+            .ok_or_else(capacity_error)?;
         let mut bytes = Vec::new();
         bytes
             .try_reserve_exact(layout.required_bytes())
             .map_err(|_| capacity_error())?;
-        let reservation = self.reservation.take().ok_or_else(capacity_error)?;
-        let allocation = match reservation.commit(bytes.capacity()) {
-            Ok(allocation) => allocation,
-            Err(reservation) => {
-                self.reservation = Some(reservation);
-                return Err(capacity_error());
-            }
-        };
+        if !allocation.resize(
+            bytes
+                .capacity()
+                .checked_add(CachedPixels::OWNER_BYTES)
+                .ok_or_else(capacity_error)?,
+        ) {
+            return Err(capacity_error());
+        }
         bytes.resize(layout.required_bytes(), 0);
         self.pixels = Some(Handle::from_rc(EntryRc::new(CacheEntry::new(
             CachedPixels {
@@ -60,6 +83,8 @@ impl Mirror {
                 _allocation: allocation,
             },
         ))));
+        self.revision = None;
+        self.layout = layout;
         Ok(())
     }
 
@@ -108,7 +133,7 @@ impl NativeTexture {
             .reserve(plan.storage_bytes)
             .ok_or_else(capacity_error)?;
         let mirror = budget
-            .reserve(layout.required_bytes())
+            .reserve(Texture::native_cpu_bytes(layout).ok_or_else(capacity_error)?)
             .ok_or_else(capacity_error)?;
         let readback = budget
             .reserve(plan.readback_bytes)
@@ -121,17 +146,19 @@ impl NativeTexture {
         let storage = storage
             .commit(target.allocated_bytes())
             .map_err(|_| capacity_error())?;
-        let cache_bytes = storage.bytes() + layout.required_bytes() + readback.bytes();
+        let cache_bytes = storage.bytes() + mirror.bytes() + readback.bytes();
         Ok(Self {
             target,
             mirror: RefCell::new(Some(Mirror {
                 pixels: None,
-                reservation: Some(mirror),
+                reservation: mirror.retain(),
                 revision: None,
+                region: plan.descriptor.region(),
+                layout,
             })),
-            storage,
+            _storage: storage,
             readback,
-            cache_bytes: Cell::new(cache_bytes),
+            cache_bytes,
             #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
             identity: Rc::new(()),
             layout,
@@ -142,6 +169,16 @@ impl NativeTexture {
 
     pub(super) fn layout(&self) -> PlaneLayout {
         self.layout
+    }
+
+    fn full_region(&self) -> Region {
+        Region::new(
+            0,
+            0,
+            u32::from(self.layout.width()),
+            u32::from(self.layout.height()),
+        )
+        .expect("u16 plane dimensions fit a region")
     }
 
     #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
@@ -158,7 +195,7 @@ impl NativeTexture {
             .try_borrow()
             .map_err(|_| RenderError::InvalidScope)?;
         let mirror = slot.as_ref().ok_or(RenderError::InvalidScope)?;
-        if mirror.revision == Some(revision) {
+        if mirror.revision == Some(revision) && mirror.region == self.full_region() {
             return Ok(());
         }
         drop(slot);
@@ -166,6 +203,14 @@ impl NativeTexture {
     }
 
     pub(super) fn pixels(&self, revision: u64) -> Result<Option<TexturePixels<'_>>, RenderError> {
+        self.pixels_in(revision, self.full_region())
+    }
+
+    pub(super) fn pixels_in(
+        &self,
+        revision: u64,
+        region: Region,
+    ) -> Result<Option<TexturePixels<'_>>, RenderError> {
         if !self.completed {
             return Err(RenderError::InvalidTexture);
         }
@@ -174,15 +219,30 @@ impl NativeTexture {
             .try_borrow()
             .map_err(|_| RenderError::InvalidScope)?;
         let mirror = slot.as_ref().ok_or(RenderError::InvalidScope)?;
-        if mirror.revision == Some(revision) {
-            return Ok(Some(TexturePixels::cached(
-                mirror
-                    .pixels
-                    .as_ref()
-                    .ok_or(RenderError::InvalidTexture)?
-                    .clone(),
-                self.layout,
-            )));
+        if mirror.revision == Some(revision)
+            && region.x() >= mirror.region.x()
+            && region.y() >= mirror.region.y()
+            && region.right() <= mirror.region.right()
+            && region.bottom() <= mirror.region.bottom()
+        {
+            let local = Region::new(
+                region.x() - mirror.region.x(),
+                region.y() - mirror.region.y(),
+                region.width(),
+                region.height(),
+            )
+            .map_err(|_| RenderError::InvalidTexture)?;
+            return Ok(Some(
+                TexturePixels::cached(
+                    mirror
+                        .pixels
+                        .as_ref()
+                        .ok_or(RenderError::InvalidTexture)?
+                        .clone(),
+                    mirror.layout,
+                )
+                .into_region(local)?,
+            ));
         }
         drop(slot);
         self.target.validate()?;
@@ -190,29 +250,45 @@ impl NativeTexture {
     }
 
     pub(super) fn read_pixels(&self, revision: u64) -> Result<TexturePixels<'_>, RenderError> {
-        if let Some(pixels) = self.pixels(revision)? {
+        self.read_pixels_in(revision, self.full_region())
+    }
+
+    pub(super) fn read_pixels_in(
+        &self,
+        revision: u64,
+        region: Region,
+    ) -> Result<TexturePixels<'_>, RenderError> {
+        if let Some(pixels) = self.pixels_in(revision, region)? {
             return Ok(pixels);
         }
         {
             let mut read = MirrorRead::take(&self.mirror)?;
             let mirror = read.mirror.as_mut().expect("active mirror read");
-            mirror.revision = None;
-            mirror.prepare(self.layout)?;
+            let layout = if region == self.full_region() {
+                self.layout
+            } else {
+                PlaneLayout::packed(
+                    region.width() as u16,
+                    region.height() as u16,
+                    self.layout.format(),
+                )
+                .map_err(|_| RenderError::InvalidTexture)?
+            };
+            mirror.prepare(layout)?;
+            mirror.region = region;
             let bytes = mirror.bytes_mut()?;
-            self.cache_bytes
-                .set(self.storage.bytes() + bytes.capacity() + self.readback.bytes());
-            let mut destination = TexturePixelsMut::new(bytes, self.layout, AlphaMode::Blend);
-            self.target
-                .read_pixels_into(self.target.descriptor().region(), &mut destination)?;
+            let mut destination = TexturePixelsMut::new(bytes, layout, AlphaMode::Blend);
+            self.target.read_pixels_into(region, &mut destination)?;
             mirror.revision = Some(revision);
         }
-        self.pixels(revision)?.ok_or(RenderError::InvalidTexture)
+        self.pixels_in(revision, region)?
+            .ok_or(RenderError::InvalidTexture)
     }
 }
 
 impl HasSize for NativeTexture {
     fn cache_size(&self) -> usize {
-        self.cache_bytes.get()
+        self.cache_bytes
     }
 }
 
@@ -232,6 +308,11 @@ impl Texture<'static> {
 }
 
 impl Texture<'_> {
+    pub(crate) fn native_cpu_bytes(layout: PlaneLayout) -> Option<usize> {
+        layout
+            .required_bytes()
+            .checked_add(CachedPixels::OWNER_BYTES)
+    }
     /// Inspect completed native storage without reading pixels, allocating or submitting work.
     ///
     /// CPU textures return `None`. Invalid native resources also return `None` when a current CPU copy remains readable; consumers can use the normal pixel upload path. Incomplete contents and access errors are rejected. Native consumers must check the concrete payload, destination device identity and active-target feedback before sampling. This borrow does not permit target writes.
@@ -250,8 +331,9 @@ impl Texture<'_> {
                     .mirror
                     .try_borrow()
                     .map_err(|_| RenderError::InvalidScope)?;
-                if mirror.as_ref().ok_or(RenderError::InvalidScope)?.revision
-                    == Some(self.cache_revision)
+                let mirror = mirror.as_ref().ok_or(RenderError::InvalidScope)?;
+                if mirror.revision == Some(self.cache_revision)
+                    && mirror.region == native.full_region()
                 {
                     Ok(None)
                 } else {
@@ -351,6 +433,7 @@ mod tests {
     use crate::render::{TargetAlpha, TargetDescriptor};
     use crate::types::Color;
     use alloc::rc::{Rc, Weak};
+    use core::cell::Cell;
 
     #[derive(Default)]
     struct Device {
@@ -360,6 +443,7 @@ mod tests {
         panic: Cell<bool>,
         invalid: Cell<bool>,
         validations: Cell<usize>,
+        last_region: Cell<Option<Region>>,
     }
 
     struct Target(Rc<Device>, PlaneLayout);
@@ -393,6 +477,7 @@ mod tests {
             destination: &mut TexturePixelsMut<'_>,
         ) -> Result<(), RenderError> {
             self.descriptor().readback_region(region, destination)?;
+            self.0.last_region.set(Some(region));
             self.0.reads.set(self.0.reads.get() + 1);
             let source = self.0.source.borrow().upgrade().unwrap();
             // Re-entry observes an in-flight read, not a held cache borrow.
@@ -410,19 +495,31 @@ mod tests {
     }
 
     fn source() -> (Rc<NativeTexture>, Rc<Device>, MemoryBudget) {
+        source_sized(2, 2)
+    }
+
+    fn source_sized(width: u16, height: u16) -> (Rc<NativeTexture>, Rc<Device>, MemoryBudget) {
         let device = Rc::new(Device::default());
-        let layout = PlaneLayout::packed(2, 2, ColorFormat::RGBA8888).unwrap();
-        let budget = MemoryBudget::new(32);
+        let layout = PlaneLayout::packed(width, height, ColorFormat::RGBA8888).unwrap();
+        let storage_bytes = layout.required_bytes();
+        let mirror_bytes = Texture::native_cpu_bytes(layout).unwrap();
+        let budget = MemoryBudget::new(storage_bytes + mirror_bytes);
         let source = Rc::new(NativeTexture {
             target: Box::new(Target(device.clone(), layout)),
             mirror: RefCell::new(Some(Mirror {
                 pixels: None,
-                reservation: Some(budget.reserve(16).unwrap()),
+                reservation: budget.reserve(mirror_bytes).unwrap().retain(),
                 revision: None,
+                region: Region::new(0, 0, u32::from(width), u32::from(height)).unwrap(),
+                layout,
             })),
-            storage: budget.reserve(16).unwrap().commit(16).unwrap(),
+            _storage: budget
+                .reserve(storage_bytes)
+                .unwrap()
+                .commit(storage_bytes)
+                .unwrap(),
             readback: budget.reserve(0).unwrap(),
-            cache_bytes: Cell::new(32),
+            cache_bytes: storage_bytes + mirror_bytes,
             #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
             identity: Rc::new(()),
             layout,
@@ -431,6 +528,64 @@ mod tests {
         });
         *device.source.borrow_mut() = Rc::downgrade(&source);
         (source, device, budget)
+    }
+
+    #[test]
+    fn regional_reads_pin_independent_storage_without_spending_full_read_reservations() {
+        let (source, device, budget) = source_sized(8, 8);
+        let first_area = Region::new(2, 3, 2, 2).unwrap();
+        let second_area = Region::new(5, 4, 2, 2).unwrap();
+        let first = source.read_pixels_in(0, first_area).unwrap();
+        assert_eq!(device.last_region.get(), Some(first_area));
+        assert_eq!(first.bytes().len(), 16);
+        assert_eq!(budget.available(), 0);
+        assert!(source.pixels(0).unwrap().is_none());
+        let second = source.read_pixels_in(0, second_area).unwrap();
+        assert_eq!(device.last_region.get(), Some(second_area));
+        assert_ne!(first.bytes().as_ptr(), second.bytes().as_ptr());
+        assert_eq!(first.bytes(), second.bytes());
+        assert!(matches!(
+            source.read_pixels(0),
+            Err(RenderError::ResourceLimit(RenderResource::Texture))
+        ));
+        assert_eq!(device.reads.get(), 2);
+        assert_eq!(budget.available(), 0);
+        drop(first);
+        drop(second);
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for x in 0..7 {
+                let area = Region::new(x, 1, 2, 2).unwrap();
+                let view = source.read_pixels_in(0, area).unwrap();
+                assert_eq!(device.last_region.get(), Some(area));
+                assert_eq!(view.width(), 2);
+            }
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(budget.available(), 0);
+        let full = source.read_pixels(0).unwrap();
+        assert_eq!(full.bytes().len(), 256);
+        let reads = device.reads.get();
+        let allocations = crate::test_support::tracked_allocations(|| {
+            let view = source.read_pixels_in(0, first_area).unwrap();
+            assert_eq!(view.bytes().as_ptr(), full.bytes()[104..].as_ptr());
+            assert_eq!(view.stride(), full.stride());
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(reads, device.reads.get());
+    }
+
+    #[test]
+    fn partial_cache_remains_readable_but_never_impersonates_a_complete_lost_source() {
+        let (source, device, _) = source_sized(8, 8);
+        let area = Region::new(2, 3, 2, 2).unwrap();
+        drop(source.read_pixels_in(0, area).unwrap());
+        device.invalid.set(true);
+        assert!(source.pixels_in(0, area).unwrap().is_some());
+        assert!(matches!(source.pixels(0), Err(RenderError::InvalidTexture)));
+        assert!(matches!(
+            source.pixels_in(1, area),
+            Err(RenderError::InvalidTexture)
+        ));
     }
 
     #[test]
@@ -493,7 +648,7 @@ mod tests {
             Err(RenderError::BackendFailure)
         ));
         assert!(source.pixels(0).unwrap().is_none());
-        assert_eq!(budget.allocated(), 32);
+        assert_eq!(budget.allocated(), 32 + CachedPixels::OWNER_BYTES);
         device.fail.set(false);
         device.panic.set(true);
         assert!(
@@ -526,13 +681,13 @@ mod tests {
         source.mirror.borrow_mut().as_mut().unwrap().revision = None;
         assert!(matches!(
             source.read_pixels(1),
-            Err(RenderError::InvalidScope)
+            Err(RenderError::ResourceLimit(RenderResource::Texture))
         ));
         assert_eq!(retained.bytes, [0x66; 16]);
         drop(source);
-        assert_eq!(budget.allocated(), 16);
+        assert_eq!(budget.allocated(), 16 + CachedPixels::OWNER_BYTES);
         drop(retained);
         assert_eq!(budget.allocated(), 0);
-        assert_eq!(budget.available(), 32);
+        assert_eq!(budget.available(), 32 + CachedPixels::OWNER_BYTES);
     }
 }
