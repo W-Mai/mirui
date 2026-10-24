@@ -63,6 +63,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- SDL-GPU rectangle outlines preserve their original geometry during partial redraws and restore the clip after submission.
+
 - Image resource demand follows component ownership and source changes without retaining a detached cache component.
 - Images observe resource publication through View subscriptions and release old dependencies when their source or component changes.
 - Resource loaders run outside manager borrows, reject superseded results and guard same-token reentry. Token subscriptions survive removal and replacement, and metadata caches invalidate with resource revisions.
