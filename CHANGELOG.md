@@ -74,6 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Stable layout trees refresh style values and intrinsic measurements without repeating child membership and order checks.
+
 - SDL-GPU retains command clip state inside owned frames while preserving target restoration and explicit clipping for fills and software fallback uploads.
 
 - Reactive entity cleanup skips unchanged owner partitions while preserving computed lifetime checks and work registered by dropped captures.

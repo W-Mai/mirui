@@ -974,6 +974,19 @@ fn refresh_layout_tree(
     let Some(style) = world.get::<Style>(entity) else {
         return Ok(false);
     };
+    refresh_layout_values(world, entity, node, style, changes)?;
+
+    refresh_layout_children(world, entity, node, parked, changes)?;
+    Ok(true)
+}
+
+fn refresh_layout_values(
+    world: &World,
+    entity: Entity,
+    node: &mut LayoutNode,
+    style: &Style,
+    changes: &mut LayoutTreeChanges,
+) -> Result<(), TextLayoutFailure> {
     let next_style = layout_style(world, entity, style.layout);
     let observe_solve =
         !changes.structure && changes.solve != super::layout::solve::SolveScope::Full;
@@ -990,7 +1003,32 @@ fn refresh_layout_tree(
     {
         changes.solve.observe(node, was_absolute);
     }
+    Ok(())
+}
 
+// The snapshot's maintenance revisions certify membership and child order.
+// Values and intrinsic measurements still use the common preparation path.
+fn refresh_stable_layout_tree(
+    world: &World,
+    node: &mut LayoutNode,
+    changes: &mut LayoutTreeChanges,
+) -> Result<(), TextLayoutFailure> {
+    let entity = node.entity.expect("retained layout entity");
+    let style = world.get::<Style>(entity).expect("retained layout style");
+    refresh_layout_values(world, entity, node, style, changes)?;
+    for child in &mut node.children {
+        refresh_stable_layout_tree(world, child, changes)?;
+    }
+    Ok(())
+}
+
+fn refresh_layout_children(
+    world: &mut World,
+    entity: Entity,
+    node: &mut LayoutNode,
+    parked: &mut Vec<LayoutNode>,
+    changes: &mut LayoutTreeChanges,
+) -> Result<(), TextLayoutFailure> {
     let mut used = 0;
     if let Some(count) = world
         .get::<Children>(entity)
@@ -1043,7 +1081,7 @@ fn refresh_layout_tree(
             &mut changes.parked,
         );
     }
-    Ok(true)
+    Ok(())
 }
 
 fn layout_style(world: &World, entity: Entity, mut layout: LayoutStyle) -> LayoutStyle {
@@ -1546,13 +1584,18 @@ fn compute_layout_snapshot(
     let mut snapshot = crate::trace_span!("layout.build_tree", {
         match previous {
             Some(mut snapshot) if snapshot.root == root => {
-                let refreshed = refresh_layout_tree(
-                    world,
-                    root,
-                    &mut snapshot.layout_tree,
-                    &mut snapshot.parked,
-                    &mut changes,
-                );
+                let refreshed = if snapshot.maintenance_current(world) {
+                    refresh_stable_layout_tree(world, &mut snapshot.layout_tree, &mut changes)
+                        .map(|()| true)
+                } else {
+                    refresh_layout_tree(
+                        world,
+                        root,
+                        &mut snapshot.layout_tree,
+                        &mut snapshot.parked,
+                        &mut changes,
+                    )
+                };
                 if changes.structure || !matches!(refreshed, Ok(true)) {
                     snapshot.invalidate_geometry_plan();
                     output_plan::invalidate_structure(world);
@@ -4244,6 +4287,67 @@ mod layout_snapshot_reuse_check {
 
     fn text_handle(world: &World, entity: Entity) -> crate::text::TextLayoutHandle {
         *world.get::<crate::text::TextLayoutHandle>(entity).unwrap()
+    }
+
+    #[test]
+    fn stable_value_refresh_matches_structural_refresh_without_allocating() {
+        fn same_tree(left: &LayoutNode, right: &LayoutNode) {
+            assert_eq!(left.entity, right.entity);
+            assert_eq!(left.style, right.style);
+            assert_eq!(left.rect, right.rect);
+            assert_eq!(left.intrinsic_width, right.intrinsic_width);
+            assert_eq!(left.intrinsic_height, right.intrinsic_height);
+            assert_eq!(left.children.len(), right.children.len());
+            for (left, right) in left.children.iter().zip(&right.children) {
+                same_tree(left, right);
+            }
+        }
+
+        let mut world = crate::app::App::headless(128, 128).world;
+        let root = widget(&mut world, 128);
+        let branch = child(&mut world, root, None);
+        let label = child(&mut world, branch, Some("old"));
+        let leaf = child(&mut world, root, None);
+        let mut stable = compute_layout_snapshot(&mut world, root, 128, 128)
+            .unwrap()
+            .unwrap();
+        let mut general = compute_layout_snapshot(&mut world, root, 128, 128)
+            .unwrap()
+            .unwrap();
+
+        for width in [24, 28, 40, 16] {
+            world.get_mut::<Style>(leaf).unwrap().layout.width = Dimension::px(width);
+            world.get_mut::<Style>(label).unwrap().font_size = Some(width as u16);
+            world
+                .get_mut::<Text>(label)
+                .unwrap()
+                .set_content("new text");
+            assert!(stable.maintenance_current(&world));
+            world.put_resource_box(stable);
+            stable = compute_layout_snapshot(&mut world, root, 128, 128)
+                .unwrap()
+                .unwrap();
+            general.valid = false;
+            world.put_resource_box(general);
+            general = compute_layout_snapshot(&mut world, root, 128, 128)
+                .unwrap()
+                .unwrap();
+            same_tree(&stable.layout_tree, &general.layout_tree);
+        }
+
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for _ in 0..16 {
+                    refresh_stable_layout_tree(
+                        &world,
+                        &mut stable.layout_tree,
+                        &mut LayoutTreeChanges::default(),
+                    )
+                    .unwrap();
+                }
+            }),
+            0
+        );
     }
 
     #[test]
