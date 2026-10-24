@@ -3479,8 +3479,8 @@ impl LayoutSnapshot {
             world.component_revision::<Parent>(),
             world.component_revision::<super::Hidden>(),
             world.component_revision::<super::branch::CachedBranchVisibility>(),
-            world.component_revision::<Widget>(),
-            world.component_revision::<Style>(),
+            world.component_membership_revision::<Widget>(),
+            world.component_membership_revision::<Style>(),
         ]
     }
 
@@ -4390,17 +4390,33 @@ mod layout_snapshot_reuse_check {
                     world.get_mut::<Style>(hidden).unwrap();
                 }
             }
-            assert!(
-                !world
+            assert_eq!(
+                world
                     .resource::<LayoutSnapshot>()
                     .unwrap()
-                    .maintenance_current(&world)
+                    .maintenance_current(&world),
+                kind >= 4
             );
             try_update_layout(&mut world, root, &viewport).unwrap();
             let snapshot = world.resource::<LayoutSnapshot>().unwrap();
             assert!(snapshot.maintenance_current(&world));
             assert_eq!(snapshot.parked.len(), 1);
         }
+        world.remove::<Style>(hidden);
+        assert!(
+            !world
+                .resource::<LayoutSnapshot>()
+                .unwrap()
+                .maintenance_current(&world)
+        );
+        try_update_layout(&mut world, root, &viewport).unwrap();
+        assert!(
+            world
+                .resource::<LayoutSnapshot>()
+                .unwrap()
+                .parked
+                .is_empty()
+        );
     }
 
     #[test]
@@ -4531,6 +4547,7 @@ mod layout_snapshot_reuse_check {
             .maintenance_revisions;
 
         app.world.get_mut::<Style>(input).unwrap();
+        app.world.get_mut::<Children>(root).unwrap();
         app.world.insert(input, Placeholder("Too long"));
         app.world.invalidate(input);
         for _ in 0..2 {

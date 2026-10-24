@@ -272,6 +272,7 @@ impl ComponentChangeKind {
 struct WatchedComponentType {
     type_id: TypeId,
     revision: u64,
+    membership_revision: u64,
     entity_tracking: bool,
     query_tracking: bool,
     query_pending: Option<QueryDependencyCause>,
@@ -461,6 +462,7 @@ impl World {
         for index in 0..self.watched_component_types.len() {
             let type_id = self.watched_component_types[index].type_id;
             if self.has_type(entity, type_id) {
+                self.record_membership_change(type_id);
                 self.record_component_change(entity, type_id);
             }
         }
@@ -496,7 +498,11 @@ impl World {
             return;
         }
         let storage = self.storage_mut::<T>();
+        let added = !storage.contains(entity);
         storage.insert(entity, component);
+        if added {
+            self.record_membership_change(TypeId::of::<T>());
+        }
         if let Some(lifetimes) = &mut self.component_lifetimes {
             lifetimes.replace(entity, TypeId::of::<T>());
         }
@@ -506,6 +512,7 @@ impl World {
     pub fn remove<T: 'static>(&mut self, entity: Entity) -> Option<T> {
         let removed = self.storage_mut_if_exists::<T>()?.remove(entity);
         if removed.is_some() {
+            self.record_membership_change(TypeId::of::<T>());
             if let Some(lifetimes) = &mut self.component_lifetimes {
                 lifetimes.remove(entity, TypeId::of::<T>());
             }
@@ -587,6 +594,23 @@ impl World {
             .map_or(0, |watched| watched.revision)
     }
 
+    pub(crate) fn component_membership_revision<T: 'static>(&self) -> u64 {
+        self.watched_component_types
+            .iter()
+            .find(|watched| watched.type_id == TypeId::of::<T>())
+            .map_or(0, |watched| watched.membership_revision)
+    }
+
+    fn record_membership_change(&mut self, type_id: TypeId) {
+        if let Some(watched) = self
+            .watched_component_types
+            .iter_mut()
+            .find(|watched| watched.type_id == type_id)
+        {
+            watched.membership_revision = watched.membership_revision.wrapping_add(1);
+        }
+    }
+
     fn watch_component_type_entry(&mut self, type_id: TypeId) -> &mut WatchedComponentType {
         let index = if let Some(index) = self
             .watched_component_types
@@ -599,6 +623,7 @@ impl World {
             self.watched_component_types.push(WatchedComponentType {
                 type_id,
                 revision: 0,
+                membership_revision: 0,
                 entity_tracking: false,
                 query_tracking: false,
                 query_pending: None,
@@ -936,6 +961,36 @@ mod tests {
         let revision = world.component_revision::<u32>();
         world.remove::<u32>(entity);
         assert_eq!(world.component_revision::<u32>(), revision);
+    }
+
+    #[test]
+    fn membership_revision_tracks_presence_not_value_writes() {
+        let mut world = World::new();
+        world.watch_component_revision::<u32>();
+        let entity = world.spawn_empty();
+        world.insert(entity, 1u32);
+        let member = world.component_membership_revision::<u32>();
+        let value = world.component_revision::<u32>();
+        world.insert(entity, 2u32);
+        *world.get_mut::<u32>(entity).unwrap() = 3;
+        assert_eq!(world.component_membership_revision::<u32>(), member);
+        assert_ne!(world.component_revision::<u32>(), value);
+        world.remove::<u32>(entity);
+        let removed = world.component_membership_revision::<u32>();
+        assert_ne!(removed, member);
+        world.remove::<u32>(entity);
+        assert_eq!(world.component_membership_revision::<u32>(), removed);
+        world.insert(entity, 4u32);
+        let inserted = world.component_membership_revision::<u32>();
+        assert_ne!(removed, inserted);
+        world.despawn(entity);
+        let retired = world.component_membership_revision::<u32>();
+        assert_ne!(retired, inserted);
+        world.despawn(entity);
+        assert_eq!(world.component_membership_revision::<u32>(), retired);
+        let replacement = world.spawn_empty();
+        world.insert(replacement, 5u32);
+        assert_ne!(world.component_membership_revision::<u32>(), retired);
     }
     #[test]
     fn query_change_causes_coalesce_without_entity_records_or_allocations() {
