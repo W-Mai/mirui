@@ -1,5 +1,7 @@
 cha_plugin_sdk::plugin!(ApiMisuse);
 
+mod widget_boundary;
+
 struct ApiMisuse;
 
 fn finding(
@@ -50,6 +52,7 @@ impl PluginImpl for ApiMisuse {
             "unimplemented-residue".into(),
             "viewport-scale-missing".into(),
             "chinese-comment".into(),
+            "widget-dependency-boundary".into(),
         ]
     }
 
@@ -61,6 +64,7 @@ impl PluginImpl for ApiMisuse {
         }
 
         check_fixed_boundary(&input, &mut findings);
+        widget_boundary::check(&input, &mut findings);
 
         // Skip test files for most rules
         let is_test = input.role == FileRole::Test;
@@ -124,9 +128,7 @@ impl PluginImpl for ApiMisuse {
         }
 
         // --- Rule: spelling-us (via tree-sitter string search) ---
-        let centre_matches = tree_query::run_query(
-            "(identifier) @id"
-        );
+        let centre_matches = tree_query::run_query("(identifier) @id");
         for m in &centre_matches {
             for capture in m {
                 if capture.text.contains("centre") {
@@ -144,16 +146,12 @@ impl PluginImpl for ApiMisuse {
         }
 
         // --- Rule: fixed64-hot-path (Fixed64 used inside for/loop body) ---
-        let loop_matches = tree_query::run_query(
-            "(for_expression body: (block) @body)"
-        );
+        let loop_matches = tree_query::run_query("(for_expression body: (block) @body)");
         for m in &loop_matches {
             for capture in m {
                 if capture.capture_name == "body" {
-                    let body_nodes = tree_query::nodes_in_range(
-                        capture.start_line,
-                        capture.end_line,
-                    );
+                    let body_nodes =
+                        tree_query::nodes_in_range(capture.start_line, capture.end_line);
                     for node in &body_nodes {
                         if node.text.contains("Fixed64") && node.text.contains("from_fixed") {
                             findings.push(finding(
@@ -174,7 +172,7 @@ impl PluginImpl for ApiMisuse {
 
         // --- Rule: unimplemented-residue (unimplemented!() left in non-test code) ---
         let unimpl_matches = tree_query::run_query(
-            "(macro_invocation macro: (identifier) @name (#eq? @name \"unimplemented\")) @call"
+            "(macro_invocation macro: (identifier) @name (#eq? @name \"unimplemented\")) @call",
         );
         for m in &unimpl_matches {
             if let Some(call) = m.iter().find(|c| c.capture_name == "call") {
@@ -223,13 +221,13 @@ impl PluginImpl for ApiMisuse {
             if input.path.contains("draw/")
                 && func.name.ends_with("_inner")
                 && func.line_count > 5
-                && !func.called_functions.iter().any(|f|
+                && !func.called_functions.iter().any(|f| {
                     f.contains("rect_to_physical")
                         || f.contains("point_to_physical")
                         || f.contains("scale_path")
                         || f.contains("_inner")
                         || f.contains("submit_geometry")
-                )
+                })
             {
                 findings.push(finding(
                     "viewport-scale-missing",

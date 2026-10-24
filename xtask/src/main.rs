@@ -169,30 +169,38 @@ fn cmd_cha() -> Result {
         .into());
     }
 
-    let health = Command::new("cha")
-        .args([
-            "analyze",
-            ".cha/plugin-src/fixtures/fixed_raw.rs",
-            "--plugin",
-            "api-misuse",
-            "--format",
-            "json",
-            "--fail-on",
-            "error",
-            "--no-cache",
-        ])
-        .current_dir(project_root())
-        .output()?;
-    let health_stdout = String::from_utf8_lossy(&health.stdout);
-    let health_stderr = String::from_utf8_lossy(&health.stderr);
-    if health.status.success()
-        || !health_stdout.contains("fixed-raw-use")
-        || !health_stderr.trim().is_empty()
-    {
-        return Err(format!(
-            "cha api-misuse health check failed closed\nstdout:\n{health_stdout}\nstderr:\n{health_stderr}"
+    for (fixture, expected_smell) in [
+        (".cha/plugin-src/fixtures/fixed_raw.rs", "fixed-raw-use"),
+        (
+            ".cha/plugin-src/fixtures/widget_dependency/src/ui/layout/paths.rs",
+            "widget-dependency-boundary",
+        ),
+    ] {
+        let health = Command::new("cha")
+            .args([
+                "analyze",
+                fixture,
+                "--plugin",
+                "api-misuse",
+                "--format",
+                "json",
+                "--fail-on",
+                "error",
+                "--no-cache",
+            ])
+            .current_dir(project_root())
+            .output()?;
+        let health_stdout = String::from_utf8_lossy(&health.stdout);
+        let health_stderr = String::from_utf8_lossy(&health.stderr);
+        if health.status.success()
+            || !health_stdout.contains(expected_smell)
+            || !health_stderr.trim().is_empty()
+        {
+            return Err(format!(
+            "cha api-misuse health check failed closed for {expected_smell}\nstdout:\n{health_stdout}\nstderr:\n{health_stderr}"
         )
         .into());
+        }
     }
 
     let mut policy = Command::new("cha");

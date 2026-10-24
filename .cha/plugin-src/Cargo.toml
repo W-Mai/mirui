@@ -11,6 +11,5 @@ crate-type = ["cdylib"]
 [dependencies]
 cha-plugin-sdk = { git = "https://github.com/W-Mai/Cha", tag = "v1.20.0" }
 wit-bindgen = "0.55"
-
-[dev-dependencies]
-cha-plugin-sdk = { git = "https://github.com/W-Mai/Cha", tag = "v1.20.0", features = ["test-utils"] }
+syn = { version = "2", features = ["full", "visit"] }
+proc-macro2 = { version = "1", features = ["span-locations"] }
