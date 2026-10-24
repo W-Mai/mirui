@@ -68,10 +68,19 @@ impl InputLease {
 }
 
 pub(crate) fn wake(world: &World, root: Entity) {
+    wake_matching(world, root, |_| true);
+}
+
+pub(crate) fn wake_display(world: &World, root: Entity) {
+    wake_matching(world, root, |role| role == BindingRole::Display);
+}
+
+fn wake_matching(world: &World, root: Entity, accepts: impl Fn(BindingRole) -> bool) {
     with_reactive(|runtime| {
         for (&id, effect) in &runtime.effects {
             let effect = effect.borrow();
             if effect.owner_world == Some(world.id())
+                && accepts(effect.role)
                 && effect
                     .owner_entity
                     .is_some_and(|entity| crate::ui::branch::is_in_subtree(world, root, entity))
@@ -81,6 +90,22 @@ pub(crate) fn wake(world: &World, root: Entity) {
             }
         }
     });
+}
+
+pub(super) fn display_enabled(world: &World, mut entity: Entity) -> bool {
+    for _ in 0..=world.live_entity_count() {
+        if world
+            .get::<crate::ui::branch::CachedBranchVisibility>(entity)
+            .is_some_and(|branch| !branch.selected)
+        {
+            return false;
+        }
+        let Some(parent) = world.get::<crate::ui::Parent>(entity) else {
+            return true;
+        };
+        entity = parent.0;
+    }
+    false
 }
 
 pub(crate) fn enabled(world: &World, entity: Entity) -> bool {

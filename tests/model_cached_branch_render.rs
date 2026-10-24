@@ -516,6 +516,46 @@ fn cached_branch_routes_taps_and_reveals_hidden_state_without_rebuilding() {
         first
     );
     assert_eq!(state.tap_counts(), (2, 1));
+    dispatch_input(
+        &mut app.world,
+        Some(root),
+        &InputEvent::PointerDown {
+            kind: mirui::input::event::input::PointerKind::Mouse,
+            id: 0,
+            x: 8.into(),
+            y: 8.into(),
+        },
+        3_000,
+        128,
+        96,
+    );
+    state.select(true);
+    flush_signal_dirty(&mut app.world);
+    state.select(false);
+    flush_signal_dirty(&mut app.world);
+    dispatch_input(
+        &mut app.world,
+        Some(root),
+        &InputEvent::PointerUp {
+            kind: mirui::input::event::input::PointerKind::Mouse,
+            id: 0,
+            x: 8.into(),
+            y: 8.into(),
+        },
+        3_050,
+        128,
+        96,
+    );
+    assert!(
+        !app.world
+            .resource::<GestureSystem>()
+            .unwrap()
+            .events
+            .buffer
+            .iter()
+            .any(|event| matches!(event, GestureEvent::Tap { .. })),
+        "a press cannot survive hiding and revealing its cached branch"
+    );
     assert_eq!(app.world.find_by_id("branch_first"), Some(first));
     assert_eq!(app.world.find_by_id("branch_second"), Some(second));
 }

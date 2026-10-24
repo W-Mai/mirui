@@ -68,6 +68,58 @@ fn visible_children(world: &World, parent: Entity) -> Vec<Entity> {
 }
 
 #[test]
+fn cached_bindings_defer_display_but_keep_visibility_and_nested_selection_live() {
+    let mut app = mirui::app::App::headless(80, 80);
+    let root = app.spawn_root().id();
+    let outer = Signal::new(false);
+    let inner = Signal::new(false);
+    let value = Signal::new(10_u16);
+    let visible = Signal::new(true);
+    let (outer_read, inner_read, value_read, visible_read) =
+        (outer.clone(), inner.clone(), value.clone(), visible.clone());
+    let calls = Rc::new(Cell::new(0));
+    let counted = calls.clone();
+    app.compose(root, |cx| {
+        ui! {
+            if $outer_read {
+                Column(id: "cached-root") {
+                    View(id: "display", width: ${ {
+                        counted.set(counted.get() + 1);
+                        value_read.get()
+                    } }, visible: $visible_read)
+                    if $inner_read {
+                        View(id: "nested-yes", width: 10, height: 10)
+                    } else {
+                        View(id: "nested-no", width: 10, height: 10)
+                    }
+                }
+            }
+        };
+    });
+    let display = app.world.find_by_id("display").unwrap();
+    let yes = app.world.find_by_id("nested-yes").unwrap();
+    assert_eq!(calls.get(), 1);
+    for width in [20, 30, 40] {
+        value.set(width);
+        flush_signal_dirty(&mut app.world);
+    }
+    assert_eq!(calls.get(), 1);
+    inner.set(true);
+    visible.set(false);
+    flush_signal_dirty(&mut app.world);
+    assert!(app.world.has::<Hidden>(display));
+    assert!(!ui::branch::is_effectively_hidden(&app.world, yes));
+    outer.set(true);
+    flush_signal_dirty(&mut app.world);
+    assert_eq!(calls.get(), 2);
+    assert_eq!(
+        app.world.get::<Style>(display).unwrap().layout.width,
+        Dimension::from(40)
+    );
+    assert!(app.world.has::<Hidden>(display));
+}
+
+#[test]
 fn reactive_if_keeps_all_roots_and_state_at_a_stable_position() {
     let mut app = mirui::app::App::headless(80, 80);
     let root = app.spawn_root().id();

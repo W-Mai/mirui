@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Hiding a cached conditional branch retires its captured and queued input before it can be selected again.
+
 - `ui!` initializes ordinary components through `Default` and assigns their public properties, preserving private component state and rejecting duplicate properties.
 - Resource loaders retain typed state across `Pending` and resume only when woken. Prepared invocation slots, metadata-to-value promotion and generation checks share the existing manager and subscriptions.
 - Resource metadata probing uses explicitly registered `ProbeLoader` implementations instead of decoding through ordinary loaders. `MirxLoader` supports metadata-only registration with `add_probed_loader`.
@@ -71,6 +73,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Empty texture regions validate geometry without accessing source devices or requiring completed native contents.
 
 ### Performance
+
+- Cached conditional branches defer generated display bindings until selected while retaining structural maintenance and business effects. Reactive batches reuse prepared ancestry depths and recheck execution gates after tree changes.
 
 - Layout geometry publication shares sparse lookup paths and computes common ancestor placement once per publication. Dense demand retains tree traversal; layout-owned caches release on retirement and memory warnings.
 

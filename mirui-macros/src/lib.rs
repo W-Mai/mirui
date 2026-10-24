@@ -297,6 +297,46 @@ fn reactive_property(widget: &str, attr: &str) -> Option<&'static str> {
     }
 }
 
+fn binding_role(property: &syn::Ident) -> proc_macro2::TokenStream {
+    let role = match property.to_string().as_str() {
+        "Visible" | "Page" | "PageTransition" | "LazyListItems" | "LazyListExtent" => "Maintenance",
+        "TextContent" | "BackgroundColor" | "TextColor" | "BorderColor" | "BorderWidth"
+        | "ButtonNormalColor" | "RenderKey" | "Transform" | "FontSize" | "Direction" | "Width"
+        | "Height" | "Left" | "Top" | "Paragraph" | "TextPath" | "ProgressValue"
+        | "SliderValue" | "SwitchOn" | "CheckboxChecked" => "Display",
+        _ => "Ordinary",
+    };
+    let role = syn::Ident::new(role, property.span());
+    quote! { ::mirui::__macro_support::BindingRole::#role }
+}
+
+#[cfg(test)]
+mod binding_role_tests {
+    #[test]
+    fn lifecycle_properties_never_use_the_display_gate() {
+        for property in [
+            "Visible",
+            "Page",
+            "PageTransition",
+            "LazyListItems",
+            "LazyListExtent",
+        ] {
+            let role =
+                super::binding_role(&syn::Ident::new(property, proc_macro2::Span::call_site()));
+            assert!(role.to_string().ends_with("Maintenance"));
+        }
+        for (property, expected) in [
+            ("TextContent", "Display"),
+            ("Width", "Display"),
+            ("CustomProperty", "Ordinary"),
+        ] {
+            let role =
+                super::binding_role(&syn::Ident::new(property, proc_macro2::Span::call_site()));
+            assert!(role.to_string().ends_with(expected));
+        }
+    }
+}
+
 fn responsive_property(widget: &str, attr: &str) -> Option<&'static str> {
     match attr {
         "bg_color" => Some("BackgroundColor"),
@@ -1153,6 +1193,7 @@ impl MiruiRune {
                 proc_macro2::Span::mixed_site(),
             );
             let property = &binding.property;
+            let role = binding_role(property);
             let expr = &binding.expr;
             let body = if property == "Page" || property == "PageTransition" {
                 let kind = quote::format_ident!("{var}_kind");
@@ -1198,7 +1239,7 @@ impl MiruiRune {
                 }
             };
             tokens.extend(quote! {
-                let #prepared = mirui::__macro_support::prepare_widget_effect(#var, move || {
+                let #prepared = mirui::__macro_support::prepare_widget_effect(#var, #role, move || {
                     #body
                 });
             });
@@ -1405,7 +1446,7 @@ impl MiruiRune {
                 mirui::ui::branch::prepare(#world, __parent_e, &__branches);
                 let __selected = mirui::__macro_support::__Cell::new(None::<usize>);
                 mirui::__macro_support::with_world_scope(#world, || {
-                    mirui::core::reactive::effect_with_widget(__parent_e, move || {
+                    mirui::__macro_support::effect_with_role(__parent_e, mirui::__macro_support::BindingRole::Maintenance, move || {
                         let __next = Some(match #read {
                             #(#select_arms)*
                         });
@@ -1444,7 +1485,7 @@ impl MiruiRune {
                     .get::<mirui::ui::Children>(__parent_e)
                     .map_or(0, |children| children.0.len());
                 mirui::__macro_support::with_world_scope(#world, || {
-                    mirui::core::reactive::effect_with_widget(__parent_e, move || {
+                    mirui::__macro_support::effect_with_role(__parent_e, mirui::__macro_support::BindingRole::Maintenance, move || {
                         let __sel = #read;
                         mirui::__macro_support::with_world(|__w| {
                             let mut __mounted = __mounted.borrow_mut();
@@ -1789,7 +1830,7 @@ impl MiruiRune {
                 mirui::ui::branch::prepare(#world, __parent_e, &__branches);
                 let __selected = mirui::__macro_support::__Cell::new(None::<usize>);
                 mirui::__macro_support::with_world_scope(#world, || {
-                    mirui::core::reactive::effect_with_widget(__parent_e, move || {
+                    mirui::__macro_support::effect_with_role(__parent_e, mirui::__macro_support::BindingRole::Maintenance, move || {
                         let __next: ::core::option::Option<usize> = #cascade;
                         let __previous = __selected.get();
                         if __previous != __next {
@@ -1832,7 +1873,7 @@ impl MiruiRune {
                 );
                 let __parent_e = #parent_var;
                 mirui::__macro_support::with_world_scope(#world, || {
-                    mirui::core::reactive::effect_with_widget(__parent_e, move || {
+                    mirui::__macro_support::effect_with_role(__parent_e, mirui::__macro_support::BindingRole::Maintenance, move || {
                         let __items = (#iterable).into_iter();
                         mirui::__macro_support::with_world(|__w| {
                             let __n_old = __rows.borrow().len();
@@ -1894,7 +1935,7 @@ impl MiruiRune {
                 ));
                 let __parent_e = #parent_var;
                 mirui::__macro_support::with_world_scope(#world, || {
-                    mirui::core::reactive::effect_with_widget(__parent_e, move || {
+                    mirui::__macro_support::effect_with_role(__parent_e, mirui::__macro_support::BindingRole::Maintenance, move || {
                         let __items = (#iterable).into_iter();
                         mirui::__macro_support::with_world(|__w| {
                             let mut __buffers = __rows.borrow_mut();
@@ -2888,7 +2929,9 @@ impl syn::visit_mut::VisitMut for BoundCaptureRewriter {
             return;
         };
         if !path.path.segments.last().is_some_and(|segment| {
-            segment.ident == "effect_with_widget" || segment.ident == "prepare_widget_effect"
+            segment.ident == "effect_with_widget"
+                || segment.ident == "effect_with_role"
+                || segment.ident == "prepare_widget_effect"
         }) {
             return;
         }

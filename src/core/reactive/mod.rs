@@ -1,5 +1,7 @@
 extern crate alloc;
 
+#[cfg(test)]
+mod binding_tests;
 mod graph;
 mod identity;
 pub(crate) mod retained;
@@ -878,6 +880,56 @@ fn pop_visual_widget_for(
     }
 }
 
+fn effect_tree_revision(world: &World) -> (u64, u64) {
+    (
+        world.component_revision::<crate::ui::Parent>(),
+        world.component_revision::<crate::ui::Children>(),
+    )
+}
+
+fn order_effects(world: &World, remaining: usize) {
+    let retained = world.component_count(core::any::TypeId::of::<retained::RetainedEffects>()) > 0;
+    if !retained
+        && world.component_count(core::any::TypeId::of::<
+            crate::ui::branch::CachedBranchVisibility,
+        >()) == 0
+    {
+        return;
+    }
+    with_reactive(|runtime| {
+        let count = remaining.min(runtime.dirty_effects.len());
+        for (index, id) in runtime.dirty_effects.iter().take(count).enumerate() {
+            if let Some(effect) = runtime.effects.get(id) {
+                let mut effect = effect.borrow_mut();
+                // Never resolve a foreign entity against this World's parent chain.
+                effect.depth = if effect.owner_world.is_some_and(|owner| owner != world.id()) {
+                    usize::MAX
+                } else if effect.role == BindingRole::Ordinary && !retained {
+                    index
+                } else {
+                    effect
+                        .owner_entity
+                        .map_or(0, |entity| retained::depth(world, entity))
+                };
+            }
+        }
+        let effects = &runtime.effects;
+        runtime.dirty_effects.make_contiguous()[..count].sort_unstable_by_key(|id| {
+            effects.get(id).map(|effect| {
+                let effect = effect.borrow();
+                let lane = if effect.owner_world.is_some_and(|owner| owner != world.id()) {
+                    2
+                } else if effect.role == BindingRole::Ordinary {
+                    0
+                } else {
+                    1
+                };
+                (lane, effect.depth, effect.role, *id)
+            })
+        });
+    });
+}
+
 /// Drain queued reactive work at input delivery and frame boundaries:
 /// re-run dirty effects (which may dirty more), then mark dirty widgets. Dead
 /// entities are skipped (no reverse index; subscriber lists may retain
@@ -917,24 +969,17 @@ pub fn flush_signal_dirty(world: &mut World) {
     let world_id = world.id();
     for _ in 0..FLUSH_MAX_PASSES {
         let pending_effects = with_reactive(|r| r.dirty_effects.len());
-        if pending_effects > 1
-            && world.component_count(core::any::TypeId::of::<retained::RetainedEffects>()) > 0
-        {
-            with_reactive(|r| {
-                let effects = &r.effects;
-                r.dirty_effects
-                    .make_contiguous()
-                    .sort_unstable_by_key(|id| {
-                        let depth = effects
-                            .get(id)
-                            .and_then(|effect| effect.borrow().owner_entity)
-                            .map_or(0, |entity| retained::depth(world, entity));
-                        (depth, *id)
-                    });
-            });
+        if pending_effects > 1 {
+            order_effects(world, pending_effects);
         }
+        let mut tree_revision = effect_tree_revision(world);
         let mut ran_effect = false;
-        for _ in 0..pending_effects {
+        for index in 0..pending_effects {
+            let revision = effect_tree_revision(world);
+            if revision != tree_revision {
+                order_effects(world, pending_effects - index);
+                tree_revision = revision;
+            }
             let effect = with_reactive(|r| {
                 let id = r.dirty_effects.pop_front()?;
                 match r.effects.get(&id).map(|effect| effect.borrow().owner_world) {
@@ -947,12 +992,20 @@ pub fn flush_signal_dirty(world: &mut World) {
                 }
             });
             if let Some(effect) = effect {
-                let owner = with_reactive(|r| {
-                    r.effects
-                        .get(&effect)
-                        .and_then(|effect| effect.borrow().owner_entity)
+                let binding = with_reactive(|r| {
+                    r.effects.get(&effect).map(|effect| {
+                        let effect = effect.borrow();
+                        (effect.owner_entity, effect.role)
+                    })
                 });
-                if owner.is_some_and(|entity| !retained::enabled(world, entity)) {
+                if binding.is_some_and(|(owner, role)| {
+                    owner.is_some_and(|entity| {
+                        !world.is_alive(entity)
+                            || !retained::enabled(world, entity)
+                            || (role == BindingRole::Display
+                                && !retained::display_enabled(world, entity))
+                    })
+                }) {
                     continue;
                 }
                 run_effect(effect);
@@ -1613,6 +1666,17 @@ struct EffectInner {
     owner_world: Option<WorldId>,
     graph_consumer: ConsumerKey,
     model_consumer: Option<ConsumerKey>,
+    role: BindingRole,
+    depth: usize,
+}
+
+/// Execution responsibility assigned by framework-generated bindings.
+#[doc(hidden)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum BindingRole {
+    Maintenance,
+    Ordinary,
+    Display,
 }
 
 fn unregister_effect(id: EffectId) {
@@ -1654,7 +1718,7 @@ impl Drop for EffectInitGuard {
 
 impl Effect {
     pub fn new(f: impl Fn() + 'static) -> Effect {
-        Self::spawn(f, None)
+        Self::spawn(f, None, BindingRole::Ordinary)
     }
 
     /// The widget this effect is bound to, if created via [`effect_with_widget`].
@@ -1667,7 +1731,7 @@ impl Effect {
         })
     }
 
-    fn spawn(f: impl Fn() + 'static, owner_entity: Option<Entity>) -> Effect {
+    fn spawn(f: impl Fn() + 'static, owner_entity: Option<Entity>, role: BindingRole) -> Effect {
         let owner_world = with_reactive(|r| r.world_id);
         assert!(
             owner_entity.is_none() || owner_world.is_some(),
@@ -1707,6 +1771,8 @@ impl Effect {
                 owner_world,
                 graph_consumer,
                 model_consumer: None,
+                role,
+                depth: 0,
             }));
             r.effects.insert(id, inner);
             let effect_count = r.effects.len();
@@ -1739,27 +1805,40 @@ impl Drop for Effect {
 /// one would immediately unregister the effect.
 #[cfg_attr(not(test), allow(dead_code))]
 pub fn effect_with_widget(entity: Entity, f: impl Fn() + 'static) {
-    core::mem::forget(Effect::spawn(f, Some(entity)));
+    effect_with_role(entity, BindingRole::Ordinary, f);
+}
+
+#[doc(hidden)]
+pub fn effect_with_role(entity: Entity, role: BindingRole, f: impl Fn() + 'static) {
+    if role != BindingRole::Ordinary {
+        with_world(|world| {
+            world.watch_component_revision::<crate::ui::Parent>();
+            world.watch_component_revision::<crate::ui::Children>();
+        });
+    }
+    core::mem::forget(Effect::spawn(f, Some(entity), role));
 }
 
 pub(crate) mod widget_binding {
-    use super::{Entity, World, effect_with_widget, with_world_scope};
+    use super::{BindingRole, Entity, World, effect_with_role, with_world_scope};
 
     pub struct PreparedWidgetEffect<F> {
         entity: Entity,
         run: F,
+        role: BindingRole,
     }
 
     pub fn prepare_widget_effect<F: Fn() + 'static>(
         entity: Entity,
+        role: BindingRole,
         run: F,
     ) -> PreparedWidgetEffect<F> {
-        PreparedWidgetEffect { entity, run }
+        PreparedWidgetEffect { entity, run, role }
     }
 
     impl<F: Fn() + 'static> PreparedWidgetEffect<F> {
         pub fn install(self, world: &mut World) {
-            with_world_scope(world, || effect_with_widget(self.entity, self.run));
+            with_world_scope(world, || effect_with_role(self.entity, self.role, self.run));
         }
     }
 }
@@ -2408,10 +2487,14 @@ mod tests {
         let mut prepared = None;
         assert_eq!(
             crate::test_support::tracked_allocations(|| {
-                prepared = Some(widget_binding::prepare_widget_effect(entity, move || {
-                    let _ = observed.get();
-                    counted.set(counted.get() + 1);
-                }));
+                prepared = Some(widget_binding::prepare_widget_effect(
+                    entity,
+                    BindingRole::Ordinary,
+                    move || {
+                        let _ = observed.get();
+                        counted.set(counted.get() + 1);
+                    },
+                ));
             }),
             0
         );
@@ -2838,7 +2921,9 @@ mod tests {
         reset();
         let mut world = World::new();
         let entity = world.spawn_empty();
-        let owned = with_world_scope(&mut world, || Effect::spawn(|| {}, Some(entity)));
+        let owned = with_world_scope(&mut world, || {
+            Effect::spawn(|| {}, Some(entity), BindingRole::Ordinary)
+        });
         assert_eq!(owned.owner(), Some(entity));
         let standalone = Effect::new(|| {});
         assert_eq!(standalone.owner(), None);

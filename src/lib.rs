@@ -164,6 +164,7 @@ pub mod __macro_support {
     pub use crate::anim::generated::{MotionFrame, advance_motion};
     pub use crate::core::model::{BindingOwner, ModelOwnerError};
     pub use crate::core::reactive::widget_binding::{PreparedWidgetEffect, prepare_widget_effect};
+    pub use crate::core::reactive::{BindingRole, effect_with_role};
     pub use crate::core::timer::generated::{
         TimerSchedule, bound_timer, require_timer_model, static_timer,
     };

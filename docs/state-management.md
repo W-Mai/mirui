@@ -895,16 +895,7 @@ separately when targeting a bounded-memory device.
 - **Effect ownership**: an effect created outside an App remains worldless until it first reads a registered model, then belongs to that model's App. It cannot read models from two Apps. While unbound, it has no structural World access, including during the run that first binds it; later runs use the bound App's internal execution window. Ordinary author code cannot obtain that World through `core::reactive`; generated tree updates use the hidden macro support boundary.
 - **Structural World access**: the internal ambient window is paired with its actual World identity. An owner-only composition scope cannot inherit another World's window; leaving that scope restores owner context without recreating an ended structural window. Generated reactive tree updates use explicit matching windows and retain the existing mutable-borrow checks.
 - **Effect delivery**: `#[effects]` extractors return `Option<E>` or `[Option<E>; N]`. Instance consumers registered with `model.on_effect` borrow each present event and cannot start another model write during delivery.
-- **Reactive `if` branches**: every branch body is constructed once when
-  its parent is composed, even when initially hidden. Multiple top-level
-  widgets keep their component state and source order across selections.
-  Hidden branches do not participate in layout, drawing, or pointer hits.
-  Construction code runs eagerly, and IDs must be unique across branches.
-  A branch root's own `visible` binding remains independent of its branch
-  selection. Reactive bindings in a hidden branch may still update its cached
-  state.
-  Put nested reactive `if`, `match`, or `walk`, and slot operations inside a
-  widget so their children remain under the cached branch root.
+- **Reactive `if` branches**: every branch body is constructed once when its parent is composed, even when initially hidden. Multiple top-level widgets keep their component state and source order across selections. Hidden branches do not participate in layout, drawing, or pointer hits. Construction code runs eagerly, and IDs must be unique across branches. Generated display-property bindings retain subscriptions but defer updates while their cached branch is unselected; selection reads the latest state before layout. Branch selection, list-source maintenance and `visible` bindings continue running. Ordinary effects and Model effect delivery are unchanged, and authored `Hidden` alone does not pause bindings. Existing retained-page and row-lifetime guards still apply to every binding. Put nested reactive `if`, `match`, or `walk`, and slot operations inside a widget so their children remain under the cached branch root.
 - **Reactive `match`**: when no arm binds a value, all arms are constructed
   once when their parent is composed; switching only changes visibility and
   retains widget state and source order. Construction code in every arm runs
