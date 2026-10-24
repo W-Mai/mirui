@@ -376,6 +376,9 @@ fn set_position_inner(
 }
 
 #[cfg(test)]
+mod keyed_walk_tests;
+
+#[cfg(test)]
 mod position_tests {
     use super::*;
     use crate::ui::dirty::Dirty;

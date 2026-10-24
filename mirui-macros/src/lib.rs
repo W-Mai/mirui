@@ -1917,9 +1917,20 @@ impl MiruiRune {
                             for (_, __e) in __old.drain(..) {
                                 mirui::__macro_support::despawn_subtree(__w, __e);
                             }
-                            // retain-then-append reorders the rows to match the new
-                            // key order while leaving any static siblings in place.
-                            if let Some(children) = __w.get_mut::<mirui::ui::Children>(__parent_e) {
+                            // Retain unrelated siblings, then append the managed rows.
+                            // An already ordered row suffix needs no mutable borrow.
+                            let __children_changed = __w.get::<mirui::ui::Children>(__parent_e)
+                                .is_some_and(|children| {
+                                    let Some(prefix_len) = children.0.len().checked_sub(__new.len()) else {
+                                        return true;
+                                    };
+                                    let (siblings, rows) = children.0.split_at(prefix_len);
+                                    !rows.iter().copied().eq(__new.iter().map(|(_, entity)| *entity))
+                                        || siblings.iter().any(|entity| __new.iter().any(|(_, row)| row == entity))
+                                });
+                            if __children_changed
+                                && let Some(children) = __w.get_mut::<mirui::ui::Children>(__parent_e)
+                            {
                                 children.0.retain(|e| !__new.iter().any(|(_, row)| row == e));
                                 for (_, __e) in __new.iter() {
                                     children.0.push(*__e);
