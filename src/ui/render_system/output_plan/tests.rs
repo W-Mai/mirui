@@ -11,6 +11,63 @@ type TestApp = crate::app::App<
     crate::surface::framebuf::FramebufSurface<fn(&[u8], crate::types::PhysicalRect)>,
 >;
 
+#[test]
+fn damage_scan_reuses_only_tracked_inputs_and_resets_at_plan_boundaries() {
+    let mut world = World::new();
+    world.insert_resource(OutputRelations::default());
+    world.insert_resource(ViewRegistry::default());
+    let entity = world.spawn_empty();
+    world.insert(entity, Dirty);
+    let mut plan = TexturePlan::default();
+    plan.nodes.push(NodeGeometry {
+        extra: None,
+        capture: None,
+        workspace_bytes: 0,
+        measurement_valid: true,
+    });
+    for _ in 0..2 {
+        plan.nodes[0].measurement_valid = true;
+        plan.invalidate_changed_measurements(&world, &[entity]);
+        assert!(
+            !plan.nodes[0].measurement_valid,
+            "unwatched input must be scanned"
+        );
+    }
+    crate::input::event::hit_test::prepare_geometry_tracking(&mut world);
+    plan.invalidate_changed_measurements(&world, &[entity]);
+    plan.nodes[0].measurement_valid = true;
+    assert_eq!(
+        crate::test_support::tracked_allocations(|| {
+            plan.invalidate_changed_measurements(&world, &[entity]);
+        }),
+        0
+    );
+    assert!(
+        plan.nodes[0].measurement_valid,
+        "same inputs retain completed measurements"
+    );
+    world.get_mut::<Dirty>(entity);
+    plan.invalidate_changed_measurements(&world, &[entity]);
+    assert!(!plan.nodes[0].measurement_valid);
+    world.remove::<Dirty>(entity);
+    world.invalidate_visual(entity);
+    plan.nodes[0].measurement_valid = true;
+    plan.invalidate_changed_measurements(&world, &[entity]);
+    assert!(!plan.nodes[0].measurement_valid);
+    plan.invalidate_measurements();
+    assert!(plan.damage_scan.is_none());
+    plan.invalidate_changed_measurements(&world, &[entity]);
+    plan.invalidate_source_measurements(&world, &[entity], entity);
+    assert!(plan.damage_scan.is_none());
+    plan.invalidate_changed_measurements(&world, &[entity]);
+    plan.invalidate_structure();
+    assert!(plan.damage_scan.is_none());
+    let tree = LayoutNode::new(LayoutStyle::default());
+    plan.build(&world, &tree, &[entity]);
+    assert!(plan.damage_scan.is_none());
+    assert!(!plan.nodes[0].measurement_valid);
+}
+
 fn app(width: u16, height: u16) -> TestApp {
     let mut app = App::headless(width, height);
     app.with_default_widgets()

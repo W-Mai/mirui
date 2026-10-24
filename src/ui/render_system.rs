@@ -917,7 +917,10 @@ fn prune_parked_layout_nodes(
     reachable: &mut Vec<Entity>,
 ) {
     if parked.is_empty() {
-        *reachable = Vec::new();
+        reachable.clear();
+        if reachable.capacity() > active_entities.len().max(1).saturating_mul(4) {
+            *reachable = Vec::new();
+        }
         return;
     }
     reachable.clear();

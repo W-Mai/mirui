@@ -103,6 +103,7 @@ pub(crate) struct TexturePlan {
     graph: OutputGraph,
     captures: Vec<Capture>,
     nodes: Vec<NodeGeometry>,
+    damage_scan: Option<[u64; 2]>,
     structure_valid: bool,
     relations_revision: u64,
     geometry_valid: bool,
@@ -136,6 +137,7 @@ impl TexturePlan {
     }
 
     fn invalidate_measurements(&mut self) {
+        self.damage_scan = None;
         self.invalidate_geometry();
         for node in &mut self.nodes {
             node.measurement_valid = false;
@@ -147,6 +149,14 @@ impl TexturePlan {
             || world.resource::<ViewRegistry>().is_none()
         {
             self.invalidate_measurements();
+            return;
+        }
+        // Unwatched component types cannot certify an unchanged input.
+        let revisions = world
+            .tracked_component_revision::<Dirty>()
+            .zip(world.tracked_component_revision::<VisualDirty>())
+            .map(|(layout, visual)| [layout, visual]);
+        if revisions.is_some() && self.damage_scan == revisions {
             return;
         }
         let mut geometry_changed = false;
@@ -163,9 +173,11 @@ impl TexturePlan {
         if geometry_changed {
             self.invalidate_geometry();
         }
+        self.damage_scan = revisions;
     }
 
     fn invalidate_structure(&mut self) {
+        self.damage_scan = None;
         self.invalidate_geometry();
         self.structure_valid = false;
         self.nodes.clear();
@@ -264,6 +276,7 @@ impl TexturePlan {
     }
 
     fn build(&mut self, world: &World, node: &LayoutNode, entities: &[Entity]) {
+        self.damage_scan = None;
         crate::trace_span!("outputs.build_plan");
         self.graph.clear();
         self.captures.clear();
@@ -394,6 +407,7 @@ impl TexturePlan {
         entities: &[Entity],
         source: Entity,
     ) {
+        self.damage_scan = None;
         if let Some(relations) = world.resource::<OutputRelations>() {
             relations.visit_current_dependencies(|consumer, dependency, descriptor| {
                 if dependency == source && (descriptor.kind)() == TypeId::of::<WidgetTexture>() {

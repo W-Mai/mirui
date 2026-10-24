@@ -588,10 +588,14 @@ impl World {
     }
 
     pub(crate) fn component_revision<T: 'static>(&self) -> u64 {
+        self.tracked_component_revision::<T>().unwrap_or(0)
+    }
+
+    pub(crate) fn tracked_component_revision<T: 'static>(&self) -> Option<u64> {
         self.watched_component_types
             .iter()
             .find(|watched| watched.type_id == TypeId::of::<T>())
-            .map_or(0, |watched| watched.revision)
+            .map(|watched| watched.revision)
     }
 
     pub(crate) fn component_membership_revision<T: 'static>(&self) -> u64 {
