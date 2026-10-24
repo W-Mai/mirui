@@ -456,18 +456,7 @@ fn visible_paint_coverage(
     };
     let mut coverage = PaintCoverage::EMPTY;
     let mut reusable = true;
-    let matching =
-        preparation.and_then(|prepared| prepared.matching_views(world, registry, entity, position));
-    for (index, view) in registry.paint_iter().enumerate() {
-        if !matching.as_ref().map_or_else(
-            || {
-                view.component_filter()
-                    .is_none_or(|ty| world.has_type(entity, ty))
-            },
-            |matching| matching.contains(index),
-        ) {
-            continue;
-        }
+    for view in prepared_paint::paint_views(world, registry, entity, position, preparation) {
         reusable &= view.measurement_reusable();
         let measured = view.measurement().and_then(|measure| {
             measure(world, entity, rect, &|source| {
@@ -2157,18 +2146,7 @@ fn render_views<'frame>(
         return Ok(());
     };
     crate::trace_span!("draw.view_dispatch");
-    let matching =
-        preparation.and_then(|prepared| prepared.matching_views(world, registry, entity, position));
-    for (index, view) in registry.paint_iter().enumerate() {
-        if !matching.as_ref().map_or_else(
-            || {
-                view.component_filter()
-                    .is_none_or(|ty| world.has_type(entity, ty))
-            },
-            |matching| matching.contains(index),
-        ) {
-            continue;
-        }
+    for view in prepared_paint::paint_views(world, registry, entity, position, preparation) {
         let reusable = preparation.is_some() && view.measurement_reusable();
         view.paint(world, entity, ctx);
         if reusable

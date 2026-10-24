@@ -72,6 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Paint measurement and dispatch iterate cached View membership bits instead of scanning every registered paint hook for each node.
+
 - FollowBounds skips unchanged resolved-state writes after updating motion targets, preserving size and visual invalidation.
 
 - Keyed rows skip unchanged child-order writes while preserving row identity, bindings and unrelated siblings.

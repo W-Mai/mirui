@@ -2,7 +2,7 @@ use crate::ecs::{Entity, World};
 use crate::types::{Rect, Transform, Transform3D};
 use crate::ui::OffscreenRender;
 use crate::ui::theme::WidgetState;
-use crate::ui::view::ViewRegistry;
+use crate::ui::view::{View, ViewRegistry};
 use alloc::vec::Vec;
 use core::cell::Cell;
 
@@ -127,11 +127,15 @@ impl PreparedPaint {
             let present = PreparedViews {
                 words: &present[1..],
             };
-            for (index, view) in registry.paint_iter().enumerate() {
-                if present.contains(index)
-                    && view
-                        .component_filter()
-                        .is_none_or(|kind| world.has_type(entity, kind))
+            let mut next = present.next_position(0);
+            while let Some(index) = next {
+                let view = registry
+                    .paint_at(index)
+                    .expect("present paint registration");
+                next = present.next_position(index + 1);
+                if view
+                    .component_filter()
+                    .is_none_or(|kind| world.has_type(entity, kind))
                 {
                     let word = &row[1 + index / usize::BITS as usize];
                     word.set(word.get() | (1 << (index % usize::BITS as usize)));
@@ -240,9 +244,52 @@ pub(super) struct PreparedViews<'a> {
 }
 
 impl PreparedViews<'_> {
+    fn next_position(&self, start: usize) -> Option<usize> {
+        let bits = usize::BITS as usize;
+        let mut index = start / bits;
+        let mut word = self.words.get(index)?.get() & (usize::MAX << (start % bits));
+        loop {
+            if word != 0 {
+                return Some(index * bits + word.trailing_zeros() as usize);
+            }
+            index += 1;
+            word = self.words.get(index)?.get();
+        }
+    }
+
+    #[cfg(test)]
     pub(super) fn contains(&self, index: usize) -> bool {
         self.words[index / usize::BITS as usize].get() & (1 << (index % usize::BITS as usize)) != 0
     }
+}
+
+pub(super) fn paint_views<'a>(
+    world: &'a World,
+    registry: &'a ViewRegistry,
+    entity: Entity,
+    position: usize,
+    preparation: Option<&'a PreparedPaint>,
+) -> impl Iterator<Item = &'a View> + 'a {
+    let matching =
+        preparation.and_then(|prepared| prepared.matching_views(world, registry, entity, position));
+    let mut next = 0;
+    core::iter::from_fn(move || {
+        loop {
+            let index = match &matching {
+                Some(matching) => matching.next_position(next)?,
+                None => next,
+            };
+            next = index + 1;
+            let view = registry.paint_at(index)?;
+            if matching.is_some()
+                || view
+                    .component_filter()
+                    .is_none_or(|kind| world.has_type(entity, kind))
+            {
+                return Some(view);
+            }
+        }
+    })
 }
 
 #[cfg(test)]
@@ -909,6 +956,24 @@ mod tests {
     }
 
     #[test]
+    fn sparse_positions_skip_empty_words_and_stop_at_storage_boundary() {
+        let bits = usize::BITS as usize;
+        let words = [
+            Cell::new(0),
+            Cell::new(1),
+            Cell::new(1 << (bits - 1)),
+            Cell::new(0),
+        ];
+        let matching = PreparedViews { words: &words };
+        assert_eq!(matching.next_position(0), Some(bits));
+        assert_eq!(matching.next_position(bits), Some(bits));
+        assert_eq!(matching.next_position(bits + 1), Some(3 * bits - 1));
+        assert_eq!(matching.next_position(3 * bits), None);
+        assert_eq!(matching.next_position(4 * bits), None);
+        assert_eq!(PreparedViews { words: &[] }.next_position(0), None);
+    }
+
+    #[test]
     fn view_membership_spans_words_and_refreshes_between_batches() {
         use crate::ui::view::View;
         struct Absent;
@@ -941,13 +1006,20 @@ mod tests {
                 let matching = prepared
                     .matching_views(world, registry, entity, position)
                     .unwrap();
+                let mut sparse = paint_views(world, registry, entity, position, Some(prepared));
+                let mut fallback = paint_views(world, registry, entity, position, None);
                 for (index, view) in registry.paint_iter().enumerate() {
-                    assert_eq!(
-                        matching.contains(index),
-                        view.component_filter()
-                            .is_none_or(|kind| world.has_type(entity, kind))
-                    );
+                    let matches = view
+                        .component_filter()
+                        .is_none_or(|kind| world.has_type(entity, kind));
+                    assert_eq!(matching.contains(index), matches);
+                    if matches {
+                        assert!(core::ptr::eq(sparse.next().unwrap(), view));
+                        assert!(core::ptr::eq(fallback.next().unwrap(), view));
+                    }
                 }
+                assert!(sparse.next().is_none());
+                assert!(fallback.next().is_none());
             }
         };
         assert_eq!(
@@ -969,6 +1041,11 @@ mod tests {
             prepared
                 .matching_views(&world, &registry, entity, 0)
                 .is_none()
+        );
+        assert!(
+            paint_views(&world, &registry, entity, 0, Some(&prepared))
+                .map(core::ptr::from_ref)
+                .eq(paint_views(&world, &registry, entity, 0, None).map(core::ptr::from_ref))
         );
         prepared.resize(2, registry.paint_iter().len());
         check(&prepared, &world, &registry);
