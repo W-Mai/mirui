@@ -44,7 +44,7 @@ pub enum Position {
     Absolute,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LayoutStyle {
     pub direction: FlexDirection,
     pub wrap: FlexWrap,

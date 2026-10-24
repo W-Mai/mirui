@@ -74,6 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Layout refresh solves a single changed absolute leaf against its resolved parent when prepared inputs prove independence. Structural changes and unresolved constraints retain complete solving; text preparation and geometry publication remain shared.
+
 - Cached conditional branches defer generated display bindings until selected while retaining structural maintenance and business effects. Reactive batches reuse prepared ancestry depths and recheck execution gates after tree changes.
 
 - Layout geometry publication shares sparse lookup paths and computes common ancestor placement once per publication. Dense demand retains tree traversal; layout-owned caches release on retirement and memory warnings.

@@ -915,6 +915,7 @@ fn prune_parked_layout_nodes(
 struct LayoutTreeChanges {
     parked: bool,
     structure: bool,
+    solve: super::layout::solve::SolveScope,
 }
 
 fn refresh_layout_tree(
@@ -933,11 +934,22 @@ fn refresh_layout_tree(
     let Some(style) = world.get::<Style>(entity) else {
         return Ok(false);
     };
-    node.style = layout_style(world, entity, style.layout);
+    let next_style = layout_style(world, entity, style.layout);
+    let observe_solve =
+        !changes.structure && changes.solve != super::layout::solve::SolveScope::Full;
+    let was_absolute = node.style.position == super::layout::Position::Absolute;
+    let style_changed = observe_solve && node.style != next_style;
+    let old_intrinsic = (node.intrinsic_width, node.intrinsic_height);
+    node.style = next_style;
     node.intrinsic_width = None;
     node.intrinsic_height = None;
     apply_text_intrinsic(world, entity, node)?;
     apply_static_glyph_intrinsic(world, entity, style, node);
+    if observe_solve
+        && (style_changed || old_intrinsic != (node.intrinsic_width, node.intrinsic_height))
+    {
+        changes.solve.observe(node, was_absolute);
+    }
 
     let mut used = 0;
     if let Some(count) = world
@@ -1404,6 +1416,9 @@ fn compute_layout_snapshot(
     LayoutSnapshot::watch_maintenance(world);
     output_plan::invalidate_geometry(world);
     let mut previous = world.take_resource_box::<LayoutSnapshot>();
+    let local_solve = previous.as_ref().is_some_and(|snapshot| {
+        snapshot.matches(root, logical_w, logical_h) && !snapshot.bindings_pending
+    });
     if super::branch::is_authored_hidden(world, root) {
         output_plan::invalidate_structure(world);
         if let Some(cache) = world.resource::<Outputs<TextGeometry>>() {
@@ -1480,7 +1495,14 @@ fn compute_layout_snapshot(
             .begin_frame_with_owner_filter(|owner| visible_text_owner(world, &entities, owner));
     }
     entities.clear();
-    let mut changes = LayoutTreeChanges::default();
+    let mut changes = LayoutTreeChanges {
+        solve: if local_solve {
+            super::layout::solve::SolveScope::Unchanged
+        } else {
+            super::layout::solve::SolveScope::Full
+        },
+        ..Default::default()
+    };
     let mut snapshot = crate::trace_span!("layout.build_tree", {
         match previous {
             Some(mut snapshot) if snapshot.root == root => {
@@ -1545,13 +1567,19 @@ fn compute_layout_snapshot(
         }
     });
     crate::trace_span!("layout.initial_compute", {
-        compute_layout(
-            &mut snapshot.layout_tree,
-            Fixed::ZERO,
-            Fixed::ZERO,
-            logical_w.into(),
-            logical_h.into(),
-        )
+        let solved_locally =
+            local_solve && !changes.structure && changes.solve.apply(&mut snapshot.layout_tree);
+        #[cfg(test)]
+        local_layout_tests::record_solve(solved_locally);
+        if !solved_locally {
+            compute_layout(
+                &mut snapshot.layout_tree,
+                Fixed::ZERO,
+                Fixed::ZERO,
+                logical_w.into(),
+                logical_h.into(),
+            );
+        }
     });
     crate::trace_span!("layout.collect_entities", {
         snapshot.entities.clear();
@@ -1587,6 +1615,8 @@ fn compute_layout_snapshot(
     };
     if intrinsic_changed {
         crate::trace_span!("layout.final_compute", {
+            #[cfg(test)]
+            local_layout_tests::record_solve(false);
             compute_layout(
                 &mut snapshot.layout_tree,
                 Fixed::ZERO,
@@ -4118,6 +4148,9 @@ fn visit_overlay_rects(world: &World, mut visit: impl FnMut(Rect)) {
         }
     }
 }
+
+#[cfg(test)]
+mod local_layout_tests;
 
 #[cfg(test)]
 mod layout_snapshot_reuse_check {

@@ -199,7 +199,7 @@ fn next_line(
     })
 }
 
-fn layout_absolute(child: &mut LayoutNode, x: Fixed, y: Fixed, w: Fixed, h: Fixed) {
+pub(super) fn layout_absolute(child: &mut LayoutNode, x: Fixed, y: Fixed, w: Fixed, h: Fixed) {
     let abs_x = x + child.style.left.resolve(w).unwrap_or(Fixed::ZERO);
     let abs_y = y + child.style.top.resolve(h).unwrap_or(Fixed::ZERO);
     let abs_w = constrain_size(
