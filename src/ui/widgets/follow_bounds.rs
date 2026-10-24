@@ -226,12 +226,17 @@ fn assign(world: &mut World, entity: Entity, geometry: Option<Resolved>) -> bool
         geometry.rect = motion::redirect(world, entity, geometry.rect);
         geometry
     });
+    let previous = world.get::<FollowState>(entity).unwrap();
+    let geometry_changed = previous.geometry != geometry;
+    if !geometry_changed && previous.warned == geometry.is_none() {
+        return false;
+    }
     let state = world.get_mut::<FollowState>(entity).unwrap();
     if geometry.is_none() && !state.warned {
         crate::warn!(target: "mirui::layout", "FollowBounds has no valid target geometry: {:?}", entity);
     }
     state.warned = geometry.is_none();
-    if state.geometry == geometry {
+    if !geometry_changed {
         return false;
     }
     let layout_changed = state.geometry.map(|value| (value.rect.w, value.rect.h))

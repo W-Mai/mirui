@@ -72,6 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- FollowBounds skips unchanged resolved-state writes after updating motion targets, preserving size and visual invalidation.
+
 - Keyed rows skip unchanged child-order writes while preserving row identity, bindings and unrelated siblings.
 
 - Software submission keeps texture sampling and projection branches outside primitive submission stack frames.

@@ -10,6 +10,33 @@ pub(super) type TestApp =
 const BLUE: Color = Color::rgb(20, 80, 240);
 
 #[test]
+fn equal_geometry_and_repeated_missing_targets_do_not_publish_state_changes() {
+    let (mut app, _, _, follower) = fixture();
+    app.render().unwrap();
+    let geometry = app.world.get::<FollowState>(follower).unwrap().geometry;
+    assert!(geometry.is_some());
+    app.world.watch_component_revision::<FollowState>();
+    let revision = app.world.component_revision::<FollowState>();
+    assert_eq!(
+        crate::test_support::tracked_allocations(|| {
+            for _ in 0..16 {
+                assert!(!assign(&mut app.world, follower, geometry));
+            }
+        }),
+        0
+    );
+    assert_eq!(app.world.component_revision::<FollowState>(), revision);
+    assert!(assign(&mut app.world, follower, None));
+    assert!(app.world.get::<FollowState>(follower).unwrap().warned);
+    let revision = app.world.component_revision::<FollowState>();
+    assert!(!assign(&mut app.world, follower, None));
+    assert_eq!(app.world.component_revision::<FollowState>(), revision);
+    assert!(assign(&mut app.world, follower, geometry));
+    assert!(!app.world.get::<FollowState>(follower).unwrap().warned);
+    assert_ne!(app.world.component_revision::<FollowState>(), revision);
+}
+
+#[test]
 fn clipping_changes_do_not_request_layout_but_repaint_the_followed_subtree() {
     let (mut app, _, _, follower) = fixture();
     app.render().unwrap();
