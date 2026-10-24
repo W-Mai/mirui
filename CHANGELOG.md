@@ -74,6 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Retained hidden layout branches share one reachability traversal during membership maintenance and release its scratch storage when unused or under memory pressure.
+
 - Layout membership maintenance ignores unchanged component membership during Style and Widget value writes, while insertion, removal and entity retirement remain observable.
 
 - Layout refresh solves a single changed absolute leaf against its resolved parent when prepared inputs prove independence. Structural changes and unresolved constraints retain complete solving; text preparation and geometry publication remain shared.

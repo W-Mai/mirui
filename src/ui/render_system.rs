@@ -874,6 +874,22 @@ fn layout_entity_reachable(world: &World, root: Entity, target: Entity) -> bool 
     })
 }
 
+fn collect_layout_reachability(world: &World, root: Entity, out: &mut Vec<Entity>) -> bool {
+    if !world.has::<Widget>(root) || !world.has::<Style>(root) {
+        return true;
+    }
+    if out.try_reserve(1).is_err() {
+        return false;
+    }
+    out.push(root);
+    world.get::<Children>(root).is_none_or(|children| {
+        children
+            .0
+            .iter()
+            .all(|&child| collect_layout_reachability(world, child, out))
+    })
+}
+
 fn prune_parked_children(world: &World, node: &mut LayoutNode) {
     let Some(parent) = node.entity else {
         return;
@@ -898,16 +914,37 @@ fn prune_parked_layout_nodes(
     root: Entity,
     active_entities: &[Entity],
     parked: &mut Vec<LayoutNode>,
+    reachable: &mut Vec<Entity>,
 ) {
+    if parked.is_empty() {
+        *reachable = Vec::new();
+        return;
+    }
+    reachable.clear();
+    let indexed = collect_layout_reachability(world, root, reachable);
+    if indexed {
+        reachable.sort_unstable_by_key(|entity| (entity.id, entity.generation));
+    }
     parked.retain(|node| {
         node.entity.is_some_and(|entity| {
             world.is_alive(entity)
-                && layout_entity_reachable(world, root, entity)
+                && if indexed {
+                    reachable
+                        .binary_search_by_key(&(entity.id, entity.generation), |e| {
+                            (e.id, e.generation)
+                        })
+                        .is_ok()
+                } else {
+                    layout_entity_reachable(world, root, entity)
+                }
                 && !active_entities.contains(&entity)
         })
     });
-    for node in parked {
+    for node in parked.iter_mut() {
         prune_parked_children(world, node);
+    }
+    if parked.is_empty() || reachable.capacity() > reachable.len().max(1).saturating_mul(4) {
+        *reachable = Vec::new();
     }
 }
 
@@ -1557,6 +1594,7 @@ fn compute_layout_snapshot(
                     maintenance_revisions: [0; 6],
                     layout_tree,
                     parked,
+                    reachable: Vec::new(),
                     entities,
                     painted_damage: Vec::with_capacity(node_count),
                     prepared_paint: PreparedPaint::with_capacity(node_count),
@@ -1593,7 +1631,13 @@ fn compute_layout_snapshot(
     );
     if !snapshot.maintenance_current(world) || changes.parked {
         crate::trace_span!("layout.prune_parked", {
-            prune_parked_layout_nodes(world, root, &snapshot.entities, &mut snapshot.parked);
+            prune_parked_layout_nodes(
+                world,
+                root,
+                &snapshot.entities,
+                &mut snapshot.parked,
+                &mut snapshot.reachable,
+            );
         });
     }
     let mut text_index = 0;
@@ -3403,6 +3447,7 @@ pub(crate) struct LayoutSnapshot {
     maintenance_revisions: [u64; 6],
     pub(crate) layout_tree: LayoutNode,
     parked: Vec<LayoutNode>,
+    reachable: Vec<Entity>,
     pub(crate) entities: Vec<Entity>,
     pub(crate) paths: super::layout::paths::LayoutPaths,
     pub(crate) follow_plan: Option<Box<super::widgets::follow_bounds::FollowPlan>>,
@@ -3412,6 +3457,7 @@ pub(crate) struct LayoutSnapshot {
 
 impl LayoutSnapshot {
     pub(crate) fn trim_memory(&mut self) {
+        self.reachable = Vec::new();
         self.paths.release();
         self.follow_plan = None;
     }
@@ -4446,6 +4492,49 @@ mod layout_snapshot_reuse_check {
         assert_eq!(snapshot.parked.len(), count);
         assert_eq!(snapshot.parked[0].entity, Some(first));
         assert_eq!(snapshot.layout_tree.children[0].entity, Some(second));
+    }
+
+    #[test]
+    fn parked_reachability_reuses_storage_and_releases_under_memory_pressure() {
+        let mut world = World::new();
+        let root = widget(&mut world, 64);
+        let hidden = child(&mut world, root, None);
+        world.insert(hidden, Hidden);
+        for _ in 0..16 {
+            child(&mut world, hidden, None);
+        }
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        try_update_layout(&mut world, root, &viewport).unwrap();
+        assert_eq!(
+            world.resource::<LayoutSnapshot>().unwrap().reachable.len(),
+            18
+        );
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for _ in 0..8 {
+                    world.get_mut::<Children>(root).unwrap();
+                    try_update_layout(&mut world, root, &viewport).unwrap();
+                }
+            }),
+            0
+        );
+        world
+            .resource_mut::<LayoutSnapshot>()
+            .unwrap()
+            .trim_memory();
+        assert_eq!(
+            world
+                .resource::<LayoutSnapshot>()
+                .unwrap()
+                .reachable
+                .capacity(),
+            0
+        );
+        world.get_mut::<Children>(root).unwrap().0.clear();
+        try_update_layout(&mut world, root, &viewport).unwrap();
+        let snapshot = world.resource::<LayoutSnapshot>().unwrap();
+        assert!(snapshot.parked.is_empty());
+        assert_eq!(snapshot.reachable.capacity(), 0);
     }
 
     #[test]
