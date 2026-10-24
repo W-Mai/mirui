@@ -1231,7 +1231,7 @@ fn prepare_input_layout(
     world: &mut World,
     entity: Entity,
     rect: Rect,
-) -> Result<(), TextLayoutFailure> {
+) -> Result<bool, TextLayoutFailure> {
     use super::widgets::text_editing::geometry::{TextEditingLayoutHandle, prepare_layout};
 
     match prepare_layout(world, entity, rect)? {
@@ -1242,16 +1242,21 @@ fn prepare_input_layout(
                 != Some(handle)
             {
                 world.insert(entity, TextEditingLayoutHandle(handle));
+                return Ok(true);
             }
         }
         None => {
-            world.remove::<TextEditingLayoutHandle>(entity);
+            return Ok(world.remove::<TextEditingLayoutHandle>(entity).is_some());
         }
     }
-    Ok(())
+    Ok(false)
 }
 
-fn prepare_text_geometry(world: &mut World, entities: &[Entity]) -> Result<(), TextLayoutFailure> {
+fn prepare_text_geometry(
+    world: &mut World,
+    entities: &[Entity],
+) -> Result<bool, TextLayoutFailure> {
+    let mut changed = false;
     if world.has_any_by_id(core::any::TypeId::of::<super::widgets::TextEditing>()) {
         for &entity in entities {
             if !world.has::<super::widgets::TextEditing>(entity)
@@ -1262,10 +1267,11 @@ fn prepare_text_geometry(world: &mut World, entities: &[Entity]) -> Result<(), T
             let Some(rect) = world.get::<super::ComputedRect>(entity).map(|rect| rect.0) else {
                 continue;
             };
-            prepare_input_layout(world, entity, rect)?;
+            changed |= prepare_input_layout(world, entity, rect)?;
         }
     }
-    prepare_path_text_placements(world, entities)
+    prepare_path_text_placements(world, entities)?;
+    Ok(changed)
 }
 
 fn publish_text_geometry(world: &World, entities: &[Entity]) -> Result<(), TextLayoutFailure> {
@@ -4100,13 +4106,19 @@ pub(crate) fn try_collect_dirty_regions_into(
         return Ok(());
     };
 
-    if let Err(failure) = prepare_text_geometry(world, &snapshot.entities) {
-        world.put_resource_box(snapshot);
-        record_text_layout_failure(world, root, failure);
-        plan.clear();
-        return Err(failure);
+    let text_changed = match prepare_text_geometry(world, &snapshot.entities) {
+        Ok(changed) => changed,
+        Err(failure) => {
+            world.put_resource_box(snapshot);
+            record_text_layout_failure(world, root, failure);
+            plan.clear();
+            return Err(failure);
+        }
+    };
+    // A reused snapshot and unchanged text handles produced no new component inputs.
+    if layout_recomputed || text_changed {
+        super::view::ViewRegistry::invalidate_queries(world);
     }
-    super::view::ViewRegistry::invalidate_queries(world);
     if let Err(failure) = publish_text_geometry(world, &snapshot.entities) {
         world.put_resource_box(snapshot);
         record_text_layout_failure(world, root, failure);
@@ -6480,19 +6492,26 @@ mod text_layout_check {
         let mut app = crate::app::App::headless(96, 48);
         app.with_default_widgets();
         let root = app.spawn_root().id();
-        prepare_text_geometry(&mut app.world, &[root]).unwrap();
+        assert!(!prepare_text_geometry(&mut app.world, &[root]).unwrap());
         let input = app.compose(root, input());
         let viewport = Viewport::new(96, 48, Fixed::ONE);
         try_update_layout(&mut app.world, root, &viewport).unwrap();
         let (placeholder, glyphs) = prepared(&app.world, input);
         assert_eq!(glyphs, 4);
+        assert!(!prepare_text_geometry(&mut app.world, &[root, input]).unwrap());
+        app.world.remove::<TextEditingLayoutHandle>(input);
+        assert!(prepare_text_geometry(&mut app.world, &[root, input]).unwrap());
+        assert_eq!(prepared(&app.world, input), (placeholder, 4));
         let editing = app
             .world
             .remove::<super::super::widgets::TextEditing>(input)
             .unwrap();
-        prepare_text_geometry(&mut app.world, &[root, input]).unwrap();
+        let rect = app.world.get::<ComputedRect>(input).unwrap().0;
+        assert!(prepare_input_layout(&mut app.world, input, rect).unwrap());
+        assert!(!prepare_input_layout(&mut app.world, input, rect).unwrap());
+        assert!(!prepare_text_geometry(&mut app.world, &[root, input]).unwrap());
         app.world.insert(input, editing);
-        prepare_text_geometry(&mut app.world, &[root, input]).unwrap();
+        assert!(prepare_text_geometry(&mut app.world, &[root, input]).unwrap());
         assert_eq!(prepared(&app.world, input).1, 4);
         for _ in 0..3 {
             try_update_layout(&mut app.world, root, &viewport).unwrap();
