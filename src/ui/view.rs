@@ -705,6 +705,7 @@ struct ViewDefinition {
     paint: Option<ViewPaint>,
     auto_attach: Option<crate::input::event::view_attach::Attachment>,
     reconcile: Option<fn(&mut World, Entity) -> bool>,
+    retire: Option<fn(&mut World, Entity)>,
     /// When set, the walker only invokes `render` on entities that
     /// own a component of this type. `None` runs on every entity
     /// (e.g. the generic Style stage).
@@ -748,6 +749,7 @@ impl View {
                 paint,
                 auto_attach: descriptor.attach.map(Into::into),
                 reconcile: None,
+                retire: None,
                 component_filter,
                 query_dependencies: descriptor.query_dependencies,
                 query_scope: Cell::new(QueryScope::Unobserved),
@@ -805,6 +807,16 @@ impl<Systems> View<Systems> {
 
     pub(crate) fn reconcile(&self) -> Option<fn(&mut World, Entity) -> bool> {
         self.definition.reconcile
+    }
+
+    /// Release attached state when its component generation ends. The entity may be dead or already carry the replacement component; the hook must not remove that replacement.
+    pub(crate) fn with_retire(mut self, retire: fn(&mut World, Entity)) -> Self {
+        self.definition.retire = Some(retire);
+        self
+    }
+
+    pub(crate) fn retire(&self) -> Option<fn(&mut World, Entity)> {
+        self.definition.retire
     }
 
     #[cfg(test)]

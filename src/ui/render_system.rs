@@ -1405,7 +1405,6 @@ fn compute_layout_snapshot(
     output_plan::invalidate_geometry(world);
     let mut previous = world.take_resource_box::<LayoutSnapshot>();
     if super::branch::is_authored_hidden(world, root) {
-        super::widgets::follow_bounds::trim_memory(world);
         output_plan::invalidate_structure(world);
         if let Some(cache) = world.resource::<Outputs<TextGeometry>>() {
             cache
@@ -1493,7 +1492,7 @@ fn compute_layout_snapshot(
                     &mut changes,
                 );
                 if changes.structure || !matches!(refreshed, Ok(true)) {
-                    super::widgets::follow_bounds::invalidate(world);
+                    snapshot.invalidate_geometry_plan();
                     output_plan::invalidate_structure(world);
                 }
                 match refreshed {
@@ -1510,7 +1509,6 @@ fn compute_layout_snapshot(
                 snapshot
             }
             _ => {
-                super::widgets::follow_bounds::invalidate(world);
                 output_plan::invalidate_structure(world);
                 let node_count = initial_demand.as_ref().map_or(0, |demand| demand.nodes);
                 let parked_capacity = initial_demand
@@ -1540,6 +1538,8 @@ fn compute_layout_snapshot(
                     entities,
                     painted_damage: Vec::with_capacity(node_count),
                     prepared_paint: PreparedPaint::with_capacity(node_count),
+                    paths: super::layout::paths::LayoutPaths::default(),
+                    follow_plan: None,
                 })
             }
         }
@@ -2956,12 +2956,19 @@ fn reconcile_layout_snapshot(
 
         let mut idx = 0;
         write_computed_rects(&snapshot.layout_tree, world, &snapshot.entities, &mut idx);
-        let followed = super::widgets::follow_bounds::reconcile(
-            world,
-            &mut snapshot.layout_tree,
-            &snapshot.entities,
-            Rect::new(0, 0, logical_w, logical_h),
-        );
+        snapshot.prepare_geometry_plan(world);
+        let followed = if let Some(plan) = &snapshot.follow_plan {
+            super::widgets::follow_bounds::reconcile(
+                world,
+                &mut snapshot.layout_tree,
+                &snapshot.entities,
+                &snapshot.paths,
+                plan,
+                Rect::new(0, 0, logical_w, logical_h),
+            )
+        } else {
+            false
+        };
         let invoke = pass < update_budget;
         let sizes =
             match crate::input::event::runtime::capture_sizes(world, &snapshot.entities, invoke) {
@@ -2998,12 +3005,12 @@ fn reconcile_layout_snapshot(
 }
 
 fn record_text_layout_failure(world: &mut World, root: Entity, failure: TextLayoutFailure) {
-    super::widgets::follow_bounds::invalidate(world);
     if let Some(outputs) = world.resource::<Outputs<super::LayoutGeometry>>() {
         outputs.reset_all();
     }
     if let Some(snapshot) = world.resource_mut::<LayoutSnapshot>() {
         snapshot.valid = false;
+        snapshot.invalidate_geometry_plan();
     }
     crate::input::event::hit_test::invalidate_hit_test_geometry(world);
     world.mark_subtree_dirty(root);
@@ -3069,10 +3076,12 @@ fn update_layout(
         record_text_layout_failure(world, root, failure);
         return Err(failure);
     }
+    snapshot.prepare_geometry_plan(world);
     super::layout_geometry::publish(
         world,
         &snapshot.layout_tree,
         &snapshot.entities,
+        &snapshot.paths,
         Rect::new(0, 0, logical_w, logical_h),
     );
     super::view::ViewRegistry::propagate_output_publications(world);
@@ -3125,10 +3134,12 @@ pub(crate) fn prepare_input_geometry(
                 &snapshot.layout_tree,
                 &snapshot.entities,
             );
+            snapshot.prepare_geometry_plan(world);
             super::layout_geometry::publish(
                 world,
                 &snapshot.layout_tree,
                 &snapshot.entities,
+                &snapshot.paths,
                 Rect::new(0, 0, width, height),
             );
         });
@@ -3363,11 +3374,66 @@ pub(crate) struct LayoutSnapshot {
     pub(crate) layout_tree: LayoutNode,
     parked: Vec<LayoutNode>,
     pub(crate) entities: Vec<Entity>,
+    pub(crate) paths: super::layout::paths::LayoutPaths,
+    pub(crate) follow_plan: Option<Box<super::widgets::follow_bounds::FollowPlan>>,
     painted_damage: Vec<Entity>,
     prepared_paint: PreparedPaint,
 }
 
 impl LayoutSnapshot {
+    pub(crate) fn trim_memory(&mut self) {
+        self.paths.release();
+        self.follow_plan = None;
+    }
+
+    fn invalidate_geometry_plan(&mut self) {
+        self.paths.invalidate();
+        if let Some(plan) = &mut self.follow_plan {
+            plan.invalidate();
+        }
+    }
+
+    pub(crate) fn prepare_geometry_plan(&mut self, world: &mut World) {
+        if super::widgets::follow_bounds::active(world) {
+            let plan = self.follow_plan.get_or_insert_with(Default::default);
+            plan.prepare(world, &self.entities);
+        } else {
+            self.follow_plan = None;
+        }
+        let outputs = world.resource::<Outputs<super::LayoutGeometry>>();
+        if !outputs.is_some_and(Outputs::has_requests)
+            && self
+                .follow_plan
+                .as_ref()
+                .is_none_or(|plan| plan.targets().is_empty())
+        {
+            self.paths.release();
+            return;
+        }
+        let relation_revision = world
+            .resource::<super::outputs::relations::OutputRelations>()
+            .map_or(
+                0,
+                super::outputs::relations::OutputRelations::structure_revision,
+            );
+        let revision = self
+            .follow_plan
+            .as_ref()
+            .map_or([0; 2], |plan| plan.revision());
+        self.paths.prepare(
+            &self.layout_tree,
+            self.entities.len(),
+            [relation_revision, revision[0], revision[1]],
+            |entity| {
+                outputs.is_some_and(|outputs| outputs.is_requested(entity))
+                    || self
+                        .follow_plan
+                        .as_ref()
+                        .is_some_and(|plan| plan.targets().contains(&entity))
+            },
+        );
+    }
+
     fn watch_maintenance(world: &mut World) {
         world.watch_component_revision::<Children>();
         world.watch_component_revision::<Parent>();
@@ -3412,6 +3478,7 @@ impl LayoutSnapshot {
 
     pub(crate) fn invalidate(&mut self) {
         self.valid = false;
+        self.invalidate_geometry_plan();
     }
 }
 
@@ -3927,10 +3994,12 @@ pub(crate) fn try_collect_dirty_regions_into(
     if layout_recomputed {
         snapshot.publish_scroll_bounds(world);
     }
+    snapshot.prepare_geometry_plan(world);
     super::layout_geometry::publish(
         world,
         &snapshot.layout_tree,
         &snapshot.entities,
+        &snapshot.paths,
         Rect::new(0, 0, logical_w, logical_h),
     );
     super::view::ViewRegistry::propagate_output_publications(world);

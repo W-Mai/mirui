@@ -83,10 +83,9 @@ struct FollowState {
 impl crate::ecs::Component for FollowState {}
 
 #[derive(Default)]
-struct FollowPlan {
+pub(crate) struct FollowPlan {
     entities: Vec<Entity>,
     graph: OutputGraph,
-    root: Option<Entity>,
     follow_revision: u64,
     parent_revision: u64,
     valid: bool,
@@ -99,9 +98,12 @@ fn follow_bounds() {}
 
 /// Register layout following. Included by `App::with_default_widgets()`.
 pub fn view() -> View {
-    follow_bounds::view().with_reconcile(prepare).with_systems(
-        const { &[motion::follow_bounds_motion::system()] } as &'static [crate::ecs::System],
-    )
+    follow_bounds::view()
+        .with_reconcile(prepare)
+        .with_retire(retire)
+        .with_systems(
+            const { &[motion::follow_bounds_motion::system()] } as &'static [crate::ecs::System],
+        )
 }
 
 fn prepare(world: &mut World, entity: Entity) -> bool {
@@ -112,65 +114,18 @@ fn prepare(world: &mut World, entity: Entity) -> bool {
         world.insert(entity, FollowState::default());
         changed = true;
     }
-    if world.resource::<FollowPlan>().is_none() {
-        world.insert_resource(FollowPlan::default());
-    }
-    if changed {
-        invalidate(world);
-    }
     changed
 }
 
-pub(crate) fn invalidate(world: &mut World) {
-    if let Some(plan) = world.resource_mut::<FollowPlan>() {
-        plan.valid = false;
+fn retire(world: &mut World, entity: Entity) {
+    if !world.has::<FollowBounds>(entity) {
+        world.remove::<FollowState>(entity);
+        world.remove::<motion::FollowMotion>(entity);
     }
-}
-
-pub(crate) fn trim_memory(world: &mut World) {
-    if let Some(plan) = world.resource_mut::<FollowPlan>() {
-        *plan = FollowPlan::default();
-    }
-}
-
-pub(crate) fn maintain(world: &mut World) {
-    world.with_resource_box::<FollowPlan, _>(|plan, world| {
-        let revision = world.component_revision::<FollowBounds>();
-        if revision != plan.follow_revision {
-            let mut index = 0;
-            while let Some(entity) = world
-                .storage::<FollowState>()
-                .and_then(|storage| storage.entities().get(index))
-                .copied()
-            {
-                if !world.has::<FollowBounds>(entity) {
-                    world.remove::<FollowState>(entity);
-                    world.remove::<motion::FollowMotion>(entity);
-                } else {
-                    index += 1;
-                }
-            }
-            plan.follow_revision = revision;
-            plan.valid = false;
-        }
-        let root = world.resource::<crate::ui::WidgetRoot>().map(|root| root.0);
-        if world.component_count(core::any::TypeId::of::<FollowBounds>()) == 0
-            || root.is_none_or(|root| {
-                !world.is_alive(root) || crate::ui::branch::is_authored_hidden(world, root)
-            })
-            || root != plan.root
-        {
-            *plan = FollowPlan {
-                follow_revision: revision,
-                ..FollowPlan::default()
-            };
-        }
-    });
 }
 
 pub(crate) fn active(world: &World) -> bool {
-    world.resource::<FollowPlan>().is_some()
-        && world.query::<FollowBounds>().iter().next().is_some()
+    world.query::<FollowState>().iter().next().is_some()
 }
 
 pub(crate) fn hidden(world: &World, entity: Entity) -> bool {
@@ -208,17 +163,27 @@ pub(crate) fn layout_style(world: &World, entity: Entity, layout: &mut LayoutSty
 }
 
 impl FollowPlan {
-    fn build(&mut self, world: &mut World, root: Option<Entity>, entities: &[Entity]) {
+    pub(crate) fn invalidate(&mut self) {
+        self.valid = false;
+    }
+
+    pub(crate) fn targets(&self) -> &[Entity] {
+        &self.entities
+    }
+
+    pub(crate) fn revision(&self) -> [u64; 2] {
+        [self.follow_revision, self.parent_revision]
+    }
+
+    pub(crate) fn prepare(&mut self, world: &World, entities: &[Entity]) {
         let parent_revision = world.component_revision::<Parent>();
         let follow_revision = world.component_revision::<FollowBounds>();
         if self.valid
-            && self.root == root
             && self.parent_revision == parent_revision
             && self.follow_revision == follow_revision
         {
             return;
         }
-        self.root = root;
         self.parent_revision = parent_revision;
         self.follow_revision = follow_revision;
         self.valid = true;
@@ -228,20 +193,15 @@ impl FollowPlan {
         }
         self.entities.clear();
         self.graph.clear();
-        self.entities.extend(
-            world
-                .query::<FollowState>()
-                .iter()
-                .map(|(entity, _)| entity),
-        );
-        self.entities.retain(|&entity| {
-            if !world.has::<FollowBounds>(entity) {
-                world.remove::<FollowState>(entity);
-                world.remove::<motion::FollowMotion>(entity);
-                return false;
-            }
-            entities.contains(&entity)
-        });
+        self.entities
+            .extend(entities.iter().copied().filter(|&entity| {
+                world.has::<FollowState>(entity) && world.has::<FollowBounds>(entity)
+            }));
+        if self.entities.is_empty() {
+            self.entities = Vec::new();
+            self.graph = OutputGraph::default();
+            return;
+        }
         for _ in &self.entities {
             self.graph.add_node();
         }
@@ -325,70 +285,58 @@ fn assign(world: &mut World, entity: Entity, geometry: Option<Resolved>) -> bool
     layout_changed
 }
 
-fn node_mut(node: &mut LayoutNode, entity: Entity) -> Option<&mut LayoutNode> {
-    if node.entity == Some(entity) {
-        return Some(node);
-    }
-    node.children
-        .iter_mut()
-        .find_map(|node| node_mut(node, entity))
-}
-
 pub(crate) fn reconcile(
     world: &mut World,
     tree: &mut LayoutNode,
     entities: &[Entity],
+    paths: &crate::ui::layout::paths::LayoutPaths,
+    plan: &FollowPlan,
     viewport: Rect,
 ) -> bool {
-    world
-        .with_resource_box::<FollowPlan, _>(|plan, world| {
-            plan.build(world, tree.entity, entities);
-            let mut changed = false;
-            for (index, &entity) in plan.entities.iter().enumerate() {
-                if plan.graph.is_blocked(index) {
-                    changed |= assign(world, entity, None);
-                }
+    let mut changed = false;
+    for (index, &entity) in plan.entities.iter().enumerate() {
+        if plan.graph.is_blocked(index) {
+            changed |= assign(world, entity, None);
+        }
+    }
+    crate::ui::layout_geometry::publish(world, tree, entities, paths, viewport);
+    for &index in plan.graph.order() {
+        let entity = plan.entities[index];
+        let geometry = resolve(world, entity);
+        let previous = world.get::<FollowState>(entity).unwrap().geometry;
+        changed |= assign(world, entity, geometry);
+        let mut publish = previous != world.get::<FollowState>(entity).unwrap().geometry;
+        if let Some(geometry) = world.get::<FollowState>(entity).unwrap().geometry {
+            let parent = world.get::<Parent>(entity).unwrap().0;
+            let origin = world.get::<ComputedRect>(parent).unwrap().0;
+            let node = paths.node_mut(tree, entity).unwrap();
+            let rect = Rect::new(
+                origin.x + geometry.rect.x,
+                origin.y + geometry.rect.y,
+                geometry.rect.w,
+                geometry.rect.h,
+            );
+            layout_style(world, entity, &mut node.style);
+            if node.rect != rect {
+                crate::ui::layout::compute_layout(node, rect.x, rect.y, rect.w, rect.h);
+                let mut position = entities
+                    .iter()
+                    .position(|&candidate| candidate == entity)
+                    .unwrap();
+                crate::ui::render_system::write_computed_rects(
+                    node,
+                    world,
+                    entities,
+                    &mut position,
+                );
+                publish = true;
             }
-            crate::ui::layout_geometry::publish(world, tree, entities, viewport);
-            for &index in plan.graph.order() {
-                let entity = plan.entities[index];
-                let geometry = resolve(world, entity);
-                let previous = world.get::<FollowState>(entity).unwrap().geometry;
-                changed |= assign(world, entity, geometry);
-                let mut publish = previous != world.get::<FollowState>(entity).unwrap().geometry;
-                if let Some(geometry) = world.get::<FollowState>(entity).unwrap().geometry {
-                    let parent = world.get::<Parent>(entity).unwrap().0;
-                    let origin = world.get::<ComputedRect>(parent).unwrap().0;
-                    let node = node_mut(tree, entity).unwrap();
-                    let rect = Rect::new(
-                        origin.x + geometry.rect.x,
-                        origin.y + geometry.rect.y,
-                        geometry.rect.w,
-                        geometry.rect.h,
-                    );
-                    layout_style(world, entity, &mut node.style);
-                    if node.rect != rect {
-                        crate::ui::layout::compute_layout(node, rect.x, rect.y, rect.w, rect.h);
-                        let mut position = entities
-                            .iter()
-                            .position(|&candidate| candidate == entity)
-                            .unwrap();
-                        crate::ui::render_system::write_computed_rects(
-                            node,
-                            world,
-                            entities,
-                            &mut position,
-                        );
-                        publish = true;
-                    }
-                }
-                if publish {
-                    crate::ui::layout_geometry::publish_subtree(world, tree, entity, viewport);
-                }
-            }
-            changed
-        })
-        .unwrap_or(false)
+        }
+        if publish {
+            crate::ui::layout_geometry::publish_subtree(world, tree, entity, paths, viewport);
+        }
+    }
+    changed
 }
 
 #[cfg(test)]

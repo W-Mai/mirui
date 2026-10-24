@@ -58,18 +58,24 @@ pub(crate) struct InputAttach {
     attach: Option<view_attach::Attachment>,
     inputs: Option<view_input::SharedInputs>,
     reconcile: Option<fn(&mut World, Entity) -> bool>,
+    retire: Option<fn(&mut World, Entity)>,
     instances: Rc<AttachedInstances>,
 }
 
 impl InputAttach {
     pub(crate) fn for_view(view: &crate::ui::view::View) -> Option<Self> {
         let attach = view.auto_attach().cloned();
-        (attach.is_some() || view.inputs().is_some() || view.reconcile().is_some()).then(|| Self {
+        (attach.is_some()
+            || view.inputs().is_some()
+            || view.reconcile().is_some()
+            || view.retire().is_some())
+        .then(|| Self {
             registration: view.registration_id(),
             component_filter: view.component_filter(),
             attach,
             inputs: view.inputs().cloned(),
             reconcile: view.reconcile(),
+            retire: view.retire(),
             instances: Rc::new(AttachedInstances::default()),
         })
     }
@@ -82,7 +88,35 @@ impl InputAttach {
             .map_or(Some(0), |kind| world.component_generation(entity, kind))
     }
 
-    fn begin(&self, world: &World, entity: Entity, generation: u64) -> bool {
+    fn retire_replaced(&self, world: &mut World, entity: Entity) {
+        let generation = self.generation(world, entity);
+        let removed = {
+            let mut instances = self.instances.values.borrow_mut();
+            if let Some(index) = instances.iter().position(|instance| {
+                instance.entity == entity && Some(instance.generation) != generation
+            }) {
+                instances.swap_remove(index);
+                true
+            } else {
+                false
+            }
+        };
+        if removed && let Some(retire) = self.retire {
+            retire(world, entity);
+        }
+    }
+
+    fn begin(&self, world: &mut World, entity: Entity, generation: u64) -> bool {
+        let retired = self
+            .instances
+            .values
+            .borrow()
+            .iter()
+            .find(|instance| self.generation(world, instance.entity) != Some(instance.generation))
+            .map(|instance| instance.entity);
+        if let Some(retired) = retired {
+            self.retire_replaced(world, retired);
+        }
         let mut instances = self.instances.values.borrow_mut();
         if let Some(instance) = instances
             .iter_mut()
@@ -102,13 +136,7 @@ impl InputAttach {
                 generation,
                 ready: false,
             };
-            if let Some(retired) = instances.iter_mut().find(|instance| {
-                self.generation(world, instance.entity) != Some(instance.generation)
-            }) {
-                *retired = instance;
-            } else {
-                instances.push(instance);
-            }
+            instances.push(instance);
         }
         true
     }
@@ -167,6 +195,7 @@ fn apply_input_attach_plan(world: &mut World, entity: Entity, plan: &[InputAttac
     loop {
         let mut progress = false;
         for hook in plan {
+            hook.retire_replaced(world, entity);
             let Some(generation) = hook.generation(world, entity) else {
                 continue;
             };
@@ -244,12 +273,20 @@ pub(crate) fn prepare(world: &mut World) {
         let mut changed = false;
         if let Some(plan) = plan {
             for hook in plan.iter() {
-                let Some(reconcile) = hook.reconcile else {
-                    continue;
-                };
-                let count = hook.instances.values.borrow().len();
-                for index in 0..count {
-                    let instance = hook.instances.values.borrow()[index];
+                let mut index = 0;
+                loop {
+                    let instance = hook.instances.values.borrow().get(index).copied();
+                    let Some(instance) = instance else {
+                        break;
+                    };
+                    if hook.generation(world, instance.entity) != Some(instance.generation) {
+                        hook.retire_replaced(world, instance.entity);
+                        continue;
+                    }
+                    index += 1;
+                    let Some(reconcile) = hook.reconcile else {
+                        continue;
+                    };
                     if !hook.ready(world, instance.entity) {
                         continue;
                     }
@@ -261,13 +298,11 @@ pub(crate) fn prepare(world: &mut World) {
             }
         }
         if !changed && pending == 0 && world.pending_attachment_changes() == 0 {
-            super::widgets::follow_bounds::maintain(world);
             return;
         }
     }
     crate::warn!("View initialization stopped after repeated structural changes");
     while world.next_attachment_change().is_some() {}
-    super::widgets::follow_bounds::maintain(world);
 }
 
 pub(crate) struct ViewInputGuard {
@@ -325,6 +360,62 @@ mod tests {
 
     #[derive(Default)]
     struct UserCalls(usize);
+
+    #[crate::component]
+    struct LifecycleOwner;
+
+    #[derive(Default)]
+    struct RetirementLog(Vec<Entity>);
+
+    fn record_retirement(world: &mut World, entity: Entity) {
+        world
+            .resource_mut::<RetirementLog>()
+            .unwrap()
+            .0
+            .push(entity);
+    }
+
+    #[test]
+    fn registered_retirement_precedes_replacement_and_does_not_touch_reused_entities() {
+        let mut world = World::default();
+        world.insert_resource(RetirementLog::default());
+        let mut registry = ViewRegistry::default();
+        registry.insert(
+            crate::ui::View::systems_only("LifecycleOwner", &[])
+                .with_filter::<LifecycleOwner>()
+                .with_retire(record_retirement),
+        );
+        world.insert_resource(registry);
+        let entity = world.spawn_empty();
+        world.insert(entity, LifecycleOwner);
+        attach_handlers_for(&mut world, entity);
+        prepare(&mut world);
+        world.insert(entity, LifecycleOwner);
+        prepare(&mut world);
+        assert_eq!(world.resource::<RetirementLog>().unwrap().0, [entity]);
+        world.remove::<LifecycleOwner>(entity);
+        prepare(&mut world);
+        prepare(&mut world);
+        assert_eq!(
+            world.resource::<RetirementLog>().unwrap().0,
+            [entity, entity]
+        );
+        world.insert(entity, LifecycleOwner);
+        prepare(&mut world);
+        world.despawn(entity);
+        let replacement = world.spawn_empty();
+        assert_eq!(replacement.id, entity.id);
+        assert_ne!(replacement, entity);
+        world.insert(replacement, LifecycleOwner);
+        attach_handlers_for(&mut world, replacement);
+        prepare(&mut world);
+        assert_eq!(
+            world.resource::<RetirementLog>().unwrap().0,
+            [entity, entity, entity]
+        );
+        let plan = input_attach_plan(&world).unwrap();
+        assert!(plan[0].ready(&world, replacement));
+    }
 
     #[crate::event]
     fn user_handler(calls: res!(mut UserCalls)) -> bool {

@@ -9,22 +9,61 @@ pub(super) type TestApp =
     App<crate::surface::framebuf::FramebufSurface<fn(&[u8], crate::types::PhysicalRect)>>;
 const BLUE: Color = Color::rgb(20, 80, 240);
 
+fn cached_plan(app: &TestApp) -> Option<&FollowPlan> {
+    app.world
+        .resource::<crate::ui::render_system::LayoutSnapshot>()?
+        .follow_plan
+        .as_deref()
+}
+
+#[test]
+fn hidden_followers_keep_an_empty_prepared_plan_without_repeated_allocation() {
+    let (mut app, root, _, follower) = fixture();
+    app.render().unwrap();
+    app.world.insert(follower, Hidden);
+    app.world.mark_subtree_dirty(root);
+    app.render().unwrap();
+    let mut snapshot = app
+        .world
+        .take_resource_box::<crate::ui::render_system::LayoutSnapshot>()
+        .unwrap();
+    snapshot.prepare_geometry_plan(&mut app.world);
+    assert!(snapshot.follow_plan.as_ref().unwrap().entities.is_empty());
+    assert_eq!(
+        snapshot.follow_plan.as_ref().unwrap().entities.capacity(),
+        0
+    );
+    assert_eq!(
+        crate::test_support::tracked_allocations(|| {
+            for _ in 0..16 {
+                snapshot.prepare_geometry_plan(&mut app.world);
+            }
+        }),
+        0
+    );
+    app.world.remove::<FollowBounds>(follower);
+    crate::ui::lifecycle::prepare(&mut app.world);
+    snapshot.prepare_geometry_plan(&mut app.world);
+    assert!(snapshot.follow_plan.is_none());
+    app.world.put_resource_box(snapshot);
+}
+
 #[test]
 fn relation_plan_reuses_structure_but_refreshes_parent_and_target_dependencies() {
     let (mut app, _, target, follower) = fixture();
     app.render().unwrap();
-    let builds = app.world.resource::<FollowPlan>().unwrap().builds;
+    let builds = cached_plan(&app).unwrap().builds;
     for offset in [1, 2, 3] {
         app.world.get_mut::<Style>(target).unwrap().layout.left = Dimension::Px(offset.into());
         app.world.invalidate(target);
         app.render().unwrap();
     }
-    assert_eq!(app.world.resource::<FollowPlan>().unwrap().builds, builds);
+    assert_eq!(cached_plan(&app).unwrap().builds, builds);
     let parent = app.world.get::<Parent>(follower).unwrap().0;
     app.world.insert(follower, Parent(parent));
     app.world.invalidate(follower);
     app.render().unwrap();
-    assert!(app.world.resource::<FollowPlan>().unwrap().builds > builds);
+    assert!(cached_plan(&app).unwrap().builds > builds);
     app.world.get_mut::<FollowBounds>(follower).unwrap().target = follower;
     app.render().unwrap();
     assert!(hidden(&app.world, follower));
@@ -37,23 +76,9 @@ fn relation_plan_reuses_structure_but_refreshes_parent_and_target_dependencies()
 fn relation_plan_exits_without_a_visible_layout_and_rebuilds_after_memory_warning() {
     let (mut app, _, _, follower) = fixture();
     app.render().unwrap();
-    assert!(
-        app.world
-            .resource::<FollowPlan>()
-            .unwrap()
-            .entities
-            .capacity()
-            > 0
-    );
+    assert!(cached_plan(&app).unwrap().entities.capacity() > 0);
     app.handle_memory_warning();
-    assert_eq!(
-        app.world
-            .resource::<FollowPlan>()
-            .unwrap()
-            .entities
-            .capacity(),
-        0
-    );
+    assert!(cached_plan(&app).is_none());
     app.render().unwrap();
     assert!(!hidden(&app.world, follower));
     app.world.remove::<FollowBounds>(follower);
@@ -61,14 +86,8 @@ fn relation_plan_exits_without_a_visible_layout_and_rebuilds_after_memory_warnin
     app.world.insert(root, Hidden);
     crate::ui::lifecycle::prepare(&mut app.world);
     assert!(!app.world.has::<FollowState>(follower));
-    assert_eq!(
-        app.world
-            .resource::<FollowPlan>()
-            .unwrap()
-            .entities
-            .capacity(),
-        0
-    );
+    app.render().unwrap();
+    assert!(cached_plan(&app).is_none());
 }
 
 #[test]

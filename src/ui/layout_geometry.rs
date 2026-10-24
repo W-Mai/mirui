@@ -7,6 +7,7 @@ use crate::input::event::scroll::ScrollOffset;
 use crate::types::{Fixed, Rect, Transform, Transform3D};
 
 use super::layout::LayoutNode;
+use super::layout::paths::{LayoutPaths, SelectedPaths};
 use super::outputs::{Output, Outputs, private::OutputKind};
 
 /// Widget geometry from a successful layout and visual transform preparation.
@@ -133,20 +134,64 @@ impl Placement {
     }
 }
 
-pub(crate) fn publish(world: &World, tree: &LayoutNode, entities: &[Entity], viewport: Rect) {
+pub(crate) fn publish(
+    world: &World,
+    tree: &LayoutNode,
+    entities: &[Entity],
+    paths: &LayoutPaths,
+    viewport: Rect,
+) {
     let Some(outputs) = world.resource::<Outputs<LayoutGeometry>>() else {
         return;
     };
     if !outputs.has_requests() {
         return;
     }
-    outputs.reset_where(|entity| {
-        !entities.contains(&entity) || super::branch::is_hidden_in_tree(world, entity)
-    });
-    publish_node(world, outputs, tree, Placement::root(viewport));
+    if let Some(selected) = paths.selected() {
+        outputs.reset_where(|entity| !selected.contains(entity));
+        publish_selected(world, outputs, tree, Placement::root(viewport), selected, 0);
+    } else {
+        outputs.reset_where(|entity| {
+            !entities.contains(&entity) || super::branch::is_hidden_in_tree(world, entity)
+        });
+        publish_node(world, outputs, tree, Placement::root(viewport));
+    }
 }
 
-pub(crate) fn publish_subtree(world: &World, tree: &LayoutNode, target: Entity, viewport: Rect) {
+pub(crate) fn publish_subtree(
+    world: &World,
+    tree: &LayoutNode,
+    target: Entity,
+    paths: &LayoutPaths,
+    viewport: Rect,
+) {
+    if let Some(outputs) = world.resource::<Outputs<LayoutGeometry>>()
+        && let Some(path) = paths.path(target)
+        && let Some(selected) = paths.selected().and_then(|selected| selected.subtree(path))
+    {
+        let mut node = tree;
+        let mut parent = Placement::root(viewport);
+        for &index in path {
+            let Some(entity) = node.entity else {
+                return;
+            };
+            if super::branch::is_effectively_hidden(world, entity) {
+                for entity in selected.entities() {
+                    outputs.reset(entity);
+                }
+                return;
+            }
+            parent = parent.descend(world, node, entity).2;
+            let Some(child) = node.children.get(index) else {
+                return;
+            };
+            node = child;
+        }
+        if node.entity == Some(target) {
+            publish_selected(world, outputs, node, parent, selected, path.len());
+            return;
+        }
+    }
     struct Ancestor<'a> {
         node: &'a LayoutNode,
         parent: Option<&'a Ancestor<'a>>,
@@ -216,6 +261,46 @@ fn publish_node(
         return;
     }
     let (rect, parent_clip, child) = parent.descend(world, node, entity);
+    publish_record(outputs, node, entity, rect, parent_clip, child);
+    for node in &node.children {
+        publish_node(world, outputs, node, child);
+    }
+}
+
+fn publish_selected(
+    world: &World,
+    outputs: &Outputs<LayoutGeometry>,
+    node: &LayoutNode,
+    parent: Placement,
+    selected: SelectedPaths<'_>,
+    depth: usize,
+) {
+    let Some(entity) = node.entity else {
+        return;
+    };
+    if super::branch::is_effectively_hidden(world, entity) {
+        for entity in selected.entities() {
+            outputs.reset(entity);
+        }
+        return;
+    }
+    let (rect, parent_clip, child) = parent.descend(world, node, entity);
+    publish_record(outputs, node, entity, rect, parent_clip, child);
+    for (index, selected) in selected.children(depth) {
+        if let Some(node) = node.children.get(index) {
+            publish_selected(world, outputs, node, child, selected, depth + 1);
+        }
+    }
+}
+
+fn publish_record(
+    outputs: &Outputs<LayoutGeometry>,
+    node: &LayoutNode,
+    entity: Entity,
+    rect: Rect,
+    parent_clip: Rect,
+    child: Placement,
+) {
     if outputs.is_requested(entity) {
         let content = node.content_rect();
         let record = LayoutGeometryRead {
@@ -237,9 +322,6 @@ fn publish_node(
             outputs.invalidate(entity);
             crate::warn!(target: "mirui::outputs", "layout geometry rejected: {:?}", error);
         }
-    }
-    for node in &node.children {
-        publish_node(world, outputs, node, child);
     }
 }
 

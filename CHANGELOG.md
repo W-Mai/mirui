@@ -72,6 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Layout geometry publication shares sparse lookup paths and computes common ancestor placement once per publication. Dense demand retains tree traversal; layout-owned caches release on retirement and memory warnings.
+
 - FollowBounds reuses dependency plans until layout structure, parent links or follow configuration changes, and releases retained plans when their owners leave or memory is reclaimed.
 
 - Paint measurement and dispatch iterate cached View membership bits instead of scanning every registered paint hook for each node.

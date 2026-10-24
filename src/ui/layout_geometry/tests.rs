@@ -51,6 +51,110 @@ fn outputs(app: &TestApp) -> &Outputs<LayoutGeometry> {
     app.world.resource::<Outputs<LayoutGeometry>>().unwrap()
 }
 
+#[test]
+fn sparse_publication_matches_full_walk_with_live_ancestor_geometry() {
+    let (mut app, root, scroller, source) = fixture();
+    let content = app.world.find_by_id("content").unwrap();
+    app.world
+        .insert(scroller, GeometryReader { source: content });
+    for _ in 0..64 {
+        let entity = app.world.spawn_empty();
+        app.world.insert(entity, crate::ui::Widget);
+        app.world.insert(entity, crate::ui::Parent(root));
+        app.world.insert(entity, Style::default());
+        app.world
+            .get_mut::<crate::ui::Children>(root)
+            .unwrap()
+            .0
+            .push(entity);
+    }
+    app.world.invalidate(root);
+    app.render().unwrap();
+    let mut snapshot = app
+        .world
+        .take_resource_box::<crate::ui::render_system::LayoutSnapshot>()
+        .unwrap();
+    snapshot.prepare_geometry_plan(&mut app.world);
+    assert!(snapshot.paths.selected().is_some());
+    let viewport = Rect::new(0, 0, 128, 128);
+    for offset in [0, 3, 17] {
+        app.world.insert(
+            scroller,
+            ScrollOffset {
+                x: offset.into(),
+                y: offset.into(),
+            },
+        );
+        app.world.insert(
+            scroller,
+            WidgetTransform(Transform::rotate_deg(offset.into())),
+        );
+        app.world.insert(
+            source,
+            WidgetTransform3D(Transform3D::rotate_y_perspective(offset.into(), 300.into())),
+        );
+        outputs(&app).reset_all();
+        publish_node(
+            &app.world,
+            outputs(&app),
+            &snapshot.layout_tree,
+            Placement::root(viewport),
+        );
+        let expected = [source, content].map(|entity| outputs(&app).get(entity).unwrap());
+        outputs(&app).reset_all();
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                publish(
+                    &app.world,
+                    &snapshot.layout_tree,
+                    &snapshot.entities,
+                    &snapshot.paths,
+                    viewport,
+                );
+            }),
+            0
+        );
+        for (entity, expected) in [source, content].into_iter().zip(expected) {
+            assert_eq!(outputs(&app).get(entity), Some(expected));
+        }
+        outputs(&app).reset_all();
+        publish_subtree(
+            &app.world,
+            &snapshot.layout_tree,
+            source,
+            &snapshot.paths,
+            viewport,
+        );
+        for (entity, expected) in [source, content].into_iter().zip(expected) {
+            assert_eq!(outputs(&app).get(entity), Some(expected));
+        }
+    }
+    app.world.insert(scroller, Hidden);
+    publish_subtree(
+        &app.world,
+        &snapshot.layout_tree,
+        source,
+        &snapshot.paths,
+        viewport,
+    );
+    assert!(outputs(&app).get(source).is_none());
+    assert!(outputs(&app).get(content).is_none());
+    app.world.remove::<Hidden>(scroller);
+    app.world.put_resource_box(snapshot);
+    let reader = app.world.find_by_id("reader").unwrap();
+    app.world.remove::<GeometryReader>(reader);
+    app.world.remove::<GeometryReader>(scroller);
+    app.render().unwrap();
+    assert!(
+        app.world
+            .resource::<crate::ui::render_system::LayoutSnapshot>()
+            .unwrap()
+            .paths
+            .selected()
+            .is_none()
+    );
+}
+
 fn version(app: &TestApp, source: Entity) -> u64 {
     outputs(app).state(source).unwrap().current.unwrap().version
 }
@@ -205,14 +309,16 @@ fn subtree_publication_matches_full_placement_and_retires_hidden_descendants() {
     app.world.remove::<crate::ui::Parent>(source);
     app.world.remove::<crate::ui::Parent>(content);
     let viewport = Rect::new(0, 0, 128, 128);
-    let snapshot = app
+    let mut snapshot = app
         .world
         .take_resource_box::<crate::ui::render_system::LayoutSnapshot>()
         .unwrap();
+    snapshot.prepare_geometry_plan(&mut app.world);
     publish(
         &app.world,
         &snapshot.layout_tree,
         &snapshot.entities,
+        &snapshot.paths,
         viewport,
     );
     let expected = [source, content].map(|entity| outputs(&app).get(entity).unwrap());
@@ -221,7 +327,13 @@ fn subtree_publication_matches_full_placement_and_retires_hidden_descendants() {
     }
     assert_eq!(
         crate::test_support::tracked_allocations(|| {
-            publish_subtree(&app.world, &snapshot.layout_tree, source, viewport);
+            publish_subtree(
+                &app.world,
+                &snapshot.layout_tree,
+                source,
+                &snapshot.paths,
+                viewport,
+            );
         }),
         0
     );
@@ -231,20 +343,44 @@ fn subtree_publication_matches_full_placement_and_retires_hidden_descendants() {
     assert!(outputs(&app).get(scroller).is_none());
 
     app.world.insert(source, Hidden);
-    publish_subtree(&app.world, &snapshot.layout_tree, source, viewport);
+    publish_subtree(
+        &app.world,
+        &snapshot.layout_tree,
+        source,
+        &snapshot.paths,
+        viewport,
+    );
     assert!(outputs(&app).get(source).is_none());
     assert!(outputs(&app).get(content).is_none());
     app.world.remove::<Hidden>(source);
-    publish_subtree(&app.world, &snapshot.layout_tree, source, viewport);
+    publish_subtree(
+        &app.world,
+        &snapshot.layout_tree,
+        source,
+        &snapshot.paths,
+        viewport,
+    );
     for (entity, expected) in [source, content].into_iter().zip(expected) {
         assert_eq!(outputs(&app).get(entity), Some(expected));
     }
     app.world.insert(scroller, Hidden);
-    publish_subtree(&app.world, &snapshot.layout_tree, source, viewport);
+    publish_subtree(
+        &app.world,
+        &snapshot.layout_tree,
+        source,
+        &snapshot.paths,
+        viewport,
+    );
     assert!(outputs(&app).get(source).is_none());
     assert!(outputs(&app).get(content).is_none());
     app.world.remove::<Hidden>(scroller);
-    publish_subtree(&app.world, &snapshot.layout_tree, source, viewport);
+    publish_subtree(
+        &app.world,
+        &snapshot.layout_tree,
+        source,
+        &snapshot.paths,
+        viewport,
+    );
     assert_eq!(outputs(&app).get(source), Some(expected[0]));
     app.world.put_resource_box(snapshot);
 }
