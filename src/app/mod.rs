@@ -805,6 +805,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// Releases reconstructible caches while preserving application state.
     pub fn handle_memory_warning(&mut self) {
+        if let Some(relations) = self
+            .world
+            .resource_mut::<crate::ui::outputs::relations::OutputRelations>()
+        {
+            relations.trim_memory();
+        }
         if let Some(snapshot) = self
             .world
             .resource_mut::<crate::ui::render_system::LayoutSnapshot>()

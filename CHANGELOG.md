@@ -74,6 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Output dependencies share a demand-sized dirty-source summary and refresh it when propagation changes damage markers; unused and memory-pressure caches are released.
+
 - Retained hidden layout branches share one reachability traversal during membership maintenance and release its scratch storage when unused or under memory pressure.
 
 - Layout membership maintenance ignores unchanged component membership during Style and Widget value writes, while insertion, removal and entity retirement remain observable.

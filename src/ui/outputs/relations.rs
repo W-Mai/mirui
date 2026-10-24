@@ -8,6 +8,9 @@ use crate::ui::view::ViewInvalidation;
 
 use super::{OutputDependency, OutputDescriptor};
 
+mod dirty_index;
+use dirty_index::SourceDirtyIndex;
+
 #[derive(Default)]
 pub(crate) struct OutputRelations {
     active_registry: Option<u64>,
@@ -16,6 +19,7 @@ pub(crate) struct OutputRelations {
     bindings: Vec<Binding>,
     demands: Vec<Demand>,
     descriptors: Vec<&'static OutputDescriptor>,
+    dirty_index: SourceDirtyIndex,
 }
 
 struct Binding {
@@ -103,6 +107,7 @@ impl OutputRelations {
     }
 
     pub(crate) fn clear(&mut self, world: &mut World) {
+        self.trim_memory();
         let changed = self.bindings.iter().any(|binding| binding.active);
         for binding in &mut self.bindings {
             if binding.active {
@@ -300,12 +305,23 @@ impl OutputRelations {
         for descriptor in &self.descriptors {
             (descriptor.reconcile)(world);
         }
+        self.prepare_dirty_sources(world);
         if changed {
             self.changed_structure();
         }
     }
 
+    fn prepare_dirty_sources(&mut self, world: &mut World) {
+        self.dirty_index.begin(
+            world,
+            self.demands
+                .iter()
+                .filter_map(|demand| (demand.current != 0).then_some(demand.source)),
+        );
+    }
+
     fn propagate_invalidations(&mut self, world: &mut World) {
+        self.prepare_dirty_sources(world);
         // Marker propagation is bounded by the number of current relationships.
         // History retention never introduces a current dependency edge.
         for _ in 0..=self.bindings.len() {
@@ -323,7 +339,7 @@ impl OutputRelations {
                 continue;
             }
             let visible = !crate::ui::branch::is_hidden_in_tree(world, demand.source);
-            let dirty = check_dirty && visible && source_is_dirty(world, demand.source);
+            let dirty = check_dirty && visible && self.dirty_index.is_dirty(world, demand.source);
             if dirty {
                 (demand.descriptor.invalidate)(world, demand.source);
             }
@@ -357,6 +373,10 @@ impl OutputRelations {
             self.changed_structure();
         }
         propagated
+    }
+
+    pub(crate) fn trim_memory(&mut self) {
+        self.dirty_index = SourceDirtyIndex::default();
     }
 }
 
