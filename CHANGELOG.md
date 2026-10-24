@@ -80,7 +80,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Texture measurement plans skip repeated damage scans with unchanged tracked revisions, retaining explicit structure and output-dependency invalidation.
 
-- Output dependencies share a demand-sized dirty-source summary and refresh it when propagation changes damage markers; unused and memory-pressure caches are released.
+- Output dependencies prepare source membership during demand reconciliation, share a demand-sized dirty-source summary, and refresh it when propagation changes damage markers; unused and memory-pressure caches are released.
 
 - Retained hidden layout branches share one reachability traversal during membership maintenance, reuse scratch storage across visibility cycles, and release excess capacity or respond to memory pressure.
 

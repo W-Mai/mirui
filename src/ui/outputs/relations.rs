@@ -321,7 +321,7 @@ impl OutputRelations {
     }
 
     fn propagate_invalidations(&mut self, world: &mut World) {
-        self.prepare_dirty_sources(world);
+        self.dirty_index.invalidate();
         // Marker propagation is bounded by the number of current relationships.
         // History retention never introduces a current dependency edge.
         for _ in 0..=self.bindings.len() {
@@ -521,6 +521,35 @@ mod tests {
         assert!(world.has::<Dirty>(layout));
         assert!(world.has::<VisualDirty>(visual));
         assert!(!world.has::<Dirty>(visual));
+    }
+
+    #[test]
+    fn trimmed_dirty_summary_falls_back_until_demands_are_prepared_again() {
+        let mut world = World::new();
+        let source = world.spawn_empty();
+        let consumer = world.spawn_empty();
+        world.insert(consumer, source);
+        let mut relations = OutputRelations::default();
+        relations.bind(&world, consumer, 0, 0, &CURRENT, ViewInvalidation::Visual);
+        relations.reconcile(&mut world);
+        world.remove::<VisualDirty>(consumer);
+        relations.trim_memory();
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                relations.propagate_invalidations(&mut world);
+            }),
+            0
+        );
+        assert!(world.has::<VisualDirty>(consumer));
+        relations.reconcile_demands(&mut world);
+        world.remove::<VisualDirty>(consumer);
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                relations.propagate_invalidations(&mut world);
+            }),
+            0
+        );
+        assert!(world.has::<VisualDirty>(consumer));
     }
 
     #[test]

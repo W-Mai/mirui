@@ -17,6 +17,10 @@ struct Entry {
 }
 
 impl SourceDirtyIndex {
+    pub(super) fn invalidate(&mut self) {
+        self.revisions = None;
+    }
+
     pub(super) fn begin(&mut self, world: &mut World, sources: impl Iterator<Item = Entity>) {
         self.entries.clear();
         self.revisions = None;
