@@ -74,6 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Reactive entity cleanup skips unchanged owner partitions while preserving computed lifetime checks and work registered by dropped captures.
+
 - Texture measurement plans skip repeated damage scans with unchanged tracked revisions, retaining explicit structure and output-dependency invalidation.
 
 - Output dependencies share a demand-sized dirty-source summary and refresh it when propagation changes damage markers; unused and memory-pressure caches are released.

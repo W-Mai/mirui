@@ -389,6 +389,7 @@ struct WorldDropHook {
 
 pub struct World {
     id: WorldId,
+    retirement_revision: u64,
     allocator: EntityAllocator,
     storages: HashMap<TypeId, Box<dyn ComponentStorage>, FxBuildHasher>,
     resources: ResourceMap,
@@ -404,6 +405,7 @@ impl Default for World {
     fn default() -> Self {
         Self {
             id: WorldId::next(),
+            retirement_revision: 0,
             allocator: EntityAllocator::new(),
             storages: HashMap::default(),
             resources: HashMap::default(),
@@ -459,6 +461,10 @@ impl World {
         if !self.allocator.deallocate(entity) {
             return false;
         }
+        self.retirement_revision = self
+            .retirement_revision
+            .checked_add(1)
+            .expect("entity retirement revision exhausted");
         for index in 0..self.watched_component_types.len() {
             let type_id = self.watched_component_types[index].type_id;
             if self.has_type(entity, type_id) {
@@ -477,6 +483,10 @@ impl World {
 
     pub fn is_alive(&self, entity: Entity) -> bool {
         self.allocator.is_alive(entity)
+    }
+
+    pub(crate) fn retirement_revision(&self) -> u64 {
+        self.retirement_revision
     }
 
     pub(crate) fn allocated_entity_slots(&self) -> u32 {

@@ -1049,6 +1049,28 @@ pub fn flush_signal_dirty(world: &mut World) {
 // Reclaim effects whose owning widget is gone. No ECS hook — flush holds the
 // World, same lazy-liveness approach as the dirty-widget skip.
 fn reclaim_dead_effects(world: &mut World) {
+    reclaim_entity_consumers(world);
+    // Rc lifetimes are independent of entity retirement and graph registration.
+    with_reactive(|r| {
+        let slots = &mut r.computed_slots;
+        r.computeds.retain(|id, weak| {
+            if weak.strong_count() > 0 {
+                true
+            } else {
+                slots.release(id.0);
+                false
+            }
+        });
+    });
+}
+
+fn reclaim_entity_consumers(world: &mut World) {
+    let Some(stamp) = with_reactive(|r| {
+        r.graph
+            .pending_reclamation(world.id(), world.retirement_revision())
+    }) else {
+        return;
+    };
     let dead: Vec<EffectId> = with_reactive(|r| {
         r.effects
             .iter()
@@ -1067,17 +1089,6 @@ fn reclaim_dead_effects(world: &mut World) {
             unregister_effect(id);
         }
     }
-    with_reactive(|r| {
-        let slots = &mut r.computed_slots;
-        r.computeds.retain(|id, weak| {
-            if weak.strong_count() > 0 {
-                true
-            } else {
-                slots.release(id.0);
-                false
-            }
-        });
-    });
     loop {
         let dead = with_reactive(|r| {
             let partition = r.graph.owner_key(world.id()).ok()?;
@@ -1099,6 +1110,9 @@ fn reclaim_dead_effects(world: &mut World) {
             }
         });
     }
+    // Drops can register consumers or retire entities; never acknowledge those
+    // changes using a stamp collected after the scan.
+    with_reactive(|r| r.graph.acknowledge_reclamation(world.id(), stamp));
 }
 
 /// Reclaim effects bound to `entity` in `world` during widget teardown.
@@ -3417,6 +3431,76 @@ mod tests {
 
     fn effect_count() -> usize {
         with_reactive(|r| r.effects.len())
+    }
+
+    #[test]
+    fn reclamation_tracks_retirement_and_registration_without_rescanning_live_effects() {
+        reset();
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        with_world_scope(&mut world, || effect_with_widget(entity, || {}));
+        flush_signal_dirty(&mut world);
+        let live = with_reactive(|r| r.effects.values().next().unwrap().clone());
+        {
+            // A stable empty flush must not inspect the live effect at all.
+            let _borrow = live.borrow_mut();
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| flush_signal_dirty(&mut world)),
+                0
+            );
+        }
+        let before = world.retirement_revision();
+        world.spawn_empty();
+        world.insert(entity, 7_u8);
+        assert_eq!(world.retirement_revision(), before);
+        world.despawn(entity);
+        assert_ne!(world.retirement_revision(), before);
+        let retired = world.retirement_revision();
+        assert!(!world.despawn(entity));
+        assert_eq!(world.retirement_revision(), retired);
+        flush_signal_dirty(&mut world);
+        assert_eq!(effect_count(), 0);
+        let replacement = world.spawn_empty();
+        assert_eq!(replacement.id, entity.id);
+        assert_ne!(replacement.generation, entity.generation);
+        with_world_scope(&mut world, || {
+            effect_with_widget(entity, || {});
+            effect_with_widget(replacement, || {});
+        });
+        flush_signal_dirty(&mut world);
+        assert_eq!(
+            effect_count(),
+            1,
+            "new consumers of retired identities must be reclaimed"
+        );
+    }
+
+    #[test]
+    fn reclamation_does_not_acknowledge_consumers_registered_by_drop() {
+        struct RegisterOnDrop(Entity);
+        impl Drop for RegisterOnDrop {
+            fn drop(&mut self) {
+                effect_with_widget(self.0, || {});
+            }
+        }
+        reset();
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        let capture = RegisterOnDrop(entity);
+        with_world_scope(&mut world, || {
+            effect_with_widget(entity, move || {
+                let _ = &capture;
+            })
+        });
+        world.despawn(entity);
+        flush_signal_dirty(&mut world);
+        assert_eq!(
+            effect_count(),
+            1,
+            "Drop registered another dead-owner effect after the scan"
+        );
+        flush_signal_dirty(&mut world);
+        assert_eq!(effect_count(), 0);
     }
 
     #[test]

@@ -130,6 +130,8 @@ struct BitGraph {
 struct OwnerPartition {
     key: PartitionKey,
     graph: BitGraph,
+    consumer_revision: u64,
+    reclamation: Option<[u64; 2]>,
     // Indexed by the shared source slot; None denotes a removed source.
     shared_sources: Vec<Option<SlotId>>,
 }
@@ -831,6 +833,8 @@ impl ReactiveGraph {
         self.owners.push(OwnerPartition {
             key,
             graph,
+            consumer_revision: 0,
+            reclamation: None,
             shared_sources,
         });
         self.next_owner_epoch = next_epoch;
@@ -967,7 +971,25 @@ impl ReactiveGraph {
             .partition_mut(partition)
             .ok_or(GraphError::StaleConsumer)?;
         let slot = graph.add_consumer(partition, target, automatic)?;
+        if let Some(owner) = self.owner_by_key_mut(partition) {
+            owner.consumer_revision = owner
+                .consumer_revision
+                .checked_add(1)
+                .expect("reactive consumer revision exhausted");
+        }
         Ok(ConsumerKey { partition, slot })
+    }
+
+    pub(super) fn pending_reclamation(&self, world: WorldId, retirement: u64) -> Option<[u64; 2]> {
+        let owner = self.owner_by_key(self.owner_key(world).ok()?)?;
+        let stamp = [retirement, owner.consumer_revision];
+        (owner.reclamation != Some(stamp)).then_some(stamp)
+    }
+
+    pub(super) fn acknowledge_reclamation(&mut self, world: WorldId, stamp: [u64; 2]) {
+        if let Ok(owner) = self.owner_by_world_mut(world) {
+            owner.reclamation = Some(stamp);
+        }
     }
 
     /// Find a live consumer without allocating a separate target index.
@@ -1279,6 +1301,31 @@ pub(super) mod tests {
             entity = world.spawn_empty();
         }
         entity
+    }
+
+    #[test]
+    fn reclamation_stamps_are_owner_local_and_preserve_new_registrations() {
+        let mut graph = ReactiveGraph::try_new(GraphCapacity::new(1, 1, 2, 2, 2)).unwrap();
+        let a = World::new();
+        let b = World::new();
+        let ka = graph.add_owner(a.id()).unwrap();
+        graph.add_owner(b.id()).unwrap();
+        let sa = graph.pending_reclamation(a.id(), 0).unwrap();
+        let sb = graph.pending_reclamation(b.id(), 0).unwrap();
+        graph.acknowledge_reclamation(b.id(), sb);
+        graph
+            .register_consumer(ka, Subscriber::Widget(entity(0)))
+            .unwrap();
+        graph.acknowledge_reclamation(a.id(), sa);
+        assert!(graph.pending_reclamation(a.id(), 0).is_some());
+        assert!(graph.pending_reclamation(b.id(), 0).is_none());
+        let sa = graph.pending_reclamation(a.id(), 0).unwrap();
+        graph.acknowledge_reclamation(a.id(), sa);
+        assert!(graph.pending_reclamation(a.id(), 0).is_none());
+        assert!(graph.pending_reclamation(a.id(), 1).is_some());
+        graph.remove_owner(a.id());
+        graph.add_owner(a.id()).unwrap();
+        assert!(graph.pending_reclamation(a.id(), 0).is_some());
     }
 
     #[test]
