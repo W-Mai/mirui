@@ -261,11 +261,13 @@ pub(crate) fn prepare(world: &mut World) {
             }
         }
         if !changed && pending == 0 && world.pending_attachment_changes() == 0 {
+            super::widgets::follow_bounds::maintain(world);
             return;
         }
     }
     crate::warn!("View initialization stopped after repeated structural changes");
     while world.next_attachment_change().is_some() {}
+    super::widgets::follow_bounds::maintain(world);
 }
 
 pub(crate) struct ViewInputGuard {

@@ -1405,6 +1405,7 @@ fn compute_layout_snapshot(
     output_plan::invalidate_geometry(world);
     let mut previous = world.take_resource_box::<LayoutSnapshot>();
     if super::branch::is_authored_hidden(world, root) {
+        super::widgets::follow_bounds::trim_memory(world);
         output_plan::invalidate_structure(world);
         if let Some(cache) = world.resource::<Outputs<TextGeometry>>() {
             cache
@@ -1492,6 +1493,7 @@ fn compute_layout_snapshot(
                     &mut changes,
                 );
                 if changes.structure || !matches!(refreshed, Ok(true)) {
+                    super::widgets::follow_bounds::invalidate(world);
                     output_plan::invalidate_structure(world);
                 }
                 match refreshed {
@@ -1508,6 +1510,7 @@ fn compute_layout_snapshot(
                 snapshot
             }
             _ => {
+                super::widgets::follow_bounds::invalidate(world);
                 output_plan::invalidate_structure(world);
                 let node_count = initial_demand.as_ref().map_or(0, |demand| demand.nodes);
                 let parked_capacity = initial_demand
@@ -2995,6 +2998,7 @@ fn reconcile_layout_snapshot(
 }
 
 fn record_text_layout_failure(world: &mut World, root: Entity, failure: TextLayoutFailure) {
+    super::widgets::follow_bounds::invalidate(world);
     if let Some(outputs) = world.resource::<Outputs<super::LayoutGeometry>>() {
         outputs.reset_all();
     }

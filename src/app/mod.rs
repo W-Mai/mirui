@@ -805,6 +805,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// Releases reconstructible caches while preserving application state.
     pub fn handle_memory_warning(&mut self) {
+        crate::ui::widgets::follow_bounds::trim_memory(&mut self.world);
         if let Some(outputs) = self.world.resource::<Outputs<WidgetTexture>>() {
             outputs.trim_memory();
         }

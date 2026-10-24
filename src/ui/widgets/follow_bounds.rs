@@ -86,6 +86,12 @@ impl crate::ecs::Component for FollowState {}
 struct FollowPlan {
     entities: Vec<Entity>,
     graph: OutputGraph,
+    root: Option<Entity>,
+    follow_revision: u64,
+    parent_revision: u64,
+    valid: bool,
+    #[cfg(test)]
+    builds: usize,
 }
 
 #[crate::view(component = FollowBounds, invalidation = Visual)]
@@ -99,6 +105,8 @@ pub fn view() -> View {
 }
 
 fn prepare(world: &mut World, entity: Entity) -> bool {
+    world.watch_component_revision::<FollowBounds>();
+    world.watch_component_revision::<Parent>();
     let mut changed = motion::prepare(world, entity);
     if !world.has::<FollowState>(entity) {
         world.insert(entity, FollowState::default());
@@ -107,7 +115,57 @@ fn prepare(world: &mut World, entity: Entity) -> bool {
     if world.resource::<FollowPlan>().is_none() {
         world.insert_resource(FollowPlan::default());
     }
+    if changed {
+        invalidate(world);
+    }
     changed
+}
+
+pub(crate) fn invalidate(world: &mut World) {
+    if let Some(plan) = world.resource_mut::<FollowPlan>() {
+        plan.valid = false;
+    }
+}
+
+pub(crate) fn trim_memory(world: &mut World) {
+    if let Some(plan) = world.resource_mut::<FollowPlan>() {
+        *plan = FollowPlan::default();
+    }
+}
+
+pub(crate) fn maintain(world: &mut World) {
+    world.with_resource_box::<FollowPlan, _>(|plan, world| {
+        let revision = world.component_revision::<FollowBounds>();
+        if revision != plan.follow_revision {
+            let mut index = 0;
+            while let Some(entity) = world
+                .storage::<FollowState>()
+                .and_then(|storage| storage.entities().get(index))
+                .copied()
+            {
+                if !world.has::<FollowBounds>(entity) {
+                    world.remove::<FollowState>(entity);
+                    world.remove::<motion::FollowMotion>(entity);
+                } else {
+                    index += 1;
+                }
+            }
+            plan.follow_revision = revision;
+            plan.valid = false;
+        }
+        let root = world.resource::<crate::ui::WidgetRoot>().map(|root| root.0);
+        if world.component_count(core::any::TypeId::of::<FollowBounds>()) == 0
+            || root.is_none_or(|root| {
+                !world.is_alive(root) || crate::ui::branch::is_authored_hidden(world, root)
+            })
+            || root != plan.root
+        {
+            *plan = FollowPlan {
+                follow_revision: revision,
+                ..FollowPlan::default()
+            };
+        }
+    });
 }
 
 pub(crate) fn active(world: &World) -> bool {
@@ -150,7 +208,24 @@ pub(crate) fn layout_style(world: &World, entity: Entity, layout: &mut LayoutSty
 }
 
 impl FollowPlan {
-    fn build(&mut self, world: &mut World, entities: &[Entity]) {
+    fn build(&mut self, world: &mut World, root: Option<Entity>, entities: &[Entity]) {
+        let parent_revision = world.component_revision::<Parent>();
+        let follow_revision = world.component_revision::<FollowBounds>();
+        if self.valid
+            && self.root == root
+            && self.parent_revision == parent_revision
+            && self.follow_revision == follow_revision
+        {
+            return;
+        }
+        self.root = root;
+        self.parent_revision = parent_revision;
+        self.follow_revision = follow_revision;
+        self.valid = true;
+        #[cfg(test)]
+        {
+            self.builds += 1;
+        }
         self.entities.clear();
         self.graph.clear();
         self.entities.extend(
@@ -267,7 +342,7 @@ pub(crate) fn reconcile(
 ) -> bool {
     world
         .with_resource_box::<FollowPlan, _>(|plan, world| {
-            plan.build(world, entities);
+            plan.build(world, tree.entity, entities);
             let mut changed = false;
             for (index, &entity) in plan.entities.iter().enumerate() {
                 if plan.graph.is_blocked(index) {
