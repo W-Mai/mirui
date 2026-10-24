@@ -39,7 +39,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
             {
                 self.failure.get_or_insert(RenderError::BackendFailure);
             }
-            canvas.set_clip_rect(None);
+            self.device.finish_draw(&mut canvas);
             return;
         }
         let path = [PathCmd::MoveTo(p1), PathCmd::LineTo(p2)];

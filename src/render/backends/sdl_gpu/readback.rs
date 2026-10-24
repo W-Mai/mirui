@@ -57,7 +57,9 @@ pub(super) fn edit<T: RenderTarget>(
         .update(None, pixels.bytes(), stride)
         .map_err(|_| RenderError::BackendFailure)?;
     uploaded.set_blend_mode(sdl2::render::BlendMode::None);
-    canvas
+    let previous_clip = canvas.clip_rect();
+    canvas.set_clip_rect(None);
+    let result = canvas
         .copy(
             &uploaded,
             None,
@@ -68,7 +70,9 @@ pub(super) fn edit<T: RenderTarget>(
                 u32::from(area.height()),
             )),
         )
-        .map_err(|_| RenderError::BackendFailure)
+        .map_err(|_| RenderError::BackendFailure);
+    canvas.set_clip_rect(previous_clip);
+    result
 }
 
 pub(super) fn region_into<T: RenderTarget>(
@@ -239,6 +243,8 @@ mod tests {
             .unwrap();
         canvas.set_draw_color(sdl2::pixels::Color::RGBA(32, 64, 16, 128));
         canvas.clear();
+        let prior_clip = sdl2::rect::Rect::new(0, 0, 1, 1);
+        canvas.set_clip_rect(prior_clip);
         let creator = canvas.texture_creator();
         let device = super::super::Device::new(canvas, creator).unwrap();
         let region = crate::render::renderer::FallbackRegion::from_parts(1, 1, 2, 2, 16);
@@ -274,6 +280,7 @@ mod tests {
             .unwrap();
         });
         assert_eq!(allocations, 0);
+        assert_eq!(device.canvas().unwrap().clip_rect(), Some(prior_clip));
         assert_eq!(source, [32, 64, 16, 128]);
         assert_eq!(&bytes[8..16], &[0xa5; 8]);
         assert_eq!(&bytes[24..], &[0xa5; 8]);

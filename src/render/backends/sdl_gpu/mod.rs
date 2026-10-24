@@ -886,7 +886,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
         if result != 0 {
             self.failure.get_or_insert(RenderError::BackendFailure);
         }
-        canvas.set_clip_rect(None);
+        self.device.finish_draw(&mut canvas);
     }
 
     fn draw_projective_plan(

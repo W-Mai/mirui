@@ -141,7 +141,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
 
                 canvas.set_clip_rect(sdl_clip);
                 let copied = canvas.copy(tex, Some(src_sdl), Some(dst_sdl)).is_ok();
-                canvas.set_clip_rect(None);
+                self.device.finish_draw(&mut canvas);
                 copied.then_some(()).ok_or(RenderError::BackendFailure)
             });
         if let Err(error) = uploaded.and_then(core::convert::identity) {

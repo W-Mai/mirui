@@ -7,6 +7,7 @@ fn stroke_pixel_rect<T: sdl2::render::RenderTarget>(
     canvas: &mut sdl2::render::Canvas<T>,
     area: &Rect,
     clip: &Rect,
+    retain_clip: bool,
 ) -> Result<(), RenderError> {
     let Some(scissor) = sdl_pixel_rect(area, clip) else {
         return Ok(());
@@ -16,7 +17,9 @@ fn stroke_pixel_rect<T: sdl2::render::RenderTarget>(
     };
     canvas.set_clip_rect(scissor);
     let result = canvas.draw_rect(outline);
-    canvas.set_clip_rect(None);
+    if !retain_clip {
+        canvas.set_clip_rect(None);
+    }
     result.map_err(|_| RenderError::BackendFailure)
 }
 
@@ -43,7 +46,12 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                     }
                 };
                 apply_solid_color(&mut canvas, color, opa);
-                if let Err(error) = stroke_pixel_rect(&mut canvas, &phys_area, &phys_clip) {
+                if let Err(error) = stroke_pixel_rect(
+                    &mut canvas,
+                    &phys_area,
+                    &phys_clip,
+                    self.device.persistent_frame_active(),
+                ) {
                     self.failure.get_or_insert(error);
                 }
             }
@@ -98,7 +106,7 @@ mod tests {
             canvas.set_draw_color(sdl2::pixels::Color::RGB(0, 0, 0));
             canvas.clear();
             canvas.set_draw_color(sdl2::pixels::Color::RGB(255, 255, 255));
-            stroke_pixel_rect(&mut canvas, area, clip).unwrap();
+            stroke_pixel_rect(&mut canvas, area, clip, false).unwrap();
             assert_eq!(canvas.clip_rect(), None);
             canvas.read_pixels(None, PixelFormatEnum::RGBA32).unwrap()
         };

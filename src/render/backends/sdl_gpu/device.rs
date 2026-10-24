@@ -128,6 +128,12 @@ impl<T: RenderTarget> Device<T> {
         self.frame_state.borrow().is_some()
     }
 
+    pub(super) fn finish_draw(&self, canvas: &mut Canvas<T>) {
+        if !self.persistent_frame_active() {
+            canvas.set_clip_rect(None);
+        }
+    }
+
     pub(super) fn begin_persistent_frame(&self) -> Result<bool, RenderError> {
         if self.persistent.borrow().is_none() {
             return Ok(false);
@@ -242,6 +248,50 @@ mod tests {
         )
         .unwrap();
         pixel
+    }
+
+    #[test]
+    fn command_clip_reuse_is_confined_to_owned_frames_and_restores_on_abort() {
+        let device = device();
+        let clip = sdl2::rect::Rect::new(0, 0, 1, 1);
+        {
+            let mut canvas = device.canvas().unwrap();
+            canvas.set_clip_rect(clip);
+            device.finish_draw(&mut canvas);
+            assert_eq!(canvas.clip_rect(), None);
+            canvas.set_clip_rect(clip);
+        }
+        device.prepare_persistent_target((4, 3)).unwrap();
+        device.begin_persistent_frame().unwrap();
+        let changed = sdl2::rect::Rect::new(1, 1, 2, 2);
+        {
+            let mut canvas = device.canvas().unwrap();
+            canvas.set_clip_rect(changed);
+            device.finish_draw(&mut canvas);
+            assert_eq!(canvas.clip_rect(), Some(changed));
+            let outer = DriverState::capture(&canvas).unwrap();
+            let inner = device
+                .creator
+                .create_texture_target(PixelFormatEnum::RGBA32, 2, 2)
+                .unwrap();
+            target_state::select(&canvas, &inner).unwrap();
+            assert_eq!(canvas.clip_rect(), None);
+            canvas.set_clip_rect(clip);
+            device.finish_draw(&mut canvas);
+            assert_eq!(canvas.clip_rect(), Some(clip));
+            outer.restore(&canvas).unwrap();
+            assert_eq!(canvas.clip_rect(), Some(changed));
+        }
+        device.abort_persistent_frame();
+        assert_eq!(device.canvas().unwrap().clip_rect(), Some(clip));
+        device.begin_persistent_frame().unwrap();
+        {
+            let mut canvas = device.canvas().unwrap();
+            canvas.set_clip_rect(changed);
+            device.finish_draw(&mut canvas);
+        }
+        device.finish_persistent_frame().unwrap();
+        assert_eq!(device.canvas().unwrap().clip_rect(), Some(clip));
     }
 
     #[test]

@@ -185,7 +185,7 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> SdlGpuRenderer<'_, S> {
                         indices.len() as _,
                     ) == 0
                 };
-                canvas.set_clip_rect(None);
+                self.device.finish_draw(&mut canvas);
                 rendered.then_some(()).ok_or(RenderError::BackendFailure)
             },
         );

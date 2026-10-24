@@ -521,7 +521,7 @@ impl LabelCache {
                 indices.len() as _,
             ) == 0
         };
-        canvas.set_clip_rect(None);
+        device.finish_draw(&mut canvas);
         rendered.then_some(()).ok_or(RenderError::BackendFailure)
     }
 
@@ -598,7 +598,7 @@ impl LabelCache {
                 indices.len() as _,
             ) == 0
         };
-        canvas.set_clip_rect(None);
+        device.finish_draw(&mut canvas);
         rendered.then_some(()).ok_or(RenderError::BackendFailure)
     }
 
