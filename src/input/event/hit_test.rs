@@ -274,6 +274,28 @@ pub(crate) fn update_hit_test_geometry(
     let mut geometry = world
         .take_resource_box::<HitTestGeometry>()
         .unwrap_or_default();
+    let has_targets = world.storage::<HitTarget>().is_some_and(|s| !s.is_empty())
+        || world
+            .storage::<ScrollConfig>()
+            .is_some_and(|s| !s.is_empty())
+        || world
+            .storage::<ScrollOffset>()
+            .is_some_and(|s| !s.is_empty());
+    if !has_targets {
+        let changed = !geometry.entries.is_empty() || !geometry.matches(root, logical_w, logical_h);
+        geometry.entries.clear();
+        geometry.prepared_root = Some(root);
+        geometry.root = Some(root);
+        geometry.logical_w = logical_w;
+        geometry.logical_h = logical_h;
+        geometry.layout_revision = world.component_revision::<crate::ui::dirty::Dirty>();
+        geometry.visual_revision = world.component_revision::<crate::ui::dirty::VisualDirty>();
+        if changed {
+            geometry.revision = geometry.revision.wrapping_add(1);
+        }
+        world.put_resource_box(geometry);
+        return;
+    }
     if geometry.prepared_root != Some(root) {
         let target_count = count_potential_targets(world, root);
         geometry
@@ -287,27 +309,18 @@ pub(crate) fn update_hit_test_geometry(
         used: 0,
         changed: geometry_changed,
     };
-    let has_targets = world.storage::<HitTarget>().is_some_and(|s| !s.is_empty())
-        || world
-            .storage::<ScrollConfig>()
-            .is_some_and(|s| !s.is_empty())
-        || world
-            .storage::<ScrollOffset>()
-            .is_some_and(|s| !s.is_empty());
-    if has_targets {
-        let mut index = 0;
-        collect_geometry(
-            world,
-            layout_tree,
-            entities,
-            &mut index,
-            (Fixed::ZERO, Fixed::ZERO),
-            None,
-            Transform::IDENTITY,
-            Transform3D::IDENTITY,
-            &mut writer,
-        );
-    }
+    let mut index = 0;
+    collect_geometry(
+        world,
+        layout_tree,
+        entities,
+        &mut index,
+        (Fixed::ZERO, Fixed::ZERO),
+        None,
+        Transform::IDENTITY,
+        Transform3D::IDENTITY,
+        &mut writer,
+    );
     writer.finish();
     let geometry_changed = writer.changed;
     geometry.root = Some(root);
