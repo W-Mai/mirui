@@ -81,6 +81,12 @@ impl Binding {
 }
 
 impl OutputRelations {
+    pub(crate) fn has_current_bindings(&self) -> bool {
+        self.bindings
+            .iter()
+            .any(|binding| binding.active && !binding.dependency.retain_previous)
+    }
+
     pub(crate) fn structure_revision(&self) -> u64 {
         self.structure_revision
     }

@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Dirty-region collection skips text, geometry, relation, and offscreen preparation when the scene has no corresponding demand; active output consumers retain the full preparation path.
+
 - `FramebufSurface::with_redraw_strategy` lets a framebuffer backend choose adaptive or bounding-box dirty painting without changing the renderer or author-facing view API.
 
 - Paint dispatch keeps the direct registry scan for the small widget sets used by embedded apps, avoiding iterator and bitset overhead while preserving prepared membership checks.

@@ -4117,6 +4117,52 @@ pub fn collect_dirty_regions(
     Ok(plan)
 }
 
+fn needs_geometry_preparation(world: &World) -> bool {
+    let text_output = world
+        .resource::<Outputs<TextGeometry>>()
+        .is_some_and(Outputs::has_requests);
+    let text_editing = world.has_any_by_id(core::any::TypeId::of::<super::widgets::TextEditing>());
+    let text_path = world.resource::<Outputs<TextGeometry>>().is_some()
+        && world.has_any_by_id(core::any::TypeId::of::<crate::text::TextPath>());
+    let layout_output = world
+        .resource::<Outputs<super::LayoutGeometry>>()
+        .is_some_and(Outputs::has_requests);
+    let follow_bounds = super::widgets::follow_bounds::active(world);
+    let output_relations = world
+        .resource::<super::outputs::relations::OutputRelations>()
+        .is_some_and(|relations| relations.has_current_bindings());
+    let offscreen = super::offscreen::has_texture_requests(world)
+        || world
+            .storage::<super::OffscreenRender>()
+            .is_some_and(|storage| !storage.is_empty());
+
+    text_output
+        || text_editing
+        || text_path
+        || layout_output
+        || follow_bounds
+        || output_relations
+        || offscreen
+}
+
+#[cfg(test)]
+mod geometry_preparation_tests {
+    use super::*;
+
+    #[test]
+    fn plain_visual_scene_has_no_geometry_preparation_demand() {
+        assert!(!needs_geometry_preparation(&World::new()));
+    }
+
+    #[test]
+    fn offscreen_capture_keeps_geometry_preparation_enabled() {
+        let mut world = World::new();
+        let entity = world.spawn_empty();
+        world.insert(entity, super::super::OffscreenRender::default());
+        assert!(needs_geometry_preparation(&world));
+    }
+}
+
 /// Build a dirty plan, reporting text layout failures before any blit or draw.
 pub(crate) fn try_collect_dirty_regions_into(
     world: &mut World,
@@ -4245,39 +4291,49 @@ pub(crate) fn try_collect_dirty_regions_into(
         return Ok(());
     };
 
-    let text_changed = match prepare_text_geometry(world, &snapshot.entities) {
-        Ok(changed) => changed,
-        Err(failure) => {
-            world.put_resource_box(snapshot);
-            record_text_layout_failure(world, root, failure);
-            plan.clear();
-            return Err(failure);
+    let prepare_outputs = needs_geometry_preparation(world);
+    let text_changed = if prepare_outputs {
+        match prepare_text_geometry(world, &snapshot.entities) {
+            Ok(changed) => changed,
+            Err(failure) => {
+                world.put_resource_box(snapshot);
+                record_text_layout_failure(world, root, failure);
+                plan.clear();
+                return Err(failure);
+            }
         }
+    } else {
+        false
     };
     // A reused snapshot and unchanged text handles produced no new component inputs.
     if layout_recomputed || text_changed {
         super::view::ViewRegistry::invalidate_queries(world);
     }
-    if let Err(failure) = publish_text_geometry(world, &snapshot.entities) {
-        world.put_resource_box(snapshot);
-        record_text_layout_failure(world, root, failure);
-        plan.clear();
-        return Err(failure);
+    if prepare_outputs {
+        if let Err(failure) = publish_text_geometry(world, &snapshot.entities) {
+            world.put_resource_box(snapshot);
+            record_text_layout_failure(world, root, failure);
+            plan.clear();
+            return Err(failure);
+        }
     }
     if layout_recomputed {
         snapshot.publish_scroll_bounds(world);
     }
-    snapshot.prepare_geometry_plan(world);
-    super::layout_geometry::publish(
-        world,
-        &snapshot.layout_tree,
-        &snapshot.entities,
-        &snapshot.paths,
-        Rect::new(0, 0, logical_w, logical_h),
-    );
-    super::view::ViewRegistry::propagate_output_publications(world);
-    let output_plan =
-        output_plan::measure_for_dirty(world, &snapshot.layout_tree, &snapshot.entities);
+    let output_plan = if prepare_outputs {
+        snapshot.prepare_geometry_plan(world);
+        super::layout_geometry::publish(
+            world,
+            &snapshot.layout_tree,
+            &snapshot.entities,
+            &snapshot.paths,
+            Rect::new(0, 0, logical_w, logical_h),
+        );
+        super::view::ViewRegistry::propagate_output_publications(world);
+        output_plan::measure_for_dirty(world, &snapshot.layout_tree, &snapshot.entities)
+    } else {
+        None
+    };
 
     let mut bounds = DirtyBounds {
         regions: super::dirty::RegionSet::new(),
