@@ -1,6 +1,8 @@
 use alloc::vec::Vec;
 
-use super::{DisplayInfo, FramebufferAccess, InputEvent, Surface, logical_from_physical};
+use super::{
+    DisplayInfo, FramebufferAccess, InputEvent, RedrawStrategy, Surface, logical_from_physical,
+};
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Fixed, PhysicalRect};
 
@@ -13,6 +15,7 @@ pub struct FramebufSurface<F: FnMut(&[u8], PhysicalRect)> {
     height: u16,
     scale: Fixed,
     format: ColorFormat,
+    redraw_strategy: RedrawStrategy,
     flush_cb: F,
 }
 
@@ -59,8 +62,15 @@ impl<F: FnMut(&[u8], PhysicalRect)> FramebufSurface<F> {
             height: physical_h,
             scale,
             format,
+            redraw_strategy: RedrawStrategy::Adaptive,
             flush_cb,
         }
+    }
+
+    /// Select how dirty regions are grouped before painting.
+    pub fn with_redraw_strategy(mut self, strategy: RedrawStrategy) -> Self {
+        self.redraw_strategy = strategy;
+        self
     }
 }
 
@@ -88,6 +98,10 @@ impl<F: FnMut(&[u8], PhysicalRect)> Surface for FramebufSurface<F> {
 
     fn poll_event(&mut self) -> Option<InputEvent> {
         None
+    }
+
+    fn redraw_strategy(&self) -> RedrawStrategy {
+        self.redraw_strategy
     }
 }
 

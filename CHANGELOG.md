@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `FramebufSurface::with_redraw_strategy` lets a framebuffer backend choose adaptive or bounding-box dirty painting without changing the renderer or author-facing view API.
+
 - Paint dispatch keeps the direct registry scan for the small widget sets used by embedded apps, avoiding iterator and bitset overhead while preserving prepared membership checks.
 
 - Hiding a cached conditional branch retires its captured and queued input before it can be selected again.
