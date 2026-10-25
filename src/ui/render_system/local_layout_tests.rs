@@ -510,8 +510,10 @@ fn parked_dirty_nodes_do_not_block_active_leaf_preparation() {
     let active = app.world.find_by_id("active-leaf").unwrap();
     app.world.insert(parked, crate::ui::dirty::Dirty);
     INPUT_VISITS.with(|visits| visits.set((0, 0)));
+    PREPARATIONS.with(|count| count.set(0));
     app.world.get_mut::<Style>(active).unwrap().layout.left = Dimension::px(7);
     app.render_dirty().unwrap();
     assert_eq!(INPUT_VISITS.with(|visits| visits.get()), (1, 1));
+    assert_eq!(PREPARATIONS.with(|count| count.get()), 1);
     assert!(app.world.has::<crate::ui::dirty::Dirty>(parked));
 }
