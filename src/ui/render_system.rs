@@ -1521,13 +1521,20 @@ fn prepare_local_layout(
     {
         return Ok(false);
     }
-    let Some(dirty) = world.storage::<super::dirty::Dirty>() else {
+    // Parked branches retain their pending work. Only the active snapshot
+    // participates in this solve; unrelated hidden dirt must not move its
+    // parent into a full-tree preparation.
+    let mut dirty = snapshot
+        .entities
+        .iter()
+        .copied()
+        .filter(|entity| world.has::<super::dirty::Dirty>(*entity));
+    let Some(target) = dirty.next() else {
         return Ok(false);
     };
-    let [target] = dirty.entities() else {
+    if dirty.next().is_some() {
         return Ok(false);
-    };
-    let target = *target;
+    }
     if target == root {
         return Ok(false);
     }

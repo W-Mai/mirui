@@ -489,3 +489,29 @@ fn incremental_leaf_prepares_only_its_inputs_and_keeps_untouched_text_alive() {
         );
     }
 }
+
+#[test]
+fn parked_dirty_nodes_do_not_block_active_leaf_preparation() {
+    let mut app = App::headless(120, 90);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    app.compose(root, |cx| {
+        ui! {
+            View (grow: 1.0) {
+                View (id: "parked", width: 40, height: 30) [crate::ui::Hidden] {
+                    View (id: "parked-leaf", width: 8, height: 8)
+                }
+                View (id: "active-leaf", width: 12, height: 10, position: Position::Absolute)
+            }
+        }
+    });
+    app.render().unwrap();
+    let parked = app.world.find_by_id("parked-leaf").unwrap();
+    let active = app.world.find_by_id("active-leaf").unwrap();
+    app.world.insert(parked, crate::ui::dirty::Dirty);
+    INPUT_VISITS.with(|visits| visits.set((0, 0)));
+    app.world.get_mut::<Style>(active).unwrap().layout.left = Dimension::px(7);
+    app.render_dirty().unwrap();
+    assert_eq!(INPUT_VISITS.with(|visits| visits.get()), (1, 1));
+    assert!(app.world.has::<crate::ui::dirty::Dirty>(parked));
+}
