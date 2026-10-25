@@ -287,7 +287,7 @@ pub(crate) fn prepare(world: &mut World) {
                     let Some(reconcile) = hook.reconcile else {
                         continue;
                     };
-                    if !hook.ready(world, instance.entity) {
+                    if !instance.ready {
                         continue;
                     }
                     let Some(_guard) = AttachmentGuard::enter(world, instance.entity) else {

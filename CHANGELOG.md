@@ -74,6 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- View preparation reuses validated instance readiness, and component lifetime lookups use the existing storage in identity order without a separate index.
+
 - Visual-only redraws reuse completed View binding coordination when layout and text handles are unchanged.
 
 - Stable layout trees refresh style values and intrinsic measurements without repeating child membership and order checks.
