@@ -1764,7 +1764,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.last_layout_ns = layout_end.saturating_sub(layout_start);
 
         if !plan.is_empty() {
-            crate::trace_span!("frame.render_region");
+            let render_span = crate::core::perf::enter("frame.render_region");
             let requests = match render_system::prepare_paint_requests(&self.world) {
                 Ok(requests) => requests,
                 Err(error) => {
@@ -1855,6 +1855,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             })();
 
             drop(renderer);
+            drop(render_span);
             if let Err(error) = render_result {
                 self.backend.abort_flush();
                 self.world.mark_subtree_dirty(root);

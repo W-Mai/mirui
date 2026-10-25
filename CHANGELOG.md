@@ -72,6 +72,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Dirty-frame render traces end before surface submission and reporting, keeping draw time separate from flush and diagnostic output.
+
 - SDL-GPU rectangle outlines preserve their original geometry during partial redraws and restore the clip after submission.
 
 - Image resource demand follows component ownership and source changes without retaining a detached cache component.
