@@ -71,16 +71,16 @@ pub(super) fn blit_fractional(
     for y in y0..y1 {
         let sy = source_y + y_axis.next(height);
         let coverage_y = pixel_axis_coverage(area.y, bottom, y);
-        let (left_end, right_start, right_axis) = match interior {
-            Some((left, top, right, bottom, right_axis)) if y >= top && y < bottom => {
-                (left, right, right_axis)
+        let (left_end, right_start, right_axis) = match &interior {
+            Some((left, top, right, bottom, right_axis)) if y >= *top && y < *bottom => {
+                (*left, *right, right_axis)
             }
-            _ => (x1, x1, x_axis),
+            _ => (x1, x1, &x_axis),
         };
         let mut axis = x_axis;
         for x in (x0..left_end).chain(right_start..x1) {
             if x == right_start {
-                axis = right_axis;
+                axis = *right_axis;
             }
             let sx = source_x + axis.next(width);
             let mut coverage = pixel_axis_coverage(area.x, right, x) * coverage_y;
