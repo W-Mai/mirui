@@ -987,6 +987,8 @@ fn refresh_layout_values(
     style: &Style,
     changes: &mut LayoutTreeChanges,
 ) -> Result<(), TextLayoutFailure> {
+    #[cfg(test)]
+    local_layout_tests::record_input_visit(false);
     let next_style = layout_style(world, entity, style.layout);
     let observe_solve =
         !changes.structure && changes.solve != super::layout::solve::SolveScope::Full;
@@ -1452,13 +1454,27 @@ fn layout_text_tree(
     entities: &[Entity],
     index: &mut usize,
 ) -> Result<bool, TextLayoutFailure> {
-    use crate::types::fixed::from_textflow;
-
     if *index >= entities.len() {
         return Ok(false);
     }
     let entity = entities[*index];
     *index += 1;
+    let mut intrinsic_changed = layout_text_node(node, world, entity)?;
+    for child in &mut node.children {
+        intrinsic_changed |= layout_text_tree(child, world, entities, index)?;
+    }
+    Ok(intrinsic_changed)
+}
+
+fn layout_text_node(
+    node: &mut LayoutNode,
+    world: &mut World,
+    entity: Entity,
+) -> Result<bool, TextLayoutFailure> {
+    #[cfg(test)]
+    local_layout_tests::record_input_visit(true);
+    use crate::types::fixed::from_textflow;
+
     let mut intrinsic_changed = false;
     if let Some(layout) = layout_text(world, entity, node.rect.w)? {
         let measured_width = from_textflow(layout.measure.width);
@@ -1484,10 +1500,84 @@ fn layout_text_tree(
         }
     }
     prepare_input_layout(world, entity, node.rect)?;
-    for child in &mut node.children {
-        intrinsic_changed |= layout_text_tree(child, world, entities, index)?;
-    }
     Ok(intrinsic_changed)
+}
+
+// Incremental callers have delivered input invalidations before entering here.
+// Explicit layout preparation continues to inspect all current inputs.
+fn prepare_local_layout(
+    world: &mut World,
+    snapshot: &mut LayoutSnapshot,
+    root: Entity,
+    logical_w: u16,
+    logical_h: u16,
+) -> Result<bool, TextLayoutFailure> {
+    use super::layout::{Position, solve::SolveScope};
+
+    if !snapshot.matches(root, logical_w, logical_h)
+        || snapshot.bindings_pending
+        || !snapshot.maintenance_current(world)
+        || !snapshot.scroll_config_current(world)
+    {
+        return Ok(false);
+    }
+    let Some(dirty) = world.storage::<super::dirty::Dirty>() else {
+        return Ok(false);
+    };
+    let [target] = dirty.entities() else {
+        return Ok(false);
+    };
+    let target = *target;
+    if target == root {
+        return Ok(false);
+    }
+    let Some(node) = snapshot.paths.node_mut(&mut snapshot.layout_tree, target) else {
+        return Ok(false);
+    };
+    if !node.children.is_empty() || node.style.position != Position::Absolute {
+        return Ok(false);
+    }
+    let Some(style) = world.get::<Style>(target) else {
+        return Ok(false);
+    };
+    let mut candidate = LayoutNode::new(node.style);
+    candidate.entity = Some(target);
+    candidate.rect = node.rect;
+    candidate.intrinsic_width = node.intrinsic_width;
+    candidate.intrinsic_height = node.intrinsic_height;
+    let mut changes = LayoutTreeChanges::default();
+    refresh_layout_values(world, target, &mut candidate, style, &mut changes)?;
+    if changes.solve == SolveScope::Full {
+        return Ok(false);
+    }
+    node.style = candidate.style;
+    node.intrinsic_width = candidate.intrinsic_width;
+    node.intrinsic_height = candidate.intrinsic_height;
+    if changes.solve != SolveScope::Unchanged && !changes.solve.apply(&mut snapshot.layout_tree) {
+        snapshot.invalidate();
+        return Ok(false);
+    }
+    #[cfg(test)]
+    if changes.solve != SolveScope::Unchanged {
+        local_layout_tests::record_solve(true);
+    }
+    let node = snapshot
+        .paths
+        .node_mut(&mut snapshot.layout_tree, target)
+        .expect("prepared leaf");
+    if layout_text_node(node, world, target)? {
+        snapshot.invalidate();
+        return Ok(false);
+    }
+    snapshot.prepared_paint.resize(
+        snapshot.entities.len(),
+        world
+            .resource::<ViewRegistry>()
+            .map_or(0, |registry| registry.paint_iter().len()),
+    );
+    #[cfg(test)]
+    local_layout_tests::record_preparation();
+    Ok(true)
 }
 
 fn compute_layout_snapshot(
@@ -1495,14 +1585,12 @@ fn compute_layout_snapshot(
     root: Entity,
     logical_w: u16,
     logical_h: u16,
+    incremental: bool,
 ) -> Result<Option<Box<LayoutSnapshot>>, TextLayoutFailure> {
     world.watch_component_revision::<crate::input::event::scroll::ScrollConfig>();
     LayoutSnapshot::watch_maintenance(world);
     output_plan::invalidate_geometry(world);
     let mut previous = world.take_resource_box::<LayoutSnapshot>();
-    let local_solve = previous.as_ref().is_some_and(|snapshot| {
-        snapshot.matches(root, logical_w, logical_h) && !snapshot.bindings_pending
-    });
     if super::branch::is_authored_hidden(world, root) {
         output_plan::invalidate_structure(world);
         if let Some(cache) = world.resource::<Outputs<TextGeometry>>() {
@@ -1513,6 +1601,22 @@ fn compute_layout_snapshot(
         }
         return Ok(None);
     }
+    if incremental && let Some(snapshot) = &mut previous {
+        match prepare_local_layout(world, snapshot, root, logical_w, logical_h) {
+            Ok(true) => return Ok(previous),
+            Ok(false) => {}
+            Err(error) => {
+                snapshot.invalidate();
+                if let Some(snapshot) = previous {
+                    world.put_resource_box(snapshot);
+                }
+                return Err(error);
+            }
+        }
+    }
+    let local_solve = previous.as_ref().is_some_and(|snapshot| {
+        snapshot.matches(root, logical_w, logical_h) && !snapshot.bindings_pending
+    });
     let initial_demand = (!previous
         .as_ref()
         .is_some_and(|snapshot| snapshot.root == root))
@@ -3074,7 +3178,13 @@ fn reconcile_layout_snapshot(
         let snapshot = if reuse {
             world.take_resource_box::<LayoutSnapshot>()
         } else {
-            compute_layout_snapshot(world, root, logical_w, logical_h)?
+            compute_layout_snapshot(
+                world,
+                root,
+                logical_w,
+                logical_h,
+                reuse_visual_layout && pass == 0,
+            )?
         };
         let Some(mut snapshot) = snapshot else {
             return Ok(None);
@@ -3996,7 +4106,7 @@ pub(crate) fn try_collect_dirty_regions_into(
 
     if super::branch::is_authored_hidden(world, root) {
         let had_snapshot = world.resource::<LayoutSnapshot>().is_some();
-        if let Err(failure) = compute_layout_snapshot(world, root, logical_w, logical_h) {
+        if let Err(failure) = compute_layout_snapshot(world, root, logical_w, logical_h, false) {
             record_text_layout_failure(world, root, failure);
             return Err(failure);
         }
@@ -4320,10 +4430,10 @@ mod layout_snapshot_reuse_check {
         let branch = child(&mut world, root, None);
         let label = child(&mut world, branch, Some("old"));
         let leaf = child(&mut world, root, None);
-        let mut stable = compute_layout_snapshot(&mut world, root, 128, 128)
+        let mut stable = compute_layout_snapshot(&mut world, root, 128, 128, false)
             .unwrap()
             .unwrap();
-        let mut general = compute_layout_snapshot(&mut world, root, 128, 128)
+        let mut general = compute_layout_snapshot(&mut world, root, 128, 128, false)
             .unwrap()
             .unwrap();
 
@@ -4336,12 +4446,12 @@ mod layout_snapshot_reuse_check {
                 .set_content("new text");
             assert!(stable.maintenance_current(&world));
             world.put_resource_box(stable);
-            stable = compute_layout_snapshot(&mut world, root, 128, 128)
+            stable = compute_layout_snapshot(&mut world, root, 128, 128, false)
                 .unwrap()
                 .unwrap();
             general.valid = false;
             world.put_resource_box(general);
-            general = compute_layout_snapshot(&mut world, root, 128, 128)
+            general = compute_layout_snapshot(&mut world, root, 128, 128, false)
                 .unwrap()
                 .unwrap();
             same_tree(&stable.layout_tree, &general.layout_tree);

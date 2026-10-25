@@ -12,6 +12,19 @@ use std::rc::Rc;
 
 std::thread_local! {
     static SOLVES: Cell<(usize, usize)> = const { Cell::new((0, 0)) };
+    static PREPARATIONS: Cell<usize> = const { Cell::new(0) };
+    static INPUT_VISITS: Cell<(usize, usize)> = const { Cell::new((0, 0)) };
+}
+
+pub(super) fn record_input_visit(text: bool) {
+    INPUT_VISITS.with(|visits| {
+        let (a, b) = visits.get();
+        visits.set((a + usize::from(!text), b + usize::from(text)));
+    });
+}
+
+pub(super) fn record_preparation() {
+    PREPARATIONS.with(|count| count.set(count.get() + 1));
 }
 
 pub(super) fn record_solve(local: bool) {
@@ -64,10 +77,12 @@ fn local_scope_preserves_geometry_hits_scroll_events_and_dirty_pixels() {
     counts();
     for (width, top) in [(30, 8), (35, 82), (45, 12)] {
         let calls_before = calls.get();
+        PREPARATIONS.with(|count| count.set(0));
         let style = app.world.get_mut::<Style>(leaf).unwrap();
         style.layout.width = Dimension::px(width);
         style.layout.top = Dimension::px(top);
         app.render_dirty().unwrap();
+        assert!(PREPARATIONS.with(|count| count.get()) > 0);
         assert!(
             counts().0 > 0,
             "the common render path must actually admit a leaf solve"
@@ -357,4 +372,120 @@ fn effective_safe_area_inputs_match_complete_layout() {
             .content_rect(),
         content
     );
+}
+
+#[test]
+fn incremental_leaf_prepares_only_its_inputs_and_keeps_untouched_text_alive() {
+    let mut app = App::headless(120, 90);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    app.compose(root, |cx| {
+        ui! {
+            View (grow: 1.0) {
+                Text ("unchanged", id: "label", width: 100, height: 10, font_size: 8)
+                View (
+                    id: "leaf",
+                    width: 12,
+                    height: 10,
+                    position: Position::Absolute,
+                    bg_color: Color::rgb(200, 20, 40)
+                )
+                walk 0..32 with _slot {
+                    View (width: 1, height: 1)
+                }
+            }
+        }
+    });
+    app.render().unwrap();
+    let leaf = app.world.find_by_id("leaf").unwrap();
+    let label = app.world.find_by_id("label").unwrap();
+    let handle = *app
+        .world
+        .get::<crate::text::TextLayoutHandle>(label)
+        .unwrap();
+    for x in 1..12 {
+        INPUT_VISITS.with(|visits| visits.set((0, 0)));
+        app.world.get_mut::<Style>(leaf).unwrap().layout.left = Dimension::px(x);
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| app.render_dirty().unwrap()),
+            0
+        );
+        assert_eq!(INPUT_VISITS.with(|visits| visits.get()), (1, 1));
+        assert_eq!(
+            app.world.get::<crate::text::TextLayoutHandle>(label),
+            Some(&handle)
+        );
+        assert!(
+            app.world
+                .resource::<Outputs<TextGeometry>>()
+                .unwrap()
+                .storage()
+                .layouts
+                .get(handle)
+                .is_some()
+        );
+    }
+    for x in [18, 19, 20] {
+        app.world.get_mut::<Style>(leaf).unwrap().layout.left = Dimension::px(x);
+        app.dirty_regions().unwrap();
+    }
+    app.world.get_mut::<Style>(leaf).unwrap().layout.left = Dimension::px(21);
+    app.render_dirty().unwrap();
+    let pixels = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .bytes()
+        .to_vec();
+    app.world
+        .resource_mut::<LayoutSnapshot>()
+        .unwrap()
+        .invalidate();
+    app.render().unwrap();
+    assert_eq!(
+        app.backend.framebuffer().read_pixels().unwrap().bytes(),
+        pixels
+    );
+
+    for change in 0..4 {
+        app.world.get_mut::<Style>(leaf).unwrap().layout.left = Dimension::px(14 + change);
+        match change {
+            0 => {
+                app.world
+                    .get_mut::<Text>(label)
+                    .unwrap()
+                    .set_content("updated");
+            }
+            1 => {
+                app.with_fonts(crate::render::font::default_font_manager());
+            }
+            2 => {
+                app.try_with_text_layout_limits(crate::text::TextLayoutLimits::HOST)
+                    .unwrap();
+            }
+            _ => {
+                app.handle_memory_warning();
+            }
+        }
+        PREPARATIONS.with(|count| count.set(0));
+        app.render_dirty().unwrap();
+        assert_eq!(PREPARATIONS.with(|count| count.get()), 0, "change {change}");
+        let pixels = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
+        app.world
+            .resource_mut::<LayoutSnapshot>()
+            .unwrap()
+            .invalidate();
+        app.render().unwrap();
+        assert_eq!(
+            app.backend.framebuffer().read_pixels().unwrap().bytes(),
+            pixels
+        );
+    }
 }

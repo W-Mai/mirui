@@ -74,6 +74,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Incremental layout prepares an isolated absolute leaf without repeating whole-tree input and text preparation, while retaining shared geometry publication and complete-layout fallback.
+
 - View retirement consumes queued lifecycle changes, including deleted entities, without scanning inactive registrations during stable preparation.
 
 - View preparation reuses validated instance readiness, and component lifetime lookups use the existing storage in identity order without a separate index.
