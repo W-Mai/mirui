@@ -83,6 +83,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Successful frame acknowledgement retains View membership caches while clearing transient paint state; component changes and layout rebuilds still invalidate membership.
+
 - Fractional software blits borrow the right-edge sampling state until needed instead of copying it for every destination row.
 
 - Incremental layout prepares an isolated absolute leaf without repeating whole-tree input and text preparation, while retaining shared geometry publication and complete-layout fallback.

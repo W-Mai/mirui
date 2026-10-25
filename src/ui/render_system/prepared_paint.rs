@@ -75,12 +75,16 @@ impl PreparedPaint {
     }
 
     pub(super) fn clear(&self) {
+        self.clear_frame();
+        for entry in &self.views {
+            entry.set(0);
+        }
+    }
+
+    pub(super) fn clear_frame(&self) {
         self.clear_coverage();
         for entry in &self.affine {
             entry.set(None);
-        }
-        for entry in &self.views {
-            entry.set(0);
         }
         for entry in &self.nodes {
             entry.visibility.set(PaintVisibility::Unknown);
@@ -90,15 +94,7 @@ impl PreparedPaint {
     }
 
     pub(super) fn clear_for_frame(&self, world: &World, registry: &ViewRegistry) {
-        self.clear_coverage();
-        for entry in &self.affine {
-            entry.set(None);
-        }
-        for entry in &self.nodes {
-            entry.visibility.set(PaintVisibility::Unknown);
-            entry.state.set(None);
-            entry.offscreen.set(None);
-        }
+        self.clear_frame();
         if registry.paint_iter().len() != self.view_count {
             for entry in &self.views {
                 entry.set(0);
@@ -940,6 +936,67 @@ mod tests {
         );
         assert!(prepared.affine[0].get().is_none());
         assert_eq!(core::mem::size_of::<Cell<Option<Transform>>>(), 28);
+    }
+
+    #[test]
+    fn successful_frames_retain_membership_and_refresh_component_changes() {
+        let mut app = App::headless(32, 32);
+        app.with_default_widgets();
+        app.with_widget(probe_render::view().with_measurement(measure));
+        let root = app.spawn_root().id();
+        app.compose(root, scene());
+        let entity = app.world.find_by_id("probe").unwrap();
+        app.render().unwrap();
+        for has_probe in [true, false, true] {
+            if has_probe && !app.world.has::<Probe>(entity) {
+                app.world.insert(
+                    entity,
+                    Probe {
+                        measurements: Cell::new(0),
+                        global: Cell::new(false),
+                    },
+                );
+            } else if !has_probe {
+                app.world.remove::<Probe>(entity);
+            }
+            app.world.invalidate_visual(entity);
+            app.render_dirty().unwrap();
+            let snapshot = app
+                .world
+                .resource::<super::super::LayoutSnapshot>()
+                .unwrap();
+            let prepared = &snapshot.prepared_paint;
+            let position = snapshot
+                .entities
+                .iter()
+                .position(|&node| node == entity)
+                .unwrap();
+            let stride = prepared.view_stride();
+            assert_eq!(
+                prepared.views[0].get(),
+                1,
+                "type presence survives acknowledgement"
+            );
+            let row = &prepared.views[(position + 1) * stride..(position + 2) * stride];
+            assert_eq!(row[0].get(), 1, "node membership survives acknowledgement");
+            let matching = PreparedViews { words: &row[1..] };
+            let registry = app.world.resource::<ViewRegistry>().unwrap();
+            for (index, view) in registry.paint_iter().enumerate() {
+                assert_eq!(
+                    matching.contains(index),
+                    view.component_filter()
+                        .is_none_or(|kind| app.world.has_type(entity, kind))
+                );
+            }
+            assert!(prepared.get(position).is_none());
+            assert!(prepared.affine[position].get().is_none());
+            assert!(prepared.nodes[position].state.get().is_none());
+            assert!(prepared.nodes[position].offscreen.get().is_none());
+            assert_eq!(
+                prepared.nodes[position].visibility.get(),
+                PaintVisibility::Unknown
+            );
+        }
     }
 
     #[test]
