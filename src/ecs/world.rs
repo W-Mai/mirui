@@ -615,6 +615,13 @@ impl World {
             .map_or(0, |watched| watched.membership_revision)
     }
 
+    pub(crate) fn component_membership_revision_by_id(&self, type_id: TypeId) -> u64 {
+        self.watched_component_types
+            .iter()
+            .find(|watched| watched.type_id == type_id)
+            .map_or(0, |watched| watched.membership_revision)
+    }
+
     fn record_membership_change(&mut self, type_id: TypeId) {
         if let Some(watched) = self
             .watched_component_types

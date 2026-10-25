@@ -14,6 +14,7 @@ pub(super) struct PreparedPaint {
     // Both are invalidated together at the existing paint-batch boundary.
     views: Vec<Cell<usize>>,
     view_count: usize,
+    view_revisions: Vec<Cell<u64>>,
     affine: Vec<Cell<Option<Transform>>>,
     nodes: Vec<PreparedNode>,
 }
@@ -52,6 +53,7 @@ impl PreparedPaint {
             coverage: Vec::with_capacity(capacity),
             views: Vec::new(),
             view_count: 0,
+            view_revisions: Vec::new(),
             affine: Vec::with_capacity(capacity),
             nodes: Vec::with_capacity(capacity),
         }
@@ -62,6 +64,7 @@ impl PreparedPaint {
         self.affine.resize_with(len, || Cell::new(None));
         self.nodes.resize_with(len, PreparedNode::default);
         self.view_count = view_count;
+        self.view_revisions.resize_with(view_count, || Cell::new(0));
         let view_capacity = (self.coverage.capacity() + 1) * self.view_stride();
         if self.views.capacity() < view_capacity {
             self.views.reserve_exact(view_capacity - self.views.len());
@@ -83,6 +86,37 @@ impl PreparedPaint {
             entry.visibility.set(PaintVisibility::Unknown);
             entry.state.set(None);
             entry.offscreen.set(None);
+        }
+    }
+
+    pub(super) fn clear_for_frame(&self, world: &World, registry: &ViewRegistry) {
+        self.clear_coverage();
+        for entry in &self.affine {
+            entry.set(None);
+        }
+        for entry in &self.nodes {
+            entry.visibility.set(PaintVisibility::Unknown);
+            entry.state.set(None);
+            entry.offscreen.set(None);
+        }
+        if registry.paint_iter().len() != self.view_count {
+            for entry in &self.views {
+                entry.set(0);
+            }
+            return;
+        }
+        let mut membership_changed = false;
+        for (index, view) in registry.paint_iter().enumerate() {
+            let revision = view.component_filter().map_or(0, |type_id| {
+                world.component_membership_revision_by_id(type_id)
+            });
+            let previous = self.view_revisions[index].replace(revision);
+            membership_changed |= previous != revision;
+        }
+        if membership_changed {
+            for entry in &self.views {
+                entry.set(0);
+            }
         }
     }
 

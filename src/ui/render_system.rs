@@ -3163,7 +3163,11 @@ pub(crate) fn prepare_paint_requests(world: &World) -> Result<PaintRequestScope,
 
 fn reset_paint_preparation(world: &World) {
     if let Some(snapshot) = world.resource::<LayoutSnapshot>() {
-        snapshot.prepared_paint.clear();
+        if let Some(registry) = world.resource::<ViewRegistry>() {
+            snapshot.prepared_paint.clear_for_frame(world, registry);
+        } else {
+            snapshot.prepared_paint.clear();
+        }
     }
 }
 
