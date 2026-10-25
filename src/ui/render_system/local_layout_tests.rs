@@ -498,13 +498,18 @@ fn parked_dirty_nodes_do_not_block_active_leaf_preparation() {
     app.compose(root, |cx| {
         ui! {
             View (grow: 1.0) {
-                View (id: "parked", width: 40, height: 30) [crate::ui::Hidden] {
+                View (id: "parked", width: 40, height: 30) {
                     View (id: "parked-leaf", width: 8, height: 8)
                 }
                 View (id: "active-leaf", width: 12, height: 10, position: Position::Absolute)
             }
         }
     });
+    let parked_root = app.world.find_by_id("parked").unwrap();
+    app.world.insert(
+        parked_root,
+        crate::ui::branch::CachedBranchVisibility { selected: false },
+    );
     app.render().unwrap();
     let parked = app.world.find_by_id("parked-leaf").unwrap();
     let active = app.world.find_by_id("active-leaf").unwrap();
