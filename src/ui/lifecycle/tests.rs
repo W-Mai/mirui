@@ -486,3 +486,155 @@ fn late_registration_does_not_limit_the_number_of_existing_nodes() {
     prepare(&mut world);
     assert_eq!(world.resource::<Trace>().unwrap().capabilities, 1100);
 }
+
+#[test]
+fn queued_retirement_precedes_slot_reuse_and_survives_cascading_removal() {
+    #[derive(Default)]
+    struct Events(Vec<(Entity, bool)>);
+    fn attach(scope: &mut crate::ui::UiScope<'_>) {
+        let entity = scope.parent();
+        scope
+            .world_mut()
+            .resource_mut::<Events>()
+            .unwrap()
+            .0
+            .push((entity, true));
+    }
+    fn retire(world: &mut World, entity: Entity) {
+        world
+            .resource_mut::<Events>()
+            .unwrap()
+            .0
+            .push((entity, false));
+        if let Some(next) = world.resource::<Entity>().copied() {
+            world.remove_resource::<Entity>();
+            world.remove::<Source>(next);
+        }
+    }
+    for filtered in [false, true] {
+        let mut world = World::new();
+        let mut registry = ViewRegistry::default();
+        let view = View::systems_only("retirement", &[])
+            .with_attach(attach)
+            .with_retire(retire);
+        registry.insert(if filtered {
+            view.with_filter::<Source>()
+        } else {
+            view
+        });
+        world.insert_resource(registry);
+        world.insert_resource(Events::default());
+        let old = world.spawn(Source(0));
+        attach_handlers_for(&mut world, old);
+        let other = world.spawn(Source(0));
+        attach_handlers_for(&mut world, other);
+        prepare(&mut world);
+        world.resource_mut::<Events>().unwrap().0.clear();
+        if filtered {
+            world.insert_resource(other);
+        }
+        world.despawn(old);
+        let new = world.spawn(Source(0));
+        assert_eq!(new.id, old.id);
+        assert_ne!(new, old);
+        attach_handlers_for(&mut world, new);
+        assert_eq!(
+            world.resource::<Events>().unwrap().0[..2],
+            [(old, false), (new, true)]
+        );
+        prepare(&mut world);
+        assert!(view_input_guard(&world, new, 0).is_some());
+        assert_eq!(
+            world
+                .resource::<Events>()
+                .unwrap()
+                .0
+                .iter()
+                .filter(|&&(e, on)| e == old && !on)
+                .count(),
+            1
+        );
+        if filtered {
+            assert!(view_input_guard(&world, other, 0).is_none());
+            assert_eq!(
+                world.resource::<Events>().unwrap().0.last(),
+                Some(&(other, false))
+            );
+        }
+        world.resource_mut::<Events>().unwrap().0.clear();
+        world.despawn(new);
+        prepare(&mut world);
+        assert_eq!(world.resource::<Events>().unwrap().0, [(new, false)]);
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for _ in 0..8 {
+                    prepare(&mut world);
+                }
+            }),
+            0
+        );
+        assert_eq!(world.resource::<Events>().unwrap().0, [(new, false)]);
+    }
+}
+
+#[test]
+fn reconciliation_cannot_invoke_a_replaced_or_deleted_later_instance() {
+    #[derive(Default)]
+    struct ReconcileState {
+        change: bool,
+        calls: Vec<Entity>,
+        removed: Vec<Entity>,
+    }
+    fn retire(world: &mut World, entity: Entity) {
+        world
+            .resource_mut::<ReconcileState>()
+            .unwrap()
+            .removed
+            .push(entity);
+    }
+    fn reconcile(world: &mut World, entity: Entity) -> bool {
+        assert!(world.has::<Source>(entity));
+        world
+            .resource_mut::<ReconcileState>()
+            .unwrap()
+            .calls
+            .push(entity);
+        if world.resource::<ReconcileState>().unwrap().change {
+            world.resource_mut::<ReconcileState>().unwrap().change = false;
+            let [replace, delete] = *world.resource::<[Entity; 2]>().unwrap();
+            world.insert(replace, Source(2));
+            world.despawn(delete);
+        }
+        false
+    }
+    let mut world = World::new();
+    let mut registry = ViewRegistry::default();
+    registry.insert(
+        View::systems_only("reconcile", &[])
+            .with_filter::<Source>()
+            .with_reconcile(reconcile)
+            .with_retire(retire),
+    );
+    world.insert_resource(registry);
+    world.insert_resource(ReconcileState::default());
+    let nodes = core::array::from_fn::<_, 3, _>(|_| {
+        let entity = world.spawn(Source(0));
+        attach_handlers_for(&mut world, entity);
+        entity
+    });
+    prepare(&mut world);
+    world.insert_resource([nodes[1], nodes[2]]);
+    *world.resource_mut::<ReconcileState>().unwrap() = ReconcileState {
+        change: true,
+        ..Default::default()
+    };
+    prepare(&mut world);
+    let state = world.resource::<ReconcileState>().unwrap();
+    assert!(!state.calls.contains(&nodes[2]));
+    assert!(state.calls.contains(&nodes[1]));
+    assert_eq!(state.removed.len(), 2);
+    assert!(state.removed.contains(&nodes[1]));
+    assert!(state.removed.contains(&nodes[2]));
+    assert!(view_input_guard(&world, nodes[1], 0).is_some());
+    assert!(view_input_guard(&world, nodes[2], 0).is_none());
+}

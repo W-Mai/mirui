@@ -90,33 +90,27 @@ impl InputAttach {
 
     fn retire_replaced(&self, world: &mut World, entity: Entity) {
         let generation = self.generation(world, entity);
+        let live_slot = world.is_alive(entity);
         let removed = {
             let mut instances = self.instances.values.borrow_mut();
-            if let Some(index) = instances.iter().position(|instance| {
-                instance.entity == entity && Some(instance.generation) != generation
-            }) {
-                instances.swap_remove(index);
-                true
-            } else {
-                false
-            }
+            instances
+                .iter()
+                .position(|instance| {
+                    (instance.entity == entity && Some(instance.generation) != generation)
+                        || (live_slot
+                            && instance.entity.id == entity.id
+                            && instance.entity != entity)
+                })
+                .map(|index| instances.swap_remove(index).entity)
         };
-        if removed && let Some(retire) = self.retire {
-            retire(world, entity);
+        if let Some(removed) = removed
+            && let Some(retire) = self.retire
+        {
+            retire(world, removed);
         }
     }
 
-    fn begin(&self, world: &mut World, entity: Entity, generation: u64) -> bool {
-        let retired = self
-            .instances
-            .values
-            .borrow()
-            .iter()
-            .find(|instance| self.generation(world, instance.entity) != Some(instance.generation))
-            .map(|instance| instance.entity);
-        if let Some(retired) = retired {
-            self.retire_replaced(world, retired);
-        }
+    fn begin(&self, entity: Entity, generation: u64) -> bool {
         let mut instances = self.instances.values.borrow_mut();
         if let Some(instance) = instances
             .iter_mut()
@@ -199,7 +193,7 @@ fn apply_input_attach_plan(world: &mut World, entity: Entity, plan: &[InputAttac
             let Some(generation) = hook.generation(world, entity) else {
                 continue;
             };
-            if !hook.begin(world, entity, generation) {
+            if !hook.begin(entity, generation) {
                 continue;
             }
             if remaining == 0 {
@@ -266,6 +260,10 @@ pub(crate) fn prepare(world: &mut World) {
                 };
                 if world.has::<AttachTarget>(entity) {
                     attach_handlers_for(world, entity);
+                } else if let Some(plan) = input_attach_plan(world) {
+                    for hook in plan.iter() {
+                        hook.retire_replaced(world, entity);
+                    }
                 }
             }
             input_attach_plan(world)
@@ -273,6 +271,9 @@ pub(crate) fn prepare(world: &mut World) {
         let mut changed = false;
         if let Some(plan) = plan {
             for hook in plan.iter() {
+                let Some(reconcile) = hook.reconcile else {
+                    continue;
+                };
                 let mut index = 0;
                 loop {
                     let instance = hook.instances.values.borrow().get(index).copied();
@@ -284,9 +285,6 @@ pub(crate) fn prepare(world: &mut World) {
                         continue;
                     }
                     index += 1;
-                    let Some(reconcile) = hook.reconcile else {
-                        continue;
-                    };
                     if !instance.ready {
                         continue;
                     }

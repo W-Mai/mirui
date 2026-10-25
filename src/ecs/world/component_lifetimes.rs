@@ -71,7 +71,7 @@ impl ComponentLifetimes {
 
     pub(super) fn despawn(&mut self, entity: Entity) {
         self.instances.retain(|instance| instance.entity != entity);
-        self.pending.retain(|pending| *pending != entity);
+        self.enqueue(entity);
     }
 
     pub(super) fn generation(&self, entity: Entity, kind: TypeId) -> Option<u64> {
