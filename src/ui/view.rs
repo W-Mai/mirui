@@ -1336,12 +1336,6 @@ impl ViewRegistry {
         self.paint_order.iter().map(|&index| &self.views[index])
     }
 
-    pub(crate) fn paint_at(&self, position: usize) -> Option<&View> {
-        self.paint_order
-            .get(position)
-            .map(|&index| &self.views[index])
-    }
-
     pub fn len(&self) -> usize {
         self.views.len()
     }
