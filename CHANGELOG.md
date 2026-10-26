@@ -92,6 +92,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Software image submission reconstructs full draw requests only for transformed sampling paths.
 
 - Software image submission borrows prepared pixel views without rebuilding their row layouts or storage guards.
+- Software rectangle filling reuses clipped target bounds and row addresses during pixel blending.
 
 - Paint membership checks reuse type-validated component registration positions while retaining membership revision invalidation.
 

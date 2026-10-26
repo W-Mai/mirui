@@ -231,7 +231,14 @@ impl SwRenderer<'_> {
             overwrite_rect(&mut target, inner_x0, inner_y0, inner_x1, inner_y1, color);
         }
 
+        // The pixel bounds already intersect the target; reuse that admission for each row.
+        let format = target.format();
+        let stride = target.stride();
+        let pixel_bytes = format.bytes_per_pixel();
+        let alpha_mode = target.alpha_mode();
+        let pixels = target.bytes_mut();
         for py in px_y0..px_y1 {
+            let row_start = py as usize * stride;
             let pixel_top = Fixed::from_int(py);
             let pixel_bot = Fixed::from_int(py + 1);
             let cov_y = if pixel_top >= area.y && pixel_bot <= area_y_end {
@@ -259,7 +266,13 @@ impl SwRenderer<'_> {
                     // Hot path: straight-zone fully-opaque pixel — skip
                     // every Fixed multiply and the SDF call.
                     if row_full_y && col_full_x && in_mid_y && in_mid_x && opa_full {
-                        target.set_pixel(px, py, color);
+                        format.blend_pixel(
+                            pixels,
+                            row_start + px as usize * pixel_bytes,
+                            color,
+                            255,
+                            alpha_mode,
+                        );
                         continue;
                     }
 
@@ -285,8 +298,13 @@ impl SwRenderer<'_> {
                     let final_opa =
                         (cov_x * cov_y * corner_cov * opa_norm).map01(255).to_int() as u8;
                     if final_opa > 0 {
-                        // px/py are integers — skip blend_pixel's is_integer dispatch.
-                        target.blend_pixel_int(px, py, color, final_opa);
+                        format.blend_pixel(
+                            pixels,
+                            row_start + px as usize * pixel_bytes,
+                            color,
+                            final_opa,
+                            alpha_mode,
+                        );
                     }
                 }
             }
@@ -1179,13 +1197,19 @@ mod corner_check {
                             Rect::new(0, 0, 1, 11),
                             Rect::new(7, 0, 5, 11),
                         ] {
-                            let size = 12 * 11 * format.bytes_per_pixel();
+                            let stride = 12 * format.bytes_per_pixel() + 3;
+                            let size = 10 * stride + 12 * format.bytes_per_pixel();
                             let mut actual = std::vec![17; size];
                             let mut expected = actual.clone();
-                            let mut target = Texture::new(&mut actual, 12, 11, format).unwrap();
+                            let mut target = Texture::new(&mut actual, 12, 11, format)
+                                .unwrap()
+                                .with_stride(stride)
+                                .unwrap();
                             target.alpha_mode = alpha_mode;
-                            let mut reference =
-                                Texture::new(&mut expected, 12, 11, format).unwrap();
+                            let mut reference = Texture::new(&mut expected, 12, 11, format)
+                                .unwrap()
+                                .with_stride(stride)
+                                .unwrap();
                             reference.alpha_mode = alpha_mode;
                             let color = Color::rgb(231, 123, 45);
                             let mut renderer = SwRenderer::new(target);
