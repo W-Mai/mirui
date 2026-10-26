@@ -298,15 +298,20 @@ impl Renderer for ScopedRenderer<'_> {
 
 /// Disabled (subtree) > Errored (self) > Pressed > Hovered > Enabled.
 fn resolve_widget_state(world: &World, entity: Entity) -> WidgetState {
-    let mut cur = Some(entity);
-    while let Some(e) = cur {
-        if matches!(world.get::<UserState>(e), Some(UserState::Disabled)) {
-            return WidgetState::Disabled;
+    if let Some(states) = world
+        .storage::<UserState>()
+        .filter(|states| !states.is_empty())
+    {
+        let mut cur = Some(entity);
+        while let Some(e) = cur {
+            if matches!(states.get(e), Some(UserState::Disabled)) {
+                return WidgetState::Disabled;
+            }
+            cur = world.get::<Parent>(e).map(|p| p.0);
         }
-        cur = world.get::<Parent>(e).map(|p| p.0);
-    }
-    if matches!(world.get::<UserState>(entity), Some(UserState::Errored)) {
-        return WidgetState::Error;
+        if matches!(states.get(entity), Some(UserState::Errored)) {
+            return WidgetState::Error;
+        }
     }
     match world.get::<InteractionState>(entity) {
         Some(InteractionState::Pressed) => WidgetState::Pressed,
@@ -10917,6 +10922,27 @@ mod offscreen_render_check {
 #[cfg(test)]
 mod state_resolve_check {
     use super::*;
+
+    #[test]
+    fn inherited_state_tracks_first_insertion_and_last_removal() {
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        let parent = world.spawn_empty();
+        let child = world.spawn_empty();
+        world.insert(parent, Parent(root));
+        world.insert(child, Parent(parent));
+        world.insert(child, InteractionState::Pressed);
+        assert_eq!(resolve_widget_state(&world, child), WidgetState::Pressed);
+        world.insert(root, UserState::Disabled);
+        assert_eq!(resolve_widget_state(&world, child), WidgetState::Disabled);
+        world.remove::<UserState>(root);
+        assert_eq!(resolve_widget_state(&world, child), WidgetState::Pressed);
+        world.insert(parent, UserState::Errored);
+        assert_eq!(resolve_widget_state(&world, child), WidgetState::Pressed);
+        assert_eq!(resolve_widget_state(&world, parent), WidgetState::Error);
+        world.despawn(parent);
+        assert_eq!(resolve_widget_state(&world, child), WidgetState::Pressed);
+    }
 
     #[test]
     fn enabled_when_no_state_components() {

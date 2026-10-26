@@ -83,6 +83,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Widget state resolution skips ancestor traversal when no user states exist and reuses the state storage during inheritance checks.
+
 - Frame acknowledgement reuses visibility resolved during painting, while unvisited nodes keep their existing checks and each new paint batch refreshes visibility.
 
 - Successful frame acknowledgement retains View membership caches while clearing transient paint state; component changes and layout rebuilds still invalidate membership.
