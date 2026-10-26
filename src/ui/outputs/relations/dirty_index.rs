@@ -71,7 +71,9 @@ impl SourceDirtyIndex {
             return;
         }
         let revisions = [
-            world.component_revision::<Dirty>(),
+            // Dirty is a presence-only marker. Repeated writes still notify
+            // geometry consumers, but cannot change this membership summary.
+            world.component_membership_revision::<Dirty>(),
             world.component_revision::<VisualDirty>(),
             world.component_revision::<Parent>(),
             world.component_revision::<crate::ui::Hidden>(),
@@ -151,6 +153,39 @@ fn key(entity: Entity) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn repeated_layout_damage_reuses_membership_without_hiding_writes() {
+        let mut world = World::new();
+        let source = world.spawn_empty();
+        let child = world.spawn_empty();
+        world.insert(child, Parent(source));
+        let mut index = SourceDirtyIndex::default();
+        index.begin(&mut world, [source].into_iter());
+        assert!(!index.is_dirty(&world, source));
+        world.invalidate(child);
+        assert!(index.is_dirty(&world, source));
+        let rebuilds = index.rebuilds;
+        let written = world.component_revision::<Dirty>();
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for _ in 0..73 {
+                    world.invalidate(child);
+                    assert!(index.is_dirty(&world, source));
+                }
+            }),
+            0
+        );
+        assert_ne!(world.component_revision::<Dirty>(), written);
+        assert_eq!(index.rebuilds, rebuilds);
+
+        world.remove::<Dirty>(child);
+        assert!(!index.is_dirty(&world, source));
+        world.invalidate(child);
+        assert!(index.is_dirty(&world, source));
+        world.despawn(child);
+        assert!(!index.is_dirty(&world, source));
+    }
 
     #[test]
     fn unchanged_membership_reuses_the_summary_until_inputs_change() {
