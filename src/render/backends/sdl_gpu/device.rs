@@ -165,6 +165,7 @@ impl<T: RenderTarget> Device<T> {
     }
 
     pub(super) fn finish_persistent_frame(&self) -> Result<bool, RenderError> {
+        crate::trace_span!("sdl.frame.compose");
         let mut canvas = self.canvas()?;
         let Some(driver) = self.frame_state.borrow_mut().take() else {
             return Ok(false);
@@ -181,9 +182,11 @@ impl<T: RenderTarget> Device<T> {
             canvas
                 .set_logical_size(0, 0)
                 .map_err(|_| RenderError::BackendFailure)?;
-            canvas
-                .copy(texture, None, None)
-                .map_err(|_| RenderError::BackendFailure)?;
+            crate::trace_span!("sdl.frame.copy", {
+                canvas
+                    .copy(texture, None, None)
+                    .map_err(|_| RenderError::BackendFailure)
+            })?;
             driver.restore(&canvas)
         })();
         if result.is_err() {

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- SDL-GPU submits the completed command queue before presentation and reports submission failures through the existing frame error path. Performance traces distinguish target switches, state restoration, retained-frame composition, queue submission and presentation.
+
 ### Performance
 
 - Reuse retained preorder subtree spans when skipping hidden, clipped or cached branches during painting, hit geometry updates and output preparation.

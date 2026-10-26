@@ -116,3 +116,9 @@ An independent target uses its own viewport and local coordinates. Region offset
 The external implementation in [the composed-target contract tests](../tests/compose_backend_basic/native_targets.rs) exercises target planning, allocation, two nested concrete engines, independent target contents, failed production, foreign-device rejection and source reading after renderer destruction. Its `NativeFactory` uses the existing `RendererFactory` associated renderer lifetime to borrow both engines each frame; a target survives across those frames and remains readable after the surface and factory are dropped. The fixture models a native device in memory; it does not require GPU hardware.
 
 The [update contracts](../tests/compose_backend_basic/native_targets/updates.rs) check invalidation after failed binding, submission, callbacks and nested unwinding; restoration failure also prevents later submissions. Nested incremental scopes preserve both targets across intermediate flushes without allocating after preparation. These checks exercise the shared executor and macro routing, not a GPU driver.
+
+## SDL frame tracing
+
+With performance tracing enabled, `sdl.target.select` and `sdl.target.restore` include SDL's implicit submission when changing targets; `sdl.state.select` and `sdl.state.restore` measure the remaining property updates. `sdl.frame.compose` includes copying the retained image to the window. At the completed-frame boundary, `sdl.queue.submit` submits queued commands before `sdl.present` presents the window. Submission errors use the existing frame failure path and do not acknowledge pending damage.
+
+These spans measure time on the calling thread. Submission and presentation can both block inside the driver; neither span measures GPU execution alone. No GPU-idle synchronization is inserted for tracing.

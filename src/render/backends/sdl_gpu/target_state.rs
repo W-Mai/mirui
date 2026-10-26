@@ -27,6 +27,7 @@ pub(super) struct DriverState {
 
 impl DriverState {
     pub(super) fn capture<T: RenderTarget>(canvas: &Canvas<T>) -> Result<Self, RenderError> {
+        crate::trace_span!("sdl.state.capture");
         let raw = canvas.raw();
         let mut state = Self {
             target: ptr::null_mut(),
@@ -69,7 +70,11 @@ impl DriverState {
         let raw = canvas.raw();
         // The binding state retains every texture that can be restored here.
         unsafe {
-            checked(SDL_SetRenderTarget(raw, self.target))?;
+            // Changing targets can submit queued drawing before restoring properties.
+            crate::trace_span!("sdl.target.restore", {
+                checked(SDL_SetRenderTarget(raw, self.target))
+            })?;
+            crate::trace_span!("sdl.state.restore");
             checked(SDL_RenderSetIntegerScale(raw, self.integer))?;
             checked(SDL_RenderSetLogicalSize(
                 raw,
@@ -106,7 +111,10 @@ pub(super) fn select<T: RenderTarget>(
     let raw = canvas.raw();
     // Both handles belong to the checked source device and remain alive for this operation.
     unsafe {
-        checked(SDL_SetRenderTarget(raw, texture.raw()))?;
+        crate::trace_span!("sdl.target.select", {
+            checked(SDL_SetRenderTarget(raw, texture.raw()))
+        })?;
+        crate::trace_span!("sdl.state.select");
         checked(SDL_RenderSetIntegerScale(raw, SDL_bool::SDL_FALSE))?;
         checked(SDL_RenderSetLogicalSize(raw, 0, 0))?;
         checked(SDL_RenderSetScale(raw, 1.0, 1.0))?;
