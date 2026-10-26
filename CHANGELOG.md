@@ -7,166 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.52.0] - 2026-10-26
+
 ### Added
 
-- `Renderer::poll_draw_request` executes routing, preparation and submission with the caller's task context and optional text-run identity; pending sources do not submit.
-
-- Paint contexts and coordinate wrappers share single-pass request normalization while retaining text-run identities and source-readiness notifications.
-
-- Shared image-source reads notify each waiting App without replacing earlier consumers; waiter storage is bounded and reused across reads.
-
-- `PaintCtx::poll_draw` supports resource-pending fallbacks through renderer preparation. Image fallbacks retain readiness notifications; strict drawing preserves damage until retry, and scene replay carries the paint task context through nested scopes.
-- Encoded MIRX image sources decode intersecting units through the shared source cache and scalar decoders. Metadata, input buffers, decoded workspace and pinned region pixels share the image decode budget; asynchronous reads never publish partial pixels.
-- MIRX image validation shares resident preflight limits across separately loaded metadata and unit inputs without retaining their buffers.
-- MIRX encoded image directory scans locate metadata windows with fixed storage and share section validation with resident images.
-- MIRX encoded image layouts resolve regional unit inputs from separate metadata windows without retaining DATA, sharing coverage and decoding rules with resident images.
-- Nonmapped MIRX CHUNK RAW images validate primary and critical image payloads through bounded source windows, including whole-DATA and indexed checksums, then provide regional pixel reads under the shared decode budget.
-- MIRX RAW plane layouts can be validated from metadata windows without allocating DATA storage, sharing bounds and alignment checks with static images.
-- Unknown-length random image sources validate the declared final byte and EOF before publication, retaining bounded validation progress across asynchronous reads.
-- Nonmapped MIRX FLAT images support asynchronous regional reads through the shared source cache. `ImageResourcesPlugin::with_decode_budget` bounds decoded pixels, pending reads, pinned leases and cache metadata across image sources; static and mapped pixels retain direct access.
-- Image source bindings decode mapped MIRX FLAT and CHUNK RAW images through the existing loader, preserving primary-image selection, source ownership, row stride and direct pixel borrowing across renderer preparation and upload caches.
-- Loader prefix reads distinguish EOF from source failures and share exact reads' execution allowances, source ownership and block cache.
-- MIRX whole-DATA checksums support bounded source windows without retaining sample buffers; directory validation and checksum comparison share the slice reader's rules.
-- MIRX section directories support constant-storage window scans with checked ordering and payload bounds; rejected records do not advance the scan.
-- MIRX metadata checksums can be verified through bounded source windows without retaining payloads or directory arrays.
-- MIRX integrity records and DATA partition checksums support bounded read windows with constant verification storage.
-- MIRX range readers validate integrity-table association and exact DATA coverage without retaining metadata tables or reading sample bytes.
-- MIRX container layouts expose checked header, directory-record and FLAT plane ranges without retaining complete source buffers, sharing validation with the slice reader.
-- Loaders can transfer their opened byte source into retained state or resource values, preserving bounded reads, shared caches and pending-I/O retirement without reopening.
-- `Loader::for_source` binds a decoder to a named byte provider through the existing loader registration, preserving metadata support and rejecting overlapping source claims before opening.
-- Resource handles share pending demand and retire consumer-owned loads when the last handle leaves, while explicit prefetch and refresh remain active.
-- Mobile event loops receive resource-completion wakes while publication stays in owner-thread systems and respects suspension and tick pacing.
-- `ResourceManager::reload` schedules generation-checked refresh through the registered loaders while retaining cached successful values until replacement.
-- Named byte sources and image-source bindings use prepared sessions, shared bounded read blocks and content recognition through existing resource loaders. Cancelled requests retire submitted I/O before reusing storage.
-- Byte-provider traits use associated futures, explicit source capabilities and owned fixed-address read buffers. Immutable static slices support mapped and immediate random reads.
-- `Texture::pixels_in` borrows checked source regions without copying pixels. `TextureRegion` preserves source coordinates and row stride, with local pixel views and allocation-free iteration.
-- `Texture::poll_pixels_in` prepares region-sized native readback; `poll_read_pixels` prepares a contiguous complete view. Regional cache leases share the admitted CPU budget, include owner metadata, and preserve pinned pixels while reusing unpinned buffers.
-- `PreparedDraw` retains routed command descriptions and source-region leases. CPU preparation shares the software rasterizer's sampling calculations and leaves source geometry unchanged.
+- Named byte providers support mapped, immediate and asynchronous random reads through shared bounded block caches. Associated futures and owned read buffers preserve source lifetimes during cancellation.
+- `Loader::for_source` connects decoders to byte providers. Loaders retain typed state across pending reads, resume when woken, and transfer opened sources into resource values without reopening.
+- `ProbeLoader` and `add_probed_loader` provide explicit metadata-only loading. `ResourceManager::reload` refreshes resources with generation checks while retaining the last successful value.
+- Resource completion wakes desktop, Web and mobile event loops. Shared sources notify each waiting App; publication remains on the owning thread.
+- MIRX image sources support mapped RAW pixels and asynchronous regional reads for nonmapped RAW and encoded images. Bounded metadata scans and checksum verification reuse resident parsing and decoding rules.
+- `ImageResourcesPlugin::with_decode_budget` limits shared decoded pixels, pending reads, pinned leases and decoding workspace. Static and mapped images retain direct pixel access.
+- `Texture::pixels_in` borrows checked regions without copying. `TextureRegion` preserves source coordinates and row stride while exposing local pixel views.
+- `Texture::poll_pixels_in` prepares regional native readback; `poll_read_pixels` prepares a contiguous complete view. Pinned cache leases remain valid across eviction and share the admitted CPU budget.
+- `PreparedDraw` retains routed commands and source leases. `poll_upload` and `poll_complete` support third-party renderers without requiring an internal GPU backend.
+- `Renderer::poll_draw_request` combines routing, preparation and submission with the caller's task context and optional text-run identity.
+- `PaintCtx::poll_draw` supports pending-resource fallbacks. Strict drawing retains damage until retry, and nested scene replay preserves readiness notifications.
+- `FramebufSurface::with_redraw_strategy` selects adaptive or bounding-box dirty painting.
 
 ### Changed
 
-- Paint batches reset prepared geometry at their entry points without repeating cache clearing after successful frame acknowledgement.
-
-- Render scopes borrow their projective transform and skip identity composition while preserving physical clip boundaries.
-
-- Image painting uses its declared component binding instead of constructing a query for the same entity.
-
-- Painting and coverage measurement index matching Views through the existing membership bitset, preserving paint order without scanning unrelated descriptors.
-
-- Dirty-region collection skips text, geometry, relation, and offscreen preparation when the scene has no corresponding demand; active output consumers retain the full preparation path.
-- Prepared paint membership bitsets remain valid across visual-only frames and refresh from component membership revisions, avoiding repeated view matching for unchanged entities.
-
-- `FramebufSurface::with_redraw_strategy` lets a framebuffer backend choose adaptive or bounding-box dirty painting without changing the renderer or author-facing view API.
-
-- Paint dispatch keeps the direct registry scan for the small widget sets used by embedded apps, avoiding iterator and bitset overhead while preserving prepared membership checks.
-
-- Hiding a cached conditional branch retires its captured and queued input before it can be selected again.
-
-- `ui!` initializes ordinary components through `Default` and assigns their public properties, preserving private component state and rejecting duplicate properties.
-- Resource loaders retain typed state across `Pending` and resume only when woken. Prepared invocation slots, metadata-to-value promotion and generation checks share the existing manager and subscriptions.
-- Resource metadata probing uses explicitly registered `ProbeLoader` implementations instead of decoding through ordinary loaders. `MirxLoader` supports metadata-only registration with `add_probed_loader`.
-- Texture upload caches track bounded valid coverage without changing source coordinates or default cache budgets. SDL-GPU uploads prepared regions and reuses completed coverage.
-- WGPU uploads prepared regions through its existing texture pool, preserving padded RGBA rows and queued resource lifetimes.
-- Web Canvas updates prepared source regions in its texture cache and reuses completed coverage without changing glyph caches.
-- Third-party renderers can reuse `PreparedDraw::poll_upload` and `poll_complete` without enabling an internal GPU backend.
-
-- `Renderer` and `RenderEngine` prepare source leases before submitting `PreparedDraw`. Composed backends retain concrete routing and text-run identity; immediate drawing uses `draw_request` or `draw_text_run`. Scene replay reuses saved routes without bypassing preparation.
-- Software rendering consumes prepared source regions without changing sampling coordinates. Native GPU sampling avoids CPU readback; upload paths consume resident source pixels under existing cache budgets.
-- `BackendTarget::read_pixels_into` accepts a checked source region. Native readback uses region-sized destinations with independent row strides; full reads pass the descriptor's complete region.
-- Source-owned readback views retain immutable cache storage without holding a cache-manager borrow. Failed and unwound reads preserve reusable storage without exposing partial pixels.
-- The default ASCII font is embedded as MIRX and shares font providers, raster surfaces and rendering paths with other fonts. Explicit font sizes scale its metrics and glyphs; the default remains 8 px.
-- `Font::default()` replaces the bitmap constructor. `Font::provider` replaces `FontBackend`; raw bitmap exports and mono-only rendering paths are removed.
-- Gallery headers and labels fit the default font's explicit sizes.
+- The default ASCII font is embedded as MIRX and uses the common font provider and raster paths. Explicit font sizes scale metrics and glyphs; the default remains 8 px. Gallery layouts use explicit sizes.
+- `Font::default()` replaces the bitmap constructor, and `Font::provider` replaces `FontBackend`. Raw bitmap exports and mono-only rendering paths are removed.
+- `Renderer` and `RenderEngine` prepare source leases before submitting `PreparedDraw`. Immediate drawing uses `draw_request` or `draw_text_run`; composed backends and scene replay retain concrete routes and text-run identity.
+- `BackendTarget::read_pixels_into` accepts a checked source region and a destination with an independent row stride. Full reads use the complete descriptor region.
+- SDL-GPU, WGPU and Web Canvas texture caches upload prepared regions and track valid coverage under their existing budgets. Native GPU sampling does not require CPU readback.
+- `ui!` initializes ordinary components through `Default` and assigns public properties, preserving private state and rejecting duplicate properties.
 
 ### Fixed
 
 - Geometry preparation releases retained lookup plans when the last output consumer leaves, and rebuilds them when demand returns.
-
-- Dirty-frame render traces end before surface submission and reporting, keeping draw time separate from flush and diagnostic output.
-
-- SDL-GPU rectangle outlines preserve their original geometry during partial redraws and restore the clip after submission.
-
-- Image resource demand follows component ownership and source changes without retaining a detached cache component.
-- Images observe resource publication through View subscriptions and release old dependencies when their source or component changes.
-- Resource loaders run outside manager borrows, reject superseded results and guard same-token reentry. Token subscriptions survive removal and replacement, and metadata caches invalidate with resource revisions.
-- Empty texture regions validate geometry without accessing source devices or requiring completed native contents.
+- SDL-GPU rectangle outlines retain their original geometry during partial redraws and restore clipping after submission.
+- Hiding a cached conditional branch retires captured and queued input before the branch can be selected again.
+- Image resource subscriptions follow component ownership and source replacement, releasing obsolete demand and dependencies.
+- Resource loaders execute outside manager borrows, reject superseded results and guard same-token reentry. Token subscriptions survive replacement, and metadata caches track resource revisions.
+- Empty texture regions validate geometry without accessing devices. Failed or unwound readbacks preserve reusable storage without exposing partial pixels.
+- Dirty-frame traces separate drawing from surface submission and diagnostic reporting.
 
 ### Performance
 
-- Software image submission reconstructs full draw requests only for transformed sampling paths.
-
-- Software image submission borrows prepared pixel views without rebuilding their row layouts or storage guards.
-- Software rectangle filling reuses clipped target bounds and row addresses during pixel blending.
-
-- Paint membership checks reuse type-validated component registration positions while retaining membership revision invalidation.
-
-- Software rectangle edge rasterization traverses disjoint column ranges directly after filling the opaque interior.
-
-- Software draw submission shares capability checks with routing and avoids redundant transform classification.
-
-- Dirty-region collection skips scroll mapping when no framebuffer transfers are planned, reusing existing coverage normalization and acknowledgement.
-
-- Axis-aligned transform bounds skip multiplication on unit-scale axes while preserving endpoint ordering.
-
-- Paint preparation borrows transform inputs before checking cached geometry, avoiding unused matrix copies on cache hits.
-
-- Software rectangle fills borrow the source row and destination span once when replicating packed pixels, preserving row padding without temporary storage.
-
-- Render scopes update owned draw requests in place, avoiding intermediate copies of unchanged projection matrices.
-
-- Unit-scale viewport conversions skip scaling arithmetic while preserving fractional coordinate bounds.
-
-- Widget state resolution skips ancestor traversal when no user states exist and reuses the state storage during inheritance checks.
-
-- Frame acknowledgement reuses visibility resolved during painting, while unvisited nodes keep their existing checks and each new paint batch refreshes visibility.
-
-- Successful frame acknowledgement retains View membership caches while clearing transient paint state; component changes and layout rebuilds still invalidate membership.
-
-- Fractional software blits borrow the right-edge sampling state until needed instead of copying it for every destination row.
-
-- Incremental layout prepares an isolated absolute leaf without repeating whole-tree input and text preparation, while retaining shared geometry publication and complete-layout fallback.
-
-- View retirement consumes queued lifecycle changes, including deleted entities, without scanning inactive registrations during stable preparation.
-
-- View preparation reuses validated instance readiness, and component lifetime lookups use the existing storage in identity order without a separate index.
-
-- Visual-only redraws reuse completed View binding coordination when layout and text handles are unchanged.
-
-- Stable layout trees refresh style values and intrinsic measurements without repeating child membership and order checks.
-
-- SDL-GPU retains command clip state inside owned frames while preserving target restoration and explicit clipping for fills and software fallback uploads.
-
-- Reactive entity cleanup skips unchanged owner partitions while preserving computed lifetime checks and work registered by dropped captures.
-
-- Texture measurement plans skip repeated damage scans with unchanged tracked revisions, retaining explicit structure and output-dependency invalidation.
-
-- Output dependencies prepare source membership during demand reconciliation, share a demand-sized dirty-source summary, and refresh it when propagation changes damage markers; unused and memory-pressure caches are released.
-
-- Retained hidden layout branches share one reachability traversal during membership maintenance, reuse scratch storage across visibility cycles, and release excess capacity or respond to memory pressure.
-
-- Layout membership maintenance ignores unchanged component membership during Style and Widget value writes, while insertion, removal and entity retirement remain observable.
-
-- Layout refresh solves a single changed absolute leaf against its resolved parent when prepared inputs prove independence. Structural changes and unresolved constraints retain complete solving; text preparation and geometry publication remain shared.
-
-- Cached conditional branches defer generated display bindings until selected while retaining structural maintenance and business effects. Reactive batches reuse prepared ancestry depths and recheck execution gates after tree changes.
-
-- Layout geometry publication shares sparse lookup paths and computes common ancestor placement once per publication. Dense demand retains tree traversal; layout-owned caches release on retirement and memory warnings.
-
-- FollowBounds reuses dependency plans until layout structure, parent links or follow configuration changes, and releases retained plans when their owners leave or memory is reclaimed.
-
-- Paint measurement and dispatch iterate cached View membership bits instead of scanning every registered paint hook for each node.
-
-- FollowBounds skips unchanged resolved-state writes after updating motion targets, preserving size and visual invalidation.
-
-- Keyed rows skip unchanged child-order writes while preserving row identity, bindings and unrelated siblings.
-
-- Software submission keeps texture sampling and projection branches outside primitive submission stack frames.
-- Draw submission borrows successful preparation results in place instead of moving the retained command and pixel lease.
-- Software preparation directly borrows complete resident CPU images; asynchronous and native sources retain regional preparation, and GPU upload coverage remains unchanged.
-- Texture footprints calculate sampling endpoints without constructing unused iteration state, sharing the rasterizer's pixel-center arithmetic.
-- Software routing classifies affine transforms only for blits that require the result; shared projection validation skips matrix checks for commands without explicit quads.
-- Exact translations compose and transform points without matrix multiplications; nontranslation coefficients retain the full fixed-point calculation.
-- Software rendering reads exact-size A1 glyph coverage without bilinear interpolation.
+- FollowBounds caches dependency plans and skips unchanged resolved-state writes. Layout geometry shares sparse lookup paths and common ancestor calculations; caches retire with their owners and respond to memory pressure.
+- Stable layout trees refresh values and intrinsic measurements without repeating child membership checks. Independent absolute leaves use local solving and preparation; structural or unresolved changes retain complete solving.
+- Keyed rows skip unchanged child-order writes. Hidden conditional branches defer display bindings while preserving structural maintenance and business effects.
+- Reactive cleanup skips unchanged owner partitions. Parked branches share reachability traversal, and lifecycle retirement consumes queued changes without scanning inactive registrations.
+- Output dependencies reuse source membership and dirty-source summaries. Texture measurement skips scans when tracked revisions are unchanged.
+- Dirty collection skips unused text, geometry, relation and offscreen preparation. Scroll mapping is skipped when no framebuffer transfers are planned.
+- View binding preparation reuses validated readiness and component lookup positions. Paint membership survives visual-only frames, and prepared geometry resets once at paint-batch entry.
+- Widget state resolution skips ancestor traversal when no user states exist. Frame acknowledgement reuses visibility already resolved during painting.
+- Render scopes normalize requests once, update owned requests in place and borrow transforms. Identity transforms, exact translations and unit-scale coordinates avoid unnecessary matrix arithmetic.
+- Software rendering directly borrows resident CPU image pixels, prepared pixel views and successful preparation results. Asynchronous and native sources retain regional preparation.
+- Software image submission avoids reconstructing requests for ordinary sampling, and sampling footprints avoid unused iteration state.
+- Software rectangle fills reuse clipped bounds and row addresses, borrow replicated rows once, and traverse disjoint edge ranges after filling the opaque interior.
+- Software routing shares capability checks with submission and separates primitive and image stack usage. Exact-size A1 glyphs avoid bilinear interpolation.
+- SDL-GPU reuses clip state within owned frames while preserving target restoration and fallback clipping.
 
 ## [0.51.0] - 2026-10-21
 
