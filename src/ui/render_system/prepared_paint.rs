@@ -248,8 +248,8 @@ pub(super) fn offscreen(
 }
 
 pub(super) fn transforms(
-    parent_affine: Transform,
-    parent_projective: Transform3D,
+    parent_affine: &Transform,
+    parent_projective: &Transform3D,
     world: &World,
     entity: Entity,
     rect: Rect,
@@ -261,7 +261,7 @@ pub(super) fn transforms(
         return (affine, Transform3D::IDENTITY);
     }
     let (affine, projective) =
-        super::render_transforms(parent_affine, parent_projective, world, entity, rect);
+        super::render_transforms(*parent_affine, *parent_projective, world, entity, rect);
     if projective.is_identity()
         && let Some(entry) = entry
     {
@@ -916,8 +916,8 @@ mod tests {
                     for _ in 0..16 {
                         assert_eq!(
                             transforms(
-                                parent,
-                                Transform3D::IDENTITY,
+                                &parent,
+                                &Transform3D::IDENTITY,
                                 &world,
                                 entity,
                                 rect,
@@ -949,8 +949,8 @@ mod tests {
         );
         assert_eq!(
             transforms(
-                parent,
-                Transform3D::IDENTITY,
+                &parent,
+                &Transform3D::IDENTITY,
                 &world,
                 entity,
                 rect,

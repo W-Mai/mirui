@@ -401,8 +401,8 @@ fn planned_visual_bounds(
     world: &World,
     entity: Entity,
     rect: Rect,
-    affine: Transform,
-    projective: Transform3D,
+    affine: &Transform,
+    projective: &Transform3D,
     output_scale: Fixed,
     position: usize,
     plan: Option<&output_plan::TexturePlan>,
@@ -427,8 +427,8 @@ fn visible_paint_coverage(
     world: &World,
     entity: Entity,
     rect: Rect,
-    affine: Transform,
-    projective: Transform3D,
+    affine: &Transform,
+    projective: &Transform3D,
     output_scale: Fixed,
     position: usize,
     plan: Option<&output_plan::TexturePlan>,
@@ -443,8 +443,8 @@ fn visible_paint_coverage(
             world,
             entity,
             rect,
-            affine,
-            projective,
+            *affine,
+            *projective,
             output_scale,
         ))
     };
@@ -456,7 +456,7 @@ fn visible_paint_coverage(
     {
         return plan
             .and_then(|plan| plan.local_paint_bounds(position, rect))
-            .and_then(|extra| transformed_clip_bounds(extra, affine, projective))
+            .and_then(|extra| transformed_clip_bounds(extra, *affine, *projective))
             .map_or_else(fallback, |extra| {
                 fallback().union(PaintCoverage::solid(extra))
             });
@@ -549,8 +549,8 @@ fn seed_prev_rect_walk(
         ..node.rect
     };
     let (tf, tf_3d) = prepared_paint::transforms(
-        *parent_transform,
-        *parent_3d,
+        parent_transform,
+        parent_3d,
         world,
         entity,
         shifted_rect,
@@ -580,8 +580,8 @@ fn seed_prev_rect_walk(
                     world,
                     entity,
                     shifted_rect,
-                    tf,
-                    tf_3d,
+                    &tf,
+                    &tf_3d,
                     output_scale,
                     *idx,
                     output_plan,
@@ -2134,8 +2134,8 @@ fn draw_visible_tree_offset(
         ..node.rect
     };
     let (affine, projective) = prepared_paint::transforms(
-        *parent_transform,
-        *parent_transform_3d,
+        parent_transform,
+        parent_transform_3d,
         world,
         entity,
         rect,
@@ -2207,8 +2207,8 @@ fn draw_tree_content(
         }
     };
     let (tf, tf_3d) = prepared_paint::transforms(
-        *parent_transform,
-        *parent_transform_3d,
+        parent_transform,
+        parent_transform_3d,
         world,
         entity,
         shifted_rect,
@@ -2229,8 +2229,8 @@ fn draw_tree_content(
         world,
         entity,
         shifted_rect,
-        tf,
-        tf_3d,
+        &tf,
+        &tf_3d,
         renderer.output_scale(),
         *idx,
         output_plan,
@@ -3805,8 +3805,8 @@ fn collect_dirty_walk(
         ..node.rect
     };
     let (tf, tf_3d) = prepared_paint::transforms(
-        *parent_transform,
-        *parent_3d,
+        parent_transform,
+        parent_3d,
         world,
         entity,
         shifted_rect,
@@ -4030,8 +4030,8 @@ fn push_entity_dirty(
             world,
             entity,
             rect,
-            *tf,
-            *tf_3d,
+            tf,
+            tf_3d,
             output_scale,
             position,
             output_plan,

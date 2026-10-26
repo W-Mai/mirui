@@ -89,6 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Paint preparation borrows transform inputs before checking cached geometry, avoiding unused matrix copies on cache hits.
+
 - Software rectangle fills borrow the source row and destination span once when replicating packed pixels, preserving row padding without temporary storage.
 
 - Render scopes update owned draw requests in place, avoiding intermediate copies of unchanged projection matrices.
