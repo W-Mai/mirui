@@ -4392,8 +4392,12 @@ pub(crate) fn try_collect_dirty_regions_into(
     for entity in &snapshot.painted_damage {
         if let Some(painted) = world.get::<super::dirty::PaintedCoverage>(*entity) {
             for rect in painted.0.regions() {
-                for &mapped in scroll::map_painted_damage(rect, &plan.shifts).as_slice() {
-                    bounds.include(mapped);
+                if plan.shifts.is_empty() {
+                    bounds.include(rect);
+                } else {
+                    for &mapped in scroll::map_painted_damage(rect, &plan.shifts).as_slice() {
+                        bounds.include(mapped);
+                    }
                 }
             }
         }
@@ -4435,15 +4439,17 @@ fn prepare_dirty_rects(world: &mut World, plan: &mut DirtyRegions) {
     if let Some(regions) = world.resource_mut::<super::dirty::ExactDirtyRegions>() {
         let start = plan.rects.len();
         regions.prepare_into(&mut plan.rects);
-        let mut exact = super::dirty::RegionSet::<DIRTY_REGION_CAPACITY>::new();
-        for &rect in &plan.rects[start..] {
-            exact.insert(rect);
-            for &mapped in scroll::map_painted_damage(rect, &plan.shifts).as_slice() {
-                exact.insert(mapped);
+        if !plan.shifts.is_empty() && start < plan.rects.len() {
+            let mut exact = super::dirty::RegionSet::<DIRTY_REGION_CAPACITY>::new();
+            for &rect in &plan.rects[start..] {
+                exact.insert(rect);
+                for &mapped in scroll::map_painted_damage(rect, &plan.shifts).as_slice() {
+                    exact.insert(mapped);
+                }
             }
+            plan.rects.truncate(start);
+            plan.rects.extend_from_slice(exact.as_slice());
         }
-        plan.rects.truncate(start);
-        plan.rects.extend_from_slice(exact.as_slice());
     }
     plan.coalesce_overlaps();
 }
@@ -5611,6 +5617,41 @@ mod layout_snapshot_reuse_check {
         });
         assert_eq!(allocations, 0);
         assert_eq!(world.component_generation(child, kind), Some(generation));
+    }
+
+    #[test]
+    fn unshifted_damage_preserves_coverage_until_acknowledged() {
+        for count in [0, 1, 8, 17] {
+            let mut world = World::new();
+            for index in 0..count {
+                world.invalidate_rect(Rect::new(
+                    Fixed::from_ratio(index * 27 - 9, 2),
+                    Fixed::from_ratio(index * 13 - 7, 2),
+                    Fixed::from_ratio(11, 2),
+                    Fixed::from_ratio(9, 2),
+                ));
+            }
+            let mut expected = DirtyRegions::default();
+            if let Some(regions) = world.resource_mut::<super::super::dirty::ExactDirtyRegions>() {
+                regions.prepare_into(&mut expected.rects);
+            }
+            expected.coalesce_overlaps();
+            let mut plan = DirtyRegions::default();
+            prepare_dirty_rects(&mut world, &mut plan);
+            assert_eq!(plan.rects, expected.rects);
+            let allocations = crate::test_support::tracked_allocations(|| {
+                plan.clear();
+                prepare_dirty_rects(&mut world, &mut plan);
+            });
+            assert_eq!(allocations, 0);
+            assert_eq!(plan.rects, expected.rects);
+            if let Some(regions) = world.resource_mut::<super::super::dirty::ExactDirtyRegions>() {
+                regions.acknowledge();
+            }
+            plan.clear();
+            prepare_dirty_rects(&mut world, &mut plan);
+            assert!(plan.is_empty());
+        }
     }
 
     #[test]
