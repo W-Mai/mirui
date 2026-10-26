@@ -18,6 +18,9 @@ pub struct Viewport {
 
 #[inline]
 fn inferred_logical_axis(physical: u16, scale: Fixed) -> u16 {
+    if scale == Fixed::ONE {
+        return physical;
+    }
     (Fixed::from(physical) / scale)
         .to_int()
         .clamp(0, i32::from(u16::MAX)) as u16
@@ -68,6 +71,9 @@ impl Viewport {
 
     #[inline]
     pub fn point_to_physical(&self, p: Point) -> Point {
+        if self.scale == Fixed::ONE {
+            return p;
+        }
         Point {
             x: p.x * self.scale,
             y: p.y * self.scale,
@@ -76,6 +82,9 @@ impl Viewport {
 
     #[inline]
     pub fn rect_to_physical(&self, r: Rect) -> Rect {
+        if self.scale == Fixed::ONE {
+            return r;
+        }
         Rect {
             x: r.x * self.scale,
             y: r.y * self.scale,
@@ -89,6 +98,9 @@ impl Viewport {
     /// returned region fully contains the source.
     #[inline]
     pub fn rect_to_physical_pixel_bounds(&self, r: Rect) -> (i32, i32, i32, i32) {
+        if self.scale == Fixed::ONE {
+            return r.pixel_bounds();
+        }
         let x0 = (r.x * self.scale).to_int();
         let y0 = (r.y * self.scale).to_int();
         let x1 = ((r.x + r.w) * self.scale).ceil().to_int();
@@ -161,6 +173,9 @@ impl Viewport {
 
     #[inline]
     pub fn point_to_logical(&self, p: Point) -> Point {
+        if self.scale == Fixed::ONE {
+            return p;
+        }
         Point {
             x: p.x / self.scale,
             y: p.y / self.scale,

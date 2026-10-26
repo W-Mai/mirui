@@ -89,6 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Unit-scale viewport conversions skip scaling arithmetic while preserving fractional coordinate bounds.
+
 - Widget state resolution skips ancestor traversal when no user states exist and reuses the state storage during inheritance checks.
 
 - Frame acknowledgement reuses visibility resolved during painting, while unvisited nodes keep their existing checks and each new paint batch refreshes visibility.
