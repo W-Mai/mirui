@@ -42,7 +42,9 @@ impl SwRenderer<'_> {
         if region.region().is_empty() {
             return Ok(());
         }
-        let pixels = region.pixels().ok_or(RenderError::InvalidTexture)?;
+        let pixels = region
+            .borrowed_pixels()
+            .ok_or(RenderError::InvalidTexture)?;
         if request.projective.is_identity()
             && quad.is_none()
             && matches!(
@@ -57,7 +59,7 @@ impl SwRenderer<'_> {
                 texture.height,
             );
             self.blit_pixels_inner(
-                &pixels,
+                pixels,
                 &source,
                 transform.apply_point(pos),
                 size,
@@ -85,7 +87,7 @@ impl SwRenderer<'_> {
                     .ok_or(RenderError::InvalidGeometry)?;
                 self.dispatch_blit_quad_pixels(
                     &quad,
-                    &pixels,
+                    pixels,
                     size,
                     &request.clip,
                     radius,
@@ -95,7 +97,7 @@ impl SwRenderer<'_> {
             } else if let Some(quad) = quad {
                 self.dispatch_blit_quad_pixels(
                     &quad,
-                    &pixels,
+                    pixels,
                     size,
                     &request.clip,
                     radius,
@@ -109,7 +111,7 @@ impl SwRenderer<'_> {
                 if let Some(mut target) = write_pixels(&mut self.target, &mut self.failure) {
                     super::transformed::blit_transformed(
                         &mut target,
-                        &pixels,
+                        pixels,
                         &Rect::new(0, 0, texture.width, texture.height),
                         area,
                         clip,

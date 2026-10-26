@@ -34,6 +34,10 @@ impl TextureRegion<'_> {
         self.pixels.as_ref().map(TexturePixels::reborrow)
     }
 
+    pub(crate) fn borrowed_pixels(&self) -> Option<&TexturePixels<'_>> {
+        self.pixels.as_ref()
+    }
+
     /// Visit non-overlapping source rectangles covering this region and their local pixel views.
     pub fn tiles(&self) -> impl Iterator<Item = (Region, TexturePixels<'_>)> {
         self.pixels()
@@ -202,6 +206,9 @@ mod tests {
                 assert_eq!(region.region(), area);
                 assert_eq!(region.format(), format);
                 let pixels = region.pixels().unwrap();
+                let borrowed = region.borrowed_pixels().unwrap();
+                assert_eq!(borrowed.bytes().as_ptr(), pixels.bytes().as_ptr());
+                assert_eq!(borrowed.get_pixel(1, 1), pixels.get_pixel(1, 1));
                 let start = 16 + format.bytes_per_pixel();
                 assert_eq!(pixels.bytes().as_ptr(), full.bytes()[start..].as_ptr());
                 assert_eq!(pixels.bytes().len(), 16 + 2 * format.bytes_per_pixel());
@@ -235,6 +242,7 @@ mod tests {
         ] {
             let region = texture.pixels_in(area).unwrap().unwrap();
             assert!(region.pixels().is_none());
+            assert!(region.borrowed_pixels().is_none());
             assert_eq!(region.tiles().count(), 0);
             assert_eq!(region.get_pixel(area.x(), area.y()), None);
         }
@@ -249,5 +257,36 @@ mod tests {
                 Err(RenderError::InvalidTexture)
             ));
         }
+    }
+
+    #[test]
+    fn borrowed_cached_pixels_keep_the_region_lease_and_budget() {
+        use crate::render::PlaneLayout;
+        use crate::render::budget::MemoryBudget;
+        use crate::render::texture::access::CachedPixels;
+
+        let layout = PlaneLayout::packed(2, 2, ColorFormat::RGBA8888).unwrap();
+        let charged = layout.required_bytes() + CachedPixels::OWNER_BYTES;
+        let budget = MemoryBudget::new(charged);
+        let owner = CachedPixels::shared(layout, &budget).unwrap();
+        let region = TextureRegion {
+            region: Region::new(0, 0, 2, 2).unwrap(),
+            format: ColorFormat::RGBA8888,
+            pixels: Some(TexturePixels::cached(owner, layout)),
+        };
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                let first = region.borrowed_pixels().unwrap();
+                let second = region.borrowed_pixels().unwrap();
+                assert!(core::ptr::eq(first, second));
+                assert_eq!(first.bytes(), &[0; 16]);
+                assert_eq!(first.get_pixel(1, 1), Color::rgba(0, 0, 0, 0));
+                assert_eq!(budget.allocated(), charged);
+            }),
+            0
+        );
+        assert_eq!(budget.allocated(), charged);
+        drop(region);
+        assert_eq!(budget.allocated(), 0);
     }
 }
