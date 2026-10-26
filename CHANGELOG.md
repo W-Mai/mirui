@@ -89,6 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Software rectangle edge rasterization traverses disjoint column ranges directly after filling the opaque interior.
+
 - Software draw submission shares capability checks with routing and avoids redundant transform classification.
 
 - Dirty-region collection skips scroll mapping when no framebuffer transfers are planned, reusing existing coverage normalization and acknowledgement.

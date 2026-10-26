@@ -249,42 +249,45 @@ impl SwRenderer<'_> {
             } else {
                 (px_x1, px_x1)
             };
-            for px in (px_x0..left_end).chain(right_start..px_x1) {
-                let pixel_left = Fixed::from_int(px);
-                let pixel_right = Fixed::from_int(px + 1);
-                let col_full_x = pixel_left >= area.x && pixel_right <= area_x_end;
-                let in_mid_x = px >= mid_x0 && px < mid_x1;
+            for columns in [px_x0..left_end, right_start..px_x1] {
+                for px in columns {
+                    let pixel_left = Fixed::from_int(px);
+                    let pixel_right = Fixed::from_int(px + 1);
+                    let col_full_x = pixel_left >= area.x && pixel_right <= area_x_end;
+                    let in_mid_x = px >= mid_x0 && px < mid_x1;
 
-                // Hot path: straight-zone fully-opaque pixel — skip
-                // every Fixed multiply and the SDF call.
-                if row_full_y && col_full_x && in_mid_y && in_mid_x && opa_full {
-                    target.set_pixel(px, py, color);
-                    continue;
-                }
+                    // Hot path: straight-zone fully-opaque pixel — skip
+                    // every Fixed multiply and the SDF call.
+                    if row_full_y && col_full_x && in_mid_y && in_mid_x && opa_full {
+                        target.set_pixel(px, py, color);
+                        continue;
+                    }
 
-                let cov_x = if col_full_x {
-                    Fixed::ONE
-                } else {
-                    (pixel_right.min(area_x_end) - pixel_left.max(area.x))
-                        .max(Fixed::ZERO)
-                        .min(Fixed::ONE)
-                };
-                let corner_cov = if has_corners && !(in_mid_y && in_mid_x) {
-                    rounded_rect_coverage(
-                        Fixed::from_int(px) - area.x,
-                        Fixed::from_int(py) - area.y,
-                        area.w,
-                        area.h,
-                        r,
-                    )
-                } else {
-                    Fixed::ONE
-                };
+                    let cov_x = if col_full_x {
+                        Fixed::ONE
+                    } else {
+                        (pixel_right.min(area_x_end) - pixel_left.max(area.x))
+                            .max(Fixed::ZERO)
+                            .min(Fixed::ONE)
+                    };
+                    let corner_cov = if has_corners && !(in_mid_y && in_mid_x) {
+                        rounded_rect_coverage(
+                            Fixed::from_int(px) - area.x,
+                            Fixed::from_int(py) - area.y,
+                            area.w,
+                            area.h,
+                            r,
+                        )
+                    } else {
+                        Fixed::ONE
+                    };
 
-                let final_opa = (cov_x * cov_y * corner_cov * opa_norm).map01(255).to_int() as u8;
-                if final_opa > 0 {
-                    // px/py are integers — skip blend_pixel's is_integer dispatch.
-                    target.blend_pixel_int(px, py, color, final_opa);
+                    let final_opa =
+                        (cov_x * cov_y * corner_cov * opa_norm).map01(255).to_int() as u8;
+                    if final_opa > 0 {
+                        // px/py are integers — skip blend_pixel's is_integer dispatch.
+                        target.blend_pixel_int(px, py, color, final_opa);
+                    }
                 }
             }
         }
