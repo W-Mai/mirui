@@ -123,17 +123,25 @@ impl SourceDirtyIndex {
     }
 
     fn mark(&mut self, world: &World, mut entity: Entity, content: bool, ancestors: bool) {
-        if (!content && !ancestors) || crate::ui::branch::is_hidden_in_tree(world, entity) {
+        if !content && !ancestors {
             return;
         }
+        let origin = entity;
+        let mut visibility_checked = false;
         for depth in 0..=world.live_entity_count() {
-            if (depth == 0 && content) || (depth != 0 && ancestors) {
-                if let Ok(index) = self
+            if ((depth == 0 && content) || (depth != 0 && ancestors))
+                && let Ok(index) = self
                     .entries
                     .binary_search_by_key(&key(entity), |entry| key(entry.entity))
-                {
-                    self.entries[index].dirty = true;
+                && !self.entries[index].dirty
+            {
+                if !visibility_checked {
+                    if crate::ui::branch::is_hidden_in_tree(world, origin) {
+                        return;
+                    }
+                    visibility_checked = true;
                 }
+                self.entries[index].dirty = true;
             }
             if !ancestors {
                 break;
@@ -153,6 +161,53 @@ fn key(entity: Entity) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deferred_visibility_matches_live_scan_for_nested_and_unrelated_sources() {
+        let mut world = World::new();
+        let nodes = core::array::from_fn::<_, 7, _>(|_| world.spawn_empty());
+        for (child, parent) in [(1, 0), (2, 1), (3, 2), (4, 0), (6, 5)] {
+            world.insert(nodes[child], Parent(nodes[parent]));
+        }
+        let sources = [nodes[0], nodes[1], nodes[2], nodes[5]];
+        let mut index = SourceDirtyIndex::default();
+        index.begin(&mut world, sources.into_iter());
+        for hidden in 0..(1 << nodes.len()) {
+            for (bit, &entity) in nodes.iter().enumerate() {
+                if hidden & (1 << bit) != 0 {
+                    world.insert(entity, crate::ui::Hidden);
+                } else {
+                    world.remove::<crate::ui::Hidden>(entity);
+                }
+            }
+            for &origin in &nodes {
+                for state in [
+                    None,
+                    Some(VisualDirty::New),
+                    Some(VisualDirty::Transform),
+                    Some(VisualDirty::NewTransform),
+                    Some(VisualDirty::Prepared),
+                    Some(VisualDirty::PreparedTransform),
+                ] {
+                    if let Some(state) = state {
+                        world.insert(origin, state);
+                    } else {
+                        world.insert(origin, Dirty);
+                    }
+                    index.refresh(&world);
+                    for source in sources {
+                        assert_eq!(
+                            index.get(&world, source),
+                            super::super::source_is_dirty(&world, source),
+                            "visibility {hidden}, origin {origin:?}, source {source:?}"
+                        );
+                    }
+                    world.remove::<Dirty>(origin);
+                    world.remove::<VisualDirty>(origin);
+                }
+            }
+        }
+    }
 
     #[test]
     fn repeated_layout_damage_reuses_membership_without_hiding_writes() {

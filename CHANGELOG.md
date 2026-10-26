@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Prepare output invalidation summaries only when a live source still needs to consume them in the current propagation pass.
 - Reuse layout-damage membership summaries across repeated marker writes while preserving write revisions for geometry preparation.
+- Skip ancestor visibility checks for damage unrelated to requested outputs or already included in their summaries.
 - Reuse retained preorder subtree spans when skipping hidden, clipped or cached branches during painting, hit geometry updates and output preparation.
 - Reuse unchanged text measurements and paragraph layouts during incremental layout. Font-provider revisions, changed width constraints and retired cache entries trigger preparation through the existing text cache.
 - Reuse output invalidation summaries while source membership, visibility, topology and damage revisions are unchanged. Dependency propagation shares each summary pass and invalidates each source/output once per propagation wave.
