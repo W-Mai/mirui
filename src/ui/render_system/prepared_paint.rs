@@ -516,8 +516,15 @@ mod tests {
         app.compose(root, scene());
         app.render().unwrap();
         let entity = app.world.find_by_id("probe").unwrap();
-        for full in [false, true] {
+        for (offset, full) in [(2, false), (5, true), (1, false), (0, true)] {
             app.world.get::<Probe>(entity).unwrap().measurements.set(0);
+            app.world.insert(
+                entity,
+                crate::ui::widgets::WidgetTransform(Transform::translate(
+                    Fixed::from_int(offset),
+                    Fixed::ZERO,
+                )),
+            );
             app.world.invalidate_visual(entity);
             if full {
                 app.render().unwrap();
@@ -529,14 +536,21 @@ mod tests {
                 1,
                 "full={full}"
             );
+            assert_eq!(
+                app.world
+                    .get::<crate::ui::dirty::PaintedCoverage>(entity)
+                    .unwrap()
+                    .0
+                    .outer,
+                Rect::new(offset, 0, 20, 20),
+                "full={full}"
+            );
         }
         let snapshot = app
             .world
             .resource::<super::super::LayoutSnapshot>()
             .unwrap();
         let position = snapshot.entities.iter().position(|&e| e == entity).unwrap();
-        assert!(snapshot.prepared_paint.get(position).is_none());
-
         snapshot.prepared_paint.set(position, PaintCoverage::EMPTY);
         super::super::seed_prev_rects(&mut app.world, root, &Viewport::new(32, 32, Fixed::ONE));
         assert_eq!(
@@ -889,12 +903,6 @@ mod tests {
                 .world
                 .resource::<super::super::LayoutSnapshot>()
                 .unwrap();
-            assert!(
-                snapshot.prepared_paint.nodes[position]
-                    .state
-                    .get()
-                    .is_none()
-            );
             assert_eq!(
                 state(&app.world, entity, position, Some(&snapshot.prepared_paint)),
                 if disabled {
@@ -1030,14 +1038,6 @@ mod tests {
                         .is_none_or(|kind| app.world.has_type(entity, kind))
                 );
             }
-            assert!(prepared.get(position).is_none());
-            assert!(prepared.affine[position].get().is_none());
-            assert!(prepared.nodes[position].state.get().is_none());
-            assert!(prepared.nodes[position].offscreen.get().is_none());
-            assert_eq!(
-                prepared.nodes[position].visibility.get(),
-                PaintVisibility::Unknown
-            );
         }
     }
 

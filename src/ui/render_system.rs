@@ -695,7 +695,6 @@ fn acknowledge_paint(world: &mut World, root: Entity, transform: &Viewport, prep
                 output_plan.as_ref().filter(|plan| plan.matches_root(root)),
                 prepared.then_some(&snapshot.prepared_paint),
             );
-            snapshot.prepared_paint.clear_frame();
             output_plan::return_plan(world, output_plan);
             world.put_resource_box(snapshot);
             return;

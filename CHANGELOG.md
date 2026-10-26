@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Paint batches reset prepared geometry at their entry points without repeating cache clearing after successful frame acknowledgement.
+
 - Render scopes borrow their projective transform and skip identity composition while preserving physical clip boundaries.
 
 - Image painting uses its declared component binding instead of constructing a query for the same entity.
