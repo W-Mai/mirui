@@ -333,43 +333,43 @@ impl ComposeInput {
                 }}
             }
         };
-        let glyph_submit_text = text_submit_call(routed_field("draw_glyph_run"));
-        let posed_submit_text = text_submit_call(routed_field("draw_posed_glyph_run"));
-
-        let fill_route = route_call(routed_field("fill_rect"));
-        let border_route = route_call(routed_field("stroke_rect"));
-        let blit_route = route_call(routed_field("blit"));
-        let glyph_route = route_call(routed_field("draw_glyph_run"));
-        let posed_route = route_call(routed_field("draw_posed_glyph_run"));
-        let line_route = route_call(routed_field("draw_line"));
-        let arc_route = route_call(routed_field("draw_arc"));
-        let fill_path_route = route_call(routed_field("fill_path"));
-        let stroke_path_route = route_call(routed_field("stroke_path"));
-        let scope_route = route_call(default_field);
-        let blur_route = route_call(routed_field("blur"));
-
-        let fill_submit = submit_call(routed_field("fill_rect"));
-        let border_submit = submit_call(routed_field("stroke_rect"));
-        let blit_submit = submit_call(routed_field("blit"));
-        let glyph_submit = submit_call(routed_field("draw_glyph_run"));
-        let posed_submit = submit_call(routed_field("draw_posed_glyph_run"));
-        let line_submit = submit_call(routed_field("draw_line"));
-        let arc_submit = submit_call(routed_field("draw_arc"));
-        let fill_path_submit = submit_call(routed_field("fill_path"));
-        let stroke_path_submit = submit_call(routed_field("stroke_path"));
-        let scope_submit = submit_call(default_field);
-        let blur_submit = submit_call(routed_field("blur"));
-        let fill_prepare = prepare_call(routed_field("fill_rect"));
-        let border_prepare = prepare_call(routed_field("stroke_rect"));
-        let blit_prepare = prepare_call(routed_field("blit"));
-        let glyph_prepare = prepare_call(routed_field("draw_glyph_run"));
-        let posed_prepare = prepare_call(routed_field("draw_posed_glyph_run"));
-        let line_prepare = prepare_call(routed_field("draw_line"));
-        let arc_prepare = prepare_call(routed_field("draw_arc"));
-        let fill_path_prepare = prepare_call(routed_field("fill_path"));
-        let stroke_path_prepare = prepare_call(routed_field("stroke_path"));
-        let scope_prepare = prepare_call(default_field);
-        let blur_prepare = prepare_call(routed_field("blur"));
+        let commands = [
+            ("Fill", "fill_rect"),
+            ("Border", "stroke_rect"),
+            ("Blit", "blit"),
+            ("GlyphRun", "draw_glyph_run"),
+            ("PosedGlyphRun", "draw_posed_glyph_run"),
+            ("Line", "draw_line"),
+            ("Arc", "draw_arc"),
+            ("FillPath", "fill_path"),
+            ("StrokePath", "stroke_path"),
+            ("PushClip", "default"),
+            ("PopClip", "default"),
+            ("ApplyBlur", "blur"),
+        ];
+        let mut route_arms = Vec::new();
+        let mut prepare_arms = Vec::new();
+        let mut submit_arms = Vec::new();
+        let mut text_submit_arms = Vec::new();
+        for (variant, method) in commands {
+            let ident = format_ident!("{variant}");
+            let pattern = if variant == "PopClip" {
+                quote! { ::mirui::render::DrawCommand::#ident }
+            } else {
+                quote! { ::mirui::render::DrawCommand::#ident { .. } }
+            };
+            let field = routed_field(method);
+            let route = route_call(field);
+            let prepare = prepare_call(field);
+            let submit = submit_call(field);
+            route_arms.push(quote! { #pattern => #route });
+            prepare_arms.push(quote! { #pattern => #prepare });
+            submit_arms.push(quote! { #pattern => #submit });
+            if matches!(variant, "GlyphRun" | "PosedGlyphRun") {
+                let text = text_submit_call(field);
+                text_submit_arms.push(quote! { #pattern => #text });
+            }
+        }
 
         quote! {
             #vis struct #name<#(#generic_params),*> {
@@ -448,18 +448,7 @@ impl ComposeInput {
                     request: &::mirui::render::renderer::DrawRequest<'_, '_>,
                 ) -> Result<::mirui::render::renderer::RenderRoute, ::mirui::render::renderer::RenderError> {
                     match request.command {
-                        ::mirui::render::DrawCommand::Fill { .. } => #fill_route,
-                        ::mirui::render::DrawCommand::Border { .. } => #border_route,
-                        ::mirui::render::DrawCommand::Blit { .. } => #blit_route,
-                        ::mirui::render::DrawCommand::GlyphRun { .. } => #glyph_route,
-                        ::mirui::render::DrawCommand::PosedGlyphRun { .. } => #posed_route,
-                        ::mirui::render::DrawCommand::Line { .. } => #line_route,
-                        ::mirui::render::DrawCommand::Arc { .. } => #arc_route,
-                        ::mirui::render::DrawCommand::FillPath { .. } => #fill_path_route,
-                        ::mirui::render::DrawCommand::StrokePath { .. } => #stroke_path_route,
-                        ::mirui::render::DrawCommand::PushClip { .. }
-                        | ::mirui::render::DrawCommand::PopClip => #scope_route,
-                        ::mirui::render::DrawCommand::ApplyBlur { .. } => #blur_route,
+                        #(#route_arms,)*
                     }
                 }
 
@@ -468,18 +457,7 @@ impl ComposeInput {
                     draw: &::mirui::render::PreparedDraw<'_>,
                 ) -> Result<(), ::mirui::render::renderer::RenderError> {
                     match draw.request().command {
-                        ::mirui::render::DrawCommand::Fill { .. } => #fill_submit,
-                        ::mirui::render::DrawCommand::Border { .. } => #border_submit,
-                        ::mirui::render::DrawCommand::Blit { .. } => #blit_submit,
-                        ::mirui::render::DrawCommand::GlyphRun { .. } => #glyph_submit,
-                        ::mirui::render::DrawCommand::PosedGlyphRun { .. } => #posed_submit,
-                        ::mirui::render::DrawCommand::Line { .. } => #line_submit,
-                        ::mirui::render::DrawCommand::Arc { .. } => #arc_submit,
-                        ::mirui::render::DrawCommand::FillPath { .. } => #fill_path_submit,
-                        ::mirui::render::DrawCommand::StrokePath { .. } => #stroke_path_submit,
-                        ::mirui::render::DrawCommand::PushClip { .. }
-                        | ::mirui::render::DrawCommand::PopClip => #scope_submit,
-                        ::mirui::render::DrawCommand::ApplyBlur { .. } => #blur_submit,
+                        #(#submit_arms,)*
                     }
                 }
 
@@ -489,8 +467,7 @@ impl ComposeInput {
                     identity: ::mirui::render::TextRunIdentity,
                 ) -> Result<(), ::mirui::render::RenderError> {
                     match draw.request().command {
-                        ::mirui::render::DrawCommand::GlyphRun { .. } => #glyph_submit_text,
-                        ::mirui::render::DrawCommand::PosedGlyphRun { .. } => #posed_submit_text,
+                        #(#text_submit_arms,)*
                         _ => ::mirui::render::Renderer::submit(self, draw),
                     }
                 }
@@ -502,18 +479,7 @@ impl ComposeInput {
                     cx: &mut ::core::task::Context<'_>,
                 ) -> ::core::task::Poll<Result<::mirui::render::PreparedDraw<'data>, ::mirui::render::RenderError>> {
                     match request.command {
-                        ::mirui::render::DrawCommand::Fill { .. } => #fill_prepare,
-                        ::mirui::render::DrawCommand::Border { .. } => #border_prepare,
-                        ::mirui::render::DrawCommand::Blit { .. } => #blit_prepare,
-                        ::mirui::render::DrawCommand::GlyphRun { .. } => #glyph_prepare,
-                        ::mirui::render::DrawCommand::PosedGlyphRun { .. } => #posed_prepare,
-                        ::mirui::render::DrawCommand::Line { .. } => #line_prepare,
-                        ::mirui::render::DrawCommand::Arc { .. } => #arc_prepare,
-                        ::mirui::render::DrawCommand::FillPath { .. } => #fill_path_prepare,
-                        ::mirui::render::DrawCommand::StrokePath { .. } => #stroke_path_prepare,
-                        ::mirui::render::DrawCommand::PushClip { .. }
-                        | ::mirui::render::DrawCommand::PopClip => #scope_prepare,
-                        ::mirui::render::DrawCommand::ApplyBlur { .. } => #blur_prepare,
+                        #(#prepare_arms,)*
                     }
                 }
 

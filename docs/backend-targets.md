@@ -30,7 +30,7 @@ Native WGPU readback reuses a device-specific staging buffer and mapping complet
 
 ## Source reads
 
-`Renderer::route` classifies a request, `prepare(request, route, cx)` retains its ready source storage, and `submit(&PreparedDraw)` consumes that storage. Preparation does not borrow the renderer across its return. `RenderEngine<T>` exposes the same preparation step; `compose_backend!` forwards preparation and submission through the same concrete field, including nested compositions. An engine's `begin` runs only after preparation succeeds, and `end` still runs after a submission error.
+`Renderer::route` classifies a request, `prepare(request, route, cx)` retains its ready source storage, and `submit(&PreparedDraw)` consumes that storage. Preparation does not borrow the renderer across its return. `RenderEngine<T>` exposes the same preparation step. `compose_backend!` uses its declared command routes for classification, preparation, ordinary submission and text-run submission, including nested compositions. If preparation changes the command kind, submission uses the prepared command's route. An engine's `begin` runs only after preparation succeeds; a failed `begin` does not call `end`, while a failed submission still does.
 
 `poll_draw_request(request, text_run, cx)` runs the same route, preparation and submission sequence with the caller's task context and optional `TextRunIdentity`. Pending preparation never submits. Its default implementation uses the backend's existing methods; third-party renderers need no additional implementation. Independent preparation remains available for retained source leases and scene replay's saved routes.
 

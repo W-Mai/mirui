@@ -17,6 +17,9 @@ mod native_targets;
 #[path = "compose_backend_basic/prepared.rs"]
 mod prepared;
 
+#[path = "compose_backend_basic/dispatch.rs"]
+mod dispatch;
+
 #[path = "support/tracking_allocator.rs"]
 mod tracking_allocator;
 
