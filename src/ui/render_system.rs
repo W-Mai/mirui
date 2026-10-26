@@ -176,21 +176,16 @@ impl<'a> ScopedRenderer<'a> {
         }
     }
 
-    fn request<'cmd, 'data>(&self, request: &DrawRequest<'cmd, 'data>) -> DrawRequest<'cmd, 'data> {
-        let physical_clip = match (self.physical_clip, request.physical_clip) {
+    fn apply_scope(&self, request: &mut DrawRequest<'_, '_>) {
+        request.physical_clip = match (self.physical_clip, request.physical_clip) {
             (Some(left), Some(right)) => Some(
                 left.intersection(right)
                     .unwrap_or(crate::types::PhysicalRect::EMPTY),
             ),
             (left, right) => left.or(right),
         };
-        DrawRequest {
-            projective: match self.transform {
-                Some(transform) => transform.compose(&request.projective),
-                None => request.projective,
-            },
-            physical_clip,
-            ..*request
+        if let Some(transform) = self.transform {
+            request.projective = transform.compose(&request.projective);
         }
     }
 }
@@ -200,12 +195,12 @@ impl Renderer for ScopedRenderer<'_> {
 
     fn poll_draw_request(
         &mut self,
-        request: DrawRequest<'_, '_>,
+        mut request: DrawRequest<'_, '_>,
         text_run: Option<crate::render::TextRunIdentity>,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Result<(), RenderError>> {
-        self.inner
-            .poll_draw_request(self.request(&request), text_run, cx)
+        self.apply_scope(&mut request);
+        self.inner.poll_draw_request(request, text_run, cx)
     }
 
     fn plan_target(&self, layout: PlaneLayout) -> Result<Option<TargetPlan>, RenderError> {
@@ -237,7 +232,9 @@ impl Renderer for ScopedRenderer<'_> {
     }
 
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
-        self.inner.route(&self.request(request))
+        let mut request = *request;
+        self.apply_scope(&mut request);
+        self.inner.route(&request)
     }
 
     fn submit(&mut self, draw: &::mirui::render::PreparedDraw<'_>) -> Result<(), RenderError> {
@@ -254,11 +251,12 @@ impl Renderer for ScopedRenderer<'_> {
 
     fn prepare<'data>(
         &mut self,
-        request: DrawRequest<'_, 'data>,
+        mut request: DrawRequest<'_, 'data>,
         route: RenderRoute,
         cx: &mut core::task::Context<'_>,
     ) -> core::task::Poll<Result<crate::render::PreparedDraw<'data>, RenderError>> {
-        self.inner.prepare(self.request(&request), route, cx)
+        self.apply_scope(&mut request);
+        self.inner.prepare(request, route, cx)
     }
 
     fn flush(&mut self) -> Result<(), ::mirui::render::RenderError> {

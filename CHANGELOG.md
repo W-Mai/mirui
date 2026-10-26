@@ -89,6 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Render scopes update owned draw requests in place, avoiding intermediate copies of unchanged projection matrices.
+
 - Unit-scale viewport conversions skip scaling arithmetic while preserving fractional coordinate bounds.
 
 - Widget state resolution skips ancestor traversal when no user states exist and reuses the state storage during inheritance checks.
