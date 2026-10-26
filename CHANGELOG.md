@@ -89,6 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Axis-aligned transform bounds skip multiplication on unit-scale axes while preserving endpoint ordering.
+
 - Paint preparation borrows transform inputs before checking cached geometry, avoiding unused matrix copies on cache hits.
 
 - Software rectangle fills borrow the source row and destination span once when replicating packed pixels, preserving row padding without temporary storage.

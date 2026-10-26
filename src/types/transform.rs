@@ -140,10 +140,16 @@ impl Transform {
 
     pub fn apply_rect_bbox(&self, r: Rect) -> Rect {
         if self.m01 == Fixed::ZERO && self.m10 == Fixed::ZERO {
-            let x0 = self.m00 * r.x + self.tx;
-            let x1 = self.m00 * (r.x + r.w) + self.tx;
-            let y0 = self.m11 * r.y + self.ty;
-            let y1 = self.m11 * (r.y + r.h) + self.ty;
+            let (x0, x1) = if self.m00 == Fixed::ONE {
+                (r.x + self.tx, (r.x + r.w) + self.tx)
+            } else {
+                (self.m00 * r.x + self.tx, self.m00 * (r.x + r.w) + self.tx)
+            };
+            let (y0, y1) = if self.m11 == Fixed::ONE {
+                (r.y + self.ty, (r.y + r.h) + self.ty)
+            } else {
+                (self.m11 * r.y + self.ty, self.m11 * (r.y + r.h) + self.ty)
+            };
             return Rect {
                 x: x0.min(x1),
                 y: y0.min(y1),
@@ -354,6 +360,21 @@ mod tests {
                             );
                         }
                     }
+                }
+            }
+        }
+        for origin in [
+            Fixed::MIN + Fixed::from_int(2),
+            Fixed::MAX - Fixed::from_int(2),
+        ] {
+            for extent in [-Fixed::ONE, Fixed::ZERO, Fixed::ONE] {
+                let rect = Rect::new(origin, origin, extent, extent);
+                for offset in [-Fixed::ONE, Fixed::ZERO, Fixed::ONE] {
+                    let transform = Transform::translate(offset, -offset);
+                    assert_eq!(
+                        transform.apply_rect_bbox(rect),
+                        Rect::bounding_quad(&transform.apply_rect(rect)),
+                    );
                 }
             }
         }
