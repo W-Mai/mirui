@@ -64,6 +64,18 @@ impl<'data> PreparedDraw<'data> {
         }
     }
 
+    pub(super) fn command(&self) -> &DrawCommand<'data> {
+        &self.command
+    }
+
+    pub(super) fn clip(&self) -> &Rect {
+        &self.clip
+    }
+
+    pub(super) fn projective(&self) -> &Transform3D {
+        &self.projective
+    }
+
     pub fn route(&self) -> RenderRoute {
         self.route
     }

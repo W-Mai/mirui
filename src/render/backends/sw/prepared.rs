@@ -24,7 +24,6 @@ impl SwRenderer<'_> {
     // Keep texture sampling and projection branches out of primitive submission frames.
     #[inline(never)]
     fn blit_prepared(&mut self, draw: &PreparedDraw<'_>) -> Result<(), RenderError> {
-        let request = draw.request();
         let DrawCommand::Blit {
             texture,
             pos,
@@ -34,7 +33,7 @@ impl SwRenderer<'_> {
             radius,
             opa,
             composite,
-        } = *request.command
+        } = *draw.command()
         else {
             return Err(RenderError::InvalidGeometry);
         };
@@ -45,7 +44,7 @@ impl SwRenderer<'_> {
         let pixels = region
             .borrowed_pixels()
             .ok_or(RenderError::InvalidTexture)?;
-        if request.projective.is_identity()
+        if draw.projective().is_identity()
             && quad.is_none()
             && matches!(
                 transform.classify(),
@@ -63,12 +62,13 @@ impl SwRenderer<'_> {
                 &source,
                 transform.apply_point(pos),
                 size,
-                &request.clip,
+                draw.clip(),
                 opa,
                 radius,
                 composite,
             );
         } else {
+            let request = draw.request();
             // Transformed sampling uses the complete source coordinate domain.
             if region.region()
                 != Region::new(0, 0, u32::from(texture.width), u32::from(texture.height))
