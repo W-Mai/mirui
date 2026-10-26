@@ -42,6 +42,7 @@ struct Demand {
     current: usize,
     history: usize,
     requested: bool,
+    propagated: bool,
 }
 
 impl Binding {
@@ -287,6 +288,7 @@ impl OutputRelations {
                         current: 0,
                         history: 0,
                         requested: false,
+                        propagated: false,
                     });
                     self.demands.len() - 1
                 });
@@ -327,7 +329,9 @@ impl OutputRelations {
     }
 
     fn propagate_invalidations(&mut self, world: &mut World) {
-        self.dirty_index.invalidate();
+        for demand in &mut self.demands {
+            demand.propagated = false;
+        }
         // Marker propagation is bounded by the number of current relationships.
         // History retention never introduces a current dependency edge.
         for _ in 0..=self.bindings.len() {
@@ -340,14 +344,23 @@ impl OutputRelations {
     fn propagate_sources(&mut self, world: &mut World, check_dirty: bool) -> bool {
         let mut propagated = false;
         let mut changed = false;
-        for demand in &self.demands {
-            if demand.current == 0 || !world.is_alive(demand.source) {
+        if check_dirty {
+            // Each pass sees the preceding pass's writes, without rebuilding
+            // the summary for every consumer invalidated within this pass.
+            self.dirty_index.refresh(world);
+        }
+        for demand in &mut self.demands {
+            if demand.current == 0
+                || !world.is_alive(demand.source)
+                || (check_dirty && demand.propagated)
+            {
                 continue;
             }
             let visible = !crate::ui::branch::is_hidden_in_tree(world, demand.source);
-            let dirty = check_dirty && visible && self.dirty_index.is_dirty(world, demand.source);
+            let dirty = check_dirty && visible && self.dirty_index.get(world, demand.source);
             if dirty {
                 (demand.descriptor.invalidate)(world, demand.source);
+                demand.propagated = true;
             }
             let version = visible
                 .then(|| (demand.descriptor.version)(world, demand.source))
@@ -453,6 +466,40 @@ mod tests {
         retain_previous: true,
         ..CURRENT
     };
+
+    #[test]
+    fn repeated_reconciliation_keeps_the_summary_and_batches_new_damage() {
+        let mut world = World::new();
+        let source = world.spawn_empty();
+        let middle = world.spawn_empty();
+        let last = world.spawn_empty();
+        let mut relations = OutputRelations::default();
+        for (consumer, source) in [(last, middle), (middle, source)] {
+            world.insert(consumer, source);
+            relations.bind(&world, consumer, 0, 0, &CURRENT, ViewInvalidation::Visual);
+        }
+        relations.reconcile(&mut world);
+        let count = relations.dirty_index.rebuilds;
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for _ in 0..73 {
+                    relations.reconcile(&mut world);
+                }
+            }),
+            0
+        );
+        assert_eq!(relations.dirty_index.rebuilds, count);
+        for entity in [source, middle, last] {
+            world.remove::<VisualDirty>(entity);
+        }
+        relations.reconcile(&mut world);
+        assert!(!world.has::<VisualDirty>(last));
+        world.invalidate_visual(source);
+        relations.reconcile(&mut world);
+        assert!(world.has::<VisualDirty>(middle));
+        assert!(world.has::<VisualDirty>(last));
+        assert!(relations.dirty_index.rebuilds > count);
+    }
 
     #[test]
     fn output_changes_preserve_each_consumers_view_invalidation() {
@@ -845,8 +892,8 @@ mod tests {
             0
         );
         let counts = world.get::<SourceReads>(source).unwrap();
-        assert_eq!(counts.reads.each_ref().map(Cell::get), [2, 2]);
-        assert_eq!(counts.invalidations.each_ref().map(Cell::get), [2, 2]);
+        assert_eq!(counts.reads.each_ref().map(Cell::get), [1, 1]);
+        assert_eq!(counts.invalidations.each_ref().map(Cell::get), [1, 1]);
         assert!(
             consumers[..11]
                 .iter()

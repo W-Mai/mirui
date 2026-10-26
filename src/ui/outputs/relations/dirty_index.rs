@@ -7,54 +7,82 @@ use crate::ui::dirty::{Dirty, VisualDirty};
 #[derive(Default)]
 pub(super) struct SourceDirtyIndex {
     entries: Vec<Entry>,
-    revisions: Option<[u64; 2]>,
+    revisions: Option<[u64; 6]>,
     available: bool,
+    #[cfg(test)]
+    pub(super) rebuilds: usize,
 }
 
 struct Entry {
     entity: Entity,
     dirty: bool,
+    requested: bool,
 }
 
 impl SourceDirtyIndex {
-    pub(super) fn invalidate(&mut self) {
-        self.revisions = None;
-    }
-
     pub(super) fn begin(&mut self, world: &mut World, sources: impl Iterator<Item = Entity>) {
-        self.entries.clear();
-        self.revisions = None;
-        self.available = false;
-        for entity in sources.filter(|&entity| world.is_alive(entity)) {
-            if self.entries.try_reserve(1).is_err() {
-                self.entries.clear();
-                return;
-            }
-            self.entries.push(Entry {
-                entity,
-                dirty: false,
-            });
+        for entry in &mut self.entries {
+            entry.requested = false;
         }
-        self.entries.sort_unstable_by_key(|entry| key(entry.entity));
-        self.entries.dedup_by_key(|entry| key(entry.entity));
+        for entity in sources.filter(|&entity| world.is_alive(entity)) {
+            match self
+                .entries
+                .binary_search_by_key(&key(entity), |entry| key(entry.entity))
+            {
+                Ok(index) => self.entries[index].requested = true,
+                Err(index) => {
+                    if self.entries.try_reserve(1).is_err() {
+                        *self = Self::default();
+                        return;
+                    }
+                    self.entries.insert(
+                        index,
+                        Entry {
+                            entity,
+                            dirty: false,
+                            requested: true,
+                        },
+                    );
+                    self.revisions = None;
+                }
+            }
+        }
+        let previous_len = self.entries.len();
+        self.entries.retain(|entry| entry.requested);
+        if self.entries.len() != previous_len {
+            self.revisions = None;
+        }
         if self.entries.is_empty() {
             *self = Self::default();
             return;
         }
-        world.watch_component_revision::<Dirty>();
-        world.watch_component_revision::<VisualDirty>();
+        if !self.available {
+            world.watch_component_revision::<Dirty>();
+            world.watch_component_revision::<VisualDirty>();
+            world.watch_component_revision::<Parent>();
+            world.watch_component_revision::<crate::ui::Hidden>();
+            world.watch_component_revision::<crate::ui::branch::CachedBranchVisibility>();
+        }
         self.available = true;
     }
 
-    pub(super) fn is_dirty(&mut self, world: &World, source: Entity) -> bool {
+    pub(super) fn refresh(&mut self, world: &World) {
         if !self.available {
-            return super::source_is_dirty(world, source);
+            return;
         }
         let revisions = [
             world.component_revision::<Dirty>(),
             world.component_revision::<VisualDirty>(),
+            world.component_revision::<Parent>(),
+            world.component_revision::<crate::ui::Hidden>(),
+            world.component_revision::<crate::ui::branch::CachedBranchVisibility>(),
+            world.retirement_revision(),
         ];
         if self.revisions != Some(revisions) {
+            #[cfg(test)]
+            {
+                self.rebuilds += 1;
+            }
             for entry in &mut self.entries {
                 entry.dirty = false;
             }
@@ -75,9 +103,21 @@ impl SourceDirtyIndex {
             }
             self.revisions = Some(revisions);
         }
+    }
+
+    pub(super) fn get(&self, world: &World, source: Entity) -> bool {
+        if !self.available {
+            return super::source_is_dirty(world, source);
+        }
         self.entries
             .binary_search_by_key(&key(source), |entry| key(entry.entity))
             .is_ok_and(|index| self.entries[index].dirty)
+    }
+
+    #[cfg(test)]
+    fn is_dirty(&mut self, world: &World, source: Entity) -> bool {
+        self.refresh(world);
+        self.get(world, source)
     }
 
     fn mark(&mut self, world: &World, mut entity: Entity, content: bool, ancestors: bool) {
@@ -111,6 +151,63 @@ fn key(entity: Entity) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unchanged_membership_reuses_the_summary_until_inputs_change() {
+        let mut world = World::new();
+        let roots = [world.spawn_empty(), world.spawn_empty()];
+        let child = world.spawn_empty();
+        world.insert(child, Parent(roots[0]));
+        world.insert(child, Dirty);
+        let mut index = SourceDirtyIndex::default();
+        index.begin(&mut world, roots.into_iter());
+        assert!(index.is_dirty(&world, roots[0]));
+        let rebuilds = index.rebuilds;
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for _ in 0..73 {
+                    index.begin(&mut world, [roots[1], roots[0], roots[0]].into_iter());
+                    assert!(index.is_dirty(&world, roots[0]));
+                    assert!(!index.is_dirty(&world, roots[1]));
+                }
+            }),
+            0
+        );
+        assert_eq!(index.rebuilds, rebuilds);
+
+        // Topology and visibility can change while the same Dirty marker remains.
+        world.insert(child, Parent(roots[1]));
+        assert!(!index.is_dirty(&world, roots[0]));
+        assert!(index.is_dirty(&world, roots[1]));
+        world.insert(roots[1], crate::ui::Hidden);
+        assert!(!index.is_dirty(&world, roots[1]));
+        world.remove::<crate::ui::Hidden>(roots[1]);
+        world.insert(
+            child,
+            crate::ui::branch::CachedBranchVisibility { selected: false },
+        );
+        assert!(!index.is_dirty(&world, roots[1]));
+        world
+            .get_mut::<crate::ui::branch::CachedBranchVisibility>(child)
+            .unwrap()
+            .selected = true;
+        assert!(index.is_dirty(&world, roots[1]));
+        world.remove::<Dirty>(child);
+        assert!(!index.is_dirty(&world, roots[1]));
+        world.invalidate_visual(child);
+        assert!(index.is_dirty(&world, roots[1]));
+        world.despawn(child);
+        assert!(!index.is_dirty(&world, roots[1]));
+
+        index.begin(&mut world, [roots[1]].into_iter());
+        assert_eq!(index.entries.len(), 1);
+        world.despawn(roots[1]);
+        let replacement = world.spawn_empty();
+        world.insert(replacement, Dirty);
+        index.begin(&mut world, [replacement].into_iter());
+        assert!(index.is_dirty(&world, replacement));
+        assert!(!index.is_dirty(&world, roots[1]));
+    }
 
     #[test]
     fn summary_matches_live_scan_across_visibility_motion_and_reparenting() {

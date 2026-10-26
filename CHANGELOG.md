@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+
+- Reuse output invalidation summaries while source membership, visibility, topology and damage revisions are unchanged. Dependency propagation shares each summary pass and invalidates each source/output once per propagation wave.
+
 ## [0.52.0] - 2026-10-26
 
 ### Added
