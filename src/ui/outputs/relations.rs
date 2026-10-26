@@ -344,17 +344,19 @@ impl OutputRelations {
     fn propagate_sources(&mut self, world: &mut World, check_dirty: bool) -> bool {
         let mut propagated = false;
         let mut changed = false;
-        if check_dirty {
-            // Each pass sees the preceding pass's writes, without rebuilding
-            // the summary for every consumer invalidated within this pass.
-            self.dirty_index.refresh(world);
-        }
+        let mut summary_ready = !check_dirty;
         for demand in &mut self.demands {
             if demand.current == 0
                 || !world.is_alive(demand.source)
                 || (check_dirty && demand.propagated)
             {
                 continue;
+            }
+            if !summary_ready {
+                // Only prepare a summary when a live source will read it. Each
+                // pass still sees the preceding pass's writes, including chains.
+                self.dirty_index.refresh(world);
+                summary_ready = true;
             }
             let visible = !crate::ui::branch::is_hidden_in_tree(world, demand.source);
             let dirty = check_dirty && visible && self.dirty_index.get(world, demand.source);
@@ -468,6 +470,56 @@ mod tests {
     };
 
     #[test]
+    fn exhausted_sources_do_not_prepare_an_unused_summary() {
+        for chained in [false, true] {
+            let mut world = World::new();
+            let source = world.spawn_empty();
+            let middle = world.spawn_empty();
+            let last = world.spawn_empty();
+            let mut relations = OutputRelations::default();
+            if chained {
+                world.insert(last, middle);
+                // Visit the downstream source before upstream damage reaches it.
+                relations.bind(&world, last, 0, 0, &CURRENT, ViewInvalidation::Layout);
+            }
+            world.insert(middle, source);
+            relations.bind(&world, middle, 0, 0, &CURRENT, ViewInvalidation::Visual);
+            relations.reconcile(&mut world);
+            for entity in [source, middle, last] {
+                world.remove::<Dirty>(entity);
+                world.remove::<VisualDirty>(entity);
+            }
+            let rebuilds = relations.dirty_index.rebuilds;
+            world.invalidate_visual(source);
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| {
+                    relations.propagate_invalidations(&mut world);
+                }),
+                0
+            );
+            assert!(world.has::<VisualDirty>(middle));
+            assert_eq!(world.has::<Dirty>(last), chained);
+            assert_eq!(
+                relations.dirty_index.rebuilds - rebuilds,
+                1 + usize::from(chained)
+            );
+
+            // A later call must still observe changed markers in the same frame.
+            for entity in [source, middle, last] {
+                world.remove::<Dirty>(entity);
+                world.remove::<VisualDirty>(entity);
+            }
+            relations.propagate_invalidations(&mut world);
+            assert!(!world.has::<VisualDirty>(middle));
+            assert!(!world.has::<Dirty>(last));
+            world.invalidate_visual(source);
+            relations.propagate_invalidations(&mut world);
+            assert!(world.has::<VisualDirty>(middle));
+            assert_eq!(world.has::<Dirty>(last), chained);
+        }
+    }
+
+    #[test]
     fn repeated_reconciliation_keeps_the_summary_and_batches_new_damage() {
         let mut world = World::new();
         let source = world.spawn_empty();
@@ -478,6 +530,8 @@ mod tests {
             world.insert(consumer, source);
             relations.bind(&world, consumer, 0, 0, &CURRENT, ViewInvalidation::Visual);
         }
+        relations.reconcile(&mut world);
+        // Settle the final consumer's damage before checking stable reuse.
         relations.reconcile(&mut world);
         let count = relations.dirty_index.rebuilds;
         assert_eq!(
