@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Painting and coverage measurement index matching Views through the existing membership bitset, preserving paint order without scanning unrelated descriptors.
+
 - Dirty-region collection skips text, geometry, relation, and offscreen preparation when the scene has no corresponding demand; active output consumers retain the full preparation path.
 - Prepared paint membership bitsets remain valid across visual-only frames and refresh from component membership revisions, avoiding repeated view matching for unchanged entities.
 

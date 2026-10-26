@@ -275,6 +275,19 @@ pub(super) struct PreparedViews<'a> {
 }
 
 impl PreparedViews<'_> {
+    pub(super) fn next_index(&self, start: usize) -> Option<usize> {
+        let bits = usize::BITS as usize;
+        let mut word = start / bits;
+        let mut available = self.words.get(word)?.get() & (usize::MAX << (start % bits));
+        loop {
+            if available != 0 {
+                return Some(word * bits + available.trailing_zeros() as usize);
+            }
+            word += 1;
+            available = self.words.get(word)?.get();
+        }
+    }
+
     pub(super) fn contains(&self, index: usize) -> bool {
         self.words[index / usize::BITS as usize].get() & (1 << (index % usize::BITS as usize)) != 0
     }
@@ -1044,13 +1057,21 @@ mod tests {
                 let matching = prepared
                     .matching_views(world, registry, entity, position)
                     .unwrap();
+                let mut next = matching.next_index(0);
                 for (index, view) in registry.paint_iter().enumerate() {
                     assert_eq!(
                         matching.contains(index),
                         view.component_filter()
                             .is_none_or(|kind| world.has_type(entity, kind))
                     );
+                    if matching.contains(index) {
+                        assert_eq!(next, Some(index));
+                        assert!(core::ptr::eq(registry.paint_at(index).unwrap(), view));
+                        next = matching.next_index(index + 1);
+                    }
                 }
+                assert_eq!(next, None);
+                assert_eq!(matching.next_index(usize::MAX), None);
             }
         };
         assert_eq!(

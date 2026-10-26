@@ -463,14 +463,23 @@ fn visible_paint_coverage(
     let mut reusable = true;
     let matching =
         preparation.and_then(|prepared| prepared.matching_views(world, registry, entity, position));
-    for (index, view) in registry.paint_iter().enumerate() {
-        if !matching.as_ref().map_or_else(
-            || {
-                view.component_filter()
-                    .is_none_or(|ty| world.has_type(entity, ty))
-            },
-            |matching| matching.contains(index),
-        ) {
+    let mut index = 0;
+    loop {
+        if let Some(matching) = &matching {
+            let Some(next) = matching.next_index(index) else {
+                break;
+            };
+            index = next;
+        }
+        let Some(view) = registry.paint_at(index) else {
+            break;
+        };
+        index += 1;
+        if matching.is_none()
+            && !view
+                .component_filter()
+                .is_none_or(|ty| world.has_type(entity, ty))
+        {
             continue;
         }
         reusable &= view.measurement_reusable();
@@ -2410,14 +2419,23 @@ fn render_views<'frame>(
     crate::trace_span!("draw.view_dispatch");
     let matching =
         preparation.and_then(|prepared| prepared.matching_views(world, registry, entity, position));
-    for (index, view) in registry.paint_iter().enumerate() {
-        if !matching.as_ref().map_or_else(
-            || {
-                view.component_filter()
-                    .is_none_or(|ty| world.has_type(entity, ty))
-            },
-            |matching| matching.contains(index),
-        ) {
+    let mut index = 0;
+    loop {
+        if let Some(matching) = &matching {
+            let Some(next) = matching.next_index(index) else {
+                break;
+            };
+            index = next;
+        }
+        let Some(view) = registry.paint_at(index) else {
+            break;
+        };
+        index += 1;
+        if matching.is_none()
+            && !view
+                .component_filter()
+                .is_none_or(|ty| world.has_type(entity, ty))
+        {
             continue;
         }
         let reusable = preparation.is_some() && view.measurement_reusable();
