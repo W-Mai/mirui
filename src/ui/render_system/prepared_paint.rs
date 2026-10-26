@@ -176,6 +176,11 @@ impl PreparedPaint {
         self.coverage.get(position).and_then(Cell::get)
     }
 
+    pub(super) fn cached_visibility(&self, position: usize) -> Option<PaintVisibility> {
+        let visibility = self.nodes.get(position)?.visibility.get();
+        (visibility != PaintVisibility::Unknown).then_some(visibility)
+    }
+
     pub(super) fn set(&self, position: usize, coverage: PaintCoverage) {
         if let Some(entry) = self.coverage.get(position) {
             entry.set(Some(coverage));
@@ -678,6 +683,8 @@ mod tests {
         let follower = app.world.find_by_id("follower").unwrap();
         let mut prepared = PreparedPaint::with_capacity(2);
         prepared.resize(2, 0);
+        assert_eq!(prepared.cached_visibility(0), None);
+        assert_eq!(prepared.cached_visibility(2), None);
         assert_eq!(core::mem::size_of::<Cell<PaintVisibility>>(), 1);
         assert_eq!(
             crate::test_support::tracked_allocations(|| {
@@ -696,10 +703,15 @@ mod tests {
         );
         app.world.insert(follower, crate::ui::Hidden);
         assert_eq!(
+            prepared.cached_visibility(1),
+            Some(PaintVisibility::Clipped)
+        );
+        assert_eq!(
             visibility(&app.world, follower, 1, None),
             PaintVisibility::Hidden
         );
         prepared.clear();
+        assert_eq!(prepared.cached_visibility(1), None);
         assert_eq!(
             visibility(&app.world, follower, 1, Some(&prepared)),
             PaintVisibility::Hidden

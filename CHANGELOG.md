@@ -83,6 +83,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Frame acknowledgement reuses visibility resolved during painting, while unvisited nodes keep their existing checks and each new paint batch refreshes visibility.
+
 - Successful frame acknowledgement retains View membership caches while clearing transient paint state; component changes and layout rebuilds still invalidate membership.
 
 - Fractional software blits borrow the right-edge sampling state until needed instead of copying it for every destination row.

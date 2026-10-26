@@ -517,7 +517,13 @@ fn seed_prev_rect_walk(
         return;
     }
     let entity = entities[*idx];
-    let visible = ancestors_visible && !super::branch::is_effectively_hidden(world, entity);
+    let visible = ancestors_visible
+        && preparation
+            .and_then(|prepared| prepared.cached_visibility(*idx))
+            .map_or_else(
+                || !super::branch::is_effectively_hidden(world, entity),
+                |visibility| visibility != prepared_paint::PaintVisibility::Hidden,
+            );
     let shifted_rect = Rect {
         x: node.rect.x - scroll_offset.0,
         y: node.rect.y - scroll_offset.1,
