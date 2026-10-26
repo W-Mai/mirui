@@ -4354,6 +4354,8 @@ pub(crate) fn try_collect_dirty_regions_into(
         super::view::ViewRegistry::propagate_output_publications(world);
         output_plan::measure_for_dirty(world, &snapshot.layout_tree, &snapshot.entities)
     } else {
+        snapshot.paths.release();
+        snapshot.follow_plan = None;
         None
     };
 

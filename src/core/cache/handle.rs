@@ -16,7 +16,6 @@ pub struct CacheEntry<V> {
 }
 
 impl<V> CacheEntry<V> {
-    #[allow(dead_code)]
     pub(crate) fn new(payload: V) -> Self {
         Self {
             payload,
@@ -58,9 +57,10 @@ pub struct Handle<V> {
 }
 
 impl<V> Handle<V> {
-    #[allow(dead_code)]
-    pub(crate) fn from_rc(inner: EntryRc<V>) -> Self {
-        Self { inner }
+    pub(crate) fn new(payload: V) -> Self {
+        Self {
+            inner: EntryRcImpl::new(CacheEntry::new(payload)),
+        }
     }
 
     pub fn get(&self) -> &V {
@@ -113,8 +113,7 @@ mod tests {
 
     #[test]
     fn handle_clone_shares_payload_and_bumps_ref_count() {
-        let entry = EntryRcImpl::new(CacheEntry::new(String::from("hi")));
-        let h1 = Handle::from_rc(entry);
+        let h1 = Handle::new(String::from("hi"));
         assert_eq!(h1.ref_count(), 1);
         let h2 = h1.clone();
         assert_eq!(h1.ref_count(), 2);
@@ -127,8 +126,7 @@ mod tests {
 
     #[test]
     fn invalid_flag_is_shared_across_clones() {
-        let entry = EntryRcImpl::new(CacheEntry::new(42u32));
-        let h1 = Handle::from_rc(entry);
+        let h1 = Handle::new(42u32);
         let h2 = h1.clone();
         assert!(!h1.is_invalid());
         h1.inner.invalid_set(true);

@@ -10,11 +10,20 @@ error[E0599]: no method named `with_filter` found for struct `View<Systems>` in 
 16 |     let _ = tile::view().with_filter::<Tile>();
    |                          ^^^^^^^^^^^ method not found in `View`
 
-error[E0599]: no method named `with_observation` found for struct `View<Systems>` in the current scope
+error[E0624]: method `with_observation` is private
   --> tests/ui/view_raw_configuration.rs:17:26
    |
-17 |     let _ = tile::view().with_observation(observe, 0);
-   |                          ^^^^^^^^^^^^^^^^ method not found in `View`
+17 |       let _ = tile::view().with_observation(observe, 0);
+   |                            ^^^^^^^^^^^^^^^^ private method
+   |
+  ::: $WORKSPACE/src/ui/view.rs
+   |
+   | /     pub(crate) const fn with_observation(
+   | |         mut self,
+   | |         observe: ViewObserve,
+   | |         subscription_count: usize,
+   | |     ) -> Self {
+   | |_____________- private method defined here
 
 error[E0599]: no method named `with_query_dependencies` found for struct `View<Systems>` in the current scope
   --> tests/ui/view_raw_configuration.rs:18:26

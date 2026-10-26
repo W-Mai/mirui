@@ -153,6 +153,17 @@ fn sparse_publication_matches_full_walk_with_live_ancestor_geometry() {
             .selected()
             .is_none()
     );
+    app.world.insert(reader, GeometryReader { source });
+    app.render().unwrap();
+    assert!(outputs(&app).get(source).is_some());
+    assert!(
+        app.world
+            .resource::<crate::ui::render_system::LayoutSnapshot>()
+            .unwrap()
+            .paths
+            .selected()
+            .is_some()
+    );
 }
 
 fn version(app: &TestApp, source: Entity) -> u64 {

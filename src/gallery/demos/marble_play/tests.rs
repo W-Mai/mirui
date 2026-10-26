@@ -731,6 +731,12 @@ fn bound_controls_follow_page_selection_and_scene_reset() {
         .reset_scene(2);
     crate::core::reactive::flush_signal_dirty(world);
     assert!(is_hidden_in_tree(world, scene_label));
+    world
+        .resource::<MarbleModelHandle>()
+        .unwrap()
+        .set_page(Page::Settings);
+    crate::core::reactive::flush_signal_dirty(world);
+    assert!(!is_hidden_in_tree(world, gravity));
     assert_eq!(
         world.get::<Slider>(gravity).unwrap().value,
         THEMES[2].gravity.to_fixed()
@@ -774,8 +780,16 @@ fn bound_switches_update_without_widget_events() {
         .unwrap()
         .toggle_trails();
     crate::core::reactive::flush_signal_dirty(world);
-    assert!(!world.get::<Switch>(trails).unwrap().on);
     assert!(!world.resource::<MarbleModelHandle>().unwrap().trails());
+    assert!(is_hidden_in_tree(world, trails));
+    assert!(world.get::<Switch>(trails).unwrap().on);
+    world
+        .resource::<MarbleModelHandle>()
+        .unwrap()
+        .set_page(Page::Settings);
+    crate::core::reactive::flush_signal_dirty(world);
+    assert!(!is_hidden_in_tree(world, trails));
+    assert!(!world.get::<Switch>(trails).unwrap().on);
 }
 
 #[test]

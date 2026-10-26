@@ -265,7 +265,7 @@ where
     }
 
     fn insert_value(&mut self, key: K, value: V, size: usize) -> Handle<V> {
-        let entry = Rc::new(CacheEntry::new(value));
+        let entry = Handle::new(value).inner;
         self.insert_owner(key, entry, size)
     }
 
@@ -384,9 +384,9 @@ where
         if self.cache.ensure_room(size) {
             self.cache.insert_value(self.key, value, size)
         } else {
-            let entry = CacheEntry::new(value);
-            entry.invalid_set(true);
-            Handle::from_rc(Rc::new(entry))
+            let handle = Handle::new(value);
+            handle.inner.invalid_set(true);
+            handle
         }
     }
 

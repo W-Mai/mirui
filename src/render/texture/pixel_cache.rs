@@ -3,7 +3,6 @@ use alloc::vec::Vec;
 use super::access::CachedPixels;
 use super::{Region, TexturePixels};
 use crate::core::cache::Handle;
-use crate::core::cache::handle::{CacheEntry, EntryRc};
 use crate::render::budget::{Allocation, MemoryBudget, RetainedAllocation, RetainedReservation};
 use crate::render::{PlaneLayout, RenderError, RenderResource};
 
@@ -60,10 +59,10 @@ impl CachedPixels {
             .ok_or_else(capacity_error)?;
         let allocation = reservation.commit(actual).map_err(|_| capacity_error())?;
         bytes.resize(layout.required_bytes(), 0);
-        Ok(Handle::from_rc(EntryRc::new(CacheEntry::new(Self {
+        Ok(Handle::new(Self {
             bytes,
             _allocation: PixelAllocation::Shared(allocation),
-        }))))
+        }))
     }
 }
 
@@ -137,10 +136,10 @@ impl PixelCache {
 
     pub(super) fn prepare(&mut self, layout: PlaneLayout) -> Result<(), RenderError> {
         if let Some(pixels) = self.pixels.as_mut()
-            && let Some(entry) = EntryRc::get_mut(&mut pixels.inner)
+            && let Some(entry) = pixels.get_mut()
         {
-            if entry.payload.bytes.capacity() >= layout.required_bytes() {
-                entry.payload.bytes.resize(layout.required_bytes(), 0);
+            if entry.bytes.capacity() >= layout.required_bytes() {
+                entry.bytes.resize(layout.required_bytes(), 0);
                 self.revision = None;
                 self.layout = layout;
                 return Ok(());
@@ -172,12 +171,10 @@ impl PixelCache {
             return Err(capacity_error());
         }
         bytes.resize(layout.required_bytes(), 0);
-        self.pixels = Some(Handle::from_rc(EntryRc::new(CacheEntry::new(
-            CachedPixels {
-                bytes,
-                _allocation: PixelAllocation::Retained(allocation),
-            },
-        ))));
+        self.pixels = Some(Handle::new(CachedPixels {
+            bytes,
+            _allocation: PixelAllocation::Retained(allocation),
+        }));
         self.revision = None;
         self.layout = layout;
         Ok(())
@@ -185,9 +182,9 @@ impl PixelCache {
 
     pub(super) fn bytes_mut(&mut self) -> Result<&mut [u8], RenderError> {
         let pixels = self.pixels.as_mut().ok_or(RenderError::InvalidTexture)?;
-        let entry = EntryRc::get_mut(&mut pixels.inner).ok_or(RenderError::InvalidScope)?;
+        let entry = pixels.get_mut().ok_or(RenderError::InvalidScope)?;
         self.revision = None;
-        Ok(&mut entry.payload.bytes)
+        Ok(&mut entry.bytes)
     }
 }
 

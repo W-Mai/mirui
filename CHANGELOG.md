@@ -80,6 +80,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Geometry preparation releases retained lookup plans when the last output consumer leaves, and rebuilds them when demand returns.
+
 - Dirty-frame render traces end before surface submission and reporting, keeping draw time separate from flush and diagnostic output.
 
 - SDL-GPU rectangle outlines preserve their original geometry during partial redraws and restore the clip after submission.
