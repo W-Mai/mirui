@@ -14,9 +14,16 @@ pub(super) struct PreparedPaint {
     // Both are invalidated together at the existing paint-batch boundary.
     views: Vec<Cell<usize>>,
     view_count: usize,
-    view_revisions: Vec<Cell<u64>>,
+    view_revisions: Vec<Cell<ViewMembership>>,
     affine: Vec<Cell<Option<Transform>>>,
     nodes: Vec<PreparedNode>,
+}
+
+#[derive(Clone, Copy)]
+struct ViewMembership {
+    revision: u64,
+    // A checked lookup hint, not an identity or an invalidation version.
+    watch_index: usize,
 }
 
 #[derive(Default)]
@@ -64,7 +71,12 @@ impl PreparedPaint {
         self.affine.resize_with(len, || Cell::new(None));
         self.nodes.resize_with(len, PreparedNode::default);
         self.view_count = view_count;
-        self.view_revisions.resize_with(view_count, || Cell::new(0));
+        self.view_revisions.resize_with(view_count, || {
+            Cell::new(ViewMembership {
+                revision: 0,
+                watch_index: usize::MAX,
+            })
+        });
         let view_capacity = (self.coverage.capacity() + 1) * self.view_stride();
         if self.views.capacity() < view_capacity {
             self.views.reserve_exact(view_capacity - self.views.len());
@@ -103,11 +115,16 @@ impl PreparedPaint {
         }
         let mut membership_changed = false;
         for (index, view) in registry.paint_iter().enumerate() {
-            let revision = view.component_filter().map_or(0, |type_id| {
-                world.component_membership_revision_by_id(type_id)
+            let previous = self.view_revisions[index].get();
+            let (watch_index, revision) =
+                view.component_filter().map_or((usize::MAX, 0), |type_id| {
+                    world.component_membership_revision_by_id(type_id, previous.watch_index)
+                });
+            self.view_revisions[index].set(ViewMembership {
+                revision,
+                watch_index,
             });
-            let previous = self.view_revisions[index].replace(revision);
-            membership_changed |= previous != revision;
+            membership_changed |= previous.revision != revision;
         }
         if membership_changed {
             for entry in &self.views {

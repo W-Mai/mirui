@@ -89,6 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Paint membership checks reuse type-validated component registration positions while retaining membership revision invalidation.
+
 - Software rectangle edge rasterization traverses disjoint column ranges directly after filling the opaque interior.
 
 - Software draw submission shares capability checks with routing and avoids redundant transform classification.

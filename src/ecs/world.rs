@@ -615,11 +615,23 @@ impl World {
             .map_or(0, |watched| watched.membership_revision)
     }
 
-    pub(crate) fn component_membership_revision_by_id(&self, type_id: TypeId) -> u64 {
+    pub(crate) fn component_membership_revision_by_id(
+        &self,
+        type_id: TypeId,
+        hint: usize,
+    ) -> (usize, u64) {
+        if let Some(watched) = self.watched_component_types.get(hint)
+            && watched.type_id == type_id
+        {
+            return (hint, watched.membership_revision);
+        }
         self.watched_component_types
             .iter()
-            .find(|watched| watched.type_id == type_id)
-            .map_or(0, |watched| watched.membership_revision)
+            .enumerate()
+            .find(|(_, watched)| watched.type_id == type_id)
+            .map_or((usize::MAX, 0), |(index, watched)| {
+                (index, watched.membership_revision)
+            })
     }
 
     fn record_membership_change(&mut self, type_id: TypeId) {
@@ -982,6 +994,61 @@ mod tests {
         let revision = world.component_revision::<u32>();
         world.remove::<u32>(entity);
         assert_eq!(world.component_revision::<u32>(), revision);
+    }
+
+    #[test]
+    fn membership_lookup_hints_validate_types_and_follow_current_membership() {
+        let mut world = World::new();
+        let kind = TypeId::of::<u32>();
+        assert_eq!(
+            world.component_membership_revision_by_id(kind, 0),
+            (usize::MAX, 0)
+        );
+        world.watch_component_revision::<u16>();
+        world.watch_component_revision::<u32>();
+        let (slot, initial) = world.component_membership_revision_by_id(kind, 0);
+        assert_eq!(slot, 1, "an unrelated hint must be relocated");
+        let entity = world.spawn_empty();
+        world.insert(entity, 1u32);
+        let inserted = world.component_membership_revision::<u32>();
+        assert_ne!(inserted, initial);
+        world.watch_component_revision::<[u8; 1]>();
+        world.watch_component_revision::<[u8; 2]>();
+        world.watch_component_revision::<[u8; 3]>();
+        world.watch_component_revision::<[u8; 4]>();
+        world.watch_component_revision::<[u8; 5]>();
+        assert_eq!(
+            tracked_allocations(|| {
+                assert_eq!(
+                    world.component_membership_revision_by_id(kind, slot),
+                    (slot, inserted)
+                );
+            }),
+            0
+        );
+        world.insert(entity, 2u32);
+        assert_eq!(
+            world.component_membership_revision_by_id(kind, slot),
+            (slot, inserted)
+        );
+        world.remove::<u32>(entity);
+        assert_eq!(
+            world.component_membership_revision_by_id(kind, slot),
+            (slot, world.component_membership_revision::<u32>())
+        );
+        world.insert(entity, 3u32);
+        world.despawn(entity);
+        assert_eq!(
+            world.component_membership_revision_by_id(kind, slot),
+            (slot, world.component_membership_revision::<u32>())
+        );
+        let mut other = World::new();
+        other.watch_component_revision::<u32>();
+        other.watch_component_revision::<u16>();
+        assert_eq!(
+            other.component_membership_revision_by_id(kind, slot),
+            (0, 0)
+        );
     }
 
     #[test]
