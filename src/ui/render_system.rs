@@ -1868,6 +1868,9 @@ fn compute_layout_snapshot(
             .resource::<ViewRegistry>()
             .map_or(0, |registry| registry.paint_iter().len()),
     );
+    snapshot
+        .prepared_paint
+        .prepare_subtrees(&snapshot.layout_tree, changes.structure);
     if !snapshot.maintenance_current(world) || changes.parked {
         crate::trace_span!("layout.prune_parked", {
             prune_parked_layout_nodes(
@@ -2101,6 +2104,22 @@ pub(crate) fn count_nodes(node: &LayoutNode) -> usize {
     1 + node.children.iter().map(count_nodes).sum::<usize>()
 }
 
+fn skip_subtree(
+    node: &LayoutNode,
+    index: &mut usize,
+    preparation: Option<&PreparedPaint>,
+    plan: Option<&output_plan::TexturePlan>,
+) {
+    if node.children.is_empty() {
+        *index += 1;
+        return;
+    }
+    *index = preparation
+        .and_then(|prepared| prepared.subtree_end(*index))
+        .or_else(|| plan.and_then(|plan| plan.subtree_end(*index)))
+        .unwrap_or_else(|| *index + count_nodes(node));
+}
+
 /// Recursively emit draw commands from the computed layout tree
 #[allow(clippy::too_many_arguments)]
 fn intersect_with_self(clip: &Rect, rect: &Rect) -> Rect {
@@ -2135,7 +2154,7 @@ fn draw_tree_offset(
     if let Some(&entity) = entities.get(*idx)
         && super::branch::is_hidden_in_tree(world, entity)
     {
-        *idx += count_nodes(node);
+        skip_subtree(node, idx, preparation, output_plan);
         return Ok(());
     }
     draw_visible_tree_offset(
@@ -2185,7 +2204,7 @@ fn draw_visible_tree_offset(
     }
     let visibility = prepared_paint::visibility(world, entity, *idx, preparation);
     if visibility == prepared_paint::PaintVisibility::Hidden {
-        *idx += count_nodes(node);
+        skip_subtree(node, idx, preparation, output_plan);
         return Ok(());
     }
     if visibility == prepared_paint::PaintVisibility::Unclipped {
@@ -2247,7 +2266,7 @@ fn draw_visible_tree_offset(
         },
     );
     if *idx == before {
-        *idx += count_nodes(node);
+        skip_subtree(node, idx, preparation, output_plan);
     }
     result
 }
@@ -2332,12 +2351,12 @@ fn draw_tree_content(
     if !visible
         && (node.children.is_empty() || child_clip.w <= Fixed::ZERO || child_clip.h <= Fixed::ZERO)
     {
-        *idx += count_nodes(node);
+        skip_subtree(node, idx, preparation, output_plan);
         return Ok(());
     }
 
     if output_plan.is_some_and(|plan| plan.blocked(entity)) {
-        *idx += count_nodes(node);
+        skip_subtree(node, idx, preparation, output_plan);
         return Ok(());
     }
 
@@ -2350,7 +2369,7 @@ fn draw_tree_content(
         off
     });
     if offscreen.is_some_and(|off| off.opacity == 0) {
-        *idx += count_nodes(node);
+        skip_subtree(node, idx, preparation, output_plan);
         return Ok(());
     }
     if output_plan.is_some_and(|plan| plan.ready(entity))
@@ -2368,6 +2387,8 @@ fn draw_tree_content(
                 off,
                 entity,
                 &tf,
+                preparation,
+                output_plan,
             )?
         } else {
             draw_prepared_output(
@@ -2380,6 +2401,8 @@ fn draw_tree_content(
                 off,
                 entity,
                 &tf,
+                preparation,
+                output_plan,
             )?
         };
         if handled {
@@ -2886,7 +2909,7 @@ fn prepare_offscreen(
     crate::trace_span!("draw.offscreen");
 
     if outputs.texture_matches(key)? {
-        *idx += count_nodes(node);
+        skip_subtree(node, idx, None, output_plan);
         return Ok(true);
     }
 
@@ -3050,6 +3073,8 @@ fn draw_prepared_output(
     off: super::OffscreenRender,
     entity: Entity,
     outer_tf: &Transform,
+    preparation: Option<&PreparedPaint>,
+    output_plan: Option<&output_plan::TexturePlan>,
 ) -> Result<bool, RenderError> {
     // Blit buffer back to the outer renderer through DrawCommand::Blit.
     // This is the only Canvas-style operation we need from outer; going
@@ -3099,7 +3124,7 @@ fn draw_prepared_output(
         };
         renderer.draw_request(&DrawRequest::new(&blit_cmd, *clip))?;
     }
-    *idx += count_nodes(node);
+    skip_subtree(node, idx, preparation, output_plan);
     Ok(true)
 }
 
@@ -3434,6 +3459,7 @@ fn update_layout(
         logical_h,
         &snapshot.layout_tree,
         &snapshot.entities,
+        &|index| snapshot.prepared_paint.subtree_end(index),
     );
     super::view::ViewRegistry::invalidate_queries(world);
     if let Err(failure) = publish_text_geometry(world, &snapshot.entities) {
@@ -3498,6 +3524,7 @@ pub(crate) fn prepare_input_geometry(
                 height,
                 &snapshot.layout_tree,
                 &snapshot.entities,
+                &|index| snapshot.prepared_paint.subtree_end(index),
             );
             snapshot.prepare_geometry_plan(world);
             super::layout_geometry::publish(
@@ -4557,6 +4584,7 @@ pub(crate) fn try_collect_dirty_regions_into(
         logical_h,
         &snapshot.layout_tree,
         &snapshot.entities,
+        &|index| snapshot.prepared_paint.subtree_end(index),
     );
 
     world.put_resource_box(snapshot);

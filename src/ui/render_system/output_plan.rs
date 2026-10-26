@@ -39,6 +39,7 @@ struct Capture {
 }
 
 struct NodeGeometry {
+    subtree_end: usize,
     extra: Option<Rect>,
     capture: Option<usize>,
     workspace_bytes: usize,
@@ -119,6 +120,10 @@ pub(crate) struct TexturePlan {
 }
 
 impl TexturePlan {
+    pub(super) fn subtree_end(&self, index: usize) -> Option<usize> {
+        self.structure_valid.then_some(())?;
+        self.nodes.get(index).map(|node| node.subtree_end)
+    }
     pub(crate) fn trim_memory(&mut self) {
         self.raster = None;
         self.workspace.release();
@@ -261,6 +266,7 @@ impl TexturePlan {
             id
         });
         self.nodes.push(NodeGeometry {
+            subtree_end: start + 1,
             extra: None,
             capture,
             workspace_bytes: 0,
@@ -270,6 +276,7 @@ impl TexturePlan {
         for child in &node.children {
             self.collect(child, world, entities, index, capture.or(parent));
         }
+        self.nodes[start].subtree_end = *index;
         if let Some(id) = capture {
             self.captures[id].end = *index;
         }
@@ -541,7 +548,7 @@ impl TexturePlan {
                 render_transforms(parent, parent_3d, world, entity, rect)
             };
             if let Some(id) = capture.filter(|id| Some(*id) != owner) {
-                *index += count_nodes(node);
+                *index = self.nodes[position].subtree_end;
                 if self.captures[id].state == CaptureState::Blocked {
                     return Ok(None);
                 }
@@ -602,7 +609,7 @@ impl TexturePlan {
             if invalid { Err(()) } else { Ok(result) }
         })();
         if result.is_err() {
-            *index = position + count_nodes(node);
+            *index = self.nodes[position].subtree_end;
         }
         result
     }
@@ -628,8 +635,8 @@ impl TexturePlan {
             }
             let capture = &self.captures[id];
             let previous_geometry = Self::key_geometry(&capture.key);
-            let node =
-                node_at(tree, capture.start).expect("capture belongs to the layout snapshot");
+            let node = node_at(tree, capture.start, &self.nodes)
+                .expect("capture belongs to the layout snapshot");
             let mut index = capture.start;
             let scale = capture.config.scale.max(Fixed::ONE / 8);
             let bounds = self
@@ -891,7 +898,8 @@ pub(super) fn prepare<'a>(
             plan.captures[id].state = CaptureState::Missing;
             continue;
         }
-        let node = node_at(tree, capture.start).expect("capture belongs to the layout snapshot");
+        let node = node_at(tree, capture.start, &plan.nodes)
+            .expect("capture belongs to the layout snapshot");
         let mut index = capture.start;
         let mut raster = plan
             .raster
@@ -938,19 +946,27 @@ pub(super) fn prepare<'a>(
     }
 }
 
-fn node_at(root: &LayoutNode, mut index: usize) -> Option<&LayoutNode> {
-    if index == 0 {
-        return Some(root);
+fn node_at<'a>(
+    mut node: &'a LayoutNode,
+    target: usize,
+    spans: &[NodeGeometry],
+) -> Option<&'a LayoutNode> {
+    let mut index = 0;
+    while index != target {
+        index += 1;
+        node = node.children.iter().find(|_| {
+            let Some(span) = spans.get(index) else {
+                return false;
+            };
+            if target < span.subtree_end {
+                true
+            } else {
+                index = span.subtree_end;
+                false
+            }
+        })?;
     }
-    index -= 1;
-    for child in &root.children {
-        let count = super::count_nodes(child);
-        if index < count {
-            return node_at(child, index);
-        }
-        index -= count;
-    }
-    None
+    Some(node)
 }
 
 pub(super) fn acknowledge(world: &World, entities: &[Entity]) {
@@ -976,6 +992,7 @@ mod geometry_arithmetic_tests {
         );
         let mut plan = TexturePlan::default();
         plan.nodes.push(NodeGeometry {
+            subtree_end: 1,
             extra: Some(geometry_translate(rect, origin, Point::ZERO).unwrap()),
             capture: None,
             workspace_bytes: 0,
@@ -985,9 +1002,9 @@ mod geometry_arithmetic_tests {
         assert_eq!(
             core::mem::size_of::<NodeGeometry>(),
             if core::mem::size_of::<usize>() == 8 {
-                48
+                56
             } else {
-                36
+                40
             }
         );
         assert_eq!(plan.local_paint_bounds(0, rect), Some(rect));
@@ -1027,6 +1044,7 @@ mod geometry_arithmetic_tests {
         );
         let mut plan = TexturePlan::default();
         plan.nodes.push(NodeGeometry {
+            subtree_end: 1,
             extra: Some(Rect::new(0, 0, 1, 1)),
             capture: None,
             workspace_bytes: 0,

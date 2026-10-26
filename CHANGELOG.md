@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Reuse retained preorder subtree spans when skipping hidden, clipped or cached branches during painting, hit geometry updates and output preparation.
 - Reuse unchanged text measurements and paragraph layouts during incremental layout. Font-provider revisions, changed width constraints and retired cache entries trigger preparation through the existing text cache.
 - Reuse output invalidation summaries while source membership, visibility, topology and damage revisions are unchanged. Dependency propagation shares each summary pass and invalidates each source/output once per propagation wave.
 

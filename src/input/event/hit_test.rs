@@ -188,12 +188,14 @@ fn collect_geometry(
     parent_2d: Transform,
     parent_3d: Transform3D,
     writer: &mut GeometryWriter<'_>,
+    subtree_end: &dyn Fn(usize) -> Option<usize>,
 ) {
     let Some(&entity) = entities.get(*index) else {
         return;
     };
     if crate::ui::branch::is_effectively_hidden(world, entity) {
-        *index += crate::ui::render_system::count_nodes(node);
+        *index = subtree_end(*index)
+            .unwrap_or_else(|| *index + crate::ui::render_system::count_nodes(node));
         return;
     }
     *index += 1;
@@ -256,6 +258,7 @@ fn collect_geometry(
             effective_2d,
             effective_3d,
             writer,
+            subtree_end,
         );
     }
 }
@@ -269,6 +272,7 @@ pub(crate) fn update_hit_test_geometry(
     logical_h: u16,
     layout_tree: &LayoutNode,
     entities: &[Entity],
+    subtree_end: &dyn Fn(usize) -> Option<usize>,
 ) {
     prepare_geometry_tracking(world);
     let mut geometry = world
@@ -320,6 +324,7 @@ pub(crate) fn update_hit_test_geometry(
         Transform::IDENTITY,
         Transform3D::IDENTITY,
         &mut writer,
+        subtree_end,
     );
     writer.finish();
     let geometry_changed = writer.changed;
@@ -422,7 +427,7 @@ mod tests {
         node.entity = Some(root);
         node.rect = Rect::new(0, 0, 32, 24);
         let refresh = |world: &mut World| {
-            update_hit_test_geometry(world, root, 128, 128, &node, &[root]);
+            update_hit_test_geometry(world, root, 128, 128, &node, &[root], &|_| None);
         };
         refresh(&mut world);
         assert!(geometry_matches(&world, root, 128, 128));

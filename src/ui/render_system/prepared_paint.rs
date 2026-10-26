@@ -28,6 +28,7 @@ struct ViewMembership {
 
 #[derive(Default)]
 struct PreparedNode {
+    subtree_end: usize,
     visibility: Cell<PaintVisibility>,
     state: Cell<Option<WidgetState>>,
     offscreen: Cell<Option<Option<OffscreenRender>>>,
@@ -55,6 +56,34 @@ impl PaintVisibility {
 }
 
 impl PreparedPaint {
+    pub(super) fn prepare_subtrees(
+        &mut self,
+        tree: &crate::ui::layout::LayoutNode,
+        structure_changed: bool,
+    ) {
+        if !structure_changed && self.subtree_end(0) == Some(self.nodes.len()) {
+            return;
+        }
+        fn visit(
+            node: &crate::ui::layout::LayoutNode,
+            entries: &mut [PreparedNode],
+            index: &mut usize,
+        ) {
+            let start = *index;
+            *index += 1;
+            for child in &node.children {
+                visit(child, entries, index);
+            }
+            entries[start].subtree_end = *index;
+        }
+        visit(tree, &mut self.nodes, &mut 0);
+    }
+
+    pub(super) fn subtree_end(&self, index: usize) -> Option<usize> {
+        let end = self.nodes.get(index)?.subtree_end;
+        (end > index && end <= self.nodes.len()).then_some(end)
+    }
+
     pub(super) fn with_capacity(capacity: usize) -> Self {
         Self {
             coverage: Vec::with_capacity(capacity),
@@ -202,6 +231,48 @@ impl PreparedPaint {
         if let Some(entry) = self.coverage.get(position) {
             entry.set(Some(coverage));
         }
+    }
+}
+
+#[cfg(test)]
+mod subtree_tests {
+    use super::*;
+    use crate::ui::layout::{LayoutNode, LayoutStyle};
+
+    #[test]
+    fn spans_follow_structure_and_survive_paint_cache_resets() {
+        let mut root = LayoutNode::new(LayoutStyle::default());
+        let mut branch = LayoutNode::new(LayoutStyle::default());
+        branch.add_child(LayoutNode::new(LayoutStyle::default()));
+        branch.add_child(LayoutNode::new(LayoutStyle::default()));
+        root.add_child(branch);
+        root.add_child(LayoutNode::new(LayoutStyle::default()));
+        let mut prepared = PreparedPaint::with_capacity(5);
+        prepared.resize(5, 0);
+        prepared.prepare_subtrees(&root, true);
+        assert_eq!(
+            (0..5).map(|i| prepared.subtree_end(i)).collect::<Vec<_>>(),
+            [Some(5), Some(4), Some(3), Some(4), Some(5)]
+        );
+        prepared.clear();
+        prepared.resize(5, 0);
+        assert_eq!(prepared.subtree_end(1), Some(4));
+        root.children.swap(0, 1);
+        prepared.prepare_subtrees(&root, true);
+        assert_eq!(prepared.subtree_end(1), Some(2));
+        assert_eq!(prepared.subtree_end(2), Some(5));
+        root.children.remove(1);
+        prepared.resize(2, 0);
+        prepared.prepare_subtrees(&root, true);
+        assert_eq!(prepared.subtree_end(0), Some(2));
+        assert_eq!(prepared.subtree_end(2), None);
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                prepared.prepare_subtrees(&root, false);
+                prepared.clear_frame();
+            }),
+            0
+        );
     }
 }
 
@@ -622,7 +693,10 @@ mod tests {
         let entity = world.spawn_empty();
         let mut prepared = PreparedPaint::with_capacity(1);
         prepared.resize(1, 0);
-        assert_eq!(core::mem::size_of::<PreparedNode>(), 16);
+        assert_eq!(
+            core::mem::size_of::<PreparedNode>(),
+            16 + core::mem::size_of::<usize>()
+        );
         let configuration = |value: Option<OffscreenRender>| value.map(|v| (v.scale, v.opacity));
         for value in [
             None,
@@ -792,7 +866,10 @@ mod tests {
         world.insert(entity, crate::ui::Parent(parent));
         let mut prepared = PreparedPaint::with_capacity(1);
         prepared.resize(1, 0);
-        assert_eq!(core::mem::size_of::<PreparedNode>(), 16);
+        assert_eq!(
+            core::mem::size_of::<PreparedNode>(),
+            16 + core::mem::size_of::<usize>()
+        );
         for (ancestor_disabled, own_error, interaction, expected) in [
             (false, false, None, WidgetState::Enabled),
             (

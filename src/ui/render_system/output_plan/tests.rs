@@ -20,6 +20,7 @@ fn damage_scan_reuses_only_tracked_inputs_and_resets_at_plan_boundaries() {
     world.insert(entity, Dirty);
     let mut plan = TexturePlan::default();
     plan.nodes.push(NodeGeometry {
+        subtree_end: 1,
         extra: None,
         capture: None,
         workspace_bytes: 0,
