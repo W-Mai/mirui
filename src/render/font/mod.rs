@@ -432,6 +432,7 @@ pub(crate) fn raster_glyph_rect(
 /// Format adapter used by both paragraph layout and render backends.
 pub trait FontProvider: 'static {
     fn face_id(&self) -> FontFaceId;
+    /// Revision of coverage, metrics, shaping and glyph data. Mutable providers advance this value when those inputs change; immutable providers can keep the default.
     fn revision(&self) -> u64 {
         0
     }

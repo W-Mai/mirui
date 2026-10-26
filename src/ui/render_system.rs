@@ -990,6 +990,7 @@ fn prune_parked_layout_nodes(
 struct LayoutTreeChanges {
     parked: bool,
     structure: bool,
+    reuse_inputs: bool,
     solve: super::layout::solve::SolveScope,
 }
 
@@ -1022,9 +1023,17 @@ fn refresh_layout_values(
     style: &Style,
     changes: &mut LayoutTreeChanges,
 ) -> Result<(), TextLayoutFailure> {
+    let next_style = layout_style(world, entity, style.layout);
+    if changes.reuse_inputs
+        && node.style == next_style
+        && !world.has::<super::dirty::Dirty>(entity)
+        && !world.has::<crate::ui::widgets::Text>(entity)
+        && !world.has::<crate::ui::widgets::StaticGlyphRun>(entity)
+    {
+        return Ok(());
+    }
     #[cfg(test)]
     local_layout_tests::record_input_visit(false);
-    let next_style = layout_style(world, entity, style.layout);
     let observe_solve =
         !changes.structure && changes.solve != super::layout::solve::SolveScope::Full;
     let was_absolute = node.style.position == super::layout::Position::Absolute;
@@ -1033,7 +1042,12 @@ fn refresh_layout_values(
     node.style = next_style;
     node.intrinsic_width = None;
     node.intrinsic_height = None;
-    apply_text_intrinsic(world, entity, node)?;
+    let reused = changes.reuse_inputs
+        && reuse_text_inputs(world, entity)
+        && reuse_text_intrinsic(world, entity, style, node);
+    if !reused {
+        apply_text_intrinsic(world, entity, node)?;
+    }
     apply_static_glyph_intrinsic(world, entity, style, node);
     if observe_solve
         && (style_changed || old_intrinsic != (node.intrinsic_width, node.intrinsic_height))
@@ -1044,7 +1058,7 @@ fn refresh_layout_values(
 }
 
 // The snapshot's maintenance revisions certify membership and child order.
-// Values and intrinsic measurements still use the common preparation path.
+// Unchanged values reuse measurements from the common text cache.
 fn refresh_stable_layout_tree(
     world: &World,
     node: &mut LayoutNode,
@@ -1153,6 +1167,7 @@ fn layout_text(
     world: &World,
     entity: Entity,
     width: Fixed,
+    reuse_inputs: bool,
 ) -> Result<Option<LaidOutText>, TextLayoutFailure> {
     use crate::render::font::ResolvedFontStack;
     use crate::ui::widgets::text::Text;
@@ -1166,6 +1181,29 @@ fn layout_text(
     let Some(resource) = world.resource::<Outputs<TextGeometry>>() else {
         return Ok(None);
     };
+    let content_width = crate::ui::widgets::text::linear_text_content_rect(
+        style,
+        Rect {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: width,
+            h: Fixed::ZERO,
+        },
+    )
+    .w;
+    if reuse_inputs
+        && reuse_text_inputs(world, entity)
+        && let Some(handle) = world.get::<crate::text::TextLayoutHandle>(entity).copied()
+        && let Some(measure) = resource.storage_mut().layouts.reuse_layout(
+            handle,
+            text_layout_owner(entity),
+            crate::types::fixed::to_textflow(content_width.max(Fixed::ZERO)),
+        )
+    {
+        return Ok(Some(LaidOutText { handle, measure }));
+    }
+    #[cfg(test)]
+    local_layout_tests::record_text_preparation(false);
     let face_limit = resource.storage().layouts.limits().fallback_faces;
     let Some(fonts) = ResolvedFontStack::resolve(
         world.resource::<crate::render::font::FontManager>(),
@@ -1183,16 +1221,6 @@ fn layout_text(
     let content = text.resolve(world.resource());
     let metrics = font.metrics(font.size);
     let text_path = world.get::<crate::text::TextPath>(entity).copied();
-    let content_width = crate::ui::widgets::text::linear_text_content_rect(
-        style,
-        Rect {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            w: width,
-            h: Fixed::ZERO,
-        },
-    )
-    .w;
     let request = text.paragraph().layout_request(
         &content,
         metrics,
@@ -1488,15 +1516,16 @@ fn layout_text_tree(
     world: &mut World,
     entities: &[Entity],
     index: &mut usize,
+    reuse_inputs: bool,
 ) -> Result<bool, TextLayoutFailure> {
     if *index >= entities.len() {
         return Ok(false);
     }
     let entity = entities[*index];
     *index += 1;
-    let mut intrinsic_changed = layout_text_node(node, world, entity)?;
+    let mut intrinsic_changed = layout_text_node(node, world, entity, reuse_inputs)?;
     for child in &mut node.children {
-        intrinsic_changed |= layout_text_tree(child, world, entities, index)?;
+        intrinsic_changed |= layout_text_tree(child, world, entities, index, reuse_inputs)?;
     }
     Ok(intrinsic_changed)
 }
@@ -1505,13 +1534,14 @@ fn layout_text_node(
     node: &mut LayoutNode,
     world: &mut World,
     entity: Entity,
+    reuse_inputs: bool,
 ) -> Result<bool, TextLayoutFailure> {
     #[cfg(test)]
     local_layout_tests::record_input_visit(true);
     use crate::types::fixed::from_textflow;
 
     let mut intrinsic_changed = false;
-    if let Some(layout) = layout_text(world, entity, node.rect.w)? {
+    if let Some(layout) = layout_text(world, entity, node.rect.w, reuse_inputs)? {
         let measured_width = from_textflow(layout.measure.width);
         let measured_height = from_textflow(layout.measure.height);
         let (width, height) = if world.get::<crate::text::TextPath>(entity).is_none() {
@@ -1607,7 +1637,7 @@ fn prepare_local_layout(
         .paths
         .node_mut(&mut snapshot.layout_tree, target)
         .expect("prepared leaf");
-    if layout_text_node(node, world, target)? {
+    if layout_text_node(node, world, target, false)? {
         snapshot.invalidate();
         return Ok(false);
     }
@@ -1633,6 +1663,7 @@ fn compute_layout_snapshot(
     LayoutSnapshot::watch_maintenance(world);
     output_plan::invalidate_geometry(world);
     let mut previous = world.take_resource_box::<LayoutSnapshot>();
+    let font_inputs = FontInputs::capture(world);
     if super::branch::is_authored_hidden(world, root) {
         output_plan::invalidate_structure(world);
         if let Some(cache) = world.resource::<Outputs<TextGeometry>>() {
@@ -1643,7 +1674,10 @@ fn compute_layout_snapshot(
         }
         return Ok(None);
     }
-    if incremental && let Some(snapshot) = &mut previous {
+    if incremental
+        && let Some(snapshot) = &mut previous
+        && snapshot.font_inputs.matches(&font_inputs)
+    {
         match prepare_local_layout(world, snapshot, root, logical_w, logical_h) {
             Ok(true) => return Ok(previous),
             Ok(false) => {}
@@ -1659,6 +1693,11 @@ fn compute_layout_snapshot(
     let local_solve = previous.as_ref().is_some_and(|snapshot| {
         snapshot.matches(root, logical_w, logical_h) && !snapshot.bindings_pending
     });
+    let reuse_inputs = incremental
+        && local_solve
+        && previous.as_ref().is_some_and(|snapshot| {
+            snapshot.maintenance_current(world) && snapshot.font_inputs.matches(&font_inputs)
+        });
     let initial_demand = (!previous
         .as_ref()
         .is_some_and(|snapshot| snapshot.root == root))
@@ -1726,6 +1765,7 @@ fn compute_layout_snapshot(
     }
     entities.clear();
     let mut changes = LayoutTreeChanges {
+        reuse_inputs,
         solve: if local_solve {
             super::layout::solve::SolveScope::Unchanged
         } else {
@@ -1790,6 +1830,7 @@ fn compute_layout_snapshot(
                     bindings_pending: false,
                     scroll_config_revision: 0,
                     maintenance_revisions: [0; 6],
+                    font_inputs: FontInputs::default(),
                     layout_tree,
                     parked,
                     reachable: Vec::new(),
@@ -1845,6 +1886,7 @@ fn compute_layout_snapshot(
             world,
             &snapshot.entities,
             &mut text_index,
+            reuse_inputs,
         )
     });
     let intrinsic_changed = match intrinsic_changed {
@@ -1871,6 +1913,7 @@ fn compute_layout_snapshot(
     snapshot.logical_w = logical_w;
     snapshot.logical_h = logical_h;
     snapshot.maintenance_revisions = LayoutSnapshot::maintenance_revisions(world);
+    snapshot.font_inputs = font_inputs;
     snapshot.valid = true;
     Ok(Some(snapshot))
 }
@@ -1887,6 +1930,8 @@ pub(crate) fn apply_text_intrinsic(
     let Some(text) = world.get::<Text>(entity) else {
         return Ok(());
     };
+    #[cfg(test)]
+    local_layout_tests::record_text_preparation(true);
     let style = world.get::<Style>(entity).expect("text widget style");
     let Some(cache) = world.resource::<Outputs<TextGeometry>>() else {
         return Ok(());
@@ -1980,6 +2025,39 @@ pub(crate) fn apply_text_intrinsic(
 
 fn text_layout_owner(entity: Entity) -> u64 {
     u64::from(entity.id) | (u64::from(entity.generation) << 32)
+}
+
+fn reuse_text_inputs(world: &World, entity: Entity) -> bool {
+    !world.has::<super::dirty::Dirty>(entity)
+        && !world.has::<crate::text::TextPath>(entity)
+        && world
+            .get::<crate::ui::widgets::Text>(entity)
+            .is_some_and(|text| !text.is_localized())
+}
+
+fn reuse_text_intrinsic(
+    world: &World,
+    entity: Entity,
+    style: &Style,
+    node: &mut LayoutNode,
+) -> bool {
+    let Some(cache) = world.resource::<Outputs<TextGeometry>>() else {
+        return false;
+    };
+    let Some(measure) = cache
+        .storage_mut()
+        .layouts
+        .reuse_measurement(text_layout_owner(entity))
+    else {
+        return false;
+    };
+    let (width, height) = crate::ui::widgets::text::padded_text_intrinsic_size(
+        style,
+        crate::types::fixed::from_textflow(measure.width),
+        crate::types::fixed::from_textflow(measure.height),
+    );
+    node.set_intrinsic_size(width, height);
+    true
 }
 
 fn visible_text_owner(world: &World, visible_entities: &[Entity], owner: u64) -> bool {
@@ -3650,6 +3728,55 @@ impl DirtyBounds {
 #[derive(Clone, Debug, Default)]
 pub struct LastDirtyRegions(pub DirtyRegions);
 
+#[derive(Default)]
+struct FontInputs {
+    revision: Option<alloc::rc::Rc<core::cell::Cell<u64>>>,
+    observed: u64,
+    providers: u64,
+}
+
+impl FontInputs {
+    fn capture(world: &World) -> Self {
+        use core::hash::{Hash, Hasher};
+        let fonts = world.resource::<crate::render::font::FontManager>();
+        let revision = fonts.map(|fonts| fonts.revision_cell());
+        let observed = revision.as_ref().map_or(0, |revision| revision.get());
+        // Providers may advance independently of their manager. Inspect the
+        // resident faces once per preparation, without resolving tokens or
+        // changing cache recency. Order-independent accumulation survives LRU
+        // reordering; manager revisions cover token-to-value replacement.
+        let mut providers = 0_u64;
+        if let Some(fonts) = fonts {
+            fonts.visit_resident(|font| {
+                let mut hash = rustc_hash::FxHasher::default();
+                (
+                    font.face_id().value(),
+                    font.revision(),
+                    font.size,
+                    alloc::rc::Rc::as_ptr(&font.provider) as *const () as usize,
+                )
+                    .hash(&mut hash);
+                providers = providers.wrapping_add(hash.finish());
+            });
+        }
+        Self {
+            revision,
+            observed,
+            providers,
+        }
+    }
+
+    fn matches(&self, other: &Self) -> bool {
+        self.observed == other.observed
+            && self.providers == other.providers
+            && match (&self.revision, &other.revision) {
+                (None, None) => true,
+                (Some(a), Some(b)) => alloc::rc::Rc::ptr_eq(a, b),
+                _ => false,
+            }
+    }
+}
+
 pub(crate) struct LayoutSnapshot {
     root: Entity,
     logical_w: u16,
@@ -3658,6 +3785,7 @@ pub(crate) struct LayoutSnapshot {
     bindings_pending: bool,
     scroll_config_revision: u64,
     maintenance_revisions: [u64; 6],
+    font_inputs: FontInputs,
     pub(crate) layout_tree: LayoutNode,
     parked: Vec<LayoutNode>,
     reachable: Vec<Entity>,

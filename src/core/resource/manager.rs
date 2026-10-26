@@ -121,6 +121,14 @@ impl<T: HasSize + 'static> ResourceManager<T> {
         self.inner.borrow().fallback_clone()
     }
 
+    pub(crate) fn revision_cell(&self) -> Rc<core::cell::Cell<u64>> {
+        self.inner.borrow().revision_cell()
+    }
+
+    pub(crate) fn visit_resident(&self, visit: impl FnMut(&T)) {
+        self.inner.borrow().visit_resident(visit);
+    }
+
     pub fn resolve(&self, token: &str) -> Rc<T> {
         match manager_inner::resolve(&self.inner, token, true) {
             ResolveOutcome::CacheHit(rc) => rc,

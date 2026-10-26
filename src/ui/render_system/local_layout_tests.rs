@@ -14,6 +14,14 @@ std::thread_local! {
     static SOLVES: Cell<(usize, usize)> = const { Cell::new((0, 0)) };
     static PREPARATIONS: Cell<usize> = const { Cell::new(0) };
     static INPUT_VISITS: Cell<(usize, usize)> = const { Cell::new((0, 0)) };
+    static TEXT_PREPARATIONS: Cell<(usize, usize)> = const { Cell::new((0, 0)) };
+}
+
+pub(super) fn record_text_preparation(intrinsic: bool) {
+    TEXT_PREPARATIONS.with(|counts| {
+        let (a, b) = counts.get();
+        counts.set((a + usize::from(intrinsic), b + usize::from(!intrinsic)));
+    });
 }
 
 pub(super) fn record_input_visit(text: bool) {
@@ -521,4 +529,179 @@ fn parked_dirty_nodes_do_not_block_active_leaf_preparation() {
     assert_eq!(INPUT_VISITS.with(|visits| visits.get()), (1, 1));
     assert_eq!(PREPARATIONS.with(|count| count.get()), 1);
     assert!(app.world.has::<crate::ui::dirty::Dirty>(parked));
+}
+
+#[test]
+fn incremental_text_inputs_reuse_arenas_and_reflow_at_changed_width() {
+    let mut app = App::headless(160, 120);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    app.compose(root, |cx| {
+        ui! {
+            View (id: "panel", width: 140, height: 100, direction: FlexDirection::Column) {
+                Text ("one two three four five six seven eight", id: "label", width: 100, font_size: 8)
+                View (id: "moving", width: 10, height: 5, bg_color: Color::rgb(100, 20, 30))
+            }
+        };
+    });
+    app.render().unwrap();
+    let panel = app.world.find_by_id("panel").unwrap();
+    let label = app.world.find_by_id("label").unwrap();
+    let moving = app.world.find_by_id("moving").unwrap();
+    for height in 6..12 {
+        TEXT_PREPARATIONS.with(|counts| counts.set((0, 0)));
+        app.world.get_mut::<Style>(moving).unwrap().layout.height = Dimension::px(height);
+        app.render_dirty().unwrap();
+        assert_eq!(TEXT_PREPARATIONS.with(Cell::get), (0, 0));
+    }
+    let resident = app
+        .world
+        .resource::<Outputs<TextGeometry>>()
+        .unwrap()
+        .storage()
+        .layouts
+        .resident_bytes();
+    app.world.get_mut::<Style>(moving).unwrap().layout.height = Dimension::px(12);
+    let allocations = crate::test_support::tracked_allocations(|| app.render_dirty().unwrap());
+    assert_eq!(allocations, 0);
+    assert_eq!(
+        app.world
+            .resource::<Outputs<TextGeometry>>()
+            .unwrap()
+            .storage()
+            .layouts
+            .resident_bytes(),
+        resident
+    );
+
+    for width in [60, 130, 75] {
+        // A parent constraint can change a clean child's final width.
+        app.world.get_mut::<Style>(label).unwrap().layout.width = Dimension::Percent(Fixed::ONE);
+        app.render_dirty().unwrap();
+        TEXT_PREPARATIONS.with(|counts| counts.set((0, 0)));
+        app.world.get_mut::<Style>(panel).unwrap().layout.width = Dimension::px(width);
+        app.render_dirty().unwrap();
+        let (measure, layout) = TEXT_PREPARATIONS.with(Cell::get);
+        assert_eq!(measure, 0);
+        assert_eq!(layout, 1);
+        let pixels = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
+        app.world
+            .resource_mut::<LayoutSnapshot>()
+            .unwrap()
+            .invalidate();
+        app.render().unwrap();
+        assert_eq!(
+            app.backend.framebuffer().read_pixels().unwrap().bytes(),
+            pixels
+        );
+    }
+
+    for change in 0..4 {
+        match change {
+            0 => {
+                app.world
+                    .get_mut::<Text>(label)
+                    .unwrap()
+                    .set_content("changed words");
+            }
+            1 => {
+                app.with_fonts(crate::render::font::default_font_manager());
+            }
+            2 => {
+                app.handle_memory_warning();
+            }
+            _ => {
+                app.world.get_mut::<Style>(label).unwrap().font_size = Some(12);
+            }
+        }
+        TEXT_PREPARATIONS.with(|counts| counts.set((0, 0)));
+        app.world.get_mut::<Style>(moving).unwrap().layout.height = Dimension::px(13 + change);
+        app.render_dirty().unwrap();
+        let (measure, layout) = TEXT_PREPARATIONS.with(Cell::get);
+        assert!(
+            measure > 0 && layout > 0,
+            "change {change}: {measure}, {layout}"
+        );
+        let pixels = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
+        app.world
+            .resource_mut::<LayoutSnapshot>()
+            .unwrap()
+            .invalidate();
+        app.render().unwrap();
+        assert_eq!(
+            app.backend.framebuffer().read_pixels().unwrap().bytes(),
+            pixels
+        );
+    }
+}
+
+#[test]
+fn retained_inputs_check_provider_revision_without_manager_replacement() {
+    use crate::render::font::{Font, FontFaceId, FontMetrics, FontProvider, GlyphId, RasterGlyph};
+    struct ChangingFont {
+        base: Rc<dyn FontProvider>,
+        revision: Rc<Cell<u64>>,
+    }
+    impl FontProvider for ChangingFont {
+        fn face_id(&self) -> FontFaceId {
+            self.base.face_id()
+        }
+        fn revision(&self) -> u64 {
+            self.revision.get()
+        }
+        fn map_char(&self, ch: char) -> Option<GlyphId> {
+            self.base.map_char(ch)
+        }
+        fn glyph_advance(&self, glyph: GlyphId, ppem: u16) -> Option<Fixed> {
+            self.base.glyph_advance(glyph, ppem)
+        }
+        fn raster(&self, glyph: GlyphId, layout: u16, output: u16) -> Option<RasterGlyph<'_>> {
+            self.base.raster(glyph, layout, output)
+        }
+        fn metrics(&self, ppem: u16) -> FontMetrics {
+            let mut metrics = self.base.metrics(ppem);
+            metrics.line_height += Fixed::from_int(self.revision.get() as i32);
+            metrics
+        }
+    }
+    let revision = Rc::new(Cell::new(0));
+    let mut font = Font::default();
+    font.provider = Rc::new(ChangingFont {
+        base: font.provider,
+        revision: revision.clone(),
+    });
+    let fonts = crate::render::font::FontManager::new(crate::core::cache::MaxSize::Unbound, font);
+    let mut app = App::headless(120, 90);
+    app.with_default_widgets().with_fonts(fonts);
+    let root = app.spawn_root().id();
+    app.compose(root, |cx| {
+        ui! {
+            View (direction: FlexDirection::Column) {
+                Text ("words", id: "label")
+                View (id: "leaf", width: 5, height: 5)
+            }
+        };
+    });
+    app.render().unwrap();
+    let leaf = app.world.find_by_id("leaf").unwrap();
+    let label = app.world.find_by_id("label").unwrap();
+    let old = app.world.get::<ComputedRect>(label).unwrap().0.h;
+    revision.set(3);
+    TEXT_PREPARATIONS.with(|counts| counts.set((0, 0)));
+    app.world.get_mut::<Style>(leaf).unwrap().layout.height = Dimension::px(6);
+    app.render_dirty().unwrap();
+    assert_eq!(TEXT_PREPARATIONS.with(Cell::get), (1, 1));
+    assert!(app.world.get::<ComputedRect>(label).unwrap().0.h > old);
 }

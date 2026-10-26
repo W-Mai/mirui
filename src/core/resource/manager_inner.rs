@@ -128,6 +128,13 @@ impl<T: HasSize + 'static> ManagerInner<T> {
         self.revision.clone()
     }
 
+    pub(super) fn visit_resident(&self, mut visit: impl FnMut(&T)) {
+        visit(&self.fallback);
+        for (_, value) in self.values.iter() {
+            visit(value.get());
+        }
+    }
+
     fn advance_revision(&self) {
         self.revision.set(self.revision.get().wrapping_add(1));
     }

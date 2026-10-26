@@ -454,6 +454,41 @@ impl TextLayoutCache {
         self.get(handle)
     }
 
+    // The caller certifies unchanged authored inputs and font resources. Width
+    // and arena lifetime remain local cache checks, including frame pinning.
+    pub(crate) fn reuse_layout(
+        &mut self,
+        handle: TextLayoutHandle,
+        owner: u64,
+        width: i32,
+    ) -> Option<TextMeasure> {
+        let slot = handle.slot as usize;
+        if self.slot_generations.get(slot).copied()? != handle.generation {
+            return None;
+        }
+        let entry = self.entries.get_mut(slot)?.as_mut()?;
+        if entry.key?.owner != owner || entry.width != Some(width) {
+            return None;
+        }
+        entry.last_used = self.frame;
+        Some(entry.measure)
+    }
+
+    pub(crate) fn reuse_measurement(&mut self, owner: u64) -> Option<TextMeasure> {
+        // Multiple requests can coexist during reflow. Without an exact key,
+        // only an unambiguous retained measurement can be reused.
+        let mut candidates = self
+            .measurements
+            .iter_mut()
+            .filter(|entry| entry.key.owner == owner);
+        let entry = candidates.next()?;
+        if candidates.next().is_some() {
+            return None;
+        }
+        entry.last_used = self.frame;
+        Some(entry.measure)
+    }
+
     pub(crate) fn measure(
         &mut self,
         request: TextLayoutRequest<'_>,
@@ -554,6 +589,7 @@ impl TextLayoutCache {
         let slot = vacant.unwrap_or(self.entries.len());
         let entry = LayoutEntry {
             key,
+            width: request.width,
             last_used: self.frame,
             order: self.next_order,
             lines: starts.lines..self.lines.len(),
@@ -976,6 +1012,7 @@ impl OutputStarts {
 
 struct LayoutEntry {
     key: Option<LayoutKey>,
+    width: Option<i32>,
     last_used: u32,
     order: u64,
     lines: core::ops::Range<usize>,
