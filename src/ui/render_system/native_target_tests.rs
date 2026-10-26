@@ -164,7 +164,7 @@ fn draw(renderer: &mut dyn Renderer, quad: Option<[Point; 4]>) -> Result<(), Ren
 fn physical_scope_is_target_local_and_restored_after_independent_output() {
     let mut recorder = Recorder::new();
     let clip = crate::types::PhysicalRect::new(3, 5, 7, 9).unwrap();
-    let mut scoped = ScopedRenderer::new(&mut recorder, Transform3D::IDENTITY, Some(clip));
+    let mut scoped = ScopedRenderer::new(&mut recorder, &Transform3D::IDENTITY, Some(clip));
     let layout = PlaneLayout::packed(40, 30, ColorFormat::RGBA8888).unwrap();
     let plan = scoped.plan_target(layout).unwrap().unwrap();
     let mut target = scoped.create_target(&plan).unwrap();
@@ -197,20 +197,12 @@ fn independent_targets_drop_parent_coordinates_and_restore_them_after_nested_fai
         let mut region;
         let mut projected;
         let renderer: &mut dyn Renderer = if region_outside {
-            projected = ScopedRenderer {
-                physical_clip: None,
-                inner: &mut recorder,
-                transform: projection,
-            };
+            projected = ScopedRenderer::new(&mut recorder, &projection, None);
             region = RegionRenderer::new(&mut projected, (3, 4));
             &mut region
         } else {
             region = RegionRenderer::new(&mut recorder, (3, 4));
-            projected = ScopedRenderer {
-                physical_clip: None,
-                inner: &mut region,
-                transform: projection,
-            };
+            projected = ScopedRenderer::new(&mut region, &projection, None);
             &mut projected
         };
         let layout = PlaneLayout::packed(40, 30, ColorFormat::RGBA8888).unwrap();
@@ -272,11 +264,8 @@ fn independent_targets_drop_parent_coordinates_and_restore_them_after_nested_fai
 fn wrapped_target_scope_preserves_parent_flush_failure() {
     let mut recorder = Recorder::new();
     recorder.flush_error = Some(RenderError::BackendFailure);
-    let mut projected = ScopedRenderer {
-        physical_clip: None,
-        inner: &mut recorder,
-        transform: Transform3D::translate(Fixed::ONE, Fixed::ONE),
-    };
+    let projection = Transform3D::translate(Fixed::ONE, Fixed::ONE);
+    let mut projected = ScopedRenderer::new(&mut recorder, &projection, None);
     let mut region = RegionRenderer::new(&mut projected, (1, 1));
     let layout = PlaneLayout::packed(1, 1, ColorFormat::RGBA8888).unwrap();
     let plan = region.plan_target(layout).unwrap().unwrap();
@@ -303,23 +292,16 @@ fn wrapped_target_scope_preserves_parent_flush_failure() {
 fn coordinate_wrappers_forward_incremental_intent_without_rebuilding() {
     for region_outside in [false, true] {
         let mut recorder = Recorder::new();
+        let projection = Transform3D::translate(Fixed::ONE, Fixed::ONE);
         let mut region;
         let mut projected;
         let renderer: &mut dyn Renderer = if region_outside {
-            projected = ScopedRenderer {
-                physical_clip: None,
-                inner: &mut recorder,
-                transform: Transform3D::translate(Fixed::ONE, Fixed::ONE),
-            };
+            projected = ScopedRenderer::new(&mut recorder, &projection, None);
             region = RegionRenderer::new(&mut projected, (1, 1));
             &mut region
         } else {
             region = RegionRenderer::new(&mut recorder, (1, 1));
-            projected = ScopedRenderer {
-                physical_clip: None,
-                inner: &mut region,
-                transform: Transform3D::translate(Fixed::ONE, Fixed::ONE),
-            };
+            projected = ScopedRenderer::new(&mut region, &projection, None);
             &mut projected
         };
         let layout = PlaneLayout::packed(1, 1, ColorFormat::RGBA8888).unwrap();

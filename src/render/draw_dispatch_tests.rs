@@ -210,11 +210,14 @@ fn nested_coordinate_wrappers_forward_one_request_and_preserve_pending_context()
         Point::new(12, 13),
         Point::new(8, 13),
     ];
-    for (projective, explicit) in [
-        (Transform3D::IDENTITY, None),
-        (projection, None),
-        (Transform3D::IDENTITY, Some(quad)),
+    for (scope_transform, request_transform, explicit) in [
+        (Transform3D::IDENTITY, Transform3D::IDENTITY, None),
+        (projection, Transform3D::IDENTITY, None),
+        (Transform3D::IDENTITY, projection, None),
+        (projection, projection, None),
+        (Transform3D::IDENTITY, Transform3D::IDENTITY, Some(quad)),
     ] {
+        let projective = scope_transform.compose(&request_transform);
         for result in [
             Poll::Pending,
             Poll::Ready(Ok(())),
@@ -249,10 +252,11 @@ fn nested_coordinate_wrappers_forward_one_request_and_preserve_pending_context()
             let mut region = RegionRenderer::new(&mut leaf, (5, 7));
             let mut scope = ScopedRenderer::new(
                 &mut region,
-                projective,
+                &scope_transform,
                 Some(PhysicalRect::new(8, 10, 8, 8).unwrap()),
             );
             let request = DrawRequest::new(&command, Rect::new(0, 0, 32, 32))
+                .with_projective(request_transform)
                 .with_physical_clip(PhysicalRect::new(6, 8, 20, 20).unwrap());
             assert_eq!(
                 scope.poll_draw_request(request, Some(identity), &mut cx),

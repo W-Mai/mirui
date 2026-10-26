@@ -45,6 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Render scopes borrow their projective transform and skip identity composition while preserving physical clip boundaries.
+
 - Image painting uses its declared component binding instead of constructing a query for the same entity.
 
 - Painting and coverage measurement index matching Views through the existing membership bitset, preserving paint order without scanning unrelated descriptors.

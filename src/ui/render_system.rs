@@ -160,18 +160,18 @@ mod text_layout_failure_tests {
 pub(crate) struct ScopedRenderer<'a> {
     physical_clip: Option<crate::types::PhysicalRect>,
     inner: &'a mut dyn Renderer,
-    transform: Transform3D,
+    transform: Option<&'a Transform3D>,
 }
 
 impl<'a> ScopedRenderer<'a> {
     pub(crate) fn new(
         inner: &'a mut dyn Renderer,
-        transform: Transform3D,
+        transform: &'a Transform3D,
         physical_clip: Option<crate::types::PhysicalRect>,
     ) -> Self {
         Self {
             inner,
-            transform,
+            transform: (!transform.is_identity()).then_some(transform),
             physical_clip,
         }
     }
@@ -185,7 +185,10 @@ impl<'a> ScopedRenderer<'a> {
             (left, right) => left.or(right),
         };
         DrawRequest {
-            projective: self.transform.compose(&request.projective),
+            projective: match self.transform {
+                Some(transform) => transform.compose(&request.projective),
+                None => request.projective,
+            },
             physical_clip,
             ..*request
         }
@@ -278,7 +281,11 @@ impl Renderer for ScopedRenderer<'_> {
         let transform = self.transform;
         let physical_clip = self.physical_clip;
         self.inner.render_scope(region, &mut |local| {
-            let mut projected = ScopedRenderer::new(local, transform, physical_clip);
+            let mut projected = ScopedRenderer {
+                inner: local,
+                transform,
+                physical_clip,
+            };
             draw(&mut projected)
         })
     }
@@ -2275,11 +2282,7 @@ fn draw_tree_content(
         && let Some(off) = offscreen
     {
         let handled = if !tf_3d.is_identity() {
-            let mut scoped = ScopedRenderer {
-                physical_clip: None,
-                inner: renderer,
-                transform: tf_3d,
-            };
+            let mut scoped = ScopedRenderer::new(renderer, &tf_3d, None);
             draw_prepared_output(
                 node,
                 world,
@@ -2345,11 +2348,7 @@ fn draw_tree_content(
                 *clip
             };
             if !tf_3d.is_identity() {
-                let mut scoped = ScopedRenderer {
-                    physical_clip: None,
-                    inner: renderer,
-                    transform: tf_3d,
-                };
+                let mut scoped = ScopedRenderer::new(renderer, &tf_3d, None);
                 let result = {
                     let mut ctx = PaintCtx::new(
                         &mut scoped,
@@ -2567,11 +2566,8 @@ mod projective_transform_tests {
     #[test]
     fn affine_only_renderer_does_not_receive_projective_approximation() {
         let mut renderer = AffineOnlyRenderer::default();
-        let mut scoped = ScopedRenderer {
-            physical_clip: None,
-            inner: &mut renderer,
-            transform: Transform3D::translate(Fixed::from_int(4), Fixed::ZERO),
-        };
+        let transform = Transform3D::translate(Fixed::from_int(4), Fixed::ZERO);
+        let mut scoped = ScopedRenderer::new(&mut renderer, &transform, None);
         let command = DrawCommand::Fill {
             area: Rect::new(0, 0, 8, 8),
             transform: Transform::IDENTITY,
@@ -2639,13 +2635,9 @@ mod projective_transform_tests {
             region: clip,
         };
         let mut recorder = Recorder::default();
-        ScopedRenderer {
-            physical_clip: None,
-            inner: &mut recorder,
-            transform: projection,
-        }
-        .draw_text_run(&DrawRequest::new(&command, clip), identity)
-        .unwrap();
+        ScopedRenderer::new(&mut recorder, &projection, None)
+            .draw_text_run(&DrawRequest::new(&command, clip), identity)
+            .unwrap();
         assert_eq!(recorder.seen, Some((identity, projection)));
     }
 
@@ -3618,7 +3610,7 @@ fn draw_prepared_region(
     {
         crate::trace_span!("render.draw_tree");
         let mut idx = 0;
-        let mut renderer = ScopedRenderer::new(renderer, Transform3D::IDENTITY, physical_clip);
+        let mut renderer = ScopedRenderer::new(renderer, &Transform3D::IDENTITY, physical_clip);
         draw_tree_offset(
             layout_tree,
             world,
