@@ -89,6 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Software rectangle fills borrow the source row and destination span once when replicating packed pixels, preserving row padding without temporary storage.
+
 - Render scopes update owned draw requests in place, avoiding intermediate copies of unchanged projection matrices.
 
 - Unit-scale viewport conversions skip scaling arithmetic while preserving fractional coordinate bounds.

@@ -509,11 +509,15 @@ fn fill_first_row_then_replicate<const BPP: usize>(
     for chunk in first_row.chunks_exact_mut(BPP) {
         chunk.copy_from_slice(&pixel);
     }
-    for py in (px_y0 + 1)..px_y1 {
-        let dst_start = py as usize * stride + px_x0 as usize * BPP;
-        let (lo, hi) = buf.split_at_mut(dst_start);
-        let src = &lo[first_start..first_start + row_bytes];
-        hi[..row_bytes].copy_from_slice(src);
+    let remaining_rows = (px_y1 - px_y0 - 1) as usize;
+    if remaining_rows == 0 {
+        return;
+    }
+    let end = first_start + remaining_rows * stride + row_bytes;
+    let (head, tail) = buf[..end].split_at_mut(first_start + stride);
+    let source = &head[first_start..first_start + row_bytes];
+    for row in tail.chunks_mut(stride) {
+        row[..row_bytes].copy_from_slice(source);
     }
 }
 
@@ -594,6 +598,64 @@ mod corner_check {
     use crate::render::canvas::Canvas;
     use std::string::String;
     use std::vec::Vec;
+
+    #[test]
+    fn rectangular_overwrites_preserve_pixel_bytes_and_row_padding() {
+        for format in [
+            ColorFormat::RGB565,
+            ColorFormat::RGB565Swapped,
+            ColorFormat::RGB888,
+            ColorFormat::RGBA8888,
+            ColorFormat::BGRA8888,
+        ] {
+            for width in [1, 2, 3, 7, 15, 16, 17, 31, 33] {
+                for padding in [0, 1, 5] {
+                    for color in [Color::rgba(0, 0, 0, 0), Color::rgba(213, 37, 129, 177)] {
+                        let stride = 37 * format.bytes_per_pixel() + padding;
+                        let storage_len = stride * 4 + 37 * format.bytes_per_pixel();
+                        let mut actual = std::vec![61; storage_len + 2];
+                        let mut expected = actual.clone();
+                        for (top, height) in [(1, 1), (1, 3), (2, 3)] {
+                            {
+                                let mut target =
+                                    Texture::new(&mut actual[1..1 + storage_len], 37, 5, format)
+                                        .unwrap()
+                                        .with_stride(stride)
+                                        .unwrap();
+                                let mut pixels = target.pixels_mut().unwrap();
+                                assert_eq!(
+                                    crate::test_support::tracked_allocations(|| overwrite_rect(
+                                        &mut pixels,
+                                        2,
+                                        top,
+                                        2 + width,
+                                        top + height,
+                                        &color,
+                                    )),
+                                    0
+                                );
+                                let mut target =
+                                    Texture::new(&mut expected[1..1 + storage_len], 37, 5, format)
+                                        .unwrap()
+                                        .with_stride(stride)
+                                        .unwrap();
+                                let mut pixels = target.pixels_mut().unwrap();
+                                for y in top..top + height {
+                                    for x in 2..2 + width {
+                                        pixels.set_pixel(x, y, &color);
+                                    }
+                                }
+                            }
+                            assert_eq!(
+                                actual, expected,
+                                "{format:?}, {width}, {height}, {padding}"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     #[test]
     fn separable_pixel_coverage_matches_rectangle_intersection() {
