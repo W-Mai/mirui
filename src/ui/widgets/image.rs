@@ -258,15 +258,12 @@ impl<P: crate::__macro_support::PropertyBindings, B: crate::__macro_support::Ent
 
 #[crate::view(component = Image, name = "Image", priority = 70, attach = attach_image_resource::callback())]
 fn image_render(
-    rows: query!(Image),
-    entity: entity!(),
+    img: component!(),
     manager: res!(optional ResourceManager<Texture<'static>>),
     theme: res!(crate::ui::Theme),
     paint: paint!(),
 ) {
     crate::trace_span!("image.render", {
-        let row = crate::trace_span!("image.query_get", { rows.get(entity) });
-        let Some(img) = row else { return };
         let rect = paint.rect();
         if let ImageSource::Vector(path) = &img.src {
             let size = rect.w.min(rect.h) * img.scale;
@@ -699,7 +696,7 @@ mod tests {
         static COMMANDS: &[PathCmd] = &[PathCmd::Close];
         let mut world = World::new();
         world.insert_resource(Theme::default());
-        let entity = world.spawn_empty();
+        let entity = world.spawn(Image::default());
         let descriptor = view();
         assert_eq!(descriptor.name(), "Image");
         assert_eq!(descriptor.priority(), Some(70));
