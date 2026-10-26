@@ -950,8 +950,6 @@ impl SwRenderer<'_> {
 impl SwRenderer<'_> {
     #[inline(never)]
     fn route(&self, request: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
-        use crate::types::TransformClass;
-
         request.validate_projection()?;
         request.validate_texture()?;
         request.validate_write_boundary(self.viewport)?;
@@ -960,7 +958,14 @@ impl SwRenderer<'_> {
                 .map_err(RenderError::from)?;
             return Ok(RenderRoute::Native);
         }
-        match request.command {
+        self.validate_affine_draw(request.command)?;
+        Ok(RenderRoute::Native)
+    }
+
+    fn validate_affine_draw(&self, command: &DrawCommand<'_>) -> Result<(), RenderError> {
+        use crate::types::TransformClass;
+
+        match command {
             DrawCommand::FillPath {
                 path,
                 paint: paint @ (Paint::LinearGradient(_) | Paint::RadialGradient(_)),
@@ -1024,7 +1029,7 @@ impl SwRenderer<'_> {
             }
             _ => {}
         }
-        Ok(RenderRoute::Native)
+        Ok(())
     }
 
     fn submit_raw(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
@@ -1037,34 +1042,13 @@ impl SwRenderer<'_> {
     }
 
     fn submit_clipped(&mut self, request: &DrawRequest<'_, '_>) -> Result<(), RenderError> {
-        use crate::types::TransformClass;
-
         self.flush()?;
         request.validate_projection()?;
         request.validate_texture()?;
         if !request.projective.is_identity() {
             return self.draw_projective(request.command, &request.clip, &request.projective);
         }
-        if matches!(
-            request.command.transform().classify(),
-            TransformClass::Identity | TransformClass::Translate
-        ) && !matches!(request.command, DrawCommand::Blit { quad: Some(_), .. })
-            && !matches!(
-                request.command,
-                DrawCommand::FillPath {
-                    paint: Paint::LinearGradient(_) | Paint::RadialGradient(_),
-                    ..
-                } | DrawCommand::StrokePath {
-                    paint: Paint::LinearGradient(_) | Paint::RadialGradient(_),
-                    ..
-                }
-            )
-        {
-            self.draw(request.command, &request.clip);
-            return self.flush();
-        }
-
-        self.route(request)?;
+        self.validate_affine_draw(request.command)?;
         self.draw(request.command, &request.clip);
         self.flush()
     }
@@ -2023,6 +2007,19 @@ mod tests {
         assert_eq!(
             renderer.route(&DrawRequest::new(&blit, clip)),
             Err(RenderError::Unsupported(RenderFeature::BlitOpacity))
+        );
+        assert_eq!(
+            renderer.submit_raw(&DrawRequest::new(&blit, clip)),
+            Err(RenderError::Unsupported(RenderFeature::BlitOpacity))
+        );
+        assert!(
+            renderer
+                .target
+                .read_pixels()
+                .unwrap()
+                .bytes()
+                .iter()
+                .all(|byte| *byte == 0)
         );
 
         let blur = DrawCommand::ApplyBlur {

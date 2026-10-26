@@ -89,6 +89,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Software draw submission shares capability checks with routing and avoids redundant transform classification.
+
 - Dirty-region collection skips scroll mapping when no framebuffer transfers are planned, reusing existing coverage normalization and acknowledgement.
 
 - Axis-aligned transform bounds skip multiplication on unit-scale axes while preserving endpoint ordering.
