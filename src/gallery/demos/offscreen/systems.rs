@@ -1,5 +1,5 @@
 use super::state::{FpsReadout, ModeToggle, PanelTarget};
-use crate::ecs::{Entity, FrameTimings};
+use crate::ecs::{DeltaTimeMs, Entity, FrameTimings};
 use crate::ui::dirty::Dirty;
 use crate::ui::property::prop;
 use crate::ui::{OffscreenRender, WidgetRoot};
@@ -9,16 +9,12 @@ pub(super) const UPDATE_EVERY: u32 = 30;
 
 #[mirui_macros::system(order = Animation)]
 pub fn mode_toggle_system(
-    timings: res!(optional FrameTimings),
+    time: res!(DeltaTimeMs),
     toggle: res!(mut ModeToggle),
     panels: query!(Entity; with PanelTarget;),
     commands: commands!(),
 ) {
-    let frame_ns = timings
-        .and_then(|timings| timings.phase_wall_nanos())
-        .unwrap_or(0);
-
-    toggle.elapsed_ns += frame_ns;
+    toggle.elapsed_ns += u64::from(time.0) * 1_000_000;
     let flip = if toggle.elapsed_ns - toggle.last_flip_ns >= TOGGLE_NS {
         toggle.last_flip_ns = toggle.elapsed_ns;
         toggle.offscreen = !toggle.offscreen;

@@ -83,11 +83,15 @@ driver.wait_previous()?;
 
 Record capacity depends on the compiled record layout and the configured byte budget. `Capture::event_capacity()` exposes it. Detailed captures can require a larger explicit budget or fewer probes; adding evidence never silently expands the configured storage.
 
-## Thread CPU time
+## Backend evidence
 
 SDL software and GPU presentation record submission attempts at the native `present` call; SDL GPU records its explicit queue flush separately. WGPU records queue submissions, presentation calls and surface acquisition. Acquisition has no exact request association. Synchronous WGPU readback associates its existing device poll with the actual readback submission. These scopes measure calls, not GPU execution or display completion, and do not add waits or callbacks.
 
 Linux DRM retains a trace token beside its existing pending page flip. Poll retries refer to that token until the matching CRTC event retires it. The event retains the kernel timestamp domain (`drm.monotonic` or `drm.realtime`), its 32-bit native refresh sequence and the separately sampled callback time. Unknown timestamp capability produces no presentation measurement. Display identities identify one surface's CRTC stream within a capture; reopening the surface or changing capture starts a distinct stream. Modesets and direct framebuffer damage are issued calls without presentation feedback. A capture ending with an outstanding flip cannot establish a complete display-rate window.
+
+Web Canvas acknowledgement and embedded framebuffer flushes retain their existing App acceptance and wall spans. They do not provide native presentation feedback. Browser animation callbacks are scheduling events, and a completed display transfer does not establish scanout timing. Third-party backends retain the existing `Surface` contract; optional evidence uses the same recorder functions above.
+
+## Thread CPU time
 
 `FpsSummaryPlugin::with_thread_cpu_time(true)` enables CPU samples at operation boundaries without requiring detailed traces. `PerfReportPlugin::with_thread_cpu_time(true)` also enables them for traced submission and wait scopes. A direct capture uses `capture.set_thread_cpu_time(true)`. Ordinary draw spans do not read the thread CPU clock. CPU collection is disabled by default.
 

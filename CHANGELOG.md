@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Drive the offscreen demo's mode interval from animation time instead of accumulated rendering cost.
+
 - Skip operation trace-scope construction when detailed capture is disabled.
 
 - Close operation traces before publishing statistics and sample coarse-scope endpoints before appending diagnostic records.

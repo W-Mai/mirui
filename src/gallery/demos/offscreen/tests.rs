@@ -10,6 +10,38 @@ use crate::ui::widgets::Text;
 use crate::ui::{Children, ComputedRect};
 
 #[test]
+fn mode_changes_follow_animation_time_independently_of_render_measurements() {
+    let mut app = App::headless(360, 360);
+    app.add_resource(super::state::ModeToggle {
+        last_flip_ns: 0,
+        elapsed_ns: 0,
+        offscreen: false,
+    });
+    let mut timing = FrameTimings::new(crate::ecs::FrameOperation::Draw, true);
+    timing.record(crate::ecs::FramePhase::Render, Some(0), Some(9_000_000_000));
+    app.add_resource(timing);
+    app.add_resource(crate::ecs::DeltaTimeMs(1));
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(super::systems::mode_toggle_system::system());
+    scheduler.run_all(&mut app.world).unwrap();
+    assert!(
+        !app.world
+            .resource::<super::state::ModeToggle>()
+            .unwrap()
+            .offscreen
+    );
+    app.world.remove_resource::<FrameTimings>();
+    app.add_resource(crate::ecs::DeltaTimeMs(4999));
+    scheduler.run_all(&mut app.world).unwrap();
+    assert!(
+        app.world
+            .resource::<super::state::ModeToggle>()
+            .unwrap()
+            .offscreen
+    );
+}
+
+#[test]
 fn build_widgets_smoke() {
     let mut app = App::headless(360, 360);
     app.with_default_widgets();
