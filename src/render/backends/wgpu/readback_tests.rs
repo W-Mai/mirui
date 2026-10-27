@@ -3,6 +3,7 @@ use wgpu::util::DeviceExt;
 
 #[test]
 fn readback_reuses_mapping_storage_and_preserves_destination_layout() {
+    let _serial = crate::core::perf::tests::SERIAL.lock().unwrap();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let Ok(adapter) = pollster::block_on(instance.request_adapter(&Default::default())) else {
         std::eprintln!("SKIP readback checks: no GPU adapter");
@@ -194,9 +195,33 @@ fn readback_reuses_mapping_storage_and_preserves_destination_layout() {
         Err(RenderError::Unsupported(RenderFeature::Readback))
     ));
     descriptor.format = wgpu::TextureFormat::Rgba8Unorm;
+    let mut capture = crate::core::perf::Capture::new(8192).unwrap();
     readback
         .read(&device, &queue, &device.create_texture(&descriptor), rect)
         .unwrap();
+    capture.stop();
+    let mut submissions = std::vec::Vec::new();
+    let mut waits = std::vec::Vec::new();
+    capture.drain_events(|_, records| {
+        use crate::core::perf::{RecordData, ScopeKind, SubmissionOutcome};
+        for record in records {
+            match record.data {
+                RecordData::Scope {
+                    id,
+                    name: "wgpu.readback.submit",
+                    kind: ScopeKind::Submission(SubmissionOutcome::Issued),
+                    ..
+                } => submissions.push(id),
+                RecordData::WaitsOn { submission, .. } => waits.push(submission),
+                RecordData::Feedback { .. } => panic!("readback does not expose display feedback"),
+                _ => {}
+            }
+        }
+    });
+    assert_eq!(submissions.len(), 1);
+    assert_eq!(waits, submissions);
+    assert_eq!(capture.status().dropped, 0);
+    drop(capture);
     let first_buffer = readback.staging.as_ref().unwrap().buffer.clone();
     let (other_device, other_queue) =
         pollster::block_on(adapter.request_device(&Default::default())).expect("second device");

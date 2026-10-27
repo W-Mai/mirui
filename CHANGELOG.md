@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Associate SDL and WGPU submission calls with diagnostic scopes; link synchronous GPU readback waits to their actual submissions without inferring display completion.
+
 - Timing reports distinguish tick, update and draw operations, preserve missing phase measurements, and run after business hooks and platform maintenance. Phase budget statistics filter the existing sample ring by operation and phase set.
 
 ### Changed

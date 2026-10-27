@@ -1297,7 +1297,10 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                 label: Some("mirui-wgpu-encoder"),
             });
         let old_encoder = core::mem::replace(&mut frame.encoder, new_encoder);
-        state.queue.submit(Some(old_encoder.finish()));
+        let commands = old_encoder.finish();
+        let submission = crate::core::perf::submission("wgpu.queue.submit");
+        state.queue.submit(Some(commands));
+        submission.finish(crate::core::perf::SubmissionOutcome::Issued);
         frame.ops.clear();
         target.has_committed_pass = true;
 

@@ -113,17 +113,24 @@ impl Staging {
                 depth_or_array_layers: 1,
             },
         );
-        let submission = queue.submit(Some(encoder.finish()));
+        let commands = encoder.finish();
+        let attempt = crate::core::perf::submission("wgpu.readback.submit");
+        let trace_id = attempt.id();
+        let submission = queue.submit(Some(commands));
+        attempt.finish(crate::core::perf::SubmissionOutcome::Issued);
         let slice = self.buffer.slice(..aligned.required_bytes() as u64);
         self.mapped.store(false, Ordering::Release);
         let mapped = Arc::clone(&self.mapped);
         slice.map_async(wgpu::MapMode::Read, move |result| {
             mapped.store(result.is_ok(), Ordering::Release);
         });
-        let polled = self.device.poll(wgpu::PollType::Wait {
-            timeout: None,
-            submission_index: Some(submission),
-        });
+        let polled = {
+            let _wait = crate::core::perf::wait("wgpu.readback.wait", trace_id);
+            self.device.poll(wgpu::PollType::Wait {
+                timeout: None,
+                submission_index: Some(submission),
+            })
+        };
         if polled.is_err() || !self.mapped.load(Ordering::Acquire) {
             // Failed mappings never return their buffer or callback state to the cache.
             self.buffer.destroy();

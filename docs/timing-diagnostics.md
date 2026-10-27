@@ -85,6 +85,8 @@ Record capacity depends on the compiled record layout and the configured byte bu
 
 ## Thread CPU time
 
+SDL software and GPU presentation record submission attempts at the native `present` call; SDL GPU records its explicit queue flush separately. WGPU records queue submissions, presentation calls and surface acquisition. Acquisition has no exact request association. Synchronous WGPU readback associates its existing device poll with the actual readback submission. These scopes measure calls, not GPU execution or display completion, and do not add waits or callbacks.
+
 `FpsSummaryPlugin::with_thread_cpu_time(true)` enables CPU samples at operation boundaries without requiring detailed traces. `PerfReportPlugin::with_thread_cpu_time(true)` also enables them for traced submission and wait scopes. A direct capture uses `capture.set_thread_cpu_time(true)`. Ordinary draw spans do not read the thread CPU clock. CPU collection is disabled by default.
 
 Linux, Android, macOS and iOS use `CLOCK_THREAD_CPUTIME_ID`; Windows adds the current thread's kernel and user times from `GetThreadTimes`. Failed reads, clock rollback and unsupported platforms return no sample. Web and bare-metal targets do not substitute wall time or cycle counts. Available native thread IDs are exported separately from logical track IDs for matching external scheduling evidence. A native ID is meaningful only within the recorded process and capture lifetime.

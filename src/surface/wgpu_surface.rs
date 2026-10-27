@@ -591,12 +591,12 @@ impl WgpuRuntime {
         }
         let mut retried = false;
         loop {
-            let acquired = self
-                .state
-                .as_ref()
-                .ok_or(RenderError::SurfaceUnavailable)?
-                .surface
-                .get_current_texture();
+            let state = self.state.as_ref().ok_or(RenderError::SurfaceUnavailable)?;
+            let acquired = {
+                // Acquisition does not expose the native request that may block it.
+                let _wait = crate::core::perf::wait("wgpu.surface.acquire", None);
+                state.surface.get_current_texture()
+            };
             match acquired {
                 wgpu::CurrentSurfaceTexture::Success(texture) => return Ok(texture),
                 wgpu::CurrentSurfaceTexture::Suboptimal(texture) => {
@@ -643,7 +643,9 @@ impl WgpuRuntime {
             .frame_texture
             .take()
             .ok_or(crate::render::RenderError::SurfaceUnavailable)?;
+        let submission = crate::core::perf::submission("wgpu.present");
         frame.present();
+        submission.finish(crate::core::perf::SubmissionOutcome::Issued);
         self.needs_redraw = false;
         Ok(())
     }

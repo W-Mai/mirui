@@ -345,7 +345,9 @@ impl Surface for SdlSurface {
         self.canvas
             .copy(&self.tex, None, None)
             .map_err(|_| crate::render::RenderError::BackendFailure)?;
+        let submission = crate::core::perf::submission("sdl.present");
         self.canvas.present();
+        submission.finish(crate::core::perf::SubmissionOutcome::Issued);
         self.pending_present = false;
         self.needs_redraw = false;
         Ok(())

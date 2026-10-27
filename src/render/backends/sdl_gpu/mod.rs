@@ -395,14 +395,21 @@ impl Surface for SdlGpuSurface {
     fn end_flush(&mut self) -> Result<(), crate::render::RenderError> {
         self.device.finish_persistent_frame()?;
         let mut canvas = self.device.canvas()?;
-        crate::trace_span!("sdl.queue.submit", {
+        let submission = crate::core::perf::submission("sdl.queue.submit");
+        let result = {
             // Submit the completed frame before presentation without forcing GPU idle.
             // The renderer is owned by the live canvas borrow.
             unsafe { target_state::checked(sdl2_sys::SDL_RenderFlush(canvas.raw())) }
-        })?;
-        crate::trace_span!("sdl.present", {
-            canvas.present();
+        };
+        submission.finish(if result.is_ok() {
+            crate::core::perf::SubmissionOutcome::Issued
+        } else {
+            crate::core::perf::SubmissionOutcome::Failed
         });
+        result?;
+        let submission = crate::core::perf::submission("sdl.present");
+        canvas.present();
+        submission.finish(crate::core::perf::SubmissionOutcome::Issued);
         self.needs_redraw = false;
         Ok(())
     }

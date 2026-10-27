@@ -380,8 +380,13 @@ impl SoftwareUploadSurface {
             pass.set_bind_group(0, &presenter.bind_group, &[]);
             pass.draw(0..6, 0..1);
         }
-        state.queue.submit(Some(encoder.finish()));
+        let commands = encoder.finish();
+        let submission = crate::core::perf::submission("wgpu.queue.submit");
+        state.queue.submit(Some(commands));
+        submission.finish(crate::core::perf::SubmissionOutcome::Issued);
+        let submission = crate::core::perf::submission("wgpu.present");
         surface_texture.present();
+        submission.finish(crate::core::perf::SubmissionOutcome::Issued);
         self.pending_present = false;
         Ok(())
     }
