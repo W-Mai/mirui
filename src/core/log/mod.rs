@@ -489,12 +489,14 @@ mod tests {
         let rows: Arc<Mutex<Vec<(&'static str, u64)>>> = Arc::new(Mutex::new(Vec::new()));
         install_test_sink(SpanCapture(rows.clone()));
 
-        crate::core::perf::set_enabled(true);
+        let _serial = crate::core::perf::tests::SERIAL.lock().unwrap();
+        let mut capture =
+            crate::core::perf::Capture::new(crate::core::perf::DEFAULT_TRACE_BUDGET).unwrap();
         {
             let _g = crate::core::perf::enter("test.span");
         }
-        crate::core::perf::set_enabled(false);
-        let _ = crate::core::perf::drain_events();
+        capture.stop();
+        capture.drain_events(|_, _| {});
 
         let captured = rows.lock().unwrap().clone();
         assert_eq!(captured.len(), 1);

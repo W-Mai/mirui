@@ -25,3 +25,29 @@ Operation wall time includes business `post_render` hooks and platform maintenan
 Operation cadence counts callbacks in a half-open timestamp interval. Equal timestamps remain in the next window, and a missing or backward clock invalidates that interval. Callback cadence includes idle operations and does not measure GPU completion or display refresh. Presentation feedback requires its own timestamp and completion semantics; no display rate is inferred from phase sums, successful submissions or callback arrival time.
 
 Custom sinks receive the just-closed operation through the existing reporting plugins. Low-level plugins can implement `on_timing`; installing a timing reporter enables its delivery. The read-only `TimingSample` refers to a closed snapshot, and `FrameTimings` in the World has already been updated. Business `post_render` retains its original ordering and sees the previous closed operation. Mutating application state inside a timing reporter is outside the measured operation.
+
+## Bounded traces
+
+`PerfReportPlugin` owns the trace stream and drains registered producers after each closed operation. `with_trace_budget(bytes)` sets the per-producer diagnostic payload budget before installation: 128 KiB on `std`, 8 KiB on `no_std`. It includes recording storage, export scratch, encoding, aggregation and registration overhead. Allocator headers, active stack guards and user-owned sinks are outside this budget. Each extra producer conservatively reserves the same workspace allowance; the setting is not a process-wide memory limit. Capacity exhaustion drops records and increments counters instead of growing the buffer.
+
+```rust
+use mirui::core::perf::{self, Capture, DEFAULT_TRACE_BUDGET};
+
+let mut capture = Capture::new(DEFAULT_TRACE_BUDGET)?;
+{
+    let _span = perf::enter("assets.decode");
+    decode_assets();
+}
+capture.drain_events(|batch, events| {
+    // Borrowed until this callback returns. Empty batches carry track status.
+    consume(batch, events);
+});
+capture.stop();
+capture.drain_events(|batch, events| consume(batch, events));
+```
+
+Only one `Capture` can consume the process stream. A second capture returns `CaptureError::InUse`; a second report plugin logs a warning and leaves the existing consumer intact. The capture's thread is registered at construction. Other producer threads call `perf::register_thread()` before tracing. Registration may allocate; recording and draining reuse prepared storage. Unregistered producers count as lost records. A stopped capture rejects new scopes, and an old guard cannot write into a later capture. Stop and drain before dropping a direct capture to export its tail.
+
+`Capture::drain` aggregates inclusive wall totals and optionally writes batches of complete newline-delimited Chrome JSON records. One operation can emit several batches. Sinks preserve their order and run outside recorder locks. Fractional microseconds preserve nanosecond timestamps. `Capture::drain_events` is the raw alternative; it does not also aggregate or encode the records it consumes. Copying a batch into application storage is outside the recorder budget.
+
+Track IDs are capture-local logical identities, not operating-system thread IDs. Sequence numbers preserve close order, including gaps caused by loss. `trace.status` and `trace.capture` expose dropped records, invalid clocks or nesting, open scopes, and aggregation or encoding loss. Missing CPU, GPU or display measurements remain unavailable. An open scope can cross a drain boundary; a single batch is not necessarily a complete tree. Truncated trees cannot yield exact uncovered wall time. Inclusive totals overlap and must not be added together.

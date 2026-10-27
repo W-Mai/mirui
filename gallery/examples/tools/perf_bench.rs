@@ -81,20 +81,23 @@ fn record_scene<F>(label: &str, mut frame_fn: F)
 where
     F: FnMut(),
 {
-    perf::set_enabled(false);
     for _ in 0..WARMUP {
         frame_fn();
     }
-    let _ = perf::drain_events();
-
-    perf::set_enabled(true);
+    let mut capture = perf::Capture::new(perf::DEFAULT_TRACE_BUDGET).unwrap();
+    let mut events = Vec::new();
     let wall_start = Instant::now();
     for _ in 0..FRAMES {
         frame_fn();
+        capture.drain_events(|_, batch| events.extend_from_slice(batch));
     }
     let wall_ns = wall_start.elapsed().as_nanos() as u64;
-    perf::set_enabled(false);
-    let events = perf::drain_events();
+    capture.stop();
+    capture.drain_events(|_, batch| events.extend_from_slice(batch));
+    println!(
+        "  trace status: {:?}; wall includes diagnostic drain",
+        capture.status()
+    );
     println!(
         "  wall {:>7}us / {} frames = {}us/frame",
         wall_ns / 1000,

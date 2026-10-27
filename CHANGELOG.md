@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Trace captures use bounded storage and reusable export buffers, record thread and capture identity, and report dropped or incomplete records. Report callbacks borrow stage and system statistics.
 - Frame timing sums are named `phase_wall_nanos`. Summary reports distinguish render callback cadence from recorded phase wall times and leave display rate unavailable without display feedback.
 - SDL-GPU submits the completed command queue before presentation and reports submission failures through the existing frame error path. Performance traces distinguish target switches, state restoration, retained-frame composition, queue submission and presentation.
 

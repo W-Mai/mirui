@@ -8,7 +8,7 @@
 
 use crate::app::plugin::Plugin;
 use crate::app::{App, RendererFactory};
-use crate::core::perf::StageStat;
+use crate::core::perf::{Capture, CaptureStatus, DEFAULT_TRACE_BUDGET, StageStat};
 use crate::ecs::World;
 use crate::surface::Surface;
 
@@ -35,10 +35,11 @@ pub struct SystemStat {
 pub struct PerfResetFlag(pub bool);
 
 #[derive(Clone)]
-pub struct PerfReport {
+pub struct PerfReport<'a> {
     pub operations: u32,
-    pub stage_stats: alloc::vec::Vec<StageStat>,
-    pub systems: alloc::vec::Vec<SystemStat>,
+    pub stage_stats: &'a [StageStat],
+    pub systems: &'a [SystemStat],
+    pub capture: CaptureStatus,
 }
 
 /// Per-operation perf reporter: accumulates span and per-system timings,
@@ -46,7 +47,7 @@ pub struct PerfReport {
 /// optionally writes Chrome-trace JSON to a file.
 ///
 /// **Inserts**
-/// - resource: `PerfAccum` (private)
+/// - resources: `SystemPerfSnapshot`, `PerfResetFlag`
 /// - system: none
 /// - view: none
 /// - entity: none
@@ -56,10 +57,11 @@ pub struct PerfReportPlugin {
     operation_count: u32,
     on_report: fn(report: &PerfReport),
     perfetto_line_sink: Option<PerfettoLineSink>,
+    trace_budget: usize,
+    capture: Option<Capture>,
 }
 
-/// Writer for the perfetto line sink: one JSON event per call, no
-/// trailing newline (the sink decides how to terminate).
+/// Writer for bounded batches of complete newline-terminated JSON records. One operation can produce multiple batches; sinks must preserve their order.
 pub type PerfettoLineSink = alloc::boxed::Box<dyn FnMut(&str)>;
 
 impl PerfReportPlugin {
@@ -69,7 +71,15 @@ impl PerfReportPlugin {
             operation_count: 0,
             on_report: default_sink,
             perfetto_line_sink: None,
+            trace_budget: DEFAULT_TRACE_BUDGET,
+            capture: None,
         }
+    }
+
+    /// Set the total diagnostic bytes per registered producer, including export workspace.
+    pub fn with_trace_budget(mut self, bytes: usize) -> Self {
+        self.trace_budget = bytes;
+        self
     }
 
     pub fn with_sink(mut self, sink: fn(&PerfReport)) -> Self {
@@ -77,23 +87,23 @@ impl PerfReportPlugin {
         self
     }
 
-    /// Write each drained event as one chrome-JSON line through `sink`.
-    /// Open the resulting NDJSON in <https://ui.perfetto.dev>. Works
-    /// on `no_std`; ESP backends pass an `esp_println` shim.
+    /// Write bounded newline-delimited JSON batches through `sink`. Open the resulting NDJSON in <https://ui.perfetto.dev>. Works on `no_std`; ESP backends pass an `esp_println` shim. Sink-owned memory is outside the trace budget.
     pub fn with_perfetto_line_sink(mut self, sink: PerfettoLineSink) -> Self {
         self.perfetto_line_sink = Some(sink);
         self
     }
 
-    /// `with_perfetto_line_sink` over a freshly-truncated file. The
-    /// sink receives one `\n`-joined batch per frame, written through
-    /// as-is.
+    /// Write bounded JSON batches to a freshly truncated file. File errors are logged and stop further writes to this file.
     #[cfg(feature = "std")]
     pub fn with_perfetto_writer(self, path: impl AsRef<std::path::Path>) -> Self {
         use std::io::Write as _;
         let mut f = std::fs::File::create(path).expect("failed to create perfetto trace file");
+        let mut failed = false;
         self.with_perfetto_line_sink(alloc::boxed::Box::new(move |batch: &str| {
-            let _ = f.write_all(batch.as_bytes());
+            if !failed && let Err(error) = f.write_all(batch.as_bytes()) {
+                failed = true;
+                crate::warn!(target: "mirui::perf", "trace write failed: {}", error);
+            }
         }))
     }
 }
@@ -110,107 +120,68 @@ where
     F: RendererFactory<B>,
 {
     fn build(&mut self, app: &mut App<B, F>) {
+        match Capture::new(self.trace_budget) {
+            Ok(capture) => self.capture = Some(capture),
+            Err(error) => {
+                crate::warn!(target: "mirui::perf", "trace capture not installed: {:?}", error);
+                return;
+            }
+        }
         app.enable_timing_reports();
-        app.world.insert_resource(PerfAccum::default());
-        // Opt-in flag for App::snapshot_system_perf.
         app.world.insert_resource(SystemPerfSnapshot::default());
-        // Opens the trace_span!/trace_fn recording path.
-        crate::core::perf::set_enabled(true);
+        app.world.insert_resource(PerfResetFlag(false));
     }
 
     fn on_timing(&mut self, world: &mut World, _sample: &crate::ecs::TimingSample<'_>) {
-        let events = crate::core::perf::drain_events();
-
-        if let Some(sink) = self.perfetto_line_sink.as_mut() {
-            // The sink may be expensive per call on `no_std` targets
-            // (critical section, FIFO flush, ...); batch the frame's
-            // events into one buffer so that overhead is paid once.
-            let mut frame_buf = alloc::string::String::with_capacity(events.len() * 96 + 16);
-            let mut line = alloc::string::String::with_capacity(128);
-            for ev in &events {
-                line.clear();
-                if crate::core::perf::format_chrome_event(ev, &mut line).is_ok() {
-                    frame_buf.push_str(&line);
-                    frame_buf.push('\n');
-                }
-            }
-            if !frame_buf.is_empty() {
-                sink(&frame_buf);
-            }
-        }
-
-        if let Some(acc) = world.resource_mut::<PerfAccum>() {
-            // Aggregate per-operation so events don't need to be retained
-            // across the whole report window.
-            for ev in &events {
-                let dur = ev.end_ns.saturating_sub(ev.start_ns);
-                if let Some(s) = acc.stage_stats.iter_mut().find(|s| s.name == ev.name) {
-                    s.count += 1;
-                    s.total_ns += dur;
-                    s.last_ns = dur;
-                    if dur < s.min_ns {
-                        s.min_ns = dur;
-                    }
-                    if dur > s.max_ns {
-                        s.max_ns = dur;
-                    }
-                } else {
-                    acc.stage_stats.push(StageStat {
-                        name: ev.name,
-                        count: 1,
-                        total_ns: dur,
-                        last_ns: dur,
-                        min_ns: dur,
-                        max_ns: dur,
-                    });
-                }
-            }
-        }
-
+        let Some(capture) = &mut self.capture else {
+            return;
+        };
+        capture.drain(
+            self.perfetto_line_sink
+                .as_mut()
+                .map(|sink| &mut **sink as &mut dyn FnMut(&str)),
+        );
         self.operation_count += 1;
         if self.operation_count < self.operations_per_report {
             return;
         }
-
-        let stage_stats = world
-            .resource::<PerfAccum>()
-            .map(|a| a.stage_stats.clone())
-            .unwrap_or_default();
-        let report = PerfReport {
+        capture.sort_stage_stats();
+        (self.on_report)(&PerfReport {
             operations: self.operation_count,
-            stage_stats,
-            systems: collect_system_stats(world),
-        };
-        (self.on_report)(&report);
-
+            stage_stats: capture.stage_stats(),
+            systems: world
+                .resource::<SystemPerfSnapshot>()
+                .map_or(&[], |s| &s.entries),
+            capture: capture.status(),
+        });
         self.operation_count = 0;
-        if let Some(a) = world.resource_mut::<PerfAccum>() {
-            a.stage_stats.clear();
+        capture.clear_stage_stats();
+        if let Some(snapshot) = world.resource_mut::<SystemPerfSnapshot>() {
+            snapshot.entries.clear();
         }
-        if let Some(snap) = world.resource_mut::<SystemPerfSnapshot>() {
-            snap.entries.clear();
+        if let Some(reset) = world.resource_mut::<PerfResetFlag>() {
+            reset.0 = true;
         }
-        world.insert_resource(PerfResetFlag(true));
     }
 }
 
-#[derive(Default, Clone)]
-struct PerfAccum {
-    stage_stats: alloc::vec::Vec<StageStat>,
-}
-
-fn collect_system_stats(world: &World) -> alloc::vec::Vec<SystemStat> {
-    world
-        .resource::<SystemPerfSnapshot>()
-        .map(|s| s.entries.clone())
-        .unwrap_or_default()
+impl Drop for PerfReportPlugin {
+    fn drop(&mut self) {
+        if let Some(capture) = &mut self.capture {
+            capture.stop();
+            capture.drain(
+                self.perfetto_line_sink
+                    .as_mut()
+                    .map(|sink| &mut **sink as &mut dyn FnMut(&str)),
+            );
+        }
+    }
 }
 
 fn default_sink(report: &PerfReport) {
     crate::info!(target: "mirui::perf", "{} operations", report.operations);
-    let mut sorted: alloc::vec::Vec<&StageStat> = report.stage_stats.iter().collect();
-    sorted.sort_by_key(|s| core::cmp::Reverse(s.total_ns));
-    for s in &sorted {
+    crate::info!(target: "mirui::perf", "inclusive wall totals (overlap); capture {:?}", report.capture);
+    for s in report.stage_stats {
         let avg = if s.count == 0 {
             0
         } else {
@@ -227,7 +198,7 @@ fn default_sink(report: &PerfReport) {
             s.max_ns / 1_000,
         );
     }
-    for s in &report.systems {
+    for s in report.systems {
         if s.avg_us == 0 && s.last_us == 0 {
             continue;
         }
@@ -236,5 +207,28 @@ fn default_sink(report: &PerfReport) {
             "  {:>26}  last {:>5}µs  avg {:>5}µs  n={}",
             s.name, s.last_us, s.avg_us, s.call_count
         );
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reports_borrow_reused_storage_and_duplicate_consumers_do_not_reset_it() {
+        let _serial = crate::core::perf::tests::SERIAL.lock().unwrap();
+        let mut app = App::headless(8, 8);
+        app.with_default_widgets();
+        app.spawn_root().id();
+        app.add_plugin(PerfReportPlugin::new(1).with_sink(|report| {
+            assert_eq!(report.operations, 1);
+            assert!(report.stage_stats.iter().any(|s| s.name == "frame.full"));
+        }));
+        app.world.resource_mut::<PerfResetFlag>().unwrap().0 = true;
+        app.add_plugin(PerfReportPlugin::new(1).with_sink(|_| panic!("second consumer ran")));
+        assert!(app.world.resource::<PerfResetFlag>().unwrap().0);
+        app.render().unwrap();
+        let allocations = crate::test_support::tracked_allocations(|| app.render().unwrap());
+        assert_eq!(allocations, 0);
     }
 }

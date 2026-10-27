@@ -325,7 +325,7 @@ Plugins package cross-cutting behaviour. Each plugin's docstring lists what it i
 | Plugin | Inserts |
 |--------|---------|
 | `StdInstantClockPlugin` | resource: `MonoClock` (std-only) |
-| `PerfReportPlugin` | resource: `PerfAccum`; hook: `on_timing` |
+| `PerfReportPlugin` | resources: `SystemPerfSnapshot`, `PerfResetFlag`; hook: `on_timing` |
 | `FpsSummaryPlugin` | hook: `on_timing` |
 | `InputFeedbackPlugin` | resources: `InputFeedback`, `InputFeedbackInput`; systems: cursor + rotary feedback; views: cursor (pri 90), rotary (pri 91); entities: `OverlayCursor` (lazy), `OverlayRotary` (eager); hooks: `on_event`, `pre_render` |
 | `AudioPlugin` (`audio` feature) | resources: `AudioHandle`, `AudioStateSignal`; hooks: `on_event`, `pre_render`, suspend, resume, quit |
@@ -439,7 +439,7 @@ ESP32-C3 (RV32 160 MHz, no FPU) + ST7735S 128×128 SPI:
 
 ### Drilling into spans
 
-Wrap any code with `mirui::trace_span!("name")` or annotate a fn with `#[mirui::trace_fn("name")]`. With a clock plugin installed (`StdInstantClockPlugin` on desktop, a custom one calling `mirui::core::perf::set_clock` on bare metal), every invocation records into a ring buffer that `mirui::core::perf::drain_events()` returns.
+Wrap code with `mirui::trace_span!("name")` or annotate a function with `#[mirui::trace_fn("name")]`. Install a clock (`StdInstantClockPlugin` on desktop, `mirui::core::time::set_clock` on bare metal) and `PerfReportPlugin` to collect bounded traces. Direct consumers use `mirui::core::perf::Capture` and its borrowed batch API. Additional producer threads register explicitly; exports include capture identity and loss counters. See [timing diagnostics](docs/timing-diagnostics.md).
 
 `mirui::core::perf::format_chrome_event` writes one event as Chrome trace JSON for [Perfetto](https://ui.perfetto.dev). On `std` `PerfReportPlugin::with_perfetto_writer` dumps the stream to a file. On ESP, the bundled `mirui-examples/examples/esp32c3-animation` demo prints `[trace] {...}` lines through `esp_println`; the host-side `tools/esp-trace.py` script collects them into a Perfetto-loadable JSON file.
 

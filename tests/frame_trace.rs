@@ -7,12 +7,12 @@ fn render_span_ends_before_surface_submission_and_reporting() {
     let mut app = mirui::app::App::headless(16, 16);
     app.with_default_widgets();
     app.spawn_root().id();
-    perf::drain_events();
-    perf::set_enabled(true);
+    let mut capture = perf::Capture::new(perf::DEFAULT_TRACE_BUDGET).unwrap();
     let result = app.render_dirty();
-    perf::set_enabled(false);
+    capture.stop();
     result.unwrap();
-    let events = perf::drain_events();
+    let mut events = Vec::new();
+    capture.drain_events(|_, batch| events.extend_from_slice(batch));
     let span = |name| events.iter().find(|event| event.name == name).unwrap();
     let render = span("frame.render_region");
     let flush = span("frame.flush");
