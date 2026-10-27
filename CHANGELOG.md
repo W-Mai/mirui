@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Report accepted submission cadence separately from operation callbacks and display feedback.
+
 - Export Web traces without querying unsupported native process IDs, and identify source-local process labels explicitly.
 
 - Honor direct trace-capture CPU sampling at App operation boundaries without requiring a report plugin.

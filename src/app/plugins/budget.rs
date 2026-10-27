@@ -146,6 +146,8 @@ mod tests {
                     outcome: crate::ecs::TimingOutcome::Completed,
                     phases: &timings(1),
                     finished_at_ns: Some(1),
+                    accepted_submissions: 0,
+                    accepted_at_finish: Some(0),
                 },
             );
         }

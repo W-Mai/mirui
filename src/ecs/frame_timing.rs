@@ -141,6 +141,9 @@ pub struct TimingSample<'a> {
     pub phases: &'a FrameTimings,
     /// End timestamp in this App's operation clock domain, not a platform presentation timestamp.
     pub finished_at_ns: Option<u64>,
+    /// Actual App acceptances during this operation, independent of its final outcome.
+    pub accepted_submissions: u64,
+    pub(crate) accepted_at_finish: Option<u64>,
 }
 
 /// Statistics for samples with exactly the same operation and phase set.

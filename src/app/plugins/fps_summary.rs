@@ -96,9 +96,16 @@ pub struct FpsSummary<'a> {
     pub samples: u32,
     pub operations: &'a [OperationSummary; 4],
     pub wall_ns: Option<u64>,
+    /// App acceptances in the same half-open interval as operation cadence.
+    pub accepted_submissions: u64,
     pub stats: Option<&'a FrameStats>,
 }
 impl FpsSummary<'_> {
+    pub fn accepted_submission_rate_hz(&self) -> Option<f64> {
+        self.wall_ns
+            .filter(|&ns| ns != 0)
+            .map(|ns| self.accepted_submissions as f64 * 1_000_000_000.0 / ns as f64)
+    }
     pub fn operation_rate_hz(&self, operation: FrameOperation) -> Option<f64> {
         self.wall_ns.filter(|&ns| ns != 0).map(|ns| {
             self.operations[operation as usize].window_operations as f64 * 1_000_000_000.0
@@ -145,7 +152,7 @@ impl<B: Surface, F: RendererFactory<B>> Plugin<B, F> for FpsSummaryPlugin {
         }
     }
     fn on_timing(&mut self, world: &mut World, sample: &TimingSample<'_>) {
-        self.window.observe(sample.finished_at_ns, sample.operation);
+        self.window.observe_sample(sample);
         let total = &mut self.totals[sample.operation as usize];
         total.count += 1;
         total.instrumented_operations += u64::from(sample.instrumented);
@@ -169,6 +176,7 @@ impl<B: Surface, F: RendererFactory<B>> Plugin<B, F> for FpsSummaryPlugin {
                 samples: self.samples,
                 operations: &self.totals,
                 wall_ns,
+                accepted_submissions: counts[4],
                 stats: world.resource::<FrameStats>(),
             })
         });
@@ -181,6 +189,7 @@ impl<B: Surface, F: RendererFactory<B>> Plugin<B, F> for FpsSummaryPlugin {
 }
 
 fn default_summary(report: FpsSummary<'_>) {
+    crate::info!(target: "mirui::perf", "accepted submission rate={:?}/s; display rate unavailable", report.accepted_submission_rate_hz());
     for op in report.operations.iter().filter(|op| op.count != 0) {
         crate::info!(target: "mirui::perf", "{:?} count={} rate={:?}/s wall={:?}ns (before reporting/pacing) cpu={:?}ns instrumented={}; display rate unavailable", op.operation, op.count, report.operation_rate_hz(op.operation), op.wall_nanos(), op.thread_cpu_nanos(), op.instrumented_operations);
         for phase in PHASES {
@@ -202,12 +211,28 @@ fn default_summary(report: FpsSummary<'_>) {
 struct SummaryWindow {
     start: Option<u64>,
     latest: Option<u64>,
-    events: [u64; 4],
-    boundary_events: [u64; 4],
+    events: [u64; 5],
+    boundary_events: [u64; 5],
     invalid: bool,
 }
 
 impl SummaryWindow {
+    fn observe_sample(&mut self, sample: &TimingSample<'_>) {
+        let first = self.start.is_none();
+        self.observe(sample.finished_at_ns, sample.operation);
+        let Some(at_finish) = sample.accepted_at_finish else {
+            self.invalid = true;
+            return;
+        };
+        // The first endpoint starts the covered interval; earlier acceptances are outside it.
+        self.events[4] += if first {
+            at_finish
+        } else {
+            sample.accepted_submissions
+        };
+        self.boundary_events[4] += at_finish;
+    }
+
     fn observe(&mut self, now: Option<u64>, kind: FrameOperation) {
         let Some(now) = now else {
             self.invalid = true;
@@ -219,14 +244,14 @@ impl SummaryWindow {
         }
         self.start.get_or_insert(now);
         if self.latest != Some(now) {
-            self.boundary_events = [0; 4];
+            self.boundary_events = [0; 5];
         }
         self.boundary_events[kind as usize] += 1;
         self.latest = Some(now);
         self.events[kind as usize] += 1;
     }
 
-    fn close(&mut self) -> ([u64; 4], Option<u64>) {
+    fn close(&mut self) -> ([u64; 5], Option<u64>) {
         if self.invalid {
             *self = Self {
                 start: self.latest,
@@ -234,16 +259,16 @@ impl SummaryWindow {
                 events: if self.latest.is_some() {
                     self.boundary_events
                 } else {
-                    [0; 4]
+                    [0; 5]
                 },
                 boundary_events: if self.latest.is_some() {
                     self.boundary_events
                 } else {
-                    [0; 4]
+                    [0; 5]
                 },
                 ..Self::default()
             };
-            return ([0; 4], None);
+            return ([0; 5], None);
         }
         let elapsed = self
             .start
@@ -251,7 +276,7 @@ impl SummaryWindow {
             .and_then(|(start, end)| end.checked_sub(start))
             .filter(|&ns| ns != 0);
         let Some(elapsed) = elapsed else {
-            return ([0; 4], None);
+            return ([0; 5], None);
         };
         let count = core::array::from_fn(|i| self.events[i] - self.boundary_events[i]);
         self.start = self.latest;
@@ -265,16 +290,47 @@ mod tests {
     use super::{FrameOperation, SummaryWindow};
 
     #[test]
+    fn acceptance_windows_use_events_instead_of_operation_outcomes() {
+        use crate::ecs::{FrameTimings, TimingOutcome, TimingSample};
+        let mut window = SummaryWindow::default();
+        let phases = FrameTimings::new(FrameOperation::Draw, true);
+        let observe = |window: &mut SummaryWindow, end, count, boundary| {
+            window.observe_sample(&TimingSample {
+                operation: FrameOperation::Draw,
+                wall_nanos: Some(1),
+                thread_cpu_nanos: None,
+                instrumented: false,
+                // A later failure does not erase earlier successful acceptances.
+                outcome: TimingOutcome::Failed,
+                phases: &phases,
+                finished_at_ns: Some(end),
+                accepted_submissions: count,
+                accepted_at_finish: boundary,
+            });
+        };
+        observe(&mut window, 10, 7, Some(2));
+        observe(&mut window, 20, 3, Some(1));
+        assert_eq!(window.close(), ([0, 0, 1, 0, 4], Some(10)));
+        observe(&mut window, 20, 2, Some(2));
+        observe(&mut window, 30, 0, Some(0));
+        assert_eq!(window.close(), ([0, 0, 2, 0, 3], Some(10)));
+        observe(&mut window, 40, 1, None);
+        assert_eq!(window.close(), ([0; 5], None));
+        observe(&mut window, 50, 2, Some(0));
+        assert_eq!(window.close(), ([0, 0, 1, 0, 2], Some(10)));
+    }
+
+    #[test]
     fn rate_windows_count_boundaries_once() {
         let mut window = SummaryWindow::default();
         window.observe(Some(0), FrameOperation::Tick);
-        assert_eq!(window.close(), ([0; 4], None));
+        assert_eq!(window.close(), ([0; 5], None));
         window.observe(Some(10), FrameOperation::Tick);
         window.observe(Some(20), FrameOperation::Tick);
-        assert_eq!(window.close(), ([2, 0, 0, 0], Some(20)));
+        assert_eq!(window.close(), ([2, 0, 0, 0, 0], Some(20)));
         window.observe(Some(30), FrameOperation::Tick);
         window.observe(Some(40), FrameOperation::Tick);
-        assert_eq!(window.close(), ([2, 0, 0, 0], Some(20)));
+        assert_eq!(window.close(), ([2, 0, 0, 0, 0], Some(20)));
     }
 
     #[test]
@@ -283,10 +339,10 @@ mod tests {
         for t in [10, 10, 20, 20, 20] {
             window.observe(Some(t), FrameOperation::Tick);
         }
-        assert_eq!(window.close(), ([2, 0, 0, 0], Some(10)));
-        assert_eq!(window.close(), ([0; 4], None));
+        assert_eq!(window.close(), ([2, 0, 0, 0, 0], Some(10)));
+        assert_eq!(window.close(), ([0; 5], None));
         window.observe(Some(30), FrameOperation::Tick);
-        assert_eq!(window.close(), ([3, 0, 0, 0], Some(10)));
+        assert_eq!(window.close(), ([3, 0, 0, 0, 0], Some(10)));
     }
 
     #[test]
@@ -296,9 +352,9 @@ mod tests {
             window.observe(Some(10), FrameOperation::Tick);
             window.observe(gap, FrameOperation::Tick);
             window.observe(Some(20), FrameOperation::Tick);
-            assert_eq!(window.close(), ([0; 4], None));
+            assert_eq!(window.close(), ([0; 5], None));
             window.observe(Some(30), FrameOperation::Tick);
-            assert_eq!(window.close(), ([1, 0, 0, 0], Some(10)));
+            assert_eq!(window.close(), ([1, 0, 0, 0, 0], Some(10)));
         }
     }
 }

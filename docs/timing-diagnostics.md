@@ -24,6 +24,8 @@ Operation wall time includes business `post_render` hooks and platform maintenan
 
 Operation cadence counts callbacks in a half-open timestamp interval. Equal timestamps remain in the next window, and a missing or backward clock invalidates that interval. Callback cadence includes idle operations and does not measure GPU completion or display refresh. Presentation feedback requires its own timestamp and completion semantics; no display rate is inferred from phase sums, successful submissions or callback arrival time.
 
+`accepted_submission_rate_hz()` counts actual App acceptances in that same interval. One operation may accept several submissions or none; a later failure does not erase an earlier acceptance. Events at the interval's end remain in the next interval, and events before the first covered endpoint are excluded. `TimingSample::accepted_submissions` exposes the operation's actual count, while `FpsSummary::accepted_submissions` is the covered window count. These counts do not imply native presentation or display completion.
+
 Custom sinks receive the just-closed operation through the existing reporting plugins. Low-level plugins can implement `on_timing`; installing a timing reporter enables its delivery. The read-only `TimingSample` refers to a closed snapshot, and `FrameTimings` in the World has already been updated. Business `post_render` retains its original ordering and sees the previous closed operation. Mutating application state inside a timing reporter is outside the measured operation.
 
 ## Bounded traces

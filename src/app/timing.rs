@@ -12,9 +12,36 @@ pub(super) struct OperationTiming {
     pub(super) outcome: TimingOutcome,
     pub(super) report: bool,
     cpu: bool,
+    accepted: u64,
+    accepted_last_ns: Option<u64>,
+    accepted_last_count: u64,
 }
 
 impl<B: Surface, F: RendererFactory<B>> App<B, F> {
+    pub(super) fn record_acceptance(&mut self) {
+        crate::core::perf::accepted();
+        if !self.timing.report {
+            return;
+        }
+        let now = self.timing_clock_ns();
+        self.timing.accepted += 1;
+        let Some((last, now)) = self
+            .timing
+            .accepted_last_ns
+            .zip(now)
+            .filter(|(last, now)| now >= last)
+        else {
+            self.timing.accepted_last_ns = None;
+            return;
+        };
+        if now == last {
+            self.timing.accepted_last_count += 1;
+        } else {
+            self.timing.accepted_last_count = 1;
+        }
+        self.timing.accepted_last_ns = Some(now);
+    }
+
     pub(crate) fn enable_timing_reports(&mut self) {
         self.timing.report = true;
     }
@@ -60,6 +87,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let measure_cpu =
             self.timing.cpu || (instrumented && crate::core::perf::thread_cpu_time_enabled());
         self.timing.start = self.timing.report.then(|| self.timing_clock_ns()).flatten();
+        if self.timing.report {
+            self.timing.accepted = 0;
+            self.timing.accepted_last_ns = self.timing.start;
+            self.timing.accepted_last_count = 0;
+        }
         let cpu_start = measure_cpu.then(crate::core::perf::cpu::now_ns).flatten();
         let result = action(self);
         let thread_cpu_nanos = cpu_start
@@ -94,6 +126,19 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 outcome,
                 phases: &phases,
                 finished_at_ns: end,
+                accepted_submissions: self.timing.accepted,
+                accepted_at_finish: self
+                    .timing
+                    .accepted_last_ns
+                    .zip(end)
+                    .filter(|(last, end)| last <= end)
+                    .map(|(last, end)| {
+                        if last == end {
+                            self.timing.accepted_last_count
+                        } else {
+                            0
+                        }
+                    }),
             };
             for plugin in &mut self.plugins {
                 plugin.on_timing(&mut self.world, &sample);
@@ -135,5 +180,45 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             };
             self.timing_outcome(outcome);
         }
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod tests {
+    use super::*;
+    use crate::app::plugin::Plugin;
+    use crate::ecs::World;
+    use std::{cell::RefCell, rc::Rc};
+
+    struct Samples(Rc<RefCell<Vec<(u64, TimingOutcome)>>>);
+
+    impl<B: Surface, F: RendererFactory<B>> Plugin<B, F> for Samples {
+        fn build(&mut self, app: &mut App<B, F>) {
+            app.enable_timing_reports();
+        }
+        fn on_timing(&mut self, _: &mut World, sample: &TimingSample<'_>) {
+            self.0
+                .borrow_mut()
+                .push((sample.accepted_submissions, sample.outcome));
+        }
+    }
+
+    #[test]
+    fn nested_draws_count_actual_acceptances_even_before_later_failure() {
+        let mut app = App::headless(8, 8);
+        app.with_default_widgets();
+        app.spawn_root().id();
+        let samples = Rc::new(RefCell::new(Vec::new()));
+        app.add_plugin(Samples(samples.clone()));
+        app.with_timing(FrameOperation::Tick, |app| {
+            app.render().unwrap();
+            app.render().unwrap();
+            app.timing_outcome(TimingOutcome::Failed);
+        });
+        app.render_dirty().unwrap();
+        assert_eq!(
+            &*samples.borrow(),
+            &[(2, TimingOutcome::Failed), (0, TimingOutcome::Idle)]
+        );
     }
 }
