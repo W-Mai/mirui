@@ -14,6 +14,7 @@ use drm::control::{ClipRect, Mode, connector, crtc, framebuffer};
 
 use super::input::{EvdevInput, detect_keyboard_device, detect_pointer_device};
 use crate::core::cache::InspectCaches;
+use crate::core::perf::{self, ClockDomain, PlatformTimestamp, SubmissionId, SubmissionOutcome};
 use crate::input::event::input::InputEvent;
 use crate::render::RenderError;
 use crate::render::texture::{ColorFormat, Texture};
@@ -73,6 +74,9 @@ pub struct LinuxDrmSurface {
     buffers: alloc::vec::Vec<DrmBuffer>,
     rotation: crate::surface::buffer_rotation::BufferRotation,
     page_flip_supported: bool,
+    flip_trace: Option<SubmissionId>,
+    display_trace: Option<SubmissionId>,
+    timestamp_domain: Option<&'static ClockDomain>,
     inputs: alloc::vec::Vec<EvdevInput>,
     queue: VecDeque<InputEvent>,
     quit_flag: Arc<AtomicBool>,
@@ -98,6 +102,12 @@ impl LinuxDrmSurface {
             .open(cfg.card_path)
             .map_err(|e| io::Error::new(e.kind(), alloc::format!("open {}: {e}", cfg.card_path)))?;
         let card = Card(file);
+        let timestamp_domain =
+            match card.get_driver_capability(drm::DriverCapability::MonotonicTimestamp) {
+                Ok(1) => Some(&DRM_MONOTONIC),
+                Ok(0) => Some(&DRM_REALTIME),
+                _ => None,
+            };
 
         // simpledrm / efifb / simple-framebuffer accept modeset ioctls but
         // don't scan out a new buffer — black screen + hung console.
@@ -232,6 +242,9 @@ impl LinuxDrmSurface {
             buffers,
             rotation: Default::default(),
             page_flip_supported: buffer_count > 1,
+            flip_trace: None,
+            display_trace: None,
+            timestamp_domain,
             inputs,
             queue: VecDeque::new(),
             quit_flag,
@@ -242,6 +255,7 @@ impl LinuxDrmSurface {
         if !self.rotation.pending {
             return Ok(());
         }
+        let _wait = perf::wait("drm.flip.wait", self.flip_trace);
         let mut pfd = libc::pollfd {
             fd: self.card.as_fd().as_raw_fd(),
             events: libc::POLLIN,
@@ -258,8 +272,26 @@ impl LinuxDrmSurface {
                 .receive_events()
                 .map_err(|_| RenderError::BackendFailure)?;
             for event in events {
-                if matches!(event, drm::control::Event::PageFlip(ref event) if event.crtc == self.crtc)
+                if let drm::control::Event::PageFlip(event) = event
+                    && event.crtc == self.crtc
+                    && self.rotation.pending
                 {
+                    if let (Some(id), Some(display), Some(domain)) =
+                        (self.flip_trace, self.display_trace, self.timestamp_domain)
+                        && let Ok(ticks) = u64::try_from(event.duration.as_nanos())
+                    {
+                        perf::display_presented(
+                            Some(id),
+                            display.value,
+                            u64::from(event.frame),
+                            PlatformTimestamp {
+                                domain,
+                                epoch: display.value,
+                                ticks,
+                            },
+                        );
+                    }
+                    self.flip_trace = None;
                     self.rotation.complete();
                 }
             }
@@ -271,6 +303,16 @@ impl LinuxDrmSurface {
         }
     }
 }
+
+// Kernel event timestamps keep their native epoch. Neither domain is calibrated to the App clock.
+static DRM_MONOTONIC: ClockDomain = ClockDomain {
+    name: "drm.monotonic",
+    ticks_per_second: core::num::NonZeroU64::new(1_000_000_000).unwrap(),
+};
+static DRM_REALTIME: ClockDomain = ClockDomain {
+    name: "drm.realtime",
+    ticks_per_second: core::num::NonZeroU64::new(1_000_000_000).unwrap(),
+};
 
 fn pick_connector<'a>(
     coninfo: &'a [connector::Info],
@@ -352,11 +394,27 @@ impl Surface for LinuxDrmSurface {
         }
         let painted = self.buffers[self.rotation.drawing].fb_id;
         if self.page_flip_supported {
-            match self
-                .card
-                .page_flip(self.crtc, painted, drm::control::PageFlipFlags::EVENT, None)
-            {
+            let attempt = perf::submission("drm.flip.submit");
+            let trace_id = attempt.id();
+            let result =
+                self.card
+                    .page_flip(self.crtc, painted, drm::control::PageFlipFlags::EVENT, None);
+            attempt.finish(if result.is_ok() {
+                SubmissionOutcome::Issued
+            } else {
+                SubmissionOutcome::Failed
+            });
+            match result {
                 Ok(()) => {
+                    self.flip_trace = trace_id;
+                    if let Some(id) = trace_id
+                        && self
+                            .display_trace
+                            .is_none_or(|display| display.capture != id.capture)
+                    {
+                        // Reuse the capture's identity allocator for this surface's display stream.
+                        self.display_trace = Some(id);
+                    }
                     self.rotation.pending = true;
                     return self.finish_flip(100);
                 }
@@ -371,7 +429,9 @@ impl Surface for LinuxDrmSurface {
                 Err(_) => return Err(RenderError::BackendFailure),
             }
         }
-        self.card
+        let attempt = perf::submission("drm.modeset.submit");
+        let result = self
+            .card
             .set_crtc(
                 self.crtc,
                 Some(painted),
@@ -379,7 +439,13 @@ impl Surface for LinuxDrmSurface {
                 &[self.connector],
                 Some(self.mode),
             )
-            .map_err(|_| RenderError::BackendFailure)?;
+            .map_err(|_| RenderError::BackendFailure);
+        attempt.finish(if result.is_ok() {
+            SubmissionOutcome::Issued
+        } else {
+            SubmissionOutcome::Failed
+        });
+        result?;
         self.rotation.complete();
         Ok(())
     }
@@ -408,9 +474,17 @@ impl Surface for LinuxDrmSurface {
             area.right().min(self.width),
             area.bottom().min(self.height),
         );
-        self.card
+        let attempt = perf::submission("drm.damage.submit");
+        let result = self
+            .card
             .dirty_framebuffer(self.buffers[self.rotation.drawing].fb_id, &[clip])
-            .map_err(|_| RenderError::BackendFailure)?;
+            .map_err(|_| RenderError::BackendFailure);
+        attempt.finish(if result.is_ok() {
+            SubmissionOutcome::Issued
+        } else {
+            SubmissionOutcome::Failed
+        });
+        result?;
         Ok(())
     }
 
