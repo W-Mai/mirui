@@ -1351,10 +1351,17 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             .chain(crate::core::cache::InspectCaches::inspect_caches(
                 &self.factory,
             ))
-            .map(|(_, c)| crate::core::cache::CacheStatsSnapshot::capture(c))
-            .collect();
-        self.world
-            .insert_resource(crate::core::cache::CacheRegistry::from_snapshots(snapshots));
+            .map(|(_, c)| crate::core::cache::CacheStatsSnapshot::capture(c));
+        if let Some(registry) = self
+            .world
+            .resource_mut::<crate::core::cache::CacheRegistry>()
+        {
+            registry.refresh(snapshots);
+        } else {
+            let mut registry = crate::core::cache::CacheRegistry::default();
+            registry.refresh(snapshots);
+            self.world.insert_resource(registry);
+        }
     }
 
     /// Get the bounding rectangle of pending damage in logical pixels without acknowledging drawing.
@@ -2327,6 +2334,17 @@ mod app_invariant_tests {
         assert_eq!(registry.snapshots()[0].name, "factory/test");
         assert_eq!(registry.snapshots()[0].len, 1);
         assert_eq!(registry.snapshots()[0].stats.insert_count, 1);
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for _ in 0..32 {
+                app.pending_frame = Some(PendingFrame {
+                    frame_start: 0,
+                    input_end: 0,
+                    systems_end: 0,
+                });
+                app.finalize_frame_stats();
+            }
+        });
+        assert_eq!(allocations, 0);
     }
 
     #[crate::compose]

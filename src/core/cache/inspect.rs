@@ -75,8 +75,12 @@ pub struct CacheRegistry {
 }
 
 impl CacheRegistry {
-    pub(crate) fn from_snapshots(snapshots: alloc::vec::Vec<CacheStatsSnapshot>) -> Self {
-        Self { snapshots }
+    pub(crate) fn refresh(&mut self, snapshots: impl Iterator<Item = CacheStatsSnapshot>) {
+        self.snapshots.clear();
+        self.snapshots.extend(snapshots);
+        if self.snapshots.is_empty() {
+            self.snapshots = alloc::vec::Vec::new();
+        }
     }
 
     pub fn snapshots(&self) -> &[CacheStatsSnapshot] {
@@ -89,6 +93,45 @@ mod tests {
     use super::*;
     use crate::core::cache::{HashLookup, Lru, MaxSize as M};
     use alloc::vec::Vec;
+
+    #[test]
+    fn registry_refresh_reuses_storage_and_tracks_cache_membership() {
+        let mut first: Cache<u32, u32, Lru, HashLookup<u32>> =
+            Cache::builder().max_size(M::Count(2)).name("first").build();
+        let second: Cache<u32, u32, Lru, HashLookup<u32>> = Cache::builder()
+            .max_size(M::Count(4))
+            .name("second")
+            .build();
+        let mut registry = CacheRegistry::default();
+        registry.refresh(
+            [&first, &second]
+                .into_iter()
+                .map(|c| CacheStatsSnapshot::capture(c)),
+        );
+        first.entry(1).or_insert_with(|| 10);
+        let allocations = crate::test_support::tracked_allocations(|| {
+            registry.refresh(
+                [&second, &first]
+                    .into_iter()
+                    .map(|c| CacheStatsSnapshot::capture(c)),
+            );
+        });
+        assert_eq!(allocations, 0);
+        assert_eq!(registry.snapshots()[0].name, "second");
+        assert_eq!(registry.snapshots()[0].max_size, M::Count(4));
+        assert_eq!(registry.snapshots()[1].name, "first");
+        assert_eq!(registry.snapshots()[1].len, 1);
+        assert_eq!(registry.snapshots()[1].stats.insert_count, 1);
+        registry.refresh(core::iter::once(CacheStatsSnapshot::capture(&first)));
+        assert_eq!(registry.snapshots().len(), 1);
+        assert_eq!(registry.snapshots()[0].name, "first");
+        registry.refresh(core::iter::empty());
+        assert!(registry.snapshots().is_empty());
+        assert_eq!(registry.snapshots.capacity(), 0);
+        registry.refresh(core::iter::once(CacheStatsSnapshot::capture(&second)));
+        assert_eq!(registry.snapshots().len(), 1);
+        assert_eq!(registry.snapshots()[0].name, "second");
+    }
 
     #[test]
     fn cache_inspect_reports_name_stats_len_max() {
