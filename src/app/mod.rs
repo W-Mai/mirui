@@ -1338,13 +1338,13 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             flush_nanos: self.last_flush_ns,
             seed_prev_nanos: self.last_seed_prev_ns,
         });
-        let mut stats = self
-            .world
-            .resource_mut::<crate::ecs::FrameStats>()
-            .map(core::mem::take)
-            .unwrap_or_default();
-        stats.push(frame_nanos);
-        self.world.insert_resource(stats);
+        if let Some(stats) = self.world.resource_mut::<crate::ecs::FrameStats>() {
+            stats.push(frame_nanos);
+        } else {
+            let mut stats = crate::ecs::FrameStats::default();
+            stats.push(frame_nanos);
+            self.world.insert_resource(stats);
+        }
 
         // Publish after FrameTimings so a single post_render sees both.
         let snapshots = crate::core::cache::InspectCaches::inspect_caches(&self.backend)
@@ -2285,6 +2285,45 @@ mod app_invariant_tests {
     use crate::ui::render_system::{TextLayoutFailureKind, TextLayoutStage};
     use crate::ui::widgets::text::Text;
     use crate::ui::{Children, HitTarget, Parent};
+
+    #[test]
+    fn completed_frame_statistics_wrap_without_allocation_and_recover_after_removal() {
+        use crate::ecs::FrameStats;
+
+        let mut app = App::headless(8, 8);
+        let mut finish = |sample| {
+            app.pending_frame = Some(PendingFrame {
+                frame_start: 0,
+                input_end: sample,
+                systems_end: sample,
+            });
+            app.finalize_frame_stats();
+        };
+        finish(1);
+        let allocations = crate::test_support::tracked_allocations(|| {
+            for sample in 2..=300 {
+                finish(sample);
+            }
+        });
+        assert_eq!(allocations, 0);
+        app.finalize_frame_stats();
+        let stats = app.world.resource::<FrameStats>().unwrap();
+        assert_eq!(stats.len(), 256);
+        assert_eq!(stats.min(), 45);
+        assert_eq!(stats.max(), 300);
+        assert_eq!(stats.avg(), 172);
+        assert_eq!(stats.p99(), 298);
+        app.world.remove_resource::<FrameStats>();
+        app.pending_frame = Some(PendingFrame {
+            frame_start: 0,
+            input_end: 400,
+            systems_end: 400,
+        });
+        app.finalize_frame_stats();
+        let stats = app.world.resource::<FrameStats>().unwrap();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats.avg(), 400);
+    }
 
     #[test]
     fn frame_cache_registry_includes_factory_owned_caches() {

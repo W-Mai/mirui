@@ -3,17 +3,11 @@
 #[derive(Clone, Copy)]
 pub struct DeltaTimeMs(pub u16);
 
-/// Per-frame timing breakdown written by `App::run` once per loop
-/// iteration when a `MonoClock` is installed. All values are nanoseconds
-/// for the most recently completed frame; zero when no `MonoClock` is
-/// present.
+/// Timing breakdown published when an App tick finishes rendering. All values are nanoseconds for the most recently completed tick; zero when no `MonoClock` is present.
 ///
-/// `frame_nanos` is the full loop iteration; the other fields are
-/// disjoint subsets that sum to it. `input_nanos` covers the entire
-/// "consume input" phase (backend `poll_event`, plugin `on_event`,
-/// `dispatch_input`, long-press scan, gesture bubble dispatch), not
-/// just `Surface::poll_event`. `seed_prev_nanos` only advances on the
-/// full-render path; dirty-render frames leave it zero.
+/// `frame_nanos` is the sum of the recorded phases, not the complete tick or host-loop wall time. Preparation between systems and damage collection, statistics publication, plugin `post_render`, platform-input synchronization and host-loop scheduling are outside this sum. Display completion can also occur after submission returns.
+///
+/// `input_nanos` includes event polling, plugin event hooks and input dispatch. `seed_prev_nanos` records painted-state acknowledgment after either full or dirty rendering; idle ticks leave it zero.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FrameTimings {
     pub frame_nanos: u64,
@@ -25,9 +19,7 @@ pub struct FrameTimings {
     pub seed_prev_nanos: u64,
 }
 
-/// Sliding window of recent `frame_nanos` values for jitter and tail
-/// latency analysis. `App::run` pushes one entry per frame; reading
-/// stays cheap (zero allocations after the first 256 frames).
+/// Fixed window of recent `FrameTimings::frame_nanos` values for jitter and tail latency analysis. The App appends samples in place without allocating. The values describe recorded phases, not display intervals or complete host-loop time.
 ///
 /// 256 samples ≈ 3.4 s at 75 fps, ≈ 14 s at 18 fps — plenty to surface
 /// stutter without occupying meaningful RAM (2 KB).
