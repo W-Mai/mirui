@@ -51,3 +51,34 @@ Only one `Capture` can consume the process stream. A second capture returns `Cap
 `Capture::drain` aggregates inclusive wall totals and optionally writes batches of complete newline-delimited Chrome JSON records. One operation can emit several batches. Sinks preserve their order and run outside recorder locks. Fractional microseconds preserve nanosecond timestamps. `Capture::drain_events` is the raw alternative; it does not also aggregate or encode the records it consumes. Copying a batch into application storage is outside the recorder budget.
 
 Track IDs are capture-local logical identities, not operating-system thread IDs. Sequence numbers preserve close order, including gaps caused by loss. `trace.status` and `trace.capture` expose dropped records, invalid clocks or nesting, open scopes, and aggregation or encoding loss. Missing CPU, GPU or display measurements remain unavailable. An open scope can cross a drain boundary; a single batch is not necessarily a complete tree. Truncated trees cannot yield exact uncovered wall time. Inclusive totals overlap and must not be added together.
+
+## Operations, submissions and feedback
+
+The same bounded stream contains `RecordData` variants for spans, operation contexts, submission attempts, waits, App acceptance and native feedback. Use `record.span()` when consuming only ordinary spans. An operation references its App and caller. A submission has its own capture-scoped identity; multiple requests and failed attempts are not collapsed into a frame number. `app.accepted` reports the existing App acceptance boundary and does not mean display completion.
+
+Backends can attach a diagnostic token to an existing pending native request without changing the `Surface` trait:
+
+```rust
+let attempt = perf::submission("driver.submit");
+let token = attempt.id();
+match driver.submit() {
+    Ok(request) => {
+        pending.attach_trace(request, token);
+        attempt.finish(perf::SubmissionOutcome::Issued);
+    }
+    Err(error) => {
+        attempt.finish(perf::SubmissionOutcome::Failed);
+        return Err(error);
+    }
+}
+
+// In a later operation, use the token belonging to this particular request.
+let _wait = perf::wait("driver.wait_previous", pending.trace_id());
+driver.wait_previous()?;
+```
+
+`pending` above is the backend's existing request storage, not a required Mirui interface. Dropping an unfinished attempt records `Abandoned`. A wait with no token records an unknown cause. The wait's wall interval stays in the operation that executes it, while `waits_on` points to the earlier request. Tokens from an ended capture cannot associate events with a new capture.
+
+`perf::feedback` distinguishes GPU completion, presentation feedback, buffer release and transfer completion. `perf::display_presented` records presentation feedback specifically. Pass a `PlatformTimestamp` with a static `ClockDomain`, nonzero tick frequency and source epoch; native timestamps remain separate from the callback's Mirui observation time. The caller must supply the actual request's token and display identity. Clock names do not establish calibration, and sequence gaps do not create extra presented images. No pending map, device wait or completion callback is introduced by recording these events.
+
+Record capacity depends on the compiled record layout and the configured byte budget. `Capture::event_capacity()` exposes it. Detailed captures can require a larger explicit budget or fewer probes; adding evidence never silently expands the configured storage.

@@ -89,11 +89,12 @@ where
     let wall_start = Instant::now();
     for _ in 0..FRAMES {
         frame_fn();
-        capture.drain_events(|_, batch| events.extend_from_slice(batch));
+        capture
+            .drain_events(|_, batch| events.extend(batch.iter().filter_map(|r| r.span().copied())));
     }
     let wall_ns = wall_start.elapsed().as_nanos() as u64;
     capture.stop();
-    capture.drain_events(|_, batch| events.extend_from_slice(batch));
+    capture.drain_events(|_, batch| events.extend(batch.iter().filter_map(|r| r.span().copied())));
     println!(
         "  trace status: {:?}; wall includes diagnostic drain",
         capture.status()

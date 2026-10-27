@@ -12,7 +12,7 @@ fn render_span_ends_before_surface_submission_and_reporting() {
     capture.stop();
     result.unwrap();
     let mut events = Vec::new();
-    capture.drain_events(|_, batch| events.extend_from_slice(batch));
+    capture.drain_events(|_, batch| events.extend(batch.iter().filter_map(|r| r.span().copied())));
     let span = |name| events.iter().find(|event| event.name == name).unwrap();
     let render = span("frame.render_region");
     let flush = span("frame.flush");

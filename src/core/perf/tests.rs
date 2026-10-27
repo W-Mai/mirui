@@ -9,7 +9,6 @@ fn event(name: &'static str, depth: u8) -> PerfEvent {
         name,
         start_ns: 1001,
         end_ns: 1002,
-        sequence: 0,
         depth,
     }
 }
@@ -25,9 +24,15 @@ fn bounded_postorder_records_distinguish_loss_zero_time_and_bad_clocks() {
     assert!(!buffer.exit(event("full", depth), true));
     let (len, status) = buffer.snapshot();
     assert_eq!((len, status.dropped, status.open_scopes), (2, 1, 0));
-    let mut records = [PerfEvent::EMPTY; 2];
+    let mut records = [Record::EMPTY; 2];
     assert_eq!(buffer.read(&mut records), 2);
-    assert_eq!((records[0].depth, records[1].depth), (1, 0));
+    assert_eq!(
+        (
+            records[0].span().unwrap().depth,
+            records[1].span().unwrap().depth
+        ),
+        (1, 0)
+    );
     assert_eq!((records[0].sequence, records[1].sequence), (1, 2));
     let depth = buffer.enter().unwrap();
     let mut zero = event("zero", depth);
@@ -68,7 +73,13 @@ fn capture_epochs_reject_old_guards_and_second_consumers() {
     let mut events = Vec::new();
     next.drain_events(|_, batch| events.extend_from_slice(batch));
     assert_eq!(events.len(), 1);
-    assert_eq!((events[0].name, events[0].depth), ("new", 0));
+    assert_eq!(
+        (
+            events[0].span().unwrap().name,
+            events[0].span().unwrap().depth
+        ),
+        ("new", 0)
+    );
     assert_eq!(next.status().invalid, 0);
 }
 
@@ -91,7 +102,7 @@ fn registered_threads_drain_once_and_sinks_run_outside_locks() {
     let mut worker_tracks = Vec::new();
     capture.drain_events(|info, events| {
         for event in events {
-            worker_tracks.push((info.track, event.name));
+            worker_tracks.push((info.track, event.span().unwrap().name));
         }
         // This must not deadlock or be consumed repeatedly by the same snapshot.
         let _sink = enter("sink");
@@ -101,7 +112,7 @@ fn registered_threads_drain_once_and_sinks_run_outside_locks() {
     assert_eq!(capture.status().registered_tracks, 2);
     assert!(capture.status().dropped >= 1);
     let mut next = Vec::new();
-    capture.drain_events(|_, events| next.extend(events.iter().map(|e| e.name)));
+    capture.drain_events(|_, events| next.extend(events.iter().map(|e| e.span().unwrap().name)));
     assert!(next.iter().all(|&name| name == "sink"));
 }
 
@@ -145,7 +156,7 @@ fn fractional_timestamps_and_names_are_lossless_json() {
         status: TraceStatus::default(),
     };
     let mut text = String::new();
-    format_chrome_event(info, &event("a\"b\\c\nd\x01", 1), &mut text).unwrap();
+    format_chrome_event(info, 0, &event("a\"b\\c\nd\x01", 1), &mut text).unwrap();
     assert!(text.contains(r#""ts":1.001,"dur":0.001"#));
     assert!(text.contains(r#""pid":19,"tid":2"#));
     assert!(text.contains(r#"a\"b\\c\nd\u0001"#));
@@ -189,4 +200,91 @@ fn depth_overflow_and_non_lifo_guards_mark_incomplete_instead_of_wrapping() {
     assert_eq!(buffer.snapshot().1.invalid, 1);
     assert!(buffer.exit(event("out-of-order", 0), true));
     assert_eq!(buffer.snapshot().1.invalid, 1);
+}
+
+#[test]
+fn previous_submission_wait_stays_in_current_operation_and_feedback_keeps_its_clock() {
+    use crate::ecs::{FrameOperation, TimingOutcome};
+    let _serial = SERIAL.lock().unwrap();
+    let mut capture = Capture::new(DEFAULT_TRACE_BUDGET).unwrap();
+    let first = operation(41, FrameOperation::Tick);
+    let first_id = first.id().unwrap();
+    let attempt = submission("native.submit");
+    let submission_id = attempt.id().unwrap();
+    attempt.finish(SubmissionOutcome::Issued);
+    accepted();
+    first.close_operation(TimingOutcome::Completed);
+    let second = operation(42, FrameOperation::Draw);
+    let second_id = second.id().unwrap();
+    let waiting = wait("native.poll", Some(submission_id));
+    let wait_id = waiting.id().unwrap();
+    drop(waiting);
+    second.close_operation(TimingOutcome::Idle);
+    static CLOCK: ClockDomain = ClockDomain {
+        name: "native.clock",
+        ticks_per_second: core::num::NonZeroU64::new(1000).unwrap(),
+    };
+    std::thread::spawn(move || {
+        register_thread().unwrap();
+        display_presented(
+            Some(submission_id),
+            9,
+            203,
+            PlatformTimestamp {
+                domain: &CLOCK,
+                epoch: 2,
+                ticks: 35,
+            },
+        );
+    })
+    .join()
+    .unwrap();
+    let mut records = Vec::new();
+    capture.drain_events(|_, batch| records.extend_from_slice(batch));
+    assert!(records.iter().any(|r| matches!(r.data, RecordData::Context { id, parent, app: 0 } if id == wait_id.value && parent == second_id.value)));
+    assert!(records.iter().any(|r| matches!(r.data, RecordData::Context { id, parent, app: 0 } if id == submission_id.value && parent == first_id.value)));
+    assert!(records.iter().any(|r| matches!(r.data, RecordData::WaitsOn { wait, submission } if wait == wait_id.value && submission == submission_id.value)));
+    assert!(records.iter().any(|r| matches!(r.data, RecordData::Feedback { submission, timestamp: PlatformTimestamp { epoch: 2, ticks: 35, .. }, kind: FeedbackKind::Presented, .. } if submission == submission_id.value)));
+    assert_eq!(capture.status().open_scopes, 0);
+    capture.stop();
+    drop(capture);
+    let mut next = Capture::new(DEFAULT_TRACE_BUDGET).unwrap();
+    display_presented(
+        Some(submission_id),
+        9,
+        204,
+        PlatformTimestamp {
+            domain: &CLOCK,
+            epoch: 2,
+            ticks: 36,
+        },
+    );
+    next.drain_events(|_, batch| assert!(batch.is_empty()));
+    assert_eq!(next.status().invalid, 1);
+}
+
+#[test]
+fn unfinished_attempt_and_unknown_wait_never_become_success_or_exact() {
+    let _serial = SERIAL.lock().unwrap();
+    let mut capture = Capture::new(DEFAULT_TRACE_BUDGET).unwrap();
+    let attempt = submission("third_party.submit");
+    capture.drain_events(|_, _| {});
+    assert_eq!(capture.status().open_scopes, 1);
+    drop(attempt);
+    drop(wait("opaque.wait", None));
+    let mut records = Vec::new();
+    capture.drain_events(|_, batch| records.extend_from_slice(batch));
+    assert!(records.iter().any(|r| matches!(
+        r.data,
+        RecordData::Scope {
+            kind: ScopeKind::Submission(SubmissionOutcome::Abandoned),
+            ..
+        }
+    )));
+    assert!(
+        records
+            .iter()
+            .any(|r| matches!(r.data, RecordData::WaitsOn { submission: 0, .. }))
+    );
+    assert_eq!(capture.status().open_scopes, 0);
 }

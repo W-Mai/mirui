@@ -12,6 +12,7 @@ static REGISTRY: Mutex<Registry> = Mutex::new(Registry {
     capacity: 0,
     unregistered: 0,
     tracks: Vec::new(),
+    next_scope: 0,
 });
 
 struct Registry {
@@ -21,6 +22,7 @@ struct Registry {
     capacity: usize,
     unregistered: u64,
     tracks: Vec<Arc<Track>>,
+    next_scope: u64,
 }
 
 struct Track {
@@ -38,6 +40,7 @@ impl Drop for Registration {
 
 thread_local! {
     static TRACK: RefCell<Option<Registration>> = const { RefCell::new(None) };
+    static OPERATION: core::cell::Cell<Option<super::SubmissionId>> = const { core::cell::Cell::new(None) };
 }
 
 // Includes registry/TLS slots and a conservative allowance for Arc control data.
@@ -58,6 +61,7 @@ pub(super) fn start(capacity: usize) -> Result<u64, CaptureError> {
     registry.owner = true;
     registry.capacity = capacity;
     registry.next_track = 0;
+    registry.next_scope = 0;
     registry.unregistered = 0;
     let epoch = registry.epoch;
     ENABLED.store(true, Ordering::Relaxed);
@@ -103,6 +107,58 @@ pub fn register_thread() -> Result<(), CaptureError> {
 
 pub fn is_enabled() -> bool {
     ENABLED.load(Ordering::Relaxed)
+}
+
+pub(super) fn next_scope() -> Option<super::SubmissionId> {
+    if !is_enabled() {
+        return None;
+    }
+    let mut registry = REGISTRY.lock().unwrap();
+    let next = registry.next_scope.checked_add(1)?;
+    registry.next_scope = next;
+    Some(super::SubmissionId {
+        capture: registry.epoch,
+        value: next,
+    })
+}
+
+pub(super) fn operation() -> Option<super::SubmissionId> {
+    OPERATION.with(core::cell::Cell::get)
+}
+
+pub(super) fn invalid_scope(epoch: u64) {
+    TRACK.with(|slot| {
+        if let Some(track) = slot.borrow().as_ref().map(|r| &r.0)
+            && track.epoch == epoch
+        {
+            track.buffer.lock().unwrap().invalid_scope();
+        }
+    });
+}
+
+pub(super) fn replace_operation(id: Option<super::SubmissionId>) -> Option<super::SubmissionId> {
+    OPERATION.with(|slot| slot.replace(id))
+}
+
+pub(super) fn record(epoch: u64, data: super::RecordData) {
+    if !is_enabled() {
+        return;
+    }
+    let recorded = TRACK.with(|slot| {
+        let slot = slot.borrow();
+        let Some(track) = slot.as_ref().map(|r| &r.0) else {
+            return false;
+        };
+        if track.epoch != epoch {
+            return false;
+        }
+        track.buffer.lock().unwrap().record(data, true);
+        true
+    });
+    if !recorded {
+        let mut registry = REGISTRY.lock().unwrap();
+        registry.unregistered = registry.unregistered.saturating_add(1);
+    }
 }
 
 pub(super) struct Ticket {
@@ -174,8 +230,8 @@ pub(super) fn release(epoch: u64) {
 
 pub(super) fn drain(
     epoch: u64,
-    scratch: &mut [PerfEvent],
-    visitor: &mut impl FnMut(BatchInfo, &[PerfEvent]),
+    scratch: &mut [super::Record],
+    visitor: &mut impl FnMut(BatchInfo, &[super::Record]),
 ) {
     let (count, registered, unregistered) = {
         let mut registry = REGISTRY.lock().unwrap();

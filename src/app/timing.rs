@@ -43,6 +43,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         if self.timing.active {
             return action(self);
         }
+        let trace = crate::core::perf::operation(self.world.id().diagnostic_id(), kind);
         self.timing.active = true;
         self.timing.start = self.timing.report.then(|| self.timing_clock_ns()).flatten();
         self.timing.phases = FrameTimings::new(
@@ -70,6 +71,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let outcome = self.timing.outcome;
         self.timing.active = false;
         self.publish_timings(&phases, outcome);
+        let _trace_id = trace.close_operation(outcome);
         if self.timing.report {
             let sample = TimingSample {
                 operation: kind,

@@ -5,10 +5,14 @@ static ENABLED: AtomicBool = AtomicBool::new(false);
 struct State {
     epoch: u64,
     buffer: Option<Buffer>,
+    next_scope: u64,
+    operation: Option<super::SubmissionId>,
 }
 static mut STATE: State = State {
     epoch: 0,
     buffer: None,
+    next_scope: 0,
+    operation: None,
 };
 
 pub(super) const OVERHEAD: usize = core::mem::size_of::<State>();
@@ -42,9 +46,51 @@ pub(super) fn start(capacity: usize) -> Result<u64, CaptureError> {
         }
         state.epoch = state.epoch.checked_add(1).ok_or(CaptureError::Exhausted)?;
         state.buffer = Some(buffer);
+        state.next_scope = 0;
+        state.operation = None;
         ENABLED.store(true, Ordering::Relaxed);
         Ok(state.epoch)
     })
+}
+
+pub(super) fn next_scope() -> Option<super::SubmissionId> {
+    if !is_enabled() {
+        return None;
+    }
+    with_state(|state| {
+        let next = state.next_scope.checked_add(1)?;
+        state.next_scope = next;
+        Some(super::SubmissionId {
+            capture: state.epoch,
+            value: next,
+        })
+    })
+}
+
+pub(super) fn operation() -> Option<super::SubmissionId> {
+    with_state(|state| state.operation)
+}
+pub(super) fn invalid_scope(epoch: u64) {
+    with_state(|state| {
+        if state.epoch == epoch
+            && let Some(buffer) = &mut state.buffer
+        {
+            buffer.invalid_scope();
+        }
+    });
+}
+pub(super) fn replace_operation(id: Option<super::SubmissionId>) -> Option<super::SubmissionId> {
+    with_state(|state| core::mem::replace(&mut state.operation, id))
+}
+pub(super) fn record(epoch: u64, data: super::RecordData) {
+    if !is_enabled() {
+        return;
+    }
+    with_state(|state| {
+        if let Some(buffer) = &mut state.buffer {
+            buffer.record(data, state.epoch == epoch);
+        }
+    });
 }
 
 pub(super) struct Ticket(core::num::NonZeroU64);
@@ -91,8 +137,8 @@ pub(super) fn release(epoch: u64) {
 }
 pub(super) fn drain(
     epoch: u64,
-    scratch: &mut [PerfEvent],
-    visitor: &mut impl FnMut(BatchInfo, &[PerfEvent]),
+    scratch: &mut [super::Record],
+    visitor: &mut impl FnMut(BatchInfo, &[super::Record]),
 ) {
     let Some((mut left, status)) = with_state(|state| {
         (state.epoch == epoch)

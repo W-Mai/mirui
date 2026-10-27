@@ -1,6 +1,18 @@
 //! Bounded span recording and export. A capture has one consumer; additional producer threads register before tracing. All timestamps use `core::time`, which need not share the epoch of an application's custom `MonoClock`.
 
 mod buffer;
+mod record;
+mod scope;
+pub use record::{
+    ClockDomain, FeedbackKind, PlatformTimestamp, Record, RecordData, ScopeKind, SubmissionId,
+    SubmissionOutcome, format_record,
+};
+pub(crate) use scope::{accepted, operation};
+pub use scope::{display_presented, feedback, submission, wait};
+
+fn invalid_scope(epoch: u64) {
+    imp::invalid_scope(epoch);
+}
 #[cfg(not(feature = "std"))]
 #[path = "embedded.rs"]
 mod imp;
@@ -27,8 +39,6 @@ pub struct PerfEvent {
     pub name: &'static str,
     pub start_ns: u64,
     pub end_ns: u64,
-    /// Postorder sequence, including records dropped when storage is full.
-    pub sequence: u64,
     pub depth: u8,
 }
 impl PerfEvent {
@@ -36,7 +46,6 @@ impl PerfEvent {
         name: "",
         start_ns: 0,
         end_ns: 0,
-        sequence: 0,
         depth: 0,
     };
 }
@@ -96,7 +105,6 @@ impl Drop for Guard {
             start_ns: self.start_ns,
             end_ns: end.unwrap_or(0),
             depth: self.depth,
-            sequence: 0,
         };
         if imp::exit(ticket, event, self.valid_clock && end.is_some()) {
             crate::core::log::dispatch_span(&crate::core::log::SpanRecord {
@@ -138,7 +146,7 @@ pub struct CaptureStatus {
 /// Sole consumer of the existing trace stream. Storage is prepared once, recording drops on capacity, and draining reuses workspace without holding a producer lock across sinks.
 pub struct Capture {
     epoch: u64,
-    scratch: [PerfEvent; BATCH],
+    scratch: [Record; BATCH],
     encoded: String,
     stats: Vec<StageStat>,
     status: CaptureStatus,
@@ -168,18 +176,18 @@ impl Capture {
         let overhead =
             fixed + encoded.capacity() + stats.capacity() * core::mem::size_of::<StageStat>();
         let capacity = budget.checked_sub(overhead).ok_or(CaptureError::Capacity)?
-            / core::mem::size_of::<PerfEvent>();
+            / core::mem::size_of::<Record>();
         if capacity == 0 {
             return Err(CaptureError::Capacity);
         }
         let epoch = imp::start(capacity)?;
         Ok(Self {
             epoch,
-            scratch: [PerfEvent::EMPTY; BATCH],
+            scratch: [Record::EMPTY; BATCH],
             encoded,
             stats,
             status: CaptureStatus::default(),
-            allocated_bytes: overhead + capacity * core::mem::size_of::<PerfEvent>(),
+            allocated_bytes: overhead + capacity * core::mem::size_of::<Record>(),
             capacity,
             _thread: core::marker::PhantomData,
         })
@@ -214,7 +222,7 @@ impl Capture {
     }
 
     /// Drain a bounded snapshot from each registered producer. The borrowed slice is valid only during the callback. User-retained copies and custom sink memory are outside the recorder budget.
-    pub fn drain_events(&mut self, mut visitor: impl FnMut(BatchInfo, &[PerfEvent])) {
+    pub fn drain_events(&mut self, mut visitor: impl FnMut(BatchInfo, &[Record])) {
         self.status.open_scopes = 0;
         let status = &mut self.status;
         imp::drain(self.epoch, &mut self.scratch, &mut |info, events| {
@@ -239,10 +247,12 @@ impl Capture {
                 }
             }
             for event in events {
-                accumulate(stats, event, status);
+                if let Some(span) = event.span() {
+                    accumulate(stats, span, status);
+                }
                 if sink.is_some() {
                     encode_record(encoded, &mut sink, status, |w| {
-                        format_chrome_event(info, event, w)
+                        format_record(info, event, w)
                     });
                 }
             }
@@ -354,7 +364,12 @@ fn encode_record(
 }
 
 /// Fractional microseconds preserve nanosecond precision without floating-point timestamp rounding.
-pub fn format_chrome_event(info: BatchInfo, event: &PerfEvent, w: &mut impl Write) -> fmt::Result {
+pub fn format_chrome_event(
+    info: BatchInfo,
+    sequence: u64,
+    event: &PerfEvent,
+    w: &mut impl Write,
+) -> fmt::Result {
     w.write_str(r#"{"name":""#)?;
     write_json_escaped(event.name, w)?;
     let duration = event.end_ns.saturating_sub(event.start_ns);
@@ -368,7 +383,7 @@ pub fn format_chrome_event(info: BatchInfo, event: &PerfEvent, w: &mut impl Writ
         duration / 1000,
         duration % 1000,
         info.capture,
-        event.sequence,
+        sequence,
         event.depth
     )
 }

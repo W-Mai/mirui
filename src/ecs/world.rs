@@ -186,6 +186,9 @@ impl<'world> SystemWorldCell<'world> {
 pub(crate) struct WorldId(u64);
 
 impl WorldId {
+    pub(crate) fn diagnostic_id(self) -> u64 {
+        self.0
+    }
     fn next() -> Self {
         static mut NEXT: u64 = 1;
         critical_section::with(|_| {

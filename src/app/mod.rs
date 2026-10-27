@@ -1291,6 +1291,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             return Err(error);
         }
         requests.commit();
+        crate::core::perf::accepted();
         render_system::acknowledge_rendered_outputs(&self.world);
         let flush_end = self.timing_clock_ns();
         self.record_phase(FramePhase::Flush, render_end, flush_end);
@@ -1933,6 +1934,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 return Err(error);
             }
             requests.commit();
+            crate::core::perf::accepted();
             render_system::acknowledge_rendered_outputs(&self.world);
             self.record_phase(FramePhase::Flush, render_end, self.timing_clock_ns());
             let seed_start = self.timing_clock_ns();
