@@ -939,19 +939,21 @@ pub fn flush_signal_dirty(world: &mut World) {
         .resource::<Rc<PaintWake>>()
         .is_some_and(|wake| wake.0.take_ready());
     with_reactive(|r| {
-        r.dirty_visual_widgets.retain_mut(|entry| {
-            if entry.owner == Some(world.id())
-                && entry.condition == PaintRequestCondition::OnResourceWake
-            {
-                if !world.is_alive(entry.entity) {
-                    return false;
+        if !r.dirty_visual_widgets.is_empty() {
+            r.dirty_visual_widgets.retain_mut(|entry| {
+                if entry.owner == Some(world.id())
+                    && entry.condition == PaintRequestCondition::OnResourceWake
+                {
+                    if !world.is_alive(entry.entity) {
+                        return false;
+                    }
+                    if resource_ready {
+                        entry.condition = PaintRequestCondition::Always;
+                    }
                 }
-                if resource_ready {
-                    entry.condition = PaintRequestCondition::Always;
-                }
-            }
-            true
-        });
+                true
+            });
+        }
     });
     // Preserve cold preparation even when no callback needs a structural window.
     world.register_drop_hook::<ReactiveOwnerCleanup>(release_graph_owner);
@@ -1052,15 +1054,17 @@ fn reclaim_dead_effects(world: &mut World) {
     reclaim_entity_consumers(world);
     // Rc lifetimes are independent of entity retirement and graph registration.
     with_reactive(|r| {
-        let slots = &mut r.computed_slots;
-        r.computeds.retain(|id, weak| {
-            if weak.strong_count() > 0 {
-                true
-            } else {
-                slots.release(id.0);
-                false
-            }
-        });
+        if !r.computeds.is_empty() {
+            let slots = &mut r.computed_slots;
+            r.computeds.retain(|id, weak| {
+                if weak.strong_count() > 0 {
+                    true
+                } else {
+                    slots.release(id.0);
+                    false
+                }
+            });
+        }
     });
 }
 

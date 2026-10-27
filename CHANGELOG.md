@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Skip retention traversal setup for empty reactive paint-request queues and computed registries.
 - Skip repeated layout-marker scans in output summaries when unchanged topology and authored visibility exclude all contributing layout damage.
 - Skip output propagation without consumer bindings while retaining producer maintenance and demand cleanup.
 - Reuse registered input attachment plans when preparing event dispatch capacity, excluding paint-only View descriptors from the scan.
