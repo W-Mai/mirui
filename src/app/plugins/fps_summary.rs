@@ -28,6 +28,7 @@ pub struct FpsSummaryPlugin {
     totals: [OperationSummary; 4],
     window: SummaryWindow,
     on_summary: fn(FpsSummary<'_>),
+    cpu: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -53,6 +54,7 @@ pub struct OperationSummary {
     pub operation: FrameOperation,
     pub count: u64,
     pub window_operations: u64,
+    pub instrumented_operations: u64,
     pub latest_phases: FramePhases,
     wall: Average,
     cpu: Average,
@@ -76,6 +78,10 @@ impl OperationSummary {
     }
     pub fn cpu_samples(&self) -> u64 {
         self.cpu.count
+    }
+    /// Mean over valid CPU samples only; compare against their coverage count before combining it with another metric.
+    pub fn partial_thread_cpu_nanos(&self) -> Option<u64> {
+        self.cpu.value()
     }
     pub fn phase_nanos(&self, phase: FramePhase) -> Option<u64> {
         self.phases[phase as usize].value()
@@ -112,10 +118,16 @@ impl FpsSummaryPlugin {
             }),
             window: SummaryWindow::default(),
             on_summary: default_summary,
+            cpu: false,
         }
     }
     pub fn with_sink(mut self, sink: fn(FpsSummary<'_>)) -> Self {
         self.on_summary = sink;
+        self
+    }
+    /// Enable coarse thread CPU timing without requiring detailed tracing.
+    pub fn with_thread_cpu_time(mut self, enabled: bool) -> Self {
+        self.cpu = enabled;
         self
     }
 }
@@ -128,11 +140,15 @@ impl Default for FpsSummaryPlugin {
 impl<B: Surface, F: RendererFactory<B>> Plugin<B, F> for FpsSummaryPlugin {
     fn build(&mut self, app: &mut App<B, F>) {
         app.enable_timing_reports();
+        if self.cpu {
+            app.enable_cpu_timing();
+        }
     }
     fn on_timing(&mut self, world: &mut World, sample: &TimingSample<'_>) {
         self.window.observe(sample.finished_at_ns, sample.operation);
         let total = &mut self.totals[sample.operation as usize];
         total.count += 1;
+        total.instrumented_operations += u64::from(sample.instrumented);
         total.outcomes[sample.outcome as usize] += 1;
         total.latest_phases = sample.phases.phases();
         total.wall.add(sample.wall_nanos);
@@ -164,7 +180,7 @@ impl<B: Surface, F: RendererFactory<B>> Plugin<B, F> for FpsSummaryPlugin {
 
 fn default_summary(report: FpsSummary<'_>) {
     for op in report.operations.iter().filter(|op| op.count != 0) {
-        crate::info!(target: "mirui::perf", "{:?} count={} rate={:?}/s wall={:?}ns (before reporting/pacing) cpu={:?}ns; display rate unavailable", op.operation, op.count, report.operation_rate_hz(op.operation), op.wall_nanos(), op.thread_cpu_nanos());
+        crate::info!(target: "mirui::perf", "{:?} count={} rate={:?}/s wall={:?}ns (before reporting/pacing) cpu={:?}ns instrumented={}; display rate unavailable", op.operation, op.count, report.operation_rate_hz(op.operation), op.wall_nanos(), op.thread_cpu_nanos(), op.instrumented_operations);
         for phase in PHASES {
             if let Some(value) = op.phase_nanos(phase) {
                 crate::info!(target: "mirui::perf", "  {:?} wall={}ns samples={}", phase, value, op.phase_samples(phase));

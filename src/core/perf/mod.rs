@@ -1,6 +1,7 @@
 //! Bounded span recording and export. A capture has one consumer; additional producer threads register before tracing. All timestamps use `core::time`, which need not share the epoch of an application's custom `MonoClock`.
 
 mod buffer;
+pub(crate) mod cpu;
 mod record;
 mod scope;
 pub use record::{
@@ -56,6 +57,7 @@ pub struct BatchInfo {
     pub capture: u64,
     pub track: u64,
     pub process: u32,
+    pub os_thread: Option<u64>,
     pub registered_tracks: u64,
     pub status: TraceStatus,
 }
@@ -195,6 +197,11 @@ impl Capture {
 
     pub fn id(&self) -> u64 {
         self.epoch
+    }
+
+    /// Enable CPU reads at coarse diagnostic scopes. Unsupported platforms keep the measurement unavailable.
+    pub fn set_thread_cpu_time(&mut self, enabled: bool) {
+        imp::set_thread_cpu_time(self.epoch, enabled);
     }
     pub fn accounted_bytes_per_thread(&self) -> usize {
         self.allocated_bytes
@@ -391,7 +398,7 @@ pub fn format_chrome_event(
 fn format_status(info: BatchInfo, w: &mut impl Write) -> fmt::Result {
     write!(
         w,
-        r#"{{"name":"trace.status","ph":"M","pid":{},"tid":{},"args":{{"schema":1,"capture":{},"logical_track":{},"registered_tracks":{},"dropped":{},"invalid":{},"open_scopes":{},"closed":{},"thread_cpu":"unavailable","gpu":"unavailable","display":"unavailable"}}}}"#,
+        r#"{{"name":"trace.status","ph":"M","pid":{},"tid":{},"args":{{"schema":1,"capture":{},"logical_track":{},"registered_tracks":{},"dropped":{},"invalid":{},"open_scopes":{},"closed":{},"thread_cpu":"{}","gpu":"unavailable","display":"native-feedback-only","os_thread":"#,
         info.process,
         info.track,
         info.capture,
@@ -400,8 +407,15 @@ fn format_status(info: BatchInfo, w: &mut impl Write) -> fmt::Result {
         info.status.dropped,
         info.status.invalid,
         info.status.open_scopes,
-        info.status.closed
-    )
+        info.status.closed,
+        cpu::capability()
+    )?;
+    if let Some(id) = info.os_thread {
+        write!(w, "{id}")?;
+    } else {
+        w.write_str("null")?;
+    }
+    w.write_str("}}")
 }
 
 fn write_json_escaped(s: &str, w: &mut impl Write) -> fmt::Result {

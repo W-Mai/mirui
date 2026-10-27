@@ -135,6 +135,8 @@ pub struct TimingSample<'a> {
     pub operation: FrameOperation,
     pub wall_nanos: Option<u64>,
     pub thread_cpu_nanos: Option<u64>,
+    /// Detailed tracing was enabled for this operation; its inline overhead remains in the measurements.
+    pub instrumented: bool,
     pub outcome: TimingOutcome,
     pub phases: &'a FrameTimings,
     /// End timestamp in this App's operation clock domain, not a platform presentation timestamp.

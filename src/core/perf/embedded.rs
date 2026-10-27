@@ -29,6 +29,10 @@ fn with_state<R>(f: impl FnOnce(&mut State) -> R) -> R {
 pub fn is_enabled() -> bool {
     ENABLED.load(Ordering::Relaxed)
 }
+pub(super) fn thread_cpu_time() -> bool {
+    false
+}
+pub(super) fn set_thread_cpu_time(_epoch: u64, _enabled: bool) {}
 pub fn register_thread() -> Result<(), CaptureError> {
     if is_enabled() {
         Ok(())
@@ -151,6 +155,7 @@ pub(super) fn drain(
         capture: epoch,
         track: 1,
         process: 1,
+        os_thread: None,
         registered_tracks: 1,
         status,
     };

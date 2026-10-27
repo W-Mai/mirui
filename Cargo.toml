@@ -26,7 +26,7 @@ rustc-hash = { version = "2", default-features = false }
 
 [features]
 default = ["quad-aa", "log-stderr"]
-std = ["critical-section/std", "dep:web-time"]
+std = ["critical-section/std", "dep:web-time", "dep:libc", "dep:windows-sys"]
 log-stderr = ["std"]
 log-nuttx-syslog = ["std"]
 log-bridge = ["std", "dep:log"]
@@ -121,7 +121,7 @@ ndk-context = { version = "0.1.1", optional = true }
 sdl2 = { version = "0.37", optional = true, features = ["raw-window-handle"] }
 raw-window-handle = { version = "0.6", optional = true }
 url = { version = "2.5", optional = true }
-windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_Globalization", "Win32_UI_Shell"] }
+windows-sys = { version = "0.61", optional = true, features = ["Win32_Foundation", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_Globalization", "Win32_UI_Shell", "Win32_System_Threading"] }
 windows = { version = "0.62", optional = true, default-features = false, features = ["std", "Win32_Foundation", "Win32_Graphics_Imaging", "Win32_System_Com", "Win32_System_Com_StructuredStorage", "Win32_UI_Shell"] }
 
 [target.'cfg(target_os = "windows")'.dev-dependencies]

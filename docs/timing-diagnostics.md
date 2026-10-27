@@ -82,3 +82,11 @@ driver.wait_previous()?;
 `perf::feedback` distinguishes GPU completion, presentation feedback, buffer release and transfer completion. `perf::display_presented` records presentation feedback specifically. Pass a `PlatformTimestamp` with a static `ClockDomain`, nonzero tick frequency and source epoch; native timestamps remain separate from the callback's Mirui observation time. The caller must supply the actual request's token and display identity. Clock names do not establish calibration, and sequence gaps do not create extra presented images. No pending map, device wait or completion callback is introduced by recording these events.
 
 Record capacity depends on the compiled record layout and the configured byte budget. `Capture::event_capacity()` exposes it. Detailed captures can require a larger explicit budget or fewer probes; adding evidence never silently expands the configured storage.
+
+## Thread CPU time
+
+`FpsSummaryPlugin::with_thread_cpu_time(true)` enables CPU samples at operation boundaries without requiring detailed traces. `PerfReportPlugin::with_thread_cpu_time(true)` also enables them for traced submission and wait scopes. A direct capture uses `capture.set_thread_cpu_time(true)`. Ordinary draw spans do not read the thread CPU clock. CPU collection is disabled by default.
+
+Linux, Android, macOS and iOS use `CLOCK_THREAD_CPUTIME_ID`; Windows adds the current thread's kernel and user times from `GetThreadTimes`. Failed reads, clock rollback and unsupported platforms return no sample. Web and bare-metal targets do not substitute wall time or cycle counts. Available native thread IDs are exported separately from logical track IDs for matching external scheduling evidence. A native ID is meaningful only within the recorded process and capture lifetime.
+
+`TimingSample::instrumented` and each summary's `instrumented_operations` identify operations with detailed tracing enabled. Inline instrumentation remains in their wall and CPU measurements. `thread_cpu_nanos()` on a summary requires complete CPU sample coverage; `partial_thread_cpu_nanos()` and `cpu_samples()` expose partial coverage explicitly. Wall minus CPU is only a difference between measurements, not a measurement of GPU execution or a specific wait cause. Actual scheduling intervals require separate system evidence.

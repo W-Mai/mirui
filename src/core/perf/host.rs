@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex, Weak};
 use std::vec::Vec;
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
+static CPU_TIME: AtomicBool = AtomicBool::new(false);
 static REGISTRY: Mutex<Registry> = Mutex::new(Registry {
     epoch: 0,
     owner: false,
@@ -28,6 +29,7 @@ struct Registry {
 struct Track {
     epoch: u64,
     id: u64,
+    os_thread: Option<u64>,
     buffer: Mutex<Buffer>,
 }
 
@@ -92,6 +94,7 @@ pub fn register_thread() -> Result<(), CaptureError> {
         let track = Arc::new(Track {
             epoch: registry.epoch,
             id,
+            os_thread: super::cpu::thread_id(),
             buffer: Mutex::new(buffer),
         });
         registry
@@ -107,6 +110,15 @@ pub fn register_thread() -> Result<(), CaptureError> {
 
 pub fn is_enabled() -> bool {
     ENABLED.load(Ordering::Relaxed)
+}
+pub(super) fn thread_cpu_time() -> bool {
+    CPU_TIME.load(Ordering::Relaxed)
+}
+pub(super) fn set_thread_cpu_time(epoch: u64, enabled: bool) {
+    let registry = REGISTRY.lock().unwrap();
+    if registry.owner && registry.epoch == epoch {
+        CPU_TIME.store(enabled, Ordering::Relaxed);
+    }
 }
 
 pub(super) fn next_scope() -> Option<super::SubmissionId> {
@@ -207,6 +219,7 @@ pub(super) fn stop(epoch: u64) {
         return;
     }
     ENABLED.store(false, Ordering::Relaxed);
+    CPU_TIME.store(false, Ordering::Relaxed);
     for track in &registry.tracks {
         track.buffer.lock().unwrap().closed = true;
     }
@@ -251,6 +264,7 @@ pub(super) fn drain(
             capture: epoch,
             track: track.id,
             process: std::process::id(),
+            os_thread: track.os_thread,
             registered_tracks: registered,
             status,
         };
@@ -270,6 +284,7 @@ pub(super) fn drain(
             capture: epoch,
             track: 0,
             process: std::process::id(),
+            os_thread: None,
             registered_tracks: registered,
             status: TraceStatus {
                 dropped: unregistered,

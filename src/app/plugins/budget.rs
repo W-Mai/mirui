@@ -142,6 +142,7 @@ mod tests {
                     operation: crate::ecs::FrameOperation::Tick,
                     wall_nanos: Some(1),
                     thread_cpu_nanos: None,
+                    instrumented: false,
                     outcome: crate::ecs::TimingOutcome::Completed,
                     phases: &timings(1),
                     finished_at_ns: Some(1),

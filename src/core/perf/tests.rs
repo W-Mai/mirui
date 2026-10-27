@@ -152,6 +152,7 @@ fn fractional_timestamps_and_names_are_lossless_json() {
         capture: 7,
         track: 2,
         process: 19,
+        os_thread: Some(27),
         registered_tracks: 2,
         status: TraceStatus::default(),
     };
@@ -213,13 +214,13 @@ fn previous_submission_wait_stays_in_current_operation_and_feedback_keeps_its_cl
     let submission_id = attempt.id().unwrap();
     attempt.finish(SubmissionOutcome::Issued);
     accepted();
-    first.close_operation(TimingOutcome::Completed);
+    first.close_operation(TimingOutcome::Completed, None);
     let second = operation(42, FrameOperation::Draw);
     let second_id = second.id().unwrap();
     let waiting = wait("native.poll", Some(submission_id));
     let wait_id = waiting.id().unwrap();
     drop(waiting);
-    second.close_operation(TimingOutcome::Idle);
+    second.close_operation(TimingOutcome::Idle, None);
     static CLOCK: ClockDomain = ClockDomain {
         name: "native.clock",
         ticks_per_second: core::num::NonZeroU64::new(1000).unwrap(),
@@ -287,4 +288,53 @@ fn unfinished_attempt_and_unknown_wait_never_become_success_or_exact() {
             .any(|r| matches!(r.data, RecordData::WaitsOn { submission: 0, .. }))
     );
     assert_eq!(capture.status().open_scopes, 0);
+}
+
+#[test]
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "linux",
+    target_os = "android",
+    target_os = "windows"
+))]
+fn cpu_is_opt_in_and_thread_mapping_is_native() {
+    let _serial = SERIAL.lock().unwrap();
+    let mut capture = Capture::new(DEFAULT_TRACE_BUDGET).unwrap();
+    drop(wait("without.cpu", None));
+    capture.drain_events(|info, records| {
+        if info.track != 0 {
+            assert!(info.os_thread.is_some());
+        }
+        assert!(
+            !records
+                .iter()
+                .any(|r| matches!(r.data, RecordData::ThreadCpu { .. }))
+        );
+    });
+    capture.set_thread_cpu_time(true);
+    let scope = wait("sleep.cpu", None);
+    let id = scope.id().unwrap().value;
+    std::thread::sleep(std::time::Duration::from_millis(25));
+    drop(scope);
+    let mut cpu = None;
+    let mut wall = None;
+    capture.drain_events(|_, records| {
+        for record in records {
+            match record.data {
+                RecordData::ThreadCpu { scope, nanos } if scope == id => cpu = Some(nanos),
+                RecordData::Scope {
+                    id: scope,
+                    start_ns,
+                    end_ns,
+                    ..
+                } if scope == id => wall = Some(end_ns - start_ns),
+                _ => {}
+            }
+        }
+    });
+    assert!(cpu.is_some());
+    assert!(wall.is_some());
+    // This checks separate clocks, not a CPU performance threshold.
+    assert!(cpu.unwrap() < wall.unwrap());
 }

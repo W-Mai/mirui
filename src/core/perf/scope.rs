@@ -8,6 +8,7 @@ pub struct Scope {
     id: Option<SubmissionId>,
     name: &'static str,
     start: Option<u64>,
+    cpu_start: Option<u64>,
     kind: ScopeKind,
     previous: Option<SubmissionId>,
     is_operation: bool,
@@ -19,6 +20,9 @@ impl Scope {
         let id = imp::next_scope();
         let start = id.and_then(|_| crate::core::time::try_clock_now_ns());
         let previous = id.and_then(|_| imp::operation());
+        let cpu_start = (id.is_some() && !is_operation && imp::thread_cpu_time())
+            .then(super::cpu::now_ns)
+            .flatten();
         if let Some(id) = id {
             let parent = previous
                 .filter(|p| p.capture == id.capture)
@@ -39,6 +43,7 @@ impl Scope {
             id,
             name,
             start,
+            cpu_start,
             kind,
             previous,
             is_operation,
@@ -56,9 +61,24 @@ impl Scope {
         }
     }
 
-    pub(crate) fn close_operation(mut self, outcome: TimingOutcome) -> Option<SubmissionId> {
+    pub(crate) fn close_operation(
+        mut self,
+        outcome: TimingOutcome,
+        cpu: Option<u64>,
+    ) -> Option<SubmissionId> {
         if let ScopeKind::Operation(kind, _) = self.kind {
             self.kind = ScopeKind::Operation(kind, outcome);
+        }
+        if let Some(id) = self.id
+            && let Some(nanos) = cpu
+        {
+            imp::record(
+                id.capture,
+                RecordData::ThreadCpu {
+                    scope: id.value,
+                    nanos,
+                },
+            );
         }
         self.id
     }
@@ -67,6 +87,17 @@ impl Scope {
 impl Drop for Scope {
     fn drop(&mut self) {
         if let Some(id) = self.id {
+            if let Some(start) = self.cpu_start
+                && let Some(nanos) = super::cpu::now_ns().and_then(|end| end.checked_sub(start))
+            {
+                imp::record(
+                    id.capture,
+                    RecordData::ThreadCpu {
+                        scope: id.value,
+                        nanos,
+                    },
+                );
+            }
             if self.is_operation && imp::operation() == Some(id) {
                 imp::replace_operation(self.previous);
             }

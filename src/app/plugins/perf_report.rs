@@ -59,6 +59,7 @@ pub struct PerfReportPlugin {
     perfetto_line_sink: Option<PerfettoLineSink>,
     trace_budget: usize,
     capture: Option<Capture>,
+    cpu: bool,
 }
 
 /// Writer for bounded batches of complete newline-terminated JSON records. One operation can produce multiple batches; sinks must preserve their order.
@@ -73,12 +74,19 @@ impl PerfReportPlugin {
             perfetto_line_sink: None,
             trace_budget: DEFAULT_TRACE_BUDGET,
             capture: None,
+            cpu: false,
         }
     }
 
     /// Set the total diagnostic bytes per registered producer, including export workspace.
     pub fn with_trace_budget(mut self, bytes: usize) -> Self {
         self.trace_budget = bytes;
+        self
+    }
+
+    /// Read thread CPU clocks at operation, submission and wait boundaries when supported. Ordinary spans keep wall-only recording.
+    pub fn with_thread_cpu_time(mut self, enabled: bool) -> Self {
+        self.cpu = enabled;
         self
     }
 
@@ -121,13 +129,19 @@ where
 {
     fn build(&mut self, app: &mut App<B, F>) {
         match Capture::new(self.trace_budget) {
-            Ok(capture) => self.capture = Some(capture),
+            Ok(mut capture) => {
+                capture.set_thread_cpu_time(self.cpu);
+                self.capture = Some(capture);
+            }
             Err(error) => {
                 crate::warn!(target: "mirui::perf", "trace capture not installed: {:?}", error);
                 return;
             }
         }
         app.enable_timing_reports();
+        if self.cpu {
+            app.enable_cpu_timing();
+        }
         app.world.insert_resource(SystemPerfSnapshot::default());
         app.world.insert_resource(PerfResetFlag(false));
     }

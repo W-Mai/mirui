@@ -11,11 +11,15 @@ pub(super) struct OperationTiming {
     pub(super) phases: FrameTimings,
     pub(super) outcome: TimingOutcome,
     pub(super) report: bool,
+    cpu: bool,
 }
 
 impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     pub(crate) fn enable_timing_reports(&mut self) {
         self.timing.report = true;
+    }
+    pub(crate) fn enable_cpu_timing(&mut self) {
+        self.timing.cpu = true;
     }
 
     pub(super) fn timing_clock_ns(&self) -> Option<u64> {
@@ -52,7 +56,21 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 || crate::core::time::is_clock_installed(),
         );
         self.timing.outcome = TimingOutcome::Idle;
+        let instrumented = crate::core::perf::is_enabled();
+        let cpu_start = self
+            .timing
+            .cpu
+            .then(crate::core::perf::cpu::now_ns)
+            .flatten();
         let result = action(self);
+        let thread_cpu_nanos = cpu_start
+            .zip(
+                self.timing
+                    .cpu
+                    .then(crate::core::perf::cpu::now_ns)
+                    .flatten(),
+            )
+            .and_then(|(a, b)| b.checked_sub(a));
         let end = self.timing.report.then(|| self.timing_clock_ns()).flatten();
         let wall_nanos = self
             .timing
@@ -71,12 +89,13 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let outcome = self.timing.outcome;
         self.timing.active = false;
         self.publish_timings(&phases, outcome);
-        let _trace_id = trace.close_operation(outcome);
+        let _trace_id = trace.close_operation(outcome, thread_cpu_nanos);
         if self.timing.report {
             let sample = TimingSample {
                 operation: kind,
                 wall_nanos,
-                thread_cpu_nanos: None,
+                thread_cpu_nanos,
+                instrumented,
                 outcome,
                 phases: &phases,
                 finished_at_ns: end,
