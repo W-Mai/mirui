@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Skip repeated layout-marker scans in output summaries when unchanged topology and authored visibility exclude all contributing layout damage.
 - Prepare output invalidation summaries only when a live source still needs to consume them in the current propagation pass.
 - Reuse layout-damage membership summaries across repeated marker writes while preserving write revisions for geometry preparation.
 - Reuse retained preorder subtree spans when skipping hidden, clipped or cached branches during painting, hit geometry updates and output preparation.

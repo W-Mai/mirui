@@ -9,8 +9,11 @@ pub(super) struct SourceDirtyIndex {
     entries: Vec<Entry>,
     revisions: Option<[u64; 6]>,
     available: bool,
+    layout_unrelated: bool,
     #[cfg(test)]
     pub(super) rebuilds: usize,
+    #[cfg(test)]
+    layout_scans: usize,
 }
 
 struct Entry {
@@ -81,6 +84,9 @@ impl SourceDirtyIndex {
             world.retirement_revision(),
         ];
         if self.revisions != Some(revisions) {
+            let layout_changed = self.revisions.is_none_or(|previous| {
+                previous[0] != revisions[0] || previous[2..] != revisions[2..]
+            });
             #[cfg(test)]
             {
                 self.rebuilds += 1;
@@ -88,9 +94,24 @@ impl SourceDirtyIndex {
             for entry in &mut self.entries {
                 entry.dirty = false;
             }
-            if let Some(storage) = world.storage::<Dirty>() {
-                for &entity in storage.entities() {
-                    self.mark(world, entity, true, true);
+            if layout_changed || !self.layout_unrelated {
+                if layout_changed {
+                    self.layout_unrelated = true;
+                }
+                #[cfg(test)]
+                {
+                    self.layout_scans += 1;
+                }
+                if let Some(storage) = world.storage::<Dirty>() {
+                    for &entity in storage.entities() {
+                        if self.layout_unrelated {
+                            if !self.may_dirty_source(world, entity) {
+                                continue;
+                            }
+                            self.layout_unrelated = false;
+                        }
+                        self.mark(world, entity, true, true);
+                    }
                 }
             }
             if let Some(storage) = world.storage::<VisualDirty>() {
@@ -144,6 +165,27 @@ impl SourceDirtyIndex {
             entity = parent.0;
         }
     }
+
+    // Only revision-tracked authored visibility can prove a branch unrelated.
+    // Derived visibility remains part of mark's live check.
+    fn may_dirty_source(&self, world: &World, mut entity: Entity) -> bool {
+        let mut related = false;
+        for _ in 0..=world.live_entity_count() {
+            if crate::ui::branch::is_authored_hidden(world, entity) {
+                return false;
+            }
+            related = related
+                || self
+                    .entries
+                    .binary_search_by_key(&key(entity), |entry| key(entry.entity))
+                    .is_ok();
+            let Some(parent) = world.get::<Parent>(entity) else {
+                break;
+            };
+            entity = parent.0;
+        }
+        related
+    }
 }
 
 fn key(entity: Entity) -> (u32, u32) {
@@ -153,6 +195,92 @@ fn key(entity: Entity) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unrelated_layout_members_reuse_their_proof_across_visual_changes() {
+        let mut world = World::new();
+        let source = world.spawn_empty();
+        let child = world.spawn_empty();
+        let unrelated = world.spawn_empty();
+        world.insert(child, Parent(source));
+        world.insert(unrelated, Dirty);
+        let mut index = SourceDirtyIndex::default();
+        index.begin(&mut world, [source].into_iter());
+        assert!(!index.is_dirty(&world, source));
+        let scans = index.layout_scans;
+        world.invalidate_visual(unrelated);
+        assert!(!index.is_dirty(&world, source));
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for _ in 0..73 {
+                    world.invalidate_visual(unrelated);
+                    assert!(!index.is_dirty(&world, source));
+                }
+            }),
+            0
+        );
+        assert_eq!(index.layout_scans, scans);
+
+        world.insert(child, Dirty);
+        assert!(index.is_dirty(&world, source));
+        world.remove::<Dirty>(child);
+        assert!(!index.is_dirty(&world, source));
+        world.insert(unrelated, Parent(child));
+        assert!(index.is_dirty(&world, source));
+        world.insert(child, crate::ui::Hidden);
+        assert!(!index.is_dirty(&world, source));
+        assert!(index.layout_unrelated);
+        world.remove::<crate::ui::Hidden>(child);
+        assert!(index.is_dirty(&world, source));
+        world.despawn(unrelated);
+        assert!(!index.is_dirty(&world, source));
+
+        world.insert(child, Dirty);
+        index.begin(&mut world, [child].into_iter());
+        assert!(index.is_dirty(&world, child));
+        index.begin(&mut world, core::iter::empty());
+        assert!(!index.available);
+        assert!(!index.layout_unrelated);
+        assert_eq!(index.entries.capacity(), 0);
+    }
+
+    #[test]
+    fn hidden_layout_members_invalidate_the_proof_when_revealed() {
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        let source = world.spawn_empty();
+        let child = world.spawn_empty();
+        world.insert(source, Parent(root));
+        world.insert(child, Parent(source));
+        world.insert(child, Dirty);
+        world.insert(
+            child,
+            crate::ui::branch::CachedBranchVisibility { selected: false },
+        );
+        let mut index = SourceDirtyIndex::default();
+        index.begin(&mut world, [source].into_iter());
+        assert!(!index.is_dirty(&world, source));
+        assert!(index.layout_unrelated);
+        let scans = index.layout_scans;
+        world.invalidate_visual(root);
+        assert!(!index.is_dirty(&world, source));
+        assert_eq!(index.layout_scans, scans);
+
+        world
+            .get_mut::<crate::ui::branch::CachedBranchVisibility>(child)
+            .unwrap()
+            .selected = true;
+        assert!(index.is_dirty(&world, source));
+        world.insert(root, crate::ui::Hidden);
+        assert!(!index.is_dirty(&world, source));
+        assert!(index.layout_unrelated);
+        let scans = index.layout_scans;
+        world.invalidate_visual(root);
+        assert!(!index.is_dirty(&world, source));
+        assert_eq!(index.layout_scans, scans);
+        world.remove::<crate::ui::Hidden>(root);
+        assert!(index.is_dirty(&world, source));
+    }
 
     #[test]
     fn summary_matches_live_scan_for_nested_and_unrelated_sources() {
