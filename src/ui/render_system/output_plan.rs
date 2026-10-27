@@ -443,10 +443,10 @@ impl TexturePlan {
         if self.nodes[position].measurement_valid
             && registry.paint_iter().all(|view| {
                 view.measurement().is_none()
+                    || view.measurement_reusable()
                     || view
                         .component_filter()
                         .is_some_and(|ty| !world.has_type(entity, ty))
-                    || view.measurement_reusable()
             })
         {
             self.include_workspace(position, owner);
