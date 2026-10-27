@@ -62,6 +62,7 @@ impl PerfEvent {
 pub struct BatchInfo {
     pub capture: u64,
     pub track: u64,
+    /// Native process ID, or zero when identities are local to the exported source.
     pub process: u32,
     pub os_thread: Option<u64>,
     pub registered_tracks: u64,
@@ -471,7 +472,15 @@ fn format_status(info: BatchInfo, w: &mut impl Write) -> fmt::Result {
     } else {
         w.write_str("null")?;
     }
-    w.write_str("}}")
+    write!(
+        w,
+        r#", "process_identity":"{}"}}}}"#,
+        if info.process == 0 {
+            "source-local"
+        } else {
+            "native"
+        }
+    )
 }
 
 fn write_json_escaped(s: &str, w: &mut impl Write) -> fmt::Result {
@@ -490,13 +499,13 @@ fn write_json_escaped(s: &str, w: &mut impl Write) -> fmt::Result {
 }
 
 fn process_id() -> u32 {
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "std", not(target_arch = "wasm32")))]
     {
         std::process::id()
     }
-    #[cfg(not(feature = "std"))]
+    #[cfg(any(not(feature = "std"), target_arch = "wasm32"))]
     {
-        1
+        0
     }
 }
 

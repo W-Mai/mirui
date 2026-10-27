@@ -263,7 +263,7 @@ pub(super) fn drain(
         let info = BatchInfo {
             capture: epoch,
             track: track.id,
-            process: std::process::id(),
+            process: super::process_id(),
             os_thread: track.os_thread,
             registered_tracks: registered,
             status,
@@ -283,7 +283,7 @@ pub(super) fn drain(
         BatchInfo {
             capture: epoch,
             track: 0,
-            process: std::process::id(),
+            process: super::process_id(),
             os_thread: None,
             registered_tracks: registered,
             status: TraceStatus {

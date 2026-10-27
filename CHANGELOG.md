@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Export Web traces without querying unsupported native process IDs, and identify source-local process labels explicitly.
+
 - Honor direct trace-capture CPU sampling at App operation boundaries without requiring a report plugin.
 
 - Drive the offscreen demo's mode interval from animation time instead of accumulated rendering cost.

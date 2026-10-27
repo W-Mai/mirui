@@ -52,6 +52,8 @@ Only one `Capture` can consume the process stream. A second capture returns `Cap
 
 Track IDs are capture-local logical identities, not operating-system thread IDs. Sequence numbers preserve close order, including gaps caused by loss. `trace.status` and `trace.capture` expose dropped records, invalid clocks or nesting, open scopes, and aggregation or encoding loss. Missing CPU, GPU or display measurements remain unavailable. An open scope can cross a drain boundary; a single batch is not necessarily a complete tree. Truncated trees cannot yield exact uncovered wall time. Inclusive totals overlap and must not be added together.
 
+Web and bare-metal exports use `pid: 0` and `process_identity: "source-local"` because no native process ID is available. Analyze independent exports separately or assign source namespaces before combining them; equal capture and track numbers do not identify the same browser instance or device. Native process IDs also require capture-lifetime context and are not permanent machine identities.
+
 ## Operations, submissions and feedback
 
 The same bounded stream contains `RecordData` variants for spans, operation contexts, submission attempts, waits, App acceptance and native feedback. Use `record.span()` when consuming only ordinary spans. An operation references its App and caller. A submission has its own capture-scoped identity; multiple requests and failed attempts are not collapsed into a frame number. `app.accepted` reports the existing App acceptance boundary and does not mean display completion.

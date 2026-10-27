@@ -154,7 +154,7 @@ pub(super) fn drain(
     let info = BatchInfo {
         capture: epoch,
         track: 1,
-        process: 1,
+        process: super::process_id(),
         os_thread: None,
         registered_tracks: 1,
         status,

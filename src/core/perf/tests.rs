@@ -163,6 +163,21 @@ fn fractional_timestamps_and_names_are_lossless_json() {
     assert!(text.contains(r#""pid":19,"tid":2"#));
     assert!(text.contains(r#"a\"b\\c\nd\u0001"#));
     assert!(!text.contains('\n'));
+    text.clear();
+    format_status(info, &mut text).unwrap();
+    assert!(text.contains(r#""process_identity":"native""#));
+    text.clear();
+    format_status(
+        BatchInfo {
+            process: 0,
+            os_thread: None,
+            ..info
+        },
+        &mut text,
+    )
+    .unwrap();
+    assert!(text.contains(r#""process_identity":"source-local""#));
+    assert!(text.contains(r#""os_thread":null"#));
 }
 
 #[test]
