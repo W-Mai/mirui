@@ -14,7 +14,7 @@ pub fn mode_toggle_system(
     panels: query!(Entity; with PanelTarget;),
     commands: commands!(),
 ) {
-    let frame_ns = timings.map_or(0, |timings| timings.frame_nanos);
+    let frame_ns = timings.map_or(0, |timings| timings.phase_wall_nanos);
 
     toggle.elapsed_ns += frame_ns;
     let flip = if toggle.elapsed_ns - toggle.last_flip_ns >= TOGGLE_NS {

@@ -435,7 +435,7 @@ ESP32-C3 (RV32 160 MHz, no FPU) + ST7735S 128×128 SPI:
 | Three-body (widgets + dirty rect) | ~13 ms | ~77 | Default `quad-aa` off; partial refresh |
 | Cover-flow (3D quad transforms) | ~52 ms | ~19 | `default-features = false` |
 
-`App::run` writes a per-stage `FrameTimings` resource each frame (input / systems / layout / render / flush / seed_prev) and pushes `frame_nanos` into a 256-sample `FrameStats` ring for jitter / p99 analysis. `FpsSummaryPlugin` averages and prints the breakdown, `BudgetReportPlugin` warns when avg or p99 cross a configured threshold.
+`App::run` writes a per-stage `FrameTimings` resource (input / systems / layout / render / flush / seed_prev) and pushes `phase_wall_nanos` into a 256-sample `FrameStats` ring for jitter / p99 analysis. These are recorded wall-time phases, including any blocking within them, rather than CPU time or complete host-loop time. `FpsSummaryPlugin` reports the breakdown and render callback frequency separately; callback frequency includes idle callbacks and does not measure display completion. `BudgetReportPlugin` checks the recorded phase sums against configured thresholds.
 
 ### Drilling into spans
 

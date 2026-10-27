@@ -5,12 +5,12 @@ pub struct DeltaTimeMs(pub u16);
 
 /// Timing breakdown published when an App tick finishes rendering. All values are nanoseconds for the most recently completed tick; zero when no `MonoClock` is present.
 ///
-/// `frame_nanos` is the sum of the recorded phases, not the complete tick or host-loop wall time. Preparation between systems and damage collection, statistics publication, plugin `post_render`, platform-input synchronization and host-loop scheduling are outside this sum. Display completion can also occur after submission returns.
+/// `phase_wall_nanos` is the sum of the recorded phases, not the complete tick or host-loop wall time. Preparation between systems and damage collection, statistics publication, plugin `post_render`, platform-input synchronization and host-loop scheduling are outside this sum. Display completion can also occur after submission returns.
 ///
 /// `input_nanos` includes event polling, plugin event hooks and input dispatch. `seed_prev_nanos` records painted-state acknowledgment after either full or dirty rendering; idle ticks leave it zero.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FrameTimings {
-    pub frame_nanos: u64,
+    pub phase_wall_nanos: u64,
     pub input_nanos: u64,
     pub systems_nanos: u64,
     pub layout_nanos: u64,
@@ -19,7 +19,7 @@ pub struct FrameTimings {
     pub seed_prev_nanos: u64,
 }
 
-/// Fixed window of recent `FrameTimings::frame_nanos` values for jitter and tail latency analysis. The App appends samples in place without allocating. The values describe recorded phases, not display intervals or complete host-loop time.
+/// Fixed window of recent `FrameTimings::phase_wall_nanos` values for jitter and tail latency analysis. The App appends samples in place without allocating. The values describe recorded phases, not display intervals or complete host-loop time.
 ///
 /// 256 samples ≈ 3.4 s at 75 fps, ≈ 14 s at 18 fps — plenty to surface
 /// stutter without occupying meaningful RAM (2 KB).
@@ -42,9 +42,9 @@ impl Default for FrameStats {
 }
 
 impl FrameStats {
-    /// Append a frame's `frame_nanos`.
-    pub fn push(&mut self, frame_nanos: u64) {
-        self.samples[self.head] = frame_nanos;
+    /// Append a frame's `phase_wall_nanos`.
+    pub fn push(&mut self, phase_wall_nanos: u64) {
+        self.samples[self.head] = phase_wall_nanos;
         self.head = (self.head + 1) % FRAME_STATS_CAP;
         if self.len < FRAME_STATS_CAP {
             self.len += 1;

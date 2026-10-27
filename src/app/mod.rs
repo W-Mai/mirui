@@ -1323,14 +1323,14 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         };
         let input_nanos = pending.input_end.saturating_sub(pending.frame_start);
         let systems_nanos = pending.systems_end.saturating_sub(pending.input_end);
-        let frame_nanos = input_nanos
+        let phase_wall_nanos = input_nanos
             + systems_nanos
             + self.last_layout_ns
             + self.last_render_ns
             + self.last_flush_ns
             + self.last_seed_prev_ns;
         self.world.insert_resource(crate::ecs::FrameTimings {
-            frame_nanos,
+            phase_wall_nanos,
             input_nanos,
             systems_nanos,
             layout_nanos: self.last_layout_ns,
@@ -1339,10 +1339,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             seed_prev_nanos: self.last_seed_prev_ns,
         });
         if let Some(stats) = self.world.resource_mut::<crate::ecs::FrameStats>() {
-            stats.push(frame_nanos);
+            stats.push(phase_wall_nanos);
         } else {
             let mut stats = crate::ecs::FrameStats::default();
-            stats.push(frame_nanos);
+            stats.push(phase_wall_nanos);
             self.world.insert_resource(stats);
         }
 
