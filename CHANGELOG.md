@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Close operation traces before publishing statistics and sample coarse-scope endpoints before appending diagnostic records.
+
 - Associate DRM page-flip waits and completion timestamps with their native pending requests, retaining separate kernel and callback clocks.
 
 - Associate SDL and WGPU submission calls with diagnostic scopes; link synchronous GPU readback waits to their actual submissions without inferring display completion.

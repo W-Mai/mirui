@@ -98,7 +98,6 @@ pub enum ScopeKind {
     Operation(crate::ecs::FrameOperation, crate::ecs::TimingOutcome),
     Submission(SubmissionOutcome),
     Wait,
-    Observer,
 }
 
 impl Record {
@@ -188,7 +187,6 @@ pub fn format_record(info: super::BatchInfo, record: &Record, w: &mut impl Write
                     write!(w, r#", "kind":"submission","outcome":"{outcome:?}"#)?
                 }
                 ScopeKind::Wait => w.write_str(r#", "kind":"wait"#)?,
-                ScopeKind::Observer => w.write_str(r#", "kind":"observer"#)?,
             }
             w.write_char('"')?;
             w.write_str(r#"},"name":""#)?;

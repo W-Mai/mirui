@@ -47,9 +47,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         if self.timing.active {
             return action(self);
         }
-        let trace = crate::core::perf::operation(self.world.id().diagnostic_id(), kind);
         self.timing.active = true;
-        self.timing.start = self.timing.report.then(|| self.timing_clock_ns()).flatten();
         self.timing.phases = FrameTimings::new(
             kind,
             self.world.resource::<crate::ecs::MonoClock>().is_some()
@@ -57,6 +55,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         );
         self.timing.outcome = TimingOutcome::Idle;
         let instrumented = crate::core::perf::is_enabled();
+        let trace = crate::core::perf::operation(self.world.id().diagnostic_id(), kind);
+        self.timing.start = self.timing.report.then(|| self.timing_clock_ns()).flatten();
         let cpu_start = self
             .timing
             .cpu
@@ -88,8 +88,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let phases = self.timing.phases;
         let outcome = self.timing.outcome;
         self.timing.active = false;
-        self.publish_timings(&phases, outcome);
         let trace_id = trace.close_operation(outcome, thread_cpu_nanos);
+        self.publish_timings(&phases, outcome);
         if self.timing.report {
             let _context = crate::core::perf::report_context(trace_id);
             let sample = TimingSample {

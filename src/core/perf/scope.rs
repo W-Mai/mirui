@@ -3,12 +3,18 @@ use super::{
 };
 use crate::ecs::{FrameOperation, TimingOutcome};
 
+enum CpuSample {
+    Unavailable,
+    Start(u64),
+    Elapsed(u64),
+}
+
 /// Diagnostic scope. It neither submits work nor changes native request lifetime.
 pub struct Scope {
     id: Option<SubmissionId>,
     name: &'static str,
     start: Option<u64>,
-    cpu_start: Option<u64>,
+    cpu: CpuSample,
     kind: ScopeKind,
     previous: Option<SubmissionId>,
     is_operation: bool,
@@ -18,11 +24,7 @@ pub struct Scope {
 impl Scope {
     fn new(name: &'static str, kind: ScopeKind, app: u64, is_operation: bool) -> Self {
         let id = imp::next_scope();
-        let start = id.and_then(|_| crate::core::time::try_clock_now_ns());
         let previous = id.and_then(|_| imp::operation());
-        let cpu_start = (id.is_some() && !is_operation && imp::thread_cpu_time())
-            .then(super::cpu::now_ns)
-            .flatten();
         if let Some(id) = id {
             let parent = previous
                 .filter(|p| p.capture == id.capture)
@@ -39,11 +41,15 @@ impl Scope {
                 imp::replace_operation(Some(id));
             }
         }
+        let start = id.and_then(|_| crate::core::time::try_clock_now_ns());
+        let cpu_start = (id.is_some() && !is_operation && imp::thread_cpu_time())
+            .then(super::cpu::now_ns)
+            .flatten();
         Self {
             id,
             name,
             start,
-            cpu_start,
+            cpu: cpu_start.map_or(CpuSample::Unavailable, CpuSample::Start),
             kind,
             previous,
             is_operation,
@@ -69,17 +75,8 @@ impl Scope {
         if let ScopeKind::Operation(kind, _) = self.kind {
             self.kind = ScopeKind::Operation(kind, outcome);
         }
-        if let Some(id) = self.id
-            && let Some(nanos) = cpu
-        {
-            imp::record(
-                id.capture,
-                RecordData::ThreadCpu {
-                    scope: id.value,
-                    nanos,
-                },
-            );
-        }
+        // Operation CPU is sampled by App around its business action; other scopes own their clock endpoints.
+        self.cpu = cpu.map_or(CpuSample::Unavailable, CpuSample::Elapsed);
         self.id
     }
 }
@@ -87,9 +84,15 @@ impl Scope {
 impl Drop for Scope {
     fn drop(&mut self) {
         if let Some(id) = self.id {
-            if let Some(start) = self.cpu_start
-                && let Some(nanos) = super::cpu::now_ns().and_then(|end| end.checked_sub(start))
-            {
+            let cpu = match self.cpu {
+                CpuSample::Unavailable => None,
+                CpuSample::Elapsed(nanos) => Some(nanos),
+                CpuSample::Start(start) => {
+                    super::cpu::now_ns().and_then(|end| end.checked_sub(start))
+                }
+            };
+            let end = crate::core::time::try_clock_now_ns();
+            if let Some(nanos) = cpu {
                 imp::record(
                     id.capture,
                     RecordData::ThreadCpu {
@@ -101,7 +104,7 @@ impl Drop for Scope {
             if self.is_operation && imp::operation() == Some(id) {
                 imp::replace_operation(self.previous);
             }
-            if let Some((start_ns, end_ns)) = self.start.zip(crate::core::time::try_clock_now_ns())
+            if let Some((start_ns, end_ns)) = self.start.zip(end)
                 && end_ns >= start_ns
             {
                 imp::record(
