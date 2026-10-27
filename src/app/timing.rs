@@ -57,20 +57,13 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let instrumented = crate::core::perf::is_enabled();
         let trace = instrumented
             .then(|| crate::core::perf::operation(self.world.id().diagnostic_id(), kind));
+        let measure_cpu =
+            self.timing.cpu || (instrumented && crate::core::perf::thread_cpu_time_enabled());
         self.timing.start = self.timing.report.then(|| self.timing_clock_ns()).flatten();
-        let cpu_start = self
-            .timing
-            .cpu
-            .then(crate::core::perf::cpu::now_ns)
-            .flatten();
+        let cpu_start = measure_cpu.then(crate::core::perf::cpu::now_ns).flatten();
         let result = action(self);
         let thread_cpu_nanos = cpu_start
-            .zip(
-                self.timing
-                    .cpu
-                    .then(crate::core::perf::cpu::now_ns)
-                    .flatten(),
-            )
+            .zip(measure_cpu.then(crate::core::perf::cpu::now_ns).flatten())
             .and_then(|(a, b)| b.checked_sub(a));
         let end = self.timing.report.then(|| self.timing_clock_ns()).flatten();
         let wall_nanos = self

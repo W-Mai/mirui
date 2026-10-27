@@ -29,6 +29,10 @@ use core::fmt::{self, Write};
 pub use imp::{is_enabled, register_thread};
 pub use mirui_macros::{trace_fn, trace_span};
 
+pub(crate) fn thread_cpu_time_enabled() -> bool {
+    imp::thread_cpu_time()
+}
+
 /// Default bytes per registered producer, including export and aggregation workspace. The workspace is shared by the capture, so additional producers conservatively leave the same allowance unused.
 pub const DEFAULT_TRACE_BUDGET: usize = if cfg!(feature = "std") {
     128 * 1024

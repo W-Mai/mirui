@@ -1,7 +1,10 @@
 #![cfg(feature = "std")]
 
+static CAPTURE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn render_span_ends_before_surface_submission_and_reporting() {
+    let _capture = CAPTURE.lock().unwrap();
     use mirui::core::perf;
 
     let mut app = mirui::app::App::headless(16, 16);
@@ -28,4 +31,56 @@ fn render_span_ends_before_surface_submission_and_reporting() {
         .position(|event| event.name == flush.name)
         .unwrap();
     assert!(render_index < flush_index);
+}
+
+#[test]
+fn direct_capture_controls_operation_cpu_without_a_report_plugin() {
+    use mirui::core::perf::{self, RecordData, ScopeKind};
+
+    let _capture = CAPTURE.lock().unwrap();
+    let mut app = mirui::app::App::headless(16, 16);
+    app.with_default_widgets();
+    app.spawn_root().id();
+    let mut capture = perf::Capture::new(perf::DEFAULT_TRACE_BUDGET).unwrap();
+    for enabled in [false, true, false] {
+        capture.set_thread_cpu_time(enabled);
+        app.render().unwrap();
+        let mut records = Vec::new();
+        capture.drain_events(|_, batch| records.extend_from_slice(batch));
+        let operation = records
+            .iter()
+            .find_map(|record| match record.data {
+                RecordData::Scope {
+                    id,
+                    kind: ScopeKind::Operation(..),
+                    ..
+                } => Some(id),
+                _ => None,
+            })
+            .unwrap();
+        let cpu = records.iter().find_map(|record| match record.data {
+            RecordData::ThreadCpu { scope, nanos } if scope == operation => Some(nanos),
+            _ => None,
+        });
+        let supported = cfg!(any(
+            target_os = "linux",
+            target_os = "android",
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "windows"
+        ));
+        assert_eq!(cpu.is_some(), enabled && supported);
+        assert_eq!(
+            records
+                .iter()
+                .filter(|r| matches!(r.data,
+            RecordData::ThreadCpu { scope, .. } if scope == operation))
+                .count(),
+            usize::from(enabled && supported)
+        );
+    }
+    capture.stop();
+    capture.drain_events(|_, _| {});
+    assert_eq!(capture.status().dropped, 0);
+    assert_eq!(capture.status().open_scopes, 0);
 }
