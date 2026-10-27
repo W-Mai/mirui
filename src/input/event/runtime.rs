@@ -81,23 +81,22 @@ impl EventRuntime {
             .ok_or(ListenerError::SizeOverflow)?;
         let live = world.live_entity_count();
         let typed_inputs = match world.resource::<ViewRegistry>() {
-            Some(registry) => registry.iter().try_fold(0_usize, |count, view| {
-                let Some(inputs) = view.inputs() else {
-                    return Ok(count);
-                };
-                let inputs = inputs.try_borrow().map_err(|_| ListenerError::Busy)?;
-                let super::view_input::InputState::Ready(inputs) = &*inputs else {
-                    return Ok(count);
-                };
-                let matches = view
-                    .component_filter()
-                    .map_or(live, |kind| world.component_count(kind));
-                inputs
-                    .max_dispatch
-                    .checked_mul(matches)
-                    .and_then(|additional| count.checked_add(additional))
-                    .ok_or(ListenerError::SizeOverflow)
-            })?,
+            Some(registry) => {
+                registry
+                    .input_bindings()
+                    .try_fold(0_usize, |count, (filter, inputs)| {
+                        let inputs = inputs.try_borrow().map_err(|_| ListenerError::Busy)?;
+                        let super::view_input::InputState::Ready(inputs) = &*inputs else {
+                            return Ok(count);
+                        };
+                        let matches = filter.map_or(live, |kind| world.component_count(kind));
+                        inputs
+                            .max_dispatch
+                            .checked_mul(matches)
+                            .and_then(|additional| count.checked_add(additional))
+                            .ok_or(ListenerError::SizeOverflow)
+                    })?
+            }
             None => 0,
         };
         let snapshot_steps = listeners
@@ -1367,6 +1366,41 @@ mod tests {
             &trace.values[..trace.len],
             &[40 + child.id, 40 + parent.id, 7]
         );
+    }
+
+    #[test]
+    fn planned_input_preparation_preserves_busy_and_capacity_errors() {
+        use super::super::view_input::InputState;
+        let mut world = world();
+        let view = crate::ui::view::View::systems_only("editor", &[])
+            .with_filter::<Marker>()
+            .with_inputs(&mut world, editing::callback());
+        let inputs = view.inputs().unwrap().clone();
+        let mut registry = ViewRegistry::default();
+        registry.insert(view);
+        world.insert_resource(registry);
+        assert_eq!(prepare(&world), Ok(()));
+        let borrowed = inputs.borrow_mut();
+        assert_eq!(prepare(&world), Err(ListenerError::Busy));
+        drop(borrowed);
+
+        for _ in 0..2 {
+            let entity = world.spawn_empty();
+            world.insert(entity, Marker(0));
+        }
+        let original = core::mem::replace(&mut *inputs.borrow_mut(), InputState::Failed);
+        assert_eq!(prepare(&world), Ok(()));
+        *inputs.borrow_mut() =
+            InputState::Pending(|_| panic!("capacity preparation must not install callbacks"));
+        assert_eq!(prepare(&world), Ok(()));
+        *inputs.borrow_mut() = original;
+        {
+            let InputState::Ready(prepared) = &mut *inputs.borrow_mut() else {
+                panic!("prepared inputs");
+            };
+            prepared.max_dispatch = usize::MAX;
+        }
+        assert_eq!(prepare(&world), Err(ListenerError::SizeOverflow));
     }
 
     #[test]

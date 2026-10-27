@@ -63,6 +63,12 @@ pub(crate) struct InputAttach {
 }
 
 impl InputAttach {
+    pub(crate) fn inputs(&self) -> Option<(&Option<core::any::TypeId>, &view_input::SharedInputs)> {
+        self.inputs
+            .as_ref()
+            .map(|inputs| (&self.component_filter, inputs))
+    }
+
     pub(crate) fn for_view(view: &crate::ui::view::View) -> Option<Self> {
         let attach = view.auto_attach().cloned();
         (attach.is_some()

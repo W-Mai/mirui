@@ -1332,6 +1332,21 @@ impl ViewRegistry {
         self.input_attach_plan.as_ref().map(Rc::clone)
     }
 
+    pub(crate) fn input_bindings(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            &Option<TypeId>,
+            &crate::input::event::view_input::SharedInputs,
+        ),
+    > {
+        self.input_attach_plan
+            .as_deref()
+            .map_or(&[][..], |plan| plan.as_slice())
+            .iter()
+            .filter_map(crate::ui::lifecycle::InputAttach::inputs)
+    }
+
     pub(crate) fn paint_iter(&self) -> impl ExactSizeIterator<Item = &View> {
         self.paint_order.iter().map(|&index| &self.views[index])
     }
@@ -1371,6 +1386,34 @@ mod tests {
     use crate::ui::dirty::{Dirty, VisualDirty};
     use core::cell::Cell;
 
+    #[test]
+    fn input_plan_retains_registration_order_and_shared_state() {
+        fn check(registry: &ViewRegistry) {
+            let mut expected = registry.iter().filter_map(|view| {
+                view.inputs()
+                    .map(|inputs| (view.component_filter(), inputs))
+            });
+            for (filter, inputs) in registry.input_bindings() {
+                let (expected_filter, expected_inputs) = expected.next().unwrap();
+                assert_eq!(*filter, expected_filter);
+                assert!(Rc::ptr_eq(inputs, expected_inputs));
+            }
+            assert!(expected.next().is_none());
+        }
+        let mut registry = ViewRegistry::with_builtins();
+        check(&registry);
+        assert_eq!(tracked_allocations(|| check(&registry)), 0);
+        let retained_plan = registry.input_attach_plan().unwrap();
+        let retained_len = retained_plan.len();
+        registry.insert(crate::ui::widgets::button::view());
+        check(&registry);
+        assert_eq!(retained_plan.len(), retained_len);
+        assert_eq!(
+            registry.input_attach_plan().unwrap().len(),
+            retained_len + 1
+        );
+        check(&ViewRegistry::default());
+    }
     #[crate::model]
     struct BoundState {
         #[observe]
