@@ -1,67 +1,181 @@
 use crate::app::plugin::Plugin;
 use crate::app::{App, RendererFactory};
-use crate::ecs::World;
+use crate::ecs::{FrameOperation, FramePhase, FramePhases, FrameStats, TimingSample, World};
 use crate::surface::Surface;
 
-/// Reports recorded phase wall times and render callback cadence. Neither measurement describes display completion or CPU execution time.
+const KINDS: [FrameOperation; 4] = [
+    FrameOperation::Tick,
+    FrameOperation::Update,
+    FrameOperation::Draw,
+    FrameOperation::Maintenance,
+];
+const PHASES: [FramePhase; 6] = [
+    FramePhase::Input,
+    FramePhase::Systems,
+    FramePhase::Layout,
+    FramePhase::Render,
+    FramePhase::Flush,
+    FramePhase::SeedPrev,
+];
+
+/// Reports closed operation wall time and cadence. Phase sums and operation rates are not display FPS or CPU time.
 ///
 /// **Inserts**
-/// - hooks: `post_render`
+/// - hooks: `on_timing`
 pub struct FpsSummaryPlugin {
-    frames_per_summary: u32,
-    frame_count: u32,
-    totals: StageTotals,
+    samples_per_summary: u32,
+    samples: u32,
+    totals: [OperationSummary; 4],
     window: SummaryWindow,
-    on_summary: fn(report: FpsSummary<'_>),
+    on_summary: fn(FpsSummary<'_>),
 }
 
-#[derive(Default)]
-struct StageTotals {
-    frame_ns: u64,
-    input_ns: u64,
-    systems_ns: u64,
-    layout_ns: u64,
-    render_ns: u64,
-    flush_ns: u64,
-    seed_prev_ns: u64,
+#[derive(Clone, Copy, Debug, Default)]
+struct Average {
+    total: u128,
+    count: u64,
 }
-
-impl StageTotals {
-    fn add(&mut self, t: &crate::ecs::FrameTimings) {
-        self.frame_ns += t.phase_wall_nanos;
-        self.input_ns += t.input_nanos;
-        self.systems_ns += t.systems_nanos;
-        self.layout_ns += t.layout_nanos;
-        self.render_ns += t.render_nanos;
-        self.flush_ns += t.flush_nanos;
-        self.seed_prev_ns += t.seed_prev_nanos;
+impl Average {
+    fn add(&mut self, value: Option<u64>) {
+        if let Some(value) = value {
+            self.total += u128::from(value);
+            self.count += 1;
+        }
+    }
+    fn value(&self) -> Option<u64> {
+        (self.count != 0).then(|| (self.total / u128::from(self.count)) as u64)
     }
 }
 
-/// Recorded phase wall-time averages over `samples`, with callback cadence measured independently in a half-open clock window. Phase sums omit work outside the recorded phases and must not be inverted to estimate FPS. `stats` retains phase sums, not display intervals.
-///
-/// Trace events have a single consumer; this plugin does not drain them.
-pub struct FpsSummary<'a> {
-    pub samples: u32,
-    pub avg_phase_wall_ns: u64,
-    pub avg_input_ns: u64,
-    pub avg_systems_ns: u64,
-    pub avg_layout_ns: u64,
-    pub avg_render_ns: u64,
-    pub avg_flush_ns: u64,
-    pub avg_seed_prev_ns: u64,
-    pub wall_ns: Option<u64>,
-    /// Callbacks in the rate window, excluding events at its closing boundary.
-    pub window_callbacks: u64,
-    pub stats: Option<&'a crate::ecs::FrameStats>,
+/// One operation kind, retaining separate valid sample counts for each measurement.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct OperationSummary {
+    pub operation: FrameOperation,
+    pub count: u64,
+    pub window_operations: u64,
+    pub latest_phases: FramePhases,
+    wall: Average,
+    cpu: Average,
+    phases: [Average; 6],
+    outcomes: [u64; 5],
+}
+impl OperationSummary {
+    pub fn outcome_count(&self, outcome: crate::ecs::TimingOutcome) -> u64 {
+        self.outcomes[outcome as usize]
+    }
+    pub fn wall_nanos(&self) -> Option<u64> {
+        self.wall.value()
+    }
+    pub fn wall_samples(&self) -> u64 {
+        self.wall.count
+    }
+    pub fn thread_cpu_nanos(&self) -> Option<u64> {
+        (self.cpu.count == self.count)
+            .then(|| self.cpu.value())
+            .flatten()
+    }
+    pub fn cpu_samples(&self) -> u64 {
+        self.cpu.count
+    }
+    pub fn phase_nanos(&self, phase: FramePhase) -> Option<u64> {
+        self.phases[phase as usize].value()
+    }
+    pub fn phase_samples(&self, phase: FramePhase) -> u64 {
+        self.phases[phase as usize].count
+    }
 }
 
+/// Operation summaries within one report window. Rates count operations in a half-open clock interval; idle operations remain distinct from accepted or displayed frames.
+pub struct FpsSummary<'a> {
+    pub samples: u32,
+    pub operations: &'a [OperationSummary; 4],
+    pub wall_ns: Option<u64>,
+    pub stats: Option<&'a FrameStats>,
+}
 impl FpsSummary<'_> {
-    /// Render callback frequency, including idle callbacks; not a display frame rate.
-    pub fn callback_rate_hz(&self) -> Option<f64> {
-        self.wall_ns
-            .filter(|&ns| ns != 0)
-            .map(|ns| self.window_callbacks as f64 * 1_000_000_000.0 / ns as f64)
+    pub fn operation_rate_hz(&self, operation: FrameOperation) -> Option<f64> {
+        self.wall_ns.filter(|&ns| ns != 0).map(|ns| {
+            self.operations[operation as usize].window_operations as f64 * 1_000_000_000.0
+                / ns as f64
+        })
+    }
+}
+
+impl FpsSummaryPlugin {
+    pub fn new(samples_per_summary: u32) -> Self {
+        Self {
+            samples_per_summary: samples_per_summary.max(1),
+            samples: 0,
+            totals: core::array::from_fn(|i| OperationSummary {
+                operation: KINDS[i],
+                ..OperationSummary::default()
+            }),
+            window: SummaryWindow::default(),
+            on_summary: default_summary,
+        }
+    }
+    pub fn with_sink(mut self, sink: fn(FpsSummary<'_>)) -> Self {
+        self.on_summary = sink;
+        self
+    }
+}
+impl Default for FpsSummaryPlugin {
+    fn default() -> Self {
+        Self::new(60)
+    }
+}
+
+impl<B: Surface, F: RendererFactory<B>> Plugin<B, F> for FpsSummaryPlugin {
+    fn build(&mut self, app: &mut App<B, F>) {
+        app.enable_timing_reports();
+    }
+    fn on_timing(&mut self, world: &mut World, sample: &TimingSample<'_>) {
+        self.window.observe(sample.finished_at_ns, sample.operation);
+        let total = &mut self.totals[sample.operation as usize];
+        total.count += 1;
+        total.outcomes[sample.outcome as usize] += 1;
+        total.latest_phases = sample.phases.phases();
+        total.wall.add(sample.wall_nanos);
+        total.cpu.add(sample.thread_cpu_nanos);
+        for phase in PHASES {
+            total.phases[phase as usize].add(sample.phases.phase_nanos(phase));
+        }
+        self.samples += 1;
+        if self.samples < self.samples_per_summary {
+            return;
+        }
+        let (counts, wall_ns) = self.window.close();
+        for (total, count) in self.totals.iter_mut().zip(counts) {
+            total.window_operations = count;
+        }
+        (self.on_summary)(FpsSummary {
+            samples: self.samples,
+            operations: &self.totals,
+            wall_ns,
+            stats: world.resource::<FrameStats>(),
+        });
+        self.samples = 0;
+        self.totals = core::array::from_fn(|i| OperationSummary {
+            operation: KINDS[i],
+            ..OperationSummary::default()
+        });
+    }
+}
+
+fn default_summary(report: FpsSummary<'_>) {
+    for op in report.operations.iter().filter(|op| op.count != 0) {
+        crate::info!(target: "mirui::perf", "{:?} count={} rate={:?}/s wall={:?}ns (before reporting/pacing) cpu={:?}ns; display rate unavailable", op.operation, op.count, report.operation_rate_hz(op.operation), op.wall_nanos(), op.thread_cpu_nanos());
+        for phase in PHASES {
+            if let Some(value) = op.phase_nanos(phase) {
+                crate::info!(target: "mirui::perf", "  {:?} wall={}ns samples={}", phase, value, op.phase_samples(phase));
+            }
+        }
+        if let Some(stats) = report
+            .stats
+            .and_then(|stats| stats.summary(op.operation, op.latest_phases))
+        {
+            crate::info!(target: "mirui::perf", "  phase budget {:?} samples={} avg={}ns p99={}ns jitter={}ns", op.latest_phases, stats.count, stats.avg_nanos, stats.p99_nanos, stats.jitter_nanos());
+        }
     }
 }
 
@@ -70,13 +184,13 @@ impl FpsSummary<'_> {
 struct SummaryWindow {
     start: Option<u64>,
     latest: Option<u64>,
-    events: u64,
-    boundary_events: u64,
+    events: [u64; 4],
+    boundary_events: [u64; 4],
     invalid: bool,
 }
 
 impl SummaryWindow {
-    fn observe(&mut self, now: Option<u64>) {
+    fn observe(&mut self, now: Option<u64>, kind: FrameOperation) {
         let Some(now) = now else {
             self.invalid = true;
             self.latest = None;
@@ -86,16 +200,15 @@ impl SummaryWindow {
             self.invalid = true;
         }
         self.start.get_or_insert(now);
-        self.boundary_events = if self.latest == Some(now) {
-            self.boundary_events.saturating_add(1)
-        } else {
-            1
-        };
+        if self.latest != Some(now) {
+            self.boundary_events = [0; 4];
+        }
+        self.boundary_events[kind as usize] += 1;
         self.latest = Some(now);
-        self.events = self.events.saturating_add(1);
+        self.events[kind as usize] += 1;
     }
 
-    fn close(&mut self) -> (u64, Option<u64>) {
+    fn close(&mut self) -> ([u64; 4], Option<u64>) {
         if self.invalid {
             *self = Self {
                 start: self.latest,
@@ -103,16 +216,16 @@ impl SummaryWindow {
                 events: if self.latest.is_some() {
                     self.boundary_events
                 } else {
-                    0
+                    [0; 4]
                 },
                 boundary_events: if self.latest.is_some() {
                     self.boundary_events
                 } else {
-                    0
+                    [0; 4]
                 },
                 ..Self::default()
             };
-            return (0, None);
+            return ([0; 4], None);
         }
         let elapsed = self
             .start
@@ -120,151 +233,54 @@ impl SummaryWindow {
             .and_then(|(start, end)| end.checked_sub(start))
             .filter(|&ns| ns != 0);
         let Some(elapsed) = elapsed else {
-            return (0, None);
+            return ([0; 4], None);
         };
-        let count = self.events - self.boundary_events;
+        let count = core::array::from_fn(|i| self.events[i] - self.boundary_events[i]);
         self.start = self.latest;
         self.events = self.boundary_events;
         (count, Some(elapsed))
     }
 }
 
-impl FpsSummaryPlugin {
-    pub fn new(frames_per_summary: u32) -> Self {
-        Self {
-            frames_per_summary,
-            frame_count: 0,
-            totals: StageTotals::default(),
-            window: SummaryWindow::default(),
-            on_summary: default_summary,
-        }
-    }
-
-    pub fn with_sink(mut self, sink: fn(FpsSummary<'_>)) -> Self {
-        self.on_summary = sink;
-        self
-    }
-}
-
-impl Default for FpsSummaryPlugin {
-    fn default() -> Self {
-        Self::new(60)
-    }
-}
-
-impl<B, F> Plugin<B, F> for FpsSummaryPlugin
-where
-    B: Surface,
-    F: RendererFactory<B>,
-{
-    fn build(&mut self, _app: &mut App<B, F>) {}
-
-    fn post_render(&mut self, world: &mut World, _render_nanos: u64) {
-        // Read FrameTimings (written by App::run); skip the very first
-        // post_render that fires before the run loop has populated it.
-        let Some(t) = world.resource::<crate::ecs::FrameTimings>().copied() else {
-            return;
-        };
-        let now_ns = world
-            .resource::<crate::ecs::MonoClock>()
-            .map(|c| c.now_ns());
-        self.window.observe(now_ns);
-        self.frame_count += 1;
-        self.totals.add(&t);
-
-        if self.frame_count >= self.frames_per_summary {
-            let n = self.frame_count as u64;
-            let avg = |total: u64| total / n;
-            let (window_callbacks, wall_ns) = self.window.close();
-            (self.on_summary)(FpsSummary {
-                samples: self.frame_count,
-                avg_phase_wall_ns: avg(self.totals.frame_ns),
-                avg_input_ns: avg(self.totals.input_ns),
-                avg_systems_ns: avg(self.totals.systems_ns),
-                avg_layout_ns: avg(self.totals.layout_ns),
-                avg_render_ns: avg(self.totals.render_ns),
-                avg_flush_ns: avg(self.totals.flush_ns),
-                avg_seed_prev_ns: avg(self.totals.seed_prev_ns),
-                wall_ns,
-                window_callbacks,
-                stats: world.resource::<crate::ecs::FrameStats>(),
-            });
-            self.frame_count = 0;
-            self.totals = StageTotals::default();
-        }
-    }
-}
-
-fn default_summary(report: FpsSummary<'_>) {
-    if let Some(rate) = report.callback_rate_hz() {
-        crate::info!(target: "mirui::fps", "render callbacks {:.1}/s; display rate unavailable", rate);
-    } else {
-        crate::info!(target: "mirui::fps", "render callback rate unavailable; display rate unavailable");
-    }
-    crate::info!(
-        target: "mirui::fps",
-        "{} samples | phase wall {}us = input {} + systems {} + layout {} + render {} + flush {} + seed {}",
-        report.samples,
-        report.avg_phase_wall_ns / 1000,
-        report.avg_input_ns / 1000,
-        report.avg_systems_ns / 1000,
-        report.avg_layout_ns / 1000,
-        report.avg_render_ns / 1000,
-        report.avg_flush_ns / 1000,
-        report.avg_seed_prev_ns / 1000,
-    );
-    if let Some(s) = report.stats {
-        crate::info!(
-            target: "mirui::fps",
-            "window={} min {}us max {}us p99 {}us jitter {}us",
-            s.len(),
-            s.min() / 1000,
-            s.max() / 1000,
-            s.p99() / 1000,
-            s.jitter() / 1000,
-        );
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::SummaryWindow;
+    use super::{FrameOperation, SummaryWindow};
 
     #[test]
     fn rate_windows_count_boundaries_once() {
         let mut window = SummaryWindow::default();
-        window.observe(Some(0));
-        assert_eq!(window.close(), (0, None));
-        window.observe(Some(10));
-        window.observe(Some(20));
-        assert_eq!(window.close(), (2, Some(20)));
-        window.observe(Some(30));
-        window.observe(Some(40));
-        assert_eq!(window.close(), (2, Some(20)));
+        window.observe(Some(0), FrameOperation::Tick);
+        assert_eq!(window.close(), ([0; 4], None));
+        window.observe(Some(10), FrameOperation::Tick);
+        window.observe(Some(20), FrameOperation::Tick);
+        assert_eq!(window.close(), ([2, 0, 0, 0], Some(20)));
+        window.observe(Some(30), FrameOperation::Tick);
+        window.observe(Some(40), FrameOperation::Tick);
+        assert_eq!(window.close(), ([2, 0, 0, 0], Some(20)));
     }
 
     #[test]
     fn equal_timestamps_remain_in_the_next_half_open_window() {
         let mut window = SummaryWindow::default();
         for t in [10, 10, 20, 20, 20] {
-            window.observe(Some(t));
+            window.observe(Some(t), FrameOperation::Tick);
         }
-        assert_eq!(window.close(), (2, Some(10)));
-        assert_eq!(window.close(), (0, None));
-        window.observe(Some(30));
-        assert_eq!(window.close(), (3, Some(10)));
+        assert_eq!(window.close(), ([2, 0, 0, 0], Some(10)));
+        assert_eq!(window.close(), ([0; 4], None));
+        window.observe(Some(30), FrameOperation::Tick);
+        assert_eq!(window.close(), ([3, 0, 0, 0], Some(10)));
     }
 
     #[test]
     fn missing_or_rewound_clock_invalidates_the_entire_window() {
         for gap in [None, Some(5)] {
             let mut window = SummaryWindow::default();
-            window.observe(Some(10));
-            window.observe(gap);
-            window.observe(Some(20));
-            assert_eq!(window.close(), (0, None));
-            window.observe(Some(30));
-            assert_eq!(window.close(), (1, Some(10)));
+            window.observe(Some(10), FrameOperation::Tick);
+            window.observe(gap, FrameOperation::Tick);
+            window.observe(Some(20), FrameOperation::Tick);
+            assert_eq!(window.close(), ([0; 4], None));
+            window.observe(Some(30), FrameOperation::Tick);
+            assert_eq!(window.close(), ([1, 0, 0, 0], Some(10)));
         }
     }
 }

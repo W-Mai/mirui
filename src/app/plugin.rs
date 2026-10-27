@@ -46,6 +46,9 @@ where
     /// installed.
     fn post_render(&mut self, _world: &mut World, _render_nanos: u64) {}
 
+    /// Receives the closed outer operation before report output and host pacing. Enabled by timing reporter plugins; business post-render hooks retain their original ordering. The sample includes any instrumentation inside the operation.
+    fn on_timing(&mut self, _world: &mut World, _sample: &crate::ecs::TimingSample<'_>) {}
+
     /// Inspect input before widgets and App fallback. Returning true consumes user input. Lifecycle requests still reach every plugin and retain cancellation and state-transition handling.
     fn on_event(&mut self, _world: &mut World, _event: &InputEvent) -> bool {
         false

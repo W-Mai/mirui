@@ -68,7 +68,7 @@ impl CacheStatsSnapshot {
 }
 
 /// World resource: latest cache snapshots, refreshed by `App::run`
-/// each frame between `FrameTimings` publish and `post_render`.
+/// each rendered frame before `post_render`. Operation timings are published after business hooks and platform maintenance complete.
 #[derive(Debug, Default)]
 pub struct CacheRegistry {
     snapshots: alloc::vec::Vec<CacheStatsSnapshot>,

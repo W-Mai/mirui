@@ -71,10 +71,9 @@ fn slide_origin_uses_the_live_layout_position() {
 #[test]
 fn readout_updates_content_without_replacing_paragraph_style() {
     let mut app = App::headless(super::DEFAULT_VIEW.0, super::DEFAULT_VIEW.1);
-    app.add_resource(FrameTimings {
-        render_nanos: 77_000,
-        ..FrameTimings::default()
-    });
+    let mut timings = FrameTimings::new(crate::ecs::FrameOperation::Draw, true);
+    timings.record(crate::ecs::FramePhase::Render, Some(0), Some(77_000));
+    app.add_resource(timings);
     let parent = app.spawn_root().id();
     app.compose(parent, build_widgets());
     let world = &mut app.world;

@@ -1,6 +1,6 @@
-//! Per-frame perf reporting.
+//! Per-operation perf reporting.
 //!
-//! Drains span events from [`crate::core::perf`] each frame, optionally
+//! Drains span events from [`crate::core::perf`] each closed operation, optionally
 //! streams them as chrome-JSON lines through a user-supplied sink
 //! (open the captured stream in <https://ui.perfetto.dev>), and
 //! periodically emits an aggregated `PerfReport` containing
@@ -29,20 +29,20 @@ pub struct SystemStat {
     pub call_count: u32,
 }
 
-/// `App::run` consumes this each frame: when `true`, the scheduler's
+/// `App::run` consumes this each closed operation: when `true`, the scheduler's
 /// per-system perf counters reset before the next window begins.
 #[derive(Default, Clone, Copy)]
 pub struct PerfResetFlag(pub bool);
 
 #[derive(Clone)]
 pub struct PerfReport {
-    pub frames: u32,
+    pub operations: u32,
     pub stage_stats: alloc::vec::Vec<StageStat>,
     pub systems: alloc::vec::Vec<SystemStat>,
 }
 
-/// Per-frame perf reporter: accumulates span and per-system timings,
-/// emits a `PerfReport` callback every `frames_per_report` frames,
+/// Per-operation perf reporter: accumulates span and per-system timings,
+/// emits a `PerfReport` callback every `operations_per_report` operations,
 /// optionally writes Chrome-trace JSON to a file.
 ///
 /// **Inserts**
@@ -50,10 +50,10 @@ pub struct PerfReport {
 /// - system: none
 /// - view: none
 /// - entity: none
-/// - hooks: `post_render` (drains `crate::core::perf` events; emits report at window boundary)
+/// - hooks: `on_timing` (drains `crate::core::perf` events; emits report at window boundary)
 pub struct PerfReportPlugin {
-    frames_per_report: u32,
-    frame_count: u32,
+    operations_per_report: u32,
+    operation_count: u32,
     on_report: fn(report: &PerfReport),
     perfetto_line_sink: Option<PerfettoLineSink>,
 }
@@ -63,10 +63,10 @@ pub struct PerfReportPlugin {
 pub type PerfettoLineSink = alloc::boxed::Box<dyn FnMut(&str)>;
 
 impl PerfReportPlugin {
-    pub fn new(frames_per_report: u32) -> Self {
+    pub fn new(operations_per_report: u32) -> Self {
         Self {
-            frames_per_report,
-            frame_count: 0,
+            operations_per_report: operations_per_report.max(1),
+            operation_count: 0,
             on_report: default_sink,
             perfetto_line_sink: None,
         }
@@ -110,6 +110,7 @@ where
     F: RendererFactory<B>,
 {
     fn build(&mut self, app: &mut App<B, F>) {
+        app.enable_timing_reports();
         app.world.insert_resource(PerfAccum::default());
         // Opt-in flag for App::snapshot_system_perf.
         app.world.insert_resource(SystemPerfSnapshot::default());
@@ -117,7 +118,7 @@ where
         crate::core::perf::set_enabled(true);
     }
 
-    fn post_render(&mut self, world: &mut World, _render_nanos: u64) {
+    fn on_timing(&mut self, world: &mut World, _sample: &crate::ecs::TimingSample<'_>) {
         let events = crate::core::perf::drain_events();
 
         if let Some(sink) = self.perfetto_line_sink.as_mut() {
@@ -139,7 +140,7 @@ where
         }
 
         if let Some(acc) = world.resource_mut::<PerfAccum>() {
-            // Aggregate per-frame so events don't need to be retained
+            // Aggregate per-operation so events don't need to be retained
             // across the whole report window.
             for ev in &events {
                 let dur = ev.end_ns.saturating_sub(ev.start_ns);
@@ -166,8 +167,8 @@ where
             }
         }
 
-        self.frame_count += 1;
-        if self.frame_count < self.frames_per_report {
+        self.operation_count += 1;
+        if self.operation_count < self.operations_per_report {
             return;
         }
 
@@ -176,13 +177,13 @@ where
             .map(|a| a.stage_stats.clone())
             .unwrap_or_default();
         let report = PerfReport {
-            frames: self.frame_count,
+            operations: self.operation_count,
             stage_stats,
             systems: collect_system_stats(world),
         };
         (self.on_report)(&report);
 
-        self.frame_count = 0;
+        self.operation_count = 0;
         if let Some(a) = world.resource_mut::<PerfAccum>() {
             a.stage_stats.clear();
         }
@@ -206,7 +207,7 @@ fn collect_system_stats(world: &World) -> alloc::vec::Vec<SystemStat> {
 }
 
 fn default_sink(report: &PerfReport) {
-    crate::info!(target: "mirui::perf", "{} frames", report.frames);
+    crate::info!(target: "mirui::perf", "{} operations", report.operations);
     let mut sorted: alloc::vec::Vec<&StageStat> = report.stage_stats.iter().collect();
     sorted.sort_by_key(|s| core::cmp::Reverse(s.total_ns));
     for s in &sorted {

@@ -4,15 +4,15 @@ use crate::ecs::World;
 use crate::surface::Surface;
 
 /// Watches `FrameStats` and fires a sink whenever avg or p99
-/// frame time exceeds a configured budget. `budget_*_ns = 0`
+/// recorded phase wall time exceeds a configured budget. `budget_*_ns = 0`
 /// disables that threshold.
 ///
 /// **Inserts**
-/// - hooks: `post_render` (every `frames_per_check` frames, reads
+/// - hooks: `on_timing` (every `operations_per_check` completed operations, reads
 ///   `FrameStats` and may invoke the sink)
 pub struct BudgetReportPlugin {
-    frames_per_check: u32,
-    frame_count: u32,
+    operations_per_check: u32,
+    operation_count: u32,
     budget_avg_ns: u64,
     budget_p99_ns: u64,
     on_violation: fn(report: BudgetViolation),
@@ -22,6 +22,8 @@ pub struct BudgetReportPlugin {
 /// threshold is breached. Sinks may compare `avg_ns` / `p99_ns`
 /// against `budget_avg_ns` / `budget_p99_ns` to format the message.
 pub struct BudgetViolation {
+    pub operation: crate::ecs::FrameOperation,
+    pub phases: crate::ecs::FramePhases,
     pub avg_ns: u64,
     pub p99_ns: u64,
     pub jitter_ns: u64,
@@ -30,11 +32,11 @@ pub struct BudgetViolation {
 }
 
 impl BudgetReportPlugin {
-    /// Create a plugin that checks every `frames_per_check` frames.
-    pub fn new(frames_per_check: u32) -> Self {
+    /// Check the current operation's phase budget every `operations_per_check` completed operations.
+    pub fn new(operations_per_check: u32) -> Self {
         Self {
-            frames_per_check,
-            frame_count: 0,
+            operations_per_check: operations_per_check.max(1),
+            operation_count: 0,
             budget_avg_ns: 0,
             budget_p99_ns: 0,
             on_violation: default_violation,
@@ -68,29 +70,38 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    fn build(&mut self, _app: &mut App<B, F>) {}
+    fn build(&mut self, app: &mut App<B, F>) {
+        app.enable_timing_reports();
+    }
 
-    fn post_render(&mut self, world: &mut World, _render_nanos: u64) {
-        self.frame_count += 1;
-        if self.frame_count < self.frames_per_check {
+    fn on_timing(&mut self, world: &mut World, sample: &crate::ecs::TimingSample<'_>) {
+        if sample.outcome != crate::ecs::TimingOutcome::Completed
+            || sample.phases.phase_wall_nanos().is_none()
+        {
             return;
         }
-        self.frame_count = 0;
+        self.operation_count += 1;
+        if self.operation_count < self.operations_per_check {
+            return;
+        }
+        self.operation_count = 0;
         let Some(stats) = world.resource::<crate::ecs::FrameStats>() else {
             return;
         };
-        if stats.is_empty() {
+        let Some(stats) = stats.summary(sample.operation, sample.phases.phases()) else {
             return;
-        }
-        let avg = stats.avg();
-        let p99 = stats.p99();
+        };
+        let avg = stats.avg_nanos;
+        let p99 = stats.p99_nanos;
         let avg_over = self.budget_avg_ns != 0 && avg > self.budget_avg_ns;
         let p99_over = self.budget_p99_ns != 0 && p99 > self.budget_p99_ns;
         if avg_over || p99_over {
             (self.on_violation)(BudgetViolation {
+                operation: sample.operation,
+                phases: sample.phases.phases(),
                 avg_ns: avg,
                 p99_ns: p99,
-                jitter_ns: stats.jitter(),
+                jitter_ns: stats.jitter_nanos(),
                 budget_avg_ns: self.budget_avg_ns,
                 budget_p99_ns: self.budget_p99_ns,
             });
@@ -101,7 +112,9 @@ where
 fn default_violation(v: BudgetViolation) {
     crate::warn!(
         target: "mirui::budget",
-        "avg {}us (budget {}us) p99 {}us (budget {}us) jitter {}us",
+        "{:?} {:?} phase budget avg {}us (budget {}us) p99 {}us (budget {}us) jitter {}us",
+        v.operation,
+        v.phases,
         v.avg_ns / 1000,
         v.budget_avg_ns / 1000,
         v.p99_ns / 1000,
@@ -122,15 +135,32 @@ mod tests {
             <BudgetReportPlugin as Plugin<
                 crate::surface::framebuf::FramebufSurface<fn(&[u8], crate::types::PhysicalRect)>,
                 crate::app::SwRendererFactory,
-            >>::post_render(plugin, world, 0);
+            >>::on_timing(
+                plugin,
+                world,
+                &crate::ecs::TimingSample {
+                    operation: crate::ecs::FrameOperation::Tick,
+                    wall_nanos: Some(1),
+                    thread_cpu_nanos: None,
+                    outcome: crate::ecs::TimingOutcome::Completed,
+                    phases: &timings(1),
+                    finished_at_ns: Some(1),
+                },
+            );
         }
+    }
+
+    fn timings(value: u64) -> crate::ecs::FrameTimings {
+        let mut t = crate::ecs::FrameTimings::new(crate::ecs::FrameOperation::Tick, true);
+        t.record(crate::ecs::FramePhase::Render, Some(0), Some(value));
+        t
     }
 
     fn fixture(samples: &[u64]) -> World {
         let mut world = World::new();
         let mut stats = FrameStats::default();
         for &v in samples {
-            stats.push(v);
+            stats.push(&timings(v));
         }
         world.insert_resource(stats);
         world

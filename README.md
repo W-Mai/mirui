@@ -325,8 +325,8 @@ Plugins package cross-cutting behaviour. Each plugin's docstring lists what it i
 | Plugin | Inserts |
 |--------|---------|
 | `StdInstantClockPlugin` | resource: `MonoClock` (std-only) |
-| `PerfReportPlugin` | resource: `PerfAccum`; hook: `post_render` |
-| `FpsSummaryPlugin` | hook: `post_render` |
+| `PerfReportPlugin` | resource: `PerfAccum`; hook: `on_timing` |
+| `FpsSummaryPlugin` | hook: `on_timing` |
 | `InputFeedbackPlugin` | resources: `InputFeedback`, `InputFeedbackInput`; systems: cursor + rotary feedback; views: cursor (pri 90), rotary (pri 91); entities: `OverlayCursor` (lazy), `OverlayRotary` (eager); hooks: `on_event`, `pre_render` |
 | `AudioPlugin` (`audio` feature) | resources: `AudioHandle`, `AudioStateSignal`; hooks: `on_event`, `pre_render`, suspend, resume, quit |
 
@@ -435,7 +435,7 @@ ESP32-C3 (RV32 160 MHz, no FPU) + ST7735S 128×128 SPI:
 | Three-body (widgets + dirty rect) | ~13 ms | ~77 | Default `quad-aa` off; partial refresh |
 | Cover-flow (3D quad transforms) | ~52 ms | ~19 | `default-features = false` |
 
-`App::run` writes a per-stage `FrameTimings` resource (input / systems / layout / render / flush / seed_prev) and pushes `phase_wall_nanos` into a 256-sample `FrameStats` ring for jitter / p99 analysis. These are recorded wall-time phases, including any blocking within them, rather than CPU time or complete host-loop time. `FpsSummaryPlugin` reports the breakdown and render callback frequency separately; callback frequency includes idle callbacks and does not measure display completion. `BudgetReportPlugin` checks the recorded phase sums against configured thresholds.
+`App` publishes `FrameTimings` when each outer operation closes. `Tick`, separate host `Update` and `Draw`, and maintenance samples retain their own phase sets; absent or invalid measurements return `None`. `FrameStats` retains 256 completed, valid phase budgets and filters by operation and phase set. `FpsSummaryPlugin` reports operation wall time, phase wall time and callback cadence separately; none measures physical display rate. Business hooks and platform maintenance are included in operation wall time, while report output and pacing are excluded. `BudgetReportPlugin` checks the selected phase budget. See [timing diagnostics](docs/timing-diagnostics.md) for reading samples and interpreting waits.
 
 ### Drilling into spans
 

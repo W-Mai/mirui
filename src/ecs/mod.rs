@@ -15,5 +15,10 @@ pub use entity::Entity;
 pub use query::QueryBuilder;
 pub use sparse_set::SparseSet;
 pub use system::{System, SystemRunError, SystemScheduler, SystemSlot};
-pub use time::{DeltaTimeMs, FrameStats, FrameTimings, MonoClock};
+mod frame_timing;
+pub use frame_timing::{
+    FrameOperation, FramePhase, FramePhases, FrameStats, FrameTimings, PhaseStatistics,
+    TimingOutcome, TimingSample,
+};
+pub use time::{DeltaTimeMs, MonoClock};
 pub use world::World;

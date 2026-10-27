@@ -43,7 +43,9 @@ pub fn mode_toggle_system(
     modals: query!(Entity; with ModalAnim;),
     commands: commands!(),
 ) {
-    let frame_ns = timings.map_or(0, |timings| timings.phase_wall_nanos);
+    let frame_ns = timings
+        .and_then(|timings| timings.phase_wall_nanos())
+        .unwrap_or(0);
 
     toggle.elapsed_ns += frame_ns;
     let flip = if toggle.elapsed_ns - toggle.last_flip_ns >= TOGGLE_NS {
@@ -73,7 +75,9 @@ pub fn fps_readout_system(
     readouts: query!(Entity, mut FpsReadout),
     commands: commands!(),
 ) {
-    let render_ns = timings.map_or(0, |timings| timings.render_nanos);
+    let render_ns = timings
+        .and_then(|timings| timings.render_nanos())
+        .unwrap_or(0);
     let offscreen = toggle.is_some_and(|toggle| toggle.offscreen);
 
     for (entity, readout) in readouts {

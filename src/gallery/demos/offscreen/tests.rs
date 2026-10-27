@@ -76,10 +76,9 @@ fn panel_is_centered_and_contained_across_supported_viewports() {
 fn readout_updates_content_without_replacing_paragraph_style() {
     let mut app = App::headless(360, 360);
     app.with_default_widgets();
-    app.add_resource(FrameTimings {
-        render_nanos: 123_000,
-        ..FrameTimings::default()
-    });
+    let mut timing = FrameTimings::new(crate::ecs::FrameOperation::Draw, true);
+    timing.record(crate::ecs::FramePhase::Render, Some(0), Some(123_000));
+    app.add_resource(timing);
     let parent = app.spawn_root().id();
     app.compose(parent, build_widgets());
     let world = &mut app.world;
@@ -102,10 +101,9 @@ fn readout_updates_content_without_replacing_paragraph_style() {
 fn readout_stays_clean_between_sample_windows() {
     let mut app = App::headless(360, 360);
     app.with_default_widgets();
-    app.add_resource(FrameTimings {
-        render_nanos: 123_000,
-        ..FrameTimings::default()
-    });
+    let mut timing = FrameTimings::new(crate::ecs::FrameOperation::Draw, true);
+    timing.record(crate::ecs::FramePhase::Render, Some(0), Some(123_000));
+    app.add_resource(timing);
     let parent = app.spawn_root().id();
     app.compose(parent, build_widgets());
     let world = &mut app.world;

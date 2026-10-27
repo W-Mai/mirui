@@ -1803,7 +1803,6 @@ where
         }
         if redraw {
             app.draw_tick();
-            app.maintain_tick();
         }
     }
 
@@ -1822,7 +1821,6 @@ where
                 event_loop.exit();
                 return;
             }
-            app.finish_tick(false);
         }
         if app.is_suspended() {
             event_loop.set_control_flow(ControlFlow::Wait);

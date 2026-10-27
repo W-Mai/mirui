@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Timing reports distinguish tick, update and draw operations, preserve missing phase measurements, and run after business hooks and platform maintenance. Phase budget statistics filter the existing sample ring by operation and phase set.
+
 ### Changed
 
 - Frame timing sums are named `phase_wall_nanos`. Summary reports distinguish render callback cadence from recorded phase wall times and leave display rate unavailable without display feedback.

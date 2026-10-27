@@ -2,6 +2,8 @@ pub mod lifecycle;
 mod model;
 pub mod plugin;
 pub mod plugins;
+mod timing;
+use crate::ecs::{FrameOperation, FramePhase, TimingOutcome};
 pub use model::ModelBuilder;
 
 #[cfg(test)]
@@ -95,12 +97,8 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     plugins: Vec<Box<dyn Plugin<B, F>>>,
     #[cfg(feature = "perf")]
     pub perf: Option<crate::render::PerfCtx>,
-    last_layout_ns: u64,
-    last_render_ns: u64,
-    last_flush_ns: u64,
-    last_seed_prev_ns: u64,
     dirty_plan: DirtyRegions,
-    pending_frame: Option<PendingFrame>,
+    timing: timing::OperationTiming,
     needs_full_redraw: bool,
     resource_wait_revision: Option<(u64, u64, u64)>,
     painted_root_hidden: bool,
@@ -116,12 +114,6 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     text_layout_preparation_error: Option<crate::text::TextLayoutError>,
     text_raster_scratch_extent: Option<(u16, u16)>,
     text_raster_scratch_preparation_error: Option<crate::render::RenderError>,
-}
-
-struct PendingFrame {
-    frame_start: u64,
-    input_end: u64,
-    systems_end: u64,
 }
 
 impl<B: FramebufferAccess> App<B, SwRendererFactory> {
@@ -295,12 +287,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             plugins: Vec::new(),
             #[cfg(feature = "perf")]
             perf: None,
-            last_layout_ns: 0,
-            last_render_ns: 0,
-            last_flush_ns: 0,
-            last_seed_prev_ns: 0,
             dirty_plan: DirtyRegions::with_rect_capacity(render_system::DIRTY_PLAN_RECT_CAPACITY),
-            pending_frame: None,
+            timing: timing::OperationTiming::default(),
             needs_full_redraw: true,
             resource_wait_revision: None,
             painted_root_hidden: false,
@@ -1135,9 +1123,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 
     /// Render one frame
-    #[mirui::trace_fn("frame.full")]
     pub fn render(&mut self) -> Result<(), crate::render::RenderError> {
-        self.render_frame(|_, _| Ok(())).map(|_| ())
+        self.with_timing(FrameOperation::Draw, |app| {
+            let result = app.render_frame(|_, _| Ok(())).map(|_| ());
+            app.record_render_result(&result);
+            result
+        })
     }
 
     /// Render and present one frame, returning its pixels before the renderer releases the target. The texture retains the backend's pixel format and stride. No root returns `Ok(None)`; unsupported readback returns `RenderError::Unsupported` without substituting another renderer.
@@ -1146,22 +1137,27 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     pub fn snapshot(
         &mut self,
     ) -> Result<Option<crate::render::texture::Texture<'static>>, crate::render::RenderError> {
-        self.render_frame(|renderer, viewport| {
-            let (width, height) = viewport.physical_size();
-            let area = viewport.logical_cover(PhysicalRect::from_size(width, height));
-            renderer.prepare_readback(&area)?;
-            let texture = renderer
-                .sample_target_region(&area)?
-                .ok_or(crate::render::RenderError::BackendFailure)?;
-            if (texture.width, texture.height) != viewport.physical_size()
-                || !texture.valid_storage()
-            {
-                return Err(crate::render::RenderError::BackendFailure);
-            }
-            Ok(texture)
+        self.with_timing(FrameOperation::Draw, |app| {
+            let result = app.render_frame(|renderer, viewport| {
+                let (width, height) = viewport.physical_size();
+                let area = viewport.logical_cover(PhysicalRect::from_size(width, height));
+                renderer.prepare_readback(&area)?;
+                let texture = renderer
+                    .sample_target_region(&area)?
+                    .ok_or(crate::render::RenderError::BackendFailure)?;
+                if (texture.width, texture.height) != viewport.physical_size()
+                    || !texture.valid_storage()
+                {
+                    return Err(crate::render::RenderError::BackendFailure);
+                }
+                Ok(texture)
+            });
+            app.record_render_result(&result);
+            result
         })
     }
 
+    #[mirui::trace_fn("frame.full")]
     fn render_frame<R>(
         &mut self,
         finish: impl FnOnce(
@@ -1184,10 +1180,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         }
         let root_hidden = crate::ui::branch::is_effectively_hidden(&self.world, root);
 
-        let layout_start = self.clock_ns();
+        let layout_start = self.timing_clock_ns();
         self.text_layout_started = true;
 
-        {
+        let layout_result = {
             crate::trace_span!("frame.layout");
             render_system::try_collect_dirty_regions_into(
                 &mut self.world,
@@ -1195,13 +1191,21 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 &transform,
                 &mut self.dirty_plan,
             )
-            .map_err(|_| crate::render::RenderError::TextLayout)?;
-        }
-        let layout_end = self.clock_ns();
-        self.last_layout_ns = layout_end.saturating_sub(layout_start);
+            .map_err(|_| crate::render::RenderError::TextLayout)
+        };
+        let layout_end = self.timing_clock_ns();
+        self.record_phase(FramePhase::Layout, layout_start, layout_end);
+        layout_result?;
 
-        let requests = render_system::prepare_paint_requests(&self.world)?;
+        let requests = match render_system::prepare_paint_requests(&self.world) {
+            Ok(requests) => requests,
+            Err(error) => {
+                self.record_phase(FramePhase::Render, layout_end, self.timing_clock_ns());
+                return Err(error);
+            }
+        };
         if let Err(error) = self.backend.begin_flush() {
+            self.record_phase(FramePhase::Render, layout_end, self.timing_clock_ns());
             self.backend.abort_flush();
             return Err(error);
         }
@@ -1252,6 +1256,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let frame_output = match render_result {
             Ok(output) => output,
             Err(error) => {
+                self.record_phase(FramePhase::Render, layout_end, self.timing_clock_ns());
                 self.backend.abort_flush();
                 self.world.mark_subtree_dirty(root);
                 return Err(error);
@@ -1260,9 +1265,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.dirty_plan.clear();
         let (lw, lh) = transform.logical_size();
         self.dirty_plan.rects.push(Rect::new(0, 0, lw, lh));
-        let render_end = self.clock_ns();
-        self.last_render_ns = render_end.saturating_sub(layout_end);
-        let render_ns = render_end.saturating_sub(layout_start);
+        let render_end = self.timing_clock_ns();
+        self.record_phase(FramePhase::Render, layout_end, render_end);
+        let render_ns = layout_start
+            .zip(render_end)
+            .and_then(|(a, b)| b.checked_sub(a))
+            .unwrap_or(0);
 
         let (pw, ph) = transform.physical_size();
         let submitted = (|| {
@@ -1277,14 +1285,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             )
         })();
         if let Err(error) = submitted {
+            self.record_phase(FramePhase::Flush, render_end, self.timing_clock_ns());
             self.backend.abort_flush();
             self.world.mark_subtree_dirty(root);
             return Err(error);
         }
         requests.commit();
         render_system::acknowledge_rendered_outputs(&self.world);
-        let flush_end = self.clock_ns();
-        self.last_flush_ns = flush_end.saturating_sub(render_end);
+        let flush_end = self.timing_clock_ns();
+        self.record_phase(FramePhase::Flush, render_end, flush_end);
 
         // Seed PaintedCoverage so the next render_dirty frame's dirty union
         // covers pixels this full render actually wrote — otherwise
@@ -1294,7 +1303,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             crate::trace_span!("frame.seed_prev");
             render_system::acknowledge_painted_frame(&mut self.world, root, &transform);
         }
-        self.last_seed_prev_ns = self.clock_ns().saturating_sub(flush_end);
+        self.record_phase(FramePhase::SeedPrev, flush_end, self.timing_clock_ns());
+        self.timing_outcome(TimingOutcome::Completed);
         self.dirty_plan.clear();
         self.needs_full_redraw = false;
         self.resource_wait_revision = None;
@@ -1302,7 +1312,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
         {
             crate::trace_span!("frame.finalize");
-            self.finalize_frame_stats();
+            self.publish_cache_stats();
         }
         {
             crate::trace_span!("frame.post_render");
@@ -1314,39 +1324,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         frame_output.map(Some)
     }
 
-    fn finalize_frame_stats(&mut self) {
-        // FrameTimings + FrameStats must land before plugin post_render
-        // so reporters that read them (BudgetReportPlugin, custom sinks)
-        // see the just-finished frame, not the previous one.
-        let Some(pending) = self.pending_frame.take() else {
-            return;
-        };
-        let input_nanos = pending.input_end.saturating_sub(pending.frame_start);
-        let systems_nanos = pending.systems_end.saturating_sub(pending.input_end);
-        let phase_wall_nanos = input_nanos
-            + systems_nanos
-            + self.last_layout_ns
-            + self.last_render_ns
-            + self.last_flush_ns
-            + self.last_seed_prev_ns;
-        self.world.insert_resource(crate::ecs::FrameTimings {
-            phase_wall_nanos,
-            input_nanos,
-            systems_nanos,
-            layout_nanos: self.last_layout_ns,
-            render_nanos: self.last_render_ns,
-            flush_nanos: self.last_flush_ns,
-            seed_prev_nanos: self.last_seed_prev_ns,
-        });
-        if let Some(stats) = self.world.resource_mut::<crate::ecs::FrameStats>() {
-            stats.push(phase_wall_nanos);
-        } else {
-            let mut stats = crate::ecs::FrameStats::default();
-            stats.push(phase_wall_nanos);
-            self.world.insert_resource(stats);
-        }
-
-        // Publish after FrameTimings so a single post_render sees both.
+    fn publish_cache_stats(&mut self) {
         let snapshots = crate::core::cache::InspectCaches::inspect_caches(&self.backend)
             .chain(crate::core::cache::InspectCaches::inspect_caches(
                 &self.factory,
@@ -1573,13 +1551,20 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// One frame. Returns `true` on `Quit` (after `on_quit` hooks).
     pub fn tick(&mut self) -> bool {
-        if self.update_tick() {
+        let quit = self.with_timing(FrameOperation::Tick, |app| {
+            if app.update_tick_inner() {
+                return true;
+            }
+            if !app.suspended {
+                app.draw_tick_inner();
+            }
+            app.maintain_tick_inner();
+            false
+        });
+        if quit {
             return true;
         }
-        if !self.suspended {
-            self.draw_tick();
-        }
-        self.finish_tick(true);
+        plugins::frame_rate::complete(&mut self.world, true);
         #[cfg(feature = "std")]
         if self.suspended {
             std::thread::sleep(core::time::Duration::from_millis(50));
@@ -1587,13 +1572,33 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         false
     }
 
+    #[cfg(any(
+        test,
+        all(feature = "wgpu", any(target_os = "android", target_os = "ios"))
+    ))]
     pub(crate) fn update_tick(&mut self) -> bool {
-        let frame_start = self.clock_ns();
+        let quit = self.with_timing(FrameOperation::Update, |app| {
+            if app.update_tick_inner() {
+                return true;
+            }
+            app.maintain_tick_inner();
+            false
+        });
+        if !quit {
+            plugins::frame_rate::complete(&mut self.world, false);
+        }
+        quit
+    }
+
+    fn update_tick_inner(&mut self) -> bool {
+        let frame_start = self.timing_clock_ns();
         if self.dispatch_pending_input() {
+            self.record_phase(FramePhase::Input, frame_start, self.timing_clock_ns());
             return true;
         }
 
         if self.suspended {
+            self.record_phase(FramePhase::Input, frame_start, self.timing_clock_ns());
             return false;
         }
         let _owner_scope = crate::core::reactive::OwnerGuard::enter(&mut self.world);
@@ -1610,27 +1615,42 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         }
         self.flush_event_notifications();
 
-        let input_end = self.clock_ns();
+        let input_end = self.timing_clock_ns();
 
+        let mut systems_failed = false;
         {
             crate::trace_span!("frame.systems");
             if let Err(error) = self.systems.run_all(&mut self.world) {
+                systems_failed = true;
                 crate::warn!("scheduled system failed: {:?}", error);
             }
         }
         self.snapshot_system_perf();
         self.flush_event_notifications();
-        let systems_end = self.clock_ns();
+        let systems_end = self.timing_clock_ns();
 
-        self.pending_frame = Some(PendingFrame {
-            frame_start,
-            input_end,
-            systems_end,
+        self.record_phase(FramePhase::Input, frame_start, input_end);
+        self.record_phase(FramePhase::Systems, input_end, systems_end);
+        self.timing_outcome(if systems_failed {
+            TimingOutcome::Failed
+        } else {
+            TimingOutcome::Completed
         });
         false
     }
 
+    #[cfg(any(
+        test,
+        all(feature = "wgpu", any(target_os = "android", target_os = "ios"))
+    ))]
     pub(crate) fn draw_tick(&mut self) {
+        self.with_timing(FrameOperation::Draw, |app| {
+            app.draw_tick_inner();
+            app.maintain_tick_inner();
+        });
+    }
+
+    fn draw_tick_inner(&mut self) {
         if let Err(error) = self.render_dirty()
             && error != crate::render::RenderError::SurfaceUnavailable
             && error != crate::render::RenderError::ResourcePending
@@ -1650,20 +1670,16 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         )
     }
 
-    pub(crate) fn maintain_tick(&mut self) {
+    fn maintain_tick_inner(&mut self) {
         self.flush_event_notifications();
         if let Err(error) = self.backend.frame_end()
             && error != crate::render::RenderError::SurfaceUnavailable
         {
+            self.timing_outcome(TimingOutcome::Failed);
             crate::warn!("surface maintenance failed: {:?}", error);
         }
 
         self.apply_suspend_request();
-    }
-
-    pub(crate) fn finish_tick(&mut self, blocking: bool) {
-        self.maintain_tick();
-        plugins::frame_rate::complete(&mut self.world, blocking);
     }
 
     #[cfg(any(
@@ -1718,8 +1734,16 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 
     /// Render only dirty regions. Falls back to full render if no dirty tracking.
-    #[mirui::trace_fn("frame.dirty")]
     pub fn render_dirty(&mut self) -> Result<(), crate::render::RenderError> {
+        self.with_timing(FrameOperation::Draw, |app| {
+            let result = app.render_dirty_inner();
+            app.record_render_result(&result);
+            result
+        })
+    }
+
+    #[mirui::trace_fn("frame.dirty")]
+    fn render_dirty_inner(&mut self) -> Result<(), crate::render::RenderError> {
         let _owner_scope = crate::core::reactive::OwnerGuard::enter(&mut self.world);
         let Some(root) = self.root else { return Ok(()) };
         self.prepare_text_layout()
@@ -1738,7 +1762,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         }
         let root_hidden = crate::ui::branch::is_effectively_hidden(&self.world, root);
 
-        let layout_start = self.clock_ns();
+        let layout_start = self.timing_clock_ns();
         self.text_layout_started = true;
 
         let mut plan = core::mem::take(&mut self.dirty_plan);
@@ -1751,6 +1775,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             )
         });
         if collected.is_err() {
+            self.record_phase(FramePhase::Layout, layout_start, self.timing_clock_ns());
             plan.clear();
             self.dirty_plan = plan;
             return Err(crate::render::RenderError::TextLayout);
@@ -1767,19 +1792,21 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             let (lw, lh) = transform.logical_size();
             plan.rects.push(Rect::new(0, 0, lw, lh));
         }
-        let layout_end = self.clock_ns();
-        self.last_layout_ns = layout_end.saturating_sub(layout_start);
+        let layout_end = self.timing_clock_ns();
+        self.record_phase(FramePhase::Layout, layout_start, layout_end);
 
         if !plan.is_empty() {
             let render_span = crate::core::perf::enter("frame.render_region");
             let requests = match render_system::prepare_paint_requests(&self.world) {
                 Ok(requests) => requests,
                 Err(error) => {
+                    self.record_phase(FramePhase::Render, layout_end, self.timing_clock_ns());
                     self.dirty_plan = plan;
                     return Err(error);
                 }
             };
             if let Err(error) = self.backend.begin_flush() {
+                self.record_phase(FramePhase::Render, layout_end, self.timing_clock_ns());
                 self.backend.abort_flush();
                 self.dirty_plan = plan;
                 return Err(error);
@@ -1864,6 +1891,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             drop(renderer);
             drop(render_span);
             if let Err(error) = render_result {
+                self.record_phase(FramePhase::Render, layout_end, self.timing_clock_ns());
                 self.backend.abort_flush();
                 self.world.mark_subtree_dirty(root);
                 if error == crate::render::RenderError::ResourcePending {
@@ -1873,9 +1901,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 return Err(error);
             }
 
-            let render_end = self.clock_ns();
-            self.last_render_ns = render_end.saturating_sub(layout_end);
-            let render_ns = render_end.saturating_sub(layout_start);
+            let render_end = self.timing_clock_ns();
+            self.record_phase(FramePhase::Render, layout_end, render_end);
+            let render_ns = layout_start
+                .zip(render_end)
+                .and_then(|(a, b)| b.checked_sub(a))
+                .unwrap_or(0);
             let submitted = (|| {
                 crate::trace_span!("frame.flush");
                 for &area in physical.as_slice() {
@@ -1895,6 +1926,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 )
             })();
             if let Err(error) = submitted {
+                self.record_phase(FramePhase::Flush, render_end, self.timing_clock_ns());
                 self.backend.abort_flush();
                 self.world.mark_subtree_dirty(root);
                 self.dirty_plan = plan;
@@ -1902,17 +1934,18 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             }
             requests.commit();
             render_system::acknowledge_rendered_outputs(&self.world);
-            self.last_flush_ns = self.clock_ns().saturating_sub(render_end);
-            let seed_start = self.clock_ns();
+            self.record_phase(FramePhase::Flush, render_end, self.timing_clock_ns());
+            let seed_start = self.timing_clock_ns();
             render_system::acknowledge_painted_frame(&mut self.world, root, &transform);
-            self.last_seed_prev_ns = self.clock_ns().saturating_sub(seed_start);
+            self.record_phase(FramePhase::SeedPrev, seed_start, self.timing_clock_ns());
+            self.timing_outcome(TimingOutcome::Completed);
             self.needs_full_redraw = false;
             self.resource_wait_revision = None;
             self.painted_root_hidden = root_hidden;
 
             {
                 crate::trace_span!("frame.finalize");
-                self.finalize_frame_stats();
+                self.publish_cache_stats();
             }
             {
                 crate::trace_span!("frame.post_render");
@@ -1938,14 +1971,16 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 .insert_resource(crate::ui::render_system::LastDirtyRegions::default());
         }
 
-        let render_end = self.clock_ns();
-        self.last_render_ns = render_end.saturating_sub(layout_end);
-        let render_ns = render_end.saturating_sub(layout_start);
-        self.last_flush_ns = 0;
-        self.last_seed_prev_ns = 0;
+        let render_end = self.timing_clock_ns();
+        self.record_phase(FramePhase::Render, layout_end, render_end);
+        let render_ns = layout_start
+            .zip(render_end)
+            .and_then(|(a, b)| b.checked_sub(a))
+            .unwrap_or(0);
+        self.timing_outcome(TimingOutcome::Idle);
         {
             crate::trace_span!("frame.finalize");
-            self.finalize_frame_stats();
+            self.publish_cache_stats();
         }
         {
             crate::trace_span!("frame.post_render");
@@ -2287,42 +2322,48 @@ mod app_invariant_tests {
     use crate::ui::{Children, HitTarget, Parent};
 
     #[test]
-    fn completed_frame_statistics_wrap_without_allocation_and_recover_after_removal() {
-        use crate::ecs::FrameStats;
-
+    fn completed_operation_statistics_recover_after_removal_without_hot_allocation() {
+        use crate::ecs::{FrameStats, FrameTimings};
         let mut app = App::headless(8, 8);
-        let mut finish = |sample| {
-            app.pending_frame = Some(PendingFrame {
-                frame_start: 0,
-                input_end: sample,
-                systems_end: sample,
-            });
-            app.finalize_frame_stats();
+        let finish = |app: &mut App<_, _>, value| {
+            let mut phases = FrameTimings::new(FrameOperation::Tick, true);
+            phases.record(FramePhase::Input, Some(0), Some(value));
+            app.publish_timings(&phases, TimingOutcome::Completed);
         };
-        finish(1);
-        let allocations = crate::test_support::tracked_allocations(|| {
-            for sample in 2..=300 {
-                finish(sample);
-            }
-        });
-        assert_eq!(allocations, 0);
-        app.finalize_frame_stats();
-        let stats = app.world.resource::<FrameStats>().unwrap();
-        assert_eq!(stats.len(), 256);
-        assert_eq!(stats.min(), 45);
-        assert_eq!(stats.max(), 300);
-        assert_eq!(stats.avg(), 172);
-        assert_eq!(stats.p99(), 298);
+        finish(&mut app, 1);
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for value in 2..=300 {
+                    finish(&mut app, value);
+                }
+            }),
+            0
+        );
+        let phases = crate::ecs::FramePhases::default().with(FramePhase::Input);
+        let summary = app
+            .world
+            .resource::<FrameStats>()
+            .unwrap()
+            .summary(FrameOperation::Tick, phases)
+            .unwrap();
+        assert_eq!(
+            (
+                summary.count,
+                summary.min_nanos,
+                summary.max_nanos,
+                summary.p99_nanos
+            ),
+            (256, 45, 300, 298)
+        );
         app.world.remove_resource::<FrameStats>();
-        app.pending_frame = Some(PendingFrame {
-            frame_start: 0,
-            input_end: 400,
-            systems_end: 400,
-        });
-        app.finalize_frame_stats();
-        let stats = app.world.resource::<FrameStats>().unwrap();
-        assert_eq!(stats.len(), 1);
-        assert_eq!(stats.avg(), 400);
+        finish(&mut app, 400);
+        let summary = app
+            .world
+            .resource::<FrameStats>()
+            .unwrap()
+            .summary(FrameOperation::Tick, phases)
+            .unwrap();
+        assert_eq!((summary.count, summary.avg_nanos), (1, 400));
     }
 
     #[test]
@@ -2362,12 +2403,7 @@ mod app_invariant_tests {
         };
         factory.cache.entry(1).or_insert_with(|| 7);
         let mut app = App::with_factory(App::headless(8, 8).backend, factory);
-        app.pending_frame = Some(PendingFrame {
-            frame_start: 0,
-            input_end: 0,
-            systems_end: 0,
-        });
-        app.finalize_frame_stats();
+        app.publish_cache_stats();
         let registry = app.world.resource::<CacheRegistry>().unwrap();
         assert_eq!(registry.snapshots().len(), 1);
         assert_eq!(registry.snapshots()[0].name, "factory/test");
@@ -2375,12 +2411,7 @@ mod app_invariant_tests {
         assert_eq!(registry.snapshots()[0].stats.insert_count, 1);
         let allocations = crate::test_support::tracked_allocations(|| {
             for _ in 0..32 {
-                app.pending_frame = Some(PendingFrame {
-                    frame_start: 0,
-                    input_end: 0,
-                    systems_end: 0,
-                });
-                app.finalize_frame_stats();
+                app.publish_cache_stats();
             }
         });
         assert_eq!(allocations, 0);

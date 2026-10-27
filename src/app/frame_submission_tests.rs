@@ -106,6 +106,163 @@ fn fixture() -> (App<CheckedSurface>, Entity) {
     (app, node)
 }
 
+#[derive(Default)]
+struct ObservedTimings(Vec<(crate::ecs::FrameTimings, TimingOutcome)>);
+
+struct ObserveTimings;
+impl Plugin<CheckedSurface, SwRendererFactory> for ObserveTimings {
+    fn build(&mut self, app: &mut App<CheckedSurface>) {
+        app.enable_timing_reports();
+        app.world.insert_resource(ObservedTimings::default());
+    }
+
+    fn on_timing(&mut self, world: &mut World, sample: &crate::ecs::TimingSample<'_>) {
+        world
+            .resource_mut::<ObservedTimings>()
+            .unwrap()
+            .0
+            .push((*sample.phases, sample.outcome));
+    }
+}
+
+#[test]
+fn operation_samples_do_not_join_separate_host_callbacks_or_repeat_nested_draws() {
+    let (mut app, node) = fixture();
+    app.add_plugin(ObserveTimings);
+    app.update_tick();
+    crate::ui::set_position(&mut app.world, node, 12, 0);
+    app.draw_tick();
+    crate::ui::set_position(&mut app.world, node, 16, 0);
+    app.tick();
+    let samples = &app.world.resource::<ObservedTimings>().unwrap().0;
+    assert_eq!(samples.len(), 3);
+    assert_eq!(samples[0].0.operation(), FrameOperation::Update);
+    assert!(samples[0].0.has_phase(FramePhase::Systems));
+    assert!(!samples[0].0.has_phase(FramePhase::Render));
+    assert_eq!(samples[1].0.operation(), FrameOperation::Draw);
+    assert!(!samples[1].0.has_phase(FramePhase::Input));
+    assert!(samples[1].0.has_phase(FramePhase::Flush));
+    assert_eq!(samples[2].0.operation(), FrameOperation::Tick);
+    assert!(samples[2].0.has_phase(FramePhase::Input));
+    assert!(samples[2].0.has_phase(FramePhase::Flush));
+    assert!(
+        samples
+            .iter()
+            .all(|(_, outcome)| *outcome == TimingOutcome::Completed)
+    );
+}
+
+#[test]
+fn failed_and_idle_attempts_do_not_reuse_previous_phases_or_grow_completed_statistics() {
+    let (mut app, _) = fixture();
+    app.add_plugin(ObserveTimings);
+    let count = app
+        .world
+        .resource::<crate::ecs::FrameStats>()
+        .unwrap()
+        .len();
+    app.render_dirty().unwrap();
+    app.backend.invalid = true;
+    app.backend.fail = Some("end");
+    assert!(app.render_dirty().is_err());
+    assert_eq!(
+        app.world
+            .resource::<crate::ecs::FrameStats>()
+            .unwrap()
+            .len(),
+        count
+    );
+    let samples = &app.world.resource::<ObservedTimings>().unwrap().0;
+    assert_eq!(samples[0].1, TimingOutcome::Idle);
+    assert!(!samples[0].0.has_phase(FramePhase::Flush));
+    assert_eq!(samples[1].1, TimingOutcome::Failed);
+    assert!(samples[1].0.has_phase(FramePhase::Flush));
+    assert!(!samples[1].0.has_phase(FramePhase::SeedPrev));
+    app.backend.fail = None;
+    app.render_dirty().unwrap();
+    assert_eq!(
+        app.world
+            .resource::<crate::ecs::FrameStats>()
+            .unwrap()
+            .len(),
+        count + 1
+    );
+}
+
+#[test]
+fn suspended_quit_and_maintenance_errors_close_the_owning_operation() {
+    let (mut app, _) = fixture();
+    app.add_plugin(ObserveTimings);
+    app.backend.fail = Some("maintain");
+    app.draw_tick();
+    assert_eq!(
+        app.world
+            .resource::<ObservedTimings>()
+            .unwrap()
+            .0
+            .last()
+            .unwrap()
+            .1,
+        TimingOutcome::Failed
+    );
+    app.backend.fail = None;
+    app.suspend();
+    app.update_tick();
+    assert_eq!(
+        app.world
+            .resource::<ObservedTimings>()
+            .unwrap()
+            .0
+            .last()
+            .unwrap()
+            .1,
+        TimingOutcome::Suspended
+    );
+    app.quitting = true;
+    assert!(app.tick());
+    assert_eq!(
+        app.world
+            .resource::<ObservedTimings>()
+            .unwrap()
+            .0
+            .last()
+            .unwrap()
+            .1,
+        TimingOutcome::Quit
+    );
+}
+
+#[test]
+fn operation_wall_includes_business_hooks_but_excludes_reporting_and_pacing() {
+    std::thread_local! { static NOW: core::cell::Cell<u64> = const { core::cell::Cell::new(0) }; }
+    struct AdvanceClock;
+    impl Plugin<CheckedSurface, SwRendererFactory> for AdvanceClock {
+        fn build(&mut self, app: &mut App<CheckedSurface>) {
+            app.enable_timing_reports();
+            app.world
+                .insert_resource(crate::ecs::MonoClock::new(|| NOW.get()));
+        }
+        fn post_render(&mut self, _: &mut World, _: u64) {
+            NOW.set(NOW.get() + 5_000);
+        }
+        fn on_timing(&mut self, _: &mut World, sample: &crate::ecs::TimingSample<'_>) {
+            assert_eq!(sample.wall_nanos, Some(5_000));
+            NOW.set(NOW.get() + 100_000);
+        }
+    }
+    NOW.set(0);
+    let (mut app, _) = fixture();
+    app.add_plugin(AdvanceClock);
+    app.add_plugin(plugins::FrameRateCapPlugin::with_sleep_fn(60, |millis| {
+        NOW.set(NOW.get() + millis * 1_000_000);
+    }));
+    for _ in 0..2 {
+        app.backend.invalid = true;
+        app.tick();
+    }
+    assert!(NOW.get() > 210_000);
+}
+
 fn assert_submission(trace: &[&str], finish: &[&str]) {
     assert_eq!(&trace[..2], &["begin", "draw"]);
     let end = trace.len() - finish.len();
@@ -263,19 +420,16 @@ fn host_updates_and_platform_redraws_do_not_advance_each_other() {
         .insert_resource(crate::ecs::MonoClock::new(|| NOW.get()));
     assert_eq!(app.tick_wait_ns(), Some(0));
     assert!(!app.update_tick());
-    app.finish_tick(false);
     assert_eq!(app.tick_wait_ns(), Some(10_000_000));
     for _ in 0..3 {
         app.backend.invalid = true;
         app.draw_tick();
-        app.maintain_tick();
         assert_eq!(app.world.resource::<TickCount>().unwrap().0, 1);
         assert_eq!(app.tick_wait_ns(), Some(10_000_000));
     }
     NOW.set(10_000_000);
     assert_eq!(app.tick_wait_ns(), Some(0));
     assert!(!app.update_tick());
-    app.finish_tick(false);
     assert_eq!(app.world.resource::<TickCount>().unwrap().0, 2);
     assert_eq!(app.tick_wait_ns(), Some(10_000_000));
 }
