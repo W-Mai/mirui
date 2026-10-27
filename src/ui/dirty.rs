@@ -4,7 +4,7 @@
 //! change (theme swap, viewport resize) needs every entity flagged. Transform
 //! damage follows descendants during collection without invalidating their content.
 
-use crate::ecs::{Entity, World};
+use crate::ecs::{Entity, SparseSet, World};
 use crate::types::{Fixed, Rect};
 use alloc::vec::Vec;
 
@@ -343,16 +343,23 @@ impl World {
 }
 
 pub(crate) fn has_visible_dirty<T: 'static>(world: &World, root: Entity) -> bool {
-    world.storage::<T>().is_some_and(|storage| {
-        storage
-            .entities()
-            .iter()
-            .copied()
-            .any(|entity| is_visible_descendant(world, root, entity))
-    })
+    let Some(storage) = world.storage::<T>().filter(|storage| !storage.is_empty()) else {
+        return false;
+    };
+    let parents = world.storage::<crate::ui::Parent>();
+    storage
+        .entities()
+        .iter()
+        .copied()
+        .any(|entity| is_visible_descendant(world, parents, root, entity))
 }
 
-fn is_visible_descendant(world: &World, root: Entity, mut entity: Entity) -> bool {
+fn is_visible_descendant(
+    world: &World,
+    parents: Option<&SparseSet<crate::ui::Parent>>,
+    root: Entity,
+    mut entity: Entity,
+) -> bool {
     loop {
         if crate::ui::branch::is_effectively_hidden(world, entity) {
             return false;
@@ -360,7 +367,7 @@ fn is_visible_descendant(world: &World, root: Entity, mut entity: Entity) -> boo
         if entity == root {
             return true;
         }
-        let Some(parent) = world.get::<crate::ui::Parent>(entity) else {
+        let Some(parent) = parents.and_then(|parents| parents.get(entity)) else {
             // Parent links are optional for manually built worlds. Preserve
             // their existing conservative dirty behavior.
             return true;
@@ -659,6 +666,64 @@ mod tests {
     use super::*;
     use crate::ecs::World;
     use crate::ui::{Children, Hidden};
+
+    #[test]
+    fn visible_damage_queries_follow_live_ancestry_without_retaining_borrows() {
+        use crate::ui::Parent;
+        use crate::ui::branch::CachedBranchVisibility;
+
+        let mut world = World::new();
+        let root = world.spawn_empty();
+        let branch = world.spawn_empty();
+        let leaf = world.spawn_empty();
+        world.insert(branch, Parent(root));
+        world.insert(leaf, Parent(branch));
+        assert!(!has_visible_dirty::<Dirty>(&world, root));
+        world.insert(leaf, Dirty);
+        world.insert(leaf, VisualDirty::Prepared);
+        let visible = |world: &World| {
+            (
+                has_visible_dirty::<Dirty>(world, root),
+                has_visible_dirty::<VisualDirty>(world, root),
+            )
+        };
+        assert_eq!(visible(&world), (true, true));
+        world.insert(branch, Hidden);
+        assert_eq!(visible(&world), (false, false));
+        world.remove::<Hidden>(branch);
+        world.insert(branch, CachedBranchVisibility { selected: false });
+        assert_eq!(visible(&world), (false, false));
+        world
+            .get_mut::<CachedBranchVisibility>(branch)
+            .unwrap()
+            .selected = true;
+        assert_eq!(visible(&world), (true, true));
+
+        world.insert(root, Hidden);
+        assert_eq!(visible(&world), (false, false));
+        world.remove::<Parent>(leaf);
+        assert_eq!(visible(&world), (true, true));
+        world.insert(leaf, Parent(branch));
+        assert_eq!(visible(&world), (false, false));
+        assert!(world.despawn(branch));
+        let replacement = world.spawn_empty();
+        assert_ne!(replacement, branch);
+        world.insert(replacement, Hidden);
+        world.insert(replacement, Parent(root));
+        // The retired parent link remains conservative, independent of slot reuse.
+        assert_eq!(visible(&world), (true, true));
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for _ in 0..32 {
+                    assert_eq!(visible(&world), (true, true));
+                }
+            }),
+            0
+        );
+        world.remove::<Dirty>(leaf);
+        world.remove::<VisualDirty>(leaf);
+        assert_eq!(visible(&world), (false, false));
+    }
 
     #[test]
     fn preparing_damage_advances_state_without_replacing_its_identity() {

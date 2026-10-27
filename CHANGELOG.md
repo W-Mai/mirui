@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
-- Reuse the parent component storage borrow while rebuilding output damage summaries instead of resolving its type for each ancestor.
+- Reuse parent component storage across output damage summaries and visible-damage ancestry scans instead of resolving its type for each ancestor.
 - Skip repeated visual-damage scans in output summaries when unchanged membership, topology and authored visibility exclude every member from the requested sources.
 - Append frame timing samples in place without copying or clearing the retained statistics window.
 - Reuse cache statistics snapshot storage across frames and release it when no inspectable caches remain.
