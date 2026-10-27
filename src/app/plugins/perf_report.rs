@@ -160,13 +160,15 @@ where
             return;
         }
         capture.sort_stage_stats();
-        (self.on_report)(&PerfReport {
-            operations: self.operation_count,
-            stage_stats: capture.stage_stats(),
-            systems: world
-                .resource::<SystemPerfSnapshot>()
-                .map_or(&[], |s| &s.entries),
-            capture: capture.status(),
+        crate::core::perf::observe_report(|| {
+            (self.on_report)(&PerfReport {
+                operations: self.operation_count,
+                stage_stats: capture.stage_stats(),
+                systems: world
+                    .resource::<SystemPerfSnapshot>()
+                    .map_or(&[], |s| &s.entries),
+                capture: capture.status(),
+            })
         });
         self.operation_count = 0;
         capture.clear_stage_stats();

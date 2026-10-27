@@ -89,8 +89,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let outcome = self.timing.outcome;
         self.timing.active = false;
         self.publish_timings(&phases, outcome);
-        let _trace_id = trace.close_operation(outcome, thread_cpu_nanos);
+        let trace_id = trace.close_operation(outcome, thread_cpu_nanos);
         if self.timing.report {
+            let _context = crate::core::perf::report_context(trace_id);
             let sample = TimingSample {
                 operation: kind,
                 wall_nanos,

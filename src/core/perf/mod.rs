@@ -2,8 +2,10 @@
 
 mod buffer;
 pub(crate) mod cpu;
+mod observer;
 mod record;
 mod scope;
+pub(crate) use observer::{report as observe_report, report_context};
 pub use record::{
     ClockDomain, FeedbackKind, PlatformTimestamp, Record, RecordData, ScopeKind, SubmissionId,
     SubmissionOutcome, format_record,
@@ -242,47 +244,97 @@ impl Capture {
 
     /// Aggregate inclusive spans and optionally export bounded newline-delimited JSON batches. Raw records, aggregation and encoding share the configured budget. A sink can receive multiple batches per operation.
     pub fn drain(&mut self, mut sink: Option<&mut dyn FnMut(&str)>) {
+        let start = crate::core::time::try_clock_now_ns();
+        let mut aggregate_cost = Some(0);
+        let mut encode_cost = Some(0);
+        let sink_cost = core::cell::Cell::new(Some(0));
+        let has_sink = sink.is_some();
+        let mut timed_sink = |batch: &str| {
+            let mut cost = sink_cost.get();
+            observer::measure(&mut cost, || {
+                if let Some(sink) = &mut sink {
+                    sink(batch);
+                }
+            });
+            sink_cost.set(cost);
+        };
+        let mut sink = has_sink.then_some(&mut timed_sink as &mut dyn FnMut(&str));
+        let mut business_records = false;
         self.status.open_scopes = 0;
         let status = &mut self.status;
         let stats = &mut self.stats;
         let encoded = &mut self.encoded;
         imp::drain(self.epoch, &mut self.scratch, &mut |info, events| {
+            business_records |= events
+                .iter()
+                .any(|event| !matches!(event.data, RecordData::Observation { .. }));
             if events.is_empty() {
                 record_status(status, info);
                 if sink.is_some() {
-                    encode_record(encoded, &mut sink, status, |w| format_status(info, w));
-                }
-            }
-            for event in events {
-                if let Some(span) = event.span() {
-                    accumulate(stats, span, status);
-                }
-                if sink.is_some() {
-                    encode_record(encoded, &mut sink, status, |w| {
-                        format_record(info, event, w)
+                    observer::measure(&mut encode_cost, || {
+                        encode_record(encoded, &mut sink, status, |w| format_status(info, w))
                     });
                 }
             }
-        });
-        if sink.is_some() {
-            let snapshot = *status;
-            encode_record(encoded, &mut sink, status, |w| {
-                write!(
-                    w,
-                    r#"{{"name":"trace.capture","ph":"M","pid":{},"tid":0,"args":{{"capture":{},"bytes_per_thread":{},"registered_tracks":{},"dropped":{},"invalid":{},"aggregation_dropped":{},"encoding_dropped":{},"open_scopes":{}}}}}"#,
-                    process_id(),
-                    self.epoch,
-                    self.allocated_bytes,
-                    snapshot.registered_tracks,
-                    snapshot.dropped,
-                    snapshot.invalid,
-                    snapshot.aggregation_dropped,
-                    snapshot.encoding_dropped,
-                    snapshot.open_scopes
-                )
+            observer::measure(&mut aggregate_cost, || {
+                for event in events {
+                    if let Some(span) = event.span() {
+                        accumulate(stats, span, status);
+                    }
+                }
             });
+            if sink.is_some() {
+                observer::measure(&mut encode_cost, || {
+                    for event in events {
+                        encode_record(encoded, &mut sink, status, |w| {
+                            format_record(info, event, w)
+                        });
+                    }
+                });
+            }
+        });
+        observer::measure(&mut encode_cost, || {
+            if sink.is_some() {
+                let snapshot = *status;
+                encode_record(encoded, &mut sink, status, |w| {
+                    write!(
+                        w,
+                        r#"{{"name":"trace.capture","ph":"M","pid":{},"tid":0,"args":{{"capture":{},"bytes_per_thread":{},"registered_tracks":{},"dropped":{},"invalid":{},"aggregation_dropped":{},"encoding_dropped":{},"open_scopes":{},"observer_delivery":"next-drain; final sink uncovered"}}}}"#,
+                        process_id(),
+                        self.epoch,
+                        self.allocated_bytes,
+                        snapshot.registered_tracks,
+                        snapshot.dropped,
+                        snapshot.invalid,
+                        snapshot.aggregation_dropped,
+                        snapshot.encoding_dropped,
+                        snapshot.open_scopes
+                    )
+                });
+            }
+            flush_encoded(encoded, &mut sink);
+        });
+        // A drain of observer records alone must terminate rather than recursively trace its own export.
+        if business_records && imp::is_enabled() {
+            let total = start
+                .zip(crate::core::time::try_clock_now_ns())
+                .and_then(|(a, b)| b.checked_sub(a));
+            let encoding = encode_cost
+                .zip(sink_cost.get())
+                .and_then(|(a, b)| a.checked_sub(b));
+            let draining = total
+                .zip(aggregate_cost)
+                .zip(encode_cost)
+                .and_then(|((a, b), c)| a.checked_sub(b)?.checked_sub(c));
+            for (name, cost) in [
+                ("probe.drain", draining),
+                ("probe.aggregate", aggregate_cost),
+                ("probe.encode", encoding),
+                ("probe.sink", sink_cost.get()),
+            ] {
+                observer::record(name, cost);
+            }
         }
-        flush_encoded(encoded, &mut sink);
     }
 }
 impl Drop for Capture {

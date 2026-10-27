@@ -125,6 +125,7 @@ fn recording_and_export_reuse_the_budget_without_hot_allocations() {
         let _warm = enter("warm");
     }
     capture.drain(Some(&mut |_| {}));
+    capture.drain(Some(&mut |_| {}));
     let capacity = capture.event_capacity();
     let allocations = crate::test_support::tracked_allocations(|| {
         for _ in 0..capacity + 5 {
@@ -337,4 +338,32 @@ fn cpu_is_opt_in_and_thread_mapping_is_native() {
     assert!(wall.is_some());
     // This checks separate clocks, not a CPU performance threshold.
     assert!(cpu.unwrap() < wall.unwrap());
+}
+
+#[test]
+fn observer_export_terminates_and_keeps_the_closed_operation_identity() {
+    let _serial = SERIAL.lock().unwrap();
+    let mut capture = Capture::new(DEFAULT_TRACE_BUDGET).unwrap();
+    let scope = operation(10, crate::ecs::FrameOperation::Draw);
+    let id = scope
+        .close_operation(crate::ecs::TimingOutcome::Completed, None)
+        .unwrap();
+    {
+        let _context = report_context(Some(id));
+        capture.drain(Some(&mut |_| {}));
+    }
+    let mut output = String::new();
+    capture.drain(Some(&mut |batch| output.push_str(batch)));
+    for name in [
+        "probe.drain",
+        "probe.aggregate",
+        "probe.encode",
+        "probe.sink",
+    ] {
+        assert!(output.contains(name));
+    }
+    assert_eq!(output.matches("disjoint-total").count(), 4);
+    assert!(output.contains(&alloc::format!("\"operation\":{}", id.value)));
+    capture.drain_events(|_, batch| assert!(batch.is_empty()));
+    assert!(output.contains("final sink uncovered"));
 }

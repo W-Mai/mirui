@@ -47,6 +47,12 @@ pub struct Record {
 #[derive(Clone, Copy, Debug)]
 pub enum RecordData {
     Span(PerfEvent),
+    Observation {
+        name: &'static str,
+        operation: u64,
+        at_ns: u64,
+        wall_ns: u64,
+    },
     /// Links a scope to its caller and App. Zero parent means no active operation.
     Context {
         id: u64,
@@ -121,6 +127,24 @@ pub fn format_record(info: super::BatchInfo, record: &Record, w: &mut impl Write
     )?;
     match record.data {
         RecordData::Span(_) => unreachable!(),
+        RecordData::Observation {
+            name,
+            operation,
+            at_ns,
+            wall_ns,
+        } => {
+            write!(
+                w,
+                r#", "operation":{operation},"wall_ns":{wall_ns},"intervals":"disjoint-total"}},"name":""#
+            )?;
+            write_json_escaped(name, w)?;
+            write!(
+                w,
+                r#"","ph":"C","ts":{}.{:03}}}"#,
+                at_ns / 1000,
+                at_ns % 1000
+            )
+        }
         RecordData::Context { id, parent, app } => write!(
             w,
             r#", "scope":{id},"parent":{parent},"app":{app}}},"name":"trace.context","ph":"M"}}"#

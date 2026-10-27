@@ -15,6 +15,7 @@ fn noop_flush(_: &[u8], _: PhysicalRect) {}
 
 static REPORT_CALLS_LINE: AtomicU32 = AtomicU32::new(0);
 static REPORT_CALLS_WRITER: AtomicU32 = AtomicU32::new(0);
+static CAPTURE: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn record_line(_r: &PerfReport) {
     REPORT_CALLS_LINE.fetch_add(1, Ordering::Relaxed);
@@ -26,6 +27,7 @@ fn record_writer(_r: &PerfReport) {
 
 #[test]
 fn report_sink_and_perfetto_line_sink_both_run() {
+    let _capture = CAPTURE.lock().unwrap();
     REPORT_CALLS_LINE.store(0, Ordering::Relaxed);
     let backend = FramebufSurface::new(32, 32, noop_flush);
     let mut app = App::new(backend);
@@ -60,6 +62,7 @@ fn report_sink_and_perfetto_line_sink_both_run() {
 
 #[test]
 fn with_perfetto_writer_keeps_report_sink() {
+    let _capture = CAPTURE.lock().unwrap();
     REPORT_CALLS_WRITER.store(0, Ordering::Relaxed);
     let backend = FramebufSurface::new(32, 32, noop_flush);
     let mut app = App::new(backend);

@@ -164,11 +164,13 @@ impl<B: Surface, F: RendererFactory<B>> Plugin<B, F> for FpsSummaryPlugin {
         for (total, count) in self.totals.iter_mut().zip(counts) {
             total.window_operations = count;
         }
-        (self.on_summary)(FpsSummary {
-            samples: self.samples,
-            operations: &self.totals,
-            wall_ns,
-            stats: world.resource::<FrameStats>(),
+        crate::core::perf::observe_report(|| {
+            (self.on_summary)(FpsSummary {
+                samples: self.samples,
+                operations: &self.totals,
+                wall_ns,
+                stats: world.resource::<FrameStats>(),
+            })
         });
         self.samples = 0;
         self.totals = core::array::from_fn(|i| OperationSummary {

@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Trace exports distinguish recorder draining, aggregation, encoding, sink and report costs, retain their operation association, and terminate observation without recursive export records.
 - Performance reporters optionally measure thread CPU time at coarse operation, submission and wait boundaries. Trace metadata maps logical tracks to available native thread IDs, and summaries identify instrumented operations.
 - Timing traces associate operations, submission attempts and waits, and keep native feedback timestamps separate from callback observation time. Backends can retain capture-scoped tokens on existing requests without changing the Surface protocol.
 - Trace captures use bounded storage and reusable export buffers, record thread and capture identity, and report dropped or incomplete records. Report callbacks borrow stage and system statistics.
