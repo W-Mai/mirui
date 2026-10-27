@@ -253,6 +253,9 @@ impl OutputRelations {
     }
 
     pub(crate) fn propagate_publications(&mut self, world: &mut World) {
+        if self.bindings.is_empty() {
+            return;
+        }
         self.propagate_sources(world, false);
     }
 
@@ -329,6 +332,9 @@ impl OutputRelations {
     }
 
     fn propagate_invalidations(&mut self, world: &mut World) {
+        if self.bindings.is_empty() {
+            return;
+        }
         for demand in &mut self.demands {
             demand.propagated = false;
         }
@@ -468,6 +474,40 @@ mod tests {
         retain_previous: true,
         ..CURRENT
     };
+
+    #[test]
+    fn producer_maintenance_survives_intervals_without_consumers() {
+        const OUTPUT: OutputDependency = OutputDependency {
+            descriptor: OutputDescriptor {
+                reconcile: |world| {
+                    let calls = world.resource::<Cell<usize>>().unwrap();
+                    calls.set(calls.get() + 1);
+                },
+                ..CURRENT.descriptor
+            },
+            ..CURRENT
+        };
+        let mut world = World::new();
+        world.insert_resource(Cell::new(0_usize));
+        let mut relations = OutputRelations::default();
+        relations.register(&OUTPUT.descriptor);
+        relations.reconcile(&mut world);
+        relations.propagate_publications(&mut world);
+        assert_eq!(world.resource::<Cell<usize>>().unwrap().get(), 1);
+
+        let source = world.spawn_empty();
+        let consumer = world.spawn_empty();
+        world.insert(source, 42_u64);
+        world.insert(consumer, source);
+        relations.bind(&world, consumer, 0, 0, &OUTPUT, ViewInvalidation::Visual);
+        relations.reconcile(&mut world);
+        assert_eq!(relations.bindings[0].version.get(), Some(42));
+        assert!(world.has::<VisualDirty>(consumer));
+        world.despawn(consumer);
+        relations.reconcile(&mut world);
+        assert!(relations.demands.is_empty());
+        assert_eq!(world.resource::<Cell<usize>>().unwrap().get(), 3);
+    }
 
     #[test]
     fn exhausted_sources_do_not_prepare_an_unused_summary() {
