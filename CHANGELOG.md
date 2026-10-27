@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Prepare inline output measurements and workspace without computing unused screen-space subtree bounds; offscreen captures retain full geometry measurement.
 - Reuse parent component storage across output damage summaries and visible-damage ancestry scans instead of resolving its type for each ancestor.
 - Skip repeated visual-damage scans in output summaries when unchanged membership, topology and authored visibility exclude every member from the requested sources.
 - Append frame timing samples in place without copying or clearing the retained statistics window.

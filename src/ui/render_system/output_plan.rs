@@ -614,6 +614,32 @@ impl TexturePlan {
         result
     }
 
+    fn measure_inline(
+        &mut self,
+        world: &World,
+        node: &LayoutNode,
+        entities: &[Entity],
+        index: &mut usize,
+    ) {
+        let position = *index;
+        let Some(&entity) = entities.get(position) else {
+            return;
+        };
+        // Captures already prepared their local measurements and workspace in dependency order.
+        if self.nodes[position].capture.is_some()
+            || self
+                .measure_node(world, entity, node.rect, position, None)
+                .is_err()
+        {
+            *index = self.nodes[position].subtree_end;
+            return;
+        }
+        *index += 1;
+        for child in &node.children {
+            self.measure_inline(world, child, entities, index);
+        }
+    }
+
     fn measure(&mut self, world: &World, tree: &LayoutNode, entities: &[Entity]) {
         self.invalidate_geometry();
         self.refresh_structure(world, tree, entities);
@@ -692,18 +718,7 @@ impl TexturePlan {
                 self.invalidate_source_measurements(world, entities, source);
             }
         }
-        let _ = self.measure_tree(
-            world,
-            tree,
-            entities,
-            &mut 0,
-            None,
-            Transform::IDENTITY,
-            Transform3D::IDENTITY,
-            Point::ZERO,
-            None,
-            Fixed::ONE,
-        );
+        self.measure_inline(world, tree, entities, &mut 0);
         self.root = entities.first().copied();
         self.geometry_valid = true;
         self.geometry_ready = true;

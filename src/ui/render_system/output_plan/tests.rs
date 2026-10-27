@@ -400,6 +400,66 @@ fn cached_workspace_maximum_shrinks_and_disappears_with_its_measurement() {
     assert_eq!(workspace(&app), 0);
 }
 
+#[test]
+fn inline_measurements_preserve_local_bounds_and_workspace_through_ancestor_motion() {
+    let (mut app, entity) = measured_app();
+    let root = app.world.resource::<crate::ui::WidgetRoot>().unwrap().0;
+    app.world.remove::<OffscreenRender>(entity);
+    app.compose(root, |tree| {
+        tree.spawn((Style::default(), OffscreenRender::new()));
+    });
+    app.render().unwrap();
+    measure_snapshot(&app);
+    let calls = sample_calls(&app, entity);
+    for shift in [
+        Fixed::from_int(2),
+        Fixed::from_int(-4),
+        Fixed::ZERO,
+        Fixed::MIN,
+    ] {
+        app.world.insert(
+            root,
+            crate::ui::widgets::WidgetTransform(Transform {
+                tx: shift,
+                ..Transform::IDENTITY
+            }),
+        );
+        app.world.insert(
+            root,
+            ScrollOffset {
+                x: shift,
+                y: Fixed::ZERO,
+            },
+        );
+        app.world.invalidate_transform(root);
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| measure_snapshot(&app)),
+            0
+        );
+        assert_eq!(sample_calls(&app, entity), calls);
+        let snapshot = app.world.resource::<LayoutSnapshot>().unwrap();
+        let index = snapshot.entities.iter().position(|&e| e == entity).unwrap();
+        let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+        let plan = outputs.take_texture_plan().unwrap();
+        assert_eq!(plan.nodes[index].extra, Some(Rect::new(0, 0, 6, 4)));
+        assert_eq!(plan.nodes[index].workspace_bytes, 32);
+        assert_eq!(plan.workspace_bytes, 32);
+        outputs.put_texture_plan(plan);
+    }
+
+    app.world
+        .get_mut::<MeasurementSample>(entity)
+        .unwrap()
+        .workspace = 2;
+    ViewRegistry::reconcile_observations(&mut app.world);
+    measure_snapshot(&app);
+    assert!(sample_calls(&app, entity) > calls);
+    let outputs = app.world.resource::<Outputs<WidgetTexture>>().unwrap();
+    let plan = outputs.take_texture_plan().unwrap();
+    assert_eq!(plan.workspace_bytes, 8);
+    outputs.put_texture_plan(plan);
+}
+
 fn empty_sample_measurement(
     world: &World,
     entity: Entity,
