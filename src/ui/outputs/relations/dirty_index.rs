@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use crate::ecs::{Entity, World};
+use crate::ecs::{Entity, SparseSet, World};
 use crate::ui::Parent;
 use crate::ui::dirty::{Dirty, VisualDirty};
 
@@ -104,6 +104,7 @@ impl SourceDirtyIndex {
             for entry in &mut self.entries {
                 entry.dirty = false;
             }
+            let parents = world.storage::<Parent>();
             if layout_changed || !self.layout_unrelated {
                 if layout_changed {
                     self.layout_unrelated = true;
@@ -115,12 +116,12 @@ impl SourceDirtyIndex {
                 if let Some(storage) = world.storage::<Dirty>() {
                     for &entity in storage.entities() {
                         if self.layout_unrelated {
-                            if !self.may_dirty_source(world, entity) {
+                            if !self.may_dirty_source(world, parents, entity) {
                                 continue;
                             }
                             self.layout_unrelated = false;
                         }
-                        self.mark(world, entity, true, true);
+                        self.mark(world, parents, entity, true, true);
                     }
                 }
             }
@@ -135,13 +136,14 @@ impl SourceDirtyIndex {
                 if let Some(storage) = world.storage::<VisualDirty>() {
                     for (entity, state) in storage.iter() {
                         if self.visual_unrelated {
-                            if !self.may_dirty_source(world, entity) {
+                            if !self.may_dirty_source(world, parents, entity) {
                                 continue;
                             }
                             self.visual_unrelated = false;
                         }
                         self.mark(
                             world,
+                            parents,
                             entity,
                             state.content_pending() == VisualDirty::New,
                             state.parent_pending() == VisualDirty::New,
@@ -168,7 +170,14 @@ impl SourceDirtyIndex {
         self.get(world, source)
     }
 
-    fn mark(&mut self, world: &World, mut entity: Entity, content: bool, ancestors: bool) {
+    fn mark(
+        &mut self,
+        world: &World,
+        parents: Option<&SparseSet<Parent>>,
+        mut entity: Entity,
+        content: bool,
+        ancestors: bool,
+    ) {
         if (!content && !ancestors) || crate::ui::branch::is_hidden_in_tree(world, entity) {
             return;
         }
@@ -184,7 +193,7 @@ impl SourceDirtyIndex {
             if !ancestors {
                 break;
             }
-            let Some(parent) = world.get::<Parent>(entity) else {
+            let Some(parent) = parents.and_then(|parents| parents.get(entity)) else {
                 break;
             };
             entity = parent.0;
@@ -193,7 +202,12 @@ impl SourceDirtyIndex {
 
     // Only revision-tracked authored visibility can prove a branch unrelated.
     // Derived visibility remains part of mark's live check.
-    fn may_dirty_source(&self, world: &World, mut entity: Entity) -> bool {
+    fn may_dirty_source(
+        &self,
+        world: &World,
+        parents: Option<&SparseSet<Parent>>,
+        mut entity: Entity,
+    ) -> bool {
         let mut related = false;
         for _ in 0..=world.live_entity_count() {
             if crate::ui::branch::is_authored_hidden(world, entity) {
@@ -204,7 +218,7 @@ impl SourceDirtyIndex {
                     .entries
                     .binary_search_by_key(&key(entity), |entry| key(entry.entity))
                     .is_ok();
-            let Some(parent) = world.get::<Parent>(entity) else {
+            let Some(parent) = parents.and_then(|parents| parents.get(entity)) else {
                 break;
             };
             entity = parent.0;
