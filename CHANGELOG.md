@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Skip repeated visual-damage scans in output summaries when unchanged membership, topology and authored visibility exclude every member from the requested sources.
 - Append frame timing samples in place without copying or clearing the retained statistics window.
 - Reuse cache statistics snapshot storage across frames and release it when no inspectable caches remain.
 - Skip retention traversal setup for empty reactive paint-request queues and computed registries.

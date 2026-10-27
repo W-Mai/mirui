@@ -7,13 +7,16 @@ use crate::ui::dirty::{Dirty, VisualDirty};
 #[derive(Default)]
 pub(super) struct SourceDirtyIndex {
     entries: Vec<Entry>,
-    revisions: Option<[u64; 6]>,
+    revisions: Option<[u64; 7]>,
     available: bool,
     layout_unrelated: bool,
+    visual_unrelated: bool,
     #[cfg(test)]
     pub(super) rebuilds: usize,
     #[cfg(test)]
     layout_scans: usize,
+    #[cfg(test)]
+    visual_scans: usize,
 }
 
 struct Entry {
@@ -82,11 +85,18 @@ impl SourceDirtyIndex {
             world.component_revision::<crate::ui::Hidden>(),
             world.component_revision::<crate::ui::branch::CachedBranchVisibility>(),
             world.retirement_revision(),
+            world.component_membership_revision::<VisualDirty>(),
         ];
         if self.revisions != Some(revisions) {
-            let layout_changed = self.revisions.is_none_or(|previous| {
-                previous[0] != revisions[0] || previous[2..] != revisions[2..]
-            });
+            let topology_changed = self
+                .revisions
+                .is_none_or(|previous| previous[2..6] != revisions[2..6]);
+            let layout_changed = self
+                .revisions
+                .is_none_or(|previous| previous[0] != revisions[0] || topology_changed);
+            let visual_changed = self
+                .revisions
+                .is_none_or(|previous| previous[6] != revisions[6] || topology_changed);
             #[cfg(test)]
             {
                 self.rebuilds += 1;
@@ -114,14 +124,29 @@ impl SourceDirtyIndex {
                     }
                 }
             }
-            if let Some(storage) = world.storage::<VisualDirty>() {
-                for (entity, state) in storage.iter() {
-                    self.mark(
-                        world,
-                        entity,
-                        state.content_pending() == VisualDirty::New,
-                        state.parent_pending() == VisualDirty::New,
-                    );
+            if visual_changed || !self.visual_unrelated {
+                if visual_changed {
+                    self.visual_unrelated = true;
+                }
+                #[cfg(test)]
+                {
+                    self.visual_scans += 1;
+                }
+                if let Some(storage) = world.storage::<VisualDirty>() {
+                    for (entity, state) in storage.iter() {
+                        if self.visual_unrelated {
+                            if !self.may_dirty_source(world, entity) {
+                                continue;
+                            }
+                            self.visual_unrelated = false;
+                        }
+                        self.mark(
+                            world,
+                            entity,
+                            state.content_pending() == VisualDirty::New,
+                            state.parent_pending() == VisualDirty::New,
+                        );
+                    }
                 }
             }
             self.revisions = Some(revisions);
@@ -195,6 +220,72 @@ fn key(entity: Entity) -> (u32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unrelated_visual_members_reuse_their_proof_until_membership_or_visibility_changes() {
+        let mut world = World::new();
+        let source = world.spawn_empty();
+        let hidden = world.spawn_empty();
+        let child = world.spawn_empty();
+        let unrelated = world.spawn_empty();
+        world.insert(hidden, Parent(source));
+        world.insert(hidden, crate::ui::Hidden);
+        world.insert(child, Parent(hidden));
+        world.insert(child, VisualDirty::Prepared);
+        world.insert(unrelated, VisualDirty::New);
+        let mut index = SourceDirtyIndex::default();
+        index.begin(&mut world, [source].into_iter());
+        assert!(!index.is_dirty(&world, source));
+        let scans = index.visual_scans;
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                for _ in 0..73 {
+                    world.invalidate_visual(child);
+                    world.invalidate_transform(unrelated);
+                    assert!(!index.is_dirty(&world, source));
+                }
+            }),
+            0
+        );
+        assert_eq!(index.visual_scans, scans);
+
+        // Layout membership changes do not invalidate an independent proof.
+        world.insert(unrelated, Dirty);
+        assert!(!index.is_dirty(&world, source));
+        assert_eq!(index.visual_scans, scans);
+        world.remove::<Dirty>(unrelated);
+        assert!(!index.is_dirty(&world, source));
+        assert_eq!(index.visual_scans, scans);
+
+        world.remove::<crate::ui::Hidden>(hidden);
+        assert!(index.is_dirty(&world, source));
+        VisualDirty::prepare(&mut world, child);
+        assert!(!index.is_dirty(&world, source));
+        world.invalidate_visual(child);
+        assert!(index.is_dirty(&world, source));
+        world.insert(hidden, crate::ui::Hidden);
+        assert!(!index.is_dirty(&world, source));
+        world.insert(unrelated, Parent(source));
+        assert!(index.is_dirty(&world, source));
+        world.despawn(unrelated);
+        assert!(!index.is_dirty(&world, source));
+
+        // A source's transform is not its content, but it cannot prove that
+        // the same member will remain unrelated after a content write.
+        world.insert(source, VisualDirty::Transform);
+        assert!(!index.is_dirty(&world, source));
+        world.invalidate_visual(source);
+        assert!(index.is_dirty(&world, source));
+        world.remove::<VisualDirty>(source);
+        assert!(!index.is_dirty(&world, source));
+        index.begin(&mut world, [hidden].into_iter());
+        assert!(!index.is_dirty(&world, hidden));
+        world.remove::<crate::ui::Hidden>(hidden);
+        assert!(index.is_dirty(&world, hidden));
+        index.begin(&mut world, core::iter::empty());
+        assert!(!index.available);
+        assert_eq!(index.entries.capacity(), 0);
+    }
 
     #[test]
     fn unrelated_layout_members_reuse_their_proof_across_visual_changes() {
