@@ -434,8 +434,8 @@ fn visible_paint_coverage(
     plan: Option<&output_plan::TexturePlan>,
     preparation: Option<&PreparedPaint>,
 ) -> PaintCoverage {
-    let preparation = preparation.filter(|_| plan.is_none());
-    if let Some(coverage) = preparation.and_then(|prepared| prepared.get(position)) {
+    let coverage_preparation = preparation.filter(|_| plan.is_none());
+    if let Some(coverage) = coverage_preparation.and_then(|prepared| prepared.get(position)) {
         return coverage;
     }
     let fallback = || {
@@ -509,7 +509,7 @@ fn visible_paint_coverage(
     if let Some(capture) = plan.and_then(|plan| plan.captured_paint_bounds(position, rect)) {
         coverage = coverage.union(PaintCoverage::solid(affine.apply_rect_bbox(capture)));
     }
-    if reusable && let Some(preparation) = preparation {
+    if reusable && let Some(preparation) = coverage_preparation {
         preparation.set(position, coverage);
     }
     coverage

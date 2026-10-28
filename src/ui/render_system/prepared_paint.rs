@@ -1119,6 +1119,83 @@ mod tests {
     }
 
     #[test]
+    fn output_plans_reuse_view_membership_without_reusing_target_coverage() {
+        use crate::ui::view::View;
+        let mut world = World::new();
+        world.watch_component_revision::<Probe>();
+        let entity = world.spawn_empty();
+        world.insert(
+            entity,
+            Probe {
+                measurements: Cell::new(0),
+                global: Cell::new(false),
+            },
+        );
+        let mut registry = ViewRegistry::default();
+        registry.insert(
+            View::new("probe", 0, |_, _, _| {})
+                .with_filter::<Probe>()
+                .with_measurement(measure),
+        );
+        let mut prepared = PreparedPaint::with_capacity(1);
+        prepared.resize(1, registry.paint_iter().len());
+        world.insert_resource(registry);
+        let screen_coverage = PaintCoverage::solid(Rect::new(40, 50, 12, 14));
+        prepared.set(0, screen_coverage);
+        let plan = super::super::output_plan::TexturePlan::default();
+        for has_probe in [true, false, true] {
+            if has_probe && !world.has::<Probe>(entity) {
+                world.insert(
+                    entity,
+                    Probe {
+                        measurements: Cell::new(0),
+                        global: Cell::new(false),
+                    },
+                );
+            } else if !has_probe {
+                world.remove::<Probe>(entity);
+            }
+            let registry = world.resource::<ViewRegistry>().unwrap();
+            prepared.clear_for_frame(&world, registry);
+            prepared.set(0, screen_coverage);
+            for rect in [Rect::new(0, 0, 12, 14), Rect::new(2, 3, 6, 7)] {
+                let coverage = super::super::visible_paint_coverage(
+                    &world,
+                    entity,
+                    rect,
+                    &Transform::IDENTITY,
+                    &Transform3D::IDENTITY,
+                    Fixed::ONE,
+                    0,
+                    Some(&plan),
+                    Some(&prepared),
+                );
+                assert_eq!(
+                    coverage,
+                    if has_probe {
+                        PaintCoverage::solid(rect)
+                    } else {
+                        PaintCoverage::EMPTY
+                    }
+                );
+                assert_eq!(prepared.get(0), Some(screen_coverage));
+                let stride = prepared.view_stride();
+                assert_eq!(prepared.views[stride].get(), 1);
+                assert_eq!(
+                    PreparedViews {
+                        words: &prepared.views[stride + 1..stride * 2]
+                    }
+                    .contains(0),
+                    has_probe
+                );
+            }
+            if has_probe {
+                assert_eq!(world.get::<Probe>(entity).unwrap().measurements.get(), 2);
+            }
+        }
+    }
+
+    #[test]
     fn view_membership_spans_words_and_refreshes_between_batches() {
         use crate::ui::view::View;
         struct Absent;
