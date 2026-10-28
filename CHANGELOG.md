@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Align damage rectangles once when inserting them into the bounded region set.
 - Check existing measurement reuse eligibility before component membership, avoiding lookups whose results cannot change the reuse decision.
 - Prepare inline output measurements and workspace without computing unused screen-space subtree bounds; offscreen captures retain full geometry measurement.
 - Reuse parent component storage across output damage summaries and visible-damage ancestry scans instead of resolving its type for each ancestor.

@@ -3741,11 +3741,6 @@ struct DirtyBounds {
 
 impl DirtyBounds {
     fn include(&mut self, rect: Rect) {
-        if rect.w <= Fixed::ZERO || rect.h <= Fixed::ZERO {
-            return;
-        }
-        let (x0, y0, x1, y1) = rect.pixel_bounds();
-        let rect = Rect::new(x0, y0, x1 - x0, y1 - y0);
         self.regions.insert(rect);
     }
 }
