@@ -986,9 +986,7 @@ fn node_at<'a>(
 
 pub(super) fn acknowledge(world: &World, entities: &[Entity]) {
     if let Some(relations) = world.resource::<OutputRelations>() {
-        for &entity in entities {
-            relations.acknowledge(world, entity);
-        }
+        relations.acknowledge(world, entities);
     }
 }
 

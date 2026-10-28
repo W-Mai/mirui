@@ -220,12 +220,15 @@ impl OutputRelations {
         }
     }
 
-    pub(crate) fn acknowledge(&self, world: &World, consumer: Entity) {
-        if !world.is_alive(consumer) {
+    pub(crate) fn acknowledge(&self, world: &World, consumers: &[Entity]) {
+        if consumers.is_empty() {
             return;
         }
         for binding in &self.bindings {
-            if !binding.active || binding.consumer != consumer || binding.dependency.retain_previous
+            if !binding.active
+                || binding.dependency.retain_previous
+                || !consumers.contains(&binding.consumer)
+                || !world.is_alive(binding.consumer)
             {
                 continue;
             }
@@ -631,7 +634,7 @@ mod tests {
             assert!(!world.has::<Dirty>(visual));
             assert!(world.has::<Dirty>(layout), "stage {stage}");
             for consumer in [visual, layout] {
-                relations.acknowledge(&world, consumer);
+                relations.acknowledge(&world, &[consumer]);
                 world.remove::<Dirty>(consumer);
                 world.remove::<VisualDirty>(consumer);
             }
@@ -654,7 +657,7 @@ mod tests {
         world.remove::<VisualDirty>(source);
         relations.propagate_invalidations(&mut world);
         for consumer in [layout, visual] {
-            relations.acknowledge(&world, consumer);
+            relations.acknowledge(&world, &[consumer]);
             world.remove::<Dirty>(consumer);
             world.remove::<VisualDirty>(consumer);
         }
@@ -724,7 +727,7 @@ mod tests {
         VisualDirty::prepare(&mut world, first);
         VisualDirty::prepare(&mut world, second);
 
-        relations.acknowledge(&world, first);
+        relations.acknowledge(&world, &[first]);
         VisualDirty::acknowledge(&mut world, first);
         relations.propagate_invalidations(&mut world);
         assert!(!world.has::<VisualDirty>(first));
@@ -745,7 +748,7 @@ mod tests {
         assert_eq!(relations.bindings[0].version.get(), Some(8));
 
         world.insert(source, crate::ui::Hidden);
-        relations.acknowledge(&world, first);
+        relations.acknowledge(&world, &[first]);
         assert_eq!(relations.bindings[0].version.get(), None);
     }
 
@@ -798,7 +801,7 @@ mod tests {
         assert_eq!(relations.bindings[1].version.get(), Some(1));
         assert_eq!(relations.bindings[2].version.get(), None);
         for consumer in [first, second] {
-            relations.acknowledge(&world, consumer);
+            relations.acknowledge(&world, &[consumer]);
             world.remove::<VisualDirty>(consumer);
         }
 
@@ -819,19 +822,19 @@ mod tests {
         assert!(world.has::<VisualDirty>(second));
         assert!(!world.has::<VisualDirty>(retained));
 
-        relations.acknowledge(&world, first);
+        relations.acknowledge(&world, &[first]);
         world.remove::<VisualDirty>(first);
         relations.propagate_publications(&mut world);
         assert!(!world.has::<VisualDirty>(first));
         assert!(world.has::<VisualDirty>(second));
-        relations.acknowledge(&world, second);
+        relations.acknowledge(&world, &[second]);
         world.remove::<VisualDirty>(second);
 
         world.get::<Cell<Option<u64>>>(source).unwrap().set(None);
         relations.propagate_publications(&mut world);
         for consumer in [first, second] {
             assert!(world.has::<VisualDirty>(consumer));
-            relations.acknowledge(&world, consumer);
+            relations.acknowledge(&world, &[consumer]);
             world.remove::<VisualDirty>(consumer);
         }
         world.get::<Cell<Option<u64>>>(source).unwrap().set(Some(2));
@@ -927,6 +930,100 @@ mod tests {
     };
 
     #[test]
+    fn acknowledgement_confirms_only_live_current_consumers_in_the_successful_range() {
+        let mut world = World::default();
+        let source = world.spawn_empty();
+        world.insert(source, SourceReads::default());
+        world.get::<SourceReads>(source).unwrap().versions[0].set(Some(7));
+        let consumers: [Entity; 5] = core::array::from_fn(|_| world.spawn_empty());
+        let mut relations = OutputRelations::default();
+        for (index, consumer) in consumers.into_iter().enumerate() {
+            world.insert(consumer, source);
+            relations.bind(
+                &world,
+                consumer,
+                0,
+                0,
+                if index == 2 {
+                    &COUNTED_HISTORY
+                } else {
+                    &COUNTED_FIRST
+                },
+                ViewInvalidation::Visual,
+            );
+        }
+        relations.remove(consumers[3], 0);
+        assert!(world.despawn(consumers[4]));
+        let replacement = world.spawn_empty();
+        assert_eq!(replacement.id, consumers[4].id);
+        assert_ne!(replacement, consumers[4]);
+
+        relations.acknowledge(&world, &[]);
+        assert_eq!(world.get::<SourceReads>(source).unwrap().reads[0].get(), 0);
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| {
+                relations.acknowledge(
+                    &world,
+                    &[
+                        consumers[0],
+                        consumers[0],
+                        consumers[2],
+                        consumers[3],
+                        consumers[4],
+                        replacement,
+                    ],
+                );
+            }),
+            0
+        );
+        assert_eq!(world.get::<SourceReads>(source).unwrap().reads[0].get(), 1);
+        assert_eq!(relations.bindings[0].version.get(), Some(7));
+        assert!(
+            relations.bindings[1..]
+                .iter()
+                .all(|binding| binding.version.get().is_none())
+        );
+
+        // A later successful range confirms its own consumer, not the earlier one.
+        world.get::<SourceReads>(source).unwrap().versions[0].set(Some(9));
+        relations.acknowledge(&world, &[consumers[1]]);
+        assert_eq!(relations.bindings[0].version.get(), Some(7));
+        assert_eq!(relations.bindings[1].version.get(), Some(9));
+
+        let parent = world.spawn_empty();
+        world.insert(source, crate::ui::Parent(parent));
+        world.insert(parent, crate::ui::Hidden);
+        relations.acknowledge(&world, &consumers);
+        assert!(
+            relations
+                .bindings
+                .iter()
+                .all(|binding| binding.version.get().is_none())
+        );
+        assert_eq!(world.get::<SourceReads>(source).unwrap().reads[0].get(), 2);
+
+        world.remove::<crate::ui::Hidden>(parent);
+        relations.acknowledge(&world, &consumers);
+        assert_eq!(relations.bindings[0].version.get(), Some(9));
+        assert_eq!(relations.bindings[1].version.get(), Some(9));
+        assert!(world.despawn(source));
+        let new_source = world.spawn_empty();
+        assert_eq!(new_source.id, source.id);
+        world.insert(new_source, SourceReads::default());
+        relations.acknowledge(&world, &consumers);
+        assert!(
+            relations
+                .bindings
+                .iter()
+                .all(|binding| binding.version.get().is_none())
+        );
+        assert_eq!(
+            world.get::<SourceReads>(new_source).unwrap().reads[0].get(),
+            0
+        );
+    }
+
+    #[test]
     fn source_checks_are_shared_by_current_demand_not_consumer_or_history_count() {
         let mut world = World::default();
         let source = world.spawn_empty();
@@ -964,7 +1061,7 @@ mod tests {
         }
         for consumer in consumers {
             VisualDirty::prepare(&mut world, consumer);
-            relations.acknowledge(&world, consumer);
+            relations.acknowledge(&world, &[consumer]);
             VisualDirty::acknowledge(&mut world, consumer);
         }
         world.get::<SourceReads>(source).unwrap().clear_counts();
@@ -1027,7 +1124,7 @@ mod tests {
         relations.reconcile(&mut world);
         for entity in [source, left, right, last] {
             VisualDirty::prepare(&mut world, entity);
-            relations.acknowledge(&world, entity);
+            relations.acknowledge(&world, &[entity]);
             VisualDirty::acknowledge(&mut world, entity);
         }
         assert_eq!(
@@ -1048,7 +1145,7 @@ mod tests {
                             world.get::<VisualDirty>(entity),
                             Some(VisualDirty::Prepared)
                         ));
-                        relations.acknowledge(&world, entity);
+                        relations.acknowledge(&world, &[entity]);
                         VisualDirty::acknowledge(&mut world, entity);
                     }
                 }
@@ -1072,7 +1169,7 @@ mod tests {
         relations.reconcile(&mut world);
         for entity in [source, first, second] {
             VisualDirty::prepare(&mut world, entity);
-            relations.acknowledge(&world, entity);
+            relations.acknowledge(&world, &[entity]);
             VisualDirty::acknowledge(&mut world, entity);
         }
 
@@ -1086,7 +1183,7 @@ mod tests {
         for consumer in [first, second] {
             assert!(world.has::<VisualDirty>(consumer));
             VisualDirty::prepare(&mut world, consumer);
-            relations.acknowledge(&world, consumer);
+            relations.acknowledge(&world, &[consumer]);
             VisualDirty::acknowledge(&mut world, consumer);
         }
         assert!(
@@ -1106,7 +1203,7 @@ mod tests {
         );
         for entity in [source, first, second] {
             VisualDirty::prepare(&mut world, entity);
-            relations.acknowledge(&world, entity);
+            relations.acknowledge(&world, &[entity]);
             VisualDirty::acknowledge(&mut world, entity);
         }
 

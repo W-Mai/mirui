@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Acknowledge successful output consumers directly from their dependency bindings, skipping unrelated layout entities without additional storage.
 - Skip timing clock reads and statistics publication when no timing consumer is active.
 - Align damage rectangles once when inserting them into the bounded region set.
 - Check existing measurement reuse eligibility before component membership, avoiding lookups whose results cannot change the reuse decision.

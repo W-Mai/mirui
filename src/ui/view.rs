@@ -2413,7 +2413,7 @@ mod tests {
             world
                 .resource::<crate::ui::outputs::relations::OutputRelations>()
                 .unwrap()
-                .acknowledge(&world, owner);
+                .acknowledge(&world, &[owner]);
             ViewRegistry::reconcile_observations(&mut world);
             assert!(!world.has::<VisualDirty>(owner));
         }
