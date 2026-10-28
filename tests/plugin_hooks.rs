@@ -36,7 +36,7 @@ where
     fn pre_render(&mut self, _world: &mut World) {
         self.counts.pre.set(self.counts.pre.get() + 1);
     }
-    fn post_render(&mut self, _world: &mut World, _render_nanos: u64) {
+    fn post_render(&mut self, _world: &mut World, _render_nanos: Option<u64>) {
         self.counts.post.set(self.counts.post.get() + 1);
     }
     fn on_event(&mut self, _world: &mut World, _event: &InputEvent) -> bool {

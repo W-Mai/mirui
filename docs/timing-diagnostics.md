@@ -16,6 +16,16 @@ app.add_plugin(FpsSummaryPlugin::new(120).with_sink(|report| {
 
 `new(120)` reports every 120 closed App operations. `Tick` covers input, systems, drawing and platform maintenance. Hosts that deliver update and redraw separately produce separate `Update` and `Draw` samples. Direct `render`, `render_dirty` and `snapshot` calls produce `Draw` samples. Nested drawing inside a tick belongs to that tick and does not produce another operation sample.
 
+Timing is collected on demand. Report plugins request it automatically, and an active `Capture` enables collection at the next outer App operation. Without either, applications that read timing resources or custom plugins that implement `on_timing` request it explicitly:
+
+```rust
+app.request_timings(true);
+// Read FrameTimings / FrameStats through the existing resource APIs.
+app.request_timings(false);
+```
+
+The explicit request is independent of reporter and capture demand: releasing it does not turn off those consumers. An operation keeps the demand selected at entry, including nested drawing. With no demand, App skips timing clock reads, recording and publication, and never creates timing resources. When demand ends, existing `FrameTimings` becomes invalid and the `FrameStats` window becomes empty; retained storage is reused. An explicit release outside an operation clears results immediately if no other demand remains. A global capture ending is observed at each App's next operation boundary, before its business work. A copied historical sample remains a historical value.
+
 Operation wall time includes business `post_render` hooks and platform maintenance. It excludes the subsequent timing reports and host pacing. Instrumentation inside an operation remains included. Wall time includes blocking and time when the thread is not scheduled; it must not be described as CPU time. A long poll can wait for an earlier submission while still belonging to the operation that called it. Without submission and scheduling evidence, the cause of that wait is unknown.
 
 `FrameTimings` records input, systems, layout, render, flush and previous-coverage seeding. Its accessors return `Option<u64>`: `None` means absent or invalid, while `Some(0)` is a measured zero. `phase_wall_nanos()` sums these measured phases, not all operation work. The difference from operation wall time is uncovered wall time, not automatically wasted computation. A failed attempt publishes its own attempted phases rather than repeating the preceding successful sample.
@@ -26,7 +36,7 @@ Operation cadence counts callbacks in a half-open timestamp interval. Equal time
 
 `accepted_submission_rate_hz()` counts actual App acceptances in that same interval. One operation may accept several submissions or none; a later failure does not erase an earlier acceptance. Events at the interval's end remain in the next interval, and events before the first covered endpoint are excluded. `TimingSample::accepted_submissions` exposes the operation's actual count, while `FpsSummary::accepted_submissions` is the covered window count. These counts do not imply native presentation or display completion.
 
-Custom sinks receive the just-closed operation through the existing reporting plugins. Low-level plugins can implement `on_timing`; installing a timing reporter enables its delivery. The read-only `TimingSample` refers to a closed snapshot, and `FrameTimings` in the World has already been updated. Business `post_render` retains its original ordering and sees the previous closed operation. Mutating application state inside a timing reporter is outside the measured operation.
+Custom sinks receive the just-closed operation through the existing reporting plugins. Low-level plugins can implement `on_timing` and call `app.request_timings(true)` in `build`; installing a timing reporter also enables delivery. The read-only `TimingSample` refers to a closed snapshot, and `FrameTimings` in the World has already been updated. Business `post_render` retains its original ordering and sees the previous closed operation. Its `render_nanos: Option<u64>` argument is `None` when timing is disabled or the clock is unavailable; the hook still runs. Mutating application state inside a timing reporter is outside the measured operation.
 
 ## Bounded traces
 

@@ -403,7 +403,7 @@ where
         app.world.insert_resource(registry);
     }
 
-    fn post_render(&mut self, world: &mut World, _render_nanos: u64) {
+    fn post_render(&mut self, world: &mut World, _render_nanos: Option<u64>) {
         let now_ns = clock_ns(world);
         let due = world
             .resource_mut::<PersistenceRegistry>()

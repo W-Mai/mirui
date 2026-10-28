@@ -156,6 +156,12 @@ fn operation_samples_do_not_join_separate_host_callbacks_or_repeat_nested_draws(
 fn failed_and_idle_attempts_do_not_reuse_previous_phases_or_grow_completed_statistics() {
     let (mut app, _) = fixture();
     app.add_plugin(ObserveTimings);
+    app.render().unwrap();
+    app.world
+        .resource_mut::<ObservedTimings>()
+        .unwrap()
+        .0
+        .clear();
     let count = app
         .world
         .resource::<crate::ecs::FrameStats>()
@@ -242,7 +248,7 @@ fn operation_wall_includes_business_hooks_but_excludes_reporting_and_pacing() {
             app.world
                 .insert_resource(crate::ecs::MonoClock::new(|| NOW.get()));
         }
-        fn post_render(&mut self, _: &mut World, _: u64) {
+        fn post_render(&mut self, _: &mut World, _: Option<u64>) {
             NOW.set(NOW.get() + 5_000);
         }
         fn on_timing(&mut self, _: &mut World, sample: &crate::ecs::TimingSample<'_>) {

@@ -9,6 +9,35 @@ use crate::ui::widgets::{Text, WidgetTransform};
 use crate::ui::{Children, ComputedRect};
 
 #[test]
+fn mode_changes_use_animation_time_without_timing_collection() {
+    let mut app = App::headless(360, 360);
+    app.add_resource(super::state::ModeToggle {
+        elapsed_ns: 0,
+        last_flip_ns: 0,
+        offscreen: false,
+    });
+    app.add_resource(crate::ecs::DeltaTimeMs(4999));
+    let mut scheduler = SystemScheduler::new();
+    scheduler.add(super::animation::mode_toggle_system::system());
+    scheduler.run_all(&mut app.world).unwrap();
+    assert!(
+        !app.world
+            .resource::<super::state::ModeToggle>()
+            .unwrap()
+            .offscreen
+    );
+    app.add_resource(crate::ecs::DeltaTimeMs(1));
+    scheduler.run_all(&mut app.world).unwrap();
+    assert!(
+        app.world
+            .resource::<super::state::ModeToggle>()
+            .unwrap()
+            .offscreen
+    );
+    assert!(app.world.resource::<FrameTimings>().is_none());
+}
+
+#[test]
 fn build_widgets_smoke() {
     let mut app = App::headless(super::DEFAULT_VIEW.0, super::DEFAULT_VIEW.1);
     let parent = app.spawn_root().id();

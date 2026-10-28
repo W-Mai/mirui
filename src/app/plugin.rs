@@ -41,12 +41,10 @@ where
 
     fn pre_render(&mut self, _world: &mut World) {}
 
-    /// `render_nanos` covers layout + render walker only; flush and
-    /// prev-rect seeding are excluded. Zero when no clock plugin is
-    /// installed.
-    fn post_render(&mut self, _world: &mut World, _render_nanos: u64) {}
+    /// `render_nanos` covers layout and rendering, excluding flush and previous-coverage seeding. `None` means timing was not requested or a valid clock was unavailable. This hook runs even when timing is disabled.
+    fn post_render(&mut self, _world: &mut World, _render_nanos: Option<u64>) {}
 
-    /// Receives the closed outer operation before report output and host pacing. Enabled by timing reporter plugins; business post-render hooks retain their original ordering. The sample includes any instrumentation inside the operation.
+    /// Receives the closed outer operation before report output and host pacing. Enabled by timing reporter plugins or `App::request_timings`; business post-render hooks retain their original ordering. The sample includes any instrumentation inside the operation.
     fn on_timing(&mut self, _world: &mut World, _sample: &crate::ecs::TimingSample<'_>) {}
 
     /// Inspect input before widgets and App fallback. Returning true consumes user input. Lifecycle requests still reach every plugin and retain cancellation and state-transition handling.

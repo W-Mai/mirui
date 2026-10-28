@@ -27,7 +27,7 @@ fn sink(report: BudgetViolation) {
 struct Observe;
 impl Plugin<Backend, SwRendererFactory> for Observe {
     fn build(&mut self, _: &mut App<Backend>) {}
-    fn post_render(&mut self, _: &mut mirui::ecs::World, _: u64) {
+    fn post_render(&mut self, _: &mut mirui::ecs::World, _: Option<u64>) {
         POST_RENDER.with(|value| value.set(true));
     }
     fn on_timing(&mut self, world: &mut mirui::ecs::World, sample: &TimingSample<'_>) {

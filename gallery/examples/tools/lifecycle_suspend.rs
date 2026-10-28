@@ -65,7 +65,7 @@ where
         self.counters.on_resume.update(|n| *n += 1);
         self.counters.suspended.set(false);
     }
-    fn post_render(&mut self, _world: &mut World, _render_nanos: u64) {
+    fn post_render(&mut self, _world: &mut World, _render_nanos: Option<u64>) {
         self.counters.ticks.update(|n| *n += 1);
     }
 }

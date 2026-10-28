@@ -42,9 +42,9 @@ pub fn fps_readout_system(
     readouts: query!(Entity, mut FpsReadout),
     commands: commands!(),
 ) {
-    let render_ns = timings
-        .and_then(|timings| timings.render_nanos())
-        .unwrap_or(0);
+    let Some(render_ns) = timings.and_then(|timings| timings.render_nanos()) else {
+        return;
+    };
     let offscreen = toggle.is_some_and(|toggle| toggle.offscreen);
 
     for (entity, readout) in readouts {

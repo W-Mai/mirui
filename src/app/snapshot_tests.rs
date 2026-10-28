@@ -72,7 +72,7 @@ impl Plugin<TestSurface, SwRendererFactory> for Hooks {
         world.get_mut::<Style>(self.root).unwrap().bg_color = Some(Color::rgb(255, 0, 0).into());
     }
 
-    fn post_render(&mut self, _: &mut World, _: u64) {
+    fn post_render(&mut self, _: &mut World, _: Option<u64>) {
         self.trace.borrow_mut().push("complete");
     }
 }

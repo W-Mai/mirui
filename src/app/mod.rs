@@ -1269,8 +1269,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.record_phase(FramePhase::Render, layout_end, render_end);
         let render_ns = layout_start
             .zip(render_end)
-            .and_then(|(a, b)| b.checked_sub(a))
-            .unwrap_or(0);
+            .and_then(|(a, b)| b.checked_sub(a));
 
         let (pw, ph) = transform.physical_size();
         let submitted = (|| {
@@ -1906,8 +1905,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             self.record_phase(FramePhase::Render, layout_end, render_end);
             let render_ns = layout_start
                 .zip(render_end)
-                .and_then(|(a, b)| b.checked_sub(a))
-                .unwrap_or(0);
+                .and_then(|(a, b)| b.checked_sub(a));
             let submitted = (|| {
                 crate::trace_span!("frame.flush");
                 for &area in physical.as_slice() {
@@ -1977,8 +1975,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.record_phase(FramePhase::Render, layout_end, render_end);
         let render_ns = layout_start
             .zip(render_end)
-            .and_then(|(a, b)| b.checked_sub(a))
-            .unwrap_or(0);
+            .and_then(|(a, b)| b.checked_sub(a));
         self.timing_outcome(TimingOutcome::Idle);
         {
             crate::trace_span!("frame.finalize");

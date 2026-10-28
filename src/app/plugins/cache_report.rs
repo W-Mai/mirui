@@ -50,7 +50,7 @@ where
 {
     fn build(&mut self, _app: &mut App<B, F>) {}
 
-    fn post_render(&mut self, world: &mut World, _render_nanos: u64) {
+    fn post_render(&mut self, world: &mut World, _render_nanos: Option<u64>) {
         self.frame_count += 1;
         if self.frame_count < self.frames_per_report {
             return;

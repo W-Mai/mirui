@@ -184,6 +184,11 @@ impl Default for FrameStats {
 }
 
 impl FrameStats {
+    pub(crate) fn clear(&mut self) {
+        self.head = 0;
+        self.len = 0;
+    }
+
     pub(crate) fn push(&mut self, timings: &FrameTimings) {
         let Some(value) = timings.phase_wall_nanos() else {
             return;

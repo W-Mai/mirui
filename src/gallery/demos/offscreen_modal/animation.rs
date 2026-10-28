@@ -38,16 +38,12 @@ pub fn modal_slide_system(
 
 #[mirui_macros::system(order = Animation)]
 pub fn mode_toggle_system(
-    timings: res!(optional FrameTimings),
+    time: res!(crate::ecs::DeltaTimeMs),
     toggle: res!(mut ModeToggle),
     modals: query!(Entity; with ModalAnim;),
     commands: commands!(),
 ) {
-    let frame_ns = timings
-        .and_then(|timings| timings.phase_wall_nanos())
-        .unwrap_or(0);
-
-    toggle.elapsed_ns += frame_ns;
+    toggle.elapsed_ns += u64::from(time.0) * 1_000_000;
     let flip = if toggle.elapsed_ns - toggle.last_flip_ns >= TOGGLE_NS {
         toggle.last_flip_ns = toggle.elapsed_ns;
         toggle.offscreen = !toggle.offscreen;
@@ -75,9 +71,9 @@ pub fn fps_readout_system(
     readouts: query!(Entity, mut FpsReadout),
     commands: commands!(),
 ) {
-    let render_ns = timings
-        .and_then(|timings| timings.render_nanos())
-        .unwrap_or(0);
+    let Some(render_ns) = timings.and_then(|timings| timings.render_nanos()) else {
+        return;
+    };
     let offscreen = toggle.is_some_and(|toggle| toggle.offscreen);
 
     for (entity, readout) in readouts {
