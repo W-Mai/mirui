@@ -203,15 +203,17 @@ impl PreparedPaint {
             let present = PreparedViews {
                 words: &present[1..],
             };
-            for (index, view) in registry.paint_iter().enumerate() {
-                if present.contains(index)
-                    && view
-                        .component_filter()
-                        .is_none_or(|kind| world.has_type(entity, kind))
+            let mut next = present.next_index(0);
+            while let Some(index) = next {
+                let view = registry.paint_at(index)?;
+                if view
+                    .component_filter()
+                    .is_none_or(|kind| world.has_type(entity, kind))
                 {
                     let word = &row[1 + index / usize::BITS as usize];
                     word.set(word.get() | (1 << (index % usize::BITS as usize)));
                 }
+                next = present.next_index(index + 1);
             }
             row[0].set(1);
         }
@@ -376,7 +378,8 @@ impl PreparedViews<'_> {
         }
     }
 
-    pub(super) fn contains(&self, index: usize) -> bool {
+    #[cfg(test)]
+    fn contains(&self, index: usize) -> bool {
         self.words[index / usize::BITS as usize].get() & (1 << (index % usize::BITS as usize)) != 0
     }
 }
@@ -1267,6 +1270,51 @@ mod tests {
         );
         prepared.resize(2, registry.paint_iter().len());
         check(&prepared, &world, &registry);
+    }
+
+    #[test]
+    fn sparse_view_membership_crosses_empty_words_and_refreshes_absent_types() {
+        use crate::ui::view::View;
+        struct Late;
+        impl crate::ecs::Component for Late {}
+        let mut world = World::new();
+        world.watch_component_revision::<Late>();
+        let entity = world.spawn_empty();
+        let mut registry = ViewRegistry::default();
+        let filtered = usize::BITS as usize * 2;
+        for _ in 0..filtered {
+            registry.insert(View::new("late", 0, |_, _, _| {}).with_filter::<Late>());
+        }
+        registry.insert(View::new("unfiltered", 1, |_, _, _| {}));
+        let mut prepared = PreparedPaint::with_capacity(1);
+        prepared.resize(1, registry.paint_iter().len());
+        for present in [false, true, false] {
+            if present {
+                world.insert(entity, Late);
+            } else {
+                world.remove::<Late>(entity);
+            }
+            prepared.clear_for_frame(&world, &registry);
+            assert_eq!(
+                crate::test_support::tracked_allocations(|| {
+                    for _ in 0..2 {
+                        let matching = prepared
+                            .matching_views(&world, &registry, entity, 0)
+                            .unwrap();
+                        assert_eq!(
+                            matching.next_index(0),
+                            Some(if present { 0 } else { filtered })
+                        );
+                        assert_eq!(matching.next_index(filtered), Some(filtered));
+                        assert_eq!(matching.next_index(filtered + 1), None);
+                        for index in 0..filtered {
+                            assert_eq!(matching.contains(index), present);
+                        }
+                    }
+                }),
+                0
+            );
+        }
     }
 
     #[test]
