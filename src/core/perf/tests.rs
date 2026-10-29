@@ -5,6 +5,34 @@ use std::sync::Mutex;
 pub(crate) static SERIAL: Mutex<()> = Mutex::new(());
 
 #[test]
+fn trace_macros_gate_guard_construction_without_changing_capture_lifetimes() {
+    let _serial = SERIAL.lock().unwrap();
+    #[crate::trace_fn("macro.function")]
+    fn traced() -> usize {
+        crate::trace_span!("macro.statement");
+        crate::trace_span!("macro.expression", { 7 })
+    }
+    assert_eq!(traced(), 7);
+    crate::trace_span!("macro.before_capture");
+    let mut capture = Capture::new(DEFAULT_TRACE_BUDGET).unwrap();
+    assert_eq!(traced(), 7);
+    let mut names = std::vec::Vec::new();
+    capture.drain_events(|_, records| {
+        names.extend(
+            records
+                .iter()
+                .filter_map(|record| record.span().map(|span| span.name)),
+        );
+    });
+    assert_eq!(
+        names,
+        ["macro.expression", "macro.statement", "macro.function"]
+    );
+    assert_eq!(capture.status().open_scopes, 0);
+    assert_eq!(capture.status().dropped, 0);
+}
+
+#[test]
 fn full_and_dirty_frames_trace_the_same_paint_acknowledgement_boundary() {
     let _serial = SERIAL.lock().unwrap();
     let mut app = crate::app::App::headless(16, 16);

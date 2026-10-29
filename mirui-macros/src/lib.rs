@@ -3078,7 +3078,8 @@ pub fn trace_span(input: TokenStream) -> TokenStream {
             let id = next_trace_span_id();
             let ident = quote::format_ident!("__trace_span_guard_{}", id);
             quote::quote! {
-                let #ident = mirui::core::perf::enter(#name);
+                let #ident = mirui::core::perf::is_enabled()
+                    .then(|| mirui::core::perf::enter(#name));
             }
             .into()
         }
@@ -3086,7 +3087,8 @@ pub fn trace_span(input: TokenStream) -> TokenStream {
             let id = next_trace_span_id();
             let ident = quote::format_ident!("__trace_span_guard_{}", id);
             quote::quote! {{
-                let #ident = mirui::core::perf::enter(#name);
+                let #ident = mirui::core::perf::is_enabled()
+                    .then(|| mirui::core::perf::enter(#name));
                 let __trace_span_value = #body;
                 drop(#ident);
                 __trace_span_value
@@ -3106,7 +3108,8 @@ pub fn trace_fn(args: TokenStream, item: TokenStream) -> TokenStream {
     let id = next_trace_span_id();
     let ident = quote::format_ident!("__trace_span_guard_{}", id);
     *func.block = syn::parse_quote! {{
-        let #ident = mirui::core::perf::enter(#name);
+        let #ident = mirui::core::perf::is_enabled()
+            .then(|| mirui::core::perf::enter(#name));
         #(#stmts)*
     }};
     quote::quote! { #func }.into()

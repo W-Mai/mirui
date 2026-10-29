@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 
+- Skip trace guard construction while capture is inactive, preserving runtime capture activation.
 - Build node View membership from the existing type-presence bitset, skipping absent View types without scanning the complete registry.
 - Reuse prepared View membership during output-plan coverage measurement while preserving target-specific geometry checks.
 - Acknowledge successful output consumers directly from their dependency bindings, skipping unrelated layout entities without additional storage.
