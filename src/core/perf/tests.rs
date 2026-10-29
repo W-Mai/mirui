@@ -4,6 +4,40 @@ use std::sync::Mutex;
 
 pub(crate) static SERIAL: Mutex<()> = Mutex::new(());
 
+#[test]
+fn full_and_dirty_frames_trace_the_same_paint_acknowledgement_boundary() {
+    let _serial = SERIAL.lock().unwrap();
+    let mut app = crate::app::App::headless(16, 16);
+    app.with_default_widgets();
+    let root = app.spawn_root().id();
+    let mut capture = Capture::new(DEFAULT_TRACE_BUDGET).unwrap();
+    for full in [true, false] {
+        app.world.invalidate_visual(root);
+        if full {
+            app.render().unwrap();
+        } else {
+            app.render_dirty().unwrap();
+        }
+        let mut boundaries = 0;
+        let mut walks = 0;
+        capture.drain_events(|_, records| {
+            for record in records {
+                if let Some(span) = record.span() {
+                    match span.name {
+                        "frame.seed_prev" => boundaries += 1,
+                        "paint.ack.walk" => walks += 1,
+                        "paint.ack.layout_fallback" => panic!("prepared layout was discarded"),
+                        _ => {}
+                    }
+                }
+            }
+        });
+        assert_eq!((boundaries, walks), (1, 1), "full={full}");
+        assert_eq!(capture.status().open_scopes, 0);
+        assert_eq!(capture.status().dropped, 0);
+    }
+}
+
 fn event(name: &'static str, depth: u8) -> PerfEvent {
     PerfEvent {
         name,

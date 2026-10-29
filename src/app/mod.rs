@@ -1299,10 +1299,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         // covers pixels this full render actually wrote — otherwise
         // any widget that shrinks or moves between the full render
         // and the first dirty render leaves residue.
-        {
-            crate::trace_span!("frame.seed_prev");
-            render_system::acknowledge_painted_frame(&mut self.world, root, &transform);
-        }
+        render_system::acknowledge_painted_frame(&mut self.world, root, &transform);
         self.record_phase(FramePhase::SeedPrev, flush_end, self.timing_clock_ns());
         self.timing_outcome(TimingOutcome::Completed);
         self.dirty_plan.clear();

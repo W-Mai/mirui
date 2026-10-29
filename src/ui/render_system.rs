@@ -658,7 +658,11 @@ pub(crate) fn acknowledge_painted_frame(world: &mut World, root: Entity, transfo
 }
 
 fn acknowledge_paint(world: &mut World, root: Entity, transform: &Viewport, prepared: bool) {
-    scroll::PaintedScroll::invalidate_all(world);
+    crate::trace_span!("frame.seed_prev");
+    {
+        crate::trace_span!("paint.ack.scroll_baseline");
+        scroll::PaintedScroll::invalidate_all(world);
+    }
     let retired_paint = world
         .resource::<super::dirty::ExactDirtyRegions>()
         .is_some_and(|regions| !regions.is_empty());
@@ -669,6 +673,7 @@ fn acknowledge_paint(world: &mut World, root: Entity, transform: &Viewport, prep
     if let Some(snapshot) = world.take_resource_box::<LayoutSnapshot>() {
         if snapshot.matches(root, logical_w, logical_h) {
             if retired_paint {
+                crate::trace_span!("paint.ack.retired");
                 for node in &snapshot.parked {
                     if let Some(entity) = node.entity {
                         world.clear_subtree_paint(entity);
@@ -679,28 +684,32 @@ fn acknowledge_paint(world: &mut World, root: Entity, transform: &Viewport, prep
                 .resource::<Outputs<WidgetTexture>>()
                 .and_then(Outputs::take_texture_plan);
             let mut idx = 0;
-            seed_prev_rect_walk(
-                &snapshot.layout_tree,
-                world,
-                &snapshot.entities,
-                &mut idx,
-                &Transform::IDENTITY,
-                &Transform3D::IDENTITY,
-                transform.scale(),
-                (Fixed::ZERO, Fixed::ZERO),
-                Some(Rect::new(0, 0, logical_w, logical_h)),
-                None,
-                true,
-                !super::branch::is_hidden_in_tree(world, root),
-                output_plan.as_ref().filter(|plan| plan.matches_root(root)),
-                prepared.then_some(&snapshot.prepared_paint),
-            );
+            {
+                crate::trace_span!("paint.ack.walk");
+                seed_prev_rect_walk(
+                    &snapshot.layout_tree,
+                    world,
+                    &snapshot.entities,
+                    &mut idx,
+                    &Transform::IDENTITY,
+                    &Transform3D::IDENTITY,
+                    transform.scale(),
+                    (Fixed::ZERO, Fixed::ZERO),
+                    Some(Rect::new(0, 0, logical_w, logical_h)),
+                    None,
+                    true,
+                    !super::branch::is_hidden_in_tree(world, root),
+                    output_plan.as_ref().filter(|plan| plan.matches_root(root)),
+                    prepared.then_some(&snapshot.prepared_paint),
+                );
+            }
             output_plan::return_plan(world, output_plan);
             world.put_resource_box(snapshot);
             return;
         }
         world.put_resource_box(snapshot);
     }
+    crate::trace_span!("paint.ack.layout_fallback");
     let layout_tree = match build_layout_tree(world, root) {
         Ok(layout_tree) => layout_tree,
         Err(failure) => {
