@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-10-29
+
+### Added
+
 - Report accepted submission cadence separately from operation callbacks and display feedback.
 
 - Export Web traces without querying unsupported native process IDs, and identify source-local process labels explicitly.
