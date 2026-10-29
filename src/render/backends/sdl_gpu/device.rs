@@ -186,8 +186,8 @@ impl<T: RenderTarget> Device<T> {
                 canvas
                     .copy(texture, None, None)
                     .map_err(|_| RenderError::BackendFailure)
-            })?;
-            driver.restore(&canvas)
+            })?
+            // SDL_RenderCopy does not mutate the target or draw state restored above.
         })();
         if result.is_err() {
             self.poison();
