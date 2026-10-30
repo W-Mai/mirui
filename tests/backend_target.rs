@@ -10,6 +10,10 @@ use mirui::render::{
 };
 use mirui::types::Color;
 
+#[cfg(all(feature = "std", feature = "sync"))]
+#[path = "backend_target/thread_bound.rs"]
+mod thread_bound;
+
 struct Source {
     valid: Rc<Cell<bool>>,
     descriptor: TargetDescriptor,
