@@ -83,19 +83,10 @@ impl<const N: usize> WakeSet<N> {
             if data.ready {
                 return (true, parent.take());
             }
-            if data
-                .parents
-                .iter()
-                .flatten()
-                .any(|old| old.will_wake(parent.as_ref().unwrap()))
-            {
-                return (true, None);
-            }
-            if let Some(slot) = data.parents.iter_mut().find(|slot| slot.is_none()) {
-                *slot = parent.take();
-                return (true, None);
-            }
-            (false, None)
+            (
+                crate::core::threading::insert_waiter(&mut data.parents, &mut parent),
+                None,
+            )
         });
         if let Some(parent) = notify {
             parent.wake();

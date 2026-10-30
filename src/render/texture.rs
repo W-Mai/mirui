@@ -2,6 +2,25 @@ use super::renderer::{RenderError, RenderResource};
 use super::scratch::PlaneLayout;
 use crate::core::cache::HasSize;
 
+fn state_error(error: crate::core::threading::AccessError) -> RenderError {
+    use crate::core::threading::AccessError;
+    match error {
+        AccessError::Reentrant => RenderError::InvalidScope,
+        AccessError::Busy => {
+            #[cfg(feature = "sync-cache")]
+            {
+                RenderError::ResourcePending
+            }
+            #[cfg(not(feature = "sync-cache"))]
+            {
+                RenderError::InvalidScope
+            }
+        }
+        #[cfg(feature = "sync-cache")]
+        AccessError::Capacity => RenderError::ResourceLimit(RenderResource::Texture),
+    }
+}
+
 mod access;
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32", test))]
 mod coverage;

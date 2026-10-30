@@ -1,3 +1,4 @@
+use crate::core::threading::State;
 use alloc::boxed::Box;
 use alloc::rc::Rc;
 use core::cell::RefCell;
@@ -227,20 +228,8 @@ struct ReadState {
     encoded: Option<Box<EncodedImage>>,
 }
 
-// Provider callbacks run without a cache or texture-state RefMut. Reentry fails explicitly.
-struct Reading<'a> {
-    slot: &'a RefCell<Option<ReadState>>,
-    state: Option<ReadState>,
-}
-
-impl Drop for Reading<'_> {
-    fn drop(&mut self) {
-        *self.slot.borrow_mut() = self.state.take();
-    }
-}
-
 pub(super) struct DecodedTexture {
-    state: RefCell<Option<ReadState>>,
+    state: State<ReadState>,
     pool: Rc<RefCell<DecodePool>>,
     source: u64,
     start: usize,
@@ -271,11 +260,11 @@ impl DecodedTexture {
             .map_err(|_| AssetError::Capacity)?;
         Ok(Texture::from_layout(
             TexBuf::Decoded(Box::new(Self {
-                state: RefCell::new(Some(ReadState {
+                state: State::new(ReadState {
                     source,
                     pending: None,
                     encoded,
-                })),
+                }),
                 pool,
                 source: id,
                 start,
@@ -320,17 +309,9 @@ impl DecodedTexture {
         if let Some(pixels) = self.pixels_in(region)? {
             return Poll::Ready(Ok(pixels));
         }
-        let state = self
-            .state
-            .try_borrow_mut()
-            .map_err(|_| RenderError::InvalidScope)?
-            .take()
-            .ok_or(RenderError::InvalidScope)?;
-        let mut reading = Reading {
-            slot: &self.state,
-            state: Some(state),
-        };
-        let state = reading.state.as_mut().expect("active source read");
+        let mut reading =
+            core::task::ready!(self.state.poll_take(cx)).map_err(super::state_error)?;
+        let state = &mut *reading;
         let wanted = Key::new(self.source, region);
         if state.pending.is_none() {
             let pixels = self.pool.borrow_mut().begin(wanted, self.layout.format())?;

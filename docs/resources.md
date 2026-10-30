@@ -27,6 +27,8 @@ Resource notifications are issued after publication and after releasing the mana
 
 Shared storage coordinates reservation, allocation and retained-buffer accounting as transactions under one budget. Dropping the index does not release storage retained by value or pixel handles. Loader execution and token observation remain owner-thread operations; transferable values do not move their subscriptions to a worker.
 
+Native pixel mirrors and decoded-image read state are leased independently of their metadata gates. External operations run after releasing those gates; returning a lease restores the state before waking its bounded waiters. Shared-mode native preparation accounts for this control storage separately from pixel storage.
+
 ## Deferred loading
 
 `Loader` provides `State`, `recognize`, `poll_load` and `reset`; `ProbeLoader` provides `poll_probe` using the same state. A pending invocation retains its progress and returns the fallback to consumers. The loader must register `LoadContext::waker()` with its completion mechanism. `LoadContext::consume_work()` bounds cooperative decoding work and schedules another poll when the allowance is exhausted. Simple `Fn(&str) -> Result<T, LoadError>` loaders complete immediately through this same protocol.

@@ -759,7 +759,7 @@ fn source_pixels_are_lazy_borrowed_budgeted_and_survive_the_renderer() {
     let mut texture = Texture::native(&mut renderer, plan, &budget).unwrap();
     assert_eq!(texture.cache_size(), native_bytes());
     assert_eq!(budget.available(), 0);
-    assert_eq!(budget.allocated(), 64);
+    assert_eq!(budget.allocated(), 64 + Texture::native_state_bytes());
     assert!(matches!(texture.pixels(), Err(RenderError::InvalidTexture)));
     assert!(matches!(
         texture.backend_target(),
@@ -780,7 +780,7 @@ fn source_pixels_are_lazy_borrowed_budgeted_and_survive_the_renderer() {
         0
     );
     assert_eq!(renderer.device.reads.get(), 0);
-    assert_eq!(budget.allocated(), 64);
+    assert_eq!(budget.allocated(), 64 + Texture::native_state_bytes());
     assert!(texture.pixels_mut().is_err());
     {
         let first = texture.read_pixels().unwrap();
