@@ -1,11 +1,53 @@
-use alloc::rc::Rc;
+use crate::core::threading::{Shared as Rc, transaction};
+#[cfg(not(feature = "sync-cache"))]
 use core::cell::Cell;
+#[cfg(feature = "sync-cache")]
+use core::sync::atomic::{AtomicUsize, Ordering};
+
+#[derive(Debug)]
+struct Counter {
+    #[cfg(not(feature = "sync-cache"))]
+    value: Cell<usize>,
+    #[cfg(feature = "sync-cache")]
+    value: AtomicUsize,
+}
+
+impl Counter {
+    fn new(value: usize) -> Self {
+        Self {
+            #[cfg(not(feature = "sync-cache"))]
+            value: Cell::new(value),
+            #[cfg(feature = "sync-cache")]
+            value: AtomicUsize::new(value),
+        }
+    }
+
+    #[inline]
+    fn get(&self) -> usize {
+        #[cfg(not(feature = "sync-cache"))]
+        {
+            self.value.get()
+        }
+        #[cfg(feature = "sync-cache")]
+        {
+            self.value.load(Ordering::Relaxed)
+        }
+    }
+
+    #[inline]
+    fn set(&self, value: usize) {
+        #[cfg(not(feature = "sync-cache"))]
+        self.value.set(value);
+        #[cfg(feature = "sync-cache")]
+        self.value.store(value, Ordering::Relaxed);
+    }
+}
 
 #[derive(Debug)]
 struct Ledger {
     limit: usize,
-    allocated: Cell<usize>,
-    reserved: Cell<usize>,
+    allocated: Counter,
+    reserved: Counter,
 }
 
 #[derive(Clone, Debug)]
@@ -18,24 +60,30 @@ impl MemoryBudget {
         Self((limit != 0).then(|| {
             Rc::new(Ledger {
                 limit,
-                allocated: Cell::new(0),
-                reserved: Cell::new(0),
+                allocated: Counter::new(0),
+                reserved: Counter::new(0),
             })
         }))
     }
 
     pub(crate) fn available(&self) -> usize {
         self.0.as_ref().map_or(0, |ledger| {
-            ledger.limit - ledger.allocated.get() - ledger.reserved.get()
+            transaction(|| ledger.limit - ledger.allocated.get() - ledger.reserved.get())
         })
     }
 
     pub(crate) fn reserve(&self, bytes: usize) -> Option<Reservation> {
         let ledger = self.0.as_ref()?;
-        if bytes > self.available() {
+        let accepted = transaction(|| {
+            if bytes > ledger.limit - ledger.allocated.get() - ledger.reserved.get() {
+                return false;
+            }
+            ledger.reserved.set(ledger.reserved.get() + bytes);
+            true
+        });
+        if !accepted {
             return None;
         }
-        ledger.reserved.set(ledger.reserved.get() + bytes);
         Some(Reservation {
             ledger: Some(Rc::clone(ledger)),
             bytes,
@@ -44,7 +92,9 @@ impl MemoryBudget {
 
     #[cfg(test)]
     pub(crate) fn allocated(&self) -> usize {
-        self.0.as_ref().map_or(0, |ledger| ledger.allocated.get())
+        self.0
+            .as_ref()
+            .map_or(0, |ledger| transaction(|| ledger.allocated.get()))
     }
 }
 
@@ -58,7 +108,7 @@ impl Reservation {
     pub(crate) fn retain(mut self) -> RetainedReservation {
         RetainedReservation(Rc::new(Retained {
             ledger: self.ledger.take().expect("active reservation"),
-            available: Cell::new(self.bytes),
+            available: Counter::new(self.bytes),
             capacity: self.bytes,
         }))
     }
@@ -69,12 +119,18 @@ impl Reservation {
 
     pub(crate) fn commit(mut self, actual: usize) -> Result<Allocation, Self> {
         let ledger = self.ledger.as_ref().expect("active reservation");
-        let remaining = ledger.reserved.get() - self.bytes;
-        if actual > ledger.limit - ledger.allocated.get() - remaining {
+        let accepted = transaction(|| {
+            let remaining = ledger.reserved.get() - self.bytes;
+            if actual > ledger.limit - ledger.allocated.get() - remaining {
+                return false;
+            }
+            ledger.reserved.set(remaining);
+            ledger.allocated.set(ledger.allocated.get() + actual);
+            true
+        });
+        if !accepted {
             return Err(self);
         }
-        ledger.reserved.set(remaining);
-        ledger.allocated.set(ledger.allocated.get() + actual);
         Ok(Allocation {
             ledger: self.ledger.take().expect("active reservation"),
             bytes: actual,
@@ -85,7 +141,7 @@ impl Reservation {
 impl Drop for Reservation {
     fn drop(&mut self) {
         if let Some(ledger) = &self.ledger {
-            ledger.reserved.set(ledger.reserved.get() - self.bytes);
+            transaction(|| ledger.reserved.set(ledger.reserved.get() - self.bytes));
         }
     }
 }
@@ -98,15 +154,17 @@ pub(crate) struct RetainedReservation(Rc<Retained>);
 #[derive(Debug)]
 struct Retained {
     ledger: Rc<Ledger>,
-    available: Cell<usize>,
+    available: Counter,
     capacity: usize,
 }
 
 impl Drop for Retained {
     fn drop(&mut self) {
-        self.ledger
-            .reserved
-            .set(self.ledger.reserved.get() - self.available.get());
+        transaction(|| {
+            self.ledger
+                .reserved
+                .set(self.ledger.reserved.get() - self.available.get());
+        });
     }
 }
 
@@ -116,18 +174,24 @@ impl RetainedReservation {
     }
 
     pub(crate) fn allocate(&self, bytes: usize) -> Option<RetainedAllocation> {
-        if bytes > self.0.available.get() {
+        let accepted = transaction(|| {
+            if bytes > self.0.available.get() {
+                return false;
+            }
+            self.0.available.set(self.0.available.get() - bytes);
+            self.0
+                .ledger
+                .reserved
+                .set(self.0.ledger.reserved.get() - bytes);
+            self.0
+                .ledger
+                .allocated
+                .set(self.0.ledger.allocated.get() + bytes);
+            true
+        });
+        if !accepted {
             return None;
         }
-        self.0.available.set(self.0.available.get() - bytes);
-        self.0
-            .ledger
-            .reserved
-            .set(self.0.ledger.reserved.get() - bytes);
-        self.0
-            .ledger
-            .allocated
-            .set(self.0.ledger.allocated.get() + bytes);
         Some(RetainedAllocation {
             reservation: self.clone(),
             bytes,
@@ -147,20 +211,26 @@ impl RetainedAllocation {
     }
     pub(crate) fn resize(&mut self, bytes: usize) -> bool {
         let state = &self.reservation.0;
-        if bytes > self.bytes && bytes - self.bytes > state.available.get() {
+        let accepted = transaction(|| {
+            if bytes > self.bytes && bytes - self.bytes > state.available.get() {
+                return false;
+            }
+            state
+                .available
+                .set(state.available.get() + self.bytes - bytes);
+            state
+                .ledger
+                .allocated
+                .set(state.ledger.allocated.get() - self.bytes + bytes);
+            state
+                .ledger
+                .reserved
+                .set(state.ledger.reserved.get() + self.bytes - bytes);
+            true
+        });
+        if !accepted {
             return false;
         }
-        state
-            .available
-            .set(state.available.get() + self.bytes - bytes);
-        state
-            .ledger
-            .allocated
-            .set(state.ledger.allocated.get() - self.bytes + bytes);
-        state
-            .ledger
-            .reserved
-            .set(state.ledger.reserved.get() + self.bytes - bytes);
         self.bytes = bytes;
         true
     }
@@ -193,9 +263,11 @@ impl Allocation {
 
 impl Drop for Allocation {
     fn drop(&mut self) {
-        self.ledger
-            .allocated
-            .set(self.ledger.allocated.get() - self.bytes);
+        transaction(|| {
+            self.ledger
+                .allocated
+                .set(self.ledger.allocated.get() - self.bytes);
+        });
     }
 }
 
@@ -203,6 +275,64 @@ impl Drop for Allocation {
 mod tests {
     use super::*;
     use crate::test_support::tracked_allocations;
+
+    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[test]
+    fn concurrent_admission_commits_one_shared_limit() {
+        use std::sync::Barrier;
+
+        fn send_sync<T: Send + Sync>() {}
+        fn send<T: Send>() {}
+        send_sync::<MemoryBudget>();
+        send_sync::<RetainedReservation>();
+        send_sync::<RetainedAllocation>();
+        send::<crate::core::cache::LruLinearCache<u32, u32>>();
+
+        let budget = MemoryBudget::new(1024);
+        let barrier = Barrier::new(9);
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                let budget = &budget;
+                let barrier = &barrier;
+                scope.spawn(move || {
+                    let reservation = budget.reserve(256);
+                    barrier.wait();
+                    barrier.wait();
+                    let allocation = reservation.map(|value| value.commit(256).unwrap());
+                    barrier.wait();
+                    barrier.wait();
+                    drop(allocation);
+                });
+            }
+            barrier.wait();
+            assert_eq!(budget.available(), 0);
+            assert_eq!(budget.allocated(), 0);
+            barrier.wait();
+            barrier.wait();
+            assert_eq!(budget.available(), 0);
+            assert_eq!(budget.allocated(), 1024);
+            barrier.wait();
+        });
+        assert_eq!(budget.available(), 1024);
+        let retained = budget.reserve(1024).unwrap().retain();
+        std::thread::scope(|scope| {
+            for _ in 0..8 {
+                let retained = &retained;
+                scope.spawn(move || {
+                    for _ in 0..1000 {
+                        if let Some(mut allocation) = retained.allocate(128) {
+                            allocation.resize(256);
+                            allocation.resize(32);
+                        }
+                    }
+                });
+            }
+        });
+        assert_eq!(budget.allocated(), 0);
+        assert_eq!(budget.available(), 0);
+        drop(retained);
+        assert_eq!(budget.available(), 1024);
+    }
 
     #[test]
     fn retained_allocations_preserve_the_original_admission_until_last_release() {

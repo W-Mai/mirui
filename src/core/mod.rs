@@ -15,5 +15,7 @@ pub mod persistence;
 pub mod reactive;
 pub mod resource;
 pub mod storage;
+#[doc(hidden)]
+pub mod threading;
 pub mod time;
 pub mod timer;

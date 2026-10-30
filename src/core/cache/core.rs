@@ -2,10 +2,7 @@ use core::borrow::Borrow;
 use core::hash::Hash;
 use core::marker::PhantomData;
 
-#[cfg(not(feature = "sync-cache"))]
-use alloc::rc::Rc;
-#[cfg(feature = "sync-cache")]
-use alloc::sync::Arc as Rc;
+use crate::core::threading::{Shared as Rc, Transfer};
 
 use super::algorithm::{Algorithm, Lru};
 use super::budget::{HasSize, MaxSize};
@@ -13,7 +10,10 @@ use super::handle::{CacheEntry, Handle};
 use super::lookup::{HashLookup, Lookup, NodeId};
 use super::stats::CacheStats;
 
+#[cfg(not(feature = "sync-cache"))]
 type EvictCallback<K, V> = alloc::boxed::Box<dyn FnMut(&K, &V)>;
+#[cfg(feature = "sync-cache")]
+type EvictCallback<K, V> = alloc::boxed::Box<dyn FnMut(&K, &V) + Send>;
 
 pub struct Cache<K, V, A = Lru, L = HashLookup<K>>
 where
@@ -428,7 +428,8 @@ impl<K, V, A: Algorithm, L: Lookup<K> + Default> CacheBuilder<K, V, A, L> {
         self
     }
 
-    pub fn on_evict<F: FnMut(&K, &V) + 'static>(mut self, f: F) -> Self {
+    /// Handle algorithmic eviction. Shared storage requires transferable captures; explicit removal and clearing do not invoke the callback.
+    pub fn on_evict<F: FnMut(&K, &V) + Transfer + 'static>(mut self, f: F) -> Self {
         self.on_evict = Some(alloc::boxed::Box::new(f));
         self
     }
@@ -589,33 +590,36 @@ mod tests {
     #[test]
     fn on_evict_callback_fires_only_on_algorithmic_eviction() {
         use core::cell::RefCell;
-        let log: alloc::rc::Rc<RefCell<alloc::vec::Vec<(u32, alloc::string::String)>>> =
-            alloc::rc::Rc::new(RefCell::new(alloc::vec::Vec::new()));
+        let log = crate::core::threading::Shared::new(critical_section::Mutex::new(RefCell::new(
+            alloc::vec::Vec::new(),
+        )));
         let log_for_cb = log.clone();
         let mut cache: Cache<u32, alloc::string::String, Lru, HashLookup<u32>> = Cache::builder()
             .max_size(MaxSize::Count(2))
             .on_evict(move |k: &u32, v: &alloc::string::String| {
-                log_for_cb.borrow_mut().push((*k, v.clone()));
+                critical_section::with(|cs| {
+                    log_for_cb
+                        .as_ref()
+                        .borrow(cs)
+                        .borrow_mut()
+                        .push((*k, v.clone()));
+                });
             })
             .build();
         cache.entry(1).or_insert_with(|| "a".into());
         cache.entry(2).or_insert_with(|| "b".into());
         cache.drop(&1);
-        assert!(
-            ::core::cell::RefCell::borrow(&log).is_empty(),
-            "drop must not fire on_evict"
-        );
+        critical_section::with(|cs| assert!(log.as_ref().borrow(cs).borrow().is_empty()));
         cache.clear();
-        assert!(
-            ::core::cell::RefCell::borrow(&log).is_empty(),
-            "clear must not fire on_evict"
-        );
+        critical_section::with(|cs| assert!(log.as_ref().borrow(cs).borrow().is_empty()));
         cache.entry(10).or_insert_with(|| "x".into());
         cache.entry(11).or_insert_with(|| "y".into());
-        cache.entry(12).or_insert_with(|| "z".into()); // evicts 10
-        let entries = ::core::cell::RefCell::borrow(&log);
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0], (10, "x".into()));
+        cache.entry(12).or_insert_with(|| "z".into());
+        critical_section::with(|cs| {
+            let entries = log.as_ref().borrow(cs).borrow();
+            assert_eq!(entries.len(), 1);
+            assert_eq!(entries[0], (10, "x".into()));
+        });
     }
 
     #[test]

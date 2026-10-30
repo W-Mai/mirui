@@ -1,7 +1,4 @@
-#[cfg(not(feature = "sync-cache"))]
-use alloc::rc::Rc as EntryRcImpl;
-#[cfg(feature = "sync-cache")]
-use alloc::sync::Arc as EntryRcImpl;
+use crate::core::threading::Shared as EntryRcImpl;
 
 pub(crate) type EntryRc<V> = EntryRcImpl<CacheEntry<V>>;
 
