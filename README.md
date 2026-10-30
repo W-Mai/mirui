@@ -77,6 +77,8 @@ fn build_root() {
 
 `mirui::prelude` brings `App`, layout types, `Color` / `Dimension` / `Fixed`, ECS roles, theme tokens, and the `ui!` / authoring macros. Surface backends, plugins, and individual widget kinds stay on their canonical paths so the prelude doesn't pin a platform or feature choice.
 
+The optional `sync` feature allows textures, pixel guards, byte sources and immutable cache value handles to cross threads while retaining native device constraints. Default builds keep local ownership. See [shared textures](docs/shared-textures.md) for worker handoff and backend lifetimes.
+
 `#[compose]` creates a stack-held composition from application data. `app.compose(root, build_root())` executes it and returns its output. Call another compose function directly inside a widget tree, such as `status_row(model, "ready")`. Use `ui!(status_row(model, "ready"))` when invoking the same compose function from a composition body. `ui!(compose Name { ... })` defines a reusable niche-based View kind; it does not invoke a compose function.
 
 ### Other targets

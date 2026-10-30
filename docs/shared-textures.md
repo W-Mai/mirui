@@ -3,7 +3,8 @@
 The optional `sync` feature enables cross-thread ownership of `Texture`, its pixel and region guards, byte sources, and `cache::Handle<T>` when `T: Send + Sync`. It is disabled by default and does not enable `std`. Targets need pointer-width atomics; bare-metal applications provide their platform's `critical-section` implementation. Local builds retain `Rc`, local state and callbacks.
 
 ```toml
-mirui = { version = "0.53", features = ["sync", "std"] }
+# In the existing mirui dependency:
+features = ["sync", "std"]
 ```
 
 ## Worker handoff
