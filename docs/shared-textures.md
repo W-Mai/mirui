@@ -58,7 +58,7 @@ fn inspect_on_worker(source: &Texture<'_>) -> Result<usize, RenderError> {
 
 Closing an SDL surface invalidates its native sources and releases raw targets on the source thread. Prepared CPU guards and resident regions remain readable; an uncovered region returns the source error. Worker token release only marks retirement; existing owner maintenance performs destruction. Local builds retain the existing device lifetime through source ownership.
 
-Native WGPU resources share their portable device context and serialize reusable readback state. Textures can retain that context after their original surface is dropped. Device failures and source/target conflicts retain their normal errors. Web backends keep their existing CPU-output strategy; `sync` does not transfer JavaScript objects or create a browser worker runtime.
+Native WGPU resources share their portable device context and serialize reusable readback state. Textures can retain that context after their original surface is dropped. Device failures and source/target conflicts retain their normal errors. Web backends keep their existing CPU-output strategy; `sync` does not provide a JavaScript object transfer protocol or create a browser worker runtime. Source constraints follow the Rust auto traits supplied by each target's bindings; an accepted type alone does not establish an external JavaScript worker handoff.
 
 ## Sources, budgets and extensions
 
