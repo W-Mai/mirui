@@ -1,15 +1,14 @@
 //! Bounded polling of one opened reader. External futures never run under a pool borrow.
 
 use super::blocks::{Block, BlockKey, BlockPool, BlockWrite};
+use super::future::FutureSlot;
 use super::{
     AssetBuffer, AssetError, AssetReader, ReadPosition, SourceAccess, SourceConsistency, SourceInfo,
 };
 use crate::core::cache::Handle;
-use alloc::{boxed::Box, rc::Rc};
+use alloc::rc::Rc;
 use core::{
     cell::RefCell,
-    future::Future,
-    pin::Pin,
     task::{Context, Poll},
 };
 
@@ -26,7 +25,7 @@ pub(super) struct SourceRead<R: AssetReader> {
     info: SourceInfo,
     identity: u64,
     pool: Option<Rc<RefCell<BlockPool>>>,
-    future: Option<Pin<Box<Option<R::Read>>>>,
+    future: Option<FutureSlot<R::Read>>,
     reading: Option<Reading>,
     cursor: u64,
     // This lease also permits streaming when resident caching is disabled.
@@ -45,7 +44,7 @@ impl<R: AssetReader> Drop for PollGuard<'_, R> {
             }
             if let Some(future) = &mut self.source.future {
                 // A provider must make dropping its operation safe even while physical work remains.
-                future.as_mut().set(None);
+                future.set(None);
             }
         }
     }
@@ -54,14 +53,14 @@ impl<R: AssetReader> Drop for PollGuard<'_, R> {
 impl<R: AssetReader> SourceRead<R> {
     #[cfg(test)]
     pub fn new(reader: R, pool: Option<Rc<RefCell<BlockPool>>>) -> Result<Self, AssetError> {
-        let mut storage = reader.mapped().is_none().then(|| Box::pin(None));
+        let mut storage = reader.mapped().is_none().then(FutureSlot::new);
         Self::with_storage(reader, pool, &mut storage)
     }
 
     pub fn with_storage(
         reader: R,
         pool: Option<Rc<RefCell<BlockPool>>>,
-        storage: &mut Option<Pin<Box<Option<R::Read>>>>,
+        storage: &mut Option<FutureSlot<R::Read>>,
     ) -> Result<Self, AssetError> {
         let info = reader.info();
         if info.consistency != SourceConsistency::Stable {
@@ -97,7 +96,7 @@ impl<R: AssetReader> SourceRead<R> {
         })
     }
 
-    pub fn into_storage(self) -> Option<Pin<Box<Option<R::Read>>>> {
+    pub fn into_storage(self) -> Option<FutureSlot<R::Read>> {
         assert!(
             self.reading.is_none(),
             "physical read must retire before reusing its slot"
@@ -246,7 +245,7 @@ impl<R: AssetReader> SourceRead<R> {
             SourceAccess::Sequential => ReadPosition::Next,
         };
         let future = self.reader.read(position, buffer);
-        self.future.as_mut().unwrap().as_mut().set(Some(future));
+        self.future.as_mut().unwrap().set(Some(future));
     }
 
     fn poll_physical(
@@ -262,8 +261,7 @@ impl<R: AssetReader> SourceRead<R> {
             }
             *steps -= 1;
             let future = self.future.as_mut().unwrap();
-            let complete = core::task::ready!(future.as_mut().as_pin_mut().unwrap().poll(cx));
-            future.as_mut().set(None);
+            let complete = core::task::ready!(future.poll(cx));
             let mut reading = self.reading.take().unwrap();
             let mut buffer = complete.buffer;
             if retiring {
@@ -350,7 +348,7 @@ mod tests {
     use super::super::{ReadComplete, ReadProgress};
     use super::*;
     use crate::core::cache::MaxSize;
-    use core::{cell::Cell, marker::PhantomPinned, task::Waker};
+    use core::{cell::Cell, future::Future, marker::PhantomPinned, pin::Pin, task::Waker};
 
     #[test]
     fn unwound_provider_does_not_repoll_or_fabricate_replacement_payload() {

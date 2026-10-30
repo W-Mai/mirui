@@ -4,6 +4,41 @@ mod state;
 use core::task::Waker;
 pub(crate) use state::{AccessError, State};
 
+/// State accessed only through an exclusive owner borrow, never through a shared reference.
+pub(crate) struct Exclusive<T> {
+    #[cfg(not(feature = "sync-cache"))]
+    value: T,
+    #[cfg(feature = "sync-cache")]
+    value: critical_section::Mutex<core::cell::Cell<T>>,
+}
+
+impl<T> Exclusive<T> {
+    pub(crate) fn new(value: T) -> Self {
+        Self {
+            #[cfg(not(feature = "sync-cache"))]
+            value,
+            #[cfg(feature = "sync-cache")]
+            value: critical_section::Mutex::new(core::cell::Cell::new(value)),
+        }
+    }
+
+    #[cfg(not(feature = "sync-cache"))]
+    pub(crate) fn get(&self) -> &T {
+        &self.value
+    }
+
+    pub(crate) fn get_mut(&mut self) -> &mut T {
+        #[cfg(not(feature = "sync-cache"))]
+        {
+            &mut self.value
+        }
+        #[cfg(feature = "sync-cache")]
+        {
+            self.value.get_mut().get_mut()
+        }
+    }
+}
+
 #[cfg(not(feature = "sync-cache"))]
 pub(crate) use alloc::rc::Rc as Shared;
 #[cfg(feature = "sync-cache")]

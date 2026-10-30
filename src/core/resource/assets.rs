@@ -1,6 +1,7 @@
 //! Prepared byte-source sessions shared by typed resource managers.
 
 use super::blocks::BlockPool;
+use super::future::FutureSlot;
 use super::load_context::{LoadBudget, ReadStream};
 use super::source_read::SourceRead;
 use super::wake::TaskWake;
@@ -9,8 +10,6 @@ use crate::core::cache::MaxSize;
 use alloc::{borrow::Cow, boxed::Box, rc::Rc, vec::Vec};
 use core::{
     cell::RefCell,
-    future::Future,
-    pin::Pin,
     task::{Context, Poll, Waker},
 };
 
@@ -98,41 +97,12 @@ trait Session {
     fn set_retiring(&mut self);
 }
 
-type ReadSlot<R> = Option<Pin<Box<Option<<R as AssetReader>::Read>>>>;
-
-struct OpenPoll<'a, F> {
-    slot: Pin<&'a mut Option<F>>,
-    returned: bool,
-}
-impl<F> Drop for OpenPoll<'_, F> {
-    fn drop(&mut self) {
-        if !self.returned {
-            self.slot.as_mut().set(None);
-        }
-    }
-}
-fn poll_open<F: Future>(slot: Pin<&mut Option<F>>, cx: &mut Context<'_>) -> Poll<F::Output> {
-    let mut guard = OpenPoll {
-        slot,
-        returned: false,
-    };
-    let result = guard
-        .slot
-        .as_mut()
-        .as_pin_mut()
-        .expect("pending open")
-        .poll(cx);
-    if result.is_ready() {
-        guard.slot.as_mut().set(None);
-    }
-    guard.returned = true;
-    result
-}
+type ReadSlot<R> = Option<FutureSlot<<R as AssetReader>::Read>>;
 
 struct TypedSession<P: AssetProvider> {
     provider: Rc<P>,
     pool: Rc<RefCell<BlockPool>>,
-    opening: Pin<Box<Option<P::Open>>>,
+    opening: FutureSlot<P::Open>,
     read_slot: ReadSlot<P::Reader>,
     reader: Option<SourceRead<P::Reader>>,
     prefix: Box<[u8]>,
@@ -144,16 +114,16 @@ struct TypedSession<P: AssetProvider> {
 
 impl<P: AssetProvider> Session for TypedSession<P> {
     fn start(&mut self, key: Cow<'static, str>) {
-        self.opening.as_mut().set(Some(self.provider.open(key)));
+        self.opening.set(Some(self.provider.open(key)));
     }
     fn poll_open(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), AssetError>> {
         if self.reader.is_some() {
             return Poll::Ready(Ok(()));
         }
-        if self.opening.as_ref().get_ref().is_none() {
+        if !self.opening.is_active() {
             return Poll::Ready(Err(AssetError::InvalidSource));
         }
-        let result = core::task::ready!(poll_open(self.opening.as_mut(), cx));
+        let result = core::task::ready!(self.opening.poll(cx));
         let reader = result?;
         self.reader = Some(SourceRead::with_storage(
             reader,
@@ -236,8 +206,8 @@ impl<P: AssetProvider> Session for TypedSession<P> {
         (&self.prefix[..self.filled], self.eof)
     }
     fn poll_retire(&mut self, cx: &mut Context<'_>, steps: &mut usize) -> Poll<()> {
-        if self.opening.as_ref().get_ref().is_some() {
-            let result = core::task::ready!(poll_open(self.opening.as_mut(), cx));
+        if self.opening.is_active() {
+            let result = core::task::ready!(self.opening.poll(cx));
             drop(result);
         }
         if let Some(reader) = &mut self.reader {
@@ -256,7 +226,7 @@ impl<P: AssetProvider> Session for TypedSession<P> {
         self.retiring = false;
     }
     fn has_pending(&self) -> bool {
-        self.opening.as_ref().get_ref().is_some()
+        self.opening.is_active()
             || self
                 .reader
                 .as_ref()
@@ -512,8 +482,8 @@ impl AssetSources {
             slots.push(Some(Box::new(TypedSession {
                 provider: provider.clone(),
                 pool: self.pool.clone(),
-                opening: Box::pin(None),
-                read_slot: Some(Box::pin(None)),
+                opening: FutureSlot::new(),
+                read_slot: Some(FutureSlot::new()),
                 reader: None,
                 prefix: prefix.into_boxed_slice(),
                 filled: 0,
@@ -559,7 +529,11 @@ impl AssetSources {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::{cell::Cell, future::Ready};
+    use core::{
+        cell::Cell,
+        future::{Future, Ready},
+        pin::Pin,
+    };
 
     #[derive(Default)]
     struct Opening {

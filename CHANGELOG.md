@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Resource resolution returns shared cache value handles, removing a second reference-counted allocation while retaining values across replacement and eviction.
 - Shared resource storage serializes budget reservations and transfers; cache eviction callbacks require transferable captures when shared storage is enabled.
 - Native readback and decoded-image preparation share state leases with bounded waiters, restoring reusable storage after errors and unwinding without holding metadata gates during external operations.
+- Byte-source open and read operations reuse pinned future storage with exclusive polling and consistent unwind cleanup.
 
 ## [0.53.0] - 2026-10-29
 

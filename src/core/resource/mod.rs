@@ -8,6 +8,7 @@ mod assets;
 #[cfg(test)]
 mod async_tests;
 mod blocks;
+mod future;
 mod handle;
 mod invocation;
 mod load_context;

@@ -29,6 +29,8 @@ Shared storage coordinates reservation, allocation and retained-buffer accountin
 
 Native pixel mirrors and decoded-image read state are leased independently of their metadata gates. External operations run after releasing those gates; returning a lease restores the state before waking its bounded waiters. Shared-mode native preparation accounts for this control storage separately from pixel storage.
 
+Byte-source open and read futures use prepared pinned storage. Polling requires exclusive access to the session; completion or unwinding clears the operation before its storage is reused. Immutable reader mappings do not borrow this future storage.
+
 ## Deferred loading
 
 `Loader` provides `State`, `recognize`, `poll_load` and `reset`; `ProbeLoader` provides `poll_probe` using the same state. A pending invocation retains its progress and returns the fallback to consumers. The loader must register `LoadContext::waker()` with its completion mechanism. `LoadContext::consume_work()` bounds cooperative decoding work and schedules another poll when the allowance is exhausted. Simple `Fn(&str) -> Result<T, LoadError>` loaders complete immediately through this same protocol.
