@@ -35,6 +35,8 @@ Shared source blocks release their cache state before opening, reading or pollin
 
 With shared resource storage enabled, `AssetSource` is transferable and shareable. Providers and readers require `Send + Sync`; their open/read futures require only `Send`. Polling remains exclusive through `&mut AssetSource`, while `mapped()` borrows the immutable reader directly. Dropping a source on a worker returns pending work to the same prepared retirement slots. A provider's physical completion record must retain any buffer still used by hardware or workers after its future is dropped, including after the App exits.
 
+Decoded image preparation uses the same shared cache and decode budget across sources. Cache lookup, admission and publication release their metadata gates before I/O, decoding, buffer allocation or eviction cleanup. Prepared pixel guards can be shared across threads without copying or retaining a cache borrow; their allocation stays charged until the final guard releases it. Static and mapped RAW images continue to borrow their original bytes without using decode storage.
+
 ## Deferred loading
 
 `Loader` provides `State`, `recognize`, `poll_load` and `reset`; `ProbeLoader` provides `poll_probe` using the same state. A pending invocation retains its progress and returns the fallback to consumers. The loader must register `LoadContext::waker()` with its completion mechanism. `LoadContext::consume_work()` bounds cooperative decoding work and schedules another poll when the allowance is exhausted. Simple `Fn(&str) -> Result<T, LoadError>` loaders complete immediately through this same protocol.

@@ -1,5 +1,5 @@
 use super::{ColorFormat, Texture};
-use alloc::rc::Rc;
+use crate::core::threading::Shared;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct TextureKey {
@@ -10,7 +10,7 @@ pub(crate) struct TextureKey {
     format: ColorFormat,
     stride: usize,
     revision: u64,
-    owner: Option<Rc<()>>,
+    owner: Option<Shared<()>>,
 }
 
 impl TextureKey {
@@ -23,7 +23,7 @@ impl TextureKey {
             super::TexBuf::Decoded(source) => {
                 let owner = source.identity();
                 (
-                    Rc::as_ptr(&owner) as usize,
+                    Shared::as_ptr(&owner) as usize,
                     source.layout().required_bytes(),
                     Some(owner),
                 )
@@ -31,7 +31,7 @@ impl TextureKey {
             super::TexBuf::Mapped(source) => {
                 let owner = source.identity();
                 (
-                    Rc::as_ptr(&owner) as usize,
+                    Shared::as_ptr(&owner) as usize,
                     source.cache_size(),
                     Some(owner),
                 )
@@ -39,7 +39,7 @@ impl TextureKey {
             super::TexBuf::Native(native) => {
                 let owner = native.identity();
                 (
-                    Rc::as_ptr(&owner) as usize,
+                    Shared::as_ptr(&owner) as usize,
                     native.layout().required_bytes(),
                     Some(owner),
                 )

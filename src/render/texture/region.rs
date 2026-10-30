@@ -121,7 +121,27 @@ impl Texture<'_> {
         region: Region,
         cx: &mut Context<'_>,
     ) -> Poll<Result<TextureRegion<'_>, RenderError>> {
-        if let Some(ready) = self.pixels_in(region)? {
+        let resident = self.pixels_in(region);
+        #[cfg(feature = "sync-cache")]
+        let resident = match resident {
+            Err(RenderError::ResourcePending) => {
+                if region.right() > u32::from(self.width)
+                    || region.bottom() > u32::from(self.height)
+                {
+                    return Poll::Ready(Err(RenderError::InvalidTexture));
+                }
+                if region.is_empty() {
+                    return Poll::Ready(Ok(TextureRegion {
+                        region,
+                        format: self.format(),
+                        pixels: None,
+                    }));
+                }
+                Ok(None)
+            }
+            result => result,
+        };
+        if let Some(ready) = resident? {
             return Poll::Ready(Ok(ready));
         }
         if let super::TexBuf::Decoded(source) = &self.buf {
@@ -136,15 +156,15 @@ impl Texture<'_> {
         let super::TexBuf::Native(native) = &self.buf else {
             return Poll::Ready(Err(RenderError::InvalidTexture));
         };
-        Poll::Ready(
-            native
-                .read_pixels_in(self.cache_revision, region)
-                .map(|pixels| TextureRegion {
+        native
+            .poll_pixels_in(self.cache_revision, region, cx)
+            .map(|result| {
+                result.map(|pixels| TextureRegion {
                     region,
                     format: self.format(),
                     pixels: Some(pixels),
-                }),
-        )
+                })
+            })
     }
 
     /// Prepare a complete contiguous CPU view, sharing the source's regional readback budget.
@@ -156,6 +176,14 @@ impl Texture<'_> {
     ) -> Poll<Result<TexturePixels<'_>, RenderError>> {
         if let super::TexBuf::Decoded(source) = &self.buf {
             return source.poll_pixels_in(
+                Region::new(0, 0, u32::from(self.width), u32::from(self.height))
+                    .map_err(|_| RenderError::InvalidTexture)?,
+                cx,
+            );
+        }
+        if let super::TexBuf::Native(native) = &self.buf {
+            return native.poll_pixels_in(
+                self.cache_revision,
                 Region::new(0, 0, u32::from(self.width), u32::from(self.height))
                     .map_err(|_| RenderError::InvalidTexture)?,
                 cx,

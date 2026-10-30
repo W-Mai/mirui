@@ -1,5 +1,6 @@
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
+use crate::core::threading::Shared;
 use alloc::boxed::Box;
-use alloc::rc::Rc;
 use core::cell::RefCell;
 use core::ops::Range;
 use core::task::{Poll, ready};
@@ -18,7 +19,7 @@ pub(super) struct MappedTexture {
     range: Range<usize>,
     bytes: usize,
     #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
-    identity: Rc<()>,
+    identity: Shared<()>,
 }
 
 impl MappedTexture {
@@ -34,8 +35,8 @@ impl MappedTexture {
     }
 
     #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
-    pub(super) fn identity(&self) -> Rc<()> {
-        Rc::clone(&self.identity)
+    pub(super) fn identity(&self) -> Shared<()> {
+        Shared::clone(&self.identity)
     }
 
     fn into_texture(
@@ -57,7 +58,7 @@ impl MappedTexture {
                 range,
                 bytes,
                 #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
-                identity: Rc::new(()),
+                identity: Shared::new(()),
             })),
             layout,
             false,
@@ -76,6 +77,8 @@ mod tests {
     use crate::types::PhysicalRect;
     use alloc::borrow::Cow;
     use core::future::ready;
+
+    type TestApp = App<FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
     #[test]
     fn mapped_opens_have_distinct_upload_identity_even_for_the_same_address() {
@@ -113,7 +116,7 @@ mod tests {
             }
         }
         let bytes = Shared::new(bytes);
-        let mut app: App<FramebufSurface<fn(&[u8], PhysicalRect)>> = App::headless(1, 1);
+        let mut app: TestApp = App::headless(1, 1);
         app.add_plugin(
             ImageResourcesPlugin::empty().with_source("mapped", |_| Some("same".into())),
         );
@@ -155,7 +158,7 @@ fn layout(image: FlatImageLayout) -> Result<PlaneLayout, LoadError> {
 
 pub(crate) struct SourceMirxLoader {
     decode_budget: usize,
-    pool: RefCell<Option<Rc<RefCell<super::decoded::DecodePool>>>>,
+    pool: RefCell<Option<super::decoded::Pool>>,
 }
 
 impl SourceMirxLoader {
@@ -166,7 +169,7 @@ impl SourceMirxLoader {
         }
     }
 
-    fn pool(&self) -> Result<Rc<RefCell<super::decoded::DecodePool>>, LoadError> {
+    fn pool(&self) -> Result<super::decoded::Pool, LoadError> {
         let mut pool = self.pool.borrow_mut();
         if pool.is_none() {
             *pool = Some(
@@ -289,19 +292,33 @@ impl Loader<Texture<'static>> for SourceMirxLoader {
         cx: &mut LoadContext<'_>,
     ) -> Poll<Result<Texture<'static>, LoadError>> {
         ready!(self.poll_probe(state, cx))?;
-        let source = match state.source.take() {
-            Some(source) => source,
-            None => cx.take_source()?,
-        };
-        let image = state.image.take().expect("probed image");
-        if image.encoded.is_none() && source.mapped()?.is_some() {
+        if state.source.is_none() {
+            state.source = Some(cx.take_source()?);
+        }
+        if state
+            .image
+            .as_ref()
+            .expect("probed image")
+            .encoded
+            .is_none()
+            && state.source.as_ref().unwrap().mapped()?.is_some()
+        {
+            let image = state.image.take().expect("probed image");
+            let source = state.source.take().unwrap();
             Poll::Ready(MappedTexture::into_texture(source, image))
         } else {
+            let pool = self.pool()?;
+            let mut storage =
+                ready!(pool.poll_take(&mut core::task::Context::from_waker(cx.waker())))
+                    .map_err(|_| AssetError::Capacity)?;
+            let image = state.image.take().expect("probed image");
+            let source = state.source.take().unwrap();
             Poll::Ready(super::decoded::DecodedTexture::into_texture(
                 source,
                 image.layout,
                 image.range.start,
-                self.pool()?,
+                pool.clone(),
+                &mut storage,
                 image.encoded,
             ))
         }
@@ -370,11 +387,13 @@ impl ProbeLoader<Texture<'static>> for SourceMirxLoader {
                         return Poll::Ready(Err(AssetError::Unsupported.into()));
                     }
                     if state.chunk.is_none() {
-                        let allocation = self
-                            .pool()?
-                            .borrow_mut()
-                            .workspace(core::mem::size_of::<chunk::ChunkRead>())
-                            .map_err(|_| AssetError::Capacity)?;
+                        let pool = self.pool()?;
+                        let allocation = ready!(
+                            pool.poll_take(&mut core::task::Context::from_waker(cx.waker()))
+                        )
+                        .map_err(|_| AssetError::Capacity)?
+                        .workspace(core::mem::size_of::<chunk::ChunkRead>())
+                        .map_err(|_| AssetError::Capacity)?;
                         state.chunk = Some(Box::new(chunk::ChunkRead::new(container, allocation)?));
                     }
                     let image = ready!(

@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Byte-source open and read operations reuse pinned future storage with exclusive polling and consistent unwind cleanup.
 - Shared source-block preparation retains opened readers and completed buffers while waiting for cache access, including cancellation and provider failures.
 - Shared byte sources support cross-thread ownership and immutable mappings while keeping provider operations exclusively polled and pending I/O attached to its original retirement storage.
+- Decoded images share synchronized cache ownership and budgeted preparation state; pixel guards retain immutable storage across source shutdown, and polling registers bounded waiters before yielding on shared cache or mirror contention.
 
 ## [0.53.0] - 2026-10-29
 

@@ -1,11 +1,10 @@
-use alloc::{boxed::Box, rc::Rc};
+use alloc::boxed::Box;
 use core::{
-    cell::RefCell,
     ops::Range,
     task::{Context, Poll, ready},
 };
 
-use super::{DecodeBuffer, DecodePool, ReadRegion, source_error};
+use super::{DecodeBuffer, DecodePool, Pool, ReadRegion, source_error};
 use crate::{
     core::resource::{AssetError, AssetSource, LoadBudget, LoadContext, LoadError},
     render::{RenderError, budget::Allocation},
@@ -83,25 +82,27 @@ fn invalid(_: impl core::fmt::Debug) -> LoadError {
 fn ensure_buffer(
     slot: &mut Option<DecodeBuffer>,
     size: usize,
-    pool: &Rc<RefCell<DecodePool>>,
-) -> Result<(), RenderError> {
+    pool: &Pool,
+    cx: &mut Context<'_>,
+) -> Poll<Result<(), RenderError>> {
     if slot
         .as_ref()
         .is_some_and(|buffer| buffer.bytes.len() >= size)
     {
-        return Ok(());
+        return Poll::Ready(Ok(()));
     }
     // These are private mutable workspaces, never published or pinned by a draw.
+    let mut pool = ready!(pool.poll_take(cx)).map_err(super::super::state_error)?;
     *slot = None;
-    *slot = Some(pool.borrow_mut().buffer(size)?);
-    Ok(())
+    *slot = Some(pool.buffer(size)?);
+    Poll::Ready(Ok(()))
 }
 
 impl EncodedImage {
     pub(crate) fn new(
         scan: &EncodedImageScan,
         base: usize,
-        pool: &Rc<RefCell<DecodePool>>,
+        pool: &mut DecodePool,
     ) -> Result<Box<Self>, LoadError> {
         let surface = scan.surface().map_err(invalid)?;
         let data = scan
@@ -126,13 +127,9 @@ impl EncodedImage {
             }
         }
         let allocation = pool
-            .borrow_mut()
             .workspace(core::mem::size_of::<Self>())
             .map_err(|_| AssetError::Capacity)?;
-        let bytes = pool
-            .borrow_mut()
-            .buffer(size)
-            .map_err(|_| AssetError::Capacity)?;
+        let bytes = pool.buffer(size).map_err(|_| AssetError::Capacity)?;
         Ok(Box::new(Self {
             metadata: Metadata {
                 surface,
@@ -156,7 +153,7 @@ impl EncodedImage {
     pub(crate) fn poll_prepare(
         &mut self,
         progress: &mut EncodedPreparation,
-        pool: &Rc<RefCell<DecodePool>>,
+        pool: &Pool,
         cx: &mut LoadContext<'_>,
     ) -> Poll<Result<(), LoadError>> {
         while progress.section < self.metadata.sections.len() {
@@ -186,7 +183,13 @@ impl EncodedImage {
                         input_size.max(group.unit_range(ordinal).expect("validated ordinal").len());
                 }
             }
-            ensure_buffer(&mut self.input, input_size, pool).map_err(|_| AssetError::Capacity)?;
+            ready!(ensure_buffer(
+                &mut self.input,
+                input_size,
+                pool,
+                &mut Context::from_waker(cx.waker())
+            ))
+            .map_err(|_| AssetError::Capacity)?;
             progress.admitted = true;
         }
         let input = &mut self.input.as_mut().expect("admitted input").bytes;
@@ -218,7 +221,7 @@ impl EncodedImage {
         &mut self,
         source: &mut AssetSource,
         pending: &mut ReadRegion,
-        pool: &Rc<RefCell<DecodePool>>,
+        pool: &Pool,
         cx: &mut Context<'_>,
     ) -> Poll<Result<(), RenderError>> {
         let layout = self
@@ -273,11 +276,12 @@ impl EncodedImage {
                     .map_err(|_| RenderError::InvalidTexture)?
                     .decode_plan(SurfaceRequirements::new())
                     .map_err(|_| RenderError::InvalidTexture)?;
-                ensure_buffer(
+                ready!(ensure_buffer(
                     &mut self.workspace,
                     plan.memory_plan().byte_len() as usize,
                     pool,
-                )?;
+                    cx,
+                ))?;
                 let decoded = plan
                     .decode_into(&mut self.workspace.as_mut().expect("admitted workspace").bytes)
                     .map_err(|_| RenderError::InvalidTexture)?;

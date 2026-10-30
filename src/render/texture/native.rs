@@ -1,7 +1,8 @@
+#[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
+use crate::core::threading::Shared;
 use crate::core::threading::State;
 use alloc::boxed::Box;
-#[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
-use alloc::rc::Rc;
+use core::task::{Context, Poll, ready};
 
 use super::access::CachedPixels;
 use super::pixel_cache::PixelCache;
@@ -22,7 +23,7 @@ pub(super) struct NativeTexture {
     readback: Reservation,
     cache_bytes: usize,
     #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
-    identity: Rc<()>,
+    identity: Shared<()>,
     layout: PlaneLayout,
     workspace_bytes: usize,
     completed: bool,
@@ -74,7 +75,7 @@ impl NativeTexture {
             readback,
             cache_bytes,
             #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
-            identity: Rc::new(()),
+            identity: Shared::new(()),
             layout,
             workspace_bytes: plan.workspace_bytes,
             completed: false,
@@ -96,8 +97,8 @@ impl NativeTexture {
     }
 
     #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
-    pub(super) fn identity(&self) -> Rc<()> {
-        Rc::clone(&self.identity)
+    pub(super) fn identity(&self) -> Shared<()> {
+        Shared::clone(&self.identity)
     }
 
     pub(super) fn validate(&self, revision: u64) -> Result<(), RenderError> {
@@ -149,25 +150,54 @@ impl NativeTexture {
         if let Some(pixels) = self.pixels_in(revision, region)? {
             return Ok(pixels);
         }
-        {
-            let mut mirror = self.mirror.try_take().map_err(state_error)?;
-            let layout = if region == self.full_region() {
-                self.layout
-            } else {
-                PlaneLayout::packed(
-                    region.width() as u16,
-                    region.height() as u16,
-                    self.layout.format(),
-                )
-                .map_err(|_| RenderError::InvalidTexture)?
-            };
-            mirror.prepare(layout)?;
-            let bytes = mirror.bytes_mut()?;
-            let mut destination = TexturePixelsMut::new(bytes, layout, AlphaMode::Blend);
-            self.target.read_pixels_into(region, &mut destination)?;
-            mirror.publish(revision, region)?;
+        let mut mirror = self.mirror.try_take().map_err(state_error)?;
+        self.prepare_pixels(&mut mirror, revision, region)
+    }
+
+    pub(super) fn poll_pixels_in(
+        &self,
+        revision: u64,
+        region: Region,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<TexturePixels<'_>, RenderError>> {
+        match self.pixels_in(revision, region) {
+            Ok(Some(pixels)) => return Poll::Ready(Ok(pixels)),
+            Ok(None) => {}
+            #[cfg(feature = "sync-cache")]
+            Err(RenderError::ResourcePending) => {}
+            Err(error) => return Poll::Ready(Err(error)),
         }
-        self.pixels_in(revision, region)?
+        let mut mirror = ready!(self.mirror.poll_take(cx)).map_err(state_error)?;
+        Poll::Ready(self.prepare_pixels(&mut mirror, revision, region))
+    }
+
+    fn prepare_pixels(
+        &self,
+        mirror: &mut PixelCache,
+        revision: u64,
+        region: Region,
+    ) -> Result<TexturePixels<'static>, RenderError> {
+        if let Some(pixels) = mirror.view(revision, region)? {
+            return Ok(pixels);
+        }
+        self.target.validate()?;
+        let layout = if region == self.full_region() {
+            self.layout
+        } else {
+            PlaneLayout::packed(
+                region.width() as u16,
+                region.height() as u16,
+                self.layout.format(),
+            )
+            .map_err(|_| RenderError::InvalidTexture)?
+        };
+        mirror.prepare(layout)?;
+        let bytes = mirror.bytes_mut()?;
+        let mut destination = TexturePixelsMut::new(bytes, layout, AlphaMode::Blend);
+        self.target.read_pixels_into(region, &mut destination)?;
+        mirror.publish(revision, region)?;
+        mirror
+            .view(revision, region)?
             .ok_or(RenderError::InvalidTexture)
     }
 }
@@ -411,7 +441,7 @@ mod tests {
             readback: budget.reserve(0).unwrap(),
             cache_bytes: storage_bytes + mirror_bytes,
             #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
-            identity: Rc::new(()),
+            identity: Shared::new(()),
             layout,
             workspace_bytes: 0,
             completed: true,
@@ -585,5 +615,40 @@ mod tests {
             budget.available(),
             32 + CachedPixels::OWNER_BYTES + Texture::native_state_bytes()
         );
+    }
+
+    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[test]
+    fn native_preparation_registers_a_waiter_before_returning_pending() {
+        use std::sync::Barrier;
+        let (source, device, _) = source();
+        let acquired = Barrier::new(2);
+        let release = Barrier::new(2);
+        let wake = crate::core::resource::wake::TaskWake::new();
+        wake.take_ready();
+        let mut cx = Context::from_waker(wake.waker());
+        std::thread::scope(|scope| {
+            let mirror = &source.mirror;
+            scope.spawn(|| {
+                let lease = mirror.try_take().unwrap();
+                acquired.wait();
+                release.wait();
+                drop(lease);
+            });
+            acquired.wait();
+            assert!(
+                source
+                    .poll_pixels_in(0, source.full_region(), &mut cx)
+                    .is_pending()
+            );
+            assert_eq!(device.reads.get(), 0);
+            release.wait();
+        });
+        assert!(wake.take_ready());
+        let Poll::Ready(pixels) = source.poll_pixels_in(0, source.full_region(), &mut cx) else {
+            panic!("released preparation must advance")
+        };
+        assert_eq!(pixels.unwrap().bytes(), &[0x66; 16]);
+        assert_eq!(device.reads.get(), 1);
     }
 }

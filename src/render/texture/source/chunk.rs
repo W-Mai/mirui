@@ -1,8 +1,7 @@
-use alloc::{boxed::Box, rc::Rc};
-use core::cell::RefCell;
+use alloc::boxed::Box;
 use core::task::{Poll, ready};
 
-use super::super::decoded::{DecodePool, EncodedImage, EncodedPreparation};
+use super::super::decoded::{EncodedImage, EncodedPreparation, Pool};
 use super::{
     AssetError, ContainerLayout, LoadContext, LoadError, PlaneLayout, PlaneRequirements,
     SourceImage, map_mirx_format,
@@ -73,7 +72,7 @@ impl ChunkRead {
     pub(super) fn poll(
         &mut self,
         cx: &mut LoadContext<'_>,
-        pool: &Rc<RefCell<DecodePool>>,
+        pool: &Pool,
     ) -> Poll<Result<SourceImage, LoadError>> {
         loop {
             match &mut self.stage {
@@ -188,7 +187,11 @@ impl ChunkRead {
                         let n = ready!(read_window(cx, self.offset, range, &mut self.window))?;
                         scan.accept(&self.window[..n]).map_err(invalid)?;
                     } else {
-                        self.encoded = Some(EncodedImage::new(scan, self.offset, pool)?);
+                        let mut storage = ready!(
+                            pool.poll_take(&mut core::task::Context::from_waker(cx.waker()))
+                        )
+                        .map_err(|_| AssetError::Capacity)?;
+                        self.encoded = Some(EncodedImage::new(scan, self.offset, &mut storage)?);
                         self.stage = Stage::EncodedRead(EncodedPreparation::default());
                     }
                 }
