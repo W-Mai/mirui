@@ -337,7 +337,7 @@ impl Texture<'_> {
         Ok(layout)
     }
 
-    pub(super) fn storage_layout(&self) -> Result<PlaneLayout, RenderError> {
+    pub(crate) fn storage_layout(&self) -> Result<PlaneLayout, RenderError> {
         let layout = PlaneLayout::new(
             self.width,
             self.height,

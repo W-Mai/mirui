@@ -542,3 +542,115 @@ fn prepared_cpu_guards_remain_transferable_and_readable_after_owner_close() {
     drop(device);
     assert_eq!(budget.allocated(), 0);
 }
+
+#[cfg(feature = "sync-cache")]
+#[test]
+fn closed_sources_support_regional_preparation_and_pinned_upload_after_cache_replacement() {
+    use crate::render::{PreparedDraw, SwRenderer, texture::Region};
+    use core::task::{Context, Poll, Waker};
+    let owner = device();
+    let mut producer = Producer {
+        device: owner.clone(),
+        color: (0, 255, 0, 255),
+    };
+    let layout = PlaneLayout::packed(16, 16, ColorFormat::RGBA8888).unwrap();
+    let plan = producer.plan_target(layout).unwrap().unwrap();
+    let budget = MemoryBudget::new(plan.storage_bytes + Texture::native_cpu_bytes(layout).unwrap());
+    let mut texture = Texture::native(&mut producer, plan, &budget).unwrap();
+    texture
+        .render_native(
+            &mut producer,
+            Viewport::new(16, 16, Fixed::ONE),
+            &mut [],
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+    texture.set_output_revision(1);
+    let mut cx = Context::from_waker(Waker::noop());
+    let Poll::Ready(Ok(region)) = texture.poll_pixels_in(Region::new(0, 0, 3, 3).unwrap(), &mut cx)
+    else {
+        panic!("initial region");
+    };
+    drop(region);
+    let command = crate::render::DrawCommand::Blit {
+        texture: &texture,
+        pos: crate::types::Point::ZERO,
+        size: crate::types::Point::new(16, 16),
+        transform: crate::types::Transform::IDENTITY,
+        quad: None,
+        opa: 255,
+        radius: Fixed::ZERO,
+        composite: CompositeMode::SourceOver,
+    };
+    let request = DrawRequest::new(&command, crate::types::Rect::new(0, 0, 1, 1));
+    let Poll::Ready(Ok(prepared)) =
+        PreparedDraw::poll_upload(request, RenderRoute::Native, Fixed::ONE, &mut cx)
+    else {
+        panic!("pinned upload");
+    };
+    let Poll::Ready(Ok(_replacement)) =
+        texture.poll_pixels_in(Region::new(3, 3, 1, 1).unwrap(), &mut cx)
+    else {
+        panic!("replacement region");
+    };
+    assert!(
+        texture
+            .pixels_in(prepared.texture_region().unwrap().region())
+            .unwrap()
+            .is_none()
+    );
+    owner.close_targets().unwrap();
+    assert!(texture.backend_target().unwrap().is_none());
+    let mut software = SwRenderer::new(Texture::owned(1, 1, ColorFormat::RGBA8888).unwrap());
+    let translated = crate::render::DrawCommand::Blit {
+        texture: &texture,
+        pos: crate::types::Point::new(-3, -3),
+        size: crate::types::Point::new(16, 16),
+        transform: crate::types::Transform::IDENTITY,
+        quad: None,
+        opa: 255,
+        radius: Fixed::ZERO,
+        composite: CompositeMode::SourceOver,
+    };
+    software
+        .draw_request(&DrawRequest::new(
+            &translated,
+            crate::types::Rect::new(0, 0, 1, 1),
+        ))
+        .unwrap();
+    assert_eq!(
+        software.target.read_pixels().unwrap().get_pixel(0, 0),
+        Color::rgb(0, 255, 0)
+    );
+    let destination = device();
+    let mut cache = TextureCache::new(destination.clone(), 4096);
+    cache
+        .with_texture(
+            &texture,
+            CompositeMode::SourceOver,
+            prepared.texture_region(),
+            |uploaded, alpha| {
+                assert_eq!(alpha, TargetAlpha::Straight);
+                let mut canvas = destination.canvas().unwrap();
+                canvas.set_clip_rect(sdl2::rect::Rect::new(0, 0, 1, 1));
+                uploaded.set_blend_mode(sdl2::render::BlendMode::None);
+                canvas
+                    .copy(uploaded, None, Some(sdl2::rect::Rect::new(0, 0, 16, 16)))
+                    .unwrap();
+                let mut pixel = [0; 4];
+                readback::rgba8(
+                    &*canvas,
+                    PhysicalRect::new(0, 0, 1, 1).unwrap(),
+                    &mut pixel,
+                    4,
+                )
+                .unwrap();
+                assert_eq!(pixel, [0, 255, 0, 255]);
+            },
+        )
+        .unwrap();
+    assert!(matches!(
+        PreparedDraw::poll_upload(request, RenderRoute::Native, Fixed::ONE, &mut cx),
+        Poll::Ready(Err(RenderError::InvalidTexture))
+    ));
+}

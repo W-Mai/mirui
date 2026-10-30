@@ -786,6 +786,62 @@ fn public_region_preparation_shares_the_full_source_budget_and_revision() {
 }
 
 #[test]
+fn routed_draws_use_resident_regions_after_native_device_loss() {
+    use crate::render::{PreparedDraw, SwRenderer, texture::Region};
+    use crate::types::Point;
+    use core::task::{Context, Poll, Waker};
+    let mut producer = Fixture::default();
+    let budget = MemoryBudget::new(native_bytes());
+    let plan = plan(&producer);
+    let mut texture = Texture::native(&mut producer, plan, &budget).unwrap();
+    let color = Color::rgb(20, 180, 60);
+    draw(&mut texture, &mut producer, color, false).unwrap();
+    let mut cx = Context::from_waker(Waker::noop());
+    let Poll::Ready(Ok(_region)) =
+        texture.poll_pixels_in(Region::new(0, 0, 2, 2).unwrap(), &mut cx)
+    else {
+        panic!("native region");
+    };
+    producer.device.lost.set(true);
+    assert!(texture.backend_target().unwrap().is_none());
+    let command = DrawCommand::Blit {
+        texture: &texture,
+        pos: Point::ZERO,
+        size: Point::new(4, 4),
+        transform: Transform::IDENTITY,
+        quad: None,
+        opa: 255,
+        radius: Fixed::ZERO,
+        composite: crate::render::CompositeMode::SourceOver,
+    };
+    let request = DrawRequest::new(&command, Rect::new(0, 0, 1, 1));
+    let mut software = SwRenderer::new(Texture::owned(4, 4, ColorFormat::RGBA8888).unwrap());
+    software.draw_request(&request).unwrap();
+    assert_eq!(
+        software.target.read_pixels().unwrap().get_pixel(0, 0),
+        color
+    );
+    assert!(matches!(
+        PreparedDraw::poll_upload(request, RenderRoute::Native, Fixed::ONE, &mut cx),
+        Poll::Ready(Ok(_))
+    ));
+    assert!(matches!(
+        PreparedDraw::poll_complete(request, RenderRoute::Native, Fixed::ONE, &mut cx),
+        Poll::Ready(Err(RenderError::BackendFailure))
+    ));
+    let missing = DrawRequest::new(&command, Rect::new(3, 3, 1, 1));
+    assert_eq!(
+        software.draw_request(&missing),
+        Err(RenderError::BackendFailure)
+    );
+    assert_eq!(
+        producer.device.reads.get(),
+        1,
+        "closed-source consumption does not read back"
+    );
+}
+
+#[test]
 fn source_pixels_are_lazy_borrowed_budgeted_and_survive_the_renderer() {
     let mut renderer = Fixture::default();
     let device = Rc::downgrade(&renderer.device);
@@ -895,10 +951,7 @@ fn failed_reads_and_writes_never_expose_partial_or_previous_pixels() {
     ));
     renderer.device.access_failure.set(false);
     texture.cache_revision += 1;
-    assert!(matches!(
-        texture.backend_target(),
-        Err(RenderError::BackendFailure)
-    ));
+    assert!(texture.backend_target().unwrap().is_none());
     assert!(matches!(
         texture.read_pixels(),
         Err(RenderError::BackendFailure)
