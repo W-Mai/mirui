@@ -376,3 +376,150 @@ fn owner_access_and_collection_use_no_warm_allocations_and_report_actual_metadat
         TargetStorage::OWNER_BYTES
     );
 }
+
+#[test]
+fn unpublished_owner_resources_retire_before_creation_reservations_are_released() {
+    struct Unpublished {
+        budget: MemoryBudget,
+        drops: Rc<Cell<usize>>,
+    }
+    impl Drop for Unpublished {
+        fn drop(&mut self) {
+            assert_eq!(
+                self.budget.available(),
+                0,
+                "creation admission spans physical destruction"
+            );
+            self.drops.set(self.drops.get() + 1);
+        }
+    }
+    let budget = MemoryBudget::new(8192);
+    let reserved = budget.reserve(8192).unwrap();
+    let drops = Rc::new(Cell::new(0));
+    let mut owner = ThreadOwner::new();
+    let token = owner
+        .insert(Unpublished {
+            budget: budget.clone(),
+            drops: drops.clone(),
+        })
+        .unwrap();
+    assert_eq!(tracked_allocations(|| drop(token)), 0);
+    assert_eq!(
+        drops.get(),
+        1,
+        "unpublished failures do not need a later frame"
+    );
+    drop(reserved);
+    drop(owner);
+    assert_eq!(budget.available(), 8192);
+}
+
+#[test]
+fn rejected_native_allocation_destroys_the_target_before_returning_its_reservation() {
+    use crate::render::texture::{ColorFormat, Region, Texture, TexturePixelsMut};
+    use crate::render::{
+        BackendTarget, DrawRequest, PlaneLayout, PreparedDraw, RenderRoute, Renderer, TargetAlpha,
+        TargetDescriptor, TargetPlan,
+    };
+    use core::any::Any;
+
+    struct Raw {
+        budget: MemoryBudget,
+        drops: Rc<Cell<usize>>,
+    }
+    impl Drop for Raw {
+        fn drop(&mut self) {
+            assert_eq!(self.budget.available(), 0);
+            self.drops.set(self.drops.get() + 1);
+        }
+    }
+    struct Target {
+        raw: ThreadResource<Raw>,
+        plan: TargetPlan,
+    }
+    impl BackendTarget for Target {
+        fn descriptor(&self) -> TargetDescriptor {
+            self.plan.descriptor
+        }
+        fn allocated_bytes(&self) -> usize {
+            self.plan.storage_bytes + 1
+        }
+        fn validate(&self) -> Result<(), RenderError> {
+            self.raw.validate()
+        }
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+        fn read_pixels_into(
+            &self,
+            _: Region,
+            _: &mut TexturePixelsMut<'_>,
+        ) -> Result<(), RenderError> {
+            unreachable!()
+        }
+        fn retain_storage(&mut self, _: TargetStorage) -> Result<(), RenderError> {
+            panic!("allocation must be rejected before retention")
+        }
+    }
+    struct Producer<'a> {
+        owner: &'a mut ThreadOwner,
+        budget: MemoryBudget,
+        drops: Rc<Cell<usize>>,
+    }
+    impl Renderer for Producer<'_> {
+        type TargetState = ();
+        fn route(&self, _: &DrawRequest<'_, '_>) -> Result<RenderRoute, RenderError> {
+            unreachable!()
+        }
+        fn submit(&mut self, _: &PreparedDraw<'_>) -> Result<(), RenderError> {
+            unreachable!()
+        }
+        fn flush(&mut self) -> Result<(), RenderError> {
+            unreachable!()
+        }
+        fn can_reuse_target(
+            &self,
+            _: &dyn BackendTarget,
+            _: &TargetPlan,
+        ) -> Result<bool, RenderError> {
+            Ok(true)
+        }
+        fn create_target(
+            &mut self,
+            plan: &TargetPlan,
+        ) -> Result<Box<dyn BackendTarget>, RenderError> {
+            Ok(Box::new(Target {
+                raw: self.owner.insert(Raw {
+                    budget: self.budget.clone(),
+                    drops: self.drops.clone(),
+                })?,
+                plan: *plan,
+            }))
+        }
+    }
+    let mut owner = ThreadOwner::new();
+    let layout = PlaneLayout::packed(1, 1, ColorFormat::RGBA8888).unwrap();
+    let plan = TargetPlan {
+        descriptor: TargetDescriptor {
+            layout,
+            alpha: TargetAlpha::Straight,
+        },
+        storage_bytes: owner.metadata_bytes::<Raw>().unwrap() + 4,
+        workspace_bytes: 0,
+        readback_bytes: 0,
+    };
+    let limit = plan.storage_bytes + Texture::native_cpu_bytes(layout).unwrap();
+    let budget = MemoryBudget::new(limit);
+    let drops = Rc::new(Cell::new(0));
+    let mut producer = Producer {
+        owner: &mut owner,
+        budget: budget.clone(),
+        drops: drops.clone(),
+    };
+    assert!(matches!(
+        Texture::native(&mut producer, plan, &budget),
+        Err(RenderError::ResourceLimit(RenderResource::Texture))
+    ));
+    assert_eq!(drops.get(), 1);
+    assert_eq!(budget.available(), limit);
+}

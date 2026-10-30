@@ -74,9 +74,14 @@ impl NativeTexture {
             return Err(RenderError::InvalidTexture);
         }
         target.validate()?;
-        let storage = storage
-            .commit(target.allocated_bytes())
-            .map_err(|_| capacity_error())?;
+        let storage = match storage.commit(target.allocated_bytes()) {
+            Ok(storage) => storage,
+            Err(reservation) => {
+                drop(target);
+                drop(reservation);
+                return Err(capacity_error());
+            }
+        };
         let cache_bytes = storage.bytes() + mirror.bytes() + readback.bytes();
         #[cfg(feature = "sync-cache")]
         let cache_bytes = cache_bytes + metadata.bytes() + owner.bytes();

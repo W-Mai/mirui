@@ -290,7 +290,23 @@ impl<T: 'static> Drop for ThreadResource<T> {
         // Publish after decrement: a preceding mark can be consumed before the count changes.
         if let Some(control) = self.control.take() {
             let owner = control.owner.clone();
+            let unpublished = control.admitted_bytes.load(Ordering::Acquire) == 0
+                && std::thread::current().id() == owner.thread;
+            let key = Arc::as_ptr(&control);
             drop(control);
+            if unpublished
+                && let Ok(Some(entry)) = registry(|registry| {
+                    Ok(registry.remove(|entry| {
+                        entry.key() == key
+                            && Arc::strong_count(&entry.control) == 1
+                            && entry.value.is_some()
+                    }))
+                })
+            {
+                // Unpublished creation still owns its admission reservation on this thread.
+                (*entry).retire();
+                return;
+            }
             owner.retired.store(true, Ordering::Release);
         }
     }
