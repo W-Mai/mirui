@@ -1,4 +1,6 @@
-use core::cell::{Cell, RefCell, RefMut};
+#[cfg(not(feature = "sync-cache"))]
+use core::cell::Cell;
+use core::cell::{RefCell, RefMut};
 
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{BlendMode, Canvas, RenderTarget, Texture as SdlTexture, TextureCreator};
@@ -6,6 +8,12 @@ use sdl2::video::Window;
 
 use super::target_state::{self, DriverState};
 use crate::render::RenderError;
+
+#[cfg(feature = "sync-cache")]
+#[path = "device_status.rs"]
+mod shared;
+#[cfg(feature = "sync-cache")]
+pub(super) use shared::DeviceStatus;
 
 struct PersistentTarget {
     texture: SdlTexture<'static>,
@@ -16,8 +24,14 @@ struct PersistentTarget {
 pub(super) struct Device<T: RenderTarget = Window> {
     canvas: RefCell<Canvas<T>>,
     pub(super) creator: TextureCreator<T::Context>,
+    #[cfg(not(feature = "sync-cache"))]
     generation: Cell<u64>,
+    #[cfg(not(feature = "sync-cache"))]
     failure: Cell<Option<RenderError>>,
+    #[cfg(feature = "sync-cache")]
+    pub(super) status: alloc::sync::Arc<DeviceStatus>,
+    #[cfg(feature = "sync-cache")]
+    targets: RefCell<crate::render::target::ThreadOwner>,
     persistent: RefCell<Option<PersistentTarget>>,
     frame_state: RefCell<Option<DriverState>>,
     persistent_supported: bool,
@@ -57,8 +71,14 @@ impl<T: RenderTarget> Device<T> {
         Ok(Self {
             canvas: RefCell::new(canvas),
             creator,
+            #[cfg(not(feature = "sync-cache"))]
             generation: Cell::new(0),
+            #[cfg(not(feature = "sync-cache"))]
             failure: Cell::new(None),
+            #[cfg(feature = "sync-cache")]
+            status: alloc::sync::Arc::new(DeviceStatus::new()),
+            #[cfg(feature = "sync-cache")]
+            targets: RefCell::new(crate::render::target::ThreadOwner::new()),
             persistent: RefCell::new(None),
             frame_state: RefCell::new(None),
             persistent_supported: target_supported && super::config::window_is_single_sample(name),
@@ -79,10 +99,18 @@ impl<T: RenderTarget> Device<T> {
     }
 
     pub(super) fn check(&self) -> Result<(), RenderError> {
+        #[cfg(feature = "sync-cache")]
+        {
+            self.status.check()
+        }
+        #[cfg(not(feature = "sync-cache"))]
         self.failure.get().map_or(Ok(()), Err)
     }
 
     pub(super) fn poison(&self) {
+        #[cfg(feature = "sync-cache")]
+        self.status.poison();
+        #[cfg(not(feature = "sync-cache"))]
         self.failure.set(Some(RenderError::BackendFailure));
     }
 
@@ -173,22 +201,25 @@ impl<T: RenderTarget> Device<T> {
         let target = self.persistent.borrow();
         let texture = &target.as_ref().unwrap().texture;
         let result = (|| {
-            driver.restore(&canvas)?;
-            canvas.set_viewport(None);
-            canvas.set_clip_rect(None);
-            canvas
-                .set_scale(1.0, 1.0)
-                .map_err(|_| RenderError::BackendFailure)?;
-            canvas
-                .set_logical_size(0, 0)
-                .map_err(|_| RenderError::BackendFailure)?;
-            crate::trace_span!("sdl.frame.copy", {
+            driver.restore_target(&canvas)?;
+            let copy = (|| {
+                canvas.set_viewport(None);
+                canvas.set_clip_rect(None);
                 canvas
-                    .copy(texture, None, None)
-                    .map_err(|_| RenderError::BackendFailure)
-            })?;
-            // SDL_RenderCopy does not mutate the target or draw state restored above.
-            Ok(())
+                    .set_scale(1.0, 1.0)
+                    .map_err(|_| RenderError::BackendFailure)?;
+                canvas
+                    .set_logical_size(0, 0)
+                    .map_err(|_| RenderError::BackendFailure)?;
+                crate::trace_span!("sdl.frame.copy", {
+                    canvas
+                        .copy(texture, None, None)
+                        .map_err(|_| RenderError::BackendFailure)
+                })?;
+                Ok(())
+            })();
+            let restored = driver.restore_properties(&canvas);
+            copy.and(restored)
         })();
         if result.is_err() {
             self.poison();
@@ -215,14 +246,78 @@ impl<T: RenderTarget> Device<T> {
     }
 
     pub(super) fn generation(&self) -> u64 {
+        #[cfg(feature = "sync-cache")]
+        {
+            self.status.generation()
+        }
+        #[cfg(not(feature = "sync-cache"))]
         self.generation.get()
     }
 
     pub(super) fn invalidate(&self) {
         self.abort_persistent_frame();
         self.persistent.borrow_mut().take();
-        self.generation.set(self.generation.get().wrapping_add(1));
-        self.failure.set(None);
+        #[cfg(feature = "sync-cache")]
+        {
+            self.status.poison();
+            if self.close_targets().is_err() {
+                return;
+            }
+            *self.targets.borrow_mut() = crate::render::target::ThreadOwner::new();
+            self.status.reset();
+        }
+        #[cfg(not(feature = "sync-cache"))]
+        {
+            self.generation.set(self.generation.get().wrapping_add(1));
+            self.failure.set(None);
+        }
+    }
+
+    #[cfg(feature = "sync-cache")]
+    pub(super) fn target_metadata_bytes<R: 'static>(&self) -> Result<usize, RenderError> {
+        self.targets
+            .try_borrow()
+            .map_err(|_| RenderError::InvalidScope)?
+            .metadata_bytes::<R>()?
+            .checked_add(self.status.metadata_bytes())
+            .ok_or(RenderError::InvalidGeometry)
+    }
+
+    #[cfg(feature = "sync-cache")]
+    pub(super) fn register_target<R: 'static>(
+        &self,
+        value: R,
+    ) -> Result<crate::render::target::ThreadResource<R>, RenderError> {
+        self.targets
+            .try_borrow_mut()
+            .map_err(|_| RenderError::InvalidScope)?
+            .insert(value)
+    }
+
+    #[cfg(feature = "sync-cache")]
+    pub(super) fn collect_targets(&self) -> Result<(), RenderError> {
+        drop(
+            self.canvas
+                .try_borrow_mut()
+                .map_err(|_| RenderError::InvalidScope)?,
+        );
+        self.targets
+            .try_borrow_mut()
+            .map_err(|_| RenderError::InvalidScope)?
+            .collect()
+    }
+
+    #[cfg(feature = "sync-cache")]
+    pub(super) fn close_targets(&self) -> Result<(), RenderError> {
+        drop(
+            self.canvas
+                .try_borrow_mut()
+                .map_err(|_| RenderError::InvalidScope)?,
+        );
+        self.targets
+            .try_borrow_mut()
+            .map_err(|_| RenderError::InvalidScope)?
+            .close()
     }
 }
 

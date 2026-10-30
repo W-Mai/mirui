@@ -148,24 +148,35 @@ fn native_sources_bridge_once_and_reject_feedback_before_cached_uploads() {
         .render_native(&mut producer, viewport, &mut [], &mut |_| Ok(()))
         .unwrap();
     texture.set_output_revision(1);
-    let storage = Rc::clone(
-        &texture
-            .backend_target()
-            .unwrap()
-            .unwrap()
-            .as_any()
-            .downcast_ref::<Target<sdl2::surface::Surface<'static>>>()
-            .unwrap()
-            .storage,
-    );
+    let storage = texture
+        .backend_target()
+        .unwrap()
+        .unwrap()
+        .as_any()
+        .downcast_ref::<Target<sdl2::surface::Surface<'static>>>()
+        .unwrap()
+        .storage
+        .clone();
+    #[cfg(not(feature = "sync-cache"))]
+    let sampleable = storage.sampleable;
+    #[cfg(feature = "sync-cache")]
+    let sampleable = texture
+        .backend_target()
+        .unwrap()
+        .unwrap()
+        .as_any()
+        .downcast_ref::<Target<sdl2::surface::Surface<'static>>>()
+        .unwrap()
+        .source
+        .sampleable;
     let mut same = TextureCache::new(Rc::clone(&source), 256);
     assert!(texture.pixels().unwrap().is_none());
     assert_eq!(
         draw(&mut same, &source, &texture),
         Color::rgba(128, 0, 0, 128)
     );
-    assert_eq!(same.inspect().cache_len(), usize::from(!storage.sampleable));
-    assert_eq!(texture.pixels().unwrap().is_none(), storage.sampleable);
+    assert_eq!(same.inspect().cache_len(), usize::from(!sampleable));
+    assert_eq!(texture.pixels().unwrap().is_none(), sampleable);
     // Uploads only consume resident pixels; prepare the foreign/composited source first.
     drop(texture.read_pixels().unwrap());
     same.with_texture(&texture, CompositeMode::Add, None, |_, alpha| {
@@ -181,25 +192,33 @@ fn native_sources_bridge_once_and_reject_feedback_before_cached_uploads() {
     assert_eq!(foreign.inspect().cache_len(), 1);
     {
         let _source_busy = source.canvas().unwrap();
-        let _texture_busy = storage.texture.borrow_mut();
-        assert_eq!(
-            tracked_allocations(|| {
-                for _ in 0..4 {
-                    assert_eq!(
-                        draw(&mut foreign, &destination, &texture),
-                        Color::rgba(128, 0, 0, 128)
-                    );
-                }
-            }),
-            0
-        );
+        with_storage(&storage, |storage| {
+            let _texture_busy = storage.texture.borrow_mut();
+            assert_eq!(
+                tracked_allocations(|| {
+                    for _ in 0..4 {
+                        assert_eq!(
+                            draw(&mut foreign, &destination, &texture),
+                            Color::rgba(128, 0, 0, 128)
+                        );
+                    }
+                }),
+                0
+            );
+            Ok(())
+        })
+        .unwrap();
     }
     for composite in [
         CompositeMode::SourceOver,
         CompositeMode::Add,
         CompositeMode::Multiply,
     ] {
-        storage.active.set(true);
+        with_storage(&storage, |storage| {
+            storage.set_active(true);
+            Ok(())
+        })
+        .unwrap();
         for cache in [&mut same, &mut foreign] {
             assert!(matches!(
                 cache.with_texture(&texture, composite, None, |_, _| panic!(
@@ -208,14 +227,26 @@ fn native_sources_bridge_once_and_reject_feedback_before_cached_uploads() {
                 Err(RenderError::InvalidTexture)
             ));
         }
-        storage.active.set(false);
+        with_storage(&storage, |storage| {
+            storage.set_active(false);
+            Ok(())
+        })
+        .unwrap();
     }
-    storage.completed.set(false);
+    with_storage(&storage, |storage| {
+        storage.set_completed(false);
+        Ok(())
+    })
+    .unwrap();
     assert!(matches!(
         foreign.with_texture(&texture, CompositeMode::SourceOver, None, |_, _| ()),
         Err(RenderError::InvalidTexture)
     ));
-    storage.completed.set(true);
+    with_storage(&storage, |storage| {
+        storage.set_completed(true);
+        Ok(())
+    })
+    .unwrap();
     producer.color = (0, 255, 0, 255);
     texture
         .render_native(&mut producer, viewport, &mut [], &mut |_| Ok(()))
@@ -358,8 +389,8 @@ fn source_texture_borrows_reject_reentry_without_poisoning_or_allocating() {
         .downcast_ref::<Target<sdl2::surface::Surface<'static>>>()
         .unwrap();
     let mut destination = Texture::owned(4, 4, ColorFormat::RGBA8888).unwrap();
-    {
-        let _busy = target.storage.texture.borrow_mut();
+    with_storage(&target.storage, |storage| {
+        let _busy = storage.texture.borrow_mut();
         assert_eq!(
             source.read_pixels_into(
                 source.descriptor().region(),
@@ -371,7 +402,9 @@ fn source_texture_borrows_reject_reentry_without_poisoning_or_allocating() {
             Binding::begin(&owner, &*source, TargetUpdate::Rebuild),
             Err(RenderError::InvalidScope)
         ));
-    }
+        Ok(())
+    })
+    .unwrap();
     assert_eq!(
         tracked_allocations(|| {
             let binding = Binding::begin(&owner, &*source, TargetUpdate::Incremental).unwrap();
@@ -398,8 +431,39 @@ fn native_sampling_is_scoped_and_releases_its_borrow_after_callback_unwind() {
         .ok()
         .unwrap();
     // Exercise the borrowing contract independently of the software SDL driver's custom blend support.
-    Rc::get_mut(&mut target.storage).unwrap().sampleable = true;
-    target.storage.completed.set(true);
+    #[cfg(not(feature = "sync-cache"))]
+    {
+        Rc::get_mut(&mut target.storage).unwrap().sampleable = true;
+    }
+    #[cfg(feature = "sync-cache")]
+    {
+        let Target { storage, source } = &mut target;
+        storage
+            .with(|storage| {
+                assert!(storage.source.charge.get().is_none());
+                let old = &storage.source;
+                let state = alloc::sync::Arc::new(SourceState {
+                    descriptor: old.descriptor,
+                    sampleable: true,
+                    device: old.device.clone(),
+                    device_identity: old.device_identity,
+                    generation: old.generation,
+                    completed: core::sync::atomic::AtomicBool::new(false),
+                    active: core::sync::atomic::AtomicBool::new(false),
+                    bytes: old.bytes,
+                    charge: std::sync::OnceLock::new(),
+                });
+                storage.source = state.clone();
+                *source = state;
+                Ok(())
+            })
+            .unwrap();
+    }
+    with_storage(&target.storage, |storage| {
+        storage.set_completed(true);
+        Ok(())
+    })
+    .unwrap();
     for (destination, direct) in [(&owner, false), (&foreign, true)] {
         assert_eq!(
             target.with_sample_texture(destination, direct, |_| panic!("unavailable sample")),
@@ -431,4 +495,50 @@ fn native_sampling_is_scoped_and_releases_its_borrow_after_callback_unwind() {
     );
     assert_eq!(target.with_sample_texture(&owner, true, |_| 7), Ok(Some(7)));
     assert_eq!(owner.check(), Ok(()));
+}
+
+#[cfg(feature = "sync-cache")]
+#[test]
+fn prepared_cpu_guards_remain_transferable_and_readable_after_owner_close() {
+    use std::sync::Barrier;
+    let device = device();
+    let mut producer = Producer {
+        device: device.clone(),
+        color: (0, 255, 0, 255),
+    };
+    let layout = PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap();
+    let plan = producer.plan_target(layout).unwrap().unwrap();
+    let budget = MemoryBudget::new(plan.storage_bytes + Texture::native_cpu_bytes(layout).unwrap());
+    let mut texture = Texture::native(&mut producer, plan, &budget).unwrap();
+    texture
+        .render_native(
+            &mut producer,
+            Viewport::new(4, 4, Fixed::ONE),
+            &mut [],
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+    texture.set_output_revision(1);
+    let pixels = texture.read_pixels().unwrap();
+    let barrier = Barrier::new(2);
+    std::thread::scope(|scope| {
+        let worker = scope.spawn(|| {
+            let pixels = pixels;
+            barrier.wait();
+            barrier.wait();
+            assert_eq!(pixels.get_pixel(0, 0), Color::rgb(0, 255, 0));
+        });
+        barrier.wait();
+        device.close_targets().unwrap();
+        barrier.wait();
+        worker.join().unwrap();
+    });
+    assert_eq!(
+        texture.read_pixels().unwrap().get_pixel(3, 3),
+        Color::rgb(0, 255, 0)
+    );
+    drop(texture);
+    drop(producer);
+    drop(device);
+    assert_eq!(budget.allocated(), 0);
 }

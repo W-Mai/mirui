@@ -16,6 +16,136 @@ fn device() -> Rc<TestDevice> {
     Rc::new(Device::new(canvas, creator).unwrap())
 }
 
+#[cfg(feature = "sync-cache")]
+#[test]
+fn transferable_targets_keep_driver_access_local_and_close_before_worker_release() {
+    use crate::render::{budget::MemoryBudget, target::TargetStorage};
+    use std::sync::Barrier;
+    fn send_sync<T: Send + Sync>() {}
+    send_sync::<Target<sdl2::surface::Surface<'static>>>();
+    let device = device();
+    let erased: Box<dyn core::any::Any> = target(&device);
+    let mut source = erased
+        .downcast::<Target<sdl2::surface::Surface<'static>>>()
+        .ok()
+        .unwrap();
+    let bytes = source.allocated_bytes();
+    let limit = bytes + TargetStorage::OWNER_BYTES;
+    let budget = MemoryBudget::new(limit);
+    let receipt = TargetStorage::new(
+        budget.reserve(bytes).unwrap().commit(bytes).unwrap(),
+        budget.reserve(0).unwrap(),
+        budget
+            .reserve(TargetStorage::OWNER_BYTES)
+            .unwrap()
+            .commit(TargetStorage::OWNER_BYTES)
+            .unwrap(),
+    );
+    source.retain_storage(receipt).unwrap();
+    let binding = Binding::begin(&device, &*source, TargetUpdate::Rebuild).unwrap();
+    fill(&device, sdl2::rect::Rect::new(0, 0, 4, 4), (0, 255, 0, 255));
+    binding.finish(&device, true).unwrap();
+    assert_eq!(
+        pixels(&*source).read_pixels().unwrap().get_pixel(1, 1),
+        crate::types::Color::rgb(0, 255, 0)
+    );
+    let barrier = Barrier::new(2);
+    std::thread::scope(|scope| {
+        let worker = scope.spawn(|| {
+            let source = source;
+            source.validate().unwrap();
+            let mut bytes = [0; 64];
+            let mut destination = Texture::new(&mut bytes, 4, 4, ColorFormat::RGBA8888).unwrap();
+            assert_eq!(
+                source.read_pixels_into(
+                    source.descriptor().region(),
+                    &mut destination.pixels_mut().unwrap()
+                ),
+                Err(RenderError::WrongThread)
+            );
+            barrier.wait();
+            barrier.wait();
+            assert_eq!(source.validate(), Err(RenderError::InvalidTexture));
+            assert_eq!(
+                source.read_pixels_into(
+                    source.descriptor().region(),
+                    &mut destination.pixels_mut().unwrap()
+                ),
+                Err(RenderError::InvalidTexture)
+            );
+            assert_eq!(tracked_allocations(|| drop(source)), 0);
+        });
+        barrier.wait();
+        assert_eq!(tracked_allocations(|| device.close_targets().unwrap()), 0);
+        assert_eq!(
+            Rc::strong_count(&device),
+            1,
+            "closed tokens do not retain the raw device"
+        );
+        assert_ne!(budget.allocated(), 0, "worker metadata remains charged");
+        barrier.wait();
+        worker.join().unwrap();
+    });
+    drop(device);
+    assert_eq!(budget.available(), limit);
+}
+
+#[cfg(feature = "sync-cache")]
+#[test]
+fn worker_retirement_releases_raw_storage_only_at_owner_maintenance() {
+    let device = device();
+    let erased: Box<dyn core::any::Any> = target(&device);
+    let source = erased
+        .downcast::<Target<sdl2::surface::Surface<'static>>>()
+        .ok()
+        .unwrap();
+    assert_eq!(Rc::strong_count(&device), 2);
+    std::thread::spawn(move || drop(source)).join().unwrap();
+    assert_eq!(Rc::strong_count(&device), 2);
+    assert_eq!(tracked_allocations(|| device.collect_targets().unwrap()), 0);
+    assert_eq!(Rc::strong_count(&device), 1);
+}
+
+#[cfg(feature = "sync-cache")]
+#[test]
+fn batch_plans_allow_owner_metadata_to_be_admitted_by_an_earlier_target() {
+    use crate::render::{budget::MemoryBudget, target::TargetStorage};
+    let device = device();
+    let layout = PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap();
+    let cold_plan = plan(&device, layout).unwrap().unwrap();
+    let mut first = create(&device, &cold_plan).unwrap();
+    let limit = 2 * (cold_plan.storage_bytes + TargetStorage::OWNER_BYTES);
+    let budget = MemoryBudget::new(limit);
+    let attach = |target: &mut dyn BackendTarget| {
+        let bytes = target.allocated_bytes();
+        target
+            .retain_storage(TargetStorage::new(
+                budget.reserve(bytes).unwrap().commit(bytes).unwrap(),
+                budget.reserve(0).unwrap(),
+                budget
+                    .reserve(TargetStorage::OWNER_BYTES)
+                    .unwrap()
+                    .commit(TargetStorage::OWNER_BYTES)
+                    .unwrap(),
+            ))
+            .unwrap();
+    };
+    attach(&mut *first);
+    let warm_plan = plan(&device, layout).unwrap().unwrap();
+    assert!(warm_plan.storage_bytes < cold_plan.storage_bytes);
+    let mut second = create(&device, &cold_plan).unwrap();
+    assert_eq!(second.allocated_bytes(), warm_plan.storage_bytes);
+    attach(&mut *second);
+    assert!(can_reuse(&device, &*first, &warm_plan).unwrap());
+    assert!(can_reuse(&device, &*second, &warm_plan).unwrap());
+    drop(first);
+    drop(second);
+    device.collect_targets().unwrap();
+    assert_eq!(Rc::strong_count(&device), 1);
+    drop(device);
+    assert_eq!(budget.available(), limit);
+}
+
 fn target(device: &Rc<TestDevice>) -> Box<dyn BackendTarget> {
     let plan = plan(
         device,

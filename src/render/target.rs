@@ -59,7 +59,10 @@ impl TargetStorage {
     }
 
     #[cfg(all(feature = "std", feature = "sync-cache"))]
-    fn split_control(&self, bytes: usize) -> Result<super::budget::Allocation, RenderError> {
+    pub(crate) fn split_control(
+        &self,
+        bytes: usize,
+    ) -> Result<super::budget::Allocation, RenderError> {
         self.0
             .allocation
             .with(|allocation| allocation.split(bytes))

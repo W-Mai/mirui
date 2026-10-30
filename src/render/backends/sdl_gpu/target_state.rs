@@ -67,13 +67,31 @@ impl DriverState {
     }
 
     pub(super) fn restore<T: RenderTarget>(&self, canvas: &Canvas<T>) -> Result<(), RenderError> {
+        self.restore_target(canvas)?;
+        self.restore_properties(canvas)
+    }
+
+    pub(super) fn restore_target<T: RenderTarget>(
+        &self,
+        canvas: &Canvas<T>,
+    ) -> Result<(), RenderError> {
         let raw = canvas.raw();
         // The binding state retains every texture that can be restored here.
         unsafe {
             // Changing targets can submit queued drawing before restoring properties.
             crate::trace_span!("sdl.target.restore", {
                 checked(SDL_SetRenderTarget(raw, self.target))
-            })?;
+            })
+        }
+    }
+
+    pub(super) fn restore_properties<T: RenderTarget>(
+        &self,
+        canvas: &Canvas<T>,
+    ) -> Result<(), RenderError> {
+        let raw = canvas.raw();
+        // Restore properties without selecting another target.
+        unsafe {
             crate::trace_span!("sdl.state.restore");
             checked(SDL_RenderSetIntegerScale(raw, self.integer))?;
             checked(SDL_RenderSetLogicalSize(
