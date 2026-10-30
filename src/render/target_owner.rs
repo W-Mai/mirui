@@ -271,9 +271,18 @@ impl Drop for ThreadOwner {
 }
 
 /// A transferable identity for `T`; native values remain in their creating thread's storage.
+///
+/// The payload type cannot be changed through subtyping.
+///
+/// ```compile_fail,E0308
+/// use mirui::render::target::ThreadResource;
+/// fn retag(token: ThreadResource<fn(&str)>) -> ThreadResource<fn(&'static str)> {
+///     token
+/// }
+/// ```
 pub struct ThreadResource<T: 'static> {
     control: Option<Arc<Control>>,
-    _type: PhantomData<fn() -> T>,
+    _type: PhantomData<fn(T) -> T>,
 }
 
 impl<T: 'static> Clone for ThreadResource<T> {
