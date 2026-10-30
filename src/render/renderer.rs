@@ -578,6 +578,8 @@ pub enum RenderError {
     TextPreparation,
     /// A renderer scope command was submitted outside its structured API.
     InvalidScope,
+    /// The source device operation must execute on its creating thread.
+    WrongThread,
     InvalidGeometry,
     InvalidTexture,
     MissingWorkspace,

@@ -259,6 +259,17 @@ impl Allocation {
     pub(crate) fn bytes(&self) -> usize {
         self.bytes
     }
+
+    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    pub(crate) fn split(&mut self, bytes: usize) -> Option<Self> {
+        let remaining = self.bytes.checked_sub(bytes)?;
+        let allocation = Self {
+            ledger: Rc::clone(&self.ledger),
+            bytes,
+        };
+        self.bytes = remaining;
+        Some(allocation)
+    }
 }
 
 impl Drop for Allocation {

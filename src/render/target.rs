@@ -11,16 +11,24 @@ use crate::types::PhysicalRect;
 #[path = "target_scope.rs"]
 pub mod __private;
 
+#[cfg(all(feature = "std", feature = "sync-cache"))]
+#[path = "target_owner.rs"]
+mod thread_owner;
+#[cfg(all(feature = "std", feature = "sync-cache"))]
+pub use thread_owner::{ThreadOwner, ThreadResource};
+
 /// Retains the storage charge and readback allowance until native resources are released.
 ///
 /// Backend targets receive this receipt during creation. Store it beside the actual resources, including when their destruction is deferred beyond the transferable target value. Cloning a receipt retains the same charges without reserving additional capacity.
 #[cfg(feature = "sync-cache")]
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct TargetStorage(crate::core::threading::Shared<StorageCharge>);
 
 #[cfg(feature = "sync-cache")]
-#[derive(Debug)]
 struct StorageCharge {
+    #[cfg(feature = "std")]
+    allocation: crate::core::threading::Gate<super::budget::Allocation>,
+    #[cfg(not(feature = "std"))]
     _allocation: super::budget::Allocation,
     readback: super::budget::Reservation,
     _owner: super::budget::Allocation,
@@ -37,6 +45,9 @@ impl TargetStorage {
         owner: super::budget::Allocation,
     ) -> Self {
         Self(crate::core::threading::Shared::new(StorageCharge {
+            #[cfg(feature = "std")]
+            allocation: crate::core::threading::Gate::new(allocation),
+            #[cfg(not(feature = "std"))]
             _allocation: allocation,
             readback,
             _owner: owner,
@@ -45,6 +56,25 @@ impl TargetStorage {
 
     pub(crate) fn readback_bytes(&self) -> usize {
         self.0.readback.bytes()
+    }
+
+    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    fn split_control(&self, bytes: usize) -> Result<super::budget::Allocation, RenderError> {
+        self.0
+            .allocation
+            .with(|allocation| allocation.split(bytes))
+            .map_err(|_| RenderError::InvalidScope)?
+            .ok_or(RenderError::ResourceLimit(super::RenderResource::Target))
+    }
+}
+
+#[cfg(feature = "sync-cache")]
+impl core::fmt::Debug for TargetStorage {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        // Formatting never borrows the mutable accounting receipt.
+        f.debug_struct("TargetStorage")
+            .field("readback_bytes", &self.readback_bytes())
+            .finish_non_exhaustive()
     }
 }
 
