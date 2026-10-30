@@ -204,9 +204,26 @@ mod tests {
         m.add_static("greeting", Note("hi".into()));
 
         let h = m.load("greeting");
-        let v: Rc<Note> = h.get();
+        let v: crate::core::cache::Handle<Note> = h.get();
         assert_eq!(*v, Note("hi".into()));
         assert_eq!(h.token(), "greeting");
+    }
+
+    #[test]
+    fn resolved_values_share_the_cache_entry_and_outlive_the_manager() {
+        let manager = ResourceManager::<u32>::new(MaxSize::Count(1), 0);
+        manager.add_static("first", 1);
+        manager.add_static("second", 2);
+        let first = manager.resolve("first");
+        assert_eq!(first.ref_count(), 2);
+        assert!(first.ptr_eq(&manager.resolve("first")));
+        let first = first.try_unwrap().unwrap_err();
+        let second = manager.resolve("second");
+        assert!(first.is_invalid());
+        assert_eq!(*first, 1);
+        drop(manager);
+        assert_eq!(first.try_unwrap().unwrap(), 1);
+        assert_eq!(second.try_unwrap().unwrap(), 2);
     }
 
     #[test]
@@ -216,19 +233,19 @@ mod tests {
         let first = manager.load("item");
         let original = first.get();
         let second = first.clone();
-        assert!(Rc::ptr_eq(&original, &second.get()));
+        assert!(original.ptr_eq(&second.get()));
         let allocations = crate::test_support::tracked_allocations(|| {
             for _ in 0..16 {
-                assert!(Rc::ptr_eq(&original, &first.get()));
-                assert!(Rc::ptr_eq(&original, &second.get()));
+                assert!(original.ptr_eq(&first.get()));
+                assert!(original.ptr_eq(&second.get()));
             }
         });
         assert_eq!(allocations, 0);
 
         manager.add_static("item", Note("replacement".into()));
         let replaced = first.get();
-        assert!(Rc::ptr_eq(&replaced, &second.get()));
-        assert!(!Rc::ptr_eq(&original, &replaced));
+        assert!(replaced.ptr_eq(&second.get()));
+        assert!(!original.ptr_eq(&replaced));
         manager.remove_token("item");
         assert_eq!(first.get().0, "FALLBACK");
         assert_eq!(second.get().0, "FALLBACK");
@@ -256,7 +273,7 @@ mod tests {
 
         let first = handle.get();
         let cached = handle.get();
-        assert!(Rc::ptr_eq(&first, &cached));
+        assert!(first.ptr_eq(&cached));
         assert!(handle.get_cached().is_some());
 
         m.remove_token("greeting");
@@ -268,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn remove_token_drops_factory_but_existing_rcs_survive() {
+    fn remove_token_drops_factory_but_existing_values_survive() {
         let m = ResourceManager::<Note>::new(MaxSize::Bytes(1024), fb_note());
         m.add_static("a", Note("alpha".into()));
 
@@ -278,7 +295,7 @@ mod tests {
         assert_eq!(
             *still_held,
             Note("alpha".into()),
-            "existing Rc<T> survives unregistration",
+            "existing value survives unregistration",
         );
 
         let after = m.resolve("a");

@@ -307,7 +307,7 @@ fn image_fallback_commits_without_losing_shared_source_readiness() {
 
 #[mirui::component]
 struct StrictImage {
-    texture: Rc<Texture<'static>>,
+    texture: mirui::core::cache::Handle<Texture<'static>>,
     calls: Rc<Cell<usize>>,
 }
 
@@ -375,7 +375,7 @@ fn changed_images_do_not_resume_cached_pixels_until_requested_again() {
             );
         }
         // Successful values remain usable through their cache and independent owners.
-        assert!(Rc::ptr_eq(&texture, &resolve(&app, "old")));
+        assert!(texture.ptr_eq(&resolve(&app, "old")));
         assert_eq!(
             region(&texture, Region::new(0, 0, 32, 32).unwrap())
                 .unwrap()
@@ -470,7 +470,7 @@ fn pending_offscreen_production_keeps_history_and_does_not_publish_partial_pixel
     app.world.insert(
         root,
         StrictImage {
-            texture: Rc::new(old),
+            texture: mirui::core::cache::Handle::new(old),
             calls: calls.clone(),
         },
     );

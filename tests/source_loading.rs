@@ -766,7 +766,7 @@ fn refreshing_an_alias_reopens_its_resolved_key_without_mutating_old_pixels() {
     selected.set(true);
     manager.reload("alias").unwrap();
     assert_eq!(opens.get(), 1);
-    assert!(Rc::ptr_eq(&old, &handle.get()));
+    assert!(old.ptr_eq(&handle.get()));
     app.tick();
     assert_eq!(opens.get(), 2);
     assert_eq!(

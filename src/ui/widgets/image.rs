@@ -159,7 +159,7 @@ fn synchronize_resource(image: &Image, manager: Option<&ResourceManager<Texture<
 fn resolve_image(
     image: &Image,
     manager: Option<&ResourceManager<Texture<'static>>>,
-) -> Option<alloc::rc::Rc<Texture<'static>>> {
+) -> Option<crate::core::cache::Handle<Texture<'static>>> {
     let ImageSource::Texture(token) = &image.src else {
         return None;
     };
@@ -479,7 +479,7 @@ mod tests {
         let manager = world.resource::<ResourceManager<Texture<'static>>>();
         let first = resolve_image(image, manager).unwrap();
         let second = resolve_image(image, manager).unwrap();
-        assert!(alloc::rc::Rc::ptr_eq(&first, &second));
+        assert!(first.ptr_eq(&second));
         assert_eq!(first.read_pixels().unwrap().bytes(), &BLUE);
 
         world.get_mut::<Image>(entity).unwrap().src = ImageSource::from("missing");
@@ -553,10 +553,7 @@ mod tests {
         assert!(resolve_image(&image, None).is_none());
         let first = resolve_image(&image, Some(&original)).unwrap();
         assert_eq!(first.read_pixels().unwrap().bytes(), &BLUE);
-        assert!(alloc::rc::Rc::ptr_eq(
-            &first,
-            &resolve_image(&image, None).unwrap()
-        ));
+        assert!(first.ptr_eq(&resolve_image(&image, None).unwrap()));
         original.add_static(
             "blue",
             Texture::from_static(&BLUE, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage"),

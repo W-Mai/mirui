@@ -57,7 +57,8 @@ pub struct Handle<V> {
 }
 
 impl<V> Handle<V> {
-    pub(crate) fn new(payload: V) -> Self {
+    /// Retain an owned value independently of a cache index.
+    pub fn new(payload: V) -> Self {
         Self {
             inner: EntryRcImpl::new(CacheEntry::new(payload)),
         }
@@ -75,6 +76,19 @@ impl<V> Handle<V> {
         EntryRcImpl::strong_count(&self.inner)
     }
 
+    /// Whether both handles retain the same cache entry.
+    pub fn ptr_eq(&self, other: &Self) -> bool {
+        EntryRcImpl::ptr_eq(&self.inner, &other.inner)
+    }
+
+    /// Recover the value when this is its only remaining owner.
+    /// Returns the original handle when another owner still retains the entry.
+    pub fn try_unwrap(self) -> Result<V, Self> {
+        EntryRcImpl::try_unwrap(self.inner)
+            .map(|entry| entry.payload)
+            .map_err(|inner| Self { inner })
+    }
+
     /// Exclusive storage access is possible only after the cache and every reader release their handles.
     pub(crate) fn get_mut(&mut self) -> Option<&mut V> {
         EntryRcImpl::get_mut(&mut self.inner).map(|entry| &mut entry.payload)
@@ -85,6 +99,12 @@ impl<V> core::ops::Deref for Handle<V> {
     type Target = V;
     fn deref(&self) -> &V {
         &self.inner.payload
+    }
+}
+
+impl<V> AsRef<V> for Handle<V> {
+    fn as_ref(&self) -> &V {
+        self.get()
     }
 }
 
@@ -110,6 +130,18 @@ impl<V: core::fmt::Debug> core::fmt::Debug for Handle<V> {
 mod tests {
     use super::*;
     use alloc::string::String;
+
+    #[test]
+    fn unique_extraction_preserves_shared_owners_and_value_identity() {
+        let first = Handle::new(String::from("retained"));
+        let second = first.clone();
+        assert!(first.ptr_eq(&second));
+        let first = first.try_unwrap().unwrap_err();
+        assert!(first.ptr_eq(&second));
+        first.inner.invalid_set(true);
+        drop(second);
+        assert_eq!(first.try_unwrap().unwrap(), "retained");
+    }
 
     #[test]
     fn handle_clone_shares_payload_and_bumps_ref_count() {

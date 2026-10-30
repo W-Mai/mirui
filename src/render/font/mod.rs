@@ -1109,11 +1109,11 @@ pub(crate) fn default_font_manager() -> FontManager {
     ResourceManager::new(crate::core::cache::MaxSize::Unbound, Font::default())
 }
 
-/// Resolve `token` against the World's [`FontManager`], or `None` when
-/// the manager has not been inserted yet. Returns an owned `Rc<Font>`
-/// so the `&World` borrow ends at the call — the render path holds the
-/// `Rc` locally instead of borrowing through the manager's `RefCell`.
-pub(crate) fn resolve_or_default(world: &World, token: &FontToken) -> Option<Rc<Font>> {
+/// Resolve `token` against the World's [`FontManager`], returning `None` when no manager is installed. The value handle retains the font without borrowing the manager during rendering.
+pub(crate) fn resolve_or_default(
+    world: &World,
+    token: &FontToken,
+) -> Option<crate::core::cache::Handle<Font>> {
     world
         .resource::<FontManager>()
         .map(|m| m.resolve(token.cache_key()))

@@ -1678,7 +1678,7 @@ mod tests {
         );
         let first = m.resolve("compressed");
         let second = m.resolve("compressed");
-        assert!(alloc::rc::Rc::ptr_eq(&first, &second));
+        assert!(first.ptr_eq(&second));
         assert_eq!(first.buf.as_slice(), &[17, 42, 91, 111, 7, 203]);
         assert!(matches!(first.buf, TexBuf::Aligned(_)));
     }

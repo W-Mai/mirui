@@ -1,6 +1,6 @@
 # Resources
 
-`ResourceManager<T>` resolves tokens into shared values under its existing cache budget. `ResourceHandle::get()` returns a completed value or the manager's fallback. Static registrations and completed handle reads do not run loaders.
+`ResourceManager<T>` resolves tokens into shared values under its existing cache budget. `ResourceHandle::get()` and `ResourceManager::resolve()` return `cache::Handle<T>` for the completed value or the manager's fallback, retaining the same cache entry without copying its contents. A retained value remains readable after replacement, eviction or manager destruction; a subsequent demand-handle read follows the manager's current value. Static registrations and completed handle reads do not run loaders.
 
 ## Metadata
 

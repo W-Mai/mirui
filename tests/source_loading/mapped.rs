@@ -188,7 +188,7 @@ fn mapped_lifetime(bytes: Rc<Vec<u8>>) {
         );
         assert_eq!(region.get_pixel(0, 1).unwrap().b, 255);
     }
-    let mut texture = Rc::try_unwrap(texture).ok().unwrap();
+    let mut texture = texture.try_unwrap().ok().unwrap();
     assert!(matches!(
         texture.pixels_mut(),
         Err(RenderError::InvalidTexture)

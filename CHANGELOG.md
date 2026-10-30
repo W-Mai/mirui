@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Resource resolution returns shared cache value handles, removing a second reference-counted allocation while retaining values across replacement and eviction.
+
 ## [0.53.0] - 2026-10-29
 
 ### Added

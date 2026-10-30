@@ -1,3 +1,4 @@
+use crate::core::cache::Handle;
 use alloc::borrow::Cow;
 use alloc::rc::{Rc, Weak};
 use core::cell::{Cell, RefCell};
@@ -6,26 +7,22 @@ use crate::core::cache::HasSize;
 use crate::core::resource::manager_inner::{self, ManagerInner, ResolveOutcome};
 use crate::core::resource::probe::HasProbe;
 
-/// Lease on a token registered with a [`ResourceManager`](super::ResourceManager). Holding a handle
-/// bumps the manager's per-token refcount; cloning bumps it again, dropping
-/// decrements it. Use [`ResourceHandle::get`] for programmatic access — it
-/// returns an [`Rc<T>`] that survives the manager being dropped (handle
-/// keeps a fallback ref so `get` is always answerable).
+/// Lease on a token registered with a [`ResourceManager`](super::ResourceManager). Cloning and dropping update the manager's token demand. [`Self::get`] returns a shared value handle that retains its contents independently of the manager; after the manager is dropped, subsequent calls return the retained fallback.
 pub struct ResourceHandle<T: HasSize + 'static> {
     token: Cow<'static, str>,
     manager: Weak<RefCell<ManagerInner<T>>>,
     /// Held outside the manager so `get()` can answer with a stable value
     /// after `Weak::upgrade` returns `None` (manager has been dropped).
-    fallback: Rc<T>,
+    fallback: Handle<T>,
     revision: Rc<Cell<u64>>,
-    cached: RefCell<Option<(u64, Rc<T>)>>,
+    cached: RefCell<Option<(u64, Handle<T>)>>,
 }
 
 impl<T: HasSize + 'static> ResourceHandle<T> {
     pub(super) fn new(
         token: Cow<'static, str>,
         manager: Weak<RefCell<ManagerInner<T>>>,
-        fallback: Rc<T>,
+        fallback: Handle<T>,
         revision: Rc<Cell<u64>>,
     ) -> Self {
         Self {
@@ -46,7 +43,7 @@ impl<T: HasSize + 'static> ResourceHandle<T> {
         Some(manager.borrow_mut().signal_for(self.token.clone()))
     }
 
-    pub(crate) fn get_cached(&self) -> Option<Rc<T>> {
+    pub(crate) fn get_cached(&self) -> Option<Handle<T>> {
         let revision = self.revision.get();
         self.cached
             .borrow()
@@ -55,7 +52,7 @@ impl<T: HasSize + 'static> ResourceHandle<T> {
             .map(|(_, value)| value.clone())
     }
 
-    pub fn get(&self) -> Rc<T> {
+    pub fn get(&self) -> Handle<T> {
         let Some(rc) = self.manager.upgrade() else {
             return self.fallback.clone();
         };

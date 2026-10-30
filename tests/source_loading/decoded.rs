@@ -151,7 +151,7 @@ fn source_app(
     app
 }
 
-fn resolve(app: &Headless, name: &str) -> Rc<Texture<'static>> {
+fn resolve(app: &Headless, name: &str) -> mirui::core::cache::Handle<Texture<'static>> {
     let images = app
         .world
         .resource::<ResourceManager<Texture<'static>>>()

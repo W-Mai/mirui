@@ -199,7 +199,7 @@ fn refresh_is_deferred_coalesced_and_keeps_the_last_cached_value() {
     manager.reload("item").unwrap();
     manager.reload("item").unwrap();
     assert_eq!(calls.get(), 1);
-    assert!(Rc::ptr_eq(&original, &handle.get()));
+    assert!(original.ptr_eq(&handle.get()));
     tick(&manager);
     assert_eq!(calls.get(), 2);
     assert_eq!(handle.get().0, 2);

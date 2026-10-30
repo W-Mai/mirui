@@ -11,7 +11,7 @@ use rustc_hash::FxBuildHasher;
 
 use super::invocation::{CallLease, InstalledLoader, Loaded};
 use super::{FormatMatch, LoadInput};
-use crate::core::cache::{HasSize, LruCache, MaxSize};
+use crate::core::cache::{Handle, HasSize, LruCache, MaxSize};
 use crate::core::reactive::Signal;
 use crate::core::resource::loader::LoadError;
 use crate::core::resource::probe::HasProbe;
@@ -58,10 +58,10 @@ impl<T: 'static> Entry<T> {
 }
 
 pub struct ManagerInner<T: HasSize + 'static> {
-    values: LruCache<Cow<'static, str>, Rc<T>>,
+    values: LruCache<Cow<'static, str>, T>,
     by_token: HashMap<Cow<'static, str>, Entry<T>, FxBuildHasher>,
     loaders: Vec<Rc<dyn InstalledLoader<T>>>,
-    fallback: Rc<T>,
+    fallback: Handle<T>,
     failed_values: HashSet<Cow<'static, str>, FxBuildHasher>,
     signals: HashMap<Cow<'static, str>, Rc<Signal<()>>, FxBuildHasher>,
     refcounts: HashMap<Cow<'static, str>, u32, FxBuildHasher>,
@@ -94,7 +94,7 @@ impl<T: HasSize + 'static> ManagerInner<T> {
             values: LruCache::new(values_budget),
             by_token: HashMap::default(),
             loaders: Vec::new(),
-            fallback: Rc::new(fallback),
+            fallback: Handle::new(fallback),
             failed_values: HashSet::default(),
             signals: HashMap::default(),
             refcounts: HashMap::default(),
@@ -108,11 +108,11 @@ impl<T: HasSize + 'static> ManagerInner<T> {
     // ---- fallback / loaders / refcount / signals ----
 
     pub(crate) fn set_fallback(&mut self, value: T) {
-        self.fallback = Rc::new(value);
+        self.fallback = Handle::new(value);
         self.advance_revision();
     }
 
-    pub(crate) fn fallback_clone(&self) -> Rc<T> {
+    pub(crate) fn fallback_clone(&self) -> Handle<T> {
         self.fallback.clone()
     }
 
@@ -227,21 +227,14 @@ impl<T: HasSize + 'static> ManagerInner<T> {
 
     // ---- value cache helpers ----
 
-    pub(crate) fn try_acquire_value_clone(&mut self, token: &str) -> Option<Rc<T>> {
-        let h = crate::trace_span!("res.cache_acquire", { self.values.acquire(token)? });
-        let rc = crate::trace_span!("res.rc_clone", { (*h).clone() });
-        Some(rc)
+    pub(crate) fn try_acquire_value_clone(&mut self, token: &str) -> Option<Handle<T>> {
+        crate::trace_span!("res.cache_acquire", { self.values.acquire(token) })
     }
 
-    pub(crate) fn insert_value(&mut self, token: Cow<'static, str>, value: T) -> Rc<T> {
-        let rc = Rc::new(value);
-        let handle = self
-            .values
-            .entry(token.clone())
-            .or_insert_with(|| rc.clone());
-        let result = (*handle).clone();
+    pub(crate) fn insert_value(&mut self, token: Cow<'static, str>, value: T) -> Handle<T> {
+        let handle = self.values.entry(token).or_insert_with(|| value);
         self.advance_revision();
-        result
+        handle
     }
 }
 
@@ -335,9 +328,9 @@ impl<T: HasSize + 'static> Drop for Resolution<'_, T> {
 }
 
 pub(crate) enum ResolveOutcome<T> {
-    CacheHit(Rc<T>),
-    JustResolved(Rc<T>),
-    Fallback(Rc<T>),
+    CacheHit(Handle<T>),
+    JustResolved(Handle<T>),
+    Fallback(Handle<T>),
 }
 
 pub(crate) fn resolve<T: HasSize + 'static>(

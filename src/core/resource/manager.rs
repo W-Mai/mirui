@@ -1,3 +1,4 @@
+use crate::core::cache::Handle;
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use alloc::rc::Rc;
@@ -117,7 +118,7 @@ impl<T: HasSize + 'static> ResourceManager<T> {
         ResourceHandle::new(token, Rc::downgrade(&self.inner), fallback, revision)
     }
 
-    pub(crate) fn fallback_value(&self) -> Rc<T> {
+    pub(crate) fn fallback_value(&self) -> Handle<T> {
         self.inner.borrow().fallback_clone()
     }
 
@@ -129,7 +130,7 @@ impl<T: HasSize + 'static> ResourceManager<T> {
         self.inner.borrow().visit_resident(visit);
     }
 
-    pub fn resolve(&self, token: &str) -> Rc<T> {
+    pub fn resolve(&self, token: &str) -> Handle<T> {
         match manager_inner::resolve(&self.inner, token, true) {
             ResolveOutcome::CacheHit(rc) => rc,
             ResolveOutcome::JustResolved(value) => value,
