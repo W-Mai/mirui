@@ -33,6 +33,8 @@ Byte-source open and read futures use prepared pinned storage. Polling requires 
 
 Shared source blocks release their cache state before opening, reading or polling provider operations. A completed read retains its buffer while waiting for cache publication. Cancellation drains that same operation and returns its buffer without publishing; an unwound provider leaves its missing payload unavailable until retirement removes the in-flight reservation.
 
+With shared resource storage enabled, `AssetSource` is transferable and shareable. Providers and readers require `Send + Sync`; their open/read futures require only `Send`. Polling remains exclusive through `&mut AssetSource`, while `mapped()` borrows the immutable reader directly. Dropping a source on a worker returns pending work to the same prepared retirement slots. A provider's physical completion record must retain any buffer still used by hardware or workers after its future is dropped, including after the App exits.
+
 ## Deferred loading
 
 `Loader` provides `State`, `recognize`, `poll_load` and `reset`; `ProbeLoader` provides `poll_probe` using the same state. A pending invocation retains its progress and returns the fallback to consumers. The loader must register `LoadContext::waker()` with its completion mechanism. `LoadContext::consume_work()` bounds cooperative decoding work and schedules another poll when the allowance is exhausted. Simple `Fn(&str) -> Result<T, LoadError>` loaders complete immediately through this same protocol.

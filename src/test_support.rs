@@ -1,5 +1,8 @@
 extern crate std;
 
+#[path = "../tests/support/source_cells.rs"]
+pub(crate) mod source_cells;
+
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 

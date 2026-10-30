@@ -7,12 +7,9 @@ use super::source_read::SourceRead;
 use super::wake::TaskWake;
 use super::{AssetError, AssetProvider, AssetReader, SourceInfo};
 use crate::core::cache::MaxSize;
-use crate::core::threading::{Shared, State};
-use alloc::{borrow::Cow, boxed::Box, rc::Rc, vec::Vec};
-use core::{
-    cell::RefCell,
-    task::{Context, Poll, Waker},
-};
+use crate::core::threading::{Gate, Share, Shared, State};
+use alloc::{borrow::Cow, boxed::Box, vec::Vec};
+use core::task::{Context, Poll, Waker};
 
 // Consumers within one App share a paint waker, independently of its widget count.
 type SourceWake = super::wake::WakeSet<8>;
@@ -71,7 +68,7 @@ impl AssetCacheConfig {
     }
 }
 
-trait Session {
+trait Session: Share {
     fn start(&mut self, key: Cow<'static, str>);
     fn poll_open(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), AssetError>>;
     fn info(&self) -> Option<SourceInfo>;
@@ -94,14 +91,12 @@ trait Session {
     fn reset(&mut self);
     fn has_pending(&self) -> bool;
     fn wake(&self) -> &SourceWake;
-    fn retiring(&self) -> bool;
-    fn set_retiring(&mut self);
 }
 
 type ReadSlot<R> = Option<FutureSlot<<R as AssetReader>::Read>>;
 
 struct TypedSession<P: AssetProvider> {
-    provider: Rc<P>,
+    provider: Shared<P>,
     pool: Shared<State<BlockPool>>,
     opening: FutureSlot<P::Open>,
     read_slot: ReadSlot<P::Reader>,
@@ -112,7 +107,6 @@ struct TypedSession<P: AssetProvider> {
     filled: usize,
     eof: bool,
     wake: SourceWake,
-    retiring: bool,
 }
 
 impl<P: AssetProvider> Session for TypedSession<P> {
@@ -244,7 +238,6 @@ impl<P: AssetProvider> Session for TypedSession<P> {
         }
         self.filled = 0;
         self.eof = false;
-        self.retiring = false;
     }
     fn has_pending(&self) -> bool {
         self.opening.is_active()
@@ -256,35 +249,35 @@ impl<P: AssetProvider> Session for TypedSession<P> {
     fn wake(&self) -> &SourceWake {
         &self.wake
     }
-    fn retiring(&self) -> bool {
-        self.retiring
-    }
-    fn set_retiring(&mut self) {
-        self.retiring = true;
-    }
 }
 
-type SessionSlots = RefCell<Vec<Option<Box<dyn Session>>>>;
+struct SessionSlot {
+    session: Option<Box<dyn Session>>,
+    retiring: bool,
+}
+type SessionSlots = Gate<Vec<SessionSlot>>;
 
 struct ProviderSlots {
     sessions: SessionSlots,
-    wake: Rc<TaskWake>,
+    wake: Shared<TaskWake>,
     key_bytes: usize,
 }
 
 impl ProviderSlots {
-    fn take(self: &Rc<Self>, key: Cow<'static, str>) -> Result<AssetSource, AssetError> {
+    fn take(self: &Shared<Self>, key: Cow<'static, str>) -> Result<AssetSource, AssetError> {
         if key.len() > self.key_bytes {
             return Err(AssetError::Capacity);
         }
-        let session = {
-            let mut sessions = self.sessions.borrow_mut();
-            let slot = sessions
-                .iter_mut()
-                .find(|slot| slot.as_ref().is_some_and(|session| !session.retiring()))
-                .ok_or(AssetError::Capacity)?;
-            slot.take().unwrap()
-        };
+        let session = self
+            .sessions
+            .with(|sessions| {
+                let slot = sessions
+                    .iter_mut()
+                    .find(|slot| slot.session.is_some() && !slot.retiring)
+                    .ok_or(AssetError::Capacity)?;
+                Ok(slot.session.take().unwrap())
+            })
+            .expect("source slot metadata is not reentrant")?;
         let mut source = AssetSource {
             provider: self.clone(),
             session: Some(session),
@@ -292,29 +285,40 @@ impl ProviderSlots {
         source.session.as_mut().unwrap().start(key);
         Ok(source)
     }
-    fn put(&self, session: Box<dyn Session>) {
-        let mut slots = self.sessions.borrow_mut();
-        *slots
-            .iter_mut()
-            .find(|slot| slot.is_none())
-            .expect("leased source slot") = Some(session);
+    fn put(&self, session: Box<dyn Session>, retiring: bool) {
+        // Keep ownership outside the gate even if an invariant fails while locating its slot.
+        let mut returning = Some(session);
+        self.sessions
+            .with(|slots| {
+                let slot = slots
+                    .iter_mut()
+                    .find(|slot| slot.session.is_none())
+                    .expect("leased source slot");
+                slot.retiring = retiring;
+                slot.session = returning.take();
+            })
+            .expect("source slot metadata is not reentrant");
     }
     fn poll_retired(&self, parent: &Waker) {
-        let count = self.sessions.borrow().len();
+        let count = self
+            .sessions
+            .with(|slots| slots.len())
+            .expect("source slot metadata is not reentrant");
         for index in 0..count {
-            let session = {
-                let mut slots = self.sessions.borrow_mut();
-                if !slots[index]
-                    .as_ref()
-                    .is_some_and(|session| session.retiring())
-                {
-                    continue;
-                }
-                slots[index].take().unwrap()
-            };
+            let session = self
+                .sessions
+                .with(|slots| {
+                    slots[index]
+                        .retiring
+                        .then(|| slots[index].session.take())
+                        .flatten()
+                })
+                .expect("source slot metadata is not reentrant");
+            let Some(session) = session else { continue };
             let mut lease = Retiring {
                 provider: self,
                 session: Some(session),
+                retiring: true,
             };
             let session = lease.session.as_mut().unwrap();
             let ready = session.wake().take_ready();
@@ -325,6 +329,7 @@ impl ProviderSlots {
                     .is_ready()
             {
                 session.reset();
+                lease.retiring = false;
             }
         }
     }
@@ -333,10 +338,12 @@ impl ProviderSlots {
 struct Retiring<'a> {
     provider: &'a ProviderSlots,
     session: Option<Box<dyn Session>>,
+    retiring: bool,
 }
 impl Drop for Retiring<'_> {
     fn drop(&mut self) {
-        self.provider.put(self.session.take().unwrap());
+        self.provider
+            .put(self.session.take().unwrap(), self.retiring);
     }
 }
 
@@ -344,7 +351,7 @@ impl Drop for Retiring<'_> {
 ///
 /// Obtained with [`super::LoadContext::take_source`]. This owner keeps its original provider, read session and cache alive; moving it does not move pending I/O. Dropping it retires submitted reads through the same prepared source storage.
 pub struct AssetSource {
-    provider: Rc<ProviderSlots>,
+    provider: Shared<ProviderSlots>,
     session: Option<Box<dyn Session>>,
 }
 
@@ -441,12 +448,11 @@ impl Drop for AssetSource {
         };
         let retiring = session.has_pending();
         if retiring {
-            session.set_retiring();
             session.wake().schedule();
         } else {
             session.reset();
         }
-        self.provider.put(session);
+        self.provider.put(session, retiring);
         if retiring {
             self.provider.wake.schedule();
         }
@@ -454,10 +460,10 @@ impl Drop for AssetSource {
 }
 
 pub(crate) struct AssetSources {
-    entries: Vec<(&'static str, Rc<ProviderSlots>)>,
+    entries: Vec<(&'static str, Shared<ProviderSlots>)>,
     config: AssetCacheConfig,
     pool: Shared<State<BlockPool>>,
-    wake: Rc<TaskWake>,
+    wake: Shared<TaskWake>,
 }
 impl AssetSources {
     pub fn max_requests(&self) -> usize {
@@ -478,7 +484,7 @@ impl AssetSources {
                 config.budget,
                 config.max_in_flight,
             )?)),
-            wake: Rc::new(TaskWake::new()),
+            wake: Shared::new(TaskWake::new()),
         })
     }
     pub fn register<P: AssetProvider>(
@@ -489,8 +495,8 @@ impl AssetSources {
         if self.entries.iter().any(|(key, _)| *key == name) {
             return Err(AssetError::InvalidSource);
         }
-        let provider = Rc::new(provider);
-        let mut slots: Vec<Option<Box<dyn Session>>> = Vec::new();
+        let provider = Shared::new(provider);
+        let mut slots = Vec::new();
         slots
             .try_reserve_exact(self.config.requests)
             .map_err(|_| AssetError::Capacity)?;
@@ -500,25 +506,27 @@ impl AssetSources {
                 .try_reserve_exact(self.config.prefix_bytes)
                 .map_err(|_| AssetError::Capacity)?;
             prefix.resize(self.config.prefix_bytes, 0);
-            slots.push(Some(Box::new(TypedSession {
-                provider: provider.clone(),
-                pool: self.pool.clone(),
-                opening: FutureSlot::new(),
-                read_slot: Some(FutureSlot::new()),
-                reader: None,
-                #[cfg(feature = "sync-cache")]
-                opened: None,
-                prefix: prefix.into_boxed_slice(),
-                filled: 0,
-                eof: false,
-                wake: SourceWake::new(),
+            slots.push(SessionSlot {
+                session: Some(Box::new(TypedSession {
+                    provider: provider.clone(),
+                    pool: self.pool.clone(),
+                    opening: FutureSlot::new(),
+                    read_slot: Some(FutureSlot::new()),
+                    reader: None,
+                    #[cfg(feature = "sync-cache")]
+                    opened: None,
+                    prefix: prefix.into_boxed_slice(),
+                    filled: 0,
+                    eof: false,
+                    wake: SourceWake::new(),
+                }) as Box<dyn Session>),
                 retiring: false,
-            })));
+            });
         }
         self.entries.push((
             name,
-            Rc::new(ProviderSlots {
-                sessions: RefCell::new(slots),
+            Shared::new(ProviderSlots {
+                sessions: Gate::new(slots),
                 wake: self.wake.clone(),
                 key_bytes: self.config.key_bytes,
             }),
@@ -552,8 +560,8 @@ impl AssetSources {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::source_cells::{Cell, Rc, RefCell};
     use core::{
-        cell::Cell,
         future::{Future, Ready},
         pin::Pin,
     };
@@ -675,5 +683,149 @@ mod tests {
             }
         });
         assert_eq!(allocations, 0);
+    }
+
+    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[test]
+    fn pending_source_dropped_on_worker_retires_through_the_original_prepared_slots() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<AssetSource>();
+
+        let mut sources = AssetSources::new(config()).unwrap();
+        let state = Rc::new(Opening::default());
+        let producer = state.clone();
+        sources
+            .register("files", move |_| Open(producer.clone()))
+            .unwrap();
+        let mut source = sources.open("files", "a".into()).unwrap();
+        let mut cx = Context::from_waker(Waker::noop());
+        assert!(source.poll_open(&mut cx).is_pending());
+        std::thread::spawn(move || drop(source)).join().unwrap();
+        sources.poll_pending(&mut cx);
+        assert!(matches!(
+            sources.open("files", "b".into()),
+            Err(AssetError::Capacity)
+        ));
+        state.ready.set(true);
+        let wake = state.wake.borrow_mut().take().unwrap();
+        wake.wake();
+        sources.poll_pending(&mut cx);
+        let mut source = sources.open("files", "b".into()).unwrap();
+        assert_eq!(source.poll_open(&mut cx), Poll::Ready(Ok(())));
+    }
+
+    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[test]
+    fn stable_mapping_is_shared_directly_after_its_manager_has_exited() {
+        let mut sources = AssetSources::new(config()).unwrap();
+        sources
+            .register("rom", |_| core::future::ready(Ok(b"mapped".as_slice())))
+            .unwrap();
+        let mut source = sources.open("rom", "a".into()).unwrap();
+        assert_eq!(
+            source.poll_open(&mut Context::from_waker(Waker::noop())),
+            Poll::Ready(Ok(()))
+        );
+        drop(sources);
+        let address = source.mapped().unwrap().unwrap().as_ptr() as usize;
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                let source = &source;
+                scope.spawn(move || {
+                    let bytes = source.mapped().unwrap().unwrap();
+                    assert_eq!(bytes, b"mapped");
+                    assert_eq!(bytes.as_ptr() as usize, address);
+                });
+            }
+        });
+        let mut source = std::thread::spawn(move || {
+            assert_eq!(source.mapped().unwrap().unwrap().as_ptr() as usize, address);
+            source
+        })
+        .join()
+        .unwrap();
+        let mut bytes = [0; 3];
+        assert_eq!(
+            source.poll_read(1, &mut bytes, &mut Context::from_waker(Waker::noop())),
+            Poll::Ready(Ok(3))
+        );
+        assert_eq!(&bytes, b"app");
+    }
+
+    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[test]
+    fn physical_completion_keeps_its_buffer_after_app_and_last_source_exit() {
+        use super::super::{
+            AssetBuffer, ReadComplete, ReadPosition, ReadProgress, SourceAccess, SourceConsistency,
+        };
+        struct Physical {
+            buffer: RefCell<Option<AssetBuffer>>,
+            operation_drops: Cell<usize>,
+        }
+        struct Reader(Rc<Physical>);
+        struct Read(Rc<Physical>);
+        impl Future for Read {
+            type Output = ReadComplete;
+            fn poll(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<ReadComplete> {
+                Poll::Pending
+            }
+        }
+        impl Drop for Read {
+            fn drop(&mut self) {
+                self.0.operation_drops.set(self.0.operation_drops.get() + 1);
+                // Physical I/O retains its buffer independently of the cancelled poll future.
+            }
+        }
+        impl AssetReader for Reader {
+            type Read = Read;
+            fn info(&self) -> SourceInfo {
+                SourceInfo {
+                    len: Some(4),
+                    access: SourceAccess::Random,
+                    consistency: SourceConsistency::Stable,
+                }
+            }
+            fn read(&self, _: ReadPosition, buffer: AssetBuffer) -> Read {
+                assert!(self.0.buffer.replace(Some(buffer)).is_none());
+                Read(self.0.clone())
+            }
+        }
+        let physical = Rc::new(Physical {
+            buffer: RefCell::new(None),
+            operation_drops: Cell::new(0),
+        });
+        let producer = physical.clone();
+        let mut sources = AssetSources::new(config()).unwrap();
+        sources
+            .register("files", move |_| {
+                core::future::ready(Ok(Reader(producer.clone())))
+            })
+            .unwrap();
+        let mut source = sources.open("files", "a".into()).unwrap();
+        let mut cx = Context::from_waker(Waker::noop());
+        assert_eq!(source.poll_open(&mut cx), Poll::Ready(Ok(())));
+        assert!(source.poll_read(0, &mut [0; 4], &mut cx).is_pending());
+        let address = physical
+            .buffer
+            .borrow()
+            .as_ref()
+            .unwrap()
+            .as_slice()
+            .as_ptr() as usize;
+        drop(sources);
+        std::thread::spawn(move || drop(source)).join().unwrap();
+        assert_eq!(physical.operation_drops.get(), 1);
+        let mut buffer = physical.buffer.borrow_mut().take().unwrap();
+        assert_eq!(buffer.as_slice().as_ptr() as usize, address);
+        buffer.as_mut_slice().copy_from_slice(b"done");
+        let complete = ReadComplete {
+            buffer,
+            result: Ok(ReadProgress {
+                filled: 4,
+                eof: true,
+            }),
+        };
+        assert_eq!(complete.buffer.as_slice(), b"done");
+        drop(complete);
     }
 }

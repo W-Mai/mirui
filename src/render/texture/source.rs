@@ -90,7 +90,8 @@ mod tests {
         .finish()
         .unwrap()
         .into_owned();
-        struct Mapping(Rc<alloc::vec::Vec<u8>>);
+        use crate::core::threading::Shared;
+        struct Mapping(Shared<alloc::vec::Vec<u8>>);
         impl crate::core::resource::AssetReader for Mapping {
             type Read = core::future::Ready<crate::core::resource::ReadComplete>;
             fn info(&self) -> crate::core::resource::SourceInfo {
@@ -111,14 +112,14 @@ mod tests {
                 panic!("mapped source cannot require physical reads");
             }
         }
-        let bytes = Rc::new(bytes);
+        let bytes = Shared::new(bytes);
         let mut app: App<FramebufSurface<fn(&[u8], PhysicalRect)>> = App::headless(1, 1);
         app.add_plugin(
             ImageResourcesPlugin::empty().with_source("mapped", |_| Some("same".into())),
         );
         app.add_plugin(
             ResourcePlugin::new()
-                .with_source("mapped", move |_| ready(Ok(Mapping(Rc::clone(&bytes))))),
+                .with_source("mapped", move |_| ready(Ok(Mapping(Shared::clone(&bytes))))),
         );
         app.tick();
         let images = app

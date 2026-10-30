@@ -1,5 +1,6 @@
 //! Byte sources with explicit access, consistency and asynchronous ownership.
 
+use crate::core::threading::{Share, Transfer};
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 use core::future::{Future, Ready, ready};
@@ -91,9 +92,10 @@ pub struct ReadComplete {
 /// Opens one long-lived byte object. Keys belong to the provider's namespace.
 ///
 /// Futures must make bounded, non-blocking progress when polled. Blocking files or decoders require a separate execution facility; wrapping a blocking call in an async block does not satisfy this contract.
-pub trait AssetProvider: 'static {
+/// With shared resource storage enabled, providers and readers must be Send + Sync, while operation futures only need Send. Polling a session still requires exclusive access.
+pub trait AssetProvider: Share + 'static {
     type Reader: AssetReader;
-    type Open: Future<Output = Result<Self::Reader, AssetError>> + 'static;
+    type Open: Future<Output = Result<Self::Reader, AssetError>> + Transfer + 'static;
 
     fn open(&self, key: Cow<'static, str>) -> Self::Open;
 }
@@ -103,8 +105,8 @@ pub trait AssetProvider: 'static {
 /// `Random` readers accept `At`; `Sequential` readers accept `Next` and are advanced serially. Short reads are valid. A nonempty read returning zero bytes without EOF is an error, not a pending operation. Delayed operations return `Poll::Pending` and register the supplied waker before checking completion again.
 ///
 /// Read futures must retain their session and buffer without borrowing the temporary reader reference. Logical cancellation does not prove that physical I/O has stopped. Dropping a future must remain memory-safe while hardware or workers may still be completing it.
-pub trait AssetReader: 'static {
-    type Read: Future<Output = ReadComplete> + 'static;
+pub trait AssetReader: Share + 'static {
+    type Read: Future<Output = ReadComplete> + Transfer + 'static;
 
     fn info(&self) -> SourceInfo;
     fn read(&self, position: ReadPosition, buffer: AssetBuffer) -> Self::Read;
@@ -120,8 +122,8 @@ pub trait AssetReader: 'static {
 impl<R, F, O> AssetProvider for F
 where
     R: AssetReader,
-    F: Fn(Cow<'static, str>) -> O + 'static,
-    O: Future<Output = Result<R, AssetError>> + 'static,
+    F: Fn(Cow<'static, str>) -> O + Share + 'static,
+    O: Future<Output = Result<R, AssetError>> + Transfer + 'static,
 {
     type Reader = R;
     type Open = O;
@@ -167,9 +169,8 @@ impl AssetReader for &'static [u8] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::rc::Rc;
+    use crate::test_support::source_cells::{Cell, Rc, RefCell};
     use alloc::vec;
-    use core::cell::{Cell, RefCell};
     use core::pin::pin;
     use core::task::{Context, Poll, Waker};
 

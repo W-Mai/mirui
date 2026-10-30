@@ -31,10 +31,7 @@ struct Contents<T> {
 
 /// Transfer a prepared state out of its gate before calling external code.
 pub(crate) struct State<T> {
-    #[cfg(not(feature = "sync-cache"))]
-    inner: RefCell<Contents<T>>,
-    #[cfg(feature = "sync-cache")]
-    inner: critical_section::Mutex<RefCell<Contents<T>>>,
+    inner: super::Gate<Contents<T>>,
 }
 
 fn current_owner() -> Owner {
@@ -53,7 +50,7 @@ impl<T> State<T> {
         core::mem::size_of::<Self>() - core::mem::size_of::<RefCell<Option<T>>>();
 
     pub(crate) fn new(value: T) -> Self {
-        let inner = RefCell::new(Contents {
+        let inner = super::Gate::new(Contents {
             value: Some(value),
             #[cfg(feature = "sync-cache")]
             waiters: core::array::from_fn(|_| None),
@@ -62,32 +59,11 @@ impl<T> State<T> {
             #[cfg(all(feature = "sync-cache", feature = "std"))]
             owner: None,
         });
-        Self {
-            #[cfg(not(feature = "sync-cache"))]
-            inner,
-            #[cfg(feature = "sync-cache")]
-            inner: critical_section::Mutex::new(inner),
-        }
+        Self { inner }
     }
 
     fn metadata<R>(&self, body: impl FnOnce(&mut Contents<T>) -> R) -> Result<R, AccessError> {
-        #[cfg(not(feature = "sync-cache"))]
-        {
-            self.inner
-                .try_borrow_mut()
-                .map(|mut state| body(&mut state))
-                .map_err(|_| AccessError::Reentrant)
-        }
-        #[cfg(feature = "sync-cache")]
-        {
-            critical_section::with(|cs| {
-                self.inner
-                    .borrow(cs)
-                    .try_borrow_mut()
-                    .map(|mut state| body(&mut state))
-                    .map_err(|_| AccessError::Reentrant)
-            })
-        }
+        self.inner.with(body)
     }
 
     fn take(state: &mut Contents<T>, _owner: Owner) -> Result<T, AccessError> {
@@ -168,11 +144,11 @@ impl<T> State<T> {
     }
 
     pub(crate) fn get_mut(&mut self) -> &mut T {
-        #[cfg(feature = "sync-cache")]
-        let inner = self.inner.get_mut();
-        #[cfg(not(feature = "sync-cache"))]
-        let inner = &mut self.inner;
-        inner.get_mut().value.as_mut().expect("exclusive state")
+        self.inner
+            .get_mut()
+            .value
+            .as_mut()
+            .expect("exclusive state")
     }
 
     #[cfg(test)]

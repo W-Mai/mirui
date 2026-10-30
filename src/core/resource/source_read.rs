@@ -409,9 +409,8 @@ mod tests {
     use super::super::{ReadComplete, ReadProgress};
     use super::*;
     use crate::core::cache::MaxSize;
-    use alloc::rc::Rc;
-    use core::cell::RefCell;
-    use core::{cell::Cell, future::Future, marker::PhantomPinned, pin::Pin, task::Waker};
+    use crate::test_support::source_cells::{Cell, Rc, RefCell};
+    use core::{future::Future, marker::PhantomPinned, pin::Pin, task::Waker};
 
     #[test]
     fn unwound_provider_does_not_repoll_or_fabricate_replacement_payload() {
@@ -481,9 +480,9 @@ mod tests {
 
     struct ReadingFuture {
         driver: Rc<Driver>,
-        buffer: RefCell<Option<AssetBuffer>>,
+        buffer: core::cell::RefCell<Option<AssetBuffer>>,
         offset: usize,
-        address: Cell<usize>,
+        address: core::cell::Cell<usize>,
         _pin: PhantomPinned,
     }
 
@@ -535,9 +534,9 @@ mod tests {
             };
             ReadingFuture {
                 driver: self.driver.clone(),
-                buffer: RefCell::new(Some(buffer)),
+                buffer: core::cell::RefCell::new(Some(buffer)),
                 offset,
-                address: Cell::new(0),
+                address: core::cell::Cell::new(0),
                 _pin: PhantomPinned,
             }
         }

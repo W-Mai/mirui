@@ -9,6 +9,9 @@ mod decoded;
 #[path = "support/tracking_allocator.rs"]
 mod tracking_allocator;
 
+#[path = "support/source_cells.rs"]
+mod source_cells;
+
 use mirui::app::App;
 use mirui::app::plugins::{ImageResourcesPlugin, ResourcePlugin};
 use mirui::core::cache::MaxSize;
@@ -22,11 +25,10 @@ use mirui::surface::{FramebufferAccess, framebuf::FramebufSurface};
 use mirui::types::PhysicalRect;
 use mirui::ui;
 use mirui::ui::widgets::Image;
+use source_cells::{Cell, Rc, RefCell};
 use std::borrow::Cow;
-use std::cell::{Cell, RefCell};
 use std::future::{Future, ready};
 use std::pin::Pin;
-use std::rc::Rc;
 use std::task::{Context, Poll, Waker};
 
 static RED: &[u8] = b"R4IM\x01\x00\x01\x00\xff\x00\x00\xff";
