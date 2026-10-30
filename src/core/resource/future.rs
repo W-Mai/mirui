@@ -10,7 +10,7 @@ use core::{
 
 pub(super) struct FutureSlot<F> {
     storage: Exclusive<Pin<Box<Option<F>>>>,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     active: bool,
 }
 
@@ -18,35 +18,35 @@ impl<F> FutureSlot<F> {
     pub fn new() -> Self {
         Self {
             storage: Exclusive::new(Box::pin(None)),
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             active: false,
         }
     }
 
     pub fn is_active(&self) -> bool {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.storage.get().as_ref().get_ref().is_some()
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.active
         }
     }
 
     pub fn set(&mut self, future: Option<F>) {
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             // Clear before dropping the previous operation, including if its Drop unwinds.
             self.active = false;
         }
         let active = future.is_some();
         self.storage.get_mut().as_mut().set(future);
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.active = active;
         }
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         let _ = active;
     }
 }
@@ -136,7 +136,7 @@ mod tests {
             }),
             0
         );
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         assert_eq!(
             core::mem::size_of::<FutureSlot<Operation>>(),
             core::mem::size_of::<Pin<Box<Option<Operation>>>>()
@@ -162,7 +162,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[cfg(all(feature = "std", feature = "sync"))]
     #[test]
     fn send_only_future_can_be_shared_but_is_polled_exclusively() {
         fn assert_send_sync<T: Send + Sync>() {}

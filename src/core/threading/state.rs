@@ -1,13 +1,13 @@
 use core::cell::RefCell;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 use core::task::Waker;
 use core::task::{Context, Poll};
 
-#[cfg(all(feature = "sync-cache", feature = "std"))]
+#[cfg(all(feature = "sync", feature = "std"))]
 type Owner = std::thread::ThreadId;
-#[cfg(not(all(feature = "sync-cache", feature = "std")))]
+#[cfg(not(all(feature = "sync", feature = "std")))]
 #[derive(Clone, Copy)]
 struct Owner;
 
@@ -15,17 +15,17 @@ struct Owner;
 pub(crate) enum AccessError {
     Busy,
     Reentrant,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     Capacity,
 }
 
 struct Contents<T> {
     value: Option<T>,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     waiters: [Option<Waker>; 8],
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     has_waiters: bool,
-    #[cfg(all(feature = "sync-cache", feature = "std"))]
+    #[cfg(all(feature = "sync", feature = "std"))]
     owner: Option<Owner>,
 }
 
@@ -35,11 +35,11 @@ pub(crate) struct State<T> {
 }
 
 fn current_owner() -> Owner {
-    #[cfg(all(feature = "sync-cache", feature = "std"))]
+    #[cfg(all(feature = "sync", feature = "std"))]
     {
         std::thread::current().id()
     }
-    #[cfg(not(all(feature = "sync-cache", feature = "std")))]
+    #[cfg(not(all(feature = "sync", feature = "std")))]
     {
         Owner
     }
@@ -52,11 +52,11 @@ impl<T> State<T> {
     pub(crate) fn new(value: T) -> Self {
         let inner = super::Gate::new(Contents {
             value: Some(value),
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             waiters: core::array::from_fn(|_| None),
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             has_waiters: false,
-            #[cfg(all(feature = "sync-cache", feature = "std"))]
+            #[cfg(all(feature = "sync", feature = "std"))]
             owner: None,
         });
         Self { inner }
@@ -68,13 +68,13 @@ impl<T> State<T> {
 
     fn take(state: &mut Contents<T>, _owner: Owner) -> Result<T, AccessError> {
         let Some(value) = state.value.take() else {
-            #[cfg(all(feature = "sync-cache", feature = "std"))]
+            #[cfg(all(feature = "sync", feature = "std"))]
             if state.owner == Some(_owner) {
                 return Err(AccessError::Reentrant);
             }
             return Err(AccessError::Busy);
         };
-        #[cfg(all(feature = "sync-cache", feature = "std"))]
+        #[cfg(all(feature = "sync", feature = "std"))]
         {
             state.owner = Some(_owner);
         }
@@ -99,12 +99,12 @@ impl<T> State<T> {
             Err(AccessError::Busy) => {}
             result => return Poll::Ready(result),
         }
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             let _ = cx;
             Poll::Ready(Err(AccessError::Busy))
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             let owner = current_owner();
             let mut incoming = Some(cx.waker().clone());
@@ -132,11 +132,11 @@ impl<T> State<T> {
     }
 
     pub(crate) fn try_with<R>(&self, body: impl FnOnce(&mut T) -> R) -> Result<R, AccessError> {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.metadata(|state| state.value.as_mut().map(body).ok_or(AccessError::Busy))?
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             let mut lease = self.try_take()?;
             Ok(body(&mut lease))
@@ -183,11 +183,11 @@ impl<T> Drop for Lease<'_, T> {
             .state
             .metadata(|state| {
                 let old = core::mem::replace(&mut state.value, value);
-                #[cfg(all(feature = "sync-cache", feature = "std"))]
+                #[cfg(all(feature = "sync", feature = "std"))]
                 {
                     state.owner = None;
                 }
-                #[cfg(feature = "sync-cache")]
+                #[cfg(feature = "sync")]
                 {
                     let wake = state.has_waiters.then(|| {
                         state.has_waiters = false;
@@ -195,14 +195,14 @@ impl<T> Drop for Lease<'_, T> {
                     });
                     (old, wake)
                 }
-                #[cfg(not(feature = "sync-cache"))]
+                #[cfg(not(feature = "sync"))]
                 {
                     (old, ())
                 }
             })
             .expect("return state outside its metadata gate");
         assert!(wake.0.is_none(), "state returned twice");
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         if let Some(wakers) = wake.1 {
             for parent in wakers.into_iter().flatten() {
                 parent.wake();
@@ -227,7 +227,7 @@ mod tests {
             assert_eq!(state.try_with(|value| *value).unwrap(), 2);
         });
         assert_eq!(allocations, 0);
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         assert_eq!(State::<u32>::EXTRA_BYTES, 0);
     }
 
@@ -246,7 +246,7 @@ mod tests {
         assert_eq!(state.try_with(|value| *value).unwrap(), 2);
     }
 
-    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[cfg(all(feature = "std", feature = "sync"))]
     #[test]
     fn bounded_waiters_deduplicate_and_wake_after_restoring_the_state() {
         use alloc::sync::{Arc, Weak};

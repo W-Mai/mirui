@@ -6,9 +6,9 @@ pub(crate) use state::{AccessError, State};
 
 /// Short metadata access. Callers move owned payloads out before running external code.
 pub(crate) struct Gate<T> {
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     value: core::cell::RefCell<T>,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     value: critical_section::Mutex<core::cell::RefCell<T>>,
 }
 
@@ -16,22 +16,22 @@ impl<T> Gate<T> {
     pub(crate) fn new(value: T) -> Self {
         let value = core::cell::RefCell::new(value);
         Self {
-            #[cfg(not(feature = "sync-cache"))]
+            #[cfg(not(feature = "sync"))]
             value,
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             value: critical_section::Mutex::new(value),
         }
     }
 
     pub(crate) fn with<R>(&self, body: impl FnOnce(&mut T) -> R) -> Result<R, AccessError> {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.value
                 .try_borrow_mut()
                 .map(|mut value| body(&mut value))
                 .map_err(|_| AccessError::Reentrant)
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             critical_section::with(|cs| {
                 self.value
@@ -44,11 +44,11 @@ impl<T> Gate<T> {
     }
 
     pub(crate) fn get_mut(&mut self) -> &mut T {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.value.get_mut()
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.value.get_mut().get_mut()
         }
@@ -57,79 +57,79 @@ impl<T> Gate<T> {
 
 /// State accessed only through an exclusive owner borrow, never through a shared reference.
 pub(crate) struct Exclusive<T> {
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     value: T,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     value: critical_section::Mutex<core::cell::Cell<T>>,
 }
 
 impl<T> Exclusive<T> {
     pub(crate) fn new(value: T) -> Self {
         Self {
-            #[cfg(not(feature = "sync-cache"))]
+            #[cfg(not(feature = "sync"))]
             value,
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             value: critical_section::Mutex::new(core::cell::Cell::new(value)),
         }
     }
 
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     pub(crate) fn get(&self) -> &T {
         &self.value
     }
 
     pub(crate) fn get_mut(&mut self) -> &mut T {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             &mut self.value
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.value.get_mut().get_mut()
         }
     }
 }
 
-#[cfg(not(feature = "sync-cache"))]
+#[cfg(not(feature = "sync"))]
 pub(crate) use alloc::rc::Rc as Shared;
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 pub(crate) use alloc::sync::Arc as Shared;
 
-#[cfg(all(feature = "sync-cache", not(target_has_atomic = "ptr")))]
+#[cfg(all(feature = "sync", not(target_has_atomic = "ptr")))]
 compile_error!("shared resource storage requires pointer-width atomic operations");
 
 /// Conditional transfer bound used by storage callbacks.
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 pub trait Transfer: Send {}
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 impl<T: Send + ?Sized> Transfer for T {}
 
 /// Conditional transfer bound used by storage callbacks.
-#[cfg(not(feature = "sync-cache"))]
+#[cfg(not(feature = "sync"))]
 pub trait Transfer {}
-#[cfg(not(feature = "sync-cache"))]
+#[cfg(not(feature = "sync"))]
 impl<T: ?Sized> Transfer for T {}
 
 /// Conditional bound for immutable resource owners.
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 pub trait Share: Send + Sync {}
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 impl<T: Send + Sync + ?Sized> Share for T {}
 
 /// Conditional bound for immutable resource owners.
-#[cfg(not(feature = "sync-cache"))]
+#[cfg(not(feature = "sync"))]
 pub trait Share {}
-#[cfg(not(feature = "sync-cache"))]
+#[cfg(not(feature = "sync"))]
 impl<T: ?Sized> Share for T {}
 
 /// Execute one bounded storage transaction without changing the local path.
 #[inline]
 pub(crate) fn transaction<R>(body: impl FnOnce() -> R) -> R {
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     {
         critical_section::with(|_| body())
     }
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     {
         body()
     }
@@ -154,7 +154,7 @@ pub(crate) fn insert_waiter<const N: usize>(
     false
 }
 
-#[cfg(all(test, feature = "sync-cache"))]
+#[cfg(all(test, feature = "sync"))]
 mod tests {
     use super::*;
 

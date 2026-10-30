@@ -11,20 +11,20 @@ use crate::types::PhysicalRect;
 #[path = "target_scope.rs"]
 pub mod __private;
 
-#[cfg(all(feature = "std", feature = "sync-cache"))]
+#[cfg(all(feature = "std", feature = "sync"))]
 #[path = "target_owner.rs"]
 mod thread_owner;
-#[cfg(all(feature = "std", feature = "sync-cache"))]
+#[cfg(all(feature = "std", feature = "sync"))]
 pub use thread_owner::{ThreadOwner, ThreadResource};
 
 /// Retains the storage charge and readback allowance until native resources are released.
 ///
 /// Backend targets receive this receipt during creation. Store it beside the actual resources, including when their destruction is deferred beyond the transferable target value. Cloning a receipt retains the same charges without reserving additional capacity.
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 #[derive(Clone)]
 pub struct TargetStorage(crate::core::threading::Shared<StorageCharge>);
 
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 struct StorageCharge {
     #[cfg(feature = "std")]
     allocation: crate::core::threading::Gate<super::budget::Allocation>,
@@ -34,7 +34,7 @@ struct StorageCharge {
     _owner: super::budget::Allocation,
 }
 
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 impl TargetStorage {
     pub(crate) const OWNER_BYTES: usize =
         core::mem::size_of::<StorageCharge>() + 2 * core::mem::size_of::<usize>();
@@ -58,7 +58,7 @@ impl TargetStorage {
         self.0.readback.bytes()
     }
 
-    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[cfg(all(feature = "std", feature = "sync"))]
     pub(crate) fn split_control(
         &self,
         bytes: usize,
@@ -71,7 +71,7 @@ impl TargetStorage {
     }
 }
 
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 impl core::fmt::Debug for TargetStorage {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         // Formatting never borrows the mutable accounting receipt.
@@ -177,7 +177,7 @@ pub struct TargetPlan {
 /// Backend-owned storage whose source device remains available independently of a temporary renderer.
 ///
 /// A newly allocated target has no completed contents. Its producer must initialize and submit it successfully before publishing it. Implementations retain the device resources needed for sampling, reading and destruction, without borrowing the producing renderer.
-pub trait BackendTarget: Any {
+pub trait BackendTarget: Any + crate::core::threading::Share {
     fn descriptor(&self) -> TargetDescriptor;
 
     /// Actual native storage allocation, including attachments and padding.
@@ -186,7 +186,7 @@ pub trait BackendTarget: Any {
     /// Attach the existing storage charge to its actual native owner before publication.
     ///
     /// Retain the receipt through resource and staging destruction. Wrappers must forward it to the owner rather than retaining it only in a temporary proxy. Repeated attachment must return an error without replacing the first receipt.
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     fn retain_storage(&mut self, storage: TargetStorage) -> Result<(), RenderError>;
 
     /// Check device and resource validity without allocating, reading pixels or submitting work.
@@ -209,7 +209,7 @@ pub trait BackendTarget: Any {
 mod tests {
     use super::TargetAlpha::{Premultiplied, Straight};
 
-    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[cfg(all(feature = "std", feature = "sync"))]
     #[test]
     fn retained_storage_keeps_native_readback_and_receipt_charges_until_actual_destruction() {
         use super::*;

@@ -12,7 +12,7 @@ use core::task::{Context, Poll};
 fn state_error(error: AccessError) -> AssetError {
     match error {
         AccessError::Reentrant | AccessError::Busy => AssetError::InvalidSource,
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         AccessError::Capacity => AssetError::Capacity,
     }
 }
@@ -23,7 +23,7 @@ struct Reading {
     address: usize,
     filled: usize,
     end: usize,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     complete: Option<super::ReadComplete>,
 }
 
@@ -132,7 +132,7 @@ impl<R: AssetReader> SourceRead<R> {
         if self.reading.is_none() {
             return false;
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         if self.reading.as_ref().unwrap().complete.is_some() {
             return false;
         }
@@ -261,7 +261,7 @@ impl<R: AssetReader> SourceRead<R> {
                 address: buffer.bytes.as_ptr() as usize,
                 filled: 0,
                 end: buffer.end,
-                #[cfg(feature = "sync-cache")]
+                #[cfg(feature = "sync")]
                 complete: None,
             };
             self.reading = Some(reading);
@@ -302,7 +302,7 @@ impl<R: AssetReader> SourceRead<R> {
                 pool.abandon(reading.write);
                 return Poll::Ready(Err(AssetError::InvalidSource));
             }
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             if self.reading.as_ref().unwrap().complete.is_none() {
                 if *steps == 0 {
                     cx.waker().wake_by_ref();
@@ -313,7 +313,7 @@ impl<R: AssetReader> SourceRead<R> {
                 let complete = core::task::ready!(future.poll(cx));
                 self.reading.as_mut().unwrap().complete = Some(complete);
             }
-            #[cfg(not(feature = "sync-cache"))]
+            #[cfg(not(feature = "sync"))]
             let complete = {
                 if *steps == 0 {
                     cx.waker().wake_by_ref();
@@ -328,7 +328,7 @@ impl<R: AssetReader> SourceRead<R> {
                 .expect("unmapped reader has block storage");
             let mut pool = core::task::ready!(pool.poll_take(cx)).map_err(state_error)?;
             let mut reading = self.reading.take().unwrap();
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             let complete = reading.complete.take().unwrap();
             let mut buffer = complete.buffer;
             if retiring {
@@ -706,7 +706,7 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[cfg(all(feature = "std", feature = "sync"))]
     #[test]
     fn opening_waits_for_pool_admission_without_losing_the_reader_or_future_storage() {
         use std::sync::{Arc, Barrier};
@@ -769,7 +769,7 @@ mod tests {
         assert!(storage.is_none());
     }
 
-    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[cfg(all(feature = "std", feature = "sync"))]
     #[test]
     fn completed_reads_survive_pool_contention_without_repolling_and_retire_without_publication() {
         use core::sync::atomic::{AtomicUsize, Ordering};

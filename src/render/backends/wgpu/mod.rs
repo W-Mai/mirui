@@ -718,7 +718,7 @@ struct DrawOp {
     /// Physical-pixel scissor `(x, y, w, h)`; clamped to swapchain extent.
     scissor: [u32; 4],
     dynamic_offset: Option<u32>,
-    #[cfg(all(feature = "sync-cache", not(target_arch = "wasm32")))]
+    #[cfg(all(feature = "sync", not(target_arch = "wasm32")))]
     _native_source: Option<crate::core::threading::Shared<target::Storage>>,
 }
 
@@ -1403,7 +1403,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         );
 
         frame.ops.push(DrawOp {
-            #[cfg(all(feature = "sync-cache", not(target_arch = "wasm32")))]
+            #[cfg(all(feature = "sync", not(target_arch = "wasm32")))]
             _native_source: None,
             pipeline,
             bind_group: BindGroupRef::Shared(0),
@@ -1588,7 +1588,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         );
 
         frame.ops.push(DrawOp {
-            #[cfg(all(feature = "sync-cache", not(target_arch = "wasm32")))]
+            #[cfg(all(feature = "sync", not(target_arch = "wasm32")))]
             _native_source: source.storage,
             pipeline,
             bind_group: BindGroupRef::Owned(bind_group),
@@ -1874,7 +1874,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
 
         let count = indices.len() as u32;
         frame.ops.push(DrawOp {
-            #[cfg(all(feature = "sync-cache", not(target_arch = "wasm32")))]
+            #[cfg(all(feature = "sync", not(target_arch = "wasm32")))]
             _native_source: None,
             pipeline,
             bind_group: BindGroupRef::Shared(1),
@@ -2044,7 +2044,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         );
 
         frame.ops.push(DrawOp {
-            #[cfg(all(feature = "sync-cache", not(target_arch = "wasm32")))]
+            #[cfg(all(feature = "sync", not(target_arch = "wasm32")))]
             _native_source: None,
             pipeline,
             bind_group: BindGroupRef::Shared(0),
@@ -2194,7 +2194,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         );
 
         frame.ops.push(DrawOp {
-            #[cfg(all(feature = "sync-cache", not(target_arch = "wasm32")))]
+            #[cfg(all(feature = "sync", not(target_arch = "wasm32")))]
             _native_source: source.storage,
             pipeline,
             bind_group: BindGroupRef::Owned(bind_group),
@@ -2530,7 +2530,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
                 .pipeline_key(batch.key.shader, CompositeMode::SourceOver),
         );
         frame.ops.push(DrawOp {
-            #[cfg(all(feature = "sync-cache", not(target_arch = "wasm32")))]
+            #[cfg(all(feature = "sync", not(target_arch = "wasm32")))]
             _native_source: None,
             pipeline,
             bind_group: BindGroupRef::Owned(bind_group),

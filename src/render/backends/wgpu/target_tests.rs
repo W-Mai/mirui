@@ -15,7 +15,7 @@ fn context() -> Option<Arc<WgpuDeviceContext>> {
     Some(WgpuDeviceContext::new(instance, adapter, device, queue))
 }
 
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 #[test]
 fn portable_native_targets_read_on_workers_and_retain_staging_admission() {
     use crate::render::{budget::MemoryBudget, target::TargetStorage};
@@ -236,9 +236,9 @@ fn native_source_owns_device_and_checks_completed_contents() {
     );
     storage.set_active(false);
     {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         let _lease = storage.readback.borrow_mut();
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         let _lease = storage.readback.try_take().unwrap();
         assert_eq!(
             target.read_pixels_into(

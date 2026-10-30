@@ -58,7 +58,7 @@ impl Renderer for SourceProducer {
     }
 }
 
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 #[test]
 fn native_blit_views_keep_the_source_storage_and_readback_charge_after_texture_drop() {
     use super::super::super::texture_pool::{new_pool, source_view};
@@ -179,9 +179,9 @@ fn native_texture_sources_share_views_or_bridge_through_the_upload_cache() {
         Color::rgba(128, 0, 0, 128)
     );
     {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         let _readback_busy = storage.readback.borrow_mut();
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         let _readback_busy = storage.readback.try_take().unwrap();
         let reused = source_view(&mut pool, 128, &destination, &texture, None).unwrap();
         assert_eq!(reused.view.texture(), uploaded.view.texture());

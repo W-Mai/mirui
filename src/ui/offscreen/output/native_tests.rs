@@ -4,10 +4,11 @@ use crate::render::{
     BackendTarget, DrawCommand, DrawRequest, PlaneLayout, RenderRoute, Renderer, TargetAlpha,
     TargetDescriptor, TargetPlan, TargetUpdate,
 };
+use crate::test_support::source_cells::{Cell, Rc};
 use crate::test_support::tracked_allocations;
 use crate::types::{Color, Fixed, Transform, Viewport};
-use alloc::{boxed::Box, rc::Rc};
-use core::{any::Any, cell::Cell};
+use alloc::boxed::Box;
+use core::any::Any;
 
 mod consumers;
 
@@ -24,15 +25,15 @@ struct Device {
     reads: Cell<usize>,
     creates: Cell<usize>,
     samples: Cell<usize>,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     retention_failure: Cell<bool>,
 }
 
 struct Contents {
     color: Cell<Color>,
     completed: Cell<bool>,
-    #[cfg(feature = "sync-cache")]
-    storage: core::cell::OnceCell<crate::render::target::TargetStorage>,
+    #[cfg(feature = "sync")]
+    storage: std::sync::OnceLock<crate::render::target::TargetStorage>,
 }
 
 impl Default for Contents {
@@ -40,7 +41,7 @@ impl Default for Contents {
         Self {
             color: Cell::new(Color::rgba(0, 0, 0, 0)),
             completed: Cell::new(false),
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             storage: Default::default(),
         }
     }
@@ -53,7 +54,7 @@ struct Target {
 }
 
 impl BackendTarget for Target {
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     fn retain_storage(
         &mut self,
         storage: crate::render::target::TargetStorage,
@@ -116,7 +117,7 @@ struct Fixture {
     reject_storage: bool,
 }
 
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 #[test]
 fn rejected_storage_retention_releases_creation_charges_before_any_binding() {
     let mut renderer = Fixture::default();

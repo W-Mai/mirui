@@ -12,7 +12,7 @@ use core::cell::Cell;
 pub(super) struct BlitSource {
     pub(super) view: wgpu::TextureView,
     pub(super) alpha: TargetAlpha,
-    #[cfg(all(feature = "sync-cache", not(target_arch = "wasm32")))]
+    #[cfg(all(feature = "sync", not(target_arch = "wasm32")))]
     pub(super) storage: Option<crate::core::threading::Shared<super::target::Storage>>,
 }
 
@@ -50,7 +50,7 @@ pub(super) fn source_view(
         return Ok(BlitSource {
             view,
             alpha: crate::render::BackendTarget::descriptor(target).alpha,
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             storage: Some(crate::core::threading::Shared::clone(&target.storage)),
         });
     }
@@ -95,7 +95,7 @@ pub(super) fn source_view(
     Ok(BlitSource {
         view,
         alpha: TargetAlpha::Straight,
-        #[cfg(all(feature = "sync-cache", not(target_arch = "wasm32")))]
+        #[cfg(all(feature = "sync", not(target_arch = "wasm32")))]
         storage: None,
     })
 }

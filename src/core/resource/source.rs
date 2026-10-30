@@ -93,6 +93,23 @@ pub struct ReadComplete {
 ///
 /// Futures must make bounded, non-blocking progress when polled. Blocking files or decoders require a separate execution facility; wrapping a blocking call in an async block does not satisfy this contract.
 /// With shared resource storage enabled, providers and readers must be Send + Sync, while operation futures only need Send. Polling a session still requires exclusive access.
+#[cfg_attr(
+    feature = "sync",
+    doc = r#"
+Local captures cannot become shared providers:
+
+```compile_fail,E0277
+use mirui::core::resource::{AssetError, AssetProvider};
+use std::{future::ready, rc::Rc};
+fn register<P: AssetProvider>(_: P) {}
+let local = Rc::new(42);
+register(move |_| {
+    let _ = &local;
+    ready(Ok::<&'static [u8], AssetError>(&[]))
+});
+```
+"#
+)]
 pub trait AssetProvider: Share + 'static {
     type Reader: AssetReader;
     type Open: Future<Output = Result<Self::Reader, AssetError>> + Transfer + 'static;

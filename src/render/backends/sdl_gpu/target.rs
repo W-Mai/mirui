@@ -1,5 +1,5 @@
 use alloc::{boxed::Box, rc::Rc};
-#[cfg(not(feature = "sync-cache"))]
+#[cfg(not(feature = "sync"))]
 use core::cell::Cell;
 use core::{any::Any, cell::RefCell};
 use sdl2::render::{RenderTarget, Texture as SdlTexture};
@@ -23,27 +23,27 @@ pub(crate) mod tests;
 
 struct Storage<T: RenderTarget> {
     texture: RefCell<SdlTexture<'static>>,
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     sampleable: bool,
     device: Rc<Device<T>>,
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     descriptor: TargetDescriptor,
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     generation: u64,
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     completed: Cell<bool>,
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     active: Cell<bool>,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     source: alloc::sync::Arc<SourceState>,
 }
 
-#[cfg(not(feature = "sync-cache"))]
+#[cfg(not(feature = "sync"))]
 type StorageRef<T> = Rc<Storage<T>>;
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 type StorageRef<T> = crate::render::target::ThreadResource<Storage<T>>;
 
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 struct SourceState {
     descriptor: TargetDescriptor,
     sampleable: bool,
@@ -58,11 +58,11 @@ struct SourceState {
 
 impl<T: RenderTarget> Storage<T> {
     fn completed(&self) -> bool {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.completed.get()
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.source
                 .completed
@@ -70,19 +70,19 @@ impl<T: RenderTarget> Storage<T> {
         }
     }
     fn set_completed(&self, value: bool) {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         self.completed.set(value);
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         self.source
             .completed
             .store(value, core::sync::atomic::Ordering::Release);
     }
     fn active(&self) -> bool {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.active.get()
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.source
                 .active
@@ -90,29 +90,29 @@ impl<T: RenderTarget> Storage<T> {
         }
     }
     fn set_active(&self, value: bool) {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         self.active.set(value);
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         self.source
             .active
             .store(value, core::sync::atomic::Ordering::Release);
     }
     fn generation(&self) -> u64 {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.generation
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.source.generation
         }
     }
     fn descriptor(&self) -> TargetDescriptor {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.descriptor
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.source.descriptor
         }
@@ -123,11 +123,11 @@ fn with_storage<T: RenderTarget + 'static, R>(
     storage: &StorageRef<T>,
     body: impl FnOnce(&Storage<T>) -> Result<R, RenderError>,
 ) -> Result<R, RenderError> {
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     {
         body(storage)
     }
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     {
         storage.with(|storage| body(storage))
     }
@@ -135,7 +135,7 @@ fn with_storage<T: RenderTarget + 'static, R>(
 
 pub(super) struct Target<T: RenderTarget + 'static = Window> {
     storage: StorageRef<T>,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     source: alloc::sync::Arc<SourceState>,
 }
 
@@ -147,14 +147,14 @@ impl<T: RenderTarget + 'static> Target<T> {
         draw: impl FnOnce(&mut SdlTexture<'_>) -> R,
     ) -> Result<Option<R>, RenderError> {
         self.validate()?;
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         let (active, completed, sampleable, same_device) = (
             self.storage.active(),
             self.storage.completed(),
             self.storage.sampleable,
             Rc::ptr_eq(device, &self.storage.device),
         );
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         let (active, completed, sampleable, same_device) = (
             self.source
                 .active
@@ -190,9 +190,9 @@ pub struct TargetState {
 
 struct Binding<T: RenderTarget + 'static> {
     child: StorageRef<T>,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     source: alloc::sync::Arc<SourceState>,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     device: Rc<Device<T>>,
     driver: DriverState,
     selected: core::ptr::NonNull<sdl2_sys::SDL_Texture>,
@@ -200,26 +200,26 @@ struct Binding<T: RenderTarget + 'static> {
 
 impl<T: RenderTarget + 'static> BackendTarget for Target<T> {
     fn descriptor(&self) -> TargetDescriptor {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.storage.descriptor
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.source.descriptor
         }
     }
     fn allocated_bytes(&self) -> usize {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.storage.descriptor.layout.required_bytes()
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.source.bytes
         }
     }
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     fn retain_storage(
         &mut self,
         storage: crate::render::target::TargetStorage,
@@ -232,12 +232,12 @@ impl<T: RenderTarget + 'static> BackendTarget for Target<T> {
             .map_err(|_| RenderError::InvalidScope)
     }
     fn validate(&self) -> Result<(), RenderError> {
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.storage.validate()?;
             self.source.device.check_generation(self.source.generation)
         }
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.storage.device.check()?;
             if self.storage.generation != self.storage.device.generation() {
@@ -289,7 +289,7 @@ impl<T: RenderTarget + 'static> BackendTarget for Target<T> {
 }
 
 fn ownership_bytes<T: RenderTarget + 'static>(device: &Device<T>) -> Result<usize, RenderError> {
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     {
         device
             .target_metadata_bytes::<Storage<T>>()?
@@ -297,7 +297,7 @@ fn ownership_bytes<T: RenderTarget + 'static>(device: &Device<T>) -> Result<usiz
             .and_then(|bytes| bytes.checked_add(core::mem::size_of::<Target<T>>()))
             .ok_or(RenderError::InvalidGeometry)
     }
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     {
         let _ = device;
         Ok(0)
@@ -344,12 +344,12 @@ fn matching_target<'a, T: RenderTarget + 'static>(
     let Some(target) = target.as_any().downcast_ref::<Target<T>>() else {
         return Ok(None);
     };
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     let (same_device, generation) = (
         Rc::ptr_eq(device, &target.storage.device),
         target.storage.generation(),
     );
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     let (same_device, generation) = (
         target.source.device_identity == Rc::as_ptr(device) as usize,
         target.source.generation,
@@ -357,7 +357,7 @@ fn matching_target<'a, T: RenderTarget + 'static>(
     if !same_device || generation != device.generation() {
         return Ok(None);
     }
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     if target.storage.validate().is_err() {
         return Ok(None);
     }
@@ -384,11 +384,11 @@ fn compatible_plan<T: RenderTarget + 'static>(
     let Some(current) = plan(device, requested.descriptor.layout)? else {
         return Ok(false);
     };
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     {
         Ok(current == *requested)
     }
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     {
         // Earlier plans may include owner metadata admitted by another target in the same batch.
         Ok(current.descriptor == requested.descriptor
@@ -410,7 +410,7 @@ pub(super) fn create<T: RenderTarget + 'static>(
     device: &Rc<Device<T>>,
     requested: &TargetPlan,
 ) -> Result<Box<dyn BackendTarget>, RenderError> {
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     device.collect_targets()?;
     if !compatible_plan(device, requested)? {
         return Err(RenderError::Unsupported(RenderFeature::Scope));
@@ -428,7 +428,7 @@ pub(super) fn create<T: RenderTarget + 'static>(
     let sampleable = premultiplied_sampling(&texture);
     // Storage drops the private texture before its retained creator/renderer owner.
     let texture = unsafe { core::mem::transmute::<SdlTexture<'_>, SdlTexture<'static>>(texture) };
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     let source = alloc::sync::Arc::new(SourceState {
         descriptor: requested.descriptor,
         sampleable,
@@ -447,27 +447,27 @@ pub(super) fn create<T: RenderTarget + 'static>(
     });
     let storage = Storage {
         texture: RefCell::new(texture),
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         sampleable,
         device: Rc::clone(device),
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         descriptor: requested.descriptor,
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         generation: device.generation(),
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         completed: Cell::new(false),
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         active: Cell::new(false),
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         source: source.clone(),
     };
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     let storage = Rc::new(storage);
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     let storage = device.register_target(storage)?;
     Ok(Box::new(Target {
         storage,
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         source,
     }))
 }
@@ -545,9 +545,9 @@ impl<T: RenderTarget + 'static> Binding<T> {
         })?;
         Ok(Self {
             child: target.storage.clone(),
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             source: target.source.clone(),
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             device: device.clone(),
             driver,
             selected,
@@ -555,9 +555,9 @@ impl<T: RenderTarget + 'static> Binding<T> {
     }
 
     fn finish(self, device: &Rc<Device<T>>, completed: bool) -> Result<(), RenderError> {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         let same_device = Rc::ptr_eq(device, &self.child.device);
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         let same_device = Rc::ptr_eq(device, &self.device);
         if !same_device {
             device.poison();
@@ -588,12 +588,12 @@ impl<T: RenderTarget + 'static> Binding<T> {
                     error
                 }
             });
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.child.active.set(false);
             self.child.completed.set(completed && result.is_ok());
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.source
                 .active
@@ -612,21 +612,21 @@ impl<T: RenderTarget + 'static> Binding<T> {
 
 impl<T: RenderTarget + 'static> Drop for Binding<T> {
     fn drop(&mut self) {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         let active = self.child.active.replace(false);
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         let active = self
             .source
             .active
             .swap(false, core::sync::atomic::Ordering::AcqRel);
         if active {
             // An abandoned binding may invalidate raw parent handles saved by nested scopes.
-            #[cfg(not(feature = "sync-cache"))]
+            #[cfg(not(feature = "sync"))]
             {
                 self.child.completed.set(false);
                 self.child.device.poison();
             }
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             {
                 self.source
                     .completed

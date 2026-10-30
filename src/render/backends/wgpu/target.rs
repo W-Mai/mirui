@@ -1,11 +1,11 @@
 use crate::core::threading::Shared;
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 use crate::core::threading::State;
 use alloc::{boxed::Box, sync::Arc};
 use core::any::Any;
-#[cfg(not(feature = "sync-cache"))]
+#[cfg(not(feature = "sync"))]
 use core::cell::{Cell, RefCell};
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use super::{Frame, FrameTarget, WgpuRenderer, readback::Readback};
@@ -26,61 +26,61 @@ pub(super) struct Storage {
     pub(super) frame: FrameTarget,
     descriptor: TargetDescriptor,
     bytes: usize,
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     readback: RefCell<Readback>,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     readback: State<Readback>,
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     completed: Cell<bool>,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     completed: AtomicBool,
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     active: Cell<bool>,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     active: AtomicBool,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     charge: std::sync::OnceLock<crate::render::target::TargetStorage>,
 }
 
 impl Storage {
     fn completed(&self) -> bool {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.completed.get()
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.completed.load(Ordering::Acquire)
         }
     }
     fn set_completed(&self, value: bool) {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         self.completed.set(value);
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         self.completed.store(value, Ordering::Release);
     }
     fn active(&self) -> bool {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.active.get()
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.active.load(Ordering::Acquire)
         }
     }
     fn set_active(&self, value: bool) {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         self.active.set(value);
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         self.active.store(value, Ordering::Release);
     }
     fn swap_active(&self, value: bool) -> bool {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.active.replace(value)
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.active.swap(value, Ordering::AcqRel)
         }
@@ -127,7 +127,7 @@ impl BackendTarget for Target {
     fn allocated_bytes(&self) -> usize {
         self.storage.bytes
     }
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     fn retain_storage(
         &mut self,
         storage: crate::render::target::TargetStorage,
@@ -153,13 +153,13 @@ impl BackendTarget for Target {
         if self.storage.active() || !self.storage.completed() {
             return Err(RenderError::InvalidTexture);
         }
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         let mut readback = self
             .storage
             .readback
             .try_borrow_mut()
             .map_err(|_| RenderError::InvalidScope)?;
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         let mut readback = self
             .storage
             .readback
@@ -177,13 +177,13 @@ impl BackendTarget for Target {
 }
 
 const fn metadata_bytes() -> usize {
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     {
         core::mem::size_of::<std::sync::OnceLock<crate::render::target::TargetStorage>>()
             + core::mem::size_of::<State<Readback>>()
             - core::mem::size_of::<core::cell::RefCell<Readback>>()
     }
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     {
         0
     }
@@ -445,19 +445,19 @@ pub(super) fn create(
             },
             descriptor: requested.descriptor,
             bytes: requested.storage_bytes,
-            #[cfg(not(feature = "sync-cache"))]
+            #[cfg(not(feature = "sync"))]
             readback: Default::default(),
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             readback: State::new(Readback::default()),
-            #[cfg(not(feature = "sync-cache"))]
+            #[cfg(not(feature = "sync"))]
             completed: Cell::new(false),
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             completed: AtomicBool::new(false),
-            #[cfg(not(feature = "sync-cache"))]
+            #[cfg(not(feature = "sync"))]
             active: Cell::new(false),
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             active: AtomicBool::new(false),
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             charge: Default::default(),
         }),
     }))

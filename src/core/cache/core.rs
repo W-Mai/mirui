@@ -10,9 +10,9 @@ use super::handle::{CacheEntry, Handle};
 use super::lookup::{HashLookup, Lookup, NodeId};
 use super::stats::CacheStats;
 
-#[cfg(not(feature = "sync-cache"))]
+#[cfg(not(feature = "sync"))]
 type EvictCallback<K, V> = alloc::boxed::Box<dyn FnMut(&K, &V)>;
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 type EvictCallback<K, V> = alloc::boxed::Box<dyn FnMut(&K, &V) + Send>;
 
 pub struct Cache<K, V, A = Lru, L = HashLookup<K>>

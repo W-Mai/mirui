@@ -1,5 +1,5 @@
+use super::source_cells::{Cell as StorageCell, Rc};
 use std::any::Any;
-use std::rc::Rc;
 
 use mirui::app::RendererFactory;
 use mirui::render::texture::TexturePixelsMut;
@@ -16,11 +16,11 @@ use super::*;
 mod updates;
 
 pub(super) struct Slot {
-    pub value: Cell<u8>,
-    pub alpha: Cell<u8>,
-    pub completed: Cell<bool>,
-    #[cfg(feature = "sync-cache")]
-    storage: std::cell::OnceCell<mirui::render::target::TargetStorage>,
+    pub value: StorageCell<u8>,
+    pub alpha: StorageCell<u8>,
+    pub completed: StorageCell<bool>,
+    #[cfg(feature = "sync")]
+    storage: std::sync::OnceLock<mirui::render::target::TargetStorage>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -37,7 +37,7 @@ struct Target {
 }
 
 impl BackendTarget for Target {
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     fn retain_storage(
         &mut self,
         storage: mirui::render::target::TargetStorage,
@@ -107,10 +107,10 @@ pub(super) fn create(
     Ok(Box::new(Target {
         device: Rc::clone(&renderer.device),
         slot: Rc::new(Slot {
-            value: Cell::new(0),
-            alpha: Cell::new(0),
-            completed: Cell::new(false),
-            #[cfg(feature = "sync-cache")]
+            value: StorageCell::new(0),
+            alpha: StorageCell::new(0),
+            completed: StorageCell::new(false),
+            #[cfg(feature = "sync")]
             storage: Default::default(),
         }),
         descriptor: requested.descriptor,

@@ -368,7 +368,7 @@ fn rotate_scale_around(p: &mut (f32, f32), cx: f32, cy: f32, theta: f32, scale: 
     p.1 = cy + ry;
 }
 
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 impl Drop for SdlGpuSurface {
     fn drop(&mut self) {
         self.device.abort_persistent_frame();
@@ -379,7 +379,7 @@ impl Drop for SdlGpuSurface {
 }
 
 impl Surface for SdlGpuSurface {
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     fn frame_end(&mut self) -> Result<(), RenderError> {
         self.device.collect_targets()
     }
@@ -798,9 +798,9 @@ impl<S: AsRef<[u8]> + AsMut<[u8]>> RendererFactory<SdlGpuSurface> for SdlGpuFact
         transform: &Viewport,
     ) -> SdlGpuRenderer<'a, S> {
         let viewport = *transform;
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         let failure = backend.device.collect_targets().err();
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         let failure = None;
         if self
             .texture_cache

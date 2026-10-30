@@ -6,21 +6,21 @@ use core::any::Any;
 
 struct Target(
     TargetDescriptor,
-    #[cfg(feature = "sync-cache")] Option<crate::render::target::TargetStorage>,
+    #[cfg(feature = "sync")] Option<crate::render::target::TargetStorage>,
 );
 
 impl Target {
     fn new(descriptor: TargetDescriptor) -> Self {
         Self(
             descriptor,
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             None,
         )
     }
 }
 
 impl BackendTarget for Target {
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     fn retain_storage(
         &mut self,
         storage: crate::render::target::TargetStorage,

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The optional `sync` feature replaces `sync-cache` and enables transferable textures, pixel guards, byte sources and cache value handles. Native target payloads require `Send + Sync`; device operations retain their backend thread constraints, and default builds retain local ownership.
 - Resource resolution returns shared cache value handles, removing a second reference-counted allocation while retaining values across replacement and eviction.
 - Shared resource storage serializes budget reservations and transfers; cache eviction callbacks require transferable captures when shared storage is enabled.
 - Native readback and decoded-image preparation share state leases with bounded waiters, restoring reusable storage after errors and unwinding without holding metadata gates during external operations.

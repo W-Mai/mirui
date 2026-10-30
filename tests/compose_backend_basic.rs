@@ -2,6 +2,9 @@
 
 use std::cell::Cell;
 
+#[path = "support/source_cells.rs"]
+pub mod source_cells;
+
 use mirui::render::canvas::{Canvas, Paint};
 use mirui::render::command::CompositeMode;
 use mirui::render::engine::RenderEngine;
@@ -532,8 +535,8 @@ fn canvas_helpers_preserve_shared_target_overrides() {
 struct BorrowedDummy<'fb> {
     buf: &'fb mut [u8],
     fills: Cell<u32>,
-    device: std::rc::Rc<()>,
-    active: Option<std::rc::Rc<native_targets::Slot>>,
+    device: source_cells::Rc<()>,
+    active: Option<source_cells::Rc<native_targets::Slot>>,
     fault: Option<native_targets::Fault>,
     poisoned: bool,
 }
@@ -543,7 +546,7 @@ impl<'fb> BorrowedDummy<'fb> {
         Self {
             buf,
             fills: Cell::new(0),
-            device: std::rc::Rc::new(()),
+            device: source_cells::Rc::new(()),
             active: None,
             fault: None,
             poisoned: false,
@@ -623,7 +626,7 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
 }
 
 impl Renderer for BorrowedDummy<'_> {
-    type TargetState = Option<std::rc::Rc<native_targets::Slot>>;
+    type TargetState = Option<source_cells::Rc<native_targets::Slot>>;
 
     fn supports_offscreen(&self) -> bool {
         true

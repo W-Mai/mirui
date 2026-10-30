@@ -4,6 +4,8 @@
 
 ## Metadata
 
+The optional `sync` feature allows transferable textures, immutable value handles and byte sources while leaving resource managers and demand handles on their owning App thread. See [shared textures](shared-textures.md) for worker handoff, source constraints, device lifetimes and budget retention.
+
 `Loader<T>` produces values. `ProbeLoader<T>` additionally provides metadata without producing a decoded value. Register the latter with `manager.add_probed_loader(loader)`; `add_loader` does not enable probing implicitly. Metadata can also come from a static value, a completed cached value, or `add_probed_factory`.
 
 ```rust,ignore

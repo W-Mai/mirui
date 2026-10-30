@@ -12,21 +12,21 @@ mod tracking_allocator;
 
 struct Target(
     u8,
-    #[cfg(feature = "sync-cache")] Option<mirui::render::target::TargetStorage>,
+    #[cfg(feature = "sync")] Option<mirui::render::target::TargetStorage>,
 );
 
 impl Target {
     fn new(value: u8) -> Self {
         Self(
             value,
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             None,
         )
     }
 }
 
 impl BackendTarget for Target {
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     fn retain_storage(
         &mut self,
         storage: mirui::render::target::TargetStorage,

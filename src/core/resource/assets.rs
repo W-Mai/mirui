@@ -101,7 +101,7 @@ struct TypedSession<P: AssetProvider> {
     opening: FutureSlot<P::Open>,
     read_slot: ReadSlot<P::Reader>,
     reader: Option<SourceRead<P::Reader>>,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     opened: Option<P::Reader>,
     prefix: Box<[u8]>,
     filled: usize,
@@ -117,23 +117,23 @@ impl<P: AssetProvider> Session for TypedSession<P> {
         if self.reader.is_some() {
             return Poll::Ready(Ok(()));
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         if self.opened.is_none() {
             if !self.opening.is_active() {
                 return Poll::Ready(Err(AssetError::InvalidSource));
             }
             self.opened = Some(core::task::ready!(self.opening.poll(cx))?);
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         let opened = &mut self.opened;
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         let mut opened = {
             if !self.opening.is_active() {
                 return Poll::Ready(Err(AssetError::InvalidSource));
             }
             Some(core::task::ready!(self.opening.poll(cx))?)
         };
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         let opened = &mut opened;
         self.reader = Some(core::task::ready!(SourceRead::poll_new(
             opened,
@@ -227,7 +227,7 @@ impl<P: AssetProvider> Session for TypedSession<P> {
         Poll::Ready(())
     }
     fn reset(&mut self) {
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.opened = None;
         }
@@ -513,7 +513,7 @@ impl AssetSources {
                     opening: FutureSlot::new(),
                     read_slot: Some(FutureSlot::new()),
                     reader: None,
-                    #[cfg(feature = "sync-cache")]
+                    #[cfg(feature = "sync")]
                     opened: None,
                     prefix: prefix.into_boxed_slice(),
                     filled: 0,
@@ -685,7 +685,7 @@ mod tests {
         assert_eq!(allocations, 0);
     }
 
-    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[cfg(all(feature = "std", feature = "sync"))]
     #[test]
     fn pending_source_dropped_on_worker_retires_through_the_original_prepared_slots() {
         fn assert_send_sync<T: Send + Sync>() {}
@@ -714,7 +714,7 @@ mod tests {
         assert_eq!(source.poll_open(&mut cx), Poll::Ready(Ok(())));
     }
 
-    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[cfg(all(feature = "std", feature = "sync"))]
     #[test]
     fn stable_mapping_is_shared_directly_after_its_manager_has_exited() {
         let mut sources = AssetSources::new(config()).unwrap();
@@ -752,7 +752,7 @@ mod tests {
         assert_eq!(&bytes, b"app");
     }
 
-    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[cfg(all(feature = "std", feature = "sync"))]
     #[test]
     fn physical_completion_keeps_its_buffer_after_app_and_last_source_exit() {
         use super::super::{

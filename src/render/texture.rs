@@ -7,16 +7,16 @@ fn state_error(error: crate::core::threading::AccessError) -> RenderError {
     match error {
         AccessError::Reentrant => RenderError::InvalidScope,
         AccessError::Busy => {
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             {
                 RenderError::ResourcePending
             }
-            #[cfg(not(feature = "sync-cache"))]
+            #[cfg(not(feature = "sync"))]
             {
                 RenderError::InvalidScope
             }
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         AccessError::Capacity => RenderError::ResourceLimit(RenderResource::Texture),
     }
 }
@@ -30,6 +30,8 @@ mod pixel_cache;
 mod pixels;
 mod region;
 mod source;
+#[cfg(test)]
+mod thread_tests;
 #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
 pub(crate) use coverage::UploadCoverage;
 pub(crate) use source::SourceMirxLoader;
@@ -229,7 +231,7 @@ pub(crate) fn blend_straight_source_over(source: &Color, destination: &Color, al
 /// Pixel constructors return [`RenderError::InvalidTexture`] for empty dimensions, overflowing layouts, or insufficient storage. [`Texture::owned`] reports allocation failure as [`RenderError::ResourceLimit`].
 ///
 /// A texture is not implicitly duplicated. Cache handles can share an existing resource; a snapshot owns an explicit pixel copy.
-/// Native storage retains its source device and prepares CPU pixels through [`Texture::read_pixels`]. Textures and their read-only pixel guards are thread-local; CPU constructors do not allocate native storage or readback caches.
+/// Native storage prepares CPU pixels through [`Texture::read_pixels`]. With the `sync` feature, textures, pixel guards and their cache value handles support `Send + Sync` while preserving their borrowed lifetimes. Thread-bound native reads still require their creating thread; closing that owner invalidates native access but preserves prepared CPU regions. CPU constructors do not allocate native storage or readback caches. Without `sync`, textures retain local ownership.
 ///
 /// ```compile_fail,E0277
 /// use mirui::render::texture::Texture;

@@ -122,7 +122,7 @@ impl Texture<'_> {
         cx: &mut Context<'_>,
     ) -> Poll<Result<TextureRegion<'_>, RenderError>> {
         let resident = self.pixels_in(region);
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         let resident = match resident {
             Err(RenderError::ResourcePending) => Ok(None),
             result => result,

@@ -157,9 +157,9 @@ fn native_sources_bridge_once_and_reject_feedback_before_cached_uploads() {
         .unwrap()
         .storage
         .clone();
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     let sampleable = storage.sampleable;
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     let sampleable = texture
         .backend_target()
         .unwrap()
@@ -431,11 +431,11 @@ fn native_sampling_is_scoped_and_releases_its_borrow_after_callback_unwind() {
         .ok()
         .unwrap();
     // Exercise the borrowing contract independently of the software SDL driver's custom blend support.
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     {
         Rc::get_mut(&mut target.storage).unwrap().sampleable = true;
     }
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     {
         let Target { storage, source } = &mut target;
         storage
@@ -497,7 +497,7 @@ fn native_sampling_is_scoped_and_releases_its_borrow_after_callback_unwind() {
     assert_eq!(owner.check(), Ok(()));
 }
 
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 #[test]
 fn prepared_cpu_guards_remain_transferable_and_readable_after_owner_close() {
     use std::sync::Barrier;
@@ -543,7 +543,7 @@ fn prepared_cpu_guards_remain_transferable_and_readable_after_owner_close() {
     assert_eq!(budget.allocated(), 0);
 }
 
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 #[test]
 fn closed_sources_support_regional_preparation_and_pinned_upload_after_cache_replacement() {
     use crate::render::{PreparedDraw, SwRenderer, texture::Region};

@@ -1,34 +1,34 @@
 use crate::core::threading::{Shared as Rc, transaction};
-#[cfg(not(feature = "sync-cache"))]
+#[cfg(not(feature = "sync"))]
 use core::cell::Cell;
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Debug)]
 struct Counter {
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     value: Cell<usize>,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     value: AtomicUsize,
 }
 
 impl Counter {
     fn new(value: usize) -> Self {
         Self {
-            #[cfg(not(feature = "sync-cache"))]
+            #[cfg(not(feature = "sync"))]
             value: Cell::new(value),
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             value: AtomicUsize::new(value),
         }
     }
 
     #[inline]
     fn get(&self) -> usize {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.value.get()
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.value.load(Ordering::Relaxed)
         }
@@ -36,9 +36,9 @@ impl Counter {
 
     #[inline]
     fn set(&self, value: usize) {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         self.value.set(value);
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         self.value.store(value, Ordering::Relaxed);
     }
 }
@@ -260,7 +260,7 @@ impl Allocation {
         self.bytes
     }
 
-    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[cfg(all(feature = "std", feature = "sync"))]
     pub(crate) fn split(&mut self, bytes: usize) -> Option<Self> {
         let remaining = self.bytes.checked_sub(bytes)?;
         let allocation = Self {
@@ -287,7 +287,7 @@ mod tests {
     use super::*;
     use crate::test_support::tracked_allocations;
 
-    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[cfg(all(feature = "std", feature = "sync"))]
     #[test]
     fn concurrent_admission_commits_one_shared_limit() {
         use std::sync::Barrier;

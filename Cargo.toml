@@ -57,7 +57,7 @@ linux-fb = ["dep:memmap2", "dep:evdev", "dep:libc", "dep:signal-hook", "std"]
 linux-drm = ["dep:drm", "dep:drm-ffi", "dep:evdev", "dep:libc", "dep:signal-hook", "std"]
 nuttx = ["dep:libc", "std", "log-nuttx-syslog"]
 perf = []
-sync-cache = []
+sync = []
 persistence = ["dep:serde", "dep:postcard"]
 # Anti-aliasing for 3D-transformed quads. On `std` this uses a Fixed64
 # signed-distance field for smooth coverage; on `no_std` it degrades to

@@ -2,9 +2,9 @@ use crate::core::threading::Shared as EntryRcImpl;
 
 pub(crate) type EntryRc<V> = EntryRcImpl<CacheEntry<V>>;
 
-#[cfg(not(feature = "sync-cache"))]
+#[cfg(not(feature = "sync"))]
 pub(crate) type InvalidFlag = core::cell::Cell<bool>;
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 pub(crate) type InvalidFlag = core::sync::atomic::AtomicBool;
 
 pub struct CacheEntry<V> {
@@ -16,32 +16,32 @@ impl<V> CacheEntry<V> {
     pub(crate) fn new(payload: V) -> Self {
         Self {
             payload,
-            #[cfg(not(feature = "sync-cache"))]
+            #[cfg(not(feature = "sync"))]
             is_invalid: core::cell::Cell::new(false),
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             is_invalid: core::sync::atomic::AtomicBool::new(false),
         }
     }
 
     pub(crate) fn invalid_get(&self) -> bool {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.is_invalid.get()
         }
         // Relaxed is enough — the flag is a pure status bit; nothing else
         // is published by setting it (V's lifetime is governed by Rc/Arc).
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.is_invalid.load(core::sync::atomic::Ordering::Relaxed)
         }
     }
 
     pub(crate) fn invalid_set(&self, v: bool) {
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.is_invalid.set(v);
         }
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.is_invalid
                 .store(v, core::sync::atomic::Ordering::Relaxed);

@@ -2,6 +2,8 @@
 
 `mirui::render::BackendTarget` describes native output storage and source-owned CPU readback. It is a backend extension interface; application components use `Texture` and `Outputs`.
 
+With the optional `sync` feature, target payloads must implement `Send + Sync`. This constrains the transferable representation; raw objects with creating-thread restrictions remain in their thread owner. The default feature set retains local payloads. See [shared textures](shared-textures.md) for application handoff.
+
 ## Storage and lifetime
 
 `TargetDescriptor` combines a checked `PlaneLayout` with `TargetAlpha::Straight` or `Premultiplied`. The alpha encoding describes stored channels, independently of the destination blending policy in `AlphaMode`.

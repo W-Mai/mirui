@@ -1,4 +1,4 @@
-#[cfg(not(feature = "sync-cache"))]
+#[cfg(not(feature = "sync"))]
 use core::cell::Cell;
 use core::cell::{RefCell, RefMut};
 
@@ -9,10 +9,10 @@ use sdl2::video::Window;
 use super::target_state::{self, DriverState};
 use crate::render::RenderError;
 
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 #[path = "device_status.rs"]
 mod shared;
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 pub(super) use shared::DeviceStatus;
 
 struct PersistentTarget {
@@ -24,13 +24,13 @@ struct PersistentTarget {
 pub(super) struct Device<T: RenderTarget = Window> {
     canvas: RefCell<Canvas<T>>,
     pub(super) creator: TextureCreator<T::Context>,
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     generation: Cell<u64>,
-    #[cfg(not(feature = "sync-cache"))]
+    #[cfg(not(feature = "sync"))]
     failure: Cell<Option<RenderError>>,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     pub(super) status: alloc::sync::Arc<DeviceStatus>,
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     targets: RefCell<crate::render::target::ThreadOwner>,
     persistent: RefCell<Option<PersistentTarget>>,
     frame_state: RefCell<Option<DriverState>>,
@@ -71,13 +71,13 @@ impl<T: RenderTarget> Device<T> {
         Ok(Self {
             canvas: RefCell::new(canvas),
             creator,
-            #[cfg(not(feature = "sync-cache"))]
+            #[cfg(not(feature = "sync"))]
             generation: Cell::new(0),
-            #[cfg(not(feature = "sync-cache"))]
+            #[cfg(not(feature = "sync"))]
             failure: Cell::new(None),
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             status: alloc::sync::Arc::new(DeviceStatus::new()),
-            #[cfg(feature = "sync-cache")]
+            #[cfg(feature = "sync")]
             targets: RefCell::new(crate::render::target::ThreadOwner::new()),
             persistent: RefCell::new(None),
             frame_state: RefCell::new(None),
@@ -99,18 +99,18 @@ impl<T: RenderTarget> Device<T> {
     }
 
     pub(super) fn check(&self) -> Result<(), RenderError> {
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.status.check()
         }
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         self.failure.get().map_or(Ok(()), Err)
     }
 
     pub(super) fn poison(&self) {
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         self.status.poison();
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         self.failure.set(Some(RenderError::BackendFailure));
     }
 
@@ -246,18 +246,18 @@ impl<T: RenderTarget> Device<T> {
     }
 
     pub(super) fn generation(&self) -> u64 {
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.status.generation()
         }
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         self.generation.get()
     }
 
     pub(super) fn invalidate(&self) {
         self.abort_persistent_frame();
         self.persistent.borrow_mut().take();
-        #[cfg(feature = "sync-cache")]
+        #[cfg(feature = "sync")]
         {
             self.status.poison();
             if self.close_targets().is_err() {
@@ -266,14 +266,14 @@ impl<T: RenderTarget> Device<T> {
             *self.targets.borrow_mut() = crate::render::target::ThreadOwner::new();
             self.status.reset();
         }
-        #[cfg(not(feature = "sync-cache"))]
+        #[cfg(not(feature = "sync"))]
         {
             self.generation.set(self.generation.get().wrapping_add(1));
             self.failure.set(None);
         }
     }
 
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     pub(super) fn target_metadata_bytes<R: 'static>(&self) -> Result<usize, RenderError> {
         self.targets
             .try_borrow()
@@ -283,7 +283,7 @@ impl<T: RenderTarget> Device<T> {
             .ok_or(RenderError::InvalidGeometry)
     }
 
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     pub(super) fn register_target<R: 'static>(
         &self,
         value: R,
@@ -294,7 +294,7 @@ impl<T: RenderTarget> Device<T> {
             .insert(value)
     }
 
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     pub(super) fn collect_targets(&self) -> Result<(), RenderError> {
         drop(
             self.canvas
@@ -307,7 +307,7 @@ impl<T: RenderTarget> Device<T> {
             .collect()
     }
 
-    #[cfg(feature = "sync-cache")]
+    #[cfg(feature = "sync")]
     pub(super) fn close_targets(&self) -> Result<(), RenderError> {
         drop(
             self.canvas

@@ -400,7 +400,7 @@ impl DecodedTexture {
 mod tests {
     use super::*;
 
-    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[cfg(all(feature = "std", feature = "sync"))]
     #[test]
     fn shared_decoded_pixels_keep_one_address_and_charge_after_app_and_source_exit() {
         use crate::app::{

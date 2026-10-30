@@ -16,7 +16,7 @@ fn device() -> Rc<TestDevice> {
     Rc::new(Device::new(canvas, creator).unwrap())
 }
 
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 #[test]
 fn transferable_targets_keep_driver_access_local_and_close_before_worker_release() {
     use crate::render::{budget::MemoryBudget, target::TargetStorage};
@@ -90,7 +90,7 @@ fn transferable_targets_keep_driver_access_local_and_close_before_worker_release
     assert_eq!(budget.available(), limit);
 }
 
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 #[test]
 fn worker_retirement_releases_raw_storage_only_at_owner_maintenance() {
     let device = device();
@@ -106,7 +106,7 @@ fn worker_retirement_releases_raw_storage_only_at_owner_maintenance() {
     assert_eq!(Rc::strong_count(&device), 1);
 }
 
-#[cfg(feature = "sync-cache")]
+#[cfg(feature = "sync")]
 #[test]
 fn batch_plans_allow_owner_metadata_to_be_admitted_by_an_earlier_target() {
     use crate::render::{budget::MemoryBudget, target::TargetStorage};
