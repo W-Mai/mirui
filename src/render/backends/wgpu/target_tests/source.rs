@@ -3,12 +3,12 @@ use crate::render::{DrawRequest, RenderRoute, Renderer};
 
 struct SourceProducer {
     context: Arc<WgpuDeviceContext>,
-    active: Option<Rc<Storage>>,
+    active: Option<Shared<Storage>>,
     color: wgpu::Color,
 }
 
 impl Renderer for SourceProducer {
-    type TargetState = Option<Rc<Storage>>;
+    type TargetState = Option<Shared<Storage>>;
 
     fn plan_target(&self, layout: PlaneLayout) -> Result<Option<TargetPlan>, RenderError> {
         plan(&self.context, 1, layout)
@@ -33,8 +33,8 @@ impl Renderer for SourceProducer {
         assert_eq!(update, TargetUpdate::Rebuild);
         completed(target, self.color);
         let storage = &target.as_any().downcast_ref::<Target>().unwrap().storage;
-        assert!(!storage.active.replace(true));
-        Ok(self.active.replace(Rc::clone(storage)))
+        assert!(!storage.swap_active(true));
+        Ok(self.active.replace(Shared::clone(storage)))
     }
     fn restore_target(
         &mut self,
@@ -42,8 +42,8 @@ impl Renderer for SourceProducer {
         completed: bool,
     ) -> Result<(), RenderError> {
         let storage = self.active.take().unwrap();
-        storage.active.set(false);
-        storage.completed.set(completed);
+        storage.set_active(false);
+        storage.set_completed(completed);
         self.active = parent;
         Ok(())
     }
@@ -85,7 +85,7 @@ fn native_blit_views_keep_the_source_storage_and_readback_charge_after_texture_d
         )
         .unwrap();
     let source = source_view(&mut new_pool(0), 0, &context, &texture, None).unwrap();
-    let weak = Rc::downgrade(source.storage.as_ref().unwrap());
+    let weak = Shared::downgrade(source.storage.as_ref().unwrap());
     drop(texture);
     assert!(weak.upgrade().is_some());
     assert_eq!(
@@ -131,7 +131,7 @@ fn native_texture_sources_share_views_or_bridge_through_the_upload_cache() {
         .render_native(&mut producer, viewport, &mut [], &mut |_| Ok(()))
         .unwrap();
     texture.set_output_revision(1);
-    let storage = Rc::clone(
+    let storage = Shared::clone(
         &texture
             .backend_target()
             .unwrap()
@@ -179,24 +179,27 @@ fn native_texture_sources_share_views_or_bridge_through_the_upload_cache() {
         Color::rgba(128, 0, 0, 128)
     );
     {
+        #[cfg(not(feature = "sync-cache"))]
         let _readback_busy = storage.readback.borrow_mut();
+        #[cfg(feature = "sync-cache")]
+        let _readback_busy = storage.readback.try_take().unwrap();
         let reused = source_view(&mut pool, 128, &destination, &texture, None).unwrap();
         assert_eq!(reused.view.texture(), uploaded.view.texture());
     }
-    storage.active.set(true);
+    storage.set_active(true);
     for device in [&source_device, &destination] {
         assert!(matches!(
             source_view(&mut pool, 128, device, &texture, None),
             Err(RenderError::InvalidTexture)
         ));
     }
-    storage.active.set(false);
-    storage.completed.set(false);
+    storage.set_active(false);
+    storage.set_completed(false);
     assert!(matches!(
         source_view(&mut pool, 128, &destination, &texture, None),
         Err(RenderError::InvalidTexture)
     ));
-    storage.completed.set(true);
+    storage.set_completed(true);
     producer.color = wgpu::Color {
         r: 0.0,
         g: 1.0,
@@ -386,7 +389,7 @@ fn sample_color(
         pass.draw(0..4, 0..1);
     }
     context.queue.submit(Some(encoder.finish()));
-    storage.completed.set(true);
+    storage.set_completed(true);
     let mut result = Texture::owned(4, 4, ColorFormat::RGBA8888).unwrap();
     target
         .read_pixels_into(

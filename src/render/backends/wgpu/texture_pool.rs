@@ -13,7 +13,7 @@ pub(super) struct BlitSource {
     pub(super) view: wgpu::TextureView,
     pub(super) alpha: TargetAlpha,
     #[cfg(all(feature = "sync-cache", not(target_arch = "wasm32")))]
-    pub(super) storage: Option<alloc::rc::Rc<super::target::Storage>>,
+    pub(super) storage: Option<crate::core::threading::Shared<super::target::Storage>>,
 }
 
 pub(super) fn can_sample(
@@ -51,7 +51,7 @@ pub(super) fn source_view(
             view,
             alpha: crate::render::BackendTarget::descriptor(target).alpha,
             #[cfg(feature = "sync-cache")]
-            storage: Some(alloc::rc::Rc::clone(&target.storage)),
+            storage: Some(crate::core::threading::Shared::clone(&target.storage)),
         });
     }
     #[cfg(target_arch = "wasm32")]

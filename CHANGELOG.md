@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Shared SDL native targets transfer typed tokens and device metadata while retaining raw textures on the creating thread; owner closure invalidates native access while preserving prepared CPU guards.
 
+- Shared WGPU native storage retains its portable device context across worker reads, synchronizes target validity and readback workspace, and accounts for shared control storage in target plans.
+
 ### Fixed
 
 - SDL retained-frame composition restores viewport, clipping and scaling after copying to the window without an additional target switch.

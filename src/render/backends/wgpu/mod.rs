@@ -719,7 +719,7 @@ struct DrawOp {
     scissor: [u32; 4],
     dynamic_offset: Option<u32>,
     #[cfg(all(feature = "sync-cache", not(target_arch = "wasm32")))]
-    _native_source: Option<alloc::rc::Rc<target::Storage>>,
+    _native_source: Option<crate::core::threading::Shared<target::Storage>>,
 }
 
 enum BindGroupRef {

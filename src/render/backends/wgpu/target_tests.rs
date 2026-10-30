@@ -15,6 +15,84 @@ fn context() -> Option<Arc<WgpuDeviceContext>> {
     Some(WgpuDeviceContext::new(instance, adapter, device, queue))
 }
 
+#[cfg(feature = "sync-cache")]
+#[test]
+fn portable_native_targets_read_on_workers_and_retain_staging_admission() {
+    use crate::render::{budget::MemoryBudget, target::TargetStorage};
+    use std::{sync::mpsc, time::Duration};
+    fn send_sync<T: Send + Sync>() {}
+    send_sync::<Target>();
+    send_sync::<Storage>();
+    let Some(context) = context() else {
+        return;
+    };
+    let weak = Arc::downgrade(&context);
+    let layout = PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap();
+    let plan = plan(&context, 1, layout).unwrap().unwrap();
+    let erased: Box<dyn core::any::Any> = create(&context, 1, &plan).unwrap();
+    let mut source = erased.downcast::<Target>().ok().unwrap();
+    let limit = plan.storage_bytes + plan.readback_bytes + TargetStorage::OWNER_BYTES;
+    let budget = MemoryBudget::new(limit);
+    source
+        .retain_storage(TargetStorage::new(
+            budget
+                .reserve(plan.storage_bytes)
+                .unwrap()
+                .commit(plan.storage_bytes)
+                .unwrap(),
+            budget.reserve(plan.readback_bytes).unwrap(),
+            budget
+                .reserve(TargetStorage::OWNER_BYTES)
+                .unwrap()
+                .commit(TargetStorage::OWNER_BYTES)
+                .unwrap(),
+        ))
+        .unwrap();
+    completed(&*source, wgpu::Color::GREEN);
+    let source = Arc::new(source);
+    drop(context);
+    assert!(weak.upgrade().is_some());
+    let (ready, wait_ready) = mpsc::channel();
+    let (release, wait_release) = mpsc::channel();
+    std::thread::scope(|scope| {
+        let source = &source;
+        let worker = scope.spawn(move || {
+            let lease = source.storage.readback.try_take().unwrap();
+            ready.send(()).unwrap();
+            wait_release.recv_timeout(Duration::from_secs(5)).unwrap();
+            drop(lease);
+            let mut bytes = [0; 64];
+            let mut image = Texture::new(&mut bytes, 4, 4, ColorFormat::RGBA8888).unwrap();
+            source
+                .read_pixels_into(
+                    source.descriptor().region(),
+                    &mut image.pixels_mut().unwrap(),
+                )
+                .unwrap();
+            assert_eq!(
+                image.read_pixels().unwrap().get_pixel(1, 1),
+                Color::rgb(0, 255, 0)
+            );
+        });
+        wait_ready.recv_timeout(Duration::from_secs(5)).unwrap();
+        let mut bytes = [0; 64];
+        let mut image = Texture::new(&mut bytes, 4, 4, ColorFormat::RGBA8888).unwrap();
+        assert_eq!(
+            source.read_pixels_into(
+                source.descriptor().region(),
+                &mut image.pixels_mut().unwrap()
+            ),
+            Err(RenderError::InvalidScope)
+        );
+        release.send(()).unwrap();
+        worker.join().unwrap();
+    });
+    assert_eq!(budget.available(), 0);
+    std::thread::spawn(move || drop(source)).join().unwrap();
+    assert!(weak.upgrade().is_none());
+    assert_eq!(budget.available(), limit);
+}
+
 fn completed(target: &dyn BackendTarget, color: wgpu::Color) {
     let storage = &target.as_any().downcast_ref::<Target>().unwrap().storage;
     let mut encoder = storage
@@ -41,7 +119,7 @@ fn completed(target: &dyn BackendTarget, color: wgpu::Color) {
         });
     }
     storage.context.queue.submit(Some(encoder.finish()));
-    storage.completed.set(true);
+    storage.set_completed(true);
 }
 
 #[test]
@@ -89,14 +167,14 @@ fn reuse_checks_device_and_attachments_without_changing_contents() {
     assert!(can_reuse(&first, 1, &*image, &requested).unwrap());
     assert!(!can_reuse(&second, 1, &*image, &requested).unwrap());
     let storage = &image.as_any().downcast_ref::<Target>().unwrap().storage;
-    assert!(!storage.completed.get());
+    assert!(!storage.completed());
     if let Some(multisampled) = plan(&first, 4, layout).unwrap() {
         assert!(!can_reuse(&first, 4, &*image, &multisampled).unwrap());
     }
     let mut changed = requested;
     changed.readback_bytes += 1;
     assert!(!can_reuse(&first, 1, &*image, &changed).unwrap());
-    storage.active.set(true);
+    storage.set_active(true);
     assert_eq!(
         can_reuse(&first, 1, &*image, &changed),
         Err(RenderError::InvalidScope)
@@ -105,10 +183,10 @@ fn reuse_checks_device_and_attachments_without_changing_contents() {
         can_reuse(&first, 1, &*image, &requested),
         Err(RenderError::InvalidScope)
     );
-    storage.active.set(false);
+    storage.set_active(false);
     completed(&*image, wgpu::Color::RED);
     assert!(can_reuse(&first, 1, &*image, &requested).unwrap());
-    assert!(storage.completed.get());
+    assert!(storage.completed());
     first.invalidate();
     assert!(can_reuse(&first, 1, &*image, &requested).is_err());
 }
@@ -121,7 +199,7 @@ fn native_source_owns_device_and_checks_completed_contents() {
     let weak = Arc::downgrade(&context);
     let layout = PlaneLayout::packed(3, 2, ColorFormat::RGBA8888).unwrap();
     let plan = plan(&context, 1, layout).unwrap().unwrap();
-    assert_eq!(plan.storage_bytes, 24 + receipt_bytes());
+    assert_eq!(plan.storage_bytes, 24 + metadata_bytes());
     assert_eq!(plan.readback_bytes, 512);
     let target = create(&context, 1, &plan).unwrap();
     assert_eq!(target.allocated_bytes(), plan.storage_bytes);
@@ -148,7 +226,7 @@ fn native_source_owns_device_and_checks_completed_contents() {
         },
     );
     let storage = &target.as_any().downcast_ref::<Target>().unwrap().storage;
-    storage.active.set(true);
+    storage.set_active(true);
     assert_eq!(
         target.read_pixels_into(
             target.descriptor().region(),
@@ -156,9 +234,12 @@ fn native_source_owns_device_and_checks_completed_contents() {
         ),
         Err(RenderError::InvalidTexture)
     );
-    storage.active.set(false);
+    storage.set_active(false);
     {
+        #[cfg(not(feature = "sync-cache"))]
         let _lease = storage.readback.borrow_mut();
+        #[cfg(feature = "sync-cache")]
+        let _lease = storage.readback.try_take().unwrap();
         assert_eq!(
             target.read_pixels_into(
                 target.descriptor().region(),
@@ -210,7 +291,7 @@ fn native_target_plan_matches_attachments_and_rejects_invalid_requests() {
         let target = create(&context, samples, &plan).unwrap();
         assert_eq!(
             plan.storage_bytes,
-            layout.required_bytes() * if samples == 1 { 1 } else { 5 } + receipt_bytes()
+            layout.required_bytes() * if samples == 1 { 1 } else { 5 } + metadata_bytes()
         );
         let frame = &target
             .as_any()
@@ -281,14 +362,14 @@ fn abandoned_binding_invalidates_source_device_without_owner_cycles() {
     .unwrap();
     let target = create(&context, 1, &plan).unwrap();
     let storage = &target.as_any().downcast_ref::<Target>().unwrap().storage;
-    storage.active.set(true);
+    storage.set_active(true);
     drop(TargetState {
-        child: Rc::clone(storage),
+        child: Shared::clone(storage),
         parent: None,
         viewport: Viewport::new(2, 2, Fixed::ONE),
     });
-    assert!(!storage.active.get());
-    assert!(!storage.completed.get());
+    assert!(!storage.active());
+    assert!(!storage.completed());
     assert_eq!(target.validate(), Err(RenderError::BackendFailure));
     drop(context);
     drop(target);

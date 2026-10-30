@@ -1,8 +1,12 @@
-use alloc::{boxed::Box, rc::Rc, sync::Arc};
-use core::{
-    any::Any,
-    cell::{Cell, RefCell},
-};
+use crate::core::threading::Shared;
+#[cfg(feature = "sync-cache")]
+use crate::core::threading::State;
+use alloc::{boxed::Box, sync::Arc};
+use core::any::Any;
+#[cfg(not(feature = "sync-cache"))]
+use core::cell::{Cell, RefCell};
+#[cfg(feature = "sync-cache")]
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use super::{Frame, FrameTarget, WgpuRenderer, readback::Readback};
 use crate::render::texture::{ColorFormat, TexturePixelsMut};
@@ -22,15 +26,69 @@ pub(super) struct Storage {
     pub(super) frame: FrameTarget,
     descriptor: TargetDescriptor,
     bytes: usize,
+    #[cfg(not(feature = "sync-cache"))]
     readback: RefCell<Readback>,
-    pub(super) completed: Cell<bool>,
-    pub(super) active: Cell<bool>,
+    #[cfg(feature = "sync-cache")]
+    readback: State<Readback>,
+    #[cfg(not(feature = "sync-cache"))]
+    completed: Cell<bool>,
+    #[cfg(feature = "sync-cache")]
+    completed: AtomicBool,
+    #[cfg(not(feature = "sync-cache"))]
+    active: Cell<bool>,
+    #[cfg(feature = "sync-cache")]
+    active: AtomicBool,
     #[cfg(feature = "sync-cache")]
     charge: std::sync::OnceLock<crate::render::target::TargetStorage>,
 }
 
+impl Storage {
+    fn completed(&self) -> bool {
+        #[cfg(not(feature = "sync-cache"))]
+        {
+            self.completed.get()
+        }
+        #[cfg(feature = "sync-cache")]
+        {
+            self.completed.load(Ordering::Acquire)
+        }
+    }
+    fn set_completed(&self, value: bool) {
+        #[cfg(not(feature = "sync-cache"))]
+        self.completed.set(value);
+        #[cfg(feature = "sync-cache")]
+        self.completed.store(value, Ordering::Release);
+    }
+    fn active(&self) -> bool {
+        #[cfg(not(feature = "sync-cache"))]
+        {
+            self.active.get()
+        }
+        #[cfg(feature = "sync-cache")]
+        {
+            self.active.load(Ordering::Acquire)
+        }
+    }
+    fn set_active(&self, value: bool) {
+        #[cfg(not(feature = "sync-cache"))]
+        self.active.set(value);
+        #[cfg(feature = "sync-cache")]
+        self.active.store(value, Ordering::Release);
+    }
+    fn swap_active(&self, value: bool) -> bool {
+        #[cfg(not(feature = "sync-cache"))]
+        {
+            self.active.replace(value)
+        }
+        #[cfg(feature = "sync-cache")]
+        {
+            self.active.swap(value, Ordering::AcqRel)
+        }
+    }
+}
+
 pub(super) struct Target {
-    pub(super) storage: Rc<Storage>,
+    pub(super) storage: Shared<Storage>,
 }
 
 impl Target {
@@ -39,7 +97,7 @@ impl Target {
         context: &Arc<WgpuDeviceContext>,
     ) -> Result<Option<wgpu::TextureView>, RenderError> {
         self.validate()?;
-        if self.storage.active.get() || !self.storage.completed.get() {
+        if self.storage.active() || !self.storage.completed() {
             return Err(RenderError::InvalidTexture);
         }
         Ok(Arc::ptr_eq(&self.storage.context, context).then(|| self.storage.frame.view.clone()))
@@ -48,15 +106,15 @@ impl Target {
 
 /// Saved attachment and viewport for one native target scope.
 pub struct TargetState {
-    pub(super) child: Rc<Storage>,
+    pub(super) child: Shared<Storage>,
     pub(super) parent: Option<FrameTarget>,
     pub(super) viewport: Viewport,
 }
 
 impl Drop for TargetState {
     fn drop(&mut self) {
-        if self.child.active.replace(false) {
-            self.child.completed.set(false);
+        if self.child.swap_active(false) {
+            self.child.set_completed(false);
             self.child.context.invalidate();
         }
     }
@@ -92,28 +150,38 @@ impl BackendTarget for Target {
     ) -> Result<(), RenderError> {
         let area = self.descriptor().readback_region(region, destination)?;
         self.validate()?;
-        if self.storage.active.get() || !self.storage.completed.get() {
+        if self.storage.active() || !self.storage.completed() {
             return Err(RenderError::InvalidTexture);
         }
-        self.storage
+        #[cfg(not(feature = "sync-cache"))]
+        let mut readback = self
+            .storage
             .readback
             .try_borrow_mut()
-            .map_err(|_| RenderError::InvalidScope)?
-            .read_into(
-                &self.storage.context.device,
-                &self.storage.context.queue,
-                self.storage.frame.texture(),
-                area,
-                destination,
-            )?;
+            .map_err(|_| RenderError::InvalidScope)?;
+        #[cfg(feature = "sync-cache")]
+        let mut readback = self
+            .storage
+            .readback
+            .try_take()
+            .map_err(|_| RenderError::InvalidScope)?;
+        readback.read_into(
+            &self.storage.context.device,
+            &self.storage.context.queue,
+            self.storage.frame.texture(),
+            area,
+            destination,
+        )?;
         self.storage.context.check()
     }
 }
 
-const fn receipt_bytes() -> usize {
+const fn metadata_bytes() -> usize {
     #[cfg(feature = "sync-cache")]
     {
         core::mem::size_of::<std::sync::OnceLock<crate::render::target::TargetStorage>>()
+            + core::mem::size_of::<State<Readback>>()
+            - core::mem::size_of::<core::cell::RefCell<Readback>>()
     }
     #[cfg(not(feature = "sync-cache"))]
     {
@@ -159,7 +227,7 @@ pub(super) fn plan(
         storage_bytes: layout
             .required_bytes()
             .checked_mul(planes)
-            .and_then(|bytes| bytes.checked_add(receipt_bytes()))
+            .and_then(|bytes| bytes.checked_add(metadata_bytes()))
             .ok_or(RenderError::ResourceLimit(RenderResource::Target))?,
         workspace_bytes: 0,
         readback_bytes: Readback::required_bytes(&context.device, layout.width(), layout.height())?,
@@ -180,7 +248,7 @@ fn matching_target<'a>(
     if !Arc::ptr_eq(context, &child.context) {
         return Ok(None);
     }
-    if child.active.get() {
+    if child.active() {
         return Err(RenderError::InvalidScope);
     }
     let actual_samples = child
@@ -231,7 +299,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         let child = &matching_target(context, surface.samples(), target, &requested)?
             .ok_or(RenderError::InvalidTexture)?
             .storage;
-        if update == TargetUpdate::Incremental && !child.completed.get() {
+        if update == TargetUpdate::Incremental && !child.completed() {
             return Err(RenderError::InvalidTexture);
         }
         let layout = child.descriptor.layout;
@@ -253,12 +321,12 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
             None
         };
         let state = TargetState {
-            child: Rc::clone(child),
+            child: Shared::clone(child),
             parent,
             viewport: core::mem::replace(&mut self.viewport, viewport),
         };
-        child.active.set(true);
-        child.completed.set(false);
+        child.set_active(true);
+        child.set_completed(false);
         if let Err(error) = self.flush_ops() {
             let _ = self.restore_native_target(state, false);
             return Err(error);
@@ -273,7 +341,7 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
     ) -> Result<(), RenderError> {
         let valid = self.surface.state().is_some_and(|context| {
             Arc::ptr_eq(context.context(), &state.child.context) && context.check().is_ok()
-        }) && state.child.active.get()
+        }) && state.child.active()
             && self.frame.as_ref().is_some_and(|frame| {
                 frame
                     .target
@@ -306,8 +374,8 @@ impl<B: WgpuTarget> WgpuRenderer<'_, B> {
         );
         self.viewport = state.viewport;
         self.failure = None;
-        state.child.active.set(false);
-        state.child.completed.set(successful);
+        state.child.set_active(false);
+        state.child.set_completed(successful);
         Ok(())
     }
 }
@@ -367,7 +435,7 @@ pub(super) fn create(
     }
     context.check()?;
     Ok(Box::new(Target {
-        storage: Rc::new(Storage {
+        storage: Shared::new(Storage {
             context: Arc::clone(context),
             frame: FrameTarget {
                 view,
@@ -377,9 +445,18 @@ pub(super) fn create(
             },
             descriptor: requested.descriptor,
             bytes: requested.storage_bytes,
+            #[cfg(not(feature = "sync-cache"))]
             readback: Default::default(),
+            #[cfg(feature = "sync-cache")]
+            readback: State::new(Readback::default()),
+            #[cfg(not(feature = "sync-cache"))]
             completed: Cell::new(false),
+            #[cfg(feature = "sync-cache")]
+            completed: AtomicBool::new(false),
+            #[cfg(not(feature = "sync-cache"))]
             active: Cell::new(false),
+            #[cfg(feature = "sync-cache")]
+            active: AtomicBool::new(false),
             #[cfg(feature = "sync-cache")]
             charge: Default::default(),
         }),
