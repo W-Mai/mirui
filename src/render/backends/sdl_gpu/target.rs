@@ -1,7 +1,7 @@
 use alloc::{boxed::Box, rc::Rc};
 use core::{
     any::Any,
-    cell::{Cell, RefCell, RefMut},
+    cell::{Cell, RefCell},
 };
 use sdl2::render::{RenderTarget, Texture as SdlTexture};
 use sdl2::video::Window;
@@ -39,11 +39,12 @@ pub(super) struct Target<T: RenderTarget = Window> {
 }
 
 impl<T: RenderTarget + 'static> Target<T> {
-    pub(super) fn sample_texture(
+    pub(super) fn with_sample_texture<R>(
         &self,
         device: &Rc<Device<T>>,
         direct: bool,
-    ) -> Result<Option<RefMut<'_, SdlTexture<'static>>>, RenderError> {
+        draw: impl FnOnce(&mut SdlTexture<'_>) -> R,
+    ) -> Result<Option<R>, RenderError> {
         self.validate()?;
         if self.storage.active.get() || !self.storage.completed.get() {
             return Err(RenderError::InvalidTexture);
@@ -51,11 +52,12 @@ impl<T: RenderTarget + 'static> Target<T> {
         if !direct || !self.storage.sampleable || !Rc::ptr_eq(device, &self.storage.device) {
             return Ok(None);
         }
-        self.storage
+        let mut texture = self
+            .storage
             .texture
             .try_borrow_mut()
-            .map(Some)
-            .map_err(|_| RenderError::InvalidScope)
+            .map_err(|_| RenderError::InvalidScope)?;
+        Ok(Some(draw(&mut texture)))
     }
 }
 

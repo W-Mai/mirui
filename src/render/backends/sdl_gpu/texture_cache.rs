@@ -62,7 +62,7 @@ impl<T: RenderTarget + 'static> TextureCache<T> {
             && let Some(target) = target.as_any().downcast_ref::<super::target::Target<T>>()
         {
             return Ok(target
-                .sample_texture(&self.device, composite == CompositeMode::SourceOver)?
+                .with_sample_texture(&self.device, composite == CompositeMode::SourceOver, |_| ())?
                 .is_some());
         }
         Ok(false)
@@ -76,13 +76,20 @@ impl<T: RenderTarget + 'static> TextureCache<T> {
         draw: impl FnOnce(&mut SdlTexture<'_>, TargetAlpha) -> R,
     ) -> Result<R, RenderError> {
         self.device.check()?;
+        let mut draw = Some(draw);
         if let Some(target) = src.backend_target()?
             && let Some(target) = target.as_any().downcast_ref::<super::target::Target<T>>()
-            && let Some(mut texture) =
-                target.sample_texture(&self.device, composite == CompositeMode::SourceOver)?
+            && let Some(result) = target.with_sample_texture(
+                &self.device,
+                composite == CompositeMode::SourceOver,
+                |texture| {
+                    draw.take().expect("single native draw")(texture, TargetAlpha::Premultiplied)
+                },
+            )?
         {
-            return Ok(draw(&mut texture, TargetAlpha::Premultiplied));
+            return Ok(result);
         }
+        let draw = draw.expect("unconsumed upload draw");
         let area = prepared.map(|region| region.region()).unwrap_or(
             Region::new(0, 0, u32::from(src.width), u32::from(src.height))
                 .map_err(|_| RenderError::InvalidTexture)?,

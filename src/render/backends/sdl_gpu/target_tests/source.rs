@@ -387,3 +387,48 @@ fn source_texture_borrows_reject_reentry_without_poisoning_or_allocating() {
     );
     assert!(owner.check().is_ok());
 }
+
+#[test]
+fn native_sampling_is_scoped_and_releases_its_borrow_after_callback_unwind() {
+    let owner = device();
+    let foreign = device();
+    let erased: Box<dyn core::any::Any> = target(&owner);
+    let mut target = *erased
+        .downcast::<Target<sdl2::surface::Surface<'static>>>()
+        .ok()
+        .unwrap();
+    // Exercise the borrowing contract independently of the software SDL driver's custom blend support.
+    Rc::get_mut(&mut target.storage).unwrap().sampleable = true;
+    target.storage.completed.set(true);
+    for (destination, direct) in [(&owner, false), (&foreign, true)] {
+        assert_eq!(
+            target.with_sample_texture(destination, direct, |_| panic!("unavailable sample")),
+            Ok(None::<()>)
+        );
+    }
+    assert_eq!(
+        tracked_allocations(|| {
+            for _ in 0..16 {
+                assert_eq!(
+                    target.with_sample_texture(&owner, true, |_| {
+                        assert_eq!(
+                            target.with_sample_texture(&owner, true, |_| ()),
+                            Err(RenderError::InvalidScope)
+                        );
+                        42
+                    }),
+                    Ok(Some(42))
+                );
+            }
+        }),
+        0
+    );
+    assert!(
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = target.with_sample_texture(&owner, true, |_| panic!("sample callback"));
+        }))
+        .is_err()
+    );
+    assert_eq!(target.with_sample_texture(&owner, true, |_| 7), Ok(Some(7)));
+    assert_eq!(owner.check(), Ok(()));
+}
