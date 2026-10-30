@@ -537,7 +537,15 @@ fn prepared_cpu_guards_remain_transferable_and_readable_after_owner_close() {
         texture.read_pixels().unwrap().get_pixel(3, 3),
         Color::rgb(0, 255, 0)
     );
-    drop(texture);
+    std::thread::spawn(move || {
+        assert_eq!(
+            texture.read_pixels().unwrap().get_pixel(3, 3),
+            Color::rgb(0, 255, 0)
+        );
+        drop(texture);
+    })
+    .join()
+    .unwrap();
     drop(producer);
     drop(device);
     assert_eq!(budget.allocated(), 0);

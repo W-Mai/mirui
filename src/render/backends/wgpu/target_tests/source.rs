@@ -7,6 +7,54 @@ struct SourceProducer {
     color: wgpu::Color,
 }
 
+#[cfg(feature = "sync")]
+#[test]
+fn complete_native_textures_read_on_workers_after_the_producer_exits() {
+    use crate::core::cache::Handle;
+    use crate::render::budget::MemoryBudget;
+    let Some(context) = context() else { return };
+    let weak = Arc::downgrade(&context);
+    let mut producer = SourceProducer {
+        context,
+        active: None,
+        color: wgpu::Color::GREEN,
+    };
+    let layout = PlaneLayout::packed(2, 2, ColorFormat::RGBA8888).unwrap();
+    let plan = producer.plan_target(layout).unwrap().unwrap();
+    let limit =
+        plan.storage_bytes + plan.readback_bytes + Texture::native_cpu_bytes(layout).unwrap();
+    let budget = MemoryBudget::new(limit);
+    let mut texture = Texture::native(&mut producer, plan, &budget).unwrap();
+    texture
+        .render_native(
+            &mut producer,
+            Viewport::new(2, 2, Fixed::ONE),
+            &mut [],
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+    drop(producer);
+    assert!(weak.upgrade().is_some());
+    let value = std::thread::spawn(move || {
+        let pixels = texture.read_pixels().unwrap();
+        assert_eq!(pixels.get_pixel(0, 0), Color::rgb(0, 255, 0));
+        let address = pixels.bytes().as_ptr() as usize;
+        drop(pixels);
+        (Handle::new(texture), address)
+    })
+    .join()
+    .unwrap();
+    let (value, address) = value;
+    assert_eq!(
+        value.read_pixels().unwrap().bytes().as_ptr() as usize,
+        address
+    );
+    std::thread::spawn(move || drop(value)).join().unwrap();
+    assert!(weak.upgrade().is_none());
+    assert_eq!(budget.allocated(), 0);
+    assert_eq!(budget.available(), limit);
+}
+
 impl Renderer for SourceProducer {
     type TargetState = Option<Shared<Storage>>;
 
