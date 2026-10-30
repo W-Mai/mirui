@@ -11,6 +11,43 @@ use crate::types::PhysicalRect;
 #[path = "target_scope.rs"]
 pub mod __private;
 
+/// Retains the storage charge and readback allowance until native resources are released.
+///
+/// Backend targets receive this receipt during creation. Store it beside the actual resources, including when their destruction is deferred beyond the transferable target value. Cloning a receipt retains the same charges without reserving additional capacity.
+#[cfg(feature = "sync-cache")]
+#[derive(Clone, Debug)]
+pub struct TargetStorage(crate::core::threading::Shared<StorageCharge>);
+
+#[cfg(feature = "sync-cache")]
+#[derive(Debug)]
+struct StorageCharge {
+    _allocation: super::budget::Allocation,
+    readback: super::budget::Reservation,
+    _owner: super::budget::Allocation,
+}
+
+#[cfg(feature = "sync-cache")]
+impl TargetStorage {
+    pub(crate) const OWNER_BYTES: usize =
+        core::mem::size_of::<StorageCharge>() + 2 * core::mem::size_of::<usize>();
+
+    pub(crate) fn new(
+        allocation: super::budget::Allocation,
+        readback: super::budget::Reservation,
+        owner: super::budget::Allocation,
+    ) -> Self {
+        Self(crate::core::threading::Shared::new(StorageCharge {
+            _allocation: allocation,
+            readback,
+            _owner: owner,
+        }))
+    }
+
+    pub(crate) fn readback_bytes(&self) -> usize {
+        self.0.readback.bytes()
+    }
+}
+
 /// Content policy for one independent target drawing scope.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TargetUpdate {
@@ -113,6 +150,12 @@ pub trait BackendTarget: Any {
     /// Actual native storage allocation, including attachments and padding.
     fn allocated_bytes(&self) -> usize;
 
+    /// Attach the existing storage charge to its actual native owner before publication.
+    ///
+    /// Retain the receipt through resource and staging destruction. Wrappers must forward it to the owner rather than retaining it only in a temporary proxy. Repeated attachment must return an error without replacing the first receipt.
+    #[cfg(feature = "sync-cache")]
+    fn retain_storage(&mut self, storage: TargetStorage) -> Result<(), RenderError>;
+
     /// Check device and resource validity without allocating, reading pixels or submitting work.
     fn validate(&self) -> Result<(), RenderError>;
 
@@ -132,6 +175,101 @@ pub trait BackendTarget: Any {
 #[cfg(test)]
 mod tests {
     use super::TargetAlpha::{Premultiplied, Straight};
+
+    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[test]
+    fn retained_storage_keeps_native_readback_and_receipt_charges_until_actual_destruction() {
+        use super::*;
+        use crate::render::budget::MemoryBudget;
+        use core::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::{Arc, OnceLock};
+
+        struct Raw {
+            budget: MemoryBudget,
+            drops: Arc<AtomicUsize>,
+        }
+        impl Drop for Raw {
+            fn drop(&mut self) {
+                assert_eq!(self.budget.allocated(), 32 + TargetStorage::OWNER_BYTES);
+                assert_eq!(self.budget.available(), 0);
+                self.drops.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        struct Storage {
+            _raw: Raw,
+            receipt: OnceLock<TargetStorage>,
+        }
+        struct Proxy(Arc<Storage>);
+        impl BackendTarget for Proxy {
+            fn descriptor(&self) -> TargetDescriptor {
+                TargetDescriptor {
+                    layout: PlaneLayout::packed(4, 2, super::super::texture::ColorFormat::RGBA8888)
+                        .unwrap(),
+                    alpha: Straight,
+                }
+            }
+            fn allocated_bytes(&self) -> usize {
+                32
+            }
+            fn validate(&self) -> Result<(), RenderError> {
+                Ok(())
+            }
+            fn as_any(&self) -> &dyn Any {
+                self
+            }
+            fn retain_storage(&mut self, receipt: TargetStorage) -> Result<(), RenderError> {
+                self.0
+                    .receipt
+                    .set(receipt)
+                    .map_err(|_| RenderError::InvalidScope)
+            }
+            fn read_pixels_into(
+                &self,
+                _: Region,
+                _: &mut TexturePixelsMut<'_>,
+            ) -> Result<(), RenderError> {
+                Err(RenderError::Unsupported(
+                    super::super::RenderFeature::Readback,
+                ))
+            }
+        }
+        let budget = MemoryBudget::new(32 + 96 + TargetStorage::OWNER_BYTES);
+        let charge = budget.reserve(32).unwrap().commit(32).unwrap();
+        let readback = budget.reserve(96).unwrap();
+        let owner = budget
+            .reserve(TargetStorage::OWNER_BYTES)
+            .unwrap()
+            .commit(TargetStorage::OWNER_BYTES)
+            .unwrap();
+        let receipt = TargetStorage::new(charge, readback, owner);
+        let drops = Arc::new(AtomicUsize::new(0));
+        let retained = Arc::new(Storage {
+            _raw: Raw {
+                budget: budget.clone(),
+                drops: drops.clone(),
+            },
+            receipt: OnceLock::new(),
+        });
+        let mut proxy = Proxy(retained.clone());
+        assert_eq!(
+            crate::test_support::tracked_allocations(|| proxy
+                .retain_storage(receipt.clone())
+                .unwrap()),
+            0
+        );
+        assert_eq!(
+            proxy.retain_storage(receipt.clone()),
+            Err(RenderError::InvalidScope)
+        );
+        drop(receipt);
+        std::thread::spawn(move || drop(proxy)).join().unwrap();
+        assert_eq!(drops.load(Ordering::Relaxed), 0);
+        assert_eq!(budget.available(), 0);
+        drop(retained);
+        assert_eq!(drops.load(Ordering::Relaxed), 1);
+        assert_eq!(budget.allocated(), 0);
+        assert_eq!(budget.available(), 32 + 96 + TargetStorage::OWNER_BYTES);
+    }
 
     #[test]
     fn alpha_conversion_preserves_valid_premultiplied_channels() {

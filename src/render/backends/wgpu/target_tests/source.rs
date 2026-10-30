@@ -58,6 +58,50 @@ impl Renderer for SourceProducer {
     }
 }
 
+#[cfg(feature = "sync-cache")]
+#[test]
+fn native_blit_views_keep_the_source_storage_and_readback_charge_after_texture_drop() {
+    use super::super::super::texture_pool::{new_pool, source_view};
+    use crate::render::budget::MemoryBudget;
+    use crate::render::target::TargetStorage;
+    let Some(context) = context() else { return };
+    let mut producer = SourceProducer {
+        context: context.clone(),
+        active: None,
+        color: wgpu::Color::RED,
+    };
+    let layout = PlaneLayout::packed(2, 2, ColorFormat::RGBA8888).unwrap();
+    let plan = producer.plan_target(layout).unwrap().unwrap();
+    let limit =
+        plan.storage_bytes + plan.readback_bytes + Texture::native_cpu_bytes(layout).unwrap();
+    let budget = MemoryBudget::new(limit);
+    let mut texture = Texture::native(&mut producer, plan, &budget).unwrap();
+    texture
+        .render_native(
+            &mut producer,
+            Viewport::new(2, 2, Fixed::ONE),
+            &mut [],
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+    let source = source_view(&mut new_pool(0), 0, &context, &texture, None).unwrap();
+    let weak = Rc::downgrade(source.storage.as_ref().unwrap());
+    drop(texture);
+    assert!(weak.upgrade().is_some());
+    assert_eq!(
+        budget.allocated(),
+        plan.storage_bytes + TargetStorage::OWNER_BYTES
+    );
+    assert_eq!(
+        budget.available(),
+        limit - plan.storage_bytes - plan.readback_bytes - TargetStorage::OWNER_BYTES
+    );
+    drop(source);
+    assert!(weak.upgrade().is_none());
+    assert_eq!(budget.allocated(), 0);
+    assert_eq!(budget.available(), limit);
+}
+
 #[test]
 fn native_texture_sources_share_views_or_bridge_through_the_upload_cache() {
     use super::super::super::texture_pool::{new_pool, source_view};
@@ -102,7 +146,10 @@ fn native_texture_sources_share_views_or_bridge_through_the_upload_cache() {
     assert_eq!(source.view.texture(), storage.frame.texture());
     assert_eq!(source.alpha, TargetAlpha::Premultiplied);
     assert_eq!(pool.len(), 0);
-    assert_eq!(budget.allocated(), plan.storage_bytes);
+    assert_eq!(
+        budget.allocated(),
+        plan.storage_bytes + Texture::native_state_bytes()
+    );
     assert!(texture.pixels().unwrap().is_none());
     assert!(matches!(
         source_view(&mut pool, 128, &destination, &texture, None),

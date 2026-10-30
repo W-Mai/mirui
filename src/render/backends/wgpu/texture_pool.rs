@@ -12,6 +12,8 @@ use core::cell::Cell;
 pub(super) struct BlitSource {
     pub(super) view: wgpu::TextureView,
     pub(super) alpha: TargetAlpha,
+    #[cfg(all(feature = "sync-cache", not(target_arch = "wasm32")))]
+    pub(super) storage: Option<alloc::rc::Rc<super::target::Storage>>,
 }
 
 pub(super) fn can_sample(
@@ -48,6 +50,8 @@ pub(super) fn source_view(
         return Ok(BlitSource {
             view,
             alpha: crate::render::BackendTarget::descriptor(target).alpha,
+            #[cfg(feature = "sync-cache")]
+            storage: Some(alloc::rc::Rc::clone(&target.storage)),
         });
     }
     #[cfg(target_arch = "wasm32")]
@@ -91,6 +95,8 @@ pub(super) fn source_view(
     Ok(BlitSource {
         view,
         alpha: TargetAlpha::Straight,
+        #[cfg(all(feature = "sync-cache", not(target_arch = "wasm32")))]
+        storage: None,
     })
 }
 

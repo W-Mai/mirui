@@ -12,9 +12,22 @@ use mirui::types::Color;
 struct Source {
     valid: Rc<Cell<bool>>,
     descriptor: TargetDescriptor,
+    #[cfg(feature = "sync-cache")]
+    storage: Option<mirui::render::target::TargetStorage>,
 }
 
 impl BackendTarget for Source {
+    #[cfg(feature = "sync-cache")]
+    fn retain_storage(
+        &mut self,
+        storage: mirui::render::target::TargetStorage,
+    ) -> Result<(), RenderError> {
+        if self.storage.is_some() {
+            return Err(RenderError::InvalidScope);
+        }
+        self.storage = Some(storage);
+        Ok(())
+    }
     fn descriptor(&self) -> TargetDescriptor {
         self.descriptor
     }
@@ -62,7 +75,12 @@ fn external_target_owns_its_source_and_reads_checked_cpu_storage() {
         layout: PlaneLayout::packed(1, 2, ColorFormat::RGBA8888).unwrap(),
         alpha: TargetAlpha::Premultiplied,
     };
-    let target: Box<dyn BackendTarget> = Box::new(Source { valid, descriptor });
+    let target: Box<dyn BackendTarget> = Box::new(Source {
+        valid,
+        descriptor,
+        #[cfg(feature = "sync-cache")]
+        storage: None,
+    });
     let plan = TargetPlan {
         descriptor,
         storage_bytes: 8,
@@ -111,6 +129,8 @@ fn external_region_read_uses_source_coordinates_and_checks_before_writing() {
     let source = Source {
         valid: Rc::new(Cell::new(true)),
         descriptor,
+        #[cfg(feature = "sync-cache")]
+        storage: None,
     };
     let mut bytes = [0xa5; 4];
     let mut dst = Texture::new(&mut bytes, 1, 1, ColorFormat::RGBA8888).unwrap();

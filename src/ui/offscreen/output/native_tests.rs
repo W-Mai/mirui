@@ -24,11 +24,15 @@ struct Device {
     reads: Cell<usize>,
     creates: Cell<usize>,
     samples: Cell<usize>,
+    #[cfg(feature = "sync-cache")]
+    retention_failure: Cell<bool>,
 }
 
 struct Contents {
     color: Cell<Color>,
     completed: Cell<bool>,
+    #[cfg(feature = "sync-cache")]
+    storage: core::cell::OnceCell<crate::render::target::TargetStorage>,
 }
 
 impl Default for Contents {
@@ -36,6 +40,8 @@ impl Default for Contents {
         Self {
             color: Cell::new(Color::rgba(0, 0, 0, 0)),
             completed: Cell::new(false),
+            #[cfg(feature = "sync-cache")]
+            storage: Default::default(),
         }
     }
 }
@@ -47,6 +53,19 @@ struct Target {
 }
 
 impl BackendTarget for Target {
+    #[cfg(feature = "sync-cache")]
+    fn retain_storage(
+        &mut self,
+        storage: crate::render::target::TargetStorage,
+    ) -> Result<(), RenderError> {
+        if self.device.retention_failure.get() {
+            return Err(RenderError::InvalidScope);
+        }
+        self.contents
+            .storage
+            .set(storage)
+            .map_err(|_| RenderError::InvalidScope)
+    }
     fn descriptor(&self) -> TargetDescriptor {
         self.descriptor
     }
@@ -95,6 +114,24 @@ struct Fixture {
     workspace_bytes: usize,
     bindings: usize,
     reject_storage: bool,
+}
+
+#[cfg(feature = "sync-cache")]
+#[test]
+fn rejected_storage_retention_releases_creation_charges_before_any_binding() {
+    let mut renderer = Fixture::default();
+    renderer.device.retention_failure.set(true);
+    let layout = PlaneLayout::packed(4, 4, ColorFormat::RGBA8888).unwrap();
+    let plan = renderer.plan_target(layout).unwrap().unwrap();
+    let budget = crate::render::budget::MemoryBudget::new(native_bytes());
+    assert!(matches!(
+        Texture::native(&mut renderer, plan, &budget),
+        Err(RenderError::InvalidScope)
+    ));
+    assert_eq!(renderer.device.creates.get(), 1);
+    assert_eq!(renderer.bindings, 0);
+    assert_eq!(budget.allocated(), 0);
+    assert_eq!(budget.available(), native_bytes());
 }
 
 impl Renderer for Fixture {

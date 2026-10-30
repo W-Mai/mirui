@@ -121,7 +121,7 @@ fn native_source_owns_device_and_checks_completed_contents() {
     let weak = Arc::downgrade(&context);
     let layout = PlaneLayout::packed(3, 2, ColorFormat::RGBA8888).unwrap();
     let plan = plan(&context, 1, layout).unwrap().unwrap();
-    assert_eq!(plan.storage_bytes, 24);
+    assert_eq!(plan.storage_bytes, 24 + receipt_bytes());
     assert_eq!(plan.readback_bytes, 512);
     let target = create(&context, 1, &plan).unwrap();
     assert_eq!(target.allocated_bytes(), plan.storage_bytes);
@@ -210,7 +210,7 @@ fn native_target_plan_matches_attachments_and_rejects_invalid_requests() {
         let target = create(&context, samples, &plan).unwrap();
         assert_eq!(
             plan.storage_bytes,
-            layout.required_bytes() * if samples == 1 { 1 } else { 5 }
+            layout.required_bytes() * if samples == 1 { 1 } else { 5 } + receipt_bytes()
         );
         let frame = &target
             .as_any()

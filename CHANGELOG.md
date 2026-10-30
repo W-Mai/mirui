@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Shared source-block preparation retains opened readers and completed buffers while waiting for cache access, including cancellation and provider failures.
 - Shared byte sources support cross-thread ownership and immutable mappings while keeping provider operations exclusively polled and pending I/O attached to its original retirement storage.
 - Decoded images share synchronized cache ownership and budgeted preparation state; pixel guards retain immutable storage across source shutdown, and polling registers bounded waiters before yielding on shared cache or mirror contention.
+- Shared native targets retain storage and readback charges in their actual backend owners; queued WGPU source draws retain those owners through submission.
 
 ## [0.53.0] - 2026-10-29
 

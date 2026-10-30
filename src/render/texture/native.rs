@@ -9,6 +9,13 @@ use super::pixel_cache::PixelCache;
 use super::{AlphaMode, Region, TexBuf, Texture, TexturePixels, TexturePixelsMut, state_error};
 use crate::core::cache::HasSize;
 use crate::render::budget::{Allocation, MemoryBudget, Reservation};
+#[cfg(feature = "sync-cache")]
+use crate::render::target::TargetStorage;
+
+#[cfg(feature = "sync-cache")]
+type StorageReceipt = TargetStorage;
+#[cfg(not(feature = "sync-cache"))]
+type StorageReceipt = Allocation;
 use crate::render::{
     BackendTarget, PlaneLayout, RenderError, RenderResource, Renderer, TargetPlan, TargetUpdate,
 };
@@ -19,7 +26,8 @@ pub(super) struct NativeTexture {
     mirror: State<PixelCache>,
     #[cfg(feature = "sync-cache")]
     _mirror_metadata: Allocation,
-    _storage: Allocation,
+    _storage: StorageReceipt,
+    #[cfg(not(feature = "sync-cache"))]
     readback: Reservation,
     cache_bytes: usize,
     #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
@@ -48,9 +56,15 @@ impl NativeTexture {
             .ok_or_else(capacity_error)?;
         #[cfg(feature = "sync-cache")]
         let metadata = budget
-            .reserve(Texture::native_state_bytes())
+            .reserve(Texture::native_control_bytes())
             .ok_or_else(capacity_error)?
-            .commit(Texture::native_state_bytes())
+            .commit(Texture::native_control_bytes())
+            .map_err(|_| capacity_error())?;
+        #[cfg(feature = "sync-cache")]
+        let owner = budget
+            .reserve(TargetStorage::OWNER_BYTES)
+            .ok_or_else(capacity_error)?
+            .commit(TargetStorage::OWNER_BYTES)
             .map_err(|_| capacity_error())?;
         let readback = budget
             .reserve(plan.readback_bytes)
@@ -65,13 +79,21 @@ impl NativeTexture {
             .map_err(|_| capacity_error())?;
         let cache_bytes = storage.bytes() + mirror.bytes() + readback.bytes();
         #[cfg(feature = "sync-cache")]
-        let cache_bytes = cache_bytes + metadata.bytes();
+        let cache_bytes = cache_bytes + metadata.bytes() + owner.bytes();
+        #[cfg(feature = "sync-cache")]
+        let (target, storage) = {
+            let storage = TargetStorage::new(storage, readback, owner);
+            let mut target = target;
+            target.retain_storage(storage.clone())?;
+            (target, storage)
+        };
         Ok(Self {
             target,
             mirror: State::new(PixelCache::new(mirror.retain(), layout)),
             #[cfg(feature = "sync-cache")]
             _mirror_metadata: metadata,
             _storage: storage,
+            #[cfg(not(feature = "sync-cache"))]
             readback,
             cache_bytes,
             #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
@@ -237,12 +259,19 @@ impl Texture<'_> {
     pub(crate) const fn native_state_bytes() -> usize {
         #[cfg(feature = "sync-cache")]
         {
-            State::<PixelCache>::EXTRA_BYTES + core::mem::size_of::<Allocation>()
+            Self::native_control_bytes() + TargetStorage::OWNER_BYTES
         }
         #[cfg(not(feature = "sync-cache"))]
         {
             State::<PixelCache>::EXTRA_BYTES
         }
+    }
+
+    #[cfg(feature = "sync-cache")]
+    const fn native_control_bytes() -> usize {
+        let previous = core::mem::size_of::<Allocation>() + core::mem::size_of::<Reservation>();
+        let current = core::mem::size_of::<Allocation>() + core::mem::size_of::<StorageReceipt>();
+        State::<PixelCache>::EXTRA_BYTES + current - previous
     }
     /// Inspect completed native storage without reading pixels, allocating or submitting work.
     ///
@@ -301,9 +330,13 @@ impl Texture<'_> {
         let TexBuf::Native(native) = &self.buf else {
             return Ok(false);
         };
+        #[cfg(feature = "sync-cache")]
+        let readback_bytes = native._storage.readback_bytes();
+        #[cfg(not(feature = "sync-cache"))]
+        let readback_bytes = native.readback.bytes();
         Ok(renderer.can_reuse_target(&*native.target, plan)?
             && native.workspace_bytes == plan.workspace_bytes
-            && native.readback.bytes() == plan.readback_bytes)
+            && readback_bytes == plan.readback_bytes)
     }
 
     pub(crate) fn target_workspace_bytes(&self) -> usize {
@@ -360,9 +393,32 @@ mod tests {
         last_region: Cell<Option<Region>>,
     }
 
-    struct Target(Rc<Device>, PlaneLayout);
+    struct Target(
+        Rc<Device>,
+        PlaneLayout,
+        #[cfg(feature = "sync-cache")] Option<TargetStorage>,
+    );
+
+    impl Target {
+        fn new(device: Rc<Device>, layout: PlaneLayout) -> Self {
+            Self(
+                device,
+                layout,
+                #[cfg(feature = "sync-cache")]
+                None,
+            )
+        }
+    }
 
     impl BackendTarget for Target {
+        #[cfg(feature = "sync-cache")]
+        fn retain_storage(&mut self, storage: TargetStorage) -> Result<(), RenderError> {
+            if self.2.is_some() {
+                return Err(RenderError::InvalidScope);
+            }
+            self.2 = Some(storage);
+            Ok(())
+        }
         fn descriptor(&self) -> TargetDescriptor {
             TargetDescriptor {
                 layout: self.1,
@@ -418,8 +474,27 @@ mod tests {
         let storage_bytes = layout.required_bytes();
         let mirror_bytes = Texture::native_cpu_bytes(layout).unwrap();
         let budget = MemoryBudget::new(storage_bytes + mirror_bytes);
+        let storage = budget
+            .reserve(storage_bytes)
+            .unwrap()
+            .commit(storage_bytes)
+            .unwrap();
+        let readback = budget.reserve(0).unwrap();
+        let target = Target::new(device.clone(), layout);
+        #[cfg(feature = "sync-cache")]
+        let (storage, target) = {
+            let owner = budget
+                .reserve(TargetStorage::OWNER_BYTES)
+                .unwrap()
+                .commit(TargetStorage::OWNER_BYTES)
+                .unwrap();
+            let storage = TargetStorage::new(storage, readback, owner);
+            let mut target = target;
+            target.retain_storage(storage.clone()).unwrap();
+            (storage, target)
+        };
         let source = Rc::new(NativeTexture {
-            target: Box::new(Target(device.clone(), layout)),
+            target: Box::new(target),
             mirror: State::new(PixelCache::new(
                 budget
                     .reserve(Texture::native_pixel_bytes(layout).unwrap())
@@ -429,16 +504,13 @@ mod tests {
             )),
             #[cfg(feature = "sync-cache")]
             _mirror_metadata: budget
-                .reserve(Texture::native_state_bytes())
+                .reserve(Texture::native_control_bytes())
                 .unwrap()
-                .commit(Texture::native_state_bytes())
+                .commit(Texture::native_control_bytes())
                 .unwrap(),
-            _storage: budget
-                .reserve(storage_bytes)
-                .unwrap()
-                .commit(storage_bytes)
-                .unwrap(),
-            readback: budget.reserve(0).unwrap(),
+            _storage: storage,
+            #[cfg(not(feature = "sync-cache"))]
+            readback,
             cache_bytes: storage_bytes + mirror_bytes,
             #[cfg(any(feature = "sdl-gpu", feature = "wgpu", target_arch = "wasm32"))]
             identity: Shared::new(()),
@@ -650,5 +722,50 @@ mod tests {
         };
         assert_eq!(pixels.unwrap().bytes(), &[0x66; 16]);
         assert_eq!(device.reads.get(), 1);
+    }
+
+    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[test]
+    fn public_region_geometry_is_checked_before_waiting_for_a_busy_mirror() {
+        use std::sync::Barrier;
+        let (source, device, _) = source();
+        let source = Rc::try_unwrap(source).ok().unwrap();
+        let layout = source.layout;
+        let texture = Texture::from_layout(TexBuf::Native(Box::new(source)), layout, true);
+        let TexBuf::Native(source) = &texture.buf else {
+            unreachable!()
+        };
+        let mirror = &source.mirror;
+        let acquired = Barrier::new(2);
+        let release = Barrier::new(2);
+        let wake = crate::core::resource::wake::TaskWake::new();
+        wake.take_ready();
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let lease = mirror.try_take().unwrap();
+                acquired.wait();
+                release.wait();
+                drop(lease);
+            });
+            acquired.wait();
+            let mut cx = Context::from_waker(wake.waker());
+            assert!(matches!(
+                texture.poll_pixels_in(Region::new(1, 1, 2, 2).unwrap(), &mut cx),
+                Poll::Ready(Err(RenderError::InvalidTexture))
+            ));
+            assert!(matches!(
+                texture.poll_pixels_in(Region::new(0, 0, 0, 0).unwrap(), &mut cx),
+                Poll::Ready(Ok(_))
+            ));
+            assert!(
+                texture
+                    .poll_pixels_in(source.full_region(), &mut cx)
+                    .is_pending()
+            );
+            assert!(texture.poll_read_pixels(&mut cx).is_pending());
+            assert_eq!(device.reads.get(), 0);
+            release.wait();
+        });
+        assert!(wake.take_ready());
     }
 }

@@ -10,9 +10,33 @@ use mirui::types::{Fixed, Viewport};
 #[path = "support/tracking_allocator.rs"]
 mod tracking_allocator;
 
-struct Target(u8);
+struct Target(
+    u8,
+    #[cfg(feature = "sync-cache")] Option<mirui::render::target::TargetStorage>,
+);
+
+impl Target {
+    fn new(value: u8) -> Self {
+        Self(
+            value,
+            #[cfg(feature = "sync-cache")]
+            None,
+        )
+    }
+}
 
 impl BackendTarget for Target {
+    #[cfg(feature = "sync-cache")]
+    fn retain_storage(
+        &mut self,
+        storage: mirui::render::target::TargetStorage,
+    ) -> Result<(), RenderError> {
+        if self.1.is_some() {
+            return Err(RenderError::InvalidScope);
+        }
+        self.1 = Some(storage);
+        Ok(())
+    }
     fn descriptor(&self) -> TargetDescriptor {
         TargetDescriptor {
             layout: PlaneLayout::packed(1, 1, ColorFormat::RGBA8888).unwrap(),
@@ -115,8 +139,8 @@ fn dynamic_scopes_restore_nested_targets_without_allocating() {
         events: Vec::with_capacity(16),
         ..Default::default()
     };
-    let mut outer = Target(1);
-    let mut inner = Target(2);
+    let mut outer = Target::new(1);
+    let mut inner = Target::new(2);
     let allocations = tracking_allocator::tracked_allocations(|| {
         let erased: &mut dyn Renderer = &mut renderer;
         erased
@@ -167,7 +191,7 @@ fn preparation_failures_never_execute_or_restore_an_unbound_target() {
             ..Default::default()
         };
         let result = renderer.with_target(
-            &mut Target(target_id),
+            &mut Target::new(target_id),
             viewport(),
             TargetUpdate::Rebuild,
             &mut [],
@@ -186,7 +210,7 @@ fn child_flush_failure_restores_as_incomplete() {
         ..Default::default()
     };
     let result = renderer.with_target(
-        &mut Target(1),
+        &mut Target::new(1),
         viewport(),
         TargetUpdate::Rebuild,
         &mut [],
@@ -204,7 +228,7 @@ fn body_failure_skips_child_flush_and_preserves_first_error() {
         ..Default::default()
     };
     let result = renderer.with_target(
-        &mut Target(1),
+        &mut Target::new(1),
         viewport(),
         TargetUpdate::Rebuild,
         &mut [],
@@ -223,7 +247,7 @@ fn successful_body_reports_restore_failure() {
         ..Default::default()
     };
     let result = renderer.with_target(
-        &mut Target(1),
+        &mut Target::new(1),
         viewport(),
         TargetUpdate::Rebuild,
         &mut [],
@@ -239,13 +263,13 @@ fn unwind_restores_each_nested_target_once() {
     let mut renderer = Recorder::default();
     let result = catch_unwind(AssertUnwindSafe(|| {
         renderer.with_target(
-            &mut Target(1),
+            &mut Target::new(1),
             viewport(),
             TargetUpdate::Rebuild,
             &mut [],
             &mut |r| {
                 r.with_target(
-                    &mut Target(2),
+                    &mut Target::new(2),
                     viewport(),
                     TargetUpdate::Rebuild,
                     &mut [],
@@ -267,14 +291,14 @@ fn caught_inner_error_does_not_fail_the_outer_scope() {
     let mut renderer = Recorder::default();
     renderer
         .with_target(
-            &mut Target(1),
+            &mut Target::new(1),
             viewport(),
             TargetUpdate::Rebuild,
             &mut [],
             &mut |r| {
                 assert_eq!(
                     r.with_target(
-                        &mut Target(2),
+                        &mut Target::new(2),
                         viewport(),
                         TargetUpdate::Rebuild,
                         &mut [],

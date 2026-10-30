@@ -124,21 +124,7 @@ impl Texture<'_> {
         let resident = self.pixels_in(region);
         #[cfg(feature = "sync-cache")]
         let resident = match resident {
-            Err(RenderError::ResourcePending) => {
-                if region.right() > u32::from(self.width)
-                    || region.bottom() > u32::from(self.height)
-                {
-                    return Poll::Ready(Err(RenderError::InvalidTexture));
-                }
-                if region.is_empty() {
-                    return Poll::Ready(Ok(TextureRegion {
-                        region,
-                        format: self.format(),
-                        pixels: None,
-                    }));
-                }
-                Ok(None)
-            }
+            Err(RenderError::ResourcePending) => Ok(None),
             result => result,
         };
         if let Some(ready) = resident? {

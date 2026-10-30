@@ -4,9 +4,33 @@ use crate::render::texture::{ColorFormat, TexturePixelsMut};
 use crate::render::{TargetAlpha, TargetDescriptor, TargetUpdate};
 use core::any::Any;
 
-struct Target(TargetDescriptor);
+struct Target(
+    TargetDescriptor,
+    #[cfg(feature = "sync-cache")] Option<crate::render::target::TargetStorage>,
+);
+
+impl Target {
+    fn new(descriptor: TargetDescriptor) -> Self {
+        Self(
+            descriptor,
+            #[cfg(feature = "sync-cache")]
+            None,
+        )
+    }
+}
 
 impl BackendTarget for Target {
+    #[cfg(feature = "sync-cache")]
+    fn retain_storage(
+        &mut self,
+        storage: crate::render::target::TargetStorage,
+    ) -> Result<(), RenderError> {
+        if self.1.is_some() {
+            return Err(RenderError::InvalidScope);
+        }
+        self.1 = Some(storage);
+        Ok(())
+    }
     fn descriptor(&self) -> TargetDescriptor {
         self.0
     }
@@ -80,7 +104,7 @@ impl Renderer for Recorder {
     }
 
     fn create_target(&mut self, plan: &TargetPlan) -> Result<Box<dyn BackendTarget>, RenderError> {
-        Ok(Box::new(Target(plan.descriptor)))
+        Ok(Box::new(Target::new(plan.descriptor)))
     }
 
     fn can_reuse_target(

@@ -25,6 +25,8 @@ pub(super) struct Storage {
     readback: RefCell<Readback>,
     pub(super) completed: Cell<bool>,
     pub(super) active: Cell<bool>,
+    #[cfg(feature = "sync-cache")]
+    charge: std::sync::OnceLock<crate::render::target::TargetStorage>,
 }
 
 pub(super) struct Target {
@@ -67,6 +69,16 @@ impl BackendTarget for Target {
     fn allocated_bytes(&self) -> usize {
         self.storage.bytes
     }
+    #[cfg(feature = "sync-cache")]
+    fn retain_storage(
+        &mut self,
+        storage: crate::render::target::TargetStorage,
+    ) -> Result<(), RenderError> {
+        self.storage
+            .charge
+            .set(storage)
+            .map_err(|_| RenderError::InvalidScope)
+    }
     fn validate(&self) -> Result<(), RenderError> {
         self.storage.context.check()
     }
@@ -95,6 +107,17 @@ impl BackendTarget for Target {
                 destination,
             )?;
         self.storage.context.check()
+    }
+}
+
+const fn receipt_bytes() -> usize {
+    #[cfg(feature = "sync-cache")]
+    {
+        core::mem::size_of::<std::sync::OnceLock<crate::render::target::TargetStorage>>()
+    }
+    #[cfg(not(feature = "sync-cache"))]
+    {
+        0
     }
 }
 
@@ -136,6 +159,7 @@ pub(super) fn plan(
         storage_bytes: layout
             .required_bytes()
             .checked_mul(planes)
+            .and_then(|bytes| bytes.checked_add(receipt_bytes()))
             .ok_or(RenderError::ResourceLimit(RenderResource::Target))?,
         workspace_bytes: 0,
         readback_bytes: Readback::required_bytes(&context.device, layout.width(), layout.height())?,
@@ -356,6 +380,8 @@ pub(super) fn create(
             readback: Default::default(),
             completed: Cell::new(false),
             active: Cell::new(false),
+            #[cfg(feature = "sync-cache")]
+            charge: Default::default(),
         }),
     }))
 }

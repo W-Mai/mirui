@@ -19,6 +19,8 @@ pub(super) struct Slot {
     pub value: Cell<u8>,
     pub alpha: Cell<u8>,
     pub completed: Cell<bool>,
+    #[cfg(feature = "sync-cache")]
+    storage: std::cell::OnceCell<mirui::render::target::TargetStorage>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -35,6 +37,16 @@ struct Target {
 }
 
 impl BackendTarget for Target {
+    #[cfg(feature = "sync-cache")]
+    fn retain_storage(
+        &mut self,
+        storage: mirui::render::target::TargetStorage,
+    ) -> Result<(), RenderError> {
+        self.slot
+            .storage
+            .set(storage)
+            .map_err(|_| RenderError::InvalidScope)
+    }
     fn descriptor(&self) -> TargetDescriptor {
         self.descriptor
     }
@@ -98,6 +110,8 @@ pub(super) fn create(
             value: Cell::new(0),
             alpha: Cell::new(0),
             completed: Cell::new(false),
+            #[cfg(feature = "sync-cache")]
+            storage: Default::default(),
         }),
         descriptor: requested.descriptor,
     }))

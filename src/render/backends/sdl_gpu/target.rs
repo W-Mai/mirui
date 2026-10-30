@@ -30,6 +30,8 @@ struct Storage<T: RenderTarget> {
     generation: u64,
     completed: Cell<bool>,
     active: Cell<bool>,
+    #[cfg(feature = "sync-cache")]
+    charge: core::cell::OnceCell<crate::render::target::TargetStorage>,
 }
 
 pub(super) struct Target<T: RenderTarget = Window> {
@@ -75,7 +77,17 @@ impl<T: RenderTarget + 'static> BackendTarget for Target<T> {
         self.storage.descriptor
     }
     fn allocated_bytes(&self) -> usize {
-        self.storage.descriptor.layout.required_bytes()
+        self.storage.descriptor.layout.required_bytes() + receipt_bytes()
+    }
+    #[cfg(feature = "sync-cache")]
+    fn retain_storage(
+        &mut self,
+        storage: crate::render::target::TargetStorage,
+    ) -> Result<(), RenderError> {
+        self.storage
+            .charge
+            .set(storage)
+            .map_err(|_| RenderError::InvalidScope)
     }
     fn validate(&self) -> Result<(), RenderError> {
         self.storage.device.check()?;
@@ -125,6 +137,17 @@ impl<T: RenderTarget + 'static> BackendTarget for Target<T> {
     }
 }
 
+const fn receipt_bytes() -> usize {
+    #[cfg(feature = "sync-cache")]
+    {
+        core::mem::size_of::<core::cell::OnceCell<crate::render::target::TargetStorage>>()
+    }
+    #[cfg(not(feature = "sync-cache"))]
+    {
+        0
+    }
+}
+
 pub(super) fn plan<T: RenderTarget>(
     device: &Device<T>,
     layout: PlaneLayout,
@@ -145,7 +168,9 @@ pub(super) fn plan<T: RenderTarget>(
             layout,
             alpha: TargetAlpha::Premultiplied,
         },
-        storage_bytes: layout.required_bytes(),
+        storage_bytes: layout.required_bytes().checked_add(receipt_bytes()).ok_or(
+            RenderError::ResourceLimit(crate::render::RenderResource::Target),
+        )?,
         workspace_bytes: 0,
         readback_bytes: 0,
     }))
@@ -217,6 +242,8 @@ pub(super) fn create<T: RenderTarget + 'static>(
             generation: device.generation(),
             completed: Cell::new(false),
             active: Cell::new(false),
+            #[cfg(feature = "sync-cache")]
+            charge: Default::default(),
         }),
     }))
 }
