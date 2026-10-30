@@ -7,6 +7,7 @@ use super::source_read::SourceRead;
 use super::wake::TaskWake;
 use super::{AssetError, AssetProvider, AssetReader, SourceInfo};
 use crate::core::cache::MaxSize;
+use crate::core::threading::{Shared, State};
 use alloc::{borrow::Cow, boxed::Box, rc::Rc, vec::Vec};
 use core::{
     cell::RefCell,
@@ -101,10 +102,12 @@ type ReadSlot<R> = Option<FutureSlot<<R as AssetReader>::Read>>;
 
 struct TypedSession<P: AssetProvider> {
     provider: Rc<P>,
-    pool: Rc<RefCell<BlockPool>>,
+    pool: Shared<State<BlockPool>>,
     opening: FutureSlot<P::Open>,
     read_slot: ReadSlot<P::Reader>,
     reader: Option<SourceRead<P::Reader>>,
+    #[cfg(feature = "sync-cache")]
+    opened: Option<P::Reader>,
     prefix: Box<[u8]>,
     filled: usize,
     eof: bool,
@@ -120,16 +123,30 @@ impl<P: AssetProvider> Session for TypedSession<P> {
         if self.reader.is_some() {
             return Poll::Ready(Ok(()));
         }
-        if !self.opening.is_active() {
-            return Poll::Ready(Err(AssetError::InvalidSource));
+        #[cfg(feature = "sync-cache")]
+        if self.opened.is_none() {
+            if !self.opening.is_active() {
+                return Poll::Ready(Err(AssetError::InvalidSource));
+            }
+            self.opened = Some(core::task::ready!(self.opening.poll(cx))?);
         }
-        let result = core::task::ready!(self.opening.poll(cx));
-        let reader = result?;
-        self.reader = Some(SourceRead::with_storage(
-            reader,
+        #[cfg(feature = "sync-cache")]
+        let opened = &mut self.opened;
+        #[cfg(not(feature = "sync-cache"))]
+        let mut opened = {
+            if !self.opening.is_active() {
+                return Poll::Ready(Err(AssetError::InvalidSource));
+            }
+            Some(core::task::ready!(self.opening.poll(cx))?)
+        };
+        #[cfg(not(feature = "sync-cache"))]
+        let opened = &mut opened;
+        self.reader = Some(core::task::ready!(SourceRead::poll_new(
+            opened,
             Some(self.pool.clone()),
             &mut self.read_slot,
-        )?);
+            cx,
+        ))?);
         Poll::Ready(Ok(()))
     }
     fn info(&self) -> Option<SourceInfo> {
@@ -216,6 +233,10 @@ impl<P: AssetProvider> Session for TypedSession<P> {
         Poll::Ready(())
     }
     fn reset(&mut self) {
+        #[cfg(feature = "sync-cache")]
+        {
+            self.opened = None;
+        }
         if let Some(reader) = self.reader.take() {
             if let Some(storage) = reader.into_storage() {
                 self.read_slot = Some(storage);
@@ -435,7 +456,7 @@ impl Drop for AssetSource {
 pub(crate) struct AssetSources {
     entries: Vec<(&'static str, Rc<ProviderSlots>)>,
     config: AssetCacheConfig,
-    pool: Rc<RefCell<BlockPool>>,
+    pool: Shared<State<BlockPool>>,
     wake: Rc<TaskWake>,
 }
 impl AssetSources {
@@ -452,7 +473,7 @@ impl AssetSources {
         Ok(Self {
             entries: Vec::new(),
             config,
-            pool: Rc::new(RefCell::new(BlockPool::new(
+            pool: Shared::new(State::new(BlockPool::new(
                 config.block_size,
                 config.budget,
                 config.max_in_flight,
@@ -485,6 +506,8 @@ impl AssetSources {
                 opening: FutureSlot::new(),
                 read_slot: Some(FutureSlot::new()),
                 reader: None,
+                #[cfg(feature = "sync-cache")]
+                opened: None,
                 prefix: prefix.into_boxed_slice(),
                 filled: 0,
                 eof: false,

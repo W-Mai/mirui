@@ -6,11 +6,16 @@ use super::{
     AssetBuffer, AssetError, AssetReader, ReadPosition, SourceAccess, SourceConsistency, SourceInfo,
 };
 use crate::core::cache::Handle;
-use alloc::rc::Rc;
-use core::{
-    cell::RefCell,
-    task::{Context, Poll},
-};
+use crate::core::threading::{AccessError, Shared, State};
+use core::task::{Context, Poll};
+
+fn state_error(error: AccessError) -> AssetError {
+    match error {
+        AccessError::Reentrant | AccessError::Busy => AssetError::InvalidSource,
+        #[cfg(feature = "sync-cache")]
+        AccessError::Capacity => AssetError::Capacity,
+    }
+}
 
 struct Reading {
     write: BlockWrite,
@@ -18,13 +23,15 @@ struct Reading {
     address: usize,
     filled: usize,
     end: usize,
+    #[cfg(feature = "sync-cache")]
+    complete: Option<super::ReadComplete>,
 }
 
 pub(super) struct SourceRead<R: AssetReader> {
     reader: R,
     info: SourceInfo,
     identity: u64,
-    pool: Option<Rc<RefCell<BlockPool>>>,
+    pool: Option<Shared<State<BlockPool>>>,
     future: Option<FutureSlot<R::Read>>,
     reading: Option<Reading>,
     cursor: u64,
@@ -39,9 +46,6 @@ struct PollGuard<'a, R: AssetReader> {
 impl<R: AssetReader> Drop for PollGuard<'_, R> {
     fn drop(&mut self) {
         if !self.completed {
-            if let Some(reading) = self.source.reading.take() {
-                self.source.pool().borrow_mut().abandon(reading.write);
-            }
             if let Some(future) = &mut self.source.future {
                 // A provider must make dropping its operation safe even while physical work remains.
                 future.set(None);
@@ -52,40 +56,52 @@ impl<R: AssetReader> Drop for PollGuard<'_, R> {
 
 impl<R: AssetReader> SourceRead<R> {
     #[cfg(test)]
-    pub fn new(reader: R, pool: Option<Rc<RefCell<BlockPool>>>) -> Result<Self, AssetError> {
+    pub fn new(reader: R, pool: Option<Shared<State<BlockPool>>>) -> Result<Self, AssetError> {
         let mut storage = reader.mapped().is_none().then(FutureSlot::new);
-        Self::with_storage(reader, pool, &mut storage)
+        match Self::poll_new(
+            &mut Some(reader),
+            pool,
+            &mut storage,
+            &mut Context::from_waker(core::task::Waker::noop()),
+        ) {
+            Poll::Ready(result) => result,
+            Poll::Pending => panic!("test source construction must have available storage"),
+        }
     }
 
-    pub fn with_storage(
-        reader: R,
-        pool: Option<Rc<RefCell<BlockPool>>>,
+    pub fn poll_new(
+        reader: &mut Option<R>,
+        pool: Option<Shared<State<BlockPool>>>,
         storage: &mut Option<FutureSlot<R::Read>>,
-    ) -> Result<Self, AssetError> {
-        let info = reader.info();
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<Self, AssetError>> {
+        let reader_ref = reader.as_ref().ok_or(AssetError::InvalidSource)?;
+        let info = reader_ref.info();
         if info.consistency != SourceConsistency::Stable {
-            return Err(AssetError::Unsupported);
+            return Poll::Ready(Err(AssetError::Unsupported));
         }
-        let mapped = reader.mapped();
+        let mapped = reader_ref.mapped();
         if let Some(bytes) = mapped {
             if info.len != u64::try_from(bytes.len()).ok() {
-                return Err(AssetError::InvalidSource);
+                return Poll::Ready(Err(AssetError::InvalidSource));
             }
         }
         if mapped.is_none() && pool.is_none() {
-            return Err(AssetError::Capacity);
+            return Poll::Ready(Err(AssetError::Capacity));
         }
-        let identity = match &pool {
-            Some(pool) => pool.borrow_mut().new_source()?,
-            None => 0,
+        let identity = match (&pool, mapped.is_none()) {
+            (Some(pool), true) => core::task::ready!(pool.poll_take(cx))
+                .map_err(state_error)?
+                .new_source()?,
+            _ => 0,
         };
         let future = if mapped.is_none() {
             Some(storage.take().ok_or(AssetError::Capacity)?)
         } else {
             None
         };
-        Ok(Self {
-            reader,
+        Poll::Ready(Ok(Self {
+            reader: reader.take().unwrap(),
             info,
             identity,
             pool,
@@ -93,7 +109,7 @@ impl<R: AssetReader> SourceRead<R> {
             reading: None,
             cursor: 0,
             last: None,
-        })
+        }))
     }
 
     pub fn into_storage(self) -> Option<FutureSlot<R::Read>> {
@@ -112,7 +128,18 @@ impl<R: AssetReader> SourceRead<R> {
         self.reading.is_some()
     }
 
-    fn pool(&self) -> &RefCell<BlockPool> {
+    fn abandoned(&self) -> bool {
+        if self.reading.is_none() {
+            return false;
+        }
+        #[cfg(feature = "sync-cache")]
+        if self.reading.as_ref().unwrap().complete.is_some() {
+            return false;
+        }
+        !self.future.as_ref().is_some_and(FutureSlot::is_active)
+    }
+
+    fn pool(&self) -> &State<BlockPool> {
         self.pool
             .as_ref()
             .expect("unmapped reader has block storage")
@@ -181,13 +208,18 @@ impl<R: AssetReader> SourceRead<R> {
         if self.future.is_none() {
             return Poll::Ready(Err(AssetError::InvalidSource));
         }
+        if self.abandoned() {
+            return Poll::Ready(Err(AssetError::InvalidSource));
+        }
         if let Some(block) = &self.last {
             if let Some(n) = Self::copy_block(block, offset, dst) {
                 return Poll::Ready(Ok(n));
             }
         }
         self.last = None;
-        let cached = self.pool().borrow_mut().acquire(self.identity, offset);
+        let cached = core::task::ready!(self.pool().poll_take(cx))
+            .map_err(state_error)?
+            .acquire(self.identity, offset);
         if let Some(block) = cached {
             let n = Self::copy_block(&block, offset, dst).ok_or(AssetError::InvalidSource)?;
             self.last = Some(block);
@@ -201,8 +233,9 @@ impl<R: AssetReader> SourceRead<R> {
                 cx.waker().wake_by_ref();
                 return Poll::Pending;
             }
+            let mut pool = core::task::ready!(self.pool().poll_take(cx)).map_err(state_error)?;
             *steps -= 1;
-            let size = self.pool().borrow().block_size();
+            let size = pool.block_size();
             let start = match self.info.access {
                 SourceAccess::Random => {
                     offset - offset % u64::try_from(size).map_err(|_| AssetError::OutOfBounds)?
@@ -219,7 +252,8 @@ impl<R: AssetReader> SourceRead<R> {
                     .min(u64::try_from(size).map_err(|_| AssetError::OutOfBounds)?),
             )
             .map_err(|_| AssetError::OutOfBounds)?;
-            let (write, mut buffer) = self.pool().borrow_mut().begin(key)?;
+            let (write, mut buffer) = pool.begin(key)?;
+            drop(pool);
             buffer.end = end;
             let reading = Reading {
                 write,
@@ -227,6 +261,8 @@ impl<R: AssetReader> SourceRead<R> {
                 address: buffer.bytes.as_ptr() as usize,
                 filled: 0,
                 end: buffer.end,
+                #[cfg(feature = "sync-cache")]
+                complete: None,
             };
             self.reading = Some(reading);
             self.start_read(buffer);
@@ -255,22 +291,48 @@ impl<R: AssetReader> SourceRead<R> {
         retiring: bool,
     ) -> Poll<Result<Option<Handle<Block>>, AssetError>> {
         loop {
-            if *steps == 0 {
-                cx.waker().wake_by_ref();
-                return Poll::Pending;
+            if self.abandoned() {
+                let pool = self
+                    .pool
+                    .as_deref()
+                    .expect("unmapped reader has block storage");
+                let mut pool = core::task::ready!(pool.poll_take(cx)).map_err(state_error)?;
+                // The provider owns any physically retained bytes; this slot cannot be reused.
+                let reading = self.reading.take().unwrap();
+                pool.abandon(reading.write);
+                return Poll::Ready(Err(AssetError::InvalidSource));
             }
-            *steps -= 1;
-            let future = self.future.as_mut().unwrap();
-            let complete = core::task::ready!(future.poll(cx));
+            #[cfg(feature = "sync-cache")]
+            if self.reading.as_ref().unwrap().complete.is_none() {
+                if *steps == 0 {
+                    cx.waker().wake_by_ref();
+                    return Poll::Pending;
+                }
+                *steps -= 1;
+                let future = self.future.as_mut().unwrap();
+                let complete = core::task::ready!(future.poll(cx));
+                self.reading.as_mut().unwrap().complete = Some(complete);
+            }
+            #[cfg(not(feature = "sync-cache"))]
+            let complete = {
+                if *steps == 0 {
+                    cx.waker().wake_by_ref();
+                    return Poll::Pending;
+                }
+                *steps -= 1;
+                core::task::ready!(self.future.as_mut().unwrap().poll(cx))
+            };
+            let pool = self
+                .pool
+                .as_deref()
+                .expect("unmapped reader has block storage");
+            let mut pool = core::task::ready!(pool.poll_take(cx)).map_err(state_error)?;
             let mut reading = self.reading.take().unwrap();
+            #[cfg(feature = "sync-cache")]
+            let complete = reading.complete.take().unwrap();
             let mut buffer = complete.buffer;
             if retiring {
-                return Poll::Ready(
-                    self.pool()
-                        .borrow_mut()
-                        .abort(reading.write, buffer)
-                        .map(|()| None),
-                );
+                return Poll::Ready(pool.abort(reading.write, buffer).map(|()| None));
             }
             let result = complete.result.and_then(|progress| {
                 if buffer.bytes.as_ptr() as usize != reading.address
@@ -305,19 +367,18 @@ impl<R: AssetReader> SourceRead<R> {
             match result {
                 Ok(false) if reading.filled < reading.end => {
                     buffer.start = reading.filled;
+                    drop(pool);
                     self.reading = Some(reading);
                     self.start_read(buffer);
                 }
                 result => {
                     return Poll::Ready(
-                        self.pool()
-                            .borrow_mut()
-                            .finish(
-                                reading.write,
-                                buffer,
-                                result.map(|eof| (reading.filled, eof)),
-                            )
-                            .map(Some),
+                        pool.finish(
+                            reading.write,
+                            buffer,
+                            result.map(|eof| (reading.filled, eof)),
+                        )
+                        .map(Some),
                     );
                 }
             }
@@ -348,6 +409,8 @@ mod tests {
     use super::super::{ReadComplete, ReadProgress};
     use super::*;
     use crate::core::cache::MaxSize;
+    use alloc::rc::Rc;
+    use core::cell::RefCell;
     use core::{cell::Cell, future::Future, marker::PhantomPinned, pin::Pin, task::Waker};
 
     #[test]
@@ -366,9 +429,7 @@ mod tests {
                 panic!("provider failed before returning its operation");
             }
         }
-        let pool = Rc::new(RefCell::new(
-            BlockPool::new(4, MaxSize::Count(2), 1).unwrap(),
-        ));
+        let pool = Shared::new(State::new(BlockPool::new(4, MaxSize::Count(2), 1).unwrap()));
         let mut reader = SourceRead::new(Panics, Some(pool.clone())).unwrap();
         assert!(
             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -381,25 +442,26 @@ mod tests {
             }))
             .is_err()
         );
-        assert!(!reader.has_pending_read());
+        assert!(reader.has_pending_read());
         assert!(
             reader
                 .poll_retire(&mut Context::from_waker(Waker::noop()), &mut 8)
                 .is_ready()
         );
+        assert!(!reader.has_pending_read());
         let key = BlockKey {
             source: 2,
             offset: 0,
         };
-        let (write, buffer) = pool.borrow_mut().begin(key).unwrap();
-        pool.borrow_mut().abort(write, buffer).unwrap();
+        let (write, buffer) = pool.try_take().unwrap().begin(key).unwrap();
+        pool.try_take().unwrap().abort(write, buffer).unwrap();
         // One prepared block remains usable; the missing one cannot be silently replaced.
-        let (write, buffer) = pool.borrow_mut().begin(key).unwrap();
+        let (write, buffer) = pool.try_take().unwrap().begin(key).unwrap();
         assert!(matches!(
-            pool.borrow_mut().begin(key),
+            pool.try_take().unwrap().begin(key),
             Err(AssetError::Capacity)
         ));
-        pool.borrow_mut().abort(write, buffer).unwrap();
+        pool.try_take().unwrap().abort(write, buffer).unwrap();
     }
 
     struct Driver {
@@ -409,7 +471,7 @@ mod tests {
         calls: Cell<usize>,
         cursor: Cell<usize>,
         wake: RefCell<Option<Waker>>,
-        pool: Rc<RefCell<BlockPool>>,
+        pool: Shared<State<BlockPool>>,
     }
 
     struct Reader {
@@ -437,7 +499,7 @@ mod tests {
                 "future moved while pinned"
             );
             assert!(
-                this.driver.pool.try_borrow_mut().is_ok(),
+                this.driver.pool.try_with(|_| ()).is_ok(),
                 "provider polled under pool borrow"
             );
             this.driver.wake.replace(Some(cx.waker().clone()));
@@ -465,7 +527,7 @@ mod tests {
             self.info
         }
         fn read(&self, position: ReadPosition, buffer: AssetBuffer) -> Self::Read {
-            assert!(self.driver.pool.try_borrow_mut().is_ok());
+            assert!(self.driver.pool.try_with(|_| ()).is_ok());
             self.driver.calls.set(self.driver.calls.get() + 1);
             let offset = match position {
                 ReadPosition::At(n) => usize::try_from(n).unwrap(),
@@ -482,9 +544,7 @@ mod tests {
     }
 
     fn setup(short: usize, known: bool, access: SourceAccess) -> (Rc<Driver>, SourceRead<Reader>) {
-        let pool = Rc::new(RefCell::new(
-            BlockPool::new(4, MaxSize::Bytes(8), 1).unwrap(),
-        ));
+        let pool = Shared::new(State::new(BlockPool::new(4, MaxSize::Bytes(8), 1).unwrap()));
         let driver = Rc::new(Driver {
             bytes: b"abcdefghij",
             ready: Cell::new(false),
@@ -561,7 +621,8 @@ mod tests {
         assert!(
             driver
                 .pool
-                .borrow_mut()
+                .try_take()
+                .unwrap()
                 .begin(BlockKey {
                     source: 9,
                     offset: 0
@@ -574,19 +635,21 @@ mod tests {
         assert!(
             driver
                 .pool
-                .borrow_mut()
+                .try_take()
+                .unwrap()
                 .acquire(source.identity, 0)
                 .is_none()
         );
         let (write, bytes) = driver
             .pool
-            .borrow_mut()
+            .try_take()
+            .unwrap()
             .begin(BlockKey {
                 source: 9,
                 offset: 0,
             })
             .unwrap();
-        driver.pool.borrow_mut().abort(write, bytes).unwrap();
+        driver.pool.try_take().unwrap().abort(write, bytes).unwrap();
     }
 
     #[test]
@@ -642,5 +705,183 @@ mod tests {
             }),
             0
         );
+    }
+
+    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[test]
+    fn opening_waits_for_pool_admission_without_losing_the_reader_or_future_storage() {
+        use std::sync::{Arc, Barrier};
+        struct Reader;
+        impl AssetReader for Reader {
+            type Read = core::future::Ready<ReadComplete>;
+            fn info(&self) -> SourceInfo {
+                SourceInfo {
+                    len: Some(0),
+                    access: SourceAccess::Random,
+                    consistency: SourceConsistency::Stable,
+                }
+            }
+            fn read(&self, _: ReadPosition, buffer: AssetBuffer) -> Self::Read {
+                core::future::ready(ReadComplete {
+                    buffer,
+                    result: Ok(ReadProgress {
+                        filled: 0,
+                        eof: true,
+                    }),
+                })
+            }
+        }
+        let pool = Shared::new(State::new(BlockPool::new(4, MaxSize::Count(1), 1).unwrap()));
+        let acquired = Arc::new(Barrier::new(2));
+        let release = Arc::new(Barrier::new(2));
+        let mut reader = Some(Reader);
+        let mut storage = Some(FutureSlot::new());
+        std::thread::scope(|scope| {
+            scope.spawn(|| {
+                let lease = pool.try_take().unwrap();
+                acquired.wait();
+                release.wait();
+                drop(lease);
+            });
+            acquired.wait();
+            assert!(
+                SourceRead::poll_new(
+                    &mut reader,
+                    Some(pool.clone()),
+                    &mut storage,
+                    &mut Context::from_waker(Waker::noop())
+                )
+                .is_pending()
+            );
+            assert!(reader.is_some());
+            assert!(storage.is_some());
+            release.wait();
+        });
+        assert!(matches!(
+            SourceRead::poll_new(
+                &mut reader,
+                Some(pool),
+                &mut storage,
+                &mut Context::from_waker(Waker::noop())
+            ),
+            Poll::Ready(Ok(_))
+        ));
+        assert!(reader.is_none());
+        assert!(storage.is_none());
+    }
+
+    #[cfg(all(feature = "std", feature = "sync-cache"))]
+    #[test]
+    fn completed_reads_survive_pool_contention_without_repolling_and_retire_without_publication() {
+        use core::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::{Arc, Barrier};
+
+        struct Reader {
+            polls: Arc<AtomicUsize>,
+            start: Arc<Barrier>,
+            acquired: Arc<Barrier>,
+        }
+        struct Read {
+            buffer: Option<AssetBuffer>,
+            polls: Arc<AtomicUsize>,
+            start: Arc<Barrier>,
+            acquired: Arc<Barrier>,
+        }
+        impl Future for Read {
+            type Output = ReadComplete;
+            fn poll(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<ReadComplete> {
+                assert_eq!(self.polls.fetch_add(1, Ordering::Relaxed), 0);
+                self.start.wait();
+                self.acquired.wait();
+                let mut buffer = self.buffer.take().unwrap();
+                buffer.as_mut_slice().copy_from_slice(b"read");
+                Poll::Ready(ReadComplete {
+                    buffer,
+                    result: Ok(ReadProgress {
+                        filled: 4,
+                        eof: true,
+                    }),
+                })
+            }
+        }
+        impl AssetReader for Reader {
+            type Read = Read;
+            fn info(&self) -> SourceInfo {
+                SourceInfo {
+                    len: Some(4),
+                    access: SourceAccess::Random,
+                    consistency: SourceConsistency::Stable,
+                }
+            }
+            fn read(&self, _: ReadPosition, buffer: AssetBuffer) -> Read {
+                Read {
+                    buffer: Some(buffer),
+                    polls: self.polls.clone(),
+                    start: self.start.clone(),
+                    acquired: self.acquired.clone(),
+                }
+            }
+        }
+
+        for retire in [false, true] {
+            let pool = Shared::new(State::new(BlockPool::new(4, MaxSize::Count(1), 1).unwrap()));
+            let start = Arc::new(Barrier::new(2));
+            let acquired = Arc::new(Barrier::new(2));
+            let release = Arc::new(Barrier::new(2));
+            let polls = Arc::new(AtomicUsize::new(0));
+            let mut source = SourceRead::new(
+                Reader {
+                    polls: polls.clone(),
+                    start: start.clone(),
+                    acquired: acquired.clone(),
+                },
+                Some(pool.clone()),
+            )
+            .unwrap();
+            std::thread::scope(|scope| {
+                scope.spawn(|| {
+                    start.wait();
+                    let lease = pool.try_take().unwrap();
+                    acquired.wait();
+                    release.wait();
+                    drop(lease);
+                });
+                let mut cx = Context::from_waker(Waker::noop());
+                assert!(
+                    source
+                        .poll_read(0, &mut [0; 4], &mut cx, &mut 8)
+                        .is_pending()
+                );
+                assert!(source.reading.as_ref().unwrap().complete.is_some());
+                release.wait();
+            });
+            let mut cx = Context::from_waker(Waker::noop());
+            if retire {
+                assert!(source.poll_retire(&mut cx, &mut 8).is_ready());
+                assert!(
+                    pool.try_take()
+                        .unwrap()
+                        .acquire(source.identity, 0)
+                        .is_none()
+                );
+                let (write, buffer) = pool
+                    .try_take()
+                    .unwrap()
+                    .begin(BlockKey {
+                        source: 99,
+                        offset: 0,
+                    })
+                    .unwrap();
+                pool.try_take().unwrap().abort(write, buffer).unwrap();
+            } else {
+                let mut bytes = [0; 4];
+                assert_eq!(
+                    source.poll_read(0, &mut bytes, &mut cx, &mut 8),
+                    Poll::Ready(Ok(4))
+                );
+                assert_eq!(&bytes, b"read");
+            }
+            assert_eq!(polls.load(Ordering::Relaxed), 1);
+        }
     }
 }
