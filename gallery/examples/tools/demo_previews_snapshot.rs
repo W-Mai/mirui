@@ -21,6 +21,59 @@ fn preview_size(size: DemoSize) -> (u16, u16) {
     )
 }
 
+fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::prelude::Entity {
+    use mirui::gallery::demos::nearby::{self, data::Scenario, launcher::Screen};
+    let root = app.spawn_root().id();
+    let state = nearby::setup_app(app, root);
+    app.add_resource(mirui::ecs::MonoClock::new(|| 0));
+    let library = state.launcher();
+    match scene {
+        "actions" => library.choose_game(0, 0),
+        "favorites" => {}
+        "platforms" => library.open(Screen::Platforms),
+        "search" => library.open(Screen::Search),
+        "tools" => library.open(Screen::Tools),
+        "mode" => library.close(),
+        "game-entry" => {
+            library.close();
+            state.switch_entry();
+        }
+        "choice" | "host" | "joined" | "rooms" | "leaving" | "network" => {
+            library.close();
+            state.activate(0);
+            if scene != "choice" {
+                state.activate(usize::from(matches!(scene, "joined" | "rooms")));
+                if scene == "joined" {
+                    state.activate(0);
+                }
+                if scene == "leaving" {
+                    state.back_page();
+                }
+                if scene == "network" {
+                    for _ in 0..3 {
+                        state.advance();
+                    }
+                    state.confirm();
+                    state.advance();
+                }
+            }
+        }
+        "unavailable" => {
+            library.close();
+            while state.scenario() != Scenario::UnsupportedGame {
+                state.next_scenario();
+            }
+            state.switch_entry();
+        }
+        _ => panic!("unknown Nearby scene: {scene}"),
+    }
+    app.prepare_text_layout().expect("prepare Nearby scene");
+    for _ in 0..3 {
+        app.tick();
+    }
+    root
+}
+
 fn main() {
     let output = env::args()
         .nth(1)
@@ -37,18 +90,17 @@ fn main() {
         }
         snapshot_render::render(
             &output.join(format!("{}.png", demo.slug)),
-            if demo.slug == "nearby" && env::var_os("NEARBY_ACTIONS").is_some() {
+            if demo.slug == "nearby" && env::var_os("NEARBY_SCENE").is_some() {
                 (640, 480)
             } else {
                 preview_size(demo.size)
             },
             true,
             |app| {
-                if demo.slug == "nearby" && env::var_os("NEARBY_ACTIONS").is_some() {
-                    let root = app.spawn_root().id();
-                    let state = mirui::gallery::demos::nearby::setup_app(app, root);
-                    state.launcher().choose_game(0, 0);
-                    root
+                if demo.slug == "nearby"
+                    && let Ok(scene) = env::var("NEARBY_SCENE")
+                {
+                    nearby_scene(app, &scene)
                 } else {
                     gallery::setup_demo(demo.slug, app).expect("registered demo")
                 }

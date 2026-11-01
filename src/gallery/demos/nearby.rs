@@ -1,19 +1,23 @@
 mod actions;
+mod actor;
 mod choices;
 mod chrome;
 mod composition;
 mod consoles;
 mod copy;
 pub mod data;
+mod feedback;
 mod input;
 pub mod launcher;
 mod launcher_view;
 pub mod model;
+mod motion;
 mod pages;
 mod palette;
-mod scenery;
+mod pixel;
 mod sessions;
 mod style;
+mod widgets;
 
 #[cfg(test)]
 mod tests;
@@ -51,13 +55,21 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     app.with_widget(crate::ui::widgets::page_view::view::<launcher::Screen>());
     app.with_widget(input::selection_target::view());
     app.with_widget(input::selection_frame::view());
-    app.with_widget(scenery::scenery::view());
+    app.with_widget(pixel::scenery::view());
+    app.with_widget(pixel::choice_sprite::view());
+    app.with_widget(pixel::walker_sprite::view());
+    app.with_widget(pixel::session_sprite::view());
+    app.with_widget(pixel::signal_sprite::view());
+    app.with_widget(pixel::search_sprite::view());
+    app.with_widget(pixel::actor_sprite::view());
     #[cfg(feature = "std")]
     app.add_plugin(crate::app::plugins::StdInstantClockPlugin);
     let state = app.add_model(model::DisplayState::default()).finish();
     state.resize(app.backend.viewport().logical_size().1);
     app.add_system(launcher_hold::system(state.launcher()));
     app.add_system(launcher_palette::system(state.launcher()));
+    app.add_system(scene_animation::system(state.clone()));
+    app.add_system(actor::follow::system(state.clone()));
     app.on_event(
         crate::input::event::input::Key::EVENT,
         input::keyboard::callback(state.clone()),
@@ -81,6 +93,17 @@ fn launcher_palette(
 ) {
     if theme.id().as_str() != ["forest", "sunset", "night"][library.palette()] {
         commands.set_theme(palette::theme(library.palette()));
+    }
+}
+
+#[system(order = Animation)]
+fn scene_animation(
+    state: model!(model::DisplayState),
+    delta: res!(crate::ecs::DeltaTimeMs),
+    theme: res!(crate::ui::Theme),
+) {
+    if !state.launcher().active() {
+        state.animate(delta.0, &theme);
     }
 }
 

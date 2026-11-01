@@ -23,6 +23,7 @@ textflow-rs = { version = "0.3.3", default-features = false, features = ["alloc"
 critical-section = { version = "1.2", default-features = false }
 hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
 rustc-hash = { version = "2", default-features = false }
+libm = { version = "0.2", optional = true }
 
 [features]
 default = ["quad-aa", "log-stderr"]
@@ -65,7 +66,7 @@ persistence = ["dep:serde", "dep:postcard"]
 # hard-edge binary fill back — embedded targets that can't spare the
 # cycles should `default-features = false`.
 quad-aa = []
-gallery = []
+gallery = ["dep:libm"]
 audio = []
 web-audio = ["audio", "web-canvas"]
 sdl-audio = ["audio", "sdl"]

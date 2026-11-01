@@ -155,6 +155,8 @@ pub(super) fn status_text(view: &Presentation) -> &'static str {
         Page::Unavailable => "这款游戏暂时不支持附近联机",
         Page::Games => "选择游戏后创建或加入房间",
         Page::Outcome => "LOCAL SIMULATION / NO NETWORK REQUESTS",
+        Page::Lobby => "选择附近的房间",
+        Page::Candidates => "选择本机的对应游戏",
     }
 }
 

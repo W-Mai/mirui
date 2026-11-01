@@ -16,7 +16,11 @@ pub(super) struct SelectionFrame {
     pub page: PageKey,
 }
 
-fn contains(root: Entity, mut node: Entity, parent: impl Fn(Entity) -> Option<Entity>) -> bool {
+pub(super) fn contains(
+    root: Entity,
+    mut node: Entity,
+    parent: impl Fn(Entity) -> Option<Entity>,
+) -> bool {
     loop {
         if node == root {
             return true;
@@ -154,6 +158,10 @@ pub(super) fn keyboard(
     }
     if !event.pressed {
         return false;
+    }
+    if event.physical == Some(PhysicalKey::F2) {
+        state.toggle_controls();
+        return true;
     }
     if code == 0x79 {
         library.adjust_tool(super::launcher::Tool::Theme);

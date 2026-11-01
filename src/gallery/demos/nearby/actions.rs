@@ -1,7 +1,7 @@
 use super::consoles::{Platform, console};
 use super::launcher::{Launcher, PLATFORMS};
 use super::model::DisplayState;
-use super::scenery::{Scenery::Margins, backdrop};
+use super::pixel::{Scenery::Margins, backdrop};
 use super::style::*;
 use crate::prelude::*;
 use crate::ui::widgets::{Image, Text, TextAlign};

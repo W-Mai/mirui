@@ -55,6 +55,40 @@ fn all_palettes_define_the_same_paint_roles_and_cycle_without_replacing_models()
 }
 
 #[test]
+fn character_follows_the_active_choice_and_sessions_own_their_character() {
+    use crate::ui::{Hidden, widgets::FollowBounds};
+    let (mut app, state) = fixture();
+    for _ in 0..3 {
+        app.tick();
+    }
+    let actor = app
+        .world
+        .query::<actor::ActorFrame>()
+        .iter()
+        .next()
+        .unwrap()
+        .0;
+    assert!(app.world.get::<FollowBounds>(actor).is_some());
+    assert!(app.world.get::<Hidden>(actor).is_none());
+    state.activate(0);
+    finish_transition(&mut app);
+    assert!(app.world.is_alive(actor));
+    assert!(app.world.get::<Hidden>(actor).is_none());
+    state.activate(0);
+    for _ in 0..3 {
+        app.tick();
+    }
+    assert!(app.world.get::<Hidden>(actor).is_some());
+    assert!(
+        app.world
+            .query::<pixel::SessionSprite>()
+            .iter()
+            .next()
+            .is_some()
+    );
+}
+
+#[test]
 fn action_overlay_keeps_preview_and_all_six_actions_inside_the_panel() {
     use crate::ui::ComputedRect;
     for (width, height) in [(360, 480), (640, 480), (900, 600)] {
@@ -497,7 +531,7 @@ fn page_transitions_animate_but_session_progress_retains_the_mounted_page() {
         app.world
             .query::<crate::ui::widgets::Text>()
             .iter()
-            .any(|(_, text)| text.resolve(app.world.resource()) == "本机  192.168.4.1")
+            .any(|(_, text)| text.resolve(app.world.resource()) == "192.168.4.1")
     );
     state.confirm();
     app.render_dirty().unwrap();

@@ -1,4 +1,5 @@
 use super::{
+    actor::actor,
     launcher_view::launcher,
     model::{DisplayState, PageKey},
     pages::page,
@@ -24,7 +25,7 @@ fn create_page(event: event!(CreatePage<PageKey>), state: model!(DisplayState)) 
 pub(super) fn build_widgets(state: model!(DisplayState)) {
     ui! {
         Column (grow: 1.0, min_height: 0, bg_color: BACKGROUND) {
-            if ${ !state.launcher().active() } {
+            if ${ state.controls() } {
                 Row (
                     height: 30,
                     shrink: 0.0,
@@ -162,6 +163,7 @@ pub(super) fn build_widgets(state: model!(DisplayState)) {
                 launcher (state.clone(), state.launcher())
             } else {
                 page_host (state)
+                actor (state)
             }
         }
     };

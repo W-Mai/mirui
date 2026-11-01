@@ -2,7 +2,7 @@ use super::actions::overlay;
 use super::consoles::{Platform, console};
 use super::launcher::{Game, Launcher, PLATFORMS, Screen, TOOLS, Tool};
 use super::model::DisplayState;
-use super::scenery::{
+use super::pixel::{
     Scenery,
     Scenery::{Header, Ridge},
     backdrop,

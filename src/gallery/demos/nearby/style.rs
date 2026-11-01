@@ -26,6 +26,11 @@ pub(super) const DEEP: ColorToken = ColorToken::Custom("deep");
 pub(super) const CLAY: ColorToken = ColorToken::Custom("clay");
 pub(super) const HEADER_TEXT: ColorToken = ColorToken::Custom("header-text");
 pub(super) const HEADER_DETAIL: ColorToken = ColorToken::Custom("header-detail");
+pub(super) const FOCUS_OUTSET_X_PERCENT: f32 = 3.25;
+pub(super) const FOCUS_OUTSET_Y_PERCENT: f32 = 3.5;
+pub(super) const FONT_PAINT: crate::ui::dirty::PaintInflate =
+    crate::ui::dirty::PaintInflate::uniform(Fixed::ONE);
+pub(super) const LABEL_LEADING: i32 = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct Metrics {
@@ -47,6 +52,58 @@ impl Default for Metrics {
 }
 
 impl Metrics {
+    pub(super) fn rule_height(self) -> i32 {
+        self.sized(2, 2, 3)
+    }
+    pub(super) fn page_padding(self) -> Padding {
+        Padding {
+            top: self.sized(8, 8, 12).into(),
+            bottom: 4.into(),
+            left: self.sized(16, 16, 24).into(),
+            right: self.sized(16, 16, 24).into(),
+        }
+    }
+    pub(super) fn device_row_height(self) -> i32 {
+        self.sized(22, 28, 40)
+    }
+    pub(super) fn rail_width(self) -> i32 {
+        self.sized(2, 2, 3)
+    }
+    pub(super) fn keycap_size(self) -> i32 {
+        i32::from(self.small) + 6
+    }
+    pub(super) fn control_gap(self) -> i32 {
+        4
+    }
+    pub(super) fn shortcut_gap(self) -> i32 {
+        self.sized(6, 6, 12)
+    }
+    pub(super) fn shadow_height(self) -> i32 {
+        self.sized(3, 3, 4)
+    }
+    pub(super) fn action_height(self) -> i32 {
+        self.sized(32, 37, 54)
+    }
+    pub(super) fn launcher_header_height(self) -> i32 {
+        self.sized(44, 60, 64)
+    }
+    pub(super) fn footer_height(self) -> i32 {
+        self.keycap_size() + 4
+    }
+    pub(super) fn choice_gap(self) -> i32 {
+        self.gap + 14
+    }
+    pub(super) fn choice_art_height(self) -> i32 {
+        self.sized(28, 40, 80)
+    }
+    pub(super) fn card_padding(self) -> Padding {
+        Padding {
+            top: 2.into(),
+            bottom: self.sized(4, 4, 8).into(),
+            left: 2.into(),
+            right: 2.into(),
+        }
+    }
     fn sized(self, tiny: i32, compact: i32, regular: i32) -> i32 {
         if self.tiny {
             tiny

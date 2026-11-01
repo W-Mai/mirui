@@ -2,6 +2,8 @@ use alloc::{string::String, vec::Vec};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Page {
+    Lobby,
+    Candidates,
     Mode,
     #[default]
     Choice,
@@ -108,6 +110,7 @@ pub struct RoomRow {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Snapshot {
+    pub lobby: bool,
     pub source: LaunchSource,
     pub outcome: Outcome,
     pub network_only: bool,
@@ -127,6 +130,31 @@ pub struct Snapshot {
     pub phase: Phase,
     pub back_label: String,
     pub entries: Vec<GameRow>,
+}
+
+impl Snapshot {
+    pub(super) fn scene_page(&self) -> Page {
+        if self.lobby && self.page == Page::Mode {
+            Page::Lobby
+        } else {
+            self.page
+        }
+    }
+    pub(super) fn presentation(&self) -> super::model::Presentation {
+        super::model::Presentation {
+            source: self.source,
+            outcome: self.outcome,
+            page: self.page,
+            phase: self.phase,
+            network_only: self.network_only,
+            connected: self.connected,
+            ready: self.ready,
+            busy: self.busy,
+            refreshing: self.refreshing,
+            rooms_empty: self.rooms.is_empty(),
+            entries_empty: self.entries.is_empty(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

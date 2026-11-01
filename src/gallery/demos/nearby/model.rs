@@ -17,6 +17,7 @@ pub(super) enum TextField {
     Next,
     HostButton,
     Peer,
+    RoomName,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -27,6 +28,21 @@ pub(super) struct StepColors {
 
 #[model]
 pub struct DisplayState {
+    #[observe]
+    pub controls: bool,
+    #[observe]
+    pub(super) view_revision: u64,
+    #[observe]
+    pub(super) actor_stage: bool,
+    #[observe]
+    pub(super) motion: super::motion::Frame,
+    timeline: super::motion::Timeline,
+    elapsed_ms: u64,
+    feedback: super::feedback::Feedback,
+    #[observe]
+    pub(super) stamp: Color,
+    #[observe]
+    pub(super) activity: [Color; 3],
     #[observe]
     pub(super) metrics: Metrics,
     pub launcher: model!(owned super::launcher::Launcher),
@@ -41,6 +57,15 @@ pub struct DisplayState {
 impl Default for DisplayState {
     fn default() -> Self {
         Self {
+            controls: false,
+            view_revision: 0,
+            actor_stage: true,
+            motion: super::motion::Frame::default(),
+            timeline: super::motion::Timeline::default(),
+            elapsed_ms: 0,
+            feedback: super::feedback::Feedback::default(),
+            stamp: super::palette::theme(0).resolve(ACCENT_DIM),
+            activity: [super::palette::theme(0).resolve(BACKGROUND); 3],
             metrics: Metrics::default(),
             launcher: super::launcher::Launcher::default().into(),
             view: Snapshot {
@@ -98,6 +123,144 @@ impl Default for DisplayState {
 
 #[model]
 impl DisplayState {
+    pub fn toggle_controls(&mut self) {
+        self.controls = !self.controls;
+    }
+    fn heading_value(&self) -> alloc::string::String {
+        match self.view.page {
+            Page::Lobby => "附近正在玩的伙伴".into(),
+            Page::Candidates => "选择本机的对应游戏".into(),
+            Page::Mode => "选择连接方式".into(),
+            Page::Choice if self.view.network_only => "和好友建立局域网".into(),
+            Page::Choice => "和好友一起，开始游戏".into(),
+            Page::Host => {
+                if self.view.room_name.is_empty() {
+                    "正在创建房间".into()
+                } else {
+                    self.view.room_name.clone()
+                }
+            }
+            Page::Rooms => "选择好友的房间".into(),
+            Page::Games => self.view.title.clone(),
+            Page::Joined => "加入房间".into(),
+            Page::Leaving => "退出联机".into(),
+            Page::Unavailable => "附近联机".into(),
+            Page::Outcome => "LOCAL DEMO".into(),
+        }
+    }
+    fn devices_value(&self) -> alloc::vec::Vec<NetworkPeer> {
+        let mut devices = alloc::vec![NetworkPeer {
+            name: "本机".into(),
+            address: if self.view.local_address.is_empty() {
+                "等待分配地址".into()
+            } else {
+                self.view.local_address.clone()
+            }
+        }];
+        devices.extend(self.view.peers.iter().cloned());
+        devices
+    }
+    fn room_name_value(&self) -> alloc::string::String {
+        self.view.room_name.clone()
+    }
+    fn subtitle_value(&self) -> alloc::string::String {
+        if self.view.page == Page::Mode {
+            "连接附近的掌机".into()
+        } else if self.view.network_only {
+            "仅组网 · 局域网连接".into()
+        } else if matches!(self.view.page, Page::Games | Page::Candidates) {
+            self.view.core.clone()
+        } else {
+            alloc::format!("当前游戏  {}", self.view.title)
+        }
+    }
+    fn library_counter_value(&self) -> Option<(usize, usize)> {
+        (!self.view.entries.is_empty()).then_some((self.view.selected + 1, self.view.entries.len()))
+    }
+    pub(super) fn set_actor_stage(&mut self, stage: bool) {
+        if self.actor_stage != stage {
+            self.actor_stage = stage;
+        }
+    }
+    #[observe]
+    pub(super) fn actor_motion(&self) -> super::motion::Frame {
+        if matches!(self.view.page, Page::Host | Page::Joined | Page::Leaving) {
+            super::motion::Frame {
+                page: self.view.page,
+                ..self.motion.session()
+            }
+        } else {
+            self.motion.walker()
+        }
+    }
+    #[observe]
+    pub(super) fn actor_position(&self) -> Fixed {
+        if matches!(self.view.page, Page::Host | Page::Joined | Page::Leaving) {
+            self.motion.host
+        } else {
+            self.motion.walker
+        }
+    }
+    pub(super) fn animate(&mut self, delta: u16, theme: &crate::ui::Theme) {
+        self.elapsed_ms = self.elapsed_ms.saturating_add(u64::from(delta));
+        let selected = match self.view.page {
+            Page::Choice
+            | Page::Mode
+            | Page::Rooms
+            | Page::Lobby
+            | Page::Games
+            | Page::Candidates => Some(self.view.selected),
+            Page::Host | Page::Joined if !copy::confirm_text(&self.presentation()).is_empty() => {
+                Some(0)
+            }
+            _ => None,
+        };
+        let frame = self.timeline.sample(
+            &self.view,
+            selected,
+            self.elapsed_ms,
+            self.feedback.press_sequence,
+        );
+        if self.motion != frame {
+            self.motion = frame;
+        }
+        let loading = copy::loading(&self.presentation());
+        let (stamp, activity) = self.feedback.sample(self.elapsed_ms, loading, theme);
+        if self.stamp != stamp {
+            self.stamp = stamp;
+        }
+        if self.activity != activity {
+            self.activity = activity;
+        }
+    }
+    #[observe]
+    pub(super) fn current_game(&self) -> bool {
+        self.view.source == LaunchSource::Game
+    }
+    #[observe]
+    pub(super) fn choice_motion(&self) -> super::motion::Frame {
+        self.motion.choice()
+    }
+    #[observe]
+    pub(super) fn walker_motion(&self) -> super::motion::Frame {
+        self.motion.walker()
+    }
+    #[observe]
+    pub(super) fn session_motion(&self) -> super::motion::Frame {
+        self.motion.session()
+    }
+    #[observe]
+    pub(super) fn signal_motion(&self) -> super::motion::Frame {
+        self.motion.signal()
+    }
+    #[observe]
+    pub(super) fn search_motion(&self) -> super::motion::Frame {
+        self.motion.search()
+    }
+    #[observe]
+    pub(super) fn card_motion(&self) -> super::motion::Frame {
+        self.motion.cards()
+    }
     pub(super) fn resize(&mut self, height: u16) {
         let metrics = Metrics::for_height(height);
         if self.metrics != metrics {
@@ -160,22 +323,6 @@ impl DisplayState {
         }
     }
     #[observe]
-    pub fn stamp(&self) -> ColorToken {
-        if self.view.connected {
-            ACCENT
-        } else {
-            ACCENT_DIM
-        }
-    }
-    #[observe]
-    pub fn activity(&self) -> [ColorToken; 3] {
-        [if copy::loading(&self.presentation()) {
-            ACCENT
-        } else {
-            DIVIDER
-        }; 3]
-    }
-    #[observe]
     pub(super) fn steps(&self) -> [StepColors; 3] {
         let active = match self.view.phase {
             Phase::Connecting => 0,
@@ -202,17 +349,22 @@ impl DisplayState {
     pub fn select(&mut self, index: usize) {
         let count = match self.view.page {
             Page::Mode | Page::Choice => 2,
-            Page::Games => self.view.entries.len(),
-            Page::Rooms => self.view.rooms.len(),
+            Page::Games | Page::Candidates => self.view.entries.len(),
+            Page::Rooms | Page::Lobby => self.view.rooms.len(),
             _ => 1,
         };
-        self.view.selected = index.min(count.saturating_sub(1));
+        let selected = index.min(count.saturating_sub(1));
+        if self.view.selected != selected {
+            self.view.selected = selected;
+            self.view_revision = self.view_revision.wrapping_add(1);
+        }
     }
     pub fn activate(&mut self, index: usize) {
         self.select(index);
         self.confirm();
     }
     pub fn confirm(&mut self) {
+        self.feedback.press(self.elapsed_ms);
         match self.view.page {
             Page::Mode => {
                 self.view.network_only = self.view.selected == 0;
@@ -223,7 +375,7 @@ impl DisplayState {
                 };
                 self.navigate(page, PageDirection::Forward);
             }
-            Page::Games => {
+            Page::Games | Page::Candidates => {
                 if self.scenario == Scenario::EmptyGames {
                     return;
                 }
@@ -261,7 +413,7 @@ impl DisplayState {
                     self.refresh_rooms();
                 }
             }
-            Page::Rooms => {
+            Page::Rooms | Page::Lobby => {
                 if !self.rooms_visible() {
                     return;
                 }
@@ -412,6 +564,7 @@ impl DisplayState {
         self.set_phase(Phase::Idle);
     }
     pub fn refresh_rooms(&mut self) {
+        self.view_revision = self.view_revision.wrapping_add(1);
         if self.view.page != Page::Rooms {
             return;
         }
@@ -442,6 +595,7 @@ impl DisplayState {
 
 impl DisplayState {
     fn navigate(&mut self, page: Page, direction: PageDirection) {
+        self.view_revision = self.view_revision.wrapping_add(1);
         self.view.page = page;
         self.direction = direction;
     }
@@ -458,6 +612,7 @@ impl DisplayState {
         self.view.peers.clear();
     }
     fn set_phase(&mut self, phase: Phase) {
+        self.view_revision = self.view_revision.wrapping_add(1);
         self.view.phase = phase;
         self.view.ready = matches!(
             phase,
@@ -507,28 +662,32 @@ pub struct Presentation {
 }
 
 impl DisplayStateHandle {
+    pub(super) fn heading(&self) -> alloc::string::String {
+        self.view_revision();
+        self.heading_value()
+    }
+    pub(super) fn devices(&self) -> alloc::vec::Vec<NetworkPeer> {
+        self.view_revision();
+        self.devices_value()
+    }
+    pub(super) fn room_name(&self) -> alloc::string::String {
+        self.view_revision();
+        self.room_name_value()
+    }
+    pub(super) fn subtitle(&self) -> alloc::string::String {
+        self.view_revision();
+        self.subtitle_value()
+    }
+    pub(super) fn library_counter(&self) -> Option<(usize, usize)> {
+        self.view_revision();
+        self.library_counter_value()
+    }
+    pub(super) fn can_switch_theme(&self) -> bool {
+        let view = self.presentation();
+        matches!(view.page, Page::Mode | Page::Choice) && !view.busy
+    }
     pub(super) fn action_enabled(&self) -> bool {
         !copy::confirm_text(&self.presentation()).is_empty()
-    }
-    pub(super) fn local_address(&self) -> &'static str {
-        let view = self.presentation();
-        if !view.connected {
-            "等待分配地址"
-        } else if view.page == Page::Host {
-            "本机  192.168.4.1"
-        } else {
-            "本机  192.168.4.2"
-        }
-    }
-    pub(super) fn peers(&self) -> &'static str {
-        let view = self.presentation();
-        if !view.connected {
-            ""
-        } else if view.page == Page::Host {
-            "好友  192.168.4.2"
-        } else {
-            "房主  192.168.4.1"
-        }
     }
     pub(super) fn status(&self) -> &'static str {
         copy::status_text(&self.presentation())
@@ -566,12 +725,14 @@ impl DisplayStateHandle {
     pub(super) fn confirm_visible(&self) -> bool {
         !self.confirm_label().is_empty()
     }
-    pub(super) fn text(&self, field: TextField) -> &'static str {
-        match field {
+    pub(super) fn text(&self, field: TextField) -> alloc::string::String {
+        let text = match field {
             TextField::Headline => self.headline(),
             TextField::Next => self.next(),
             TextField::HostButton => self.host_button(),
             TextField::Peer => self.peer(),
-        }
+            TextField::RoomName => return self.room_name(),
+        };
+        text.into()
     }
 }
