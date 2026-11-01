@@ -174,6 +174,19 @@ pub struct MenuItem {
 }
 
 pub const HOLD_MS: u16 = 700;
+const FEEDBACK_MS: u16 = 130;
+const MAX_FRAME_GAP_MS: u16 = 250;
+
+#[derive(Default)]
+enum Gesture {
+    #[default]
+    Idle,
+    Pressed {
+        key: u32,
+        elapsed: u16,
+    },
+    Consumed,
+}
 
 #[model]
 pub struct Launcher {
@@ -211,8 +224,8 @@ pub struct Launcher {
     pub palette: usize,
     #[observe]
     pub hold_progress: Fixed,
-    held_game: Option<u32>,
-    held_ms: u16,
+    gesture: Gesture,
+    pending_play: Option<(u32, bool)>,
     pub games: model!(owned ModelList<Game>),
     pub(super) shelf: model!(owned super::shelf::Shelf),
     pub(super) deck: model!(owned super::deck::Deck),
@@ -298,8 +311,8 @@ impl Default for Launcher {
             brightness: 80,
             palette: 0,
             hold_progress: Fixed::ZERO,
-            held_game: None,
-            held_ms: 0,
+            gesture: Gesture::Idle,
+            pending_play: None,
             games: list.into(),
             shelf: super::shelf::Shelf::default().into(),
             deck: super::deck::Deck::default().into(),
@@ -448,13 +461,13 @@ impl Launcher {
 
     pub fn select(&mut self, index: usize) {
         if self.selected != index {
+            self.cancel_hold();
             if self.screen == Screen::Favorites {
                 self.shelf_age = 0;
             } else {
                 self.catalog_age = 0;
             }
         }
-        self.cancel_hold();
         self.selected = index;
         if self.screen == Screen::Favorites {
             self.shelf_selection = index;
@@ -602,39 +615,66 @@ impl Launcher {
     }
 
     pub fn begin_hold(&mut self, key: u32) {
-        if self.held_game.is_none()
-            && self.active
+        if !matches!(self.gesture, Gesture::Idle) {
+            return;
+        }
+        if self.active
             && self.overlay.is_none()
             && matches!(
                 self.screen,
                 Screen::Favorites | Screen::Games | Screen::Search
             )
         {
-            self.held_game = Some(key);
-            self.held_ms = 0;
+            self.gesture = Gesture::Pressed { key, elapsed: 0 };
             self.hold_progress = Fixed::ZERO;
+        } else {
+            self.gesture = Gesture::Consumed;
         }
     }
 
     pub fn advance_hold(&mut self, dt: u16) {
-        if self.held_game.is_some() {
-            self.held_ms = self.held_ms.saturating_add(dt).min(HOLD_MS);
-            self.hold_progress = Fixed::from_ratio(self.held_ms as i32, HOLD_MS as i32);
+        if dt > MAX_FRAME_GAP_MS {
+            self.cancel_hold();
+            return;
+        }
+        let Gesture::Pressed { key, elapsed } = &mut self.gesture else {
+            return;
+        };
+        *elapsed = elapsed.saturating_add(dt);
+        if *elapsed >= HOLD_MS {
+            let key = *key;
+            self.gesture = Gesture::Consumed;
+            self.hold_progress = Fixed::ZERO;
+            self.pending_play = Some((key, true));
+            return;
+        }
+        if *elapsed >= FEEDBACK_MS {
+            self.hold_progress = Fixed::from_ratio(i32::from(*elapsed), i32::from(HOLD_MS));
         }
     }
 
-    pub fn held_play(&self) -> Option<(u32, bool)> {
-        self.held_game.map(|key| (key, self.held_ms >= HOLD_MS))
+    pub fn release_hold(&mut self) {
+        self.hold_progress = Fixed::ZERO;
+        if let Gesture::Pressed { key, .. } = core::mem::take(&mut self.gesture) {
+            self.pending_play = Some((key, false));
+        }
+    }
+    pub fn pending_play(&self) -> Option<(u32, bool)> {
+        self.pending_play
+    }
+    pub fn acknowledge_play(&mut self) {
+        self.pending_play = None;
     }
 
     pub fn cancel_hold(&mut self) {
-        self.held_game = None;
-        self.held_ms = 0;
+        if !matches!(self.gesture, Gesture::Idle) {
+            self.gesture = Gesture::Consumed;
+        }
         self.hold_progress = Fixed::ZERO;
     }
 
     pub fn holding(&self) -> bool {
-        self.held_game.is_some()
+        matches!(self.gesture, Gesture::Pressed { .. })
     }
 
     #[observe]

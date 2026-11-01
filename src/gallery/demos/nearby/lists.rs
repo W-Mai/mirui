@@ -225,7 +225,7 @@ fn list_row(
                 bg_color: ${ state.card_motion().card_color(index) },
                 align: AlignItems::Center
             ) [SelectionTarget {
-                frame: None, index, state: state.clone(),
+                index,
                 scope: has_signal.then_some(Page::Rooms),
             }] {
                 View (

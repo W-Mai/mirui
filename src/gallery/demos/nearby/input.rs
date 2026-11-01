@@ -5,18 +5,16 @@ use crate::ui::widgets::FollowBounds;
 
 #[component]
 pub(super) struct SelectionTarget {
-    pub frame: Option<Entity>,
     pub index: usize,
-    pub state: model!(DisplayState),
     pub scope: Option<super::data::Page>,
 }
 
 impl SelectionTarget {
-    pub(super) fn active(&self) -> bool {
+    pub(super) fn active(&self, state: &super::model::DisplayStateHandle) -> bool {
         self.scope.is_none_or(|scope| {
-            scope == self.state.focus_page()
+            scope == state.focus_page()
                 || scope == super::data::Page::Rooms
-                    && self.state.focus_page() == super::data::Page::Lobby
+                    && state.focus_page() == super::data::Page::Lobby
         })
     }
 }
@@ -31,6 +29,39 @@ pub(super) struct SelectionFrame {
     pub room: bool,
     pub state: model!(DisplayState),
 }
+
+#[event]
+fn initialize_frame(
+    node: entity!(),
+    frames: query!(SelectionFrame),
+    targets: query!(Entity, SelectionTarget),
+    parents: query!(Parent),
+    commands: commands!(),
+) {
+    let Some(frame) = frames.get(node) else {
+        return;
+    };
+    if frame.state.launcher().active()
+        || frame.page != frame.state.page_key()
+        || frame.room != frame.state.return_to_launcher()
+    {
+        return;
+    }
+    if let Some(target) = targets.into_iter().find_map(|(entity, target)| {
+        (target.active(&frame.state)
+            && target.index == frame.state.selected()
+            && contains(frame.body, entity, |e| parents.get(e).map(|p| p.0)))
+        .then_some(entity)
+    }) {
+        commands.insert(
+            node,
+            FollowBounds::new(target).with_transition(crate::anim::SNAPPY),
+        );
+    }
+}
+
+#[view(component = SelectionFrame, attach = initialize_frame::callback())]
+pub(super) fn selection_frame() {}
 
 #[system(order = Animation)]
 pub(super) fn follow(
@@ -74,7 +105,7 @@ pub(super) fn follow(
         return;
     };
     let target = targets.into_iter().find_map(|(entity, marker, _)| {
-        (marker.active()
+        (marker.active(&state)
             && marker.index == state.selected()
             && contains(body, entity, |e| parents.get(e).map(|p| p.0)))
         .then_some(entity)
@@ -116,119 +147,26 @@ pub(super) fn contains(
 }
 
 #[event]
-fn initialize(
-    node: entity!(),
-    targets: query!(mut SelectionTarget),
-    frames: query!(Entity, SelectionFrame),
-    parents: query!(Parent),
-    commands: commands!(),
-) {
-    let Some(target) = targets.get(node) else {
-        return;
-    };
-    for (frame, marker) in frames {
-        if contains(marker.body, node, |entity| parents.get(entity).map(|p| p.0)) {
-            target.frame = Some(frame);
-            if target.active()
-                && !target.state.launcher().active()
-                && marker.room == target.state.return_to_launcher()
-                && marker.page == target.state.page_key()
-                && target.state.selected() == target.index
-            {
-                commands.insert(
-                    frame,
-                    FollowBounds::new(node).with_transition(crate::anim::SNAPPY),
-                );
-            }
-            break;
-        }
-    }
-}
-
-#[view(component = SelectionTarget, attach = initialize::callback())]
-pub(super) fn selection_target() {}
-
-#[event]
-fn initialize_frame(
-    node: entity!(),
-    frames: query!(SelectionFrame),
-    targets: query!(Entity, mut SelectionTarget),
-    parents: query!(Parent),
-    commands: commands!(),
-) {
-    let Some(frame) = frames.get(node) else {
-        return;
-    };
-    if frame.state.launcher().active()
-        || frame.room != frame.state.return_to_launcher()
-        || frame.page != frame.state.page_key()
-    {
-        return;
-    }
-    for (entity, target) in targets {
-        if contains(frame.body, entity, |entity| {
-            parents.get(entity).map(|p| p.0)
-        }) {
-            target.frame = Some(node);
-            if target.active() && target.state.selected() == target.index {
-                commands.insert(
-                    node,
-                    FollowBounds::new(entity).with_transition(crate::anim::SNAPPY),
-                );
-            }
-        }
-    }
-}
-
-#[view(component = SelectionFrame, attach = initialize_frame::callback())]
-pub(super) fn selection_frame() {}
-
-#[event]
-pub(super) fn place(
-    target: entity!(),
-    state: model!(DisplayState),
-    index: usize,
-    targets: query!(SelectionTarget),
-    frames: query!(mut FollowBounds),
-) {
-    if targets.get(target).is_some_and(SelectionTarget::active)
-        && state.selected() == index
-        && let Some(frame) = targets.get(target).and_then(|row| row.frame)
-        && let Some(bounds) = frames.get(frame)
-    {
-        bounds.target = target;
-    }
-}
-
-#[event]
 pub(super) fn hover(
     event: event!(HoverChanged),
     target: entity!(),
     state: model!(DisplayState),
     index: usize,
     targets: query!(SelectionTarget),
-    frames: query!(mut FollowBounds),
 ) {
     if event.hovered {
-        if targets.get(target).is_none_or(|target| !target.active()) {
+        if targets
+            .get(target)
+            .is_none_or(|target| !target.active(state))
+        {
             return;
         }
         state.select(index);
-        if let Some(frame) = targets.get(target).and_then(|row| row.frame)
-            && let Some(bounds) = frames.get(frame)
-        {
-            bounds.target = target;
-        }
     }
 }
 
 #[event]
-pub(super) fn keyboard(
-    event: event!(Key),
-    state: model!(DisplayState),
-    targets: query!(Entity, SelectionTarget),
-    frames: query!(SelectionFrame, mut FollowBounds),
-) -> bool {
+pub(super) fn keyboard(event: event!(Key), state: model!(DisplayState)) -> bool {
     use crate::input::event::input::{
         KEY_A, KEY_ESCAPE, KEY_LEFT, KEY_RETURN, KEY_RIGHT, KEY_X, PhysicalKey,
     };
@@ -246,10 +184,10 @@ pub(super) fn keyboard(
         Some(PhysicalKey::KeyY) => 0x79,
         _ => event.code,
     };
-    if library.active() && code == KEY_X {
-        if event.pressed {
+    if code == KEY_X && (library.active() || !event.pressed) {
+        if event.pressed && event.repeat != Some(true) {
             super::launcher_view::begin_play(state);
-        } else {
+        } else if !event.pressed {
             super::launcher_view::finish_play(state);
         }
         return true;
@@ -390,19 +328,6 @@ pub(super) fn keyboard(
         KEY_ESCAPE | 0x62 => state.back_page(),
         KEY_X => state.refresh_rooms(),
         _ => return false,
-    }
-    let page = state.page_key();
-    let selected = state.selected();
-    for (target, row) in targets {
-        if row.active()
-            && row.index == selected
-            && let Some(frame) = row.frame
-            && let Some((marker, bounds)) = frames.get(frame)
-            && marker.page == page
-            && marker.room == state.return_to_launcher()
-        {
-            bounds.target = target;
-        }
     }
     true
 }

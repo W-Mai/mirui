@@ -50,6 +50,8 @@ Connection flows opened from the launcher use an animated panel while retaining 
 
 Discovery shows nearby rooms above the connection options. Down at the end of the room list expands the options; Up from the options restores the rooms. Clicking either pane activates it. The local mock advances room resolution into the matching-game picker with Next; choosing a game continues the connection. Entry in the F2 controls switches between launcher and direct in-game entry.
 
+X starts the selected game on release, or opens its multiplayer flow automatically when held. Navigation cancels an unfinished press; holding X through a modal or page change cannot launch the new selection.
+
 ```sh
 cargo run -p gallery --example nearby_demo
 cargo run -p gallery --example nearby_demo --no-default-features --features sdl-gpu

@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Nearby catalog uses a four-row browser with platform previews, a pixel keyboard, search results, empty-state artwork and identity-preserving favorite sorting.
 - Nearby opens connection flows above the retained launcher with animated panels and frozen output history; focus and characters stay within the active page container.
 - Nearby discovery retains both animated panes, room signals and scoped selection; room resolution continues through the matching-game picker.
+- Nearby hold-to-connect fires without waiting for release and cancels across navigation or stale frames; hidden focus layers release their bounds bindings.
 - The optional `sync` feature replaces `sync-cache` and enables transferable textures, pixel guards, byte sources and cache value handles. Native target payloads require `Send + Sync`; device operations retain their backend thread constraints, and default builds retain local ownership.
 - Resource resolution returns shared cache value handles, removing a second reference-counted allocation while retaining values across replacement and eviction.
 - Shared resource storage serializes budget reservations and transfers; cache eviction callbacks require transferable captures when shared storage is enabled.

@@ -48,9 +48,7 @@ pub(super) fn choice(view: &Snapshot, state: model!(DisplayState), metrics: Metr
                         ) [
                             SelectionTarget {
                                 scope: (page == Page::Mode).then_some(Page::Mode),
-                                frame: None,
                                 index: card.0,
-                                state: state.clone(),
                             },
                         ] {
                             View (
@@ -96,7 +94,7 @@ pub(super) fn choice(view: &Snapshot, state: model!(DisplayState), metrics: Metr
                                     crate::ui::dirty::PaintInflate::uniform(Fixed::ONE),
                                 ]
                             }
-                        } on SizeChanged(super::input::place::callback(state, card.0)) on HoverChanged(super::input::hover::callback(state, card.0)) on Tap { state.choose_connection(card.0); }
+                        } on HoverChanged(super::input::hover::callback(state, card.0)) on Tap { state.choose_connection(card.0); }
                         shadow (metrics)
                     }
                 }
@@ -111,9 +109,7 @@ pub(super) fn choice(view: &Snapshot, state: model!(DisplayState), metrics: Metr
                 ) [
                     SelectionTarget {
                         scope: Some(Page::Mode),
-                        frame: None,
                         index: 2,
-                        state: state.clone(),
                     },
                 ] {
                     label ("+ 创建当前游戏的房间", metrics.body, FOREGROUND, Center)

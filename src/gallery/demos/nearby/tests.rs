@@ -168,9 +168,11 @@ fn launcher_hold_launches_once_and_cancels_across_navigation() {
     for _ in 0..50 {
         app.tick();
     }
-    assert_eq!(library.hold_progress(), Fixed::ONE);
-    launcher_view::finish_play(&state);
     assert!(!library.active());
+    let key = state.page_key();
+    launcher_view::finish_play(&state);
+    assert_eq!(state.page_key(), key);
+    assert_eq!(library.hold_progress(), Fixed::ZERO);
     assert_eq!(state.snapshot().source, LaunchSource::Game);
     library.resume();
     launcher_view::begin_play(&state);
@@ -178,6 +180,38 @@ fn launcher_hold_launches_once_and_cancels_across_navigation() {
     assert!(!library.holding());
     launcher_view::finish_play(&state);
     assert_eq!(library.overlay(), Some(launcher::Overlay::System));
+}
+
+#[test]
+fn hold_feedback_and_stale_frames_cannot_retrigger_a_consumed_press() {
+    let mut library = launcher::Launcher::default();
+    library.begin_hold(0);
+    library.advance_hold(129);
+    assert_eq!(library.pending_play(), None);
+    assert_eq!(library.hold_progress, Fixed::ZERO);
+    library.advance_hold(1);
+    assert!(library.hold_progress > Fixed::ZERO);
+    library.advance_hold(251);
+    library.begin_hold(0);
+    assert!(!library.holding());
+    library.release_hold();
+    assert_eq!(library.pending_play(), None);
+    library.begin_hold(0);
+    for _ in 0..6 {
+        library.advance_hold(100);
+        assert_eq!(library.pending_play(), None);
+    }
+    library.advance_hold(100);
+    assert_eq!(library.pending_play(), Some((0, true)));
+    library.acknowledge_play();
+    library.begin_hold(0);
+    library.advance_hold(200);
+    library.release_hold();
+    assert_eq!(library.pending_play(), None);
+    library.begin_hold(1);
+    library.advance_hold(100);
+    library.release_hold();
+    assert_eq!(library.pending_play(), Some((1, false)));
 }
 
 #[test]
@@ -589,7 +623,7 @@ fn discovery_focus_and_characters_stay_in_the_active_pane_at_native_sizes() {
             assert_eq!(frames.len(), 1);
             let target = app.world.get::<FollowBounds>(frames[0]).unwrap().target;
             let marker = app.world.get::<input::SelectionTarget>(target).unwrap();
-            assert!(marker.active());
+            assert!(marker.active(&state));
             assert!(input::contains(body, target, |e| app
                 .world
                 .get::<crate::ui::Parent>(e)

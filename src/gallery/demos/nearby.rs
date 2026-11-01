@@ -59,7 +59,6 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     app.with_offscreen_pool_budget(8 * 1024 * 1024);
     app.with_widget(crate::ui::widgets::page_view::view::<model::PageKey>());
     app.with_widget(crate::ui::widgets::page_view::view::<launcher::Screen>());
-    app.with_widget(input::selection_target::view());
     app.with_widget(input::selection_frame::view());
     app.with_widget(pixel::scenery::view());
     app.with_widget(pixel::choice_sprite::view());
@@ -73,7 +72,7 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     app.add_plugin(crate::app::plugins::StdInstantClockPlugin);
     let state = app.add_model(model::DisplayState::default()).finish();
     state.resize(app.backend.viewport().logical_size().1);
-    app.add_system(launcher_hold::system(state.launcher()));
+    app.add_system(launcher_hold::system(state.clone()));
     app.add_system(launcher_layout::system(state.launcher()));
     app.add_system(room_panel::system(state.clone()));
     app.add_system(library::follow::system(state.launcher()));
@@ -90,9 +89,11 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
 }
 
 #[system(order = Animation)]
-fn launcher_hold(library: model!(launcher::Launcher), delta: res!(crate::ecs::DeltaTimeMs)) {
-    if library.active() && library.holding() && library.hold_progress() < Fixed::ONE {
+fn launcher_hold(state: model!(model::DisplayState), delta: res!(crate::ecs::DeltaTimeMs)) {
+    let library = state.launcher();
+    if library.active() && library.holding() {
         library.advance_hold(delta.0);
+        launcher_view::deliver_pending(state);
     }
 }
 

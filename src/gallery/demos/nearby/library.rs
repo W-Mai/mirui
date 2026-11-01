@@ -121,8 +121,13 @@ pub(super) fn follow(
                 bounds.map(|old| old.target),
                 hidden.is_some(),
             ));
-        } else if hidden.is_none() {
-            commands.insert(frame, Hidden);
+        } else {
+            if hidden.is_none() {
+                commands.insert(frame, Hidden);
+            }
+            if bounds.is_some() {
+                commands.remove::<FollowBounds>(frame);
+            }
         }
     }
     if let Some((frame, marker, previous, hidden)) = active_frame {
@@ -147,8 +152,13 @@ pub(super) fn follow(
             if hidden {
                 commands.remove::<Hidden>(frame);
             }
-        } else if !hidden {
-            commands.insert(frame, Hidden);
+        } else {
+            if !hidden {
+                commands.insert(frame, Hidden);
+            }
+            if previous.is_some() {
+                commands.remove::<FollowBounds>(frame);
+            }
         }
     }
 }

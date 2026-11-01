@@ -81,7 +81,8 @@ pub(super) fn follow(
     } else {
         anchor.or_else(|| {
             targets.into_iter().find_map(|(entity, row, _)| {
-                (inside(entity) && row.active() && row.index == state.selected()).then_some(entity)
+                (inside(entity) && row.active(state) && row.index == state.selected())
+                    .then_some(entity)
             })
         })
     };

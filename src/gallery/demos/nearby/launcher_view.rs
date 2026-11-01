@@ -119,10 +119,16 @@ pub(super) fn begin_play(state: &super::model::DisplayStateHandle) {
 
 pub(super) fn finish_play(state: &super::model::DisplayStateHandle) {
     let library = state.launcher();
-    let Some((key, multiplayer)) = library.held_play() else {
+    library.release_hold();
+    deliver_pending(state);
+}
+
+pub(super) fn deliver_pending(state: &super::model::DisplayStateHandle) {
+    let library = state.launcher();
+    let Some((key, multiplayer)) = library.pending_play() else {
         return;
     };
-    library.cancel_hold();
+    library.acknowledge_play();
     let Some(game) = library.games().iter().find(|game| game.key() == key) else {
         return;
     };

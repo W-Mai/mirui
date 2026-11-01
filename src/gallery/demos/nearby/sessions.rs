@@ -60,13 +60,11 @@ pub(super) fn host(state: model!(DisplayState), metrics: Metrics) -> Entity {
                 ) [
                     SelectionTarget {
                         scope: None,
-                        frame: None,
                         index: 0,
-                        state: state.clone(),
                     },
                 ] {
                     action_label (state, metrics.title)
-                } on SizeChanged(super::input::place::callback(state, 0)) on HoverChanged(super::input::hover::callback(state, 0)) on Tap { state.confirm(); }
+                } on HoverChanged(super::input::hover::callback(state, 0)) on Tap { state.confirm(); }
                 shadow (metrics)
             }
         }
@@ -129,13 +127,11 @@ pub(super) fn network_panel(state: model!(DisplayState), metrics: Metrics) -> En
                 ) [
                     SelectionTarget {
                         scope: None,
-                        frame: None,
                         index: 0,
-                        state: state.clone(),
                     },
                 ] {
                     action_label (state, metrics.title)
-                } on SizeChanged(super::input::place::callback(state, 0)) on HoverChanged(super::input::hover::callback(state, 0)) on Tap { state.confirm(); }
+                } on HoverChanged(super::input::hover::callback(state, 0)) on Tap { state.confirm(); }
                 shadow (metrics)
             }
         }
