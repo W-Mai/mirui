@@ -27,6 +27,7 @@ pub(super) struct StepColors {
 
 #[model]
 pub struct DisplayState {
+    pub launcher: model!(owned super::launcher::Launcher),
     view: Snapshot,
     session: u32,
     scenario: Scenario,
@@ -38,6 +39,7 @@ pub struct DisplayState {
 impl Default for DisplayState {
     fn default() -> Self {
         Self {
+            launcher: super::launcher::Launcher::default().into(),
             view: Snapshot {
                 page: Page::Mode,
                 title: "双人冒险".to_string(),

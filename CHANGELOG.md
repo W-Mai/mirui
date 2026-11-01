@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Nearby demo launcher state uses nested Models and an observable game collection, with independent return contexts for game details and system tools.
+
 ### Changed
 
 - The optional `sync` feature replaces `sync-cache` and enables transferable textures, pixel guards, byte sources and cache value handles. Native target payloads require `Send + Sync`; device operations retain their backend thread constraints, and default builds retain local ownership.

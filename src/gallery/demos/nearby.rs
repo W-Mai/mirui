@@ -4,6 +4,7 @@ mod composition;
 mod copy;
 pub mod data;
 mod input;
+pub mod launcher;
 pub mod model;
 mod pages;
 mod sessions;
