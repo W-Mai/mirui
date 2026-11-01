@@ -10,12 +10,6 @@ pub enum Screen {
     Platforms,
     Games,
     Search,
-    Tools,
-    Wifi,
-    Files,
-    Manual,
-    Info,
-    Result,
 }
 
 impl Screen {
@@ -25,12 +19,6 @@ impl Screen {
             Self::Platforms => "游戏平台",
             Self::Games => "游戏列表",
             Self::Search => "搜索游戏",
-            Self::Tools => "系统工具",
-            Self::Wifi => "Wi-Fi",
-            Self::Files => "文件管理",
-            Self::Manual => "游戏说明",
-            Self::Info => "游戏信息",
-            Self::Result => "LOCAL DEMO",
         }
     }
 }
@@ -78,45 +66,96 @@ pub const PLATFORMS: [(&str, &str); 6] = [
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Tool {
-    Wifi,
-    Files,
-    Sound,
-    Theme,
+pub enum MenuAction {
+    Play,
+    Multiplayer,
+    ToggleFavorite,
+    CycleTheme,
+    ToggleSound,
+    ShowControls,
+    ShowTools,
+    OpenWifi,
+    NetworkInfo,
+    SystemInfo,
+    FileManager,
     VolumeDown,
     VolumeUp,
     BrightnessDown,
     BrightnessUp,
-    Network,
-    NetworkInfo,
-    Controls,
-    SystemInfo,
-    RestorePlay,
+    ManageNetwork,
+    ShowExit,
+    ShowPower,
     Exit,
     Poweroff,
+    RestorePlay,
     Back,
 }
 
-pub const TOOLS: [(Tool, &str, &str); 16] = [
-    (Tool::Wifi, "WIFI", "Wi-Fi"),
-    (Tool::Files, "FILES", "文件管理"),
-    (Tool::Sound, "SOUND", "音效"),
-    (Tool::Theme, "THEME", "主题"),
-    (Tool::VolumeDown, "VOL -", "音量 -"),
-    (Tool::VolumeUp, "VOL +", "音量 +"),
-    (Tool::BrightnessDown, "LIGHT -", "亮度 -"),
-    (Tool::BrightnessUp, "LIGHT +", "亮度 +"),
-    (Tool::Network, "LINK", "附近联机"),
-    (Tool::NetworkInfo, "STATUS", "网络信息"),
-    (Tool::Controls, "KEYS", "操作说明"),
-    (Tool::SystemInfo, "SYSTEM", "系统信息"),
-    (Tool::RestorePlay, "RESUME", "继续游玩"),
-    (Tool::Exit, "EXIT", "退出"),
-    (Tool::Poweroff, "POWER", "关机"),
-    (Tool::Back, "BACK", "返回"),
-];
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Overlay {
+    Game,
+    System,
+    Controls,
+    Tools,
+    Exit,
+    Power,
+    Network,
+}
 
-pub const HOLD_MS: u16 = 600;
+impl Overlay {
+    fn items(self) -> &'static [(MenuAction, &'static str)] {
+        use MenuAction::*;
+        match self {
+            Self::Game => &[
+                (Play, "开始游戏"),
+                (Multiplayer, "附近联机"),
+                (ToggleFavorite, "收藏游戏"),
+                (Back, "返回"),
+            ],
+            Self::System => &[
+                (CycleTheme, "切换主题"),
+                (ToggleSound, "音效开关"),
+                (ShowControls, "系统控制"),
+                (ManageNetwork, "管理直连网络"),
+                (ShowExit, "返回原系统"),
+                (ShowPower, "关机"),
+            ],
+            Self::Controls => &[
+                (VolumeDown, "音量 -"),
+                (VolumeUp, "音量 +"),
+                (BrightnessDown, "亮度 -"),
+                (BrightnessUp, "亮度 +"),
+                (ShowTools, "Wi-Fi 与工具"),
+                (Back, "返回"),
+            ],
+            Self::Tools => &[
+                (OpenWifi, "Wi-Fi 设置"),
+                (NetworkInfo, "网络信息"),
+                (FileManager, "文件管理"),
+                (SystemInfo, "系统信息"),
+                (Back, "返回"),
+            ],
+            Self::Exit => &[(Back, "返回"), (Exit, "退出并恢复 Wi-Fi")],
+            Self::Power => &[(Back, "返回"), (Poweroff, "确认关机")],
+            Self::Network => &[
+                (Play, "保留直连，开始游戏"),
+                (RestorePlay, "恢复 Wi-Fi 后开始"),
+                (Back, "返回"),
+            ],
+        }
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub struct MenuItem {
+    pub action: MenuAction,
+    pub name: &'static str,
+    pub enabled: bool,
+    pub reason: &'static str,
+    pub value: String,
+}
+
+pub const HOLD_MS: u16 = 700;
 
 #[model]
 pub struct Launcher {
@@ -132,7 +171,7 @@ pub struct Launcher {
     #[observe]
     pub query_revision: u32,
     #[observe]
-    pub menu: bool,
+    pub overlay: Option<Overlay>,
     #[observe]
     pub menu_selection: usize,
     #[observe]
@@ -165,8 +204,7 @@ pub struct Launcher {
     pub(super) pulse_age: u16,
     direction: PageDirection,
     origin: Screen,
-    previous: Screen,
-    previous_selection: usize,
+    #[observe]
     selected_game: Option<u32>,
 }
 
@@ -210,7 +248,7 @@ impl Default for Launcher {
             platform: 0,
             query: String::new(),
             query_revision: 0,
-            menu: false,
+            overlay: None,
             menu_selection: 0,
             notice: "",
             sound: true,
@@ -231,8 +269,6 @@ impl Default for Launcher {
             pulse_age: 800,
             direction: PageDirection::Forward,
             origin: Screen::Favorites,
-            previous: Screen::Favorites,
-            previous_selection: 0,
             selected_game: None,
         }
     }
@@ -270,7 +306,7 @@ impl Launcher {
 
     pub fn open(&mut self, screen: Screen) {
         self.cancel_hold();
-        self.menu = false;
+        self.overlay = None;
         self.notice = "";
         self.direction = if screen == Screen::Favorites {
             PageDirection::Backward
@@ -314,15 +350,18 @@ impl Launcher {
         if self.screen == Screen::Favorites {
             self.shelf_selection = index;
         }
-        self.menu = true;
-        self.menu_selection = 0;
+        self.show_overlay(Overlay::Game);
     }
 
     pub fn dismiss_menu(&mut self) {
-        self.menu = false;
+        self.overlay = None;
     }
     pub fn select_action(&mut self, index: usize) {
-        self.menu_selection = index.min(5);
+        let index = index.min(self.item_count().saturating_sub(1));
+        if self.menu_selection != index {
+            self.selection_age = 0;
+        }
+        self.menu_selection = index;
     }
 
     pub fn set_query(&mut self, query: String) {
@@ -356,10 +395,6 @@ impl Launcher {
         self.origin = Screen::Platforms;
         self.open(Screen::Games);
     }
-    pub fn browse_files(&mut self, index: usize) {
-        self.choose_platform(index);
-        self.origin = Screen::Files;
-    }
 
     pub fn toggle_favorite(&mut self) {
         if let Some(key) = self.selected_game {
@@ -371,14 +406,8 @@ impl Launcher {
         }
     }
 
-    pub fn show_game_page(&mut self, screen: Screen) {
-        self.previous = self.screen;
-        self.previous_selection = self.selected;
-        self.open(screen);
-    }
-
     pub fn launch(&mut self) {
-        self.show_game_page(Screen::Result);
+        self.overlay = None;
         self.notice = "单机游玩 · LOCAL DEMO";
     }
 
@@ -395,28 +424,29 @@ impl Launcher {
         self.sound = !self.sound;
     }
 
-    pub fn adjust_tool(&mut self, tool: Tool) {
+    pub fn adjust(&mut self, tool: MenuAction) {
         match tool {
-            Tool::Sound => self.toggle_sound(),
-            Tool::Theme => self.palette = (self.palette + 1) % 3,
-            Tool::VolumeDown => self.volume = self.volume.saturating_sub(10),
-            Tool::VolumeUp => self.volume = self.volume.saturating_add(10).min(100),
-            Tool::BrightnessDown => self.brightness = self.brightness.saturating_sub(10),
-            Tool::BrightnessUp => self.brightness = self.brightness.saturating_add(10).min(100),
+            MenuAction::ToggleSound => self.toggle_sound(),
+            MenuAction::CycleTheme => self.palette = (self.palette + 1) % 3,
+            MenuAction::VolumeDown => self.volume = self.volume.saturating_sub(10),
+            MenuAction::VolumeUp => self.volume = self.volume.saturating_add(10).min(100),
+            MenuAction::BrightnessDown => self.brightness = self.brightness.saturating_sub(10),
+            MenuAction::BrightnessUp => {
+                self.brightness = self.brightness.saturating_add(10).min(100)
+            }
             _ => return,
         }
         self.notice = "LOCAL DEMO: settings updated";
     }
 
     pub fn result(&mut self, notice: &'static str) {
-        self.show_game_page(Screen::Result);
         self.notice = notice;
     }
 
     pub fn begin_hold(&mut self, key: u32) {
         if self.held_game.is_none()
             && self.active
-            && !self.menu
+            && self.overlay.is_none()
             && matches!(
                 self.screen,
                 Screen::Favorites | Screen::Games | Screen::Search
@@ -449,76 +479,177 @@ impl Launcher {
         self.held_game.is_some()
     }
 
-    pub fn tool(&mut self, screen: Screen) {
-        self.previous = Screen::Tools;
-        self.open(screen);
+    #[observe]
+    pub fn menu(&self) -> bool {
+        self.overlay.is_some()
     }
-
+    #[observe]
+    pub fn item_count(&self) -> usize {
+        self.overlay.map_or(0, |overlay| overlay.items().len())
+    }
+    fn read_title(&self) -> String {
+        match self.overlay {
+            Some(Overlay::Game) => self
+                .games
+                .iter()
+                .find(|game| Some(game.key()) == self.selected_game)
+                .map(|game| game.name())
+                .unwrap_or_else(|| "游戏操作".into()),
+            Some(Overlay::System) => "启动器设置".into(),
+            Some(Overlay::Controls) => "系统控制".into(),
+            Some(Overlay::Tools) => "系统工具".into(),
+            Some(Overlay::Exit) => "返回原系统？".into(),
+            Some(Overlay::Power) => "关闭掌机？".into(),
+            Some(Overlay::Network) => "当前保留着直连网络".into(),
+            None => String::new(),
+        }
+    }
+    fn read_item(&self, index: usize) -> Option<MenuItem> {
+        use MenuAction::*;
+        let (action, mut name) = *self.overlay?.items().get(index)?;
+        let mut enabled = true;
+        let mut reason = "";
+        let mut value = String::new();
+        match action {
+            Multiplayer => {
+                enabled = self
+                    .games
+                    .iter()
+                    .any(|game| Some(game.key()) == self.selected_game && game.multiplayer());
+                if !enabled {
+                    reason = "此游戏暂未接入联机";
+                }
+            }
+            ToggleFavorite => {
+                if self
+                    .games
+                    .iter()
+                    .any(|game| Some(game.key()) == self.selected_game && game.favorite())
+                {
+                    name = "移出收藏";
+                }
+            }
+            ManageNetwork => {
+                enabled = self.connected;
+                if !enabled {
+                    reason = "尚未保留直连网络";
+                }
+            }
+            VolumeDown | VolumeUp => value = alloc::format!("{}%", self.volume),
+            BrightnessDown | BrightnessUp => value = alloc::format!("{}%", self.brightness),
+            ToggleSound => {
+                value = if self.sound {
+                    "开".into()
+                } else {
+                    "关".into()
+                }
+            }
+            CycleTheme => value = ["森林", "落日", "夜色"][self.palette].into(),
+            _ => {}
+        }
+        Some(MenuItem {
+            action,
+            name,
+            enabled,
+            reason,
+            value,
+        })
+    }
+    pub fn show_overlay(&mut self, overlay: Overlay) {
+        self.cancel_hold();
+        self.overlay = Some(overlay);
+        self.menu_selection = 0;
+        self.selection_age = 0;
+        self.notice = "";
+    }
     pub fn back(&mut self) {
         self.cancel_hold();
-        if self.menu {
-            self.menu = false;
+        if let Some(overlay) = self.overlay {
+            match overlay {
+                Overlay::Tools => self.show_overlay(Overlay::Controls),
+                Overlay::Controls | Overlay::Exit | Overlay::Power => {
+                    self.show_overlay(Overlay::System)
+                }
+                _ => self.overlay = None,
+            }
             return;
         }
-        let target = match self.screen {
-            Screen::Games => self.origin,
-            Screen::Wifi | Screen::Files => Screen::Tools,
-            Screen::Info | Screen::Manual | Screen::Result => self.previous,
-            _ => Screen::Favorites,
+        let target = if self.screen == Screen::Games {
+            self.origin
+        } else {
+            Screen::Favorites
         };
         self.open(target);
         self.direction = PageDirection::Backward;
-        if target == self.previous {
-            self.selected = self.previous_selection;
-        }
     }
 
     pub fn close(&mut self) {
         self.cancel_hold();
         self.active = false;
-        self.menu = false;
+        self.overlay = None;
     }
     pub fn resume(&mut self) {
         self.active = true;
     }
 }
 
+impl LauncherHandle {
+    pub fn overlay_title(&self) -> String {
+        self.overlay();
+        self.selected_game();
+        self.read_title()
+    }
+    pub fn item(&self, index: usize) -> Option<MenuItem> {
+        self.overlay();
+        self.sound();
+        self.connected();
+        self.volume();
+        self.brightness();
+        self.palette();
+        let key = self.selected_game();
+        if let Some(game) = self.games().iter().find(|game| Some(game.key()) == key) {
+            game.favorite();
+        }
+        self.read_item(index)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
-    fn tools_and_game_details_return_to_their_own_context() {
+    fn nested_overlays_preserve_the_browser_and_return_to_their_parent() {
         let mut launcher = Launcher::default();
         launcher.choose_platform(2);
-        assert_eq!(launcher.screen, Screen::Games);
-        launcher.selected = 3;
-        launcher.show_game_page(Screen::Info);
+        launcher.select(3);
+        launcher.show_overlay(Overlay::System);
+        launcher.show_overlay(Overlay::Controls);
+        launcher.show_overlay(Overlay::Tools);
         launcher.back();
+        assert_eq!(launcher.overlay, Some(Overlay::Controls));
+        launcher.back();
+        assert_eq!(launcher.overlay, Some(Overlay::System));
+        launcher.back();
+        assert_eq!(launcher.overlay, None);
         assert_eq!((launcher.screen, launcher.selected), (Screen::Games, 3));
+        launcher.show_overlay(Overlay::Power);
         launcher.back();
-        assert_eq!(launcher.screen, Screen::Platforms);
-        launcher.open(Screen::Tools);
-        launcher.tool(Screen::Wifi);
-        launcher.network();
-        launcher.back();
-        assert_eq!(launcher.screen, Screen::Tools);
-        assert!(launcher.connected);
-        launcher.back();
-        assert_eq!(launcher.screen, Screen::Favorites);
+        assert_eq!(launcher.overlay, Some(Overlay::System));
+        assert_eq!(launcher.item_count(), 6);
+        assert!(!launcher.read_item(3).unwrap().enabled);
+        assert!(!launcher.read_item(3).unwrap().reason.is_empty());
     }
-
     #[test]
-    fn closing_actions_does_not_navigate_or_lose_the_selected_game() {
+    fn game_overlay_uses_four_actions_and_preserves_identity() {
         let mut launcher = Launcher::default();
-        launcher.choose_game(4, 4);
+        launcher.choose_game(2, 2);
+        assert_eq!(launcher.item_count(), 4);
+        assert!(!launcher.read_item(1).unwrap().enabled);
         launcher.back();
-        assert!(!launcher.menu);
-        assert_eq!(launcher.screen, Screen::Favorites);
-        assert_eq!(launcher.selected, 4);
+        assert!(!launcher.menu());
+        assert_eq!(launcher.selected_game, Some(2));
         launcher.close();
         launcher.resume();
         assert!(launcher.active);
-        assert_eq!(launcher.selected_game, Some(4));
     }
 }

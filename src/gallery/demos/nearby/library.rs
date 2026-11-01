@@ -37,7 +37,9 @@ pub(super) fn follow(
 ) {
     let mut active_frame = None;
     for (frame, marker, bounds, hidden) in frames {
-        let active = (library.screen() == Screen::Favorites) == marker.shelf;
+        let active = library.active()
+            && !library.menu()
+            && (library.screen() == Screen::Favorites) == marker.shelf;
         if active {
             active_frame = Some((
                 frame,

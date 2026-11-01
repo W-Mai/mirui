@@ -48,7 +48,7 @@ fn all_palettes_define_the_same_paint_roles_and_cycle_without_replacing_models()
     }
     let (mut app, state) = fixture();
     for expected in ["sunset", "night", "forest"] {
-        state.launcher().adjust_tool(launcher::Tool::Theme);
+        state.launcher().adjust(launcher::MenuAction::CycleTheme);
         app.tick();
         assert_eq!(app.theme().id().as_str(), expected);
     }
@@ -89,7 +89,7 @@ fn character_follows_the_active_choice_and_sessions_own_their_character() {
 }
 
 #[test]
-fn action_overlay_keeps_preview_and_all_six_actions_inside_the_panel() {
+fn action_overlay_keeps_preview_and_all_menu_items_inside_the_panel() {
     use crate::ui::ComputedRect;
     for (width, height) in [(360, 480), (640, 480), (900, 600)] {
         let (mut app, state) = fixture_at(width, height);
@@ -111,7 +111,7 @@ fn action_overlay_keeps_preview_and_all_six_actions_inside_the_panel() {
                 Some((anchor.0, app.world.get::<ComputedRect>(entity)?.0))
             })
             .collect();
-        assert_eq!(tiles.len(), 6);
+        assert_eq!(tiles.len(), 4);
         for (index, rect) in &tiles {
             assert!(rect.x >= preview.x + preview.w, "{index}: {rect:?}");
             assert!(rect.w > Fixed::ZERO && rect.h > Fixed::ZERO);
@@ -159,10 +159,10 @@ fn launcher_hold_launches_once_and_cancels_across_navigation() {
     }
     assert!(library.hold_progress() > Fixed::ZERO);
     launcher_view::finish_play(&state);
-    assert_eq!(library.screen(), launcher::Screen::Result);
+    assert_eq!(library.notice(), "单机游玩 · LOCAL DEMO");
     assert!(!library.holding());
     launcher_view::finish_play(&state);
-    assert_eq!(library.screen(), launcher::Screen::Result);
+    assert_eq!(library.notice(), "单机游玩 · LOCAL DEMO");
     library.back();
     launcher_view::begin_play(&state);
     for _ in 0..50 {
@@ -174,10 +174,70 @@ fn launcher_hold_launches_once_and_cancels_across_navigation() {
     assert_eq!(state.snapshot().source, LaunchSource::Game);
     library.resume();
     launcher_view::begin_play(&state);
-    library.open(launcher::Screen::Tools);
+    library.show_overlay(launcher::Overlay::System);
     assert!(!library.holding());
     launcher_view::finish_play(&state);
-    assert_eq!(library.screen(), launcher::Screen::Tools);
+    assert_eq!(library.overlay(), Some(launcher::Overlay::System));
+}
+
+#[test]
+fn native_menu_hierarchy_reflows_without_replacing_the_browser() {
+    use crate::ui::ComputedRect;
+    use launcher::{MenuAction, Overlay};
+    for (width, height) in [(320, 240), (640, 480)] {
+        let (mut app, state) = fixture_at(width, height);
+        let library = state.launcher();
+        library.resume();
+        library.select(4);
+        for overlay in [
+            Overlay::System,
+            Overlay::Controls,
+            Overlay::Tools,
+            Overlay::Exit,
+            Overlay::Power,
+            Overlay::Network,
+        ] {
+            library.show_overlay(overlay);
+            app.render_dirty().unwrap();
+            let host = app.world.find_by_id("nearby_actions_panel").unwrap();
+            let panel = app.world.get::<ComputedRect>(host).unwrap().0;
+            let tiles: alloc::vec::Vec<_> = app
+                .world
+                .query::<actions::ActionAnchor>()
+                .iter()
+                .filter_map(|(entity, _)| {
+                    let mut ancestor = entity;
+                    loop {
+                        if crate::ui::branch::is_effectively_hidden(&app.world, ancestor) {
+                            return None;
+                        }
+                        let Some(parent) = app.world.get::<crate::ui::Parent>(ancestor) else {
+                            break;
+                        };
+                        ancestor = parent.0;
+                    }
+                    app.world.get::<ComputedRect>(entity).map(|r| r.0)
+                })
+                .collect();
+            assert_eq!(tiles.len(), library.item_count());
+            for rect in tiles {
+                assert!(rect.w > Fixed::ZERO && rect.h > Fixed::ZERO);
+                assert!(rect.x >= panel.x && rect.x + rect.w <= panel.x + panel.w);
+                assert!(rect.y >= panel.y && rect.y + rect.h <= panel.y + panel.h);
+            }
+            assert_eq!(library.selected(), 4);
+        }
+        library.show_overlay(Overlay::Controls);
+        library.adjust(MenuAction::VolumeUp);
+        app.render_dirty().unwrap();
+        assert_eq!(library.item(0).unwrap().value, "70%");
+        library.show_overlay(Overlay::Game);
+        library.choose_game(2, 2);
+        library.select_action(1);
+        launcher_view::confirm(&state);
+        assert!(library.active());
+        assert_eq!(library.notice(), "此游戏暂未接入联机");
+    }
 }
 
 #[test]
@@ -191,19 +251,29 @@ fn launcher_filtered_selection_and_all_tools_are_reachable() {
     launcher_view::confirm(&state);
     assert_eq!(library.game_key(), Some(7));
     library.dismiss_menu();
-    for (index, (tool, _, _)) in launcher::TOOLS.into_iter().enumerate() {
-        library.open(launcher::Screen::Tools);
-        library.select(index);
-        launcher_view::confirm(&state);
-        if matches!(tool, launcher::Tool::VolumeDown | launcher::Tool::VolumeUp) {
-            assert!(library.volume() <= 100);
+    for overlay in [
+        launcher::Overlay::System,
+        launcher::Overlay::Controls,
+        launcher::Overlay::Tools,
+        launcher::Overlay::Exit,
+        launcher::Overlay::Power,
+        launcher::Overlay::Network,
+    ] {
+        library.show_overlay(overlay);
+        let count = library.item_count();
+        for index in 0..count {
+            library.show_overlay(overlay);
+            library.select_action(index);
+            launcher_view::confirm(&state);
+            assert!(library.volume() <= 100 && library.brightness() <= 100);
+            if !library.active() {
+                library.resume();
+            }
+            app.tick();
         }
-        if !library.active() {
-            library.resume();
-        }
-        app.tick();
     }
-    assert_eq!(library.screen(), launcher::Screen::Favorites);
+    library.dismiss_menu();
+    assert_eq!(library.screen(), launcher::Screen::Games);
 }
 
 #[test]
@@ -256,14 +326,7 @@ fn launcher_pages_and_actions_reuse_the_application_and_keep_game_identity() {
     library.resume();
     app.render_dirty().unwrap();
     let identity = library.games().entries().next().unwrap().0;
-    for screen in [
-        Screen::Platforms,
-        Screen::Search,
-        Screen::Tools,
-        Screen::Wifi,
-        Screen::Files,
-        Screen::Favorites,
-    ] {
+    for screen in [Screen::Platforms, Screen::Search, Screen::Favorites] {
         library.open(screen);
         for _ in 0..90 {
             app.tick();
@@ -282,8 +345,7 @@ fn launcher_pages_and_actions_reuse_the_application_and_keep_game_identity() {
     library.open(Screen::Platforms);
     library.choose_platform(2);
     library.choose_game(2, 2);
-    library.show_game_page(Screen::Info);
-    library.back();
+    library.dismiss_menu();
     assert_eq!(library.screen(), Screen::Games);
     assert_eq!(library.platform(), 2);
     state.launch_game("方块世界".into(), false);
@@ -314,11 +376,14 @@ fn launcher_search_and_tools_are_local_and_reversible() {
         1
     );
     app.render_dirty().unwrap();
-    library.open(launcher::Screen::Tools);
-    library.tool(launcher::Screen::Wifi);
+    library.show_overlay(launcher::Overlay::System);
+    library.show_overlay(launcher::Overlay::Controls);
+    library.show_overlay(launcher::Overlay::Tools);
     library.network();
     library.back();
-    assert_eq!(library.screen(), launcher::Screen::Tools);
+    assert_eq!(library.overlay(), Some(launcher::Overlay::Controls));
+    library.back();
+    assert_eq!(library.overlay(), Some(launcher::Overlay::System));
     assert!(library.connected());
     state.open_network();
     assert!(!library.active());
@@ -364,7 +429,6 @@ fn launcher_rapid_route_changes_and_partial_repaint_match_full_repaint() {
     for screen in [
         launcher::Screen::Platforms,
         launcher::Screen::Search,
-        launcher::Screen::Tools,
         launcher::Screen::Favorites,
     ] {
         library.open(screen);

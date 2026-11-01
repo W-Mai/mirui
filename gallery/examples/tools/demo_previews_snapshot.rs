@@ -35,7 +35,11 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
         "favorites" => {}
         "platforms" => library.open(Screen::Platforms),
         "search" => library.open(Screen::Search),
-        "tools" => library.open(Screen::Tools),
+        "settings" => library.show_overlay(nearby::launcher::Overlay::System),
+        "controls" => library.show_overlay(nearby::launcher::Overlay::Controls),
+        "tools" => library.show_overlay(nearby::launcher::Overlay::Tools),
+        "power" => library.show_overlay(nearby::launcher::Overlay::Power),
+        "exit" => library.show_overlay(nearby::launcher::Overlay::Exit),
         "mode" => library.close(),
         "game-entry" => {
             library.close();

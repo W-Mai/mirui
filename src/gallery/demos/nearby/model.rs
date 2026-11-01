@@ -684,7 +684,6 @@ impl DisplayStateHandle {
                     super::launcher::PLATFORMS[library.platform()].0.into()
                 }
                 super::launcher::Screen::Search => "搜索游戏".into(),
-                _ => "附近联机".into(),
             };
         }
         self.view_revision();

@@ -1,8 +1,9 @@
 use super::actions::overlay;
+use super::actor::actor;
 use super::chrome::{footer, header};
 use super::consoles::{Platform, console};
 use super::deck::{FULL, catalog_share, shelf_share, shelf_transform, transform};
-use super::launcher::{Game, Launcher, PLATFORMS, Screen, TOOLS, Tool};
+use super::launcher::{Game, Launcher, MenuAction, Overlay, PLATFORMS, Screen};
 use super::library::favorites;
 use super::model::DisplayState;
 use super::pixel::{Scenery::Margins, backdrop};
@@ -13,19 +14,18 @@ use crate::ui::widgets::{
     Text,
     page_view::{CreatePage, PageView},
 };
-use Screen::{Favorites, Search, Tools};
-use alloc::{format, string::String, vec::Vec};
+use Screen::{Favorites, Search};
+use alloc::{format, vec::Vec};
 
 pub(super) fn confirm(state: &super::model::DisplayStateHandle) {
     let library = state.launcher();
     if library.menu() {
-        match library.menu_selection() {
-            0 => library.launch(),
-            1 => join_game(state),
-            2 => library.toggle_favorite(),
-            3 => library.show_game_page(Screen::Info),
-            4 => library.show_game_page(Screen::Manual),
-            _ => library.dismiss_menu(),
+        if let Some(item) = library.item(library.menu_selection()) {
+            if item.enabled {
+                activate_action(state, item.action);
+            } else {
+                library.result(item.reason);
+            }
         }
         return;
     }
@@ -51,10 +51,6 @@ pub(super) fn confirm(state: &super::model::DisplayStateHandle) {
                 library.choose_game(*key, *key as usize);
             }
         }
-        Screen::Tools => activate_tool(state, TOOLS[library.selected().min(TOOLS.len() - 1)].0),
-        Screen::Wifi => library.network(),
-        Screen::Files => library.open(Screen::Platforms),
-        _ => library.back(),
     }
 }
 
@@ -95,11 +91,7 @@ pub(super) fn move_selection(state: &super::model::DisplayStateHandle, forward: 
             library.select(key);
         }
     } else {
-        let limit = if library.screen() == Tools {
-            TOOLS.len()
-        } else {
-            PLATFORMS.len()
-        };
+        let limit = PLATFORMS.len();
         let current = library.selected();
         library.select(if forward {
             current.saturating_add(1).min(limit - 1)
@@ -145,24 +137,39 @@ pub(super) fn finish_play(state: &super::model::DisplayStateHandle) {
     }
 }
 
-fn activate_tool(state: &super::model::DisplayStateHandle, tool: Tool) {
+fn activate_action(state: &super::model::DisplayStateHandle, action: MenuAction) {
+    use MenuAction::*;
     let library = state.launcher();
-    match tool {
-        Tool::Wifi => library.tool(Screen::Wifi),
-        Tool::Files => library.tool(Screen::Files),
-        Tool::Network => state.open_network(),
-        Tool::NetworkInfo => library.result(if library.connected() {
+    match action {
+        Play if library.connected() && library.overlay() != Some(Overlay::Network) => {
+            library.show_overlay(Overlay::Network)
+        }
+        Play => library.launch(),
+        Multiplayer => join_game(state),
+        ToggleFavorite => library.toggle_favorite(),
+        ShowControls => library.show_overlay(Overlay::Controls),
+        ShowTools => library.show_overlay(Overlay::Tools),
+        ShowExit => library.show_overlay(Overlay::Exit),
+        ShowPower => library.show_overlay(Overlay::Power),
+        ManageNetwork => state.open_network(),
+        OpenWifi => library.network(),
+        NetworkInfo => library.result(if library.connected() {
             "LOCAL DEMO: Nearby Guest / 192.168.4.2"
         } else {
             "LOCAL DEMO: OFFLINE"
         }),
-        Tool::Controls => library.result("A: select / B: back / X: play / hold X: multiplayer"),
-        Tool::SystemInfo => library.result("LOCAL DEMO / MIRUI / 8 GAMES / 6 PLATFORMS"),
-        Tool::RestorePlay => library.result("LOCAL DEMO: game resumed"),
-        Tool::Exit => library.result("LOCAL DEMO: exit requested"),
-        Tool::Poweroff => library.result("LOCAL DEMO: power off requested"),
-        Tool::Back => library.back(),
-        _ => library.adjust_tool(tool),
+        SystemInfo => library.result("LOCAL DEMO / MIRUI / 8 GAMES / 6 PLATFORMS"),
+        FileManager => library.result("LOCAL DEMO: file manager opened"),
+        Exit => library.result("LOCAL DEMO: exit requested"),
+        Poweroff => library.result("LOCAL DEMO: power off requested"),
+        RestorePlay => {
+            if library.connected() {
+                library.network();
+            }
+            library.launch();
+        }
+        Back => library.back(),
+        _ => library.adjust(action),
     }
 }
 
@@ -246,6 +253,7 @@ fn launcher_deck(
                 footer (&view, state, metrics)
             }
             overlay (state, library)
+            actor (state)
         }
     }
 }
@@ -258,10 +266,6 @@ fn page(screen: Screen, state: model!(DisplayState), library: model!(Launcher)) 
                 Screen :: Favorites => { favorites (state, library) }
                 Screen :: Platforms => { platforms (library) }
                 Screen :: Games | Screen :: Search => { games (state, screen, library) }
-                Screen :: Tools => { tools (state, library) }
-                Screen :: Wifi => { wifi (library) }
-                Screen :: Files => { files (library) }
-                Screen :: Info | Screen :: Manual | Screen :: Result => { detail (library, screen) }
             }
         }
     }
@@ -400,189 +404,6 @@ fn keyboard(state: model!(Launcher)) -> Entity {
                     }
                 }
             }
-        }
-    }
-}
-
-#[compose]
-fn tools(state: model!(DisplayState), library: model!(Launcher)) -> Entity {
-    ui! {
-        Column (grow: 1.0, min_height: 0, row_gap: 6) {
-            Column (grow: 1.0, min_height: 0, clip_children: true) [
-                ScrollConfig::default(),
-                ScrollOffset::default(),
-            ] {
-                Column (row_gap: 6) {
-                    walk 0..4 with row {
-                        Row (height: 64, shrink: 0.0, column_gap: 6) {
-                            walk 0..4 with column {
-                                tool_tile (state, library, row * 4 + column)
-                            }
-                        }
-                    }
-                }
-            }
-            Text (text: ${ library.notice() }, font: FONT, font_size: 12, text_color: ACCENT)
-            Text (
-                "LOCAL DEMO: no system changes",
-                font: FONT,
-                font_size: 12,
-                text_color: SECONDARY
-            )
-        }
-    }
-}
-
-#[compose]
-fn tool_tile(state: model!(DisplayState), library: model!(Launcher), index: usize) -> Entity {
-    let (tool, glyph, title) = TOOLS[index];
-    ui! {
-        Column (
-            grow: 1.0,
-            min_width: 0,
-            padding: Padding::all(4),
-            row_gap: 3,
-            border_width: 2,
-            border_color: ${ if library.selected() == index { ACCENT } else { PANEL } },
-            bg_color: PANEL
-        ) {
-            Text (glyph, font: FONT, font_size: 12, text_color: ACCENT)
-            Text (title, font: FONT, font_size: 12, text_color: FOREGROUND)
-            Text (
-                text: ${
-                    match tool {
-                        Tool::Sound => if library.sound() { "ON".into() } else { "OFF".into() }
-                        Tool::VolumeDown | Tool::VolumeUp => format!("{}%", library.volume()),
-                        Tool::BrightnessDown | Tool::BrightnessUp => format!("{}%", library.brightness()),
-                        Tool::Theme => ["森林", "落日", "夜色"][library.palette()].into(),
-                        _ => String::new(),
-                    }
-                },
-                font: FONT,
-                font_size: 12,
-                text_color: SECONDARY
-            )
-        } on Tap {
-            library.select(index);
-            activate_tool(&state, tool);
-        }
-    }
-}
-
-#[compose]
-fn wifi(state: model!(Launcher)) -> Entity {
-    ui! {
-        Column (grow: 1.0, row_gap: 8) {
-            Text (
-                text: ${ if state.connected() { "Nearby Wi-Fi: CONNECTED" } else { "Nearby Wi-Fi: OFFLINE" } },
-                height: 28,
-                font: FONT,
-                font_size: 12,
-                text_color: FOREGROUND
-            )
-            Text (
-                "Nearby Guest  /  92%",
-                height: 28,
-                shrink: 0.0,
-                font: FONT,
-                font_size: 12,
-                bg_color: PANEL,
-                text_color: FOREGROUND
-            ) on Tap { state.network(); }
-            Text (
-                "Nearby Home  /  64%",
-                height: 28,
-                shrink: 0.0,
-                font: FONT,
-                font_size: 12,
-                bg_color: PANEL,
-                text_color: FOREGROUND
-            ) on Tap { state.network(); }
-            Text (text: ${ state.notice() }, font: FONT, font_size: 12, text_color: ACCENT)
-            Text (
-                "LOCAL DEMO: simulated network",
-                font: FONT,
-                font_size: 12,
-                text_color: SECONDARY
-            )
-        }
-    }
-}
-
-#[compose]
-fn files(state: model!(Launcher)) -> Entity {
-    ui! {
-        Column (grow: 1.0, row_gap: 8) {
-            Text (
-                "/roms  ·  LOCAL DEMO",
-                height: 28,
-                font: FONT,
-                font_size: 12,
-                text_color: SECONDARY
-            )
-            walk PLATFORMS.into_iter().enumerate() with platform {
-                Text (
-                    platform.1.0,
-                    height: 28,
-                    shrink: 0.0,
-                    font: FONT,
-                    font_size: 12,
-                    bg_color: PANEL,
-                    text_color: FOREGROUND
-                ) on Tap { state.browse_files(platform.0); }
-            }
-        }
-    }
-}
-
-#[compose]
-fn detail(state: model!(Launcher), screen: Screen) -> Entity {
-    let game = state
-        .games()
-        .iter()
-        .find(|game| Some(game.key()) == state.game_key());
-    ui! {
-        Column (grow: 1.0, min_height: 0, row_gap: 8) {
-            if let Some (game) = game {
-                console (platform(PLATFORMS[game.platform()].1))
-                Text (
-                    game.name(),
-                    height: 28,
-                    shrink: 0.0,
-                    font: FONT,
-                    font_size: 12,
-                    text_color: FOREGROUND
-                )
-                Text (
-                    PLATFORMS[game.platform()].0,
-                    height: 24,
-                    shrink: 0.0,
-                    font: FONT,
-                    font_size: 12,
-                    text_color: SECONDARY
-                )
-            }
-            Text (
-                if screen == Screen::Manual {
-                    "A 确认  B 返回  方向键选择"
-                } else {
-                    "LOCAL DEMO: no game process is started"
-                },
-                height: 28,
-                shrink: 0.0,
-                font: FONT,
-                font_size: 12,
-                text_color: ACCENT
-            )
-            Text (
-                "返回",
-                height: 28,
-                shrink: 0.0,
-                font: FONT,
-                font_size: 12,
-                bg_color: PANEL,
-                text_color: FOREGROUND
-            ) on Tap { state.back(); }
         }
     }
 }

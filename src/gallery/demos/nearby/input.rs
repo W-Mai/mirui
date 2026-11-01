@@ -164,7 +164,7 @@ pub(super) fn keyboard(
         return true;
     }
     if code == 0x79 {
-        library.adjust_tool(super::launcher::Tool::Theme);
+        library.adjust(super::launcher::MenuAction::CycleTheme);
         return true;
     }
     if library.active() {
@@ -177,7 +177,7 @@ pub(super) fn keyboard(
             return true;
         }
         if event.physical == Some(PhysicalKey::F1) {
-            library.open(super::launcher::Screen::Tools);
+            library.show_overlay(super::launcher::Overlay::System);
             return true;
         }
         if event.physical == Some(PhysicalKey::Space) {
@@ -190,6 +190,16 @@ pub(super) fn keyboard(
             _ => None,
         };
         if let Some(forward) = direction {
+            if library.menu() {
+                let delta = match event.physical {
+                    Some(PhysicalKey::ArrowUp) => -2,
+                    Some(PhysicalKey::ArrowDown) => 2,
+                    Some(PhysicalKey::ArrowLeft) => -1,
+                    _ => 1,
+                };
+                library.select_action((library.menu_selection() as i32 + delta).max(0) as usize);
+                return true;
+            }
             super::launcher_view::move_selection(state, forward);
             return true;
         }

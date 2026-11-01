@@ -9,10 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Nearby demo launcher state uses nested Models and an observable game collection, with independent return contexts for game details and system tools.
-- Nearby demo includes cartridge favorites, platform artwork, game browsing, search, game actions and simulated Wi-Fi and system-tool pages; connection and in-game entry flows remain available.
+- Nearby demo launcher state uses nested Models and an observable game collection, retaining browser context across nested menus.
+- Nearby demo includes cartridge favorites, platform artwork, game browsing, search and game actions; connection and in-game entry flows remain available.
 - Nearby connection scenes include animated characters, selection pulses, walking, session transitions and loading feedback; F2 toggles the simulation controls.
-- Nearby provides a system-tool grid and shared keyboard/pointer hold-to-launch feedback, with filtered game selection preserving game identity.
+- Nearby provides game, settings, system-control, tool, exit and power-confirmation overlays with live values and availability reasons; keyboard and pointer actions preserve game identity.
 
 ### Changed
 

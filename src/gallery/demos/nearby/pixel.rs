@@ -2,15 +2,33 @@ use super::style::*;
 #[component]
 pub(super) struct ActorSprite {
     pub state: model!(DisplayState),
+    pub actions: model!(super::launcher::Launcher),
 }
 #[view(component = ActorSprite, priority = 60)]
 pub(super) fn actor_sprite(
     state: model!(component.state, watch(actor_motion)),
+    actions: model!(
+        component.actions,
+        watch(active, menu, menu_selection, selection_age, card_motion)
+    ),
     paint: paint!(),
     theme: res!(Theme),
 ) {
     let rect = paint.rect();
-    let frame = cursor_frame(state.actor_motion(), None, 800);
+    let frame = if actions.active {
+        let frame = actions.card_motion();
+        cursor_frame(
+            frame,
+            Some(if actions.menu() {
+                actions.menu_selection
+            } else {
+                frame.selected.unwrap_or(0)
+            }),
+            actions.selection_age,
+        )
+    } else {
+        cursor_frame(state.actor_motion(), None, 800)
+    };
     let session = matches!(frame.page, Page::Host | Page::Joined | Page::Leaving);
     let celebrate = session
         && (frame.ready || frame.connected)
