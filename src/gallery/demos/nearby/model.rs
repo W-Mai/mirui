@@ -675,10 +675,41 @@ impl DisplayStateHandle {
         self.room_name_value()
     }
     pub(super) fn subtitle(&self) -> alloc::string::String {
+        let library = self.launcher();
+        if library.active() {
+            return match library.screen() {
+                super::launcher::Screen::Favorites => "收藏游戏".into(),
+                super::launcher::Screen::Platforms => "游戏平台".into(),
+                super::launcher::Screen::Games => {
+                    super::launcher::PLATFORMS[library.platform()].0.into()
+                }
+                super::launcher::Screen::Search => "搜索游戏".into(),
+                _ => "附近联机".into(),
+            };
+        }
         self.view_revision();
         self.subtitle_value()
     }
     pub(super) fn library_counter(&self) -> Option<(usize, usize)> {
+        let library = self.launcher();
+        if library.active() {
+            let query = library.query();
+            let games = library.games();
+            let mut count = 0;
+            let mut position = 0;
+            for game in games.iter().filter(|game| match library.screen() {
+                super::launcher::Screen::Favorites => game.favorite(),
+                super::launcher::Screen::Games => game.platform() == library.platform(),
+                super::launcher::Screen::Search => game.matches(&query.to_lowercase()),
+                _ => false,
+            }) {
+                count += 1;
+                if game.key() as usize == library.selected() {
+                    position = count;
+                }
+            }
+            return (count > 0).then_some((position, count));
+        }
         self.view_revision();
         self.library_counter_value()
     }

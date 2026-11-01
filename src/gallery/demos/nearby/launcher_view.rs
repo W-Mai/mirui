@@ -1,12 +1,11 @@
 use super::actions::overlay;
+use super::chrome::{footer, header};
 use super::consoles::{Platform, console};
+use super::deck::{FULL, catalog_share, shelf_share, shelf_transform, transform};
 use super::launcher::{Game, Launcher, PLATFORMS, Screen, TOOLS, Tool};
+use super::library::favorites;
 use super::model::DisplayState;
-use super::pixel::{
-    Scenery,
-    Scenery::{Header, Ridge},
-    backdrop,
-};
+use super::pixel::{Scenery::Margins, backdrop};
 use super::style::*;
 use crate::input::event::scroll::{ScrollConfig, ScrollOffset};
 use crate::prelude::*;
@@ -14,7 +13,7 @@ use crate::ui::widgets::{
     Text,
     page_view::{CreatePage, PageView},
 };
-use Screen::{Favorites, Platforms, Search, Tools};
+use Screen::{Favorites, Search, Tools};
 use alloc::{format, string::String, vec::Vec};
 
 pub(super) fn confirm(state: &super::model::DisplayStateHandle) {
@@ -191,195 +190,80 @@ fn create_page(event: event!(CreatePage<Screen>), state: model!(DisplayState)) -
 
 #[compose]
 pub(super) fn launcher(state: model!(DisplayState), library: model!(Launcher)) -> Entity {
-    ui! {
-        Column (grow: 1.0, min_height: 0, min_width: 0, bg_color: BACKGROUND) {
-            Row (height: 64, shrink: 0.0, padding: Padding::all(8), column_gap: 8, bg_color: DEEP) {
-                backdrop (Header)
-                View (width: 48, height: 48, shrink: 0.0) [
-                    Scenery::Logo,
-                ]
-                Text (
-                    "NEARBY",
-                    grow: 1.0,
-                    min_width: 0,
-                    font: FONT,
-                    font_size: 12,
-                    text_color: HEADER_TEXT
-                )
-                nav (library, Favorites, "收藏")
-                nav (library, Platforms, "平台")
-                nav (library, Search, "搜索")
-                nav (library, Tools, "设置")
-            }
-            View (height: 2, shrink: 0.0, bg_color: ACCENT)
-            PageView (
-                id: "nearby_launcher_pages",
-                grow: 1.0,
-                min_height: 0,
-                min_width: 0,
-                page: ${ library.screen() },
-                transition: ${ library.transition() }
-            ) on CreatePage(create_page::callback(state.clone()))
-            overlay (state, library)
-            Row (height: 30, shrink: 0.0, column_gap: 8, padding: Padding::all(6)) {
-                Text (
-                    "A 确认  B 返回",
-                    grow: 1.0,
-                    font: FONT,
-                    font_size: 12,
-                    text_color: SECONDARY
-                )
-                Text ("LOCAL DEMO", font: FONT, font_size: 12, text_color: ACCENT)
-                Text (
-                    text: ${
-                        if library.hold_progress() >= Fixed::ONE {
-                            "X: LINK!"
-                        } else if library.holding() {
-                            "X: HOLD..."
-                        } else {
-                            "X: PLAY"
-                        }
-                    },
-                    font: FONT,
-                    font_size: 12,
-                    text_color: ACCENT
-                ) on Pressed { begin_play(&state); } on Released { finish_play(&state); } on PressCancelled { library.cancel_hold(); }
-                Text ("附近联机 >", font: FONT, font_size: 12, text_color: FOREGROUND) on Tap { library.close(); }
-            }
-        }
-    }
+    ui! { launcher_deck (state, library, library.deck()) }
 }
 
 #[compose]
-fn nav(state: model!(Launcher), screen: Screen, title: &'static str) -> Entity {
+fn launcher_deck(
+    state: model!(DisplayState),
+    library: model!(Launcher),
+    deck: model!(super::deck::Deck),
+) -> Entity {
+    let metrics = state.metrics();
+    let mut view = state.snapshot();
+    view.page = super::data::Page::Games;
     ui! {
-        Text (
-            title,
-            min_width: 32,
-            font: FONT,
-            font_size: 12,
-            text_color: ${ if state.screen() == screen { HEADER_TEXT } else { HEADER_DETAIL } }
-        ) on Tap { state.open(screen); }
+        Column (grow: 1.0, min_height: 0, min_width: 0, bg_color: BACKGROUND) {
+            header (&view, state, metrics)
+            View (height: metrics.rule_height(), shrink: 0.0, bg_color: WARNING)
+            Column (grow: 1.0, min_height: 0, padding: metrics.page_padding(), row_gap: metrics.gap) {
+                backdrop (Margins)
+                Column (id: "nearby_launcher_deck", grow: 1.0, min_height: 0, min_width: 0, container: true) {
+                    Column (
+                        position: Position::Absolute, width: Dimension::percent(100), top: 0,
+                        height: ${ Dimension::Percent(shelf_share(deck.expansion()) * 100) },
+                        clip_children: true, min_height: 0, container: true
+                    ) {
+                        Column (
+                            position: Position::Absolute, top: 0, width: Dimension::percent(100),
+                            height: @(id("nearby_launcher_deck").height as height) { height },
+                            transform: ${ shelf_transform(deck.expansion(), deck.height()) },
+                            padding: Padding::all(metrics.gap), min_height: 0
+                        ) {
+                            favorites (state, library)
+                        }
+                    }
+                    Column (
+                        visible: ${ deck.expansion() > Fixed::ZERO },
+                        position: Position::Absolute, width: Dimension::percent(100), top: 0,
+                        height: ${ Dimension::Percent(catalog_share(deck.expansion()) * 100) },
+                        transform: ${ crate::types::Transform::translate(Fixed::ZERO, deck.height() * shelf_share(deck.expansion())) },
+                        clip_children: true, min_height: 0, container: true
+                    ) {
+                        Column (
+                            position: Position::Absolute, top: 0, width: Dimension::percent(100),
+                            height: @(id("nearby_launcher_deck").height as height) { height * FULL },
+                            transform: ${ transform(deck.expansion(), deck.height() * FULL) },
+                            padding: Padding::all(metrics.gap), min_height: 0
+                        ) {
+                            PageView (
+                                id: "nearby_launcher_pages", grow: 1.0, min_height: 0, min_width: 0,
+                                page: ${ library.catalog_screen() }, transition: ${ library.transition() }
+                            ) on CreatePage(create_page::callback(state.clone()))
+                        }
+                    }
+                } on SizeChanged { deck.set_height(event.new.height); }
+                footer (&view, state, metrics)
+            }
+            overlay (state, library)
+        }
     }
 }
 
 #[compose]
 fn page(screen: Screen, state: model!(DisplayState), library: model!(Launcher)) -> Entity {
     ui! {
-        Column (
-            grow: 1.0,
-            min_height: 0,
-            min_width: 0,
-            padding: Padding::all(12),
-            row_gap: 8,
-            bg_color: BACKGROUND
-        ) {
-            Row (height: 32, shrink: 0.0, column_gap: 8) {
-                Text (
-                    screen.title(),
-                    grow: 1.0,
-                    min_width: 0,
-                    font: TITLE_FONT,
-                    font_size: 24,
-                    text_color: FOREGROUND
-                )
-                Text ("< 返回", font: FONT, font_size: 12, text_color: SECONDARY) on Tap { library.back(); }
-            }
+        Column (grow: 1.0, min_height: 0, min_width: 0) {
             match screen {
-                Screen :: Favorites => {
-                    favorites (state, library)
-                }
-                Screen :: Platforms => {
-                    platforms (library)
-                }
-                Screen :: Games | Screen :: Search => {
-                    games (state, screen, library)
-                }
-                Screen :: Tools => {
-                    tools (state, library)
-                }
-                Screen :: Wifi => {
-                    wifi (library)
-                }
-                Screen :: Files => {
-                    files (library)
-                }
-                Screen :: Info | Screen :: Manual | Screen :: Result => {
-                    detail (library, screen)
-                }
+                Screen :: Favorites => { favorites (state, library) }
+                Screen :: Platforms => { platforms (library) }
+                Screen :: Games | Screen :: Search => { games (state, screen, library) }
+                Screen :: Tools => { tools (state, library) }
+                Screen :: Wifi => { wifi (library) }
+                Screen :: Files => { files (library) }
+                Screen :: Info | Screen :: Manual | Screen :: Result => { detail (library, screen) }
             }
         }
-    }
-}
-
-#[compose]
-fn favorites(state: model!(DisplayState), library: model!(Launcher)) -> Entity {
-    ui! {
-        Column (grow: 1.0, min_height: 0, row_gap: 6) {
-            Column (grow: 1.0, min_height: 0, clip_children: true) [
-                ScrollConfig::default(),
-                ScrollOffset::default(),
-                Ridge,
-            ] {
-                Column (row_gap: 8, padding: Padding::all(4)) {
-                    walk ${ 0..library.games().iter().filter(|game| game.favorite()).count().div_ceil(2) } with line {
-                        Row (height: 136, shrink: 0.0, column_gap: 8) {
-                            walk ${
-                                library
-                                    .games()
-                                    .entries()
-                                    .filter(|(_, game)| game.favorite())
-                                    .skip(line * 2)
-                                    .take(2)
-                                    .collect::<Vec<_>>()
-                            } with item by item.0 {
-                                cartridge (state, item.1, library)
-                            }
-                        }
-                    }
-                }
-            }
-            Text (
-                "选择游戏，开始新的旅途",
-                height: 20,
-                font: FONT,
-                font_size: 12,
-                text_color: SECONDARY
-            )
-        }
-    }
-}
-
-#[compose]
-fn cartridge(state: model!(DisplayState), game: model!(Game), library: model!(Launcher)) -> Entity {
-    let key = game.key();
-    ui! {
-        Column (
-            grow: 1.0,
-            min_width: 0,
-            padding: Padding::all(5),
-            row_gap: 4,
-            border_width: 2,
-            border_color: ${ if library.selected() == key as usize { ACCENT } else { DIVIDER } },
-            bg_color: PANEL
-        ) {
-            View (height: 4, shrink: 0.0, bg_color: DIVIDER)
-            console (platform(PLATFORMS[game.platform()].1))
-            Text (
-                text: ${ game.name() },
-                height: 20,
-                shrink: 0.0,
-                font: FONT,
-                font_size: 12,
-                text_color: FOREGROUND,
-                paragraph: paragraph(crate::ui::widgets::TextAlign::Start, 1)
-            )
-            Row (height: 4, shrink: 0.0, column_gap: 4, justify: JustifyContent::Center) {
-                walk 0..8 with _pin {
-                    View (width: 4, bg_color: WARNING)
-                }
-            }
-        } on Tap { library.choose_game(key, key as usize); }
     }
 }
 

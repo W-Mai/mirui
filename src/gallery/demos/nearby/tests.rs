@@ -207,6 +207,48 @@ fn launcher_filtered_selection_and_all_tools_are_reachable() {
 }
 
 #[test]
+fn launcher_deck_retains_shelf_members_and_independent_selection_on_reversal() {
+    use super::launcher::Screen;
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    library.select(4);
+    for _ in 0..3 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    let shelf = app.world.find_by_id("nearby_shelf").unwrap();
+    let children = app
+        .world
+        .get::<crate::ui::Children>(shelf)
+        .unwrap()
+        .0
+        .clone();
+    library.open(Screen::Platforms);
+    for _ in 0..12 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    let middle = library.deck().expansion();
+    assert!(middle > Fixed::ZERO && middle < Fixed::ONE);
+    library.select(2);
+    library.open(Screen::Favorites);
+    assert_eq!(library.selected(), 4);
+    for _ in 0..50 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    assert_eq!(library.deck().expansion(), Fixed::ZERO);
+    assert_eq!(app.world.find_by_id("nearby_shelf"), Some(shelf));
+    assert_eq!(
+        app.world.get::<crate::ui::Children>(shelf).unwrap().0,
+        children
+    );
+    library.open(Screen::Platforms);
+    assert_eq!(library.selected(), 2);
+}
+
+#[test]
 fn launcher_pages_and_actions_reuse_the_application_and_keep_game_identity() {
     use super::launcher::Screen;
     let (mut app, state) = fixture();

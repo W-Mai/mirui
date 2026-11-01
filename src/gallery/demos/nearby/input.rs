@@ -168,6 +168,22 @@ pub(super) fn keyboard(
         return true;
     }
     if library.active() {
+        if event.physical == Some(PhysicalKey::Tab) {
+            library.open(if library.screen() == super::launcher::Screen::Favorites {
+                super::launcher::Screen::Platforms
+            } else {
+                super::launcher::Screen::Favorites
+            });
+            return true;
+        }
+        if event.physical == Some(PhysicalKey::F1) {
+            library.open(super::launcher::Screen::Tools);
+            return true;
+        }
+        if event.physical == Some(PhysicalKey::Space) {
+            library.close();
+            return true;
+        }
         let direction = match event.physical {
             Some(PhysicalKey::ArrowLeft | PhysicalKey::ArrowUp) => Some(false),
             Some(PhysicalKey::ArrowRight | PhysicalKey::ArrowDown) => Some(true),

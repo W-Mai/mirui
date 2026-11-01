@@ -25,7 +25,10 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
     use mirui::gallery::demos::nearby::{self, data::Scenario, launcher::Screen};
     let root = app.spawn_root().id();
     let state = nearby::setup_app(app, root);
-    app.add_resource(mirui::ecs::MonoClock::new(|| 0));
+    app.add_resource(mirui::ecs::MonoClock::new(|| {
+        static TIME: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        TIME.fetch_add(250_000_000, std::sync::atomic::Ordering::Relaxed)
+    }));
     let library = state.launcher();
     match scene {
         "actions" => library.choose_game(0, 0),
@@ -68,8 +71,10 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
         _ => panic!("unknown Nearby scene: {scene}"),
     }
     app.prepare_text_layout().expect("prepare Nearby scene");
+    app.render().expect("layout Nearby scene");
     for _ in 0..3 {
         app.tick();
+        app.render().expect("settle Nearby scene");
     }
     root
 }

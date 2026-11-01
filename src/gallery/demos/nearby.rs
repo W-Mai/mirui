@@ -6,16 +6,19 @@ mod composition;
 mod consoles;
 mod copy;
 pub mod data;
+mod deck;
 mod feedback;
 mod input;
 pub mod launcher;
 mod launcher_view;
+mod library;
 pub mod model;
 mod motion;
 mod pages;
 mod palette;
 mod pixel;
 mod sessions;
+mod shelf;
 mod style;
 mod widgets;
 
@@ -67,6 +70,8 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     let state = app.add_model(model::DisplayState::default()).finish();
     state.resize(app.backend.viewport().logical_size().1);
     app.add_system(launcher_hold::system(state.launcher()));
+    app.add_system(launcher_layout::system(state.launcher()));
+    app.add_system(library::follow::system(state.launcher()));
     app.add_system(launcher_palette::system(state.launcher()));
     app.add_system(scene_animation::system(state.clone()));
     app.add_system(actor::follow::system(state.clone()));
@@ -83,6 +88,29 @@ fn launcher_hold(library: model!(launcher::Launcher), delta: res!(crate::ecs::De
     if library.active() && library.holding() && library.hold_progress() < Fixed::ONE {
         library.advance_hold(delta.0);
     }
+}
+
+#[system(order = Animation)]
+fn launcher_layout(library: model!(launcher::Launcher), delta: res!(crate::ecs::DeltaTimeMs)) {
+    if !library.active() {
+        return;
+    }
+    let games = library.games();
+    let mut total = 0;
+    let mut selected = 0;
+    for game in games.iter().filter(|game| game.favorite()) {
+        if game.key() as usize == library.shelf_selection() {
+            selected = total;
+        }
+        total += 1;
+    }
+    library.shelf().present(total, selected);
+    library.deck().advance(
+        library.screen() != launcher::Screen::Favorites,
+        delta.0,
+        library.menu(),
+    );
+    library.animate(delta.0);
 }
 
 #[system(order = Animation)]

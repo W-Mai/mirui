@@ -152,6 +152,17 @@ pub struct Launcher {
     held_game: Option<u32>,
     held_ms: u16,
     pub games: model!(owned ModelList<Game>),
+    pub(super) shelf: model!(owned super::shelf::Shelf),
+    pub(super) deck: model!(owned super::deck::Deck),
+    #[observe]
+    pub shelf_selection: usize,
+    #[observe]
+    pub catalog_screen: Screen,
+    catalog_selection: usize,
+    #[observe]
+    pub(super) selection_age: u16,
+    #[observe]
+    pub(super) pulse_age: u16,
     direction: PageDirection,
     origin: Screen,
     previous: Screen,
@@ -211,6 +222,13 @@ impl Default for Launcher {
             held_game: None,
             held_ms: 0,
             games: list.into(),
+            shelf: super::shelf::Shelf::default().into(),
+            deck: super::deck::Deck::default().into(),
+            shelf_selection: 0,
+            catalog_screen: Screen::Platforms,
+            catalog_selection: 0,
+            selection_age: 800,
+            pulse_age: 800,
             direction: PageDirection::Forward,
             origin: Screen::Favorites,
             previous: Screen::Favorites,
@@ -222,6 +240,26 @@ impl Default for Launcher {
 
 #[model]
 impl Launcher {
+    pub(super) fn animate(&mut self, delta: u16) {
+        let age = self.selection_age.saturating_add(delta).min(800);
+        if age != self.selection_age {
+            self.selection_age = age;
+        }
+        let pulse = self.pulse_age.saturating_add(delta).min(800);
+        if pulse != self.pulse_age {
+            self.pulse_age = pulse;
+        }
+    }
+    #[observe]
+    pub(super) fn card_motion(&self) -> super::motion::Frame {
+        super::motion::Frame {
+            page: super::data::Page::Games,
+            selected: Some(self.selected),
+            selection: self.selection_age,
+            pulse: self.pulse_age,
+            ..Default::default()
+        }
+    }
     pub fn query(&self) -> String {
         self.query.clone()
     }
@@ -239,19 +277,43 @@ impl Launcher {
         } else {
             PageDirection::Forward
         };
+        if self.screen == Screen::Favorites {
+            self.shelf_selection = self.selected;
+        } else {
+            self.catalog_selection = self.selected;
+        }
         self.screen = screen;
-        self.selected = 0;
+        self.selected = if screen == Screen::Favorites {
+            self.shelf_selection
+        } else if screen == self.catalog_screen {
+            self.catalog_selection
+        } else {
+            0
+        };
+        if screen != Screen::Favorites {
+            self.catalog_screen = screen;
+        }
     }
 
     pub fn select(&mut self, index: usize) {
+        if self.selected != index {
+            self.selection_age = 0;
+            self.pulse_age = 0;
+        }
         self.cancel_hold();
         self.selected = index;
+        if self.screen == Screen::Favorites {
+            self.shelf_selection = index;
+        }
     }
 
     pub fn choose_game(&mut self, key: u32, index: usize) {
         self.cancel_hold();
         self.selected_game = Some(key);
         self.selected = index;
+        if self.screen == Screen::Favorites {
+            self.shelf_selection = index;
+        }
         self.menu = true;
         self.menu_selection = 0;
     }

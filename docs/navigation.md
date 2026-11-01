@@ -44,7 +44,7 @@ cargo run -p gallery --example page_studio_demo --no-default-features --features
 
 Nearby demonstrates a local game launcher with favorites, platform and game browsers, search, game actions, and a system-tool grid, alongside the connection flows. Press and release X to launch a game; hold X for multiplayer, or use the on-screen play control. Settings include local sound, theme, volume and brightness state. The Launcher button returns from the connection demo without replacing the shared game collection. Page changes use explicit forward and backward slide directions. The native window starts at 640×480 and reflows when resized. Device, network and game-process operations are simulated. The default backend is SDL; the same UI also runs with SDL-GPU or WGPU.
 
-Nearby starts with the forest palette; Y cycles through sunset, night and forest. Pixel scenery uses the same theme roles. Initial viewport height selects native 12 px or 24 px typography and compact spacing; Flex handles subsequent window resizing. F2 toggles the simulation controls above the application.
+Nearby starts with the forest palette; Y cycles through sunset, night and forest. Pixel scenery uses the same theme roles. Initial viewport height selects native 12 px or 24 px typography and compact spacing; Flex handles subsequent window resizing. Tab switches favorites and catalog, F1 opens settings, and Space opens the connection flow. F2 toggles the simulation controls above the application.
 
 ```sh
 cargo run -p gallery --example nearby_demo
