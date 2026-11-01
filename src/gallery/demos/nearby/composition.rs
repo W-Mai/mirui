@@ -32,10 +32,29 @@ pub(super) fn build_widgets(state: model!(DisplayState)) {
         Column (grow: 1.0, min_height: 0, bg_color: BACKGROUND) {
             if ${ state.controls() } {
                 Row (height: 28, shrink: 0.0, column_gap: 4) {
-                    walk [super::launcher::Screen::Favorites, super::launcher::Screen::Platforms, super::launcher::Screen::Search].into_iter() with screen {
-                        Button (text: screen.title(), grow: 1.0, min_width: 0, border_radius: 0, font: FONT, font_size: 12) on Tap { state.launcher().open(screen); }
+                    walk [
+                        super::launcher::Screen::Favorites,
+                        super::launcher::Screen::Platforms,
+                        super::launcher::Screen::Search,
+                    ]
+                        .into_iter() with screen {
+                        Button (
+                            text: screen.title(),
+                            grow: 1.0,
+                            min_width: 0,
+                            border_radius: 0,
+                            font: FONT,
+                            font_size: 12
+                        ) on Tap { state.launcher().open(screen); }
                     }
-                    Button (text: "设置", grow: 1.0, min_width: 0, border_radius: 0, font: FONT, font_size: 12) on Tap { state.launcher().show_overlay(super::launcher::Overlay::System); }
+                    Button (
+                        text: "设置",
+                        grow: 1.0,
+                        min_width: 0,
+                        border_radius: 0,
+                        font: FONT,
+                        font_size: 12
+                    ) on Tap { state.launcher().show_overlay(super::launcher::Overlay::System); }
                 }
                 Row (
                     height: 30,
@@ -116,8 +135,11 @@ pub(super) fn build_widgets(state: model!(DisplayState)) {
                     ) [
                         Text::label("Confirm"),
                     ] on Tap {
-                        if state.launcher().active() { super::launcher_view::confirm(&state); }
-                        else { state.confirm(); }
+                        if state.launcher().active() {
+                            super::launcher_view::confirm(&state);
+                        } else {
+                            state.confirm();
+                        }
                     }
                     Button (
                         id: "nearby_back",
@@ -132,8 +154,11 @@ pub(super) fn build_widgets(state: model!(DisplayState)) {
                     ) [
                         Text::label("Back"),
                     ] on Tap {
-                        if state.launcher().active() { state.launcher().back(); }
-                        else { state.back_page(); }
+                        if state.launcher().active() {
+                            state.launcher().back();
+                        } else {
+                            state.back_page();
+                        }
                     }
                     Button (
                         id: "nearby_advance",
@@ -205,6 +230,12 @@ fn page_host(state: model!(DisplayState)) -> Entity {
 #[compose]
 pub(super) fn room_pages(state: model!(DisplayState), metrics: Metrics) -> Entity {
     ui! {
-        PageView (id: "nearby_room_pages", grow: 1.0, min_height: 0, page: ${ state.page_key() }, transition: ${ state.transition() }) on CreatePage(create_page::callback(state, metrics, true))
+        PageView (
+            id: "nearby_room_pages",
+            grow: 1.0,
+            min_height: 0,
+            page: ${ state.page_key() },
+            transition: ${ state.transition() }
+        ) on CreatePage(create_page::callback(state, metrics, true))
     }
 }

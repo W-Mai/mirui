@@ -17,7 +17,10 @@ fn trace_macros_gate_guard_construction_without_changing_capture_lifetimes() {
     let mut capture = Capture::new(DEFAULT_TRACE_BUDGET).unwrap();
     assert_eq!(traced(), 7);
     let mut names = std::vec::Vec::new();
-    capture.drain_events(|_, records| {
+    capture.drain_events(|info, records| {
+        if info.track != 0 {
+            assert_eq!(info.status.dropped, 0);
+        }
         names.extend(
             records
                 .iter()
@@ -29,7 +32,6 @@ fn trace_macros_gate_guard_construction_without_changing_capture_lifetimes() {
         ["macro.expression", "macro.statement", "macro.function"]
     );
     assert_eq!(capture.status().open_scopes, 0);
-    assert_eq!(capture.status().dropped, 0);
 }
 
 #[test]
@@ -46,9 +48,17 @@ fn full_and_dirty_frames_trace_the_same_paint_acknowledgement_boundary() {
         } else {
             app.render_dirty().unwrap();
         }
+        std::thread::spawn(|| {
+            let _span = enter("parallel.unregistered");
+        })
+        .join()
+        .unwrap();
         let mut boundaries = 0;
         let mut walks = 0;
-        capture.drain_events(|_, records| {
+        capture.drain_events(|info, records| {
+            if info.track != 0 {
+                assert_eq!(info.status.dropped, 0);
+            }
             for record in records {
                 if let Some(span) = record.span() {
                     match span.name {
@@ -62,7 +72,7 @@ fn full_and_dirty_frames_trace_the_same_paint_acknowledgement_boundary() {
         });
         assert_eq!((boundaries, walks), (1, 1), "full={full}");
         assert_eq!(capture.status().open_scopes, 0);
-        assert_eq!(capture.status().dropped, 0);
+        assert!(capture.status().dropped >= 1);
     }
 }
 

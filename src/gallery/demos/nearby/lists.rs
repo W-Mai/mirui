@@ -85,7 +85,9 @@ fn discovery_status(state: model!(DisplayState), metrics: Metrics) -> Entity {
 #[compose]
 pub(super) fn rooms(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> Entity {
     ui! {
-        Column (grow: 1.0, min_height: 0) [Scenery::Ridge] {
+        Column (grow: 1.0, min_height: 0) [
+            Scenery::Ridge,
+        ] {
             rows (view, state, metrics, true)
         }
     }
@@ -94,12 +96,20 @@ pub(super) fn rooms(view: &Snapshot, state: model!(DisplayState), metrics: Metri
 #[compose]
 pub(super) fn games(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> Entity {
     ui! {
-        Row (grow: 1.0, min_height: 0, column_gap: metrics.gap) [Scenery::Ridge] {
+        Row (grow: 1.0, min_height: 0, column_gap: metrics.gap) [
+            Scenery::Ridge,
+        ] {
             Column (grow: 46.0, min_width: 0, min_height: 0) {
                 rows (view, state, metrics, false)
             }
             Column (grow: 54.0, min_width: 0, min_height: 0, row_gap: metrics.gap) {
-                Column (grow: 1.0, min_height: 0, bg_color: PANEL, container: true, clip_children: true) {
+                Column (
+                    grow: 1.0,
+                    min_height: 0,
+                    bg_color: PANEL,
+                    container: true,
+                    clip_children: true
+                ) {
                     walk ${ core::iter::once(state.selected_platform()) } with platform by platform {
                         console (platform)
                     }
@@ -124,7 +134,9 @@ fn preview_title(state: model!(DisplayState), metrics: Metrics) -> Entity {
             text_color: FOREGROUND,
             bg_color: BACKGROUND,
             paragraph: paragraph(Center, 2)
-        ) [FONT_PAINT]
+        ) [
+            FONT_PAINT,
+        ]
     }
 }
 
@@ -143,7 +155,13 @@ pub(super) fn rows(
     };
     ui! {
         Column (grow: 1.0, min_height: 0, row_gap: metrics.gap) {
-            if ${ if has_signal { !state.rooms_visible() || total == 0 } else { state.presentation().entries_empty } } {
+            if ${
+                if has_signal {
+                    !state.rooms_visible() || total == 0
+                } else {
+                    state.presentation().entries_empty
+                }
+            } {
                 Column (grow: 1.0, min_height: 0) {
                     Column (
                         grow: 1.0,
@@ -155,7 +173,12 @@ pub(super) fn rows(
                     ) {
                         if has_signal {
                             art (state, Search, if metrics.compact { 48 } else { 88 })
-                            label ("正在搜索附近的房间", metrics.title, FOREGROUND, Center)
+                            label (
+                                "正在搜索附近的房间",
+                                metrics.title,
+                                FOREGROUND,
+                                Center
+                            )
                             Text (
                                 "请好友先创建房间，并把两台掌机放近一些",
                                 width: Dimension::percent(100),
@@ -164,11 +187,22 @@ pub(super) fn rows(
                                 font_size: metrics.small,
                                 text_color: SECONDARY,
                                 paragraph: paragraph(Center, 2)
-                            ) [FONT_PAINT]
+                            ) [
+                                FONT_PAINT,
+                            ]
                         } else {
-                            Row (height: 48, width: 96, shrink: 0.0, column_gap: metrics.gap, align: AlignItems::Center, justify: JustifyContent::Center) {
+                            Row (
+                                height: 48,
+                                width: 96,
+                                shrink: 0.0,
+                                column_gap: metrics.gap,
+                                align: AlignItems::Center,
+                                justify: JustifyContent::Center
+                            ) {
                                 search_icon (32)
-                                View (width: 32, height: 48, shrink: 0.0) [super::pixel::ActorAnchor(Search)]
+                                View (width: 32, height: 48, shrink: 0.0) [
+                                    super::pixel::ActorAnchor(Search),
+                                ]
                             }
                             label ("没有匹配的游戏", metrics.body, SECONDARY, Center)
                         }
@@ -232,10 +266,12 @@ fn list_row(
                 column_gap: metrics.gap,
                 bg_color: ${ state.card_motion().card_color(index) },
                 align: AlignItems::Center
-            ) [SelectionTarget {
-                index,
-                scope: has_signal.then_some(Page::Rooms),
-            }] {
+            ) [
+                SelectionTarget {
+                    index,
+                    scope: has_signal.then_some(Page::Rooms),
+                },
+            ] {
                 View (
                     width: metrics.rail_width(),
                     height: Dimension::percent(100),
@@ -248,14 +284,25 @@ fn list_row(
                     }
                 }
                 Column (grow: 1.0, min_width: 0, justify: JustifyContent::Center) {
-                    row_label (title, metrics.row_title, if available { FOREGROUND } else { DISABLED })
+                    row_label (
+                        title,
+                        metrics.row_title,
+                        if available { FOREGROUND } else { DISABLED }
+                    )
                     if has_signal || view.page == Page::Candidates || view.entries[index].directory {
-                        row_label (detail, metrics.row_detail, if available { SECONDARY } else { DISABLED })
+                        row_label (
+                            detail,
+                            metrics.row_detail,
+                            if available { SECONDARY } else { DISABLED }
+                        )
                     }
                 }
                 if ${ !has_signal && state.entry_favorite(index) } {
                     Image (
-                        src: path!(M 8 0 H 12 V 4 H 20 V 8 H 16 V 12 H 18 V 20 H 12 V 16 H 8 V 20 H 2 V 12 H 4 V 8 H 0 V 4 H 8 Z),
+                        src: path!(
+                            M 8 0 H 12 V 4 H 20 V 8 H 16 V 12 H 18 V 20 H 12 V 16 H 8 V 20 H 2 V 12 H 4 V 8 H
+                            0 V 4 H 8 Z
+                        ),
                         viewbox: 20,
                         width: 12,
                         height: 12,
@@ -266,11 +313,20 @@ fn list_row(
                 View (width: Dimension::percent(18), min_width: 32, shrink: 0.0)
                 if has_signal {
                     View (width: 30, height: if metrics.compact { 26 } else { 30 }, shrink: 0.0) [
-                        super::pixel::SignalSprite { state: state.clone(), index, strength, available },
+                        super::pixel::SignalSprite {
+                            state: state.clone(),
+                            index,
+                            strength,
+                            available,
+                        },
                     ]
                 }
             } on HoverChanged(super::input::hover::callback(state, index)) on Tap {
-                if has_signal { state.choose_room(index); } else { state.activate(index); }
+                if has_signal {
+                    state.choose_room(index);
+                } else {
+                    state.activate(index);
+                }
             }
             shadow (metrics)
         }

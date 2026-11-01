@@ -81,7 +81,11 @@ pub(super) fn header(
             Text (
                 text: ${
                     if page == Page::Games {
-                        (if launcher { state.launcher().shelf_counter() } else { state.library_counter() })
+                        (if launcher {
+                            state.launcher().shelf_counter()
+                        } else {
+                            state.library_counter()
+                        })
                             .map(|(position, total)| format!("{position} / {total}"))
                             .unwrap_or_default()
                     } else {
@@ -166,15 +170,37 @@ fn footer_controls(
             column_gap: metrics.control_gap(),
             align: AlignItems::Center
         ) {
-            if ${ if launcher { !state.launcher().browser_confirm().is_empty() } else { state.confirm_visible() } } {
-                control_key ("A", metrics, true)
-                control_label (move || if launcher { confirm.launcher().browser_confirm().into() } else { confirm.confirm_label().to_string() }, metrics)
-            }
             if ${
-                !launcher || state.launcher().screen() != super::launcher::Screen::Favorites
+                if launcher {
+                    !state.launcher().browser_confirm().is_empty()
+                } else {
+                    state.confirm_visible()
+                }
             } {
+                control_key ("A", metrics, true)
+                control_label (
+                    move || {
+                        if launcher {
+                            confirm.launcher().browser_confirm().into()
+                        } else {
+                            confirm.confirm_label().to_string()
+                        }
+                    },
+                    metrics
+                )
+            }
+            if ${ !launcher || state.launcher().screen() != super::launcher::Screen::Favorites } {
                 control_key ("B", metrics, false)
-                control_label (move || if launcher { back.launcher().browser_back().into() } else { back.back().to_string() }, metrics)
+                control_label (
+                    move || {
+                        if launcher {
+                            back.launcher().browser_back().into()
+                        } else {
+                            back.back().to_string()
+                        }
+                    },
+                    metrics
+                )
             }
             if !launcher && matches!(view.page, Page::Rooms | Page::Lobby) {
                 control_key ("X", metrics, false)
@@ -201,9 +227,7 @@ fn footer_controls(
                 control_key ("SELECT", metrics, false)
                 control_label (|| "联机".into(), metrics)
             }
-            if ${
-                launcher && state.launcher().screen() != super::launcher::Screen::Search
-            } {
+            if ${ launcher && state.launcher().screen() != super::launcher::Screen::Search } {
                 control_key ("START", metrics, false)
                 control_label (|| "设置".into(), metrics)
             }

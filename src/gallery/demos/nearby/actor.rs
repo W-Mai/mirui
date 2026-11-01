@@ -196,7 +196,10 @@ pub(super) fn follow(
 pub(super) fn actor(state: model!(DisplayState), launcher: bool) -> Entity {
     ui! {
         View (position: Position::Absolute, width: 0, height: 0) [
-            ActorFrame { launcher, state: state.clone() },
+            ActorFrame {
+                launcher,
+                state: state.clone(),
+            },
             crate::ui::IgnoreHitTest,
         ] {
             View (

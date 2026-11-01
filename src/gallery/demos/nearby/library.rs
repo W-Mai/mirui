@@ -204,25 +204,75 @@ pub(super) fn follow(
 pub(super) fn focus(body: Entity, library: model!(Launcher), screen: Screen) -> Entity {
     ui! {
         View (position: Position::Absolute, width: 0, height: 0) [
-            LibraryFocus { body, screen, library: library.clone() },
+            LibraryFocus {
+                body,
+                screen,
+                library: library.clone(),
+            },
             crate::ui::IgnoreHitTest,
         ] {
             View (
                 position: Position::Absolute,
-                left: ${ Dimension::Percent(-if screen == Screen::Favorites { library.shelf_card_motion() } else { library.card_motion() }.expansion().0) },
-                top: ${ Dimension::Percent(-if screen == Screen::Favorites { library.shelf_card_motion() } else { library.card_motion() }.expansion().1) },
-                width: ${ Dimension::Percent(Fixed::from_int(100) + if screen == Screen::Favorites { library.shelf_card_motion() } else { library.card_motion() }.expansion().0 * 2) },
-                height: ${ Dimension::Percent(Fixed::from_int(100) + if screen == Screen::Favorites { library.shelf_card_motion() } else { library.card_motion() }.expansion().1 * 2) },
+                left: ${
+                    Dimension::Percent(
+                        -if screen == Screen::Favorites {
+                            library.shelf_card_motion()
+                        } else {
+                            library.card_motion()
+                        }
+                            .expansion()
+                            .0,
+                    )
+                },
+                top: ${
+                    Dimension::Percent(
+                        -if screen == Screen::Favorites {
+                            library.shelf_card_motion()
+                        } else {
+                            library.card_motion()
+                        }
+                            .expansion()
+                            .1,
+                    )
+                },
+                width: ${
+                    Dimension::Percent(
+                        Fixed::from_int(100)
+                            + if screen == Screen::Favorites {
+                                library.shelf_card_motion()
+                            } else {
+                                library.card_motion()
+                            }
+                                .expansion()
+                                .0 * 2,
+                    )
+                },
+                height: ${
+                    Dimension::Percent(
+                        Fixed::from_int(100)
+                            + if screen == Screen::Favorites {
+                                library.shelf_card_motion()
+                            } else {
+                                library.card_motion()
+                            }
+                                .expansion()
+                                .1 * 2,
+                    )
+                },
                 border_width: 2,
                 border_color: ACCENT
-            ) [crate::ui::IgnoreHitTest]
+            ) [
+                crate::ui::IgnoreHitTest,
+            ]
         }
     }
 }
 
 #[compose]
 pub(super) fn favorites(state: model!(DisplayState), library: model!(Launcher)) -> Entity {
-    ui! { favorites_grid (state, library, library.shelf()) }
+    ui! {
+        favorites_grid (state, library, library.shelf())
+    }
 }
 
 #[compose]
@@ -235,19 +285,45 @@ fn favorites_grid(
     let body = ui! {
         Column (
             id: "nearby_shelf",
-            grow: 1.0, min_height: 0, min_width: 0, bg_color: PANEL,
-            padding: Padding::all(shelf::INSET), row_gap: 4
-        ) [Scenery::Ridge] {
+            grow: 1.0,
+            min_height: 0,
+            min_width: 0,
+            bg_color: PANEL,
+            padding: Padding::all(shelf::INSET),
+            row_gap: 4
+        ) [
+            Scenery::Ridge,
+        ] {
             if ${ library.games().iter().all(|game| !game.favorite()) } {
                 console (EmptyFavorites)
             } else {
-                Column (grow: 1.0, min_height: 0, min_width: 0, row_gap: shelf::GAP, align: AlignItems::Center, justify: JustifyContent::Center) {
+                Column (
+                    grow: 1.0,
+                    min_height: 0,
+                    min_width: 0,
+                    row_gap: shelf::GAP,
+                    align: AlignItems::Center,
+                    justify: JustifyContent::Center
+                ) {
                     walk ${ 0..grid.plan().grid.rows } with line {
-                        Row (width: ${ grid.plan().width() }, height: ${ grid.plan().card_height }, shrink: 0.0, min_height: 0, column_gap: shelf::GAP) {
+                        Row (
+                            width: ${ grid.plan().width() },
+                            height: ${ grid.plan().card_height },
+                            shrink: 0.0,
+                            min_height: 0,
+                            column_gap: shelf::GAP
+                        ) {
                             walk ${
-                                library.games().entries().filter(|(_, game)| game.favorite())
-                                    .skip(grid.page() * grid.plan().grid.columns * grid.plan().grid.rows + line * grid.plan().grid.columns)
-                                    .take(grid.plan().grid.columns).collect::<Vec<_>>()
+                                library
+                                    .games()
+                                    .entries()
+                                    .filter(|(_, game)| game.favorite())
+                                    .skip(
+                                        grid.page() * grid.plan().grid.columns * grid.plan().grid.rows
+                                            + line * grid.plan().grid.columns,
+                                    )
+                                    .take(grid.plan().grid.columns)
+                                    .collect::<Vec<_>>()
                             } with item by item.0 {
                                 cartridge (item.1, library, metrics)
                             }
@@ -260,17 +336,24 @@ fn favorites_grid(
                     let (first, end, selected) = grid.pages();
                     (first..end).map(|i| (i, i == selected)).collect::<Vec<_>>()
                 } with page by page.0 {
-                    View (width: if page.1 { 12 } else { 4 }, bg_color: if page.1 { ACCENT } else { DIVIDER })
+                    View (
+                        width: if page.1 { 12 } else { 4 },
+                        bg_color: if page.1 { ACCENT } else { DIVIDER }
+                    )
                 }
             }
         } on SizeChanged { grid.set_size(event.new.width, event.new.height); }
     };
-    ui! { focus (body, library, Favorites) }
+    ui! {
+        focus (body, library, Favorites)
+    }
 }
 
 #[compose]
 fn cartridge(game: model!(Game), library: model!(Launcher), metrics: Metrics) -> Entity {
-    ui! { cartridge_grid (game, library, library.shelf(), metrics) }
+    ui! {
+        cartridge_grid (game, library, library.shelf(), metrics)
+    }
 }
 
 #[compose]
@@ -283,24 +366,59 @@ fn cartridge_grid(
     let key = game.key() as usize;
     ui! {
         Column (
-            width: ${ grid.plan().card_width }, shrink: 0.0, min_width: 0, min_height: 0,
+            width: ${ grid.plan().card_width },
+            shrink: 0.0,
+            min_width: 0,
+            min_height: 0,
             transform: ${ library.shelf_card_motion().card_transform(key) }
         ) {
             Column (
-                grow: 1.0, min_width: 0, min_height: 0, padding: Padding::all(shelf::CARD_INSET),
-                container: true, bg_color: ${ library.shelf_card_motion().card_color(key) }
-            ) [LibraryTarget { key, screen: Screen::Favorites }] {
-                if game.directory() { library_icon (metrics) } else { cartridge_source (game, metrics) }
+                grow: 1.0,
+                min_width: 0,
+                min_height: 0,
+                padding: Padding::all(shelf::CARD_INSET),
+                container: true,
+                bg_color: ${ library.shelf_card_motion().card_color(key) }
+            ) [
+                LibraryTarget {
+                    key,
+                    screen: Screen::Favorites,
+                },
+            ] {
+                if game.directory() {
+                    library_icon (metrics)
+                } else {
+                    cartridge_source (game, metrics)
+                }
                 Row (
-                    height: shelf::LABEL_HEIGHT, shrink: 0.0, min_width: 0, container: true,
-                    padding: Padding { left: metrics.gap.into(), right: shelf::LABEL_ACTOR_SPACE.into(), ..Default::default() }
+                    height: shelf::LABEL_HEIGHT,
+                    shrink: 0.0,
+                    min_width: 0,
+                    container: true,
+                    padding: Padding {
+                        left: metrics.gap.into(),
+                        right: shelf::LABEL_ACTOR_SPACE.into(),
+                        ..Default::default()
+                    }
                 ) {
                     Text (
-                        text: ${ game.name() }, grow: 1.0, min_width: 0, font: FONT, font_size: 12,
-                        text_color: FOREGROUND, paragraph: paragraph(crate::ui::widgets::TextAlign::Start, 1)
-                    ) [FONT_PAINT]
+                        text: ${ game.name() },
+                        grow: 1.0,
+                        min_width: 0,
+                        font: FONT,
+                        font_size: 12,
+                        text_color: FOREGROUND,
+                        paragraph: paragraph(crate::ui::widgets::TextAlign::Start, 1)
+                    ) [
+                        FONT_PAINT,
+                    ]
                 }
-            } on HoverChanged { let hovered = event.hovered; if hovered { library.select(key); } } on Tap { library.choose_game(key as u32, key); }
+            } on HoverChanged {
+                let hovered = event.hovered;
+                if hovered {
+                    library.select(key);
+                }
+            } on Tap { library.choose_game(key as u32, key); }
             View (height: shelf::SHADOW, shrink: 0.0, bg_color: DIVIDER)
         }
     }

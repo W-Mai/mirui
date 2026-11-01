@@ -196,7 +196,9 @@ fn create_page(event: event!(CreatePage<Screen>), state: model!(DisplayState)) -
 
 #[compose]
 pub(super) fn launcher(state: model!(DisplayState), library: model!(Launcher)) -> Entity {
-    ui! { launcher_deck (state, library, library.deck()) }
+    ui! {
+        launcher_deck (state, library, library.deck())
+    }
 }
 
 #[compose]
@@ -215,16 +217,40 @@ fn launcher_deck(
         Column (grow: 1.0, min_height: 0, min_width: 0, bg_color: BACKGROUND, container: true) {
             background (state, library, deck, metrics)
             Column (
-                id: "nearby_room_scrim", visible: ${ deck.panel() > Fixed::ZERO },
-                position: Position::Absolute, left: 0, top: 0,
-                width: Dimension::percent(100), height: Dimension::percent(100),
+                id: "nearby_room_scrim",
+                visible: ${ deck.panel() > Fixed::ZERO },
+                position: Position::Absolute,
+                left: 0,
+                top: 0,
+                width: Dimension::percent(100),
+                height: Dimension::percent(100),
                 bg_color: ${ Color::rgba(7, 16, 12, (deck.panel() * Fixed::from_int(185)).to_int() as u8) },
-                padding: metrics.modal_padding(), justify: JustifyContent::Center, align: AlignItems::Stretch
+                padding: metrics.modal_padding(),
+                justify: JustifyContent::Center,
+                align: AlignItems::Stretch
             ) {
                 Column (
-                    id: "nearby_room_panel", grow: 1.0, min_height: 0, border_width: 2, border_color: DIVIDER, bg_color: BACKGROUND,
-                    transform: ${ crate::types::Transform::translate(Fixed::ZERO, (Fixed::ONE - deck.panel()) * Fixed::from_int(80)).compose(&crate::types::Transform::scale(Fixed::from_ratio(15, 16) + deck.panel() * Fixed::from_ratio(1, 16), Fixed::from_ratio(15, 16) + deck.panel() * Fixed::from_ratio(1, 16))) }
-                ) { room_pages (state, panel_metrics) }
+                    id: "nearby_room_panel",
+                    grow: 1.0,
+                    min_height: 0,
+                    border_width: 2,
+                    border_color: DIVIDER,
+                    bg_color: BACKGROUND,
+                    transform: ${
+                        crate::types::Transform::translate(
+                                Fixed::ZERO,
+                                (Fixed::ONE - deck.panel()) * Fixed::from_int(80),
+                            )
+                            .compose(
+                                &crate::types::Transform::scale(
+                                    Fixed::from_ratio(15, 16) + deck.panel() * Fixed::from_ratio(1, 16),
+                                    Fixed::from_ratio(15, 16) + deck.panel() * Fixed::from_ratio(1, 16),
+                                ),
+                            )
+                    }
+                ) {
+                    room_pages (state, panel_metrics)
+                }
                 shadow (metrics)
             }
             overlay (state, library)
@@ -238,8 +264,12 @@ fn page(screen: Screen, state: model!(DisplayState), library: model!(Launcher)) 
     ui! {
         Column (grow: 1.0, min_height: 0, min_width: 0) {
             match screen {
-                Screen :: Favorites => { favorites (state, library) }
-                Screen :: Platforms | Screen :: Games | Screen :: Search => { catalog (screen, state, library) }
+                Screen :: Favorites => {
+                    favorites (state, library)
+                }
+                Screen :: Platforms | Screen :: Games | Screen :: Search => {
+                    catalog (screen, state, library)
+                }
             }
         }
     }
@@ -300,5 +330,7 @@ fn background(
 
         }
     };
-    ui! { frozen_backdrop (source, state) }
+    ui! {
+        frozen_backdrop (source, state)
+    }
 }
