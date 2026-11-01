@@ -9,7 +9,8 @@ pub(super) fn loading(view: &Presentation) -> bool {
     }
     if matches!(
         phase(view),
-        Phase::ApprovalPending
+        Phase::SelectingGame
+            | Phase::ApprovalPending
             | Phase::Closed
             | Phase::Failed
             | Phase::RestoreFailed
@@ -19,7 +20,7 @@ pub(super) fn loading(view: &Presentation) -> bool {
     }
     view.busy
         || view.refreshing
-        || (view.page == Page::Rooms && view.rooms_empty)
+        || (matches!(view.page, Page::Rooms | Page::Lobby) && view.rooms_empty)
         || (view.page == Page::Host && !view.ready)
         || matches!(view.page, Page::Joined | Page::Leaving)
 }
@@ -50,6 +51,8 @@ pub(super) fn phase(view: &Presentation) -> Phase {
 
 pub(super) fn headline(view: &Presentation) -> &'static str {
     match phase(view) {
+        Phase::ResolvingGame => "正在查找本机游戏",
+        Phase::SelectingGame => "选择对应游戏",
         Phase::NetworkConfirming => "正在确认连接",
         Phase::NetworkConnected => "组网已完成",
         Phase::NetworkReconnecting => "正在等待连接恢复",
@@ -76,16 +79,35 @@ pub(super) fn headline(view: &Presentation) -> &'static str {
 pub(super) fn next_step(view: &Presentation) -> &'static str {
     if view.network_only {
         return match phase(view) {
+            Phase::ResolvingGame | Phase::SelectingGame => "正在查找对应游戏",
+            Phase::NetworkConnected if view.return_to_launcher => "返回收藏后，连接继续保持",
             Phase::NetworkConnected => "返回系统后，连接继续保持",
             Phase::NetworkConfirming => "正在确认双方的局域网连接",
             Phase::NetworkReconnecting => "持续失联后会恢复原 Wi-Fi",
             Phase::ApprovalPendingClient => "请房主按 A 确认加入",
             Phase::Connecting => "正在连接房间并获取地址",
             Phase::Leaving => "正在断开连接并恢复 Wi-Fi",
-            _ => "选择房间，与附近掌机组网",
+            Phase::Creating => "房间准备好后，好友才能加入",
+            Phase::WaitingPeer => "请好友选择这个房间加入",
+            Phase::ApprovalPending => "按 A 确认，B 关闭房间",
+            Phase::Closed | Phase::Failed => "按 B 返回，重新创建或选择房间",
+            Phase::RestoreFailed => "按 A 重试，完成后再返回",
+            Phase::RoomActive => "按 A 关闭上一场后继续",
+            Phase::PeerPreparing
+            | Phase::HostReady
+            | Phase::Checking
+            | Phase::Notifying
+            | Phase::WaitingStart
+            | Phase::Starting => "正在确认双方的局域网连接",
+            Phase::Idle if matches!(view.page, Page::Rooms | Page::Lobby) => {
+                "选择房间，与附近掌机组网"
+            }
+            Phase::Idle => "方向键选择，按 A 确认",
         };
     }
     match phase(view) {
+        Phase::ResolvingGame => "核对本地游戏内容与房间使用的核心",
+        Phase::SelectingGame => "选择匹配的游戏后继续加入",
         Phase::NetworkConnected
         | Phase::NetworkConfirming
         | Phase::NetworkReconnecting
@@ -110,7 +132,11 @@ pub(super) fn next_step(view: &Presentation) -> &'static str {
 
 pub(super) fn button_text(view: &Presentation) -> &'static str {
     if view.network_only && view.connected && view.phase == Phase::NetworkConnected {
-        return "保持连接，返回系统";
+        return if view.return_to_launcher {
+            "保持连接，返回收藏"
+        } else {
+            "保持连接，返回系统"
+        };
     }
     match phase(view) {
         Phase::HostReady => {
@@ -125,9 +151,7 @@ pub(super) fn button_text(view: &Presentation) -> &'static str {
         Phase::ApprovalPending => "确认加入",
         Phase::Starting => "正在开局",
         Phase::Closed | Phase::Failed => "按 B 返回",
-        Phase::RestoreFailed => "重试",
-        Phase::RoomActive => "关闭",
-        Phase::Leaving => "正在退出房间",
+        Phase::Leaving | Phase::RestoreFailed => "正在退出房间",
         _ => "等待好友加入",
     }
 }
@@ -145,22 +169,28 @@ pub(super) fn peer_text(view: &Presentation) -> &'static str {
 pub(super) fn status_text(view: &Presentation) -> &'static str {
     match view.page {
         Page::Mode => "请选择仅组网或选择游戏",
-        Page::Choice if view.network_only => "选择房间，与附近掌机组网",
+        Page::Choice if view.network_only => "创建房间，或加入附近掌机的房间",
         Page::Choice => "两台掌机选择同一款游戏，再创建或加入房间",
         Page::Host if view.network_only => next_step(view),
         Page::Host => "请好友选择同一款游戏，加入这个房间",
         Page::Rooms => "选择房间后确认加入，列表会自动刷新",
         Page::Joined => next_step(view),
-        Page::Leaving => next_step(view),
+        Page::Leaving => "正在结束本次联机...",
         Page::Unavailable => "这款游戏暂时不支持附近联机",
         Page::Games => "选择游戏后创建或加入房间",
         Page::Outcome => "LOCAL SIMULATION / NO NETWORK REQUESTS",
-        Page::Lobby => "选择附近的房间",
-        Page::Candidates => "选择本机的对应游戏",
+        Page::Lobby => "选择房间，向下展开创建与游戏库",
+        Page::Candidates => "只切换本次联机使用的游戏",
     }
 }
 
 pub(super) fn hint_text(view: &Presentation) -> &'static str {
+    if view.page == Page::Lobby {
+        return "下 / R 展开操作";
+    }
+    if view.page == Page::Mode && view.lobby {
+        return "上 / L 展开房间";
+    }
     if view.network_only && view.connected && view.phase == Phase::NetworkConnected {
         return "连接保持中";
     }
@@ -193,8 +223,15 @@ pub(super) fn hint_text(view: &Presentation) -> &'static str {
 }
 
 pub(super) fn confirm_text(view: &Presentation) -> &'static str {
+    if view.page == Page::Candidates && !view.entries_empty && !view.busy {
+        return "使用此游戏";
+    }
     if view.network_only && view.connected && view.phase == Phase::NetworkConnected && !view.busy {
-        return "返回系统";
+        return if view.return_to_launcher {
+            "返回收藏"
+        } else {
+            "返回系统"
+        };
     }
     match phase(view) {
         Phase::RestoreFailed => "重试",
@@ -204,10 +241,11 @@ pub(super) fn confirm_text(view: &Presentation) -> &'static str {
         Phase::ApprovalPending if !view.busy => "确认",
         Phase::Idle => match view.page {
             Page::Choice | Page::Mode => "确认",
-            Page::Rooms => "加入",
-            Page::Games if !view.busy && !view.entries_empty => "选择",
+            Page::Rooms | Page::Lobby if !view.rooms_empty => "加入",
+            Page::Games | Page::Candidates if !view.busy && !view.entries_empty => "选择",
             _ => "",
         },
+        Phase::SelectingGame if !view.entries_empty => "选择",
         _ => "",
     }
 }

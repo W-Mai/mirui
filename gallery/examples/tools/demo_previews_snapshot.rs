@@ -33,6 +33,16 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
     match scene {
         "actions" => library.choose_game(0, 0),
         "panel" => state.open_network(),
+        "lobby" | "discovery-actions" | "candidates" => {
+            state.open_network();
+            if scene == "discovery-actions" {
+                state.expand_discovery(true);
+            }
+            if scene == "candidates" {
+                state.activate(0);
+                state.advance();
+            }
+        }
         "panel-game" | "panel-host" => {
             state.launch_game("双人冒险".into(), true);
             if scene == "panel-host" {

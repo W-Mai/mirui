@@ -22,7 +22,7 @@ pub(super) fn follow(
     library_frames: query!(super::library::LibraryFocus),
     library_targets: query!(Entity, super::library::LibraryTarget, ComputedRect),
     action_targets: query!(Entity, super::actions::ActionAnchor, ComputedRect),
-    parents: query!(Parent),
+    parents: query!(Parent, optional super::input::PaneScope),
     commands: commands!(),
 ) {
     let page = state.page_key();
@@ -40,7 +40,14 @@ pub(super) fn follow(
         })
     };
     let inside = |entity| {
-        root.is_some_and(|root| contains(root, entity, |entity| parents.get(entity).map(|p| p.0)))
+        root.is_some_and(|root| {
+            contains(root, entity, |entity| {
+                parents.get(entity).and_then(|(parent, pane)| {
+                    pane.is_none_or(|pane| pane.0 == state.focus_page())
+                        .then_some(parent.0)
+                })
+            })
+        })
     };
     let anchor = anchors.into_iter().find_map(|(entity, anchor, _)| {
         let empty = if library.active() {
@@ -74,7 +81,7 @@ pub(super) fn follow(
     } else {
         anchor.or_else(|| {
             targets.into_iter().find_map(|(entity, row, _)| {
-                (inside(entity) && row.index == state.selected()).then_some(entity)
+                (inside(entity) && row.active() && row.index == state.selected()).then_some(entity)
             })
         })
     };

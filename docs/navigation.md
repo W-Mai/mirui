@@ -48,6 +48,8 @@ Nearby starts with the forest palette; settings switch between forest, sunset an
 
 Connection flows opened from the launcher use an animated panel while retaining the browser below. Closing the panel restores the same collection and selection. Modal backgrounds retain completed widget output within the demo's shared offscreen budget.
 
+Discovery shows nearby rooms above the connection options. Down at the end of the room list expands the options; Up from the options restores the rooms. Clicking either pane activates it. The local mock advances room resolution into the matching-game picker with Next; choosing a game continues the connection. Entry in the F2 controls switches between launcher and direct in-game entry.
+
 ```sh
 cargo run -p gallery --example nearby_demo
 cargo run -p gallery --example nearby_demo --no-default-features --features sdl-gpu

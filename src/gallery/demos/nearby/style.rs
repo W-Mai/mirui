@@ -53,6 +53,9 @@ impl Default for Metrics {
 }
 
 impl Metrics {
+    pub(super) fn row_height(self) -> i32 {
+        self.sized(40, 44, 68)
+    }
     pub(super) fn library_row_height(self) -> i32 {
         self.sized(40, 48, 80)
     }

@@ -1,6 +1,7 @@
-use super::choices::{choice, games, rooms};
+use super::choices::choice;
 use super::chrome::{footer, header};
 use super::data::{Page, Snapshot};
+use super::lists::{games, lobby, rooms, rows};
 use super::model::DisplayState;
 use super::pixel::{Scenery::Margins, backdrop};
 use super::sessions::{host, joined, leaving, network_panel, outcome, unavailable};
@@ -156,10 +157,10 @@ fn contents(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> E
                     } else {
                         match view.page {
                             Page :: Lobby => {
-                                rooms (&view, state, metrics)
+                                lobby (&view, state, metrics)
                             }
                             Page :: Candidates => {
-                                games (&view, state, metrics)
+                                rows (&view, state, metrics, false)
                             }
                             Page :: Choice | Page :: Mode => {
                                 choice (&view, state, metrics)

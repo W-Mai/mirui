@@ -59,6 +59,7 @@ pub(super) fn host(state: model!(DisplayState), metrics: Metrics) -> Entity {
                     justify: JustifyContent::Center
                 ) [
                     SelectionTarget {
+                        scope: None,
                         frame: None,
                         index: 0,
                         state: state.clone(),
@@ -127,6 +128,7 @@ pub(super) fn network_panel(state: model!(DisplayState), metrics: Metrics) -> En
                     justify: JustifyContent::Center
                 ) [
                     SelectionTarget {
+                        scope: None,
                         frame: None,
                         index: 0,
                         state: state.clone(),

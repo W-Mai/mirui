@@ -77,6 +77,8 @@ impl Scenario {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Phase {
+    ResolvingGame,
+    SelectingGame,
     #[default]
     Idle,
     Creating,
@@ -142,6 +144,8 @@ impl Snapshot {
     }
     pub(super) fn presentation(&self) -> super::model::Presentation {
         super::model::Presentation {
+            lobby: self.lobby,
+            return_to_launcher: false,
             source: self.source,
             outcome: self.outcome,
             page: self.page,

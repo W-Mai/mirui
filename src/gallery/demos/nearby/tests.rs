@@ -513,7 +513,90 @@ fn launcher_search_and_tools_are_local_and_reversible() {
     state.open_network();
     assert!(!library.active());
     assert_eq!(state.snapshot().source, LaunchSource::Menu);
-    assert_eq!(state.snapshot().page, Page::Mode);
+    assert_eq!(state.snapshot().page, Page::Lobby);
+}
+
+#[test]
+fn discovery_panes_share_the_mounted_page_and_join_through_candidates() {
+    let (mut app, state) = fixture();
+    state.launcher().resume();
+    state.open_network();
+    finish_transition(&mut app);
+    let deck = app.world.find_by_id("discovery_deck").unwrap();
+    let key = state.page_key();
+    state.expand_discovery(true);
+    assert_eq!(state.page_key(), key);
+    finish_transition(&mut app);
+    for _ in 0..24 {
+        app.tick();
+    }
+    assert_eq!(app.world.find_by_id("discovery_deck"), Some(deck));
+    assert_eq!(state.motion().deck, Fixed::ONE);
+    state.back_page();
+    finish_transition(&mut app);
+    for _ in 0..24 {
+        app.tick();
+    }
+    assert_eq!(state.motion().deck, Fixed::ZERO);
+    assert_eq!(app.world.find_by_id("discovery_deck"), Some(deck));
+    state.choose_room(0);
+    assert_eq!(state.snapshot().phase, Phase::ResolvingGame);
+    state.advance();
+    assert_eq!(state.snapshot().page, Page::Candidates);
+    assert_eq!(state.snapshot().phase, Phase::SelectingGame);
+    state.activate(0);
+    assert_eq!(state.snapshot().page, Page::Joined);
+    assert_eq!(state.snapshot().phase, Phase::Connecting);
+    state.back_page();
+    state.advance();
+    assert_eq!(state.snapshot().page, Page::Lobby);
+    finish_transition(&mut app);
+    let partial = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .bytes()
+        .to_vec();
+    app.render().unwrap();
+    assert_eq!(
+        partial,
+        app.backend.framebuffer().read_pixels().unwrap().bytes()
+    );
+}
+
+#[test]
+fn discovery_focus_and_characters_stay_in_the_active_pane_at_native_sizes() {
+    use crate::ui::{Hidden, widgets::FollowBounds};
+    for (width, height) in [(320, 240), (640, 480), (900, 600)] {
+        let (mut app, state) = fixture_at(width, height);
+        state.open_network();
+        for expanded in [false, true, false] {
+            state.expand_discovery(expanded);
+            finish_transition(&mut app);
+            let body = app.world.find_by_id("discovery_deck").unwrap();
+            let frames: alloc::vec::Vec<_> = app
+                .world
+                .query::<input::SelectionFrame>()
+                .iter()
+                .filter(|(e, frame)| {
+                    frame.page == state.page_key()
+                        && frame.room
+                        && app.world.get::<Hidden>(*e).is_none()
+                })
+                .map(|(e, _)| e)
+                .collect();
+            assert_eq!(frames.len(), 1);
+            let target = app.world.get::<FollowBounds>(frames[0]).unwrap().target;
+            let marker = app.world.get::<input::SelectionTarget>(target).unwrap();
+            assert!(marker.active());
+            assert!(input::contains(body, target, |e| app
+                .world
+                .get::<crate::ui::Parent>(e)
+                .map(|p| p.0)));
+            assert!(state.deck_height() > Fixed::ZERO);
+        }
+    }
 }
 
 #[test]
@@ -959,6 +1042,7 @@ fn game_entry_returns_to_game_instead_of_the_game_picker() {
     model.back_page();
     assert_eq!(model.snapshot().outcome, Outcome::SinglePlayer);
     model.switch_entry();
+    model.expand_discovery(true);
     model.activate(1);
     model.activate(0);
     model.back_page();

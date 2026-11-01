@@ -8,7 +8,21 @@ pub(super) struct SelectionTarget {
     pub frame: Option<Entity>,
     pub index: usize,
     pub state: model!(DisplayState),
+    pub scope: Option<super::data::Page>,
 }
+
+impl SelectionTarget {
+    pub(super) fn active(&self) -> bool {
+        self.scope.is_none_or(|scope| {
+            scope == self.state.focus_page()
+                || scope == super::data::Page::Rooms
+                    && self.state.focus_page() == super::data::Page::Lobby
+        })
+    }
+}
+
+#[component]
+pub(super) struct PaneScope(pub super::data::Page);
 
 #[component]
 pub(super) struct SelectionFrame {
@@ -60,7 +74,8 @@ pub(super) fn follow(
         return;
     };
     let target = targets.into_iter().find_map(|(entity, marker, _)| {
-        (marker.index == state.selected()
+        (marker.active()
+            && marker.index == state.selected()
             && contains(body, entity, |e| parents.get(e).map(|p| p.0)))
         .then_some(entity)
     });
@@ -114,7 +129,8 @@ fn initialize(
     for (frame, marker) in frames {
         if contains(marker.body, node, |entity| parents.get(entity).map(|p| p.0)) {
             target.frame = Some(frame);
-            if !target.state.launcher().active()
+            if target.active()
+                && !target.state.launcher().active()
                 && marker.room == target.state.return_to_launcher()
                 && marker.page == target.state.page_key()
                 && target.state.selected() == target.index
@@ -154,7 +170,7 @@ fn initialize_frame(
             parents.get(entity).map(|p| p.0)
         }) {
             target.frame = Some(node);
-            if target.state.selected() == target.index {
+            if target.active() && target.state.selected() == target.index {
                 commands.insert(
                     node,
                     FollowBounds::new(entity).with_transition(crate::anim::SNAPPY),
@@ -175,7 +191,8 @@ pub(super) fn place(
     targets: query!(SelectionTarget),
     frames: query!(mut FollowBounds),
 ) {
-    if state.selected() == index
+    if targets.get(target).is_some_and(SelectionTarget::active)
+        && state.selected() == index
         && let Some(frame) = targets.get(target).and_then(|row| row.frame)
         && let Some(bounds) = frames.get(frame)
     {
@@ -193,6 +210,9 @@ pub(super) fn hover(
     frames: query!(mut FollowBounds),
 ) {
     if event.hovered {
+        if targets.get(target).is_none_or(|target| !target.active()) {
+            return;
+        }
         state.select(index);
         if let Some(frame) = targets.get(target).and_then(|row| row.frame)
             && let Some(bounds) = frames.get(frame)
@@ -345,6 +365,24 @@ pub(super) fn keyboard(
         }
         return true;
     }
+    if event.physical == Some(PhysicalKey::ArrowUp) {
+        if state.focus_page() == super::data::Page::Mode && state.snapshot().lobby {
+            state.expand_discovery(false);
+        } else {
+            state.select(state.selected().saturating_sub(1));
+        }
+        return true;
+    }
+    if event.physical == Some(PhysicalKey::ArrowDown) {
+        if state.focus_page() == super::data::Page::Lobby
+            && state.selected() + 1 >= state.snapshot().rooms.len()
+        {
+            state.expand_discovery(true);
+        } else {
+            state.select(state.selected().saturating_add(1));
+        }
+        return true;
+    }
     match code {
         KEY_LEFT => state.select(state.selected().saturating_sub(1)),
         KEY_RIGHT => state.select(state.selected().saturating_add(1)),
@@ -356,7 +394,8 @@ pub(super) fn keyboard(
     let page = state.page_key();
     let selected = state.selected();
     for (target, row) in targets {
-        if row.index == selected
+        if row.active()
+            && row.index == selected
             && let Some(frame) = row.frame
             && let Some((marker, bounds)) = frames.get(frame)
             && marker.page == page

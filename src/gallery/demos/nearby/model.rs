@@ -47,6 +47,8 @@ pub struct DisplayState {
     pub(super) activity: [Color; 3],
     #[observe]
     pub(super) metrics: Metrics,
+    #[observe]
+    pub(super) deck_height: Fixed,
     pub launcher: model!(owned super::launcher::Launcher),
     view: Snapshot,
     session: u32,
@@ -54,6 +56,8 @@ pub struct DisplayState {
     fault_delivered: bool,
     leave_to: Page,
     direction: PageDirection,
+    room_selection: usize,
+    mode_selection: usize,
 }
 
 impl Default for DisplayState {
@@ -70,6 +74,7 @@ impl Default for DisplayState {
             stamp: super::palette::theme(0).resolve(ACCENT_DIM),
             activity: [super::palette::theme(0).resolve(BACKGROUND); 3],
             metrics: Metrics::default(),
+            deck_height: Fixed::ZERO,
             launcher: super::launcher::Launcher::default().into(),
             view: Snapshot {
                 page: Page::Mode,
@@ -120,6 +125,8 @@ impl Default for DisplayState {
             fault_delivered: false,
             leave_to: Page::Choice,
             direction: PageDirection::Forward,
+            room_selection: 0,
+            mode_selection: 0,
         }
     }
 }
@@ -167,7 +174,7 @@ impl DisplayState {
         self.view.room_name.clone()
     }
     fn subtitle_value(&self) -> alloc::string::String {
-        if self.view.page == Page::Mode {
+        if matches!(self.view.page, Page::Mode | Page::Lobby) {
             "连接附近的掌机".into()
         } else if self.view.network_only {
             "仅组网 · 局域网连接".into()
@@ -179,6 +186,13 @@ impl DisplayState {
     }
     fn library_counter_value(&self) -> Option<(usize, usize)> {
         (!self.view.entries.is_empty()).then_some((self.view.selected + 1, self.view.entries.len()))
+    }
+    fn selected_title_value(&self) -> alloc::string::String {
+        self.view
+            .entries
+            .get(self.view.selected)
+            .map(|row| row.name.clone())
+            .unwrap_or_default()
     }
     pub(super) fn set_actor_stage(&mut self, stage: bool) {
         if self.actor_stage != stage {
@@ -274,12 +288,14 @@ impl DisplayState {
         self.return_to_launcher = true;
         self.launcher.close();
         self.view.source = LaunchSource::Menu;
+        self.view.lobby = true;
         self.restart();
     }
     pub fn launch_game(&mut self, name: alloc::string::String, multiplayer: bool) {
         self.return_to_launcher = true;
         self.launcher.close();
         self.view.source = LaunchSource::Game;
+        self.view.lobby = false;
         self.view.title = name;
         self.restart();
         if !multiplayer {
@@ -296,7 +312,7 @@ impl DisplayState {
     #[observe]
     pub fn page_key(&self) -> PageKey {
         PageKey {
-            page: self.view.page,
+            page: self.view.scene_page(),
             source: self.view.source,
             network_only: !matches!(self.view.page, Page::Mode | Page::Games | Page::Unavailable)
                 && self.view.network_only,
@@ -312,8 +328,52 @@ impl DisplayState {
         self.view.selected
     }
     #[observe]
+    pub(super) fn focus_page(&self) -> Page {
+        self.view.page
+    }
+    pub(super) fn set_deck_height(&mut self, height: Fixed) {
+        if self.deck_height != height {
+            self.deck_height = height;
+        }
+    }
+    pub fn expand_discovery(&mut self, expanded: bool) {
+        if self.view.lobby && matches!(self.view.page, Page::Lobby | Page::Mode) {
+            if expanded == (self.view.page == Page::Mode) {
+                return;
+            }
+            if expanded {
+                self.room_selection = self.view.selected;
+            } else {
+                self.mode_selection = self.view.selected;
+            }
+            self.navigate(
+                if expanded { Page::Mode } else { Page::Lobby },
+                PageDirection::Forward,
+            );
+            self.view.selected = if expanded {
+                self.mode_selection
+            } else {
+                self.room_selection
+            };
+        }
+    }
+    pub(super) fn choose_connection(&mut self, index: usize) {
+        if self.view.lobby && self.view.scene_page() == Page::Lobby {
+            self.expand_discovery(true);
+        }
+        self.activate(index);
+    }
+    pub(super) fn choose_room(&mut self, index: usize) {
+        if self.view.lobby && self.view.scene_page() == Page::Lobby {
+            self.expand_discovery(false);
+        }
+        self.activate(index);
+    }
+    #[observe]
     pub fn presentation(&self) -> Presentation {
         Presentation {
+            lobby: self.view.lobby,
+            return_to_launcher: self.return_to_launcher,
             source: self.view.source,
             outcome: self.view.outcome,
             page: self.view.page,
@@ -353,6 +413,7 @@ impl DisplayState {
     }
     pub fn select(&mut self, index: usize) {
         let count = match self.view.page {
+            Page::Mode if self.current_game() => 3,
             Page::Mode | Page::Choice => 2,
             Page::Games | Page::Candidates => self.view.entries.len(),
             Page::Rooms | Page::Lobby => self.view.rooms.len(),
@@ -372,6 +433,12 @@ impl DisplayState {
         self.feedback.press(self.elapsed_ms);
         match self.view.page {
             Page::Mode => {
+                if self.view.selected == 2 && self.current_game() {
+                    self.view.network_only = false;
+                    self.navigate(Page::Host, PageDirection::Forward);
+                    self.set_phase(Phase::Creating);
+                    return;
+                }
                 self.view.network_only = self.view.selected == 0;
                 let page = if self.view.network_only {
                     Page::Choice
@@ -388,6 +455,12 @@ impl DisplayState {
                     return;
                 };
                 self.view.title.clone_from(&game.name);
+                if self.view.page == Page::Candidates {
+                    self.navigate(Page::Joined, PageDirection::Forward);
+                    self.set_phase(Phase::Connecting);
+                    self.view.selected = 0;
+                    return;
+                }
                 let page = if self.view.selected == 2 || self.scenario == Scenario::UnsupportedGame
                 {
                     Page::Unavailable
@@ -431,8 +504,13 @@ impl DisplayState {
                     return;
                 };
                 self.view.room_name.clone_from(&room.name);
+                let resolve = self.view.page == Page::Lobby;
                 self.navigate(Page::Joined, PageDirection::Forward);
-                self.set_phase(Phase::Connecting);
+                self.set_phase(if resolve {
+                    Phase::ResolvingGame
+                } else {
+                    Phase::Connecting
+                });
             }
             Page::Host | Page::Joined => {
                 match self.view.phase {
@@ -464,12 +542,19 @@ impl DisplayState {
         self.view.selected = 0;
     }
     pub fn advance(&mut self) {
-        if self.view.page == Page::Rooms && self.view.refreshing {
+        if matches!(self.view.page, Page::Rooms | Page::Lobby | Page::Mode) && self.view.refreshing
+        {
             self.view.refreshing = false;
+            self.view_revision = self.view_revision.wrapping_add(1);
             return;
         }
         let current = self.view.phase;
         let phase = match current {
+            Phase::ResolvingGame => {
+                self.navigate(Page::Candidates, PageDirection::Forward);
+                self.view.selected = 0;
+                Phase::SelectingGame
+            }
             Phase::Creating | Phase::Connecting if self.take_fault(Scenario::ConnectionFailure) => {
                 Phase::Failed
             }
@@ -520,13 +605,21 @@ impl DisplayState {
             self.exit(Outcome::SinglePlayer, PageDirection::Backward);
             return;
         }
-        if self.view.page == Page::Mode {
+        if self.view.page == Page::Mode && self.view.lobby {
+            self.expand_discovery(false);
+            return;
+        }
+        if matches!(self.view.page, Page::Mode | Page::Lobby) {
             self.exit(Outcome::System, PageDirection::Backward);
             return;
         }
         if matches!(self.view.page, Page::Host | Page::Joined) {
             self.leave_to = if self.view.page == Page::Joined {
-                Page::Rooms
+                if self.view.lobby {
+                    Page::Lobby
+                } else {
+                    Page::Rooms
+                }
             } else {
                 Page::Choice
             };
@@ -541,6 +634,7 @@ impl DisplayState {
             }
             Page::Games => Page::Mode,
             Page::Choice if self.view.network_only => Page::Mode,
+            Page::Candidates => Page::Lobby,
             Page::Choice | Page::Unavailable => Page::Games,
             _ => Page::Choice,
         };
@@ -560,7 +654,11 @@ impl DisplayState {
                 Page::Choice
             }
         } else {
-            Page::Mode
+            if self.view.lobby {
+                Page::Lobby
+            } else {
+                Page::Mode
+            }
         };
         self.navigate(page, PageDirection::Backward);
         self.view.selected = 0;
@@ -570,7 +668,7 @@ impl DisplayState {
     }
     pub fn refresh_rooms(&mut self) {
         self.view_revision = self.view_revision.wrapping_add(1);
-        if self.view.page != Page::Rooms {
+        if !matches!(self.view.page, Page::Rooms | Page::Lobby | Page::Mode) {
             return;
         }
         self.view.refreshing = true;
@@ -582,6 +680,12 @@ impl DisplayState {
             LaunchSource::Menu => LaunchSource::Game,
             LaunchSource::Game => LaunchSource::Menu,
         };
+        self.view.lobby = self.view.source == LaunchSource::Menu;
+        if self.view.source == LaunchSource::Game {
+            self.launcher.close();
+        } else {
+            self.launcher.resume();
+        }
         self.view.title = "双人冒险".into();
         self.restart();
     }
@@ -665,6 +769,8 @@ impl DisplayState {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Presentation {
+    pub lobby: bool,
+    pub return_to_launcher: bool,
     pub source: LaunchSource,
     pub outcome: Outcome,
     pub page: Page,
@@ -679,6 +785,11 @@ pub struct Presentation {
 }
 
 impl DisplayStateHandle {
+    pub(super) fn selected_title(&self) -> alloc::string::String {
+        self.view_revision();
+        self.selected();
+        self.selected_title_value()
+    }
     pub(super) fn heading(&self) -> alloc::string::String {
         self.view_revision();
         self.heading_value()
