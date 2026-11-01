@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Nearby game actions occupy a complete modal panel with a preview, two-column action grid and keyboard hints.
 - Thread-bound resource tokens preserve exact payload identity by rejecting subtype retagging without additional runtime state.
 - Draw preparation validates texture geometry separately from pixel readiness, allowing retained CPU regions and pinned uploads to survive native device closure while rejecting unavailable regions.
 - SDL retained-frame composition restores viewport, clipping and scaling after copying to the window without an additional target switch.

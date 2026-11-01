@@ -18,6 +18,8 @@ The tab snapshot accepts a selected index from 0 to 2. The list accepts `top`, `
 
 The preview tool accepts an optional demo slug after the output directory; omit it to capture the catalog. It writes PNG directly without Pillow.
 
+Set `NEARBY_ACTIONS=1` when selecting `nearby` to capture its game-action modal at 640×480: `NEARBY_ACTIONS=1 cargo run -p gallery --example demo_previews_snapshot --no-default-features --features snapshot -- .local/screenshots/nearby-actions nearby`.
+
 The Web pre-build hook invokes the same tool for all entries in `gallery::DEMOS` and caches the previews under `target/gallery-site/demo-previews`. A failed generation preserves the previous preview directory; a successful generation replaces it. Adding a demo does not require maintaining a separate image count.
 
 For a regression check, capture before and after a change with identical arguments into separate directories. Compare corresponding files and inspect the images for clipping, layering, and animation artifacts. These snapshots support manual visual checks; they do not replace unit tests for layout, event, or lifecycle contracts. Keep generated images under `.local/screenshots/` or a temporary directory, outside version control.

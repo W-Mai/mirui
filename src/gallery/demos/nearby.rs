@@ -1,3 +1,4 @@
+mod actions;
 mod choices;
 mod chrome;
 mod composition;

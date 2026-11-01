@@ -37,9 +37,22 @@ fn main() {
         }
         snapshot_render::render(
             &output.join(format!("{}.png", demo.slug)),
-            preview_size(demo.size),
+            if demo.slug == "nearby" && env::var_os("NEARBY_ACTIONS").is_some() {
+                (640, 480)
+            } else {
+                preview_size(demo.size)
+            },
             true,
-            |app| gallery::setup_demo(demo.slug, app).expect("registered demo"),
+            |app| {
+                if demo.slug == "nearby" && env::var_os("NEARBY_ACTIONS").is_some() {
+                    let root = app.spawn_root().id();
+                    let state = mirui::gallery::demos::nearby::setup_app(app, root);
+                    state.launcher().choose_game(0, 0);
+                    root
+                } else {
+                    gallery::setup_demo(demo.slug, app).expect("registered demo")
+                }
+            },
         );
     }
 }

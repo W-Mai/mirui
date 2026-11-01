@@ -1,3 +1,4 @@
+use super::actions::overlay;
 use super::consoles::{Platform, console};
 use super::launcher::{Game, Launcher, PLATFORMS, Screen, TOOLS, Tool};
 use super::model::DisplayState;
@@ -218,7 +219,7 @@ pub(super) fn launcher(state: model!(DisplayState), library: model!(Launcher)) -
                 page: ${ library.screen() },
                 transition: ${ library.transition() }
             ) on CreatePage(create_page::callback(state.clone()))
-            actions (state, library)
+            overlay (state, library)
             Row (height: 30, shrink: 0.0, column_gap: 8, padding: Padding::all(6)) {
                 Text (
                     "A 确认  B 返回",
@@ -510,107 +511,6 @@ fn keyboard(state: model!(Launcher)) -> Entity {
                             text_color: FOREGROUND,
                             paragraph: paragraph(crate::ui::widgets::TextAlign::Center, 1)
                         ) on Tap { state.type_key(key); }
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[compose]
-fn actions(state: model!(DisplayState), library: model!(Launcher)) -> Entity {
-    ui! {
-        View (
-            position: Position::Absolute,
-            width: Dimension::percent(100),
-            height: Dimension::percent(100),
-            visible: ${ library.menu() }
-        ) {
-            if ${ library.menu() } {
-                Column (
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: Dimension::percent(100),
-                    height: Dimension::percent(100),
-                    padding: Padding::all(16),
-                    justify: JustifyContent::Center,
-                    bg_color: Color::rgba(7, 16, 12, 220)
-                ) {
-                    Column (
-                        padding: Padding::all(12),
-                        row_gap: 6,
-                        bg_color: BACKGROUND,
-                        border_width: 2,
-                        border_color: ACCENT
-                    ) {
-                        Text (
-                            "游戏操作",
-                            height: 30,
-                            font: TITLE_FONT,
-                            font_size: 24,
-                            text_color: FOREGROUND
-                        )
-                        Text (
-                            "开始游戏",
-                            height: 28,
-                            shrink: 0.0,
-                            font: FONT,
-                            font_size: 12,
-                            bg_color: ${ if library.menu_selection() == 0 { ACCENT_DIM } else { PANEL } },
-                            text_color: FOREGROUND
-                        ) on Tap { library.launch(); }
-                        Text (
-                            "附近联机",
-                            height: 28,
-                            shrink: 0.0,
-                            font: FONT,
-                            font_size: 12,
-                            bg_color: ${ if library.menu_selection() == 1 { ACCENT_DIM } else { PANEL } },
-                            text_color: FOREGROUND
-                        ) on Tap {
-                            if let Some(key) = library.game_key() {
-                                if let Some(game) = library.games().iter().find(|game| game.key() == key) {
-                                    state.launch_game(game.name(), game.multiplayer());
-                                }
-                            }
-                        }
-                        Text (
-                            "收藏 / 取消收藏",
-                            height: 28,
-                            shrink: 0.0,
-                            font: FONT,
-                            font_size: 12,
-                            bg_color: ${ if library.menu_selection() == 2 { ACCENT_DIM } else { PANEL } },
-                            text_color: FOREGROUND
-                        ) on Tap { library.toggle_favorite(); }
-                        Text (
-                            "游戏信息",
-                            height: 28,
-                            shrink: 0.0,
-                            font: FONT,
-                            font_size: 12,
-                            bg_color: ${ if library.menu_selection() == 3 { ACCENT_DIM } else { PANEL } },
-                            text_color: FOREGROUND
-                        ) on Tap { library.show_game_page(Screen::Info); }
-                        Text (
-                            "游戏说明",
-                            height: 28,
-                            shrink: 0.0,
-                            font: FONT,
-                            font_size: 12,
-                            bg_color: ${ if library.menu_selection() == 4 { ACCENT_DIM } else { PANEL } },
-                            text_color: FOREGROUND
-                        ) on Tap { library.show_game_page(Screen::Manual); }
-                        Text (
-                            "返回",
-                            height: 28,
-                            shrink: 0.0,
-                            font: FONT,
-                            font_size: 12,
-                            bg_color: ${ if library.menu_selection() == 5 { ACCENT_DIM } else { PANEL } },
-                            text_color: FOREGROUND
-                        ) on Tap { library.dismiss_menu(); }
                     }
                 }
             }

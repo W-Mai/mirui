@@ -23,6 +23,66 @@ fn fixture_at(width: u16, height: u16) -> (TestApp, model::DisplayStateHandle) {
 }
 
 #[test]
+fn action_overlay_keeps_preview_and_all_six_actions_inside_the_panel() {
+    use crate::ui::ComputedRect;
+    for (width, height) in [(360, 480), (640, 480), (900, 600)] {
+        let (mut app, state) = fixture_at(width, height);
+        let library = state.launcher();
+        library.resume();
+        library.choose_game(0, 0);
+        app.render_dirty().unwrap();
+        let panel = app.world.find_by_id("nearby_actions_panel").unwrap();
+        let panel = app.world.get::<ComputedRect>(panel).unwrap().0;
+        assert!(panel.w > Fixed::from_int(i32::from(width) * 4 / 5));
+        assert!(panel.h > Fixed::from_int(i32::from(height) * 3 / 5));
+        let preview = app.world.find_by_id("nearby_actions_preview").unwrap();
+        let preview = app.world.get::<ComputedRect>(preview).unwrap().0;
+        let tiles: alloc::vec::Vec<_> = app
+            .world
+            .query::<actions::ActionAnchor>()
+            .iter()
+            .filter_map(|(entity, anchor)| {
+                Some((anchor.0, app.world.get::<ComputedRect>(entity)?.0))
+            })
+            .collect();
+        assert_eq!(tiles.len(), 6);
+        for (index, rect) in &tiles {
+            assert!(rect.x >= preview.x + preview.w, "{index}: {rect:?}");
+            assert!(rect.w > Fixed::ZERO && rect.h > Fixed::ZERO);
+            assert!(rect.x + rect.w <= panel.x + panel.w);
+            assert!(rect.y >= panel.y && rect.y + rect.h <= panel.y + panel.h);
+        }
+        let partial = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
+        app.render().unwrap();
+        assert_eq!(
+            partial,
+            app.backend.framebuffer().read_pixels().unwrap().bytes()
+        );
+        library.dismiss_menu();
+        app.render_dirty().unwrap();
+        let closed = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
+        assert_ne!(closed, partial);
+        app.render().unwrap();
+        assert_eq!(
+            closed,
+            app.backend.framebuffer().read_pixels().unwrap().bytes()
+        );
+    }
+}
+
+#[test]
 fn launcher_hold_launches_once_and_cancels_across_navigation() {
     let (mut app, state) = fixture();
     let library = state.launcher();
