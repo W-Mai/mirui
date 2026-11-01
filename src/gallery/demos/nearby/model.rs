@@ -95,6 +95,20 @@ impl Default for DisplayState {
 
 #[model]
 impl DisplayState {
+    pub fn open_network(&mut self) {
+        self.launcher.close();
+        self.view.source = LaunchSource::Menu;
+        self.restart();
+    }
+    pub fn launch_game(&mut self, name: alloc::string::String, multiplayer: bool) {
+        self.launcher.close();
+        self.view.source = LaunchSource::Game;
+        self.view.title = name;
+        self.restart();
+        if !multiplayer {
+            self.navigate(Page::Unavailable, PageDirection::Forward);
+        }
+    }
     pub fn snapshot(&self) -> Snapshot {
         let mut snapshot = self.view.clone();
         if self.scenario == Scenario::EmptyGames {

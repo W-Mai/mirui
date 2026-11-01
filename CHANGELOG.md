@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Nearby demo launcher state uses nested Models and an observable game collection, with independent return contexts for game details and system tools.
+- Nearby demo includes cartridge favorites, platform artwork, game browsing, search, game actions and simulated Wi-Fi and system-tool pages; connection and in-game entry flows remain available.
 
 ### Changed
 

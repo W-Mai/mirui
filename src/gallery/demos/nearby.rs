@@ -1,10 +1,12 @@
 mod choices;
 mod chrome;
 mod composition;
+mod consoles;
 mod copy;
 pub mod data;
 mod input;
 pub mod launcher;
+mod launcher_view;
 pub mod model;
 mod pages;
 mod sessions;
@@ -43,6 +45,7 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     app.with_fonts(fonts);
     app.with_offscreen_pool_budget(640 * 480 * 8);
     app.with_widget(crate::ui::widgets::page_view::view::<model::PageKey>());
+    app.with_widget(crate::ui::widgets::page_view::view::<launcher::Screen>());
     app.with_widget(input::selection_target::view());
     app.with_widget(input::selection_frame::view());
     #[cfg(feature = "std")]

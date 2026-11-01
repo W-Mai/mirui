@@ -42,10 +42,11 @@ cargo run -p gallery --example page_studio_demo
 cargo run -p gallery --example page_studio_demo --no-default-features --features wgpu
 ```
 
-Nearby demonstrates application-selected pages with explicit forward and backward slide directions. Its native launcher starts at 640×480 and reflows when resized. The default backend is SDL; the same UI also runs with WGPU.
+Nearby demonstrates a local game launcher with favorites, platform and game browsers, search, game actions, and simulated system tools, alongside the connection flows. The Launcher button returns from the connection demo without replacing the shared game collection. Page changes use explicit forward and backward slide directions. The native window starts at 640×480 and reflows when resized. Device, network and game-process operations are simulated. The default backend is SDL; the same UI also runs with SDL-GPU or WGPU.
 
 ```sh
 cargo run -p gallery --example nearby_demo
+cargo run -p gallery --example nearby_demo --no-default-features --features sdl-gpu
 cargo run -p gallery --example nearby_demo --no-default-features --features wgpu
 ```
 

@@ -14,11 +14,166 @@ fn fixture_at(width: u16, height: u16) -> (TestApp, model::DisplayStateHandle) {
     app.with_default_widgets().with_default_systems();
     let root = app.spawn_root().id();
     let state = setup_app(&mut app, root);
+    state.launcher().close();
     app.world.remove_resource::<crate::ecs::MonoClock>();
     app.add_resource(crate::ecs::DeltaTimeMs(16));
     app.prepare_text_layout().unwrap();
     app.render().unwrap();
     (app, state)
+}
+
+#[test]
+fn launcher_pages_and_actions_reuse_the_application_and_keep_game_identity() {
+    use super::launcher::Screen;
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    app.render_dirty().unwrap();
+    let identity = library.games().entries().next().unwrap().0;
+    for screen in [
+        Screen::Platforms,
+        Screen::Search,
+        Screen::Tools,
+        Screen::Wifi,
+        Screen::Files,
+        Screen::Favorites,
+    ] {
+        library.open(screen);
+        for _ in 0..90 {
+            app.tick();
+        }
+        app.render_dirty().unwrap();
+        assert_eq!(library.screen(), screen);
+        assert_eq!(library.games().entries().next().unwrap().0, identity);
+    }
+    library.choose_game(0, 0);
+    app.render_dirty().unwrap();
+    library.toggle_favorite();
+    assert!(!library.games().get_by_id(identity).unwrap().favorite());
+    app.render_dirty().unwrap();
+    library.toggle_favorite();
+    library.dismiss_menu();
+    library.open(Screen::Platforms);
+    library.choose_platform(2);
+    library.choose_game(2, 2);
+    library.show_game_page(Screen::Info);
+    library.back();
+    assert_eq!(library.screen(), Screen::Games);
+    assert_eq!(library.platform(), 2);
+    state.launch_game("方块世界".into(), false);
+    app.render_dirty().unwrap();
+    assert_eq!(state.snapshot().page, Page::Unavailable);
+    library.resume();
+    app.render_dirty().unwrap();
+    assert_eq!(library.games().entries().next().unwrap().0, identity);
+}
+
+#[test]
+fn launcher_search_and_tools_are_local_and_reversible() {
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    library.open(launcher::Screen::Search);
+    library.type_key("X");
+    assert_eq!(library.query(), "X");
+    library.type_key("DEL");
+    assert!(library.query().is_empty());
+    library.set_query("冒险".into());
+    assert_eq!(
+        library
+            .games()
+            .iter()
+            .filter(|game| game.matches("adventure"))
+            .count(),
+        1
+    );
+    app.render_dirty().unwrap();
+    library.open(launcher::Screen::Tools);
+    library.tool(launcher::Screen::Wifi);
+    library.network();
+    library.back();
+    assert_eq!(library.screen(), launcher::Screen::Tools);
+    assert!(library.connected());
+    state.open_network();
+    assert!(!library.active());
+    assert_eq!(state.snapshot().source, LaunchSource::Menu);
+    assert_eq!(state.snapshot().page, Page::Mode);
+}
+
+#[test]
+fn physical_keyboard_controls_the_active_launcher_instead_of_the_hidden_connection_page() {
+    use crate::input::event::input::PhysicalKey;
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    app.render_dirty().unwrap();
+    let root = app.root;
+    crate::input::event::dispatch_input(
+        &mut app.world,
+        root,
+        &crate::test_support::physical_key(PhysicalKey::KeyA).into(),
+        1,
+        640,
+        480,
+    );
+    assert!(library.menu());
+    assert_eq!(state.snapshot().page, Page::Mode);
+    crate::input::event::dispatch_input(
+        &mut app.world,
+        root,
+        &crate::test_support::physical_key(PhysicalKey::KeyB).into(),
+        2,
+        640,
+        480,
+    );
+    assert!(!library.menu());
+    assert_eq!(state.snapshot().page, Page::Mode);
+}
+
+#[test]
+fn launcher_rapid_route_changes_and_partial_repaint_match_full_repaint() {
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    for screen in [
+        launcher::Screen::Platforms,
+        launcher::Screen::Search,
+        launcher::Screen::Tools,
+        launcher::Screen::Favorites,
+    ] {
+        library.open(screen);
+        for _ in 0..3 {
+            app.tick();
+        }
+    }
+    for _ in 0..120 {
+        app.tick();
+    }
+    library.choose_game(0, 0);
+    app.render_dirty().unwrap();
+    let partial = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .bytes()
+        .to_vec();
+    app.render().unwrap();
+    assert_eq!(
+        partial,
+        app.backend.framebuffer().read_pixels().unwrap().bytes()
+    );
+    library.dismiss_menu();
+    library.open(launcher::Screen::Platforms);
+    library.choose_platform(3);
+    for _ in 0..120 {
+        app.tick();
+    }
+    library.back();
+    for _ in 0..120 {
+        app.tick();
+    }
+    assert_eq!(library.screen(), launcher::Screen::Platforms);
 }
 
 #[test]
@@ -40,11 +195,11 @@ fn resizing_keeps_the_page_and_matches_direct_layout_at_the_same_size() {
             app.world
                 .query::<Text>()
                 .iter()
-                .map(|(entity, text)| {
-                    (
+                .filter_map(|(entity, text)| {
+                    Some((
                         text.resolve(app.world.resource()).to_string(),
-                        app.world.get::<ComputedRect>(entity).unwrap().0,
-                    )
+                        app.world.get::<ComputedRect>(entity)?.0,
+                    ))
                 })
                 .collect::<alloc::vec::Vec<_>>()
         };

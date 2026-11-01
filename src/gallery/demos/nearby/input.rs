@@ -127,7 +127,9 @@ pub(super) fn keyboard(
     targets: query!(Entity, SelectionTarget),
     frames: query!(SelectionFrame, mut FollowBounds),
 ) -> bool {
-    use crate::input::event::input::{KEY_A, KEY_ESCAPE, KEY_LEFT, KEY_RETURN, KEY_RIGHT, KEY_X};
+    use crate::input::event::input::{
+        KEY_A, KEY_ESCAPE, KEY_LEFT, KEY_RETURN, KEY_RIGHT, KEY_X, PhysicalKey,
+    };
     if !event.pressed
         || event
             .modifiers
@@ -135,7 +137,46 @@ pub(super) fn keyboard(
     {
         return false;
     }
-    match event.code {
+    let library = state.launcher();
+    let code = match event.physical {
+        Some(PhysicalKey::KeyA) => KEY_A,
+        Some(PhysicalKey::KeyB) => 0x62,
+        Some(PhysicalKey::KeyX) => KEY_X,
+        _ => event.code,
+    };
+    if library.active() {
+        let direction = match event.physical {
+            Some(PhysicalKey::ArrowLeft | PhysicalKey::ArrowUp) => Some(false),
+            Some(PhysicalKey::ArrowRight | PhysicalKey::ArrowDown) => Some(true),
+            _ => None,
+        };
+        if let Some(forward) = direction {
+            let index = if library.menu() {
+                library.menu_selection()
+            } else {
+                library.selected()
+            };
+            let next = if forward {
+                index.saturating_add(1)
+            } else {
+                index.saturating_sub(1)
+            };
+            if library.menu() {
+                library.select_action(next);
+            } else {
+                library.select(next);
+            }
+            return true;
+        }
+        match code {
+            KEY_ESCAPE | 0x62 => library.back(),
+            KEY_A | KEY_RETURN => super::launcher_view::confirm(state),
+            KEY_X => library.open(super::launcher::Screen::Tools),
+            _ => return false,
+        }
+        return true;
+    }
+    match code {
         KEY_LEFT => state.select(state.selected().saturating_sub(1)),
         KEY_RIGHT => state.select(state.selected().saturating_add(1)),
         KEY_A | KEY_RETURN => state.confirm(),

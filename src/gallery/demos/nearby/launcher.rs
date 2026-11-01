@@ -39,6 +39,7 @@ impl Screen {
 pub struct Game {
     pub key: u32,
     pub name: &'static str,
+    pub search: &'static str,
     pub platform: usize,
     pub multiplayer: bool,
     #[observe]
@@ -55,6 +56,9 @@ impl Game {
     }
     pub fn platform(&self) -> usize {
         self.platform
+    }
+    pub fn matches(&self, query: &str) -> bool {
+        self.name.contains(query) || self.search.contains(query)
     }
     pub fn multiplayer(&self) -> bool {
         self.multiplayer
@@ -85,7 +89,11 @@ pub struct Launcher {
     pub platform: usize,
     pub query: String,
     #[observe]
+    pub query_revision: u32,
+    #[observe]
     pub menu: bool,
+    #[observe]
+    pub menu_selection: usize,
     #[observe]
     pub notice: &'static str,
     #[observe]
@@ -116,6 +124,16 @@ impl Default for Launcher {
         .enumerate()
         .map(|(index, (name, platform, multiplayer))| Game {
             key: index as u32,
+            search: [
+                "adventure",
+                "racing",
+                "blocks",
+                "journey",
+                "weekend",
+                "classic",
+                "map",
+                "speed",
+            ][index],
             name,
             platform,
             multiplayer,
@@ -129,7 +147,9 @@ impl Default for Launcher {
             selected: 0,
             platform: 0,
             query: String::new(),
+            query_revision: 0,
             menu: false,
+            menu_selection: 0,
             notice: "",
             sound: true,
             connected: false,
@@ -173,15 +193,37 @@ impl Launcher {
         self.selected_game = Some(key);
         self.selected = index;
         self.menu = true;
+        self.menu_selection = 0;
     }
 
     pub fn dismiss_menu(&mut self) {
         self.menu = false;
     }
+    pub fn select_action(&mut self, index: usize) {
+        self.menu_selection = index.min(5);
+    }
 
     pub fn set_query(&mut self, query: String) {
         self.query = query;
+        self.query_revision = self.query_revision.wrapping_add(1);
         self.selected = 0;
+    }
+
+    pub fn type_key(&mut self, key: &'static str) {
+        match key {
+            "DEL" => {
+                self.query.pop();
+            }
+            "CLEAR" => self.query.clear(),
+            "SPACE" => self.query.push(' '),
+            _ => self.query.push_str(key),
+        }
+        self.query_revision = self.query_revision.wrapping_add(1);
+        self.selected = 0;
+    }
+
+    pub fn game_key(&self) -> Option<u32> {
+        self.selected_game
     }
 
     pub fn choose_platform(&mut self, index: usize) {
@@ -191,6 +233,10 @@ impl Launcher {
         self.platform = index;
         self.origin = Screen::Platforms;
         self.open(Screen::Games);
+    }
+    pub fn browse_files(&mut self, index: usize) {
+        self.choose_platform(index);
+        self.origin = Screen::Files;
     }
 
     pub fn toggle_favorite(&mut self) {
