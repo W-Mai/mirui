@@ -141,6 +141,7 @@ pub(super) fn keyboard(
         Some(PhysicalKey::KeyA) => KEY_A,
         Some(PhysicalKey::KeyB) => 0x62,
         Some(PhysicalKey::KeyX) => KEY_X,
+        Some(PhysicalKey::KeyY) => 0x79,
         _ => event.code,
     };
     if library.active() && code == KEY_X {
@@ -153,6 +154,10 @@ pub(super) fn keyboard(
     }
     if !event.pressed {
         return false;
+    }
+    if code == 0x79 {
+        library.adjust_tool(super::launcher::Tool::Theme);
+        return true;
     }
     if library.active() {
         let direction = match event.physical {

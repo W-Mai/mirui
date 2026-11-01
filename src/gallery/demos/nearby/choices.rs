@@ -2,6 +2,7 @@ use super::chrome::label;
 use super::data::{Page, Snapshot};
 use super::input::SelectionTarget;
 use super::model::DisplayState;
+use super::scenery::Scenery;
 use super::style::*;
 use crate::prelude::*;
 use crate::ui::OffscreenRender;
@@ -26,71 +27,84 @@ pub(super) fn choice(view: &Snapshot, state: model!(DisplayState), metrics: Metr
         ]
     };
     ui! {
-        Row (
-            grow: 1.0,
-            min_height: 0,
-            column_gap: metrics.gap + 6
-        ) [
-            StaticCache,
-            OffscreenRender::default(),
-        ] {
-            walk cards.into_iter() with card {
-                Column (
-                    grow: 1.0,
-                    min_width: 0,
-                    padding: Padding::all(metrics.inset),
-                    row_gap: metrics.gap,
-                    bg_color: PANEL,
-                    border_radius: 0,
-                    clip_children: true
-                ) [
-                    Focusable,
-                    SelectionTarget {
-                        frame: None,
-                        index: card.0,
-                        state: state.clone(),
-                    },
-                ] {
-                    Row (
-                        height: 36,
-                        shrink: 0.0,
-                        align: AlignItems::Center
-                    ) {
-                        Text (
-                            if card.0 == 0 { "+" } else { "2" },
-                            width: 36,
-                            height: Dimension::percent(100),
-                            bg_color: ACCENT_DIM,
-                            font: font(metrics.title),
-                            font_size: metrics.title,
-                            text_color: ACCENT,
-                            paragraph: paragraph(Center, 1)
-                        )
-                    }
-                    View (
+        Column (grow: 1.0, min_height: 0, row_gap: metrics.gap) {
+            Row (
+                grow: 1.0,
+                min_height: 0,
+                column_gap: metrics.gap + 6
+            ) [
+                StaticCache,
+                OffscreenRender::default(),
+            ] {
+                walk cards.into_iter() with card {
+                    Column (
                         grow: 1.0,
-                        min_height: 0
-                    )
-                    label (
-                        card.1,
-                        metrics.title,
-                        FOREGROUND,
-                        Start
-                    )
-                    Text (
-                        card.2,
-                        shrink: 0.0,
-                        width: Dimension::percent(100),
                         min_width: 0,
-                        height: Dimension::Content,
-                        font: font(metrics.small),
-                        font_size: metrics.small,
-                        text_color: SECONDARY,
-                        paragraph: paragraph(Start, 2)
-                    )
-                    label (card.3, metrics.small, SECONDARY, Start)
-                } on SizeChanged(super::input::place::callback(state, card.0)) on HoverChanged(super::input::hover::callback(state, card.0)) on Tap { state.activate(card.0); }
+                        padding: Padding::all(metrics.inset),
+                        row_gap: metrics.gap,
+                        bg_color: PANEL,
+                        border_radius: 0,
+                        clip_children: true
+                    ) [
+                        Focusable,
+                        SelectionTarget {
+                            frame: None,
+                            index: card.0,
+                            state: state.clone(),
+                        },
+                    ] {
+                        Row (
+                            height: 36,
+                            shrink: 0.0,
+                            align: AlignItems::Center
+                        ) {
+                            Text (
+                                if card.0 == 0 { "+" } else { "2" },
+                                width: 36,
+                                height: Dimension::percent(100),
+                                bg_color: ACCENT_DIM,
+                                font: font(metrics.title),
+                                font_size: metrics.title,
+                                text_color: ACCENT,
+                                paragraph: paragraph(Center, 1)
+                            )
+                        }
+                        View (
+                            grow: 1.0,
+                            min_height: 0
+                        ) [
+                            Scenery::Landscape,
+                        ]
+                        label (
+                            card.1,
+                            metrics.title,
+                            FOREGROUND,
+                            Start
+                        )
+                        Text (
+                            card.2,
+                            shrink: 0.0,
+                            width: Dimension::percent(100),
+                            min_width: 0,
+                            height: Dimension::Content,
+                            font: font(metrics.small),
+                            font_size: metrics.small,
+                            text_color: SECONDARY,
+                            paragraph: paragraph(Start, 2)
+                        )
+                        label (card.3, metrics.small, SECONDARY, Start)
+                    } on SizeChanged(super::input::place::callback(state, card.0)) on HoverChanged(super::input::hover::callback(state, card.0)) on Tap { state.activate(card.0); }
+                }
             }
+            View (
+                height: metrics.walker_height(),
+                min_height: 0,
+                shrink: 1.0,
+                width: Dimension::percent(100),
+                clip_children: true
+            ) [
+                Scenery::Map,
+            ]
         }
     }
 }

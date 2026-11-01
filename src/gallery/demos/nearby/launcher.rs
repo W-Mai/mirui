@@ -146,7 +146,7 @@ pub struct Launcher {
     #[observe]
     pub brightness: u8,
     #[observe]
-    pub alternate_theme: bool,
+    pub palette: usize,
     #[observe]
     pub hold_progress: Fixed,
     held_game: Option<u32>,
@@ -206,7 +206,7 @@ impl Default for Launcher {
             connected: false,
             volume: 60,
             brightness: 80,
-            alternate_theme: false,
+            palette: 0,
             hold_progress: Fixed::ZERO,
             held_game: None,
             held_ms: 0,
@@ -336,7 +336,7 @@ impl Launcher {
     pub fn adjust_tool(&mut self, tool: Tool) {
         match tool {
             Tool::Sound => self.toggle_sound(),
-            Tool::Theme => self.alternate_theme = !self.alternate_theme,
+            Tool::Theme => self.palette = (self.palette + 1) % 3,
             Tool::VolumeDown => self.volume = self.volume.saturating_sub(10),
             Tool::VolumeUp => self.volume = self.volume.saturating_add(10).min(100),
             Tool::BrightnessDown => self.brightness = self.brightness.saturating_sub(10),

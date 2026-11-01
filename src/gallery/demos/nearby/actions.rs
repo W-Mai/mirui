@@ -1,12 +1,12 @@
 use super::consoles::{Platform, console};
 use super::launcher::{Launcher, PLATFORMS};
 use super::model::DisplayState;
+use super::scenery::{Scenery::Margins, backdrop};
 use super::style::*;
 use crate::prelude::*;
 use crate::ui::widgets::{Image, Text, TextAlign};
 use TextAlign::{Center, Start};
 
-const GAP: i32 = 8;
 const ITEMS: [&str; 6] = [
     "开始游戏",
     "附近联机",
@@ -35,6 +35,7 @@ fn hover(
 
 #[compose]
 pub(super) fn overlay(display: model!(DisplayState), state: model!(Launcher)) -> Entity {
+    let metrics = display.metrics();
     ui! {
         View (
             position: Position::Absolute,
@@ -53,12 +54,7 @@ pub(super) fn overlay(display: model!(DisplayState), state: model!(Launcher)) ->
                     top: 0,
                     width: Dimension::percent(100),
                     height: Dimension::percent(100),
-                    padding: Padding {
-                        top: Dimension::Percent(Fixed::from_ratio(20, 3)),
-                        bottom: Dimension::Percent(Fixed::from_ratio(20, 3)),
-                        left: Dimension::Percent(Fixed::from_ratio(15, 4)),
-                        right: Dimension::Percent(Fixed::from_ratio(15, 4)),
-                    },
+                    padding: metrics.modal_padding(),
                     justify: JustifyContent::Center,
                     bg_color: Color::rgba(7, 16, 12, 185)
                 ) {
@@ -66,22 +62,23 @@ pub(super) fn overlay(display: model!(DisplayState), state: model!(Launcher)) ->
                         id: "nearby_actions_panel",
                         grow: 1.0,
                         min_height: 0,
-                        padding: Padding::all(GAP * 2),
-                        row_gap: GAP,
+                        padding: Padding::all(metrics.gap * 2),
+                        row_gap: metrics.gap,
                         bg_color: BACKGROUND,
                         border_width: 2,
                         border_color: DIVIDER
                     ) {
-                        label ("游戏操作", 24, FOREGROUND, Start)
+                        backdrop (Margins)
+                        label ("游戏操作", metrics.title, FOREGROUND, Start)
                         View (height: 3, bg_color: WARNING, shrink: 0.0)
-                        Row (grow: 1.0, min_height: 0, column_gap: GAP * 2) {
+                        Row (grow: 1.0, min_height: 0, column_gap: metrics.gap * 2) {
                             Column (width: Dimension::percent(38), shrink: 0.0, min_height: 0) {
                                 preview (state)
                                 shadow ()
                             }
-                            Column (grow: 1.0, min_width: 0, min_height: 0, row_gap: GAP) {
+                            Column (grow: 1.0, min_width: 0, min_height: 0, row_gap: metrics.gap) {
                                 walk 0_usize..3 with line {
-                                    Row (grow: 1.0, min_height: 0, column_gap: GAP) {
+                                    Row (grow: 1.0, min_height: 0, column_gap: metrics.gap) {
                                         walk 0_usize..2 with column {
                                             action_tile (display, state, line * 2 + column)
                                         }
@@ -89,7 +86,7 @@ pub(super) fn overlay(display: model!(DisplayState), state: model!(Launcher)) ->
                                 }
                             }
                         }
-                        Row (height: 22, column_gap: GAP * 2, align: AlignItems::Center) {
+                        Row (height: 22, column_gap: metrics.gap * 2, align: AlignItems::Center) {
                             control_key ("A", true)
                             label ("确认", 12, FOREGROUND, Start)
                             control_key ("B", false)
@@ -124,7 +121,7 @@ fn preview(state: model!(Launcher)) -> Entity {
             bg_color: PANEL,
             padding: Padding::all(2),
             justify: JustifyContent::Center,
-            row_gap: GAP
+            row_gap: 8
         ) {
             console (platform)
         }
@@ -133,14 +130,15 @@ fn preview(state: model!(Launcher)) -> Entity {
 
 #[compose]
 fn action_tile(display: model!(DisplayState), state: model!(Launcher), index: usize) -> Entity {
+    let metrics = display.metrics();
     ui! {
         Column (grow: 1.0, min_width: 0, min_height: 0) {
             Column (
                 grow: 1.0,
                 min_width: 0,
                 min_height: 0,
-                padding: Padding::all(GAP),
-                row_gap: GAP / 2,
+                padding: Padding::all(metrics.gap),
+                row_gap: metrics.gap / 2,
                 align: AlignItems::Center,
                 justify: JustifyContent::Center,
                 bg_color: ${ if state.menu_selection() == index { ACCENT } else { PANEL } },
@@ -158,7 +156,7 @@ fn action_tile(display: model!(DisplayState), state: model!(Launcher), index: us
                     min_width: 0,
                     font: FONT,
                     font_size: 12,
-                    text_color: ${ if state.menu_selection() == index { BACKGROUND } else { FOREGROUND } },
+                    text_color: ${ if state.menu_selection() == index { ON_ACCENT } else { FOREGROUND } },
                     paragraph: paragraph(Center, 2)
                 )
             } on HoverChanged(hover::callback(state.clone())) on Tap {
@@ -184,7 +182,7 @@ fn action_icon(state: model!(Launcher), index: usize) -> Entity {
                 walk ${
                     core::iter::once((
                         index,
-                        if state.menu_selection() == index { BACKGROUND } else { FOREGROUND },
+                        if state.menu_selection() == index { ON_ACCENT } else { FOREGROUND },
                     ))
                 } with icon by icon {
                     Image (
@@ -227,7 +225,7 @@ fn action_icon(state: model!(Launcher), index: usize) -> Entity {
 }
 
 #[compose]
-fn label(text: &'static str, size: u16, color: Color, align: TextAlign) -> Entity {
+fn label(text: &'static str, size: u16, color: ColorToken, align: TextAlign) -> Entity {
     ui! {
         Text (
             text,
@@ -252,7 +250,7 @@ fn control_key(key: &'static str, primary: bool) -> Entity {
             font: FONT,
             font_size: 12,
             bg_color: if primary { ACCENT } else { PANEL },
-            text_color: if primary { BACKGROUND } else { FOREGROUND },
+            text_color: if primary { ON_ACCENT } else { FOREGROUND },
             paragraph: paragraph(Center, 1)
         )
     }

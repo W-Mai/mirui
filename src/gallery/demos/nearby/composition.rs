@@ -1,7 +1,7 @@
 use super::{
     launcher_view::launcher,
     model::{DisplayState, PageKey},
-    pages,
+    pages::page,
     style::*,
 };
 use crate::prelude::*;
@@ -11,21 +11,19 @@ use crate::ui::widgets::{
 };
 
 #[event]
-fn create_page(
-    event: event!(CreatePage<PageKey>),
-    state: model!(DisplayState),
-    metrics: Metrics,
-) -> Entity {
+fn create_page(event: event!(CreatePage<PageKey>), state: model!(DisplayState)) -> Entity {
     let mut snapshot = state.snapshot();
     snapshot.page = event.route().page;
-    ui! { pages::page (&snapshot, state, metrics) }
+    let metrics = state.metrics();
+    ui! {
+        page (&snapshot, state, metrics)
+    }
 }
 
 #[compose]
 pub(super) fn build_widgets(state: model!(DisplayState)) {
-    let metrics = Metrics::default();
     ui! {
-        Column (grow: 1.0, bg_color: BACKGROUND) {
+        Column (grow: 1.0, min_height: 0, bg_color: BACKGROUND) {
             if ${ !state.launcher().active() } {
                 Row (
                     height: 30,
@@ -100,7 +98,7 @@ pub(super) fn build_widgets(state: model!(DisplayState)) {
                         height: 28,
                         border_radius: 0,
                         normal_color: ACCENT,
-                        text_color: BACKGROUND,
+                        text_color: ON_ACCENT,
                         font: FONT,
                         font_size: 12
                     ) [
@@ -126,7 +124,7 @@ pub(super) fn build_widgets(state: model!(DisplayState)) {
                         height: 28,
                         border_radius: 0,
                         normal_color: ACCENT,
-                        text_color: BACKGROUND,
+                        text_color: ON_ACCENT,
                         font: FONT,
                         font_size: 12
                     ) [
@@ -163,14 +161,14 @@ pub(super) fn build_widgets(state: model!(DisplayState)) {
             if ${ state.launcher().active() } {
                 launcher (state.clone(), state.launcher())
             } else {
-                page_host (state, metrics)
+                page_host (state)
             }
         }
     };
 }
 
 #[compose]
-fn page_host(state: model!(DisplayState), metrics: Metrics) -> Entity {
+fn page_host(state: model!(DisplayState)) -> Entity {
     ui! {
         PageView (
             id: "nearby_pages",
@@ -180,6 +178,6 @@ fn page_host(state: model!(DisplayState), metrics: Metrics) -> Entity {
             bg_color: BACKGROUND,
             clip_children: true,
             transition: ${ state.transition() }
-        ) on CreatePage(create_page::callback(state, metrics))
+        ) on CreatePage(create_page::callback(state))
     }
 }

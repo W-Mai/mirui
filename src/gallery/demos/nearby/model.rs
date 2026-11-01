@@ -21,12 +21,14 @@ pub(super) enum TextField {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) struct StepColors {
-    pub background: Color,
-    pub foreground: Color,
+    pub background: ColorToken,
+    pub foreground: ColorToken,
 }
 
 #[model]
 pub struct DisplayState {
+    #[observe]
+    pub(super) metrics: Metrics,
     pub launcher: model!(owned super::launcher::Launcher),
     view: Snapshot,
     session: u32,
@@ -39,6 +41,7 @@ pub struct DisplayState {
 impl Default for DisplayState {
     fn default() -> Self {
         Self {
+            metrics: Metrics::default(),
             launcher: super::launcher::Launcher::default().into(),
             view: Snapshot {
                 page: Page::Mode,
@@ -95,6 +98,12 @@ impl Default for DisplayState {
 
 #[model]
 impl DisplayState {
+    pub(super) fn resize(&mut self, height: u16) {
+        let metrics = Metrics::for_height(height);
+        if self.metrics != metrics {
+            self.metrics = metrics;
+        }
+    }
     pub fn open_network(&mut self) {
         self.launcher.close();
         self.view.source = LaunchSource::Menu;
@@ -151,7 +160,7 @@ impl DisplayState {
         }
     }
     #[observe]
-    pub fn stamp(&self) -> Color {
+    pub fn stamp(&self) -> ColorToken {
         if self.view.connected {
             ACCENT
         } else {
@@ -159,7 +168,7 @@ impl DisplayState {
         }
     }
     #[observe]
-    pub fn activity(&self) -> [Color; 3] {
+    pub fn activity(&self) -> [ColorToken; 3] {
         [if copy::loading(&self.presentation()) {
             ACCENT
         } else {
@@ -182,7 +191,7 @@ impl DisplayState {
                 PANEL
             },
             foreground: if index == active {
-                BACKGROUND
+                ON_ACCENT
             } else if index < active {
                 ACCENT
             } else {

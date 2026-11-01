@@ -1,5 +1,6 @@
 use super::data::{Page, Snapshot};
 use super::model::{DisplayState, TextField};
+use super::scenery::{Scenery, Scenery::Header, backdrop};
 use super::style::*;
 use crate::prelude::*;
 use crate::ui::OffscreenRender;
@@ -7,7 +8,7 @@ use crate::ui::widgets::{Text, TextAlign};
 use TextAlign::{Center, End, Start};
 use alloc::{borrow::ToOwned, format};
 #[compose]
-pub(super) fn label(value: &str, size: u16, color: Color, align: TextAlign) -> Entity {
+pub(super) fn label(value: &str, size: u16, color: ColorToken, align: TextAlign) -> Entity {
     ui! {
         Text (
             value.to_owned(),
@@ -30,7 +31,7 @@ pub(super) fn live_label(
     state: model!(DisplayState),
     field: TextField,
     size: u16,
-    color: Color,
+    color: ColorToken,
     align: TextAlign,
 ) -> Entity {
     ui! {
@@ -76,35 +77,26 @@ pub(super) fn header(view: &Snapshot, state: model!(DisplayState), metrics: Metr
     };
     ui! {
         Row (
-            height: 56,
+            height: metrics.header_height(),
             shrink: 0.0,
-            column_gap: metrics.gap,
+            column_gap: metrics.gap + 4,
+            padding: metrics.header_padding(),
+            bg_color: DEEP,
             align: AlignItems::Center
         ) {
+            backdrop (Header)
             Row (
-                width: 42,
-                height: 42,
+                width: metrics.logo_size(),
+                height: metrics.logo_size(),
                 shrink: 0.0,
                 bg_color: ${ state.stamp() },
                 justify: JustifyContent::Center,
                 align: AlignItems::Center,
                 border_radius: 0
             ) {
-                View (
-                    width: 7,
-                    height: 18,
-                    bg_color: ACCENT
-                )
-                View (
-                    width: 7,
-                    height: 6,
-                    bg_color: ACCENT
-                )
-                View (
-                    width: 7,
-                    height: 18,
-                    bg_color: ACCENT
-                )
+                View (width: Dimension::percent(100), height: Dimension::percent(100)) [
+                    Scenery::Logo,
+                ]
             }
             Column (
                 grow: 1.0,
@@ -117,14 +109,14 @@ pub(super) fn header(view: &Snapshot, state: model!(DisplayState), metrics: Metr
             ] {
                 label (
                     "附近联机",
-                    24,
-                    FOREGROUND,
+                    metrics.title,
+                    HEADER_TEXT,
                     Start
                 )
                 label (
                     &subtitle,
                     metrics.small,
-                    SECONDARY,
+                    HEADER_DETAIL,
                     Start
                 )
             }

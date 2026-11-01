@@ -42,7 +42,7 @@ split_demo_sources! {
     NEARBY => {
         demo: "nearby",
         marker: "fn create_page",
-        parts: ["data.rs", "model.rs", "launcher.rs", "consoles.rs", "launcher_view.rs", "actions.rs", "copy.rs", "style.rs", "chrome.rs", "choices.rs", "sessions.rs", "pages.rs", "input.rs", "composition.rs", "tests.rs"]
+        parts: ["data.rs", "model.rs", "launcher.rs", "consoles.rs", "launcher_view.rs", "actions.rs", "palette.rs", "scenery.rs", "copy.rs", "style.rs", "chrome.rs", "choices.rs", "sessions.rs", "pages.rs", "input.rs", "composition.rs", "tests.rs"]
     },
     PAGE_STUDIO => {
         demo: "page_studio",

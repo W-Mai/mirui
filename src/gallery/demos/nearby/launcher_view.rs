@@ -2,6 +2,11 @@ use super::actions::overlay;
 use super::consoles::{Platform, console};
 use super::launcher::{Game, Launcher, PLATFORMS, Screen, TOOLS, Tool};
 use super::model::DisplayState;
+use super::scenery::{
+    Scenery,
+    Scenery::{Header, Ridge},
+    backdrop,
+};
 use super::style::*;
 use crate::input::event::scroll::{ScrollConfig, ScrollOffset};
 use crate::prelude::*;
@@ -188,22 +193,18 @@ fn create_page(event: event!(CreatePage<Screen>), state: model!(DisplayState)) -
 pub(super) fn launcher(state: model!(DisplayState), library: model!(Launcher)) -> Entity {
     ui! {
         Column (grow: 1.0, min_height: 0, min_width: 0, bg_color: BACKGROUND) {
-            Row (height: 42, shrink: 0.0, padding: Padding::all(8), column_gap: 8) {
-                Text (
-                    "H",
-                    width: 28,
-                    bg_color: ACCENT_DIM,
-                    text_color: ACCENT,
-                    font: TITLE_FONT,
-                    font_size: 24
-                )
+            Row (height: 64, shrink: 0.0, padding: Padding::all(8), column_gap: 8, bg_color: DEEP) {
+                backdrop (Header)
+                View (width: 48, height: 48, shrink: 0.0) [
+                    Scenery::Logo,
+                ]
                 Text (
                     "NEARBY",
                     grow: 1.0,
                     min_width: 0,
                     font: FONT,
                     font_size: 12,
-                    text_color: FOREGROUND
+                    text_color: HEADER_TEXT
                 )
                 nav (library, Favorites, "收藏")
                 nav (library, Platforms, "平台")
@@ -257,7 +258,7 @@ fn nav(state: model!(Launcher), screen: Screen, title: &'static str) -> Entity {
             min_width: 32,
             font: FONT,
             font_size: 12,
-            text_color: ${ if state.screen() == screen { ACCENT } else { SECONDARY } }
+            text_color: ${ if state.screen() == screen { HEADER_TEXT } else { HEADER_DETAIL } }
         ) on Tap { state.open(screen); }
     }
 }
@@ -318,6 +319,7 @@ fn favorites(state: model!(DisplayState), library: model!(Launcher)) -> Entity {
             Column (grow: 1.0, min_height: 0, clip_children: true) [
                 ScrollConfig::default(),
                 ScrollOffset::default(),
+                Ridge,
             ] {
                 Column (row_gap: 8, padding: Padding::all(4)) {
                     walk ${ 0..library.games().iter().filter(|game| game.favorite()).count().div_ceil(2) } with line {
@@ -558,7 +560,7 @@ fn tool_tile(state: model!(DisplayState), library: model!(Launcher), index: usiz
             row_gap: 3,
             border_width: 2,
             border_color: ${ if library.selected() == index { ACCENT } else { PANEL } },
-            bg_color: ${ if library.alternate_theme() { ACCENT_DIM } else { PANEL } }
+            bg_color: PANEL
         ) {
             Text (glyph, font: FONT, font_size: 12, text_color: ACCENT)
             Text (title, font: FONT, font_size: 12, text_color: FOREGROUND)
@@ -568,9 +570,7 @@ fn tool_tile(state: model!(DisplayState), library: model!(Launcher), index: usiz
                         Tool::Sound => if library.sound() { "ON".into() } else { "OFF".into() }
                         Tool::VolumeDown | Tool::VolumeUp => format!("{}%", library.volume()),
                         Tool::BrightnessDown | Tool::BrightnessUp => format!("{}%", library.brightness()),
-                        Tool::Theme => {
-                            if library.alternate_theme() { "WARM".into() } else { "PAPER".into() }
-                        }
+                        Tool::Theme => ["森林", "落日", "夜色"][library.palette()].into(),
                         _ => String::new(),
                     }
                 },

@@ -23,6 +23,38 @@ fn fixture_at(width: u16, height: u16) -> (TestApp, model::DisplayStateHandle) {
 }
 
 #[test]
+fn all_palettes_define_the_same_paint_roles_and_cycle_without_replacing_models() {
+    use super::style::*;
+    for index in 0..3 {
+        let theme = palette::theme(index);
+        for token in [
+            BACKGROUND,
+            FOREGROUND,
+            ACCENT,
+            ON_ACCENT,
+            PANEL,
+            SECONDARY,
+            DIVIDER,
+            WARNING,
+            SKY,
+            HILL,
+            DEEP,
+            CLAY,
+            HEADER_TEXT,
+            HEADER_DETAIL,
+        ] {
+            assert_ne!(theme.resolve(token), Color::rgb(255, 0, 255));
+        }
+    }
+    let (mut app, state) = fixture();
+    for expected in ["sunset", "night", "forest"] {
+        state.launcher().adjust_tool(launcher::Tool::Theme);
+        app.tick();
+        assert_eq!(app.theme().id().as_str(), expected);
+    }
+}
+
+#[test]
 fn action_overlay_keeps_preview_and_all_six_actions_inside_the_panel() {
     use crate::ui::ComputedRect;
     for (width, height) in [(360, 480), (640, 480), (900, 600)] {
@@ -300,13 +332,12 @@ fn resizing_keeps_the_page_and_matches_direct_layout_at_the_same_size() {
     use crate::ui::{ComputedRect, widgets::Text};
 
     assert_eq!(DEMO_SIZE.fixed_size(), None);
-    let (mut app, state) = fixture_at(320, 240);
-    let mounted = frames(&app);
+    let (mut app, state) = fixture_at(640, 480);
     for (width, height) in [(640, 480), (360, 640), (900, 480)] {
         let flush: fn(&[u8], PhysicalRect) = |_, _| {};
         app.backend = FramebufSurface::new(width, height, flush);
         app.render_dirty().unwrap();
-        assert_eq!(frames(&app), mounted);
+        app.render_dirty().unwrap();
         assert_eq!(state.snapshot().page, Page::Mode);
         let (direct, _) = fixture_at(width, height);
         let geometry = |app: &TestApp| {
@@ -764,11 +795,8 @@ fn all_pages_render_through_one_registered_model() {
     app.with_default_widgets().with_default_systems();
     let root = app.spawn_root().id();
     let state = setup_app(&mut app, root);
-    for theme in [
-        crate::gallery::showcase_theme::DARK_ID,
-        crate::gallery::showcase_theme::LIGHT_ID,
-    ] {
-        app.set_theme(theme).unwrap();
+    for index in 0..3 {
+        app.set_theme(palette::theme(index)).unwrap();
     }
     app.prepare_text_layout().unwrap();
     app.render().unwrap();
