@@ -23,6 +23,64 @@ fn fixture_at(width: u16, height: u16) -> (TestApp, model::DisplayStateHandle) {
 }
 
 #[test]
+fn launcher_hold_launches_once_and_cancels_across_navigation() {
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    launcher_view::begin_play(&state);
+    for _ in 0..10 {
+        app.tick();
+    }
+    assert!(library.hold_progress() > Fixed::ZERO);
+    launcher_view::finish_play(&state);
+    assert_eq!(library.screen(), launcher::Screen::Result);
+    assert!(!library.holding());
+    launcher_view::finish_play(&state);
+    assert_eq!(library.screen(), launcher::Screen::Result);
+    library.back();
+    launcher_view::begin_play(&state);
+    for _ in 0..50 {
+        app.tick();
+    }
+    assert_eq!(library.hold_progress(), Fixed::ONE);
+    launcher_view::finish_play(&state);
+    assert!(!library.active());
+    assert_eq!(state.snapshot().source, LaunchSource::Game);
+    library.resume();
+    launcher_view::begin_play(&state);
+    library.open(launcher::Screen::Tools);
+    assert!(!library.holding());
+    launcher_view::finish_play(&state);
+    assert_eq!(library.screen(), launcher::Screen::Tools);
+}
+
+#[test]
+fn launcher_filtered_selection_and_all_tools_are_reachable() {
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    library.choose_platform(1);
+    launcher_view::move_selection(&state, true);
+    assert_eq!(library.selected(), 7);
+    launcher_view::confirm(&state);
+    assert_eq!(library.game_key(), Some(7));
+    library.dismiss_menu();
+    for (index, (tool, _, _)) in launcher::TOOLS.into_iter().enumerate() {
+        library.open(launcher::Screen::Tools);
+        library.select(index);
+        launcher_view::confirm(&state);
+        if matches!(tool, launcher::Tool::VolumeDown | launcher::Tool::VolumeUp) {
+            assert!(library.volume() <= 100);
+        }
+        if !library.active() {
+            library.resume();
+        }
+        app.tick();
+    }
+    assert_eq!(library.screen(), launcher::Screen::Favorites);
+}
+
+#[test]
 fn launcher_pages_and_actions_reuse_the_application_and_keep_game_identity() {
     use super::launcher::Screen;
     let (mut app, state) = fixture();

@@ -1,5 +1,5 @@
 use super::consoles::{Platform, console};
-use super::launcher::{Game, Launcher, PLATFORMS, Screen};
+use super::launcher::{Game, Launcher, PLATFORMS, Screen, TOOLS, Tool};
 use super::model::DisplayState;
 use super::style::*;
 use crate::input::event::scroll::{ScrollConfig, ScrollOffset};
@@ -9,7 +9,7 @@ use crate::ui::widgets::{
     page_view::{CreatePage, PageView},
 };
 use Screen::{Favorites, Platforms, Search, Tools};
-use alloc::{format, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 
 pub(super) fn confirm(state: &super::model::DisplayStateHandle) {
     let library = state.launcher();
@@ -38,19 +38,126 @@ pub(super) fn confirm(state: &super::model::DisplayStateHandle) {
                 })
                 .map(|game| game.key())
                 .collect();
-            if let Some(key) = keys.get(library.selected().min(keys.len().saturating_sub(1))) {
+            if let Some(key) = keys
+                .iter()
+                .find(|&&key| key as usize == library.selected())
+                .or(keys.first())
+            {
                 library.choose_game(*key, *key as usize);
             }
         }
-        Screen::Tools => match library.selected() % 4 {
-            0 => library.tool(Screen::Wifi),
-            1 => library.tool(Screen::Files),
-            2 => library.toggle_sound(),
-            _ => state.open_network(),
-        },
+        Screen::Tools => activate_tool(state, TOOLS[library.selected().min(TOOLS.len() - 1)].0),
         Screen::Wifi => library.network(),
         Screen::Files => library.open(Screen::Platforms),
         _ => library.back(),
+    }
+}
+
+pub(super) fn move_selection(state: &super::model::DisplayStateHandle, forward: bool) {
+    let library = state.launcher();
+    if library.menu() {
+        let current = library.menu_selection();
+        library.select_action(if forward {
+            current.saturating_add(1)
+        } else {
+            current.saturating_sub(1)
+        });
+        return;
+    }
+    let query = library.query().to_lowercase();
+    let games = library.games();
+    let keys = || {
+        games
+            .iter()
+            .filter(|game| match library.screen() {
+                Favorites => game.favorite(),
+                Screen::Games => game.platform() == library.platform(),
+                _ => game.matches(&query),
+            })
+            .map(|game| game.key() as usize)
+    };
+    if matches!(library.screen(), Favorites | Screen::Games | Search) {
+        let current = keys()
+            .position(|key| key == library.selected())
+            .unwrap_or(0);
+        let index = if forward {
+            current.saturating_add(1)
+        } else {
+            current.saturating_sub(1)
+        };
+        let next = keys().nth(index).or_else(|| keys().next_back());
+        if let Some(key) = next {
+            library.select(key);
+        }
+    } else {
+        let limit = if library.screen() == Tools {
+            TOOLS.len()
+        } else {
+            PLATFORMS.len()
+        };
+        let current = library.selected();
+        library.select(if forward {
+            current.saturating_add(1).min(limit - 1)
+        } else {
+            current.saturating_sub(1)
+        });
+    }
+}
+
+pub(super) fn begin_play(state: &super::model::DisplayStateHandle) {
+    let library = state.launcher();
+    let query = library.query().to_lowercase();
+    let key = library
+        .games()
+        .iter()
+        .filter(|game| match library.screen() {
+            Favorites => game.favorite(),
+            Screen::Games => game.platform() == library.platform(),
+            Search => game.matches(&query),
+            _ => false,
+        })
+        .map(|game| game.key())
+        .find(|&key| key as usize == library.selected());
+    if let Some(key) = key {
+        library.begin_hold(key);
+    }
+}
+
+pub(super) fn finish_play(state: &super::model::DisplayStateHandle) {
+    let library = state.launcher();
+    let Some((key, multiplayer)) = library.held_play() else {
+        return;
+    };
+    library.cancel_hold();
+    let Some(game) = library.games().iter().find(|game| game.key() == key) else {
+        return;
+    };
+    if multiplayer {
+        state.launch_game(game.name(), game.multiplayer());
+    } else {
+        library.choose_game(key, key as usize);
+        library.launch();
+    }
+}
+
+fn activate_tool(state: &super::model::DisplayStateHandle, tool: Tool) {
+    let library = state.launcher();
+    match tool {
+        Tool::Wifi => library.tool(Screen::Wifi),
+        Tool::Files => library.tool(Screen::Files),
+        Tool::Network => state.open_network(),
+        Tool::NetworkInfo => library.result(if library.connected() {
+            "LOCAL DEMO: Nearby Guest / 192.168.4.2"
+        } else {
+            "LOCAL DEMO: OFFLINE"
+        }),
+        Tool::Controls => library.result("A: select / B: back / X: play / hold X: multiplayer"),
+        Tool::SystemInfo => library.result("LOCAL DEMO / MIRUI / 8 GAMES / 6 PLATFORMS"),
+        Tool::RestorePlay => library.result("LOCAL DEMO: game resumed"),
+        Tool::Exit => library.result("LOCAL DEMO: exit requested"),
+        Tool::Poweroff => library.result("LOCAL DEMO: power off requested"),
+        Tool::Back => library.back(),
+        _ => library.adjust_tool(tool),
     }
 }
 
@@ -121,6 +228,20 @@ pub(super) fn launcher(state: model!(DisplayState), library: model!(Launcher)) -
                     text_color: SECONDARY
                 )
                 Text ("LOCAL DEMO", font: FONT, font_size: 12, text_color: ACCENT)
+                Text (
+                    text: ${
+                        if library.hold_progress() >= Fixed::ONE {
+                            "X: LINK!"
+                        } else if library.holding() {
+                            "X: HOLD..."
+                        } else {
+                            "X: PLAY"
+                        }
+                    },
+                    font: FONT,
+                    font_size: 12,
+                    text_color: ACCENT
+                ) on Pressed { begin_play(&state); } on Released { finish_play(&state); } on PressCancelled { library.cancel_hold(); }
                 Text ("附近联机 >", font: FONT, font_size: 12, text_color: FOREGROUND) on Tap { library.close(); }
             }
         }
@@ -500,48 +621,66 @@ fn actions(state: model!(DisplayState), library: model!(Launcher)) -> Entity {
 #[compose]
 fn tools(state: model!(DisplayState), library: model!(Launcher)) -> Entity {
     ui! {
-        Column (grow: 1.0, min_height: 0, row_gap: 8) {
-            Text (
-                "Wi-Fi",
-                height: 28,
-                shrink: 0.0,
-                font: FONT,
-                font_size: 12,
-                bg_color: PANEL,
-                text_color: FOREGROUND
-            ) on Tap { library.tool(Screen::Wifi); }
-            Text (
-                "文件管理",
-                height: 28,
-                shrink: 0.0,
-                font: FONT,
-                font_size: 12,
-                bg_color: PANEL,
-                text_color: FOREGROUND
-            ) on Tap { library.tool(Screen::Files); }
-            Text (
-                text: ${ if library.sound() { "音效: ON" } else { "音效: OFF" } },
-                height: 28,
-                font: FONT,
-                font_size: 12,
-                bg_color: PANEL,
-                text_color: FOREGROUND
-            ) on Tap { library.toggle_sound(); }
-            Text (
-                "仅组网 / 选择游戏",
-                height: 28,
-                shrink: 0.0,
-                font: FONT,
-                font_size: 12,
-                bg_color: PANEL,
-                text_color: FOREGROUND
-            ) on Tap { state.open_network(); }
+        Column (grow: 1.0, min_height: 0, row_gap: 6) {
+            Column (grow: 1.0, min_height: 0, clip_children: true) [
+                ScrollConfig::default(),
+                ScrollOffset::default(),
+            ] {
+                Column (row_gap: 6) {
+                    walk 0..4 with row {
+                        Row (height: 64, shrink: 0.0, column_gap: 6) {
+                            walk 0..4 with column {
+                                tool_tile (state, library, row * 4 + column)
+                            }
+                        }
+                    }
+                }
+            }
+            Text (text: ${ library.notice() }, font: FONT, font_size: 12, text_color: ACCENT)
             Text (
                 "LOCAL DEMO: no system changes",
                 font: FONT,
                 font_size: 12,
                 text_color: SECONDARY
             )
+        }
+    }
+}
+
+#[compose]
+fn tool_tile(state: model!(DisplayState), library: model!(Launcher), index: usize) -> Entity {
+    let (tool, glyph, title) = TOOLS[index];
+    ui! {
+        Column (
+            grow: 1.0,
+            min_width: 0,
+            padding: Padding::all(4),
+            row_gap: 3,
+            border_width: 2,
+            border_color: ${ if library.selected() == index { ACCENT } else { PANEL } },
+            bg_color: ${ if library.alternate_theme() { ACCENT_DIM } else { PANEL } }
+        ) {
+            Text (glyph, font: FONT, font_size: 12, text_color: ACCENT)
+            Text (title, font: FONT, font_size: 12, text_color: FOREGROUND)
+            Text (
+                text: ${
+                    match tool {
+                        Tool::Sound => if library.sound() { "ON".into() } else { "OFF".into() }
+                        Tool::VolumeDown | Tool::VolumeUp => format!("{}%", library.volume()),
+                        Tool::BrightnessDown | Tool::BrightnessUp => format!("{}%", library.brightness()),
+                        Tool::Theme => {
+                            if library.alternate_theme() { "WARM".into() } else { "PAPER".into() }
+                        }
+                        _ => String::new(),
+                    }
+                },
+                font: FONT,
+                font_size: 12,
+                text_color: SECONDARY
+            )
+        } on Tap {
+            library.select(index);
+            activate_tool(&state, tool);
         }
     }
 }

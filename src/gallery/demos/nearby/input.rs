@@ -130,10 +130,9 @@ pub(super) fn keyboard(
     use crate::input::event::input::{
         KEY_A, KEY_ESCAPE, KEY_LEFT, KEY_RETURN, KEY_RIGHT, KEY_X, PhysicalKey,
     };
-    if !event.pressed
-        || event
-            .modifiers
-            .is_some_and(|m| m.meta || m.control || m.alt)
+    if event
+        .modifiers
+        .is_some_and(|m| m.meta || m.control || m.alt)
     {
         return false;
     }
@@ -144,6 +143,17 @@ pub(super) fn keyboard(
         Some(PhysicalKey::KeyX) => KEY_X,
         _ => event.code,
     };
+    if library.active() && code == KEY_X {
+        if event.pressed {
+            super::launcher_view::begin_play(state);
+        } else {
+            super::launcher_view::finish_play(state);
+        }
+        return true;
+    }
+    if !event.pressed {
+        return false;
+    }
     if library.active() {
         let direction = match event.physical {
             Some(PhysicalKey::ArrowLeft | PhysicalKey::ArrowUp) => Some(false),
@@ -151,27 +161,12 @@ pub(super) fn keyboard(
             _ => None,
         };
         if let Some(forward) = direction {
-            let index = if library.menu() {
-                library.menu_selection()
-            } else {
-                library.selected()
-            };
-            let next = if forward {
-                index.saturating_add(1)
-            } else {
-                index.saturating_sub(1)
-            };
-            if library.menu() {
-                library.select_action(next);
-            } else {
-                library.select(next);
-            }
+            super::launcher_view::move_selection(state, forward);
             return true;
         }
         match code {
             KEY_ESCAPE | 0x62 => library.back(),
             KEY_A | KEY_RETURN => super::launcher_view::confirm(state),
-            KEY_X => library.open(super::launcher::Screen::Tools),
             _ => return false,
         }
         return true;

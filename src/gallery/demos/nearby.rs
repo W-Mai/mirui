@@ -51,12 +51,20 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     #[cfg(feature = "std")]
     app.add_plugin(crate::app::plugins::StdInstantClockPlugin);
     let state = app.add_model(model::DisplayState::default()).finish();
+    app.add_system(launcher_hold::system(state.launcher()));
     app.on_event(
         crate::input::event::input::Key::EVENT,
         input::keyboard::callback(state.clone()),
     );
     app.compose(parent, composition::build_widgets(state.clone()));
     state
+}
+
+#[system(order = Animation)]
+fn launcher_hold(library: model!(launcher::Launcher), delta: res!(crate::ecs::DeltaTimeMs)) {
+    if library.active() && library.holding() && library.hold_progress() < Fixed::ONE {
+        library.advance_hold(delta.0);
+    }
 }
 
 pub const DEMO_SIZE: crate::gallery::DemoSize = crate::gallery::DemoSize::at_least(360, 480);

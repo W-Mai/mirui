@@ -77,6 +77,47 @@ pub const PLATFORMS: [(&str, &str); 6] = [
     ("ARCADE", "arcade"),
 ];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Tool {
+    Wifi,
+    Files,
+    Sound,
+    Theme,
+    VolumeDown,
+    VolumeUp,
+    BrightnessDown,
+    BrightnessUp,
+    Network,
+    NetworkInfo,
+    Controls,
+    SystemInfo,
+    RestorePlay,
+    Exit,
+    Poweroff,
+    Back,
+}
+
+pub const TOOLS: [(Tool, &str, &str); 16] = [
+    (Tool::Wifi, "WIFI", "Wi-Fi"),
+    (Tool::Files, "FILES", "文件管理"),
+    (Tool::Sound, "SOUND", "音效"),
+    (Tool::Theme, "THEME", "主题"),
+    (Tool::VolumeDown, "VOL -", "音量 -"),
+    (Tool::VolumeUp, "VOL +", "音量 +"),
+    (Tool::BrightnessDown, "LIGHT -", "亮度 -"),
+    (Tool::BrightnessUp, "LIGHT +", "亮度 +"),
+    (Tool::Network, "LINK", "附近联机"),
+    (Tool::NetworkInfo, "STATUS", "网络信息"),
+    (Tool::Controls, "KEYS", "操作说明"),
+    (Tool::SystemInfo, "SYSTEM", "系统信息"),
+    (Tool::RestorePlay, "RESUME", "继续游玩"),
+    (Tool::Exit, "EXIT", "退出"),
+    (Tool::Poweroff, "POWER", "关机"),
+    (Tool::Back, "BACK", "返回"),
+];
+
+pub const HOLD_MS: u16 = 600;
+
 #[model]
 pub struct Launcher {
     #[observe]
@@ -100,6 +141,16 @@ pub struct Launcher {
     pub sound: bool,
     #[observe]
     pub connected: bool,
+    #[observe]
+    pub volume: u8,
+    #[observe]
+    pub brightness: u8,
+    #[observe]
+    pub alternate_theme: bool,
+    #[observe]
+    pub hold_progress: Fixed,
+    held_game: Option<u32>,
+    held_ms: u16,
     pub games: model!(owned ModelList<Game>),
     direction: PageDirection,
     origin: Screen,
@@ -153,6 +204,12 @@ impl Default for Launcher {
             notice: "",
             sound: true,
             connected: false,
+            volume: 60,
+            brightness: 80,
+            alternate_theme: false,
+            hold_progress: Fixed::ZERO,
+            held_game: None,
+            held_ms: 0,
             games: list.into(),
             direction: PageDirection::Forward,
             origin: Screen::Favorites,
@@ -174,6 +231,7 @@ impl Launcher {
     }
 
     pub fn open(&mut self, screen: Screen) {
+        self.cancel_hold();
         self.menu = false;
         self.notice = "";
         self.direction = if screen == Screen::Favorites {
@@ -186,10 +244,12 @@ impl Launcher {
     }
 
     pub fn select(&mut self, index: usize) {
+        self.cancel_hold();
         self.selected = index;
     }
 
     pub fn choose_game(&mut self, key: u32, index: usize) {
+        self.cancel_hold();
         self.selected_game = Some(key);
         self.selected = index;
         self.menu = true;
@@ -273,12 +333,67 @@ impl Launcher {
         self.sound = !self.sound;
     }
 
+    pub fn adjust_tool(&mut self, tool: Tool) {
+        match tool {
+            Tool::Sound => self.toggle_sound(),
+            Tool::Theme => self.alternate_theme = !self.alternate_theme,
+            Tool::VolumeDown => self.volume = self.volume.saturating_sub(10),
+            Tool::VolumeUp => self.volume = self.volume.saturating_add(10).min(100),
+            Tool::BrightnessDown => self.brightness = self.brightness.saturating_sub(10),
+            Tool::BrightnessUp => self.brightness = self.brightness.saturating_add(10).min(100),
+            _ => return,
+        }
+        self.notice = "LOCAL DEMO: settings updated";
+    }
+
+    pub fn result(&mut self, notice: &'static str) {
+        self.show_game_page(Screen::Result);
+        self.notice = notice;
+    }
+
+    pub fn begin_hold(&mut self, key: u32) {
+        if self.held_game.is_none()
+            && self.active
+            && !self.menu
+            && matches!(
+                self.screen,
+                Screen::Favorites | Screen::Games | Screen::Search
+            )
+        {
+            self.held_game = Some(key);
+            self.held_ms = 0;
+            self.hold_progress = Fixed::ZERO;
+        }
+    }
+
+    pub fn advance_hold(&mut self, dt: u16) {
+        if self.held_game.is_some() {
+            self.held_ms = self.held_ms.saturating_add(dt).min(HOLD_MS);
+            self.hold_progress = Fixed::from_ratio(self.held_ms as i32, HOLD_MS as i32);
+        }
+    }
+
+    pub fn held_play(&self) -> Option<(u32, bool)> {
+        self.held_game.map(|key| (key, self.held_ms >= HOLD_MS))
+    }
+
+    pub fn cancel_hold(&mut self) {
+        self.held_game = None;
+        self.held_ms = 0;
+        self.hold_progress = Fixed::ZERO;
+    }
+
+    pub fn holding(&self) -> bool {
+        self.held_game.is_some()
+    }
+
     pub fn tool(&mut self, screen: Screen) {
         self.previous = Screen::Tools;
         self.open(screen);
     }
 
     pub fn back(&mut self) {
+        self.cancel_hold();
         if self.menu {
             self.menu = false;
             return;
@@ -297,6 +412,7 @@ impl Launcher {
     }
 
     pub fn close(&mut self) {
+        self.cancel_hold();
         self.active = false;
         self.menu = false;
     }
