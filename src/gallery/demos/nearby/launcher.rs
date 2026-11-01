@@ -560,10 +560,13 @@ impl Launcher {
 
     pub fn toggle_favorite(&mut self) {
         if let Some(key) = self.selected_game {
-            for game in self.games.iter_mut() {
-                if game.key() == key {
-                    game.toggle_favorite();
-                }
+            self.toggle_game_favorite(key);
+        }
+    }
+    pub fn toggle_game_favorite(&mut self, key: u32) {
+        for game in self.games.iter_mut() {
+            if game.key() == key {
+                game.toggle_favorite();
             }
         }
     }
@@ -589,6 +592,9 @@ impl Launcher {
         } else {
             "已断开 · LOCAL DEMO"
         };
+    }
+    pub fn retain_network(&mut self) {
+        self.connected = true;
     }
 
     pub fn toggle_sound(&mut self) {

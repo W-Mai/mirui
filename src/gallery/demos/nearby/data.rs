@@ -13,7 +13,6 @@ pub enum Page {
     Leaving,
     Unavailable,
     Games,
-    Outcome,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -157,6 +156,10 @@ impl Snapshot {
             refreshing: self.refreshing,
             rooms_empty: self.rooms.is_empty(),
             entries_empty: self.entries.is_empty(),
+            selected_room_available: self
+                .rooms
+                .get(self.selected)
+                .is_some_and(|row| row.available),
         }
     }
 }
@@ -169,6 +172,8 @@ pub struct NetworkPeer {
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct GameRow {
+    pub key: u32,
+    pub platform: usize,
     pub name: String,
     pub detail: String,
     pub directory: bool,

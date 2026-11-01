@@ -4,7 +4,7 @@ use super::data::{Page, Snapshot};
 use super::lists::{games, lobby, rooms, rows};
 use super::model::DisplayState;
 use super::pixel::{Scenery::Margins, backdrop};
-use super::sessions::{host, joined, leaving, network_panel, outcome, unavailable};
+use super::sessions::{host, joined, leaving, network_panel, unavailable};
 use super::style::*;
 use super::widgets::paragraph;
 use crate::prelude::*;
@@ -179,9 +179,6 @@ fn contents(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> E
                             }
                             Page :: Unavailable => {
                                 unavailable (metrics)
-                            }
-                            Page :: Outcome => {
-                                outcome (&view, metrics)
                             }
                             Page :: Games => {
                                 games (&view, state, metrics)

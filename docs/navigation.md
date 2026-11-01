@@ -52,6 +52,8 @@ Discovery shows nearby rooms above the connection options. Down at the end of th
 
 X starts the selected game on release, or opens its multiplayer flow automatically when held. Navigation cancels an unfinished press; holding X through a modal or page change cannot launch the new selection.
 
+Completed simulated requests restore the launcher and preserve retained network state. The F2 controls use the same active route as pointer and keyboard input. Nearby keeps its own palette when the surrounding website switches appearance.
+
 ```sh
 cargo run -p gallery --example nearby_demo
 cargo run -p gallery --example nearby_demo --no-default-features --features sdl-gpu

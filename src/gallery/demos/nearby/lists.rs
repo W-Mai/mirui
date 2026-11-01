@@ -10,7 +10,7 @@ use super::widgets::{caption, label, paragraph, shadow, text_block};
 use crate::prelude::*;
 use crate::types::Transform;
 use crate::ui::widgets::{
-    Text,
+    Image, Text,
     TextAlign::{Center, Start},
 };
 use alloc::string::ToString;
@@ -93,7 +93,6 @@ pub(super) fn rooms(view: &Snapshot, state: model!(DisplayState), metrics: Metri
 
 #[compose]
 pub(super) fn games(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> Entity {
-    let platform = Platform::from_id("nes");
     ui! {
         Row (grow: 1.0, min_height: 0, column_gap: metrics.gap) [Scenery::Ridge] {
             Column (grow: 46.0, min_width: 0, min_height: 0) {
@@ -101,7 +100,9 @@ pub(super) fn games(view: &Snapshot, state: model!(DisplayState), metrics: Metri
             }
             Column (grow: 54.0, min_width: 0, min_height: 0, row_gap: metrics.gap) {
                 Column (grow: 1.0, min_height: 0, bg_color: PANEL, container: true, clip_children: true) {
-                    console (platform)
+                    walk ${ core::iter::once(state.selected_platform()) } with platform by platform {
+                        console (platform)
+                    }
                 }
                 preview_title (state, metrics)
             }
@@ -196,7 +197,14 @@ fn list_row(
     metrics: Metrics,
     has_signal: bool,
 ) -> Entity {
-    let platform = Platform::from_id("nes");
+    let platform = Platform::from_id(
+        super::launcher::PLATFORMS[if has_signal {
+            0
+        } else {
+            view.entries[index].platform
+        }]
+        .1,
+    );
     let (title, detail, available, strength) = if has_signal {
         let row = &view.rooms[index];
         (
@@ -244,6 +252,16 @@ fn list_row(
                     if has_signal || view.page == Page::Candidates || view.entries[index].directory {
                         row_label (detail, metrics.row_detail, if available { SECONDARY } else { DISABLED })
                     }
+                }
+                if ${ !has_signal && state.entry_favorite(index) } {
+                    Image (
+                        src: path!(M 8 0 H 12 V 4 H 20 V 8 H 16 V 12 H 18 V 20 H 12 V 16 H 8 V 20 H 2 V 12 H 4 V 8 H 0 V 4 H 8 Z),
+                        viewbox: 20,
+                        width: 12,
+                        height: 12,
+                        shrink: 0.0,
+                        color: WARNING
+                    )
                 }
                 View (width: Dimension::percent(18), min_width: 32, shrink: 0.0)
                 if has_signal {

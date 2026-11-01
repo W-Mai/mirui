@@ -89,6 +89,66 @@ fn character_follows_the_active_choice_and_sessions_own_their_character() {
 }
 
 #[test]
+fn initial_launcher_binds_focus_and_character_before_the_first_tick() {
+    use crate::ui::{ComputedRect, Hidden, widgets::FollowBounds};
+    let mut app = App::headless(640, 480);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    let state = setup_app(&mut app, root);
+    app.prepare_text_layout().unwrap();
+    app.render().unwrap();
+    let actor = app
+        .world
+        .query::<actor::ActorFrame>()
+        .iter()
+        .find(|(_, marker)| marker.launcher)
+        .unwrap()
+        .0;
+    let target = app.world.get::<FollowBounds>(actor).unwrap().target;
+    assert!(app.world.get::<ComputedRect>(target).is_some());
+    assert!(app.world.get::<Hidden>(actor).is_none());
+    let frame = app
+        .world
+        .query::<library::LibraryFocus>()
+        .iter()
+        .find(|(_, marker)| marker.screen == state.launcher().screen())
+        .unwrap()
+        .0;
+    assert_eq!(app.world.get::<FollowBounds>(frame).unwrap().target, target);
+}
+
+#[test]
+fn first_tick_keeps_entity_bindings_before_layout_geometry_exists() {
+    use crate::ui::{Hidden, widgets::FollowBounds};
+    let mut app = App::headless(640, 480);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    setup_app(&mut app, root);
+    app.tick();
+    for (entity, marker) in app.world.query::<actor::ActorFrame>().iter() {
+        if marker.launcher {
+            assert!(app.world.get::<FollowBounds>(entity).is_some());
+            assert!(app.world.get::<Hidden>(entity).is_none());
+        }
+    }
+}
+
+#[test]
+fn discovery_loading_motion_uses_the_visible_mock_state() {
+    let (mut app, state) = fixture();
+    while state.scenario() != Scenario::EmptyRooms {
+        state.next_scenario();
+    }
+    state.open_network();
+    app.tick();
+    assert!(state.presentation().rooms_empty);
+    assert!(state.search_motion().wave.is_some());
+    state.expand_discovery(true);
+    app.tick();
+    assert!(state.search_motion().wave.is_none());
+}
+
+#[test]
 fn action_overlay_keeps_preview_and_all_menu_items_inside_the_panel() {
     use crate::ui::ComputedRect;
     for (width, height) in [(360, 480), (640, 480), (900, 600)] {
@@ -943,9 +1003,74 @@ fn page_transitions_animate_but_session_progress_retains_the_mounted_page() {
     );
     state.confirm();
     app.render_dirty().unwrap();
-    assert!(transition::running(&app.world, host).is_some());
+    assert!(state.launcher().active());
+    assert!(state.launcher().connected());
+    assert_eq!(state.snapshot().outcome, Outcome::KeepNetwork);
+    assert!(!state.return_to_launcher());
+}
+
+#[test]
+fn direct_game_entry_and_current_game_shortcut_use_the_same_session_flow() {
+    let (mut app, state) = fixture();
+    state.launcher().resume();
+    state.switch_entry();
+    assert!(!state.launcher().active());
+    assert!(!state.return_to_launcher());
+    assert_eq!(state.snapshot().page, Page::Choice);
+    state.back_page();
+    assert!(state.launcher().active());
+    assert_eq!(state.snapshot().outcome, Outcome::SinglePlayer);
+    state.open_network();
+    state.expand_discovery(true);
+    assert!(state.current_game());
+    state.choose_connection(2);
+    assert_eq!(state.snapshot().page, Page::Host);
+    assert_eq!(state.snapshot().phase, Phase::Creating);
+    assert_eq!(state.snapshot().source, LaunchSource::Game);
+    for _ in 0..3 {
+        state.advance();
+    }
+    state.confirm();
+    state.confirm();
+    state.advance();
+    app.render_dirty().unwrap();
+    assert!(state.launcher().active());
+    assert_eq!(state.snapshot().outcome, Outcome::Multiplayer);
+}
+
+#[test]
+fn connection_catalog_edits_the_same_favorites_without_replacing_entries() {
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    let identities: alloc::vec::Vec<_> = library.games().entries().map(|item| item.0).collect();
+    state.activate(1);
     finish_transition(&mut app);
-    assert_eq!(frames(&app).len(), 1);
+    state.select(1);
+    assert!(state.selected_platform() == consoles::Platform::from_id(launcher::PLATFORMS[1].1));
+    assert!(state.entry_favorite(1));
+    state.toggle_game_favorite();
+    assert!(!state.entry_favorite(1));
+    assert_eq!(
+        library
+            .games()
+            .entries()
+            .map(|item| item.0)
+            .collect::<alloc::vec::Vec<_>>(),
+        identities
+    );
+    app.render_dirty().unwrap();
+    let partial = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .bytes()
+        .to_vec();
+    app.render().unwrap();
+    assert_eq!(
+        partial,
+        app.backend.framebuffer().read_pixels().unwrap().bytes()
+    );
 }
 
 #[test]
@@ -1061,7 +1186,7 @@ fn game_entry_returns_to_game_instead_of_the_game_picker() {
     assert_eq!(model.snapshot().source, LaunchSource::Game);
     assert_eq!(model.snapshot().page, Page::Choice);
     model.back_page();
-    assert_eq!(model.snapshot().page, Page::Outcome);
+    assert!(model.launcher.active());
     assert_eq!(model.snapshot().outcome, Outcome::SinglePlayer);
     model.restart();
     model.activate(1);
@@ -1102,7 +1227,7 @@ fn mock_progress_cannot_replace_local_confirmation_and_has_a_launch_outcome() {
     assert_eq!(model.snapshot().phase, Phase::Starting);
     model.advance();
     assert_eq!(model.snapshot().outcome, Outcome::Multiplayer);
-    assert_eq!(model.snapshot().page, Page::Outcome);
+    assert!(model.launcher.active());
 }
 
 #[test]
@@ -1186,7 +1311,7 @@ fn client_discovery_connection_and_remote_events_are_distinct() {
         } else {
             assert_eq!(model.snapshot().outcome, Outcome::Multiplayer);
         }
-        assert_eq!(model.snapshot().page, Page::Outcome);
+        assert!(model.launcher.active());
     }
     for (scenario, phase) in [
         (Scenario::Reconnect, Phase::NetworkReconnecting),
@@ -1238,6 +1363,7 @@ fn all_pages_render_through_one_registered_model() {
     app.with_default_widgets().with_default_systems();
     let root = app.spawn_root().id();
     let state = setup_app(&mut app, root);
+    state.launcher().close();
     for index in 0..3 {
         app.set_theme(palette::theme(index)).unwrap();
     }
@@ -1245,6 +1371,10 @@ fn all_pages_render_through_one_registered_model() {
     app.render().unwrap();
     assert!(app.dirty_regions().unwrap().is_empty());
     for action in [1, 0, 0, 9, 9, 9, 9, 8, 8, 8, 0, 1, 0, 9, 9, 9, 8, 9] {
+        if state.launcher().active() {
+            state.launcher().close();
+            state.restart();
+        }
         match action {
             9 => state.advance(),
             8 => state.back_page(),

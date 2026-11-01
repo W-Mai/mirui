@@ -4,6 +4,7 @@ use super::{
     model::{DisplayState, PageKey},
     pages::page,
     style::*,
+    widgets::paragraph,
 };
 use crate::prelude::*;
 use crate::ui::widgets::{
@@ -114,7 +115,10 @@ pub(super) fn build_widgets(state: model!(DisplayState)) {
                         font_size: 12
                     ) [
                         Text::label("Confirm"),
-                    ] on Tap { state.confirm(); }
+                    ] on Tap {
+                        if state.launcher().active() { super::launcher_view::confirm(&state); }
+                        else { state.confirm(); }
+                    }
                     Button (
                         id: "nearby_back",
                         grow: 1.0,
@@ -127,7 +131,10 @@ pub(super) fn build_widgets(state: model!(DisplayState)) {
                         font_size: 12
                     ) [
                         Text::label("Back"),
-                    ] on Tap { state.back_page(); }
+                    ] on Tap {
+                        if state.launcher().active() { state.launcher().back(); }
+                        else { state.back_page(); }
+                    }
                     Button (
                         id: "nearby_advance",
                         grow: 1.0,

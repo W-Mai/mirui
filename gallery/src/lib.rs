@@ -46,6 +46,21 @@ pub struct DemoEntry {
     pub source: &'static str,
 }
 
+/// Select the host appearance within the active demo's theme family. Custom palettes remain under demo control.
+pub fn appearance_theme_id(active: &str, dark: bool) -> Option<&'static str> {
+    match active {
+        "dark" | "light" => Some(if dark { "dark" } else { "light" }),
+        mirui::gallery::showcase_theme::DARK_ID | mirui::gallery::showcase_theme::LIGHT_ID => {
+            Some(if dark {
+                mirui::gallery::showcase_theme::DARK_ID
+            } else {
+                mirui::gallery::showcase_theme::LIGHT_ID
+            })
+        }
+        _ => None,
+    }
+}
+
 const FOCUS_START: &str = "//~focus-start";
 const FOCUS_END: &str = "//~focus-end";
 
@@ -640,5 +655,37 @@ mod tests {
     fn lone_end_is_ignored() {
         let src = "a();\n//~focus-end\nb();\n";
         assert_eq!(extract_focus(src), src);
+    }
+}
+
+#[cfg(test)]
+mod appearance_tests {
+    #[test]
+    fn host_appearance_keeps_custom_palettes_and_selects_only_registered_family_members() {
+        use mirui::prelude::*;
+        let mut app = App::headless(640, 480);
+        for dark in [false, true] {
+            let id = super::appearance_theme_id(app.theme().id().as_str(), dark).unwrap();
+            assert!(app.themes().get(id).is_some());
+            app.set_theme(id).unwrap();
+        }
+        mirui::gallery::showcase_theme::install(&mut app);
+        for dark in [false, true] {
+            let id = super::appearance_theme_id(app.theme().id().as_str(), dark).unwrap();
+            assert!(app.themes().get(id).is_some());
+            app.set_theme(id).unwrap();
+        }
+        app.with_default_widgets().with_default_systems();
+        let root = app.spawn_root().id();
+        mirui::gallery::demos::nearby::setup_app(&mut app, root);
+        assert_eq!(app.theme().id().as_str(), "forest");
+        assert_eq!(
+            super::appearance_theme_id(app.theme().id().as_str(), true),
+            None
+        );
+        assert_eq!(
+            super::appearance_theme_id(app.theme().id().as_str(), false),
+            None
+        );
     }
 }

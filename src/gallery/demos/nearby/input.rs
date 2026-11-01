@@ -67,7 +67,7 @@ pub(super) fn selection_frame() {}
 pub(super) fn follow(
     state: model!(DisplayState),
     frames: query!(Entity, SelectionFrame, optional crate::ui::Hidden, optional FollowBounds),
-    targets: query!(Entity, SelectionTarget, crate::ui::ComputedRect),
+    targets: query!(Entity, SelectionTarget),
     parents: query!(Parent),
     commands: commands!(),
 ) {
@@ -104,8 +104,8 @@ pub(super) fn follow(
     let Some((frame, body, hidden, previous)) = active else {
         return;
     };
-    let target = targets.into_iter().find_map(|(entity, marker, _)| {
-        (marker.active(&state)
+    let target = targets.into_iter().find_map(|(entity, marker)| {
+        (marker.active(state)
             && marker.index == state.selected()
             && contains(body, entity, |e| parents.get(e).map(|p| p.0)))
         .then_some(entity)
@@ -174,6 +174,12 @@ pub(super) fn keyboard(event: event!(Key), state: model!(DisplayState)) -> bool 
         .modifiers
         .is_some_and(|m| m.meta || m.control || m.alt)
     {
+        if state.launcher().holding() {
+            state.launcher().cancel_hold();
+        }
+        if !event.pressed && event.physical == Some(PhysicalKey::KeyX) {
+            state.launcher().release_hold();
+        }
         return false;
     }
     let library = state.launcher();
@@ -302,6 +308,31 @@ pub(super) fn keyboard(event: event!(Key), state: model!(DisplayState)) -> bool 
             _ => return false,
         }
         return true;
+    }
+    if event.physical == Some(PhysicalKey::KeyR) && state.focus_page() == super::data::Page::Lobby {
+        state.expand_discovery(true);
+        return true;
+    }
+    if event.physical == Some(PhysicalKey::KeyL) && state.focus_page() == super::data::Page::Mode {
+        state.expand_discovery(false);
+        return true;
+    }
+    if matches!(
+        state.focus_page(),
+        super::data::Page::Games | super::data::Page::Candidates
+    ) {
+        if event.physical == Some(PhysicalKey::KeyL) {
+            state.select(state.selected().saturating_sub(4));
+            return true;
+        }
+        if event.physical == Some(PhysicalKey::KeyR) {
+            state.select(state.selected().saturating_add(4));
+            return true;
+        }
+        if code == KEY_X && state.focus_page() == super::data::Page::Games {
+            state.toggle_game_favorite();
+            return true;
+        }
     }
     if event.physical == Some(PhysicalKey::ArrowUp) {
         if state.focus_page() == super::data::Page::Mode && state.snapshot().lobby {

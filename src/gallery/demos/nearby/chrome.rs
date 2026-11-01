@@ -51,7 +51,6 @@ pub(super) fn header(
                 shrink: 0.0
             ) [
                 Scenery::Logo,
-                StaticCache,
                 OffscreenRender::default(),
             ]
             Column (
@@ -60,7 +59,6 @@ pub(super) fn header(
                 justify: JustifyContent::Center,
                 clip_children: true
             ) [
-                StaticCache,
                 OffscreenRender::default(),
             ] {
                 label (

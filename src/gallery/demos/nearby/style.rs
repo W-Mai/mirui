@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use crate::ui::widgets::{ParagraphStyle, TextAlign, TextOverflow, TextWrap};
 
 pub(super) const FONT: crate::render::font::FontToken =
     crate::render::font::FontToken::Custom("nearby_menu");
@@ -186,19 +185,5 @@ impl Metrics {
         } else {
             46
         }
-    }
-}
-
-#[component]
-pub(super) struct StaticCache;
-
-pub(super) fn paragraph(align: TextAlign, lines: u16) -> ParagraphStyle {
-    ParagraphStyle {
-        wrap: TextWrap::Word,
-        align,
-        vertical_align: crate::ui::widgets::text::TextVerticalAlign::Center,
-        overflow: TextOverflow::Ellipsis,
-        max_lines: Some(lines),
-        ..Default::default()
     }
 }

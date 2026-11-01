@@ -5,51 +5,48 @@ use super::pixel::{ActorAnchor, ActorSprite, Stage};
 use crate::prelude::*;
 use crate::types::Transform;
 use crate::ui::widgets::FollowBounds;
-use crate::ui::{ComputedRect, Hidden, Parent};
+use crate::ui::{Hidden, Parent};
 
 #[component]
 pub(super) struct ActorFrame {
     pub launcher: bool,
+    pub state: model!(DisplayState),
 }
 
-#[system(order = Animation)]
-pub(super) fn follow(
-    state: model!(DisplayState),
-    frames: query!(Entity, ActorFrame, optional Hidden, optional FollowBounds),
-    anchors: query!(Entity, ActorAnchor, ComputedRect),
-    targets: query!(Entity, SelectionTarget, ComputedRect),
-    pages: query!(SelectionFrame),
-    library_frames: query!(super::library::LibraryFocus),
-    library_targets: query!(Entity, super::library::LibraryTarget, ComputedRect),
-    action_targets: query!(Entity, super::actions::ActionAnchor, ComputedRect),
-    parents: query!(Parent, optional super::input::PaneScope),
-    commands: commands!(),
-) {
-    let page = state.page_key();
+fn root<'a, 'b>(
+    state: &super::model::DisplayStateHandle,
+    pages: impl IntoIterator<Item = &'a SelectionFrame>,
+    libraries: impl IntoIterator<Item = &'b super::library::LibraryFocus>,
+) -> Option<Entity> {
     let library = state.launcher();
-    let session =
-        !library.active() && matches!(page.page, Page::Host | Page::Joined | Page::Leaving);
-    let root = if library.active() {
-        library_frames
+    if library.active() {
+        libraries
             .into_iter()
             .find_map(|frame| (frame.screen == library.screen()).then_some(frame.body))
     } else {
-        pages.into_iter().find_map(|page_frame| {
-            (page_frame.page == page && page_frame.room == state.return_to_launcher())
-                .then_some(page_frame.body)
+        pages.into_iter().find_map(|frame| {
+            (frame.page == state.page_key() && frame.room == state.return_to_launcher())
+                .then_some(frame.body)
         })
-    };
-    let inside = |entity| {
-        root.is_some_and(|root| {
-            contains(root, entity, |entity| {
-                parents.get(entity).and_then(|(parent, pane)| {
-                    pane.is_none_or(|pane| pane.0 == state.focus_page())
-                        .then_some(parent.0)
-                })
-            })
-        })
-    };
-    let anchor = anchors.into_iter().find_map(|(entity, anchor, _)| {
+    }
+}
+
+fn resolve<'a, 'b, 'c, 'd>(
+    state: &super::model::DisplayStateHandle,
+    root: Option<Entity>,
+    anchors: impl IntoIterator<Item = (Entity, &'a ActorAnchor)>,
+    targets: impl IntoIterator<Item = (Entity, &'b SelectionTarget)>,
+    library_targets: impl IntoIterator<Item = (Entity, &'c super::library::LibraryTarget)>,
+    action_targets: impl IntoIterator<Item = (Entity, &'d super::actions::ActionAnchor)>,
+    parent: impl Fn(Entity) -> Option<Entity>,
+) -> Option<(Entity, bool)> {
+    let page = state.page_key();
+    let library = state.launcher();
+    if !library.active() && matches!(page.page, Page::Host | Page::Joined | Page::Leaving) {
+        return None;
+    }
+    let inside = |entity| root.is_some_and(|root| contains(root, entity, &parent));
+    let anchor = anchors.into_iter().find_map(|(entity, anchor)| {
         let empty = if library.active() {
             !library.keyboard() && library.search_empty()
         } else if matches!(page.page, Page::Games | Page::Candidates) {
@@ -63,13 +60,13 @@ pub(super) fn follow(
         if library.menu() {
             action_targets
                 .into_iter()
-                .find_map(|(entity, row, _)| (row.0 == library.menu_selection()).then_some(entity))
+                .find_map(|(entity, row)| (row.0 == library.menu_selection()).then_some(entity))
         } else {
             anchor.or_else(|| {
                 if library.screen() == super::launcher::Screen::Search && library.search_empty() {
                     None
                 } else {
-                    library_targets.into_iter().find_map(|(entity, row, _)| {
+                    library_targets.into_iter().find_map(|(entity, row)| {
                         (row.screen == library.screen()
                             && row.key == library.selected()
                             && inside(entity))
@@ -80,19 +77,101 @@ pub(super) fn follow(
         }
     } else {
         anchor.or_else(|| {
-            targets.into_iter().find_map(|(entity, row, _)| {
+            targets.into_iter().find_map(|(entity, row)| {
                 (inside(entity) && row.active(state) && row.index == state.selected())
                     .then_some(entity)
             })
         })
     };
-    let stage = anchor.is_some();
+    target.map(|target| (target, anchor.is_some()))
+}
+
+#[event]
+fn initialize(
+    node: entity!(),
+    frames: query!(ActorFrame),
+    anchors: query!(Entity, ActorAnchor),
+    targets: query!(Entity, SelectionTarget),
+    pages: query!(SelectionFrame),
+    libraries: query!(super::library::LibraryFocus),
+    library_targets: query!(Entity, super::library::LibraryTarget),
+    action_targets: query!(Entity, super::actions::ActionAnchor),
+    parents: query!(Parent, optional super::input::PaneScope),
+    commands: commands!(),
+) {
+    let Some(frame) = frames.get(node) else {
+        return;
+    };
+    let state = &frame.state;
+    if frame.launcher != (state.launcher().active() || state.return_to_launcher()) {
+        commands.insert(node, Hidden);
+        return;
+    }
+    let target = resolve(
+        state,
+        root(state, pages, libraries),
+        anchors,
+        targets,
+        library_targets,
+        action_targets,
+        |e| {
+            parents.get(e).and_then(|(p, scope)| {
+                scope
+                    .is_none_or(|s| s.0 == state.focus_page())
+                    .then_some(p.0)
+            })
+        },
+    );
+    if let Some((target, stage)) = target {
+        state.set_actor_stage(stage);
+        commands.remove::<Hidden>(node);
+        commands.insert(
+            node,
+            FollowBounds::new(target).with_transition(crate::anim::SNAPPY),
+        );
+    } else {
+        commands.insert(node, Hidden);
+    }
+}
+
+#[view(component = ActorFrame, attach = initialize::callback())]
+pub(super) fn actor_frame() {}
+
+#[system(order = Animation)]
+pub(super) fn follow(
+    state: model!(DisplayState),
+    frames: query!(Entity, ActorFrame, optional Hidden, optional FollowBounds),
+    anchors: query!(Entity, ActorAnchor),
+    targets: query!(Entity, SelectionTarget),
+    pages: query!(SelectionFrame),
+    libraries: query!(super::library::LibraryFocus),
+    library_targets: query!(Entity, super::library::LibraryTarget),
+    action_targets: query!(Entity, super::actions::ActionAnchor),
+    parents: query!(Parent, optional super::input::PaneScope),
+    commands: commands!(),
+) {
+    let target = resolve(
+        state,
+        root(state, pages, libraries),
+        anchors,
+        targets,
+        library_targets,
+        action_targets,
+        |e| {
+            parents.get(e).and_then(|(p, scope)| {
+                scope
+                    .is_none_or(|s| s.0 == state.focus_page())
+                    .then_some(p.0)
+            })
+        },
+    );
+    let stage = target.is_some_and(|(_, stage)| stage);
     if state.actor_stage() != stage {
         state.set_actor_stage(stage);
     }
     for (entity, marker, hidden, bounds) in frames {
-        let active = marker.launcher == (library.active() || state.return_to_launcher());
-        if let Some(target) = target.filter(|_| !session && active) {
+        let active = marker.launcher == (state.launcher().active() || state.return_to_launcher());
+        if let Some((target, _)) = target.filter(|_| active) {
             if bounds.is_none_or(|old| old.target != target) {
                 commands.insert(
                     entity,
@@ -117,7 +196,7 @@ pub(super) fn follow(
 pub(super) fn actor(state: model!(DisplayState), launcher: bool) -> Entity {
     ui! {
         View (position: Position::Absolute, width: 0, height: 0) [
-            ActorFrame { launcher },
+            ActorFrame { launcher, state: state.clone() },
             crate::ui::IgnoreHitTest,
         ] {
             View (

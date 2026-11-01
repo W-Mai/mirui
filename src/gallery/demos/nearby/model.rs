@@ -58,6 +58,7 @@ pub struct DisplayState {
     direction: PageDirection,
     room_selection: usize,
     mode_selection: usize,
+    has_current_game: bool,
 }
 
 impl Default for DisplayState {
@@ -103,16 +104,22 @@ impl Default for DisplayState {
                 ],
                 entries: vec![
                     GameRow {
+                        key: 0,
+                        platform: 0,
                         name: "双人冒险".into(),
                         detail: "一起出发，探索新的地图".into(),
                         directory: false,
                     },
                     GameRow {
+                        key: 1,
+                        platform: 1,
                         name: "街头赛车".into(),
                         detail: "两个人的速度比赛".into(),
                         directory: false,
                     },
                     GameRow {
+                        key: 2,
+                        platform: 2,
                         name: "方块世界".into(),
                         detail: "单机游戏".into(),
                         directory: false,
@@ -127,6 +134,7 @@ impl Default for DisplayState {
             direction: PageDirection::Forward,
             room_selection: 0,
             mode_selection: 0,
+            has_current_game: false,
         }
     }
 }
@@ -155,7 +163,6 @@ impl DisplayState {
             Page::Joined => "加入房间".into(),
             Page::Leaving => "退出联机".into(),
             Page::Unavailable => "附近联机".into(),
-            Page::Outcome => "LOCAL DEMO".into(),
         }
     }
     fn devices_value(&self) -> alloc::vec::Vec<NetworkPeer> {
@@ -174,25 +181,51 @@ impl DisplayState {
         self.view.room_name.clone()
     }
     fn subtitle_value(&self) -> alloc::string::String {
-        if matches!(self.view.page, Page::Mode | Page::Lobby) {
+        if matches!(self.view.page, Page::Mode | Page::Lobby) && !self.has_current_game {
             "连接附近的掌机".into()
         } else if self.view.network_only {
             "仅组网 · 局域网连接".into()
-        } else if matches!(self.view.page, Page::Games | Page::Candidates) {
+        } else if self.view.page == Page::Games {
             self.view.core.clone()
         } else {
             alloc::format!("当前游戏  {}", self.view.title)
         }
     }
     fn library_counter_value(&self) -> Option<(usize, usize)> {
-        (!self.view.entries.is_empty()).then_some((self.view.selected + 1, self.view.entries.len()))
+        (self.scenario != Scenario::EmptyGames && !self.view.entries.is_empty())
+            .then_some((self.view.selected + 1, self.view.entries.len()))
     }
     fn selected_title_value(&self) -> alloc::string::String {
+        if self.scenario == Scenario::EmptyGames {
+            return alloc::string::String::new();
+        }
         self.view
             .entries
             .get(self.view.selected)
             .map(|row| row.name.clone())
             .unwrap_or_default()
+    }
+    fn selected_platform_value(&self) -> Option<usize> {
+        if self.scenario == Scenario::EmptyGames {
+            return None;
+        }
+        self.view
+            .entries
+            .get(self.view.selected)
+            .map(|row| row.platform)
+    }
+    fn entry_key(&self, index: usize) -> Option<u32> {
+        if self.scenario == Scenario::EmptyGames {
+            return None;
+        }
+        self.view.entries.get(index).map(|row| row.key)
+    }
+    pub fn toggle_game_favorite(&mut self) {
+        if self.view.page == Page::Games
+            && let Some(key) = self.entry_key(self.view.selected)
+        {
+            self.launcher.toggle_game_favorite(key);
+        }
     }
     pub(super) fn set_actor_stage(&mut self, stage: bool) {
         if self.actor_stage != stage {
@@ -232,16 +265,17 @@ impl DisplayState {
             }
             _ => None,
         };
+        let loading = copy::loading(&self.presentation());
         let frame = self.timeline.sample(
             &self.view,
             selected,
             self.elapsed_ms,
             self.feedback.press_sequence,
+            loading,
         );
         if self.motion != frame {
             self.motion = frame;
         }
-        let loading = copy::loading(&self.presentation());
         let (stamp, activity) = self.feedback.sample(self.elapsed_ms, loading, theme);
         if self.stamp != stamp {
             self.stamp = stamp;
@@ -252,7 +286,7 @@ impl DisplayState {
     }
     #[observe]
     pub(super) fn current_game(&self) -> bool {
-        self.view.source == LaunchSource::Game
+        self.has_current_game
     }
     #[observe]
     pub(super) fn choice_motion(&self) -> super::motion::Frame {
@@ -295,6 +329,7 @@ impl DisplayState {
         self.return_to_launcher = true;
         self.launcher.close();
         self.view.source = LaunchSource::Game;
+        self.has_current_game = true;
         self.view.lobby = false;
         self.view.title = name;
         self.restart();
@@ -385,6 +420,12 @@ impl DisplayState {
             refreshing: self.view.refreshing,
             rooms_empty: !self.rooms_visible() || self.view.rooms.is_empty(),
             entries_empty: self.scenario == Scenario::EmptyGames || self.view.entries.is_empty(),
+            selected_room_available: self.rooms_visible()
+                && self
+                    .view
+                    .rooms
+                    .get(self.view.selected)
+                    .is_some_and(|row| row.available),
         }
     }
     #[observe]
@@ -434,6 +475,7 @@ impl DisplayState {
         match self.view.page {
             Page::Mode => {
                 if self.view.selected == 2 && self.current_game() {
+                    self.view.source = LaunchSource::Game;
                     self.view.network_only = false;
                     self.navigate(Page::Host, PageDirection::Forward);
                     self.set_phase(Phase::Creating);
@@ -520,9 +562,7 @@ impl DisplayState {
                         Phase::HostReady
                     }),
                     Phase::HostReady => self.set_phase(Phase::Starting),
-                    Phase::NetworkConnected => {
-                        self.exit(Outcome::KeepNetwork, PageDirection::Forward)
-                    }
+                    Phase::NetworkConnected => self.exit(Outcome::KeepNetwork),
                     Phase::Closed | Phase::Failed => self.back_page(),
                     _ => {}
                 }
@@ -534,7 +574,7 @@ impl DisplayState {
                 self.set_phase(Phase::Leaving);
                 return;
             }
-            Page::Leaving | Page::Unavailable | Page::Outcome => {
+            Page::Leaving | Page::Unavailable => {
                 self.back_page();
                 return;
             }
@@ -577,7 +617,7 @@ impl DisplayState {
             }
             Phase::WaitingStart => Phase::Starting,
             Phase::Starting => {
-                self.exit(Outcome::Multiplayer, PageDirection::Forward);
+                self.exit(Outcome::Multiplayer);
                 return;
             }
             Phase::Leaving if self.take_fault(Scenario::RestoreFailure) => Phase::RestoreFailed,
@@ -602,7 +642,7 @@ impl DisplayState {
         if matches!(self.view.page, Page::Choice | Page::Unavailable)
             && self.view.source == LaunchSource::Game
         {
-            self.exit(Outcome::SinglePlayer, PageDirection::Backward);
+            self.exit(Outcome::SinglePlayer);
             return;
         }
         if self.view.page == Page::Mode && self.view.lobby {
@@ -610,7 +650,7 @@ impl DisplayState {
             return;
         }
         if matches!(self.view.page, Page::Mode | Page::Lobby) {
-            self.exit(Outcome::System, PageDirection::Backward);
+            self.exit(Outcome::System);
             return;
         }
         if matches!(self.view.page, Page::Host | Page::Joined) {
@@ -628,10 +668,6 @@ impl DisplayState {
             return;
         }
         let page = match self.view.page {
-            Page::Outcome => {
-                self.restart();
-                return;
-            }
             Page::Games => Page::Mode,
             Page::Choice if self.view.network_only => Page::Mode,
             Page::Candidates => Page::Lobby,
@@ -680,6 +716,7 @@ impl DisplayState {
             LaunchSource::Menu => LaunchSource::Game,
             LaunchSource::Game => LaunchSource::Menu,
         };
+        self.has_current_game = self.view.source == LaunchSource::Game;
         self.view.lobby = self.view.source == LaunchSource::Menu;
         if self.view.source == LaunchSource::Game {
             self.launcher.close();
@@ -749,21 +786,20 @@ impl DisplayState {
             self.clear_connection();
         }
     }
-    fn exit(&mut self, outcome: Outcome, direction: PageDirection) {
+    fn exit(&mut self, outcome: Outcome) {
         self.view.outcome = outcome;
         self.view.busy = false;
-        if self.return_to_launcher {
-            self.return_to_launcher = false;
-            self.launcher.resume();
-            self.launcher.result(match outcome {
-                Outcome::SinglePlayer => "LOCAL DEMO: single-player requested",
-                Outcome::Multiplayer => "LOCAL DEMO: multiplayer requested",
-                Outcome::KeepNetwork => "LOCAL DEMO: direct network retained",
-                _ => "LOCAL DEMO: returned to launcher",
-            });
-            return;
+        if outcome == Outcome::KeepNetwork {
+            self.launcher.retain_network();
         }
-        self.navigate(Page::Outcome, direction);
+        self.return_to_launcher = false;
+        self.launcher.resume();
+        self.launcher.result(match outcome {
+            Outcome::SinglePlayer => "LOCAL DEMO: single-player requested",
+            Outcome::Multiplayer => "LOCAL DEMO: multiplayer requested",
+            Outcome::KeepNetwork => "LOCAL DEMO: direct network retained",
+            _ => "LOCAL DEMO: returned to launcher",
+        });
     }
 }
 
@@ -782,9 +818,27 @@ pub struct Presentation {
     pub refreshing: bool,
     pub rooms_empty: bool,
     pub entries_empty: bool,
+    pub selected_room_available: bool,
 }
 
 impl DisplayStateHandle {
+    pub(super) fn selected_platform(&self) -> super::consoles::Platform {
+        self.view_revision();
+        self.selected();
+        self.selected_platform_value()
+            .map_or(super::consoles::Platform::Unknown, |index| {
+                super::consoles::Platform::from_id(super::launcher::PLATFORMS[index].1)
+            })
+    }
+    pub(super) fn entry_favorite(&self, index: usize) -> bool {
+        self.view_revision();
+        let key = self.entry_key(index);
+        self.launcher()
+            .games()
+            .iter()
+            .find(|game| Some(game.key()) == key)
+            .is_some_and(|game| game.favorite())
+    }
     pub(super) fn selected_title(&self) -> alloc::string::String {
         self.view_revision();
         self.selected();

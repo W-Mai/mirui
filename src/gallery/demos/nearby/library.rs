@@ -11,7 +11,7 @@ use super::widgets::paragraph;
 use crate::prelude::*;
 use crate::ui::widgets::Image;
 use crate::ui::widgets::{FollowBounds, Text};
-use crate::ui::{ComputedRect, Hidden, Parent};
+use crate::ui::{Hidden, Parent};
 use alloc::vec::Vec;
 const CARTRIDGE_EDGE: i32 = 2;
 const CARTRIDGE_RAIL: i32 = 2;
@@ -96,13 +96,50 @@ pub(super) struct LibraryTarget {
 pub(super) struct LibraryFocus {
     pub body: Entity,
     pub screen: Screen,
+    pub library: model!(Launcher),
 }
+
+#[event]
+fn initialize_focus(
+    node: entity!(),
+    frames: query!(LibraryFocus),
+    targets: query!(Entity, LibraryTarget),
+    parents: query!(Parent),
+    commands: commands!(),
+) {
+    let Some(frame) = frames.get(node) else {
+        return;
+    };
+    let library = &frame.library;
+    if !library.active() || library.menu() || library.screen() != frame.screen {
+        return;
+    }
+    let selected = if frame.screen == Screen::Favorites {
+        library.shelf_selection()
+    } else {
+        library.selected()
+    };
+    if let Some(target) = targets.into_iter().find_map(|(entity, row)| {
+        (row.screen == frame.screen
+            && row.key == selected
+            && contains(frame.body, entity, |e| parents.get(e).map(|p| p.0)))
+        .then_some(entity)
+    }) {
+        commands.insert(
+            node,
+            FollowBounds::new(target).with_transition(crate::anim::SNAPPY),
+        );
+    }
+}
+
+#[view(component = LibraryFocus, attach = initialize_focus::callback())]
+pub(super) fn library_focus() {}
 
 #[system(order = Animation)]
 pub(super) fn follow(
     library: model!(Launcher),
     frames: query!(Entity, LibraryFocus, optional FollowBounds, optional Hidden),
-    targets: query!(Entity, LibraryTarget, ComputedRect),
+    targets: query!(Entity, LibraryTarget),
     parents: query!(Parent),
     commands: commands!(),
 ) {
@@ -136,7 +173,7 @@ pub(super) fn follow(
         } else {
             library.selected()
         };
-        let target = targets.into_iter().find_map(|(entity, row, _)| {
+        let target = targets.into_iter().find_map(|(entity, row)| {
             (row.screen == marker.screen
                 && row.key == selected
                 && contains(marker.body, entity, |e| parents.get(e).map(|p| p.0)))
@@ -167,7 +204,7 @@ pub(super) fn follow(
 pub(super) fn focus(body: Entity, library: model!(Launcher), screen: Screen) -> Entity {
     ui! {
         View (position: Position::Absolute, width: 0, height: 0) [
-            LibraryFocus { body, screen },
+            LibraryFocus { body, screen, library: library.clone() },
             crate::ui::IgnoreHitTest,
         ] {
             View (

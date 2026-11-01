@@ -18,23 +18,12 @@ thread_local! {
     static DARK: core::cell::Cell<bool> = const { core::cell::Cell::new(true) };
 }
 
-fn theme_ids_for(demo: &gallery::DemoEntry) -> (&'static str, &'static str) {
-    if matches!(demo.category, "Showcase" | "Product") {
-        (
-            gallery::mirui::gallery::showcase_theme::DARK_ID,
-            gallery::mirui::gallery::showcase_theme::LIGHT_ID,
-        )
-    } else {
-        ("dark", "light")
-    }
-}
-
-fn selected_theme_id(demo: &gallery::DemoEntry) -> &'static str {
-    let (dark, light) = theme_ids_for(demo);
-    if DARK.with(|value| value.get()) {
-        dark
-    } else {
-        light
+fn apply_appearance(app: &mut WebApp) {
+    if let Some(id) =
+        gallery::appearance_theme_id(app.theme().id().as_str(), DARK.with(|v| v.get()))
+    {
+        app.set_theme(id)
+            .expect("active appearance family is registered");
     }
 }
 
@@ -52,7 +41,7 @@ fn build_app_for(demo: &gallery::DemoEntry, backend: gallery::ActiveSurface) -> 
         (demo.setup)(&mut setup)
     };
     app.set_root(root);
-    app.set_theme(selected_theme_id(demo)).unwrap();
+    apply_appearance(&mut app);
     app.prepare_text_layout()
         .expect("prepare Web Gallery text layout capacity");
     app
@@ -117,7 +106,7 @@ pub fn set_theme(theme_id: &str) {
     let cell = APP.with(|slot| slot.borrow().clone());
     let Some(cell) = cell else { return };
     if let Some(app) = cell.borrow_mut().as_mut() {
-        let _ = app.set_theme(theme_id);
+        apply_appearance(app);
     }
 }
 
@@ -264,7 +253,7 @@ pub fn demo_catalog_json() -> String {
         if index > 0 {
             out.push(',');
         }
-        let (dark_theme, light_theme) = theme_ids_for(demo);
+        let (dark_theme, light_theme) = ("dark", "light");
         let bound = |value: Option<u16>| {
             value
                 .map(|value| value.to_string())

@@ -1,9 +1,6 @@
 use super::data::{Page, Phase};
 use super::model::Presentation;
 pub(super) fn loading(view: &Presentation) -> bool {
-    if view.page == Page::Outcome {
-        return false;
-    }
     if view.network_only && view.connected && view.phase == Phase::NetworkConnected {
         return view.busy;
     }
@@ -177,8 +174,7 @@ pub(super) fn status_text(view: &Presentation) -> &'static str {
         Page::Joined => next_step(view),
         Page::Leaving => "正在结束本次联机...",
         Page::Unavailable => "这款游戏暂时不支持附近联机",
-        Page::Games => "选择游戏后创建或加入房间",
-        Page::Outcome => "LOCAL SIMULATION / NO NETWORK REQUESTS",
+        Page::Games => "",
         Page::Lobby => "选择房间，向下展开创建与游戏库",
         Page::Candidates => "只切换本次联机使用的游戏",
     }
@@ -198,8 +194,11 @@ pub(super) fn hint_text(view: &Presentation) -> &'static str {
         return if view.busy {
             "正在核对游戏"
         } else {
-            "方向键选择"
+            "X 收藏 · L/R 翻页"
         };
+    }
+    if view.page == Page::Candidates {
+        return "L/R 翻页";
     }
     match phase(view) {
         Phase::RestoreFailed => "按 A 重试退出",
@@ -241,7 +240,7 @@ pub(super) fn confirm_text(view: &Presentation) -> &'static str {
         Phase::ApprovalPending if !view.busy => "确认",
         Phase::Idle => match view.page {
             Page::Choice | Page::Mode => "确认",
-            Page::Rooms | Page::Lobby if !view.rooms_empty => "加入",
+            Page::Rooms | Page::Lobby if !view.busy && view.selected_room_available => "加入",
             Page::Games | Page::Candidates if !view.busy && !view.entries_empty => "选择",
             _ => "",
         },

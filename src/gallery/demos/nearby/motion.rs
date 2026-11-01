@@ -62,14 +62,14 @@ mod tests {
             room_name: "Room".into(),
             ..View::default()
         };
-        timeline.sample(&view, Some(0), 0, 0);
+        timeline.sample(&view, Some(0), 0, 0, copy::loading(&view.presentation()));
         let pointer = timeline.key.as_ref().unwrap().room.as_ptr();
         for at in 1..1000 {
-            timeline.sample(&view, Some(0), at, 0);
+            timeline.sample(&view, Some(0), at, 0, copy::loading(&view.presentation()));
             assert_eq!(timeline.key.as_ref().unwrap().room.as_ptr(), pointer);
         }
         view.phase = Phase::HostReady;
-        timeline.sample(&view, Some(0), 1001, 0);
+        timeline.sample(&view, Some(0), 1001, 0, copy::loading(&view.presentation()));
         assert_eq!(timeline.key.as_ref().unwrap().room.as_ptr(), pointer);
     }
 
@@ -139,11 +139,23 @@ mod tests {
         let mut view = View::default();
         for page in [Page::Mode, Page::Choice, Page::Mode, Page::Games] {
             view.page = page;
-            assert_eq!(timeline.sample(&view, Some(0), 1000, 0).selection, 0);
-            view.status = "Status update".into();
-            assert_eq!(timeline.sample(&view, Some(0), 1120, 0).selection, 120);
             assert_eq!(
-                timeline.sample(&view, Some(0), 2000, 0).selection,
+                timeline
+                    .sample(&view, Some(0), 1000, 0, copy::loading(&view.presentation()))
+                    .selection,
+                0
+            );
+            view.status = "Status update".into();
+            assert_eq!(
+                timeline
+                    .sample(&view, Some(0), 1120, 0, copy::loading(&view.presentation()))
+                    .selection,
+                120
+            );
+            assert_eq!(
+                timeline
+                    .sample(&view, Some(0), 2000, 0, copy::loading(&view.presentation()))
+                    .selection,
                 SETTLED_MS
             );
         }
@@ -152,12 +164,19 @@ mod tests {
             name: "Game".into(),
             ..Default::default()
         });
-        assert_eq!(timeline.sample(&view, Some(0), 2100, 0).selection, 0);
-        let moving = timeline.sample(&view, Some(0), 2160, 0);
+        assert_eq!(
+            timeline
+                .sample(&view, Some(0), 2100, 0, copy::loading(&view.presentation()))
+                .selection,
+            0
+        );
+        let moving = timeline.sample(&view, Some(0), 2160, 0, copy::loading(&view.presentation()));
         assert_ne!(moving.card_transform(0), Transform::IDENTITY);
         assert_eq!(moving.card_transform(1), Transform::IDENTITY);
         assert_eq!(
-            timeline.sample(&view, Some(0), 3000, 0).selection,
+            timeline
+                .sample(&view, Some(0), 3000, 0, copy::loading(&view.presentation()))
+                .selection,
             SETTLED_MS
         );
     }
@@ -166,17 +185,25 @@ mod tests {
     fn snapshots_do_not_replay_motion_and_bursts_cannot_accumulate_scale() {
         let mut timeline = Timeline::default();
         let view = View::default();
-        timeline.sample(&view, Some(0), 0, 0);
-        timeline.sample(&view, Some(1), 10, 0);
+        timeline.sample(&view, Some(0), 0, 0, copy::loading(&view.presentation()));
+        timeline.sample(&view, Some(1), 10, 0, copy::loading(&view.presentation()));
         assert_eq!(
-            timeline.sample(&view, Some(1), 120, 0).expansion(),
+            timeline
+                .sample(&view, Some(1), 120, 0, copy::loading(&view.presentation()))
+                .expansion(),
             (
                 Fixed::from_f32(FOCUS_OUTSET_X_PERCENT),
                 Fixed::from_f32(FOCUS_OUTSET_Y_PERCENT)
             )
         );
         for i in 0..100 {
-            let frame = timeline.sample(&view, Some(i % 2), 140 + i as u64 * 17, 0);
+            let frame = timeline.sample(
+                &view,
+                Some(i % 2),
+                140 + i as u64 * 17,
+                0,
+                copy::loading(&view.presentation()),
+            );
             let (x, y) = frame.expansion();
             assert!(
                 (Fixed::ZERO..=Fixed::from_f32(FOCUS_OUTSET_X_PERCENT)).contains(&x)
@@ -185,8 +212,8 @@ mod tests {
         }
         let mut next = view.clone();
         next.status = "Updated status".into();
-        let a = timeline.sample(&next, Some(1), 5000, 0);
-        let b = timeline.sample(&next, Some(1), 6000, 0);
+        let a = timeline.sample(&next, Some(1), 5000, 0, copy::loading(&next.presentation()));
+        let b = timeline.sample(&next, Some(1), 6000, 0, copy::loading(&next.presentation()));
         assert_eq!(a, b);
         assert_eq!(b.expansion(), (Fixed::ZERO, Fixed::ZERO));
     }
@@ -199,14 +226,25 @@ mod tests {
             phase: Phase::WaitingPeer,
             ..View::default()
         };
-        timeline.sample(&view, None, 0, 0);
+        timeline.sample(&view, None, 0, 0, copy::loading(&view.presentation()));
         view.phase = Phase::PeerPreparing;
-        assert!(!timeline.sample(&view, None, 10, 0).ready);
+        assert!(
+            !timeline
+                .sample(&view, None, 10, 0, copy::loading(&view.presentation()))
+                .ready
+        );
         view.phase = Phase::HostReady;
         view.ready = true;
-        assert_eq!(timeline.sample(&view, Some(0), 20, 0).phase_age, 0);
         assert_eq!(
-            Timeline::default().sample(&view, Some(0), 20, 0).phase_age,
+            timeline
+                .sample(&view, Some(0), 20, 0, copy::loading(&view.presentation()))
+                .phase_age,
+            0
+        );
+        assert_eq!(
+            Timeline::default()
+                .sample(&view, Some(0), 20, 0, copy::loading(&view.presentation()))
+                .phase_age,
             SETTLED_MS
         );
     }
@@ -221,30 +259,38 @@ mod tests {
             room_name: "Room".into(),
             ..View::default()
         };
-        let ready = timeline.sample(&view, Some(0), 0, 0);
+        let ready = timeline.sample(&view, Some(0), 0, 0, copy::loading(&view.presentation()));
         view.phase = Phase::Starting;
-        let start = timeline.sample(&view, Some(0), 10, 0);
+        let start = timeline.sample(&view, Some(0), 10, 0, copy::loading(&view.presentation()));
         assert_eq!((ready.host, ready.guest), (start.host, start.guest));
-        let moving = timeline.sample(&view, Some(0), 130, 0);
+        let moving = timeline.sample(&view, Some(0), 130, 0, copy::loading(&view.presentation()));
         assert!(moving.host > start.host && moving.guest > start.guest);
         view.page = Page::Leaving;
         view.phase = Phase::Leaving;
         view.room_name.clear();
         view.ready = false;
-        let leaving = timeline.sample(&view, None, 130, 0);
+        let leaving = timeline.sample(&view, None, 130, 0, copy::loading(&view.presentation()));
         assert_eq!((moving.host, moving.guest), (leaving.host, leaving.guest));
         assert!(leaving.visitor);
-        let settled = timeline.sample(&view, None, 1000, 0);
+        let settled = timeline.sample(&view, None, 1000, 0, copy::loading(&view.presentation()));
         assert!(settled.host < leaving.host && settled.guest < leaving.guest);
         assert!(!settled.host_walking && !settled.guest_walking);
 
         let mut alone = Timeline::default();
         view.page = Page::Host;
         view.phase = Phase::WaitingPeer;
-        assert!(!alone.sample(&view, None, 0, 0).visitor);
+        assert!(
+            !alone
+                .sample(&view, None, 0, 0, copy::loading(&view.presentation()))
+                .visitor
+        );
         view.page = Page::Leaving;
         view.phase = Phase::Leaving;
-        assert!(!alone.sample(&view, None, 10, 0).visitor);
+        assert!(
+            !alone
+                .sample(&view, None, 10, 0, copy::loading(&view.presentation()))
+                .visitor
+        );
     }
 }
 
@@ -397,6 +443,7 @@ impl Timeline {
         selected: Option<usize>,
         now: u64,
         press: u64,
+        loading: bool,
     ) -> Frame {
         let key = SceneKey {
             page: view.scene_page(),
@@ -538,7 +585,7 @@ impl Timeline {
             pulse: age(now, self.pulse_at),
             phase_age: age(now, self.phase_at),
             press: age(now, self.press_at),
-            wave: copy::loading(&view.presentation()).then_some(
+            wave: loading.then_some(
                 (now % u64::from(timing::WAVE_MS) / u64::from(timing::WAVE_STEP_MS)
                     * u64::from(timing::WAVE_STEP_MS)) as u16,
             ),

@@ -60,6 +60,8 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     app.with_widget(crate::ui::widgets::page_view::view::<model::PageKey>());
     app.with_widget(crate::ui::widgets::page_view::view::<launcher::Screen>());
     app.with_widget(input::selection_frame::view());
+    app.with_widget(library::library_focus::view());
+    app.with_widget(actor::actor_frame::view());
     app.with_widget(pixel::scenery::view());
     app.with_widget(pixel::choice_sprite::view());
     app.with_widget(pixel::walker_sprite::view());
