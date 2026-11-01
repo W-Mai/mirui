@@ -2,12 +2,15 @@ use super::actions::overlay;
 use super::actor::actor;
 use super::catalog::catalog;
 use super::chrome::{footer, header};
+use super::composition::room_pages;
 use super::deck::{FULL, catalog_share, shelf_share, shelf_transform, transform};
 use super::launcher::{Launcher, MenuAction, Overlay, PLATFORMS, Screen};
 use super::library::favorites;
 use super::model::DisplayState;
 use super::pixel::{Scenery::Margins, backdrop};
+use super::snapshot::frozen_backdrop;
 use super::style::*;
+use super::widgets::shadow;
 use crate::prelude::*;
 use crate::ui::widgets::page_view::{CreatePage, PageView};
 use Screen::{Favorites, Search};
@@ -197,11 +200,57 @@ fn launcher_deck(
     deck: model!(super::deck::Deck),
 ) -> Entity {
     let metrics = state.metrics();
+    let panel_metrics = Metrics {
+        compact: true,
+        gap: metrics.gap / 2,
+        ..metrics
+    };
+    ui! {
+        Column (grow: 1.0, min_height: 0, min_width: 0, bg_color: BACKGROUND, container: true) {
+            background (state, library, deck, metrics)
+            Column (
+                id: "nearby_room_scrim", visible: ${ deck.panel() > Fixed::ZERO },
+                position: Position::Absolute, left: 0, top: 0,
+                width: Dimension::percent(100), height: Dimension::percent(100),
+                bg_color: ${ Color::rgba(7, 16, 12, (deck.panel() * Fixed::from_int(185)).to_int() as u8) },
+                padding: metrics.modal_padding(), justify: JustifyContent::Center, align: AlignItems::Stretch
+            ) {
+                Column (
+                    id: "nearby_room_panel", grow: 1.0, min_height: 0, border_width: 2, border_color: DIVIDER, bg_color: BACKGROUND,
+                    transform: ${ crate::types::Transform::translate(Fixed::ZERO, (Fixed::ONE - deck.panel()) * Fixed::from_int(80)).compose(&crate::types::Transform::scale(Fixed::from_ratio(15, 16) + deck.panel() * Fixed::from_ratio(1, 16), Fixed::from_ratio(15, 16) + deck.panel() * Fixed::from_ratio(1, 16))) }
+                ) { room_pages (state, panel_metrics) }
+                shadow (metrics)
+            }
+            overlay (state, library)
+            actor (state, true)
+        }
+    }
+}
+
+#[compose]
+fn page(screen: Screen, state: model!(DisplayState), library: model!(Launcher)) -> Entity {
+    ui! {
+        Column (grow: 1.0, min_height: 0, min_width: 0) {
+            match screen {
+                Screen :: Favorites => { favorites (state, library) }
+                Screen :: Platforms | Screen :: Games | Screen :: Search => { catalog (screen, state, library) }
+            }
+        }
+    }
+}
+
+#[compose]
+fn background(
+    state: model!(DisplayState),
+    library: model!(Launcher),
+    deck: model!(super::deck::Deck),
+    metrics: Metrics,
+) -> Entity {
     let mut view = state.snapshot();
     view.page = super::data::Page::Games;
-    ui! {
-        Column (grow: 1.0, min_height: 0, min_width: 0, bg_color: BACKGROUND) {
-            header (&view, state, metrics)
+    let source = ui! {
+        Column (grow: 1.0, min_height: 0, min_width: 0, bg_color: BACKGROUND) [crate::ui::OffscreenRender::default()] {
+            header (&view, state, metrics, true)
             View (height: metrics.rule_height(), shrink: 0.0, bg_color: WARNING)
             Column (grow: 1.0, min_height: 0, padding: metrics.page_padding(), row_gap: metrics.gap) {
                 backdrop (Margins)
@@ -240,22 +289,10 @@ fn launcher_deck(
                         }
                     }
                 } on SizeChanged { deck.set_height(event.new.height); }
-                footer (&view, state, metrics)
+                footer (&view, state, metrics, true)
             }
-            overlay (state, library)
-            actor (state)
-        }
-    }
-}
 
-#[compose]
-fn page(screen: Screen, state: model!(DisplayState), library: model!(Launcher)) -> Entity {
-    ui! {
-        Column (grow: 1.0, min_height: 0, min_width: 0) {
-            match screen {
-                Screen :: Favorites => { favorites (state, library) }
-                Screen :: Platforms | Screen :: Games | Screen :: Search => { catalog (screen, state, library) }
-            }
         }
-    }
+    };
+    ui! { frozen_backdrop (source, state) }
 }

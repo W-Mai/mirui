@@ -10,16 +10,26 @@ use crate::prelude::*;
 use crate::ui::widgets::{Text, TextAlign::Start};
 use alloc::string::{String, ToString};
 #[compose]
-pub(super) fn page(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> Entity {
+pub(super) fn page(
+    view: &Snapshot,
+    state: model!(DisplayState),
+    metrics: Metrics,
+    room: bool,
+) -> Entity {
     ui! {
         Column (grow: 1.0, min_width: 0, min_height: 0, bg_color: BACKGROUND, clip_children: true) {
-            mounted_contents (view, state, metrics)
+            mounted_contents (view, state, metrics, room)
         }
     }
 }
 
 #[compose]
-fn mounted_contents(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> Entity {
+fn mounted_contents(
+    view: &Snapshot,
+    state: model!(DisplayState),
+    metrics: Metrics,
+    room: bool,
+) -> Entity {
     let body = ui! {
         contents (view, state, metrics)
     };
@@ -35,6 +45,8 @@ fn mounted_contents(view: &Snapshot, state: model!(DisplayState), metrics: Metri
             super::input::SelectionFrame {
                 body,
                 page: state.page_key(),
+                room,
+                state: state.clone(),
             },
         ] {
             View (
@@ -65,7 +77,8 @@ fn contents(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> E
             header (
                 &view,
                 state,
-                metrics
+                metrics,
+                false
             )
             View (
                 height: metrics.rule_height(),
@@ -178,7 +191,8 @@ fn contents(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> E
                 footer (
                     &view,
                     state,
-                    metrics
+                    metrics,
+                    false
                 )
             }
         }

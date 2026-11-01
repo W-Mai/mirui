@@ -108,7 +108,12 @@ pub(super) fn follow(
 ) {
     let mut active_frame = None;
     for (frame, marker, bounds, hidden) in frames {
-        let active = library.active() && !library.menu() && library.screen() == marker.screen;
+        let active = library.active()
+            && !library.menu()
+            && library.screen() == marker.screen
+            && !(library.screen() == Screen::Search
+                && !library.keyboard()
+                && library.search_empty());
         if active {
             active_frame = Some((
                 frame,

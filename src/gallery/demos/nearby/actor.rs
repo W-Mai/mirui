@@ -8,7 +8,9 @@ use crate::ui::widgets::FollowBounds;
 use crate::ui::{ComputedRect, Hidden, Parent};
 
 #[component]
-pub(super) struct ActorFrame;
+pub(super) struct ActorFrame {
+    pub launcher: bool,
+}
 
 #[system(order = Animation)]
 pub(super) fn follow(
@@ -32,21 +34,17 @@ pub(super) fn follow(
             .into_iter()
             .find_map(|frame| (frame.screen == library.screen()).then_some(frame.body))
     } else {
-        pages
-            .into_iter()
-            .find_map(|page_frame| (page_frame.page == page).then_some(page_frame.body))
+        pages.into_iter().find_map(|page_frame| {
+            (page_frame.page == page && page_frame.room == state.return_to_launcher())
+                .then_some(page_frame.body)
+        })
     };
     let inside = |entity| {
         root.is_some_and(|root| contains(root, entity, |entity| parents.get(entity).map(|p| p.0)))
     };
     let anchor = anchors.into_iter().find_map(|(entity, anchor, _)| {
         let empty = if library.active() {
-            !library.keyboard()
-                && (library.query().trim().is_empty()
-                    || library
-                        .games()
-                        .iter()
-                        .all(|game| !game.matches(&library.query().to_lowercase())))
+            !library.keyboard() && library.search_empty()
         } else if matches!(page.page, Page::Games | Page::Candidates) {
             state.presentation().entries_empty
         } else {
@@ -61,12 +59,16 @@ pub(super) fn follow(
                 .find_map(|(entity, row, _)| (row.0 == library.menu_selection()).then_some(entity))
         } else {
             anchor.or_else(|| {
-                library_targets.into_iter().find_map(|(entity, row, _)| {
-                    (row.screen == library.screen()
-                        && row.key == library.selected()
-                        && inside(entity))
-                    .then_some(entity)
-                })
+                if library.screen() == super::launcher::Screen::Search && library.search_empty() {
+                    None
+                } else {
+                    library_targets.into_iter().find_map(|(entity, row, _)| {
+                        (row.screen == library.screen()
+                            && row.key == library.selected()
+                            && inside(entity))
+                        .then_some(entity)
+                    })
+                }
             })
         }
     } else {
@@ -80,8 +82,9 @@ pub(super) fn follow(
     if state.actor_stage() != stage {
         state.set_actor_stage(stage);
     }
-    for (entity, _, hidden, bounds) in frames {
-        if let Some(target) = target.filter(|_| !session) {
+    for (entity, marker, hidden, bounds) in frames {
+        let active = marker.launcher == (library.active() || state.return_to_launcher());
+        if let Some(target) = target.filter(|_| !session && active) {
             if bounds.is_none_or(|old| old.target != target) {
                 commands.insert(
                     entity,
@@ -91,38 +94,76 @@ pub(super) fn follow(
             if hidden.is_some() {
                 commands.remove::<Hidden>(entity);
             }
-        } else if hidden.is_none() {
-            commands.insert(entity, Hidden);
+        } else {
+            if hidden.is_none() {
+                commands.insert(entity, Hidden);
+            }
+            if bounds.is_some() {
+                commands.remove::<FollowBounds>(entity);
+            }
         }
     }
 }
 
 #[compose]
-pub(super) fn actor(state: model!(DisplayState)) -> Entity {
+pub(super) fn actor(state: model!(DisplayState), launcher: bool) -> Entity {
     ui! {
         View (position: Position::Absolute, width: 0, height: 0) [
-            ActorFrame,
+            ActorFrame { launcher },
             crate::ui::IgnoreHitTest,
         ] {
             View (
                 position: Position::Absolute,
                 left: ${
                     Dimension::Percent(
-                        if state.launcher().active() && (state.launcher().screen() == super::launcher::Screen::Favorites || state.launcher().keyboard()) && !state.launcher().menu() {
+                        if state.launcher().active()
+                            && (state.launcher().screen() == super::launcher::Screen::Favorites
+                                || state.launcher().keyboard()) && !state.launcher().menu()
+                        {
                             Fixed::from_int(100)
                         } else if state.actor_stage() {
-                            if state.launcher().active() { Fixed::from_int(50) } else { state.actor_position() * 100 }
+                            if state.launcher().active() {
+                                Fixed::from_int(50)
+                            } else {
+                                state.actor_position() * 100
+                            }
                         } else {
                             Fixed::from_int(86)
                         },
                     )
                 },
-                top: ${ Dimension::percent(if state.actor_stage() || (state.launcher().active() && (state.launcher().screen() == super::launcher::Screen::Favorites || state.launcher().keyboard()) && !state.launcher().menu()) { 100 } else if state.launcher().active() && state.launcher().menu() { 50 } else { 85 }) },
+                top: ${
+                    Dimension::percent(
+                        if state.actor_stage()
+                            || (state.launcher().active()
+                                && (state.launcher().screen() == super::launcher::Screen::Favorites
+                                    || state.launcher().keyboard()) && !state.launcher().menu())
+                        {
+                            100
+                        } else if state.launcher().active() && state.launcher().menu() {
+                            50
+                        } else {
+                            85
+                        },
+                    )
+                },
                 width: 32,
                 height: 48,
                 transform: ${
-                    let compact = state.launcher().active() && (state.launcher().menu() || state.launcher().screen() == super::launcher::Screen::Favorites || state.launcher().keyboard());
-                    Transform::translate(Fixed::from_int(if compact && !state.launcher().menu() { -24 } else { -16 }), Fixed::from_int(if compact { -36 } else { -48 })).compose(&Transform::scale(if compact { Fixed::HALF } else { Fixed::ONE }, if compact { Fixed::HALF } else { Fixed::ONE }))
+                    let compact = state.launcher().active()
+                        && (state.launcher().menu()
+                            || state.launcher().screen() == super::launcher::Screen::Favorites
+                            || state.launcher().keyboard());
+                    Transform::translate(
+                            Fixed::from_int(if compact && !state.launcher().menu() { -24 } else { -16 }),
+                            Fixed::from_int(if compact { -36 } else { -48 }),
+                        )
+                        .compose(
+                            &Transform::scale(
+                                if compact { Fixed::HALF } else { Fixed::ONE },
+                                if compact { Fixed::HALF } else { Fixed::ONE },
+                            ),
+                        )
                 }
             ) [
                 ActorSprite {

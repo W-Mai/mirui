@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Nearby uses forest, sunset and night palettes, pixel-art backgrounds and viewport-dependent typography.
 - Nearby retains the favorites layer while the catalog expands, with responsive cartridge grids, paging and independent selection.
 - Nearby catalog uses a four-row browser with platform previews, a pixel keyboard, search results, empty-state artwork and identity-preserving favorite sorting.
+- Nearby opens connection flows above the retained launcher with animated panels and frozen output history; focus and characters stay within the active page container.
 - The optional `sync` feature replaces `sync-cache` and enables transferable textures, pixel guards, byte sources and cache value handles. Native target payloads require `Send + Sync`; device operations retain their backend thread constraints, and default builds retain local ownership.
 - Resource resolution returns shared cache value handles, removing a second reference-counted allocation while retaining values across replacement and eviction.
 - Shared resource storage serializes budget reservations and transfers; cache eviction callbacks require transferable captures when shared storage is enabled.

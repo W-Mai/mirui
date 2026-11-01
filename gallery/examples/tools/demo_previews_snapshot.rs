@@ -32,6 +32,13 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
     let library = state.launcher();
     match scene {
         "actions" => library.choose_game(0, 0),
+        "panel" => state.open_network(),
+        "panel-game" | "panel-host" => {
+            state.launch_game("双人冒险".into(), true);
+            if scene == "panel-host" {
+                state.activate(0);
+            }
+        }
         "favorites" => {}
         "platforms" => library.open(Screen::Platforms),
         "games" => library.choose_platform(0),

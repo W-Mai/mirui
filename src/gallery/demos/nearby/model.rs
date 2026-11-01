@@ -29,6 +29,8 @@ pub(super) struct StepColors {
 #[model]
 pub struct DisplayState {
     #[observe]
+    pub return_to_launcher: bool,
+    #[observe]
     pub controls: bool,
     #[observe]
     pub(super) view_revision: u64,
@@ -57,6 +59,7 @@ pub struct DisplayState {
 impl Default for DisplayState {
     fn default() -> Self {
         Self {
+            return_to_launcher: false,
             controls: false,
             view_revision: 0,
             actor_stage: true,
@@ -268,11 +271,13 @@ impl DisplayState {
         }
     }
     pub fn open_network(&mut self) {
+        self.return_to_launcher = true;
         self.launcher.close();
         self.view.source = LaunchSource::Menu;
         self.restart();
     }
     pub fn launch_game(&mut self, name: alloc::string::String, multiplayer: bool) {
+        self.return_to_launcher = true;
         self.launcher.close();
         self.view.source = LaunchSource::Game;
         self.view.title = name;
@@ -572,6 +577,7 @@ impl DisplayState {
         self.view.selected = 0;
     }
     pub fn switch_entry(&mut self) {
+        self.return_to_launcher = false;
         self.view.source = match self.view.source {
             LaunchSource::Menu => LaunchSource::Game,
             LaunchSource::Game => LaunchSource::Menu,
@@ -641,8 +647,19 @@ impl DisplayState {
     }
     fn exit(&mut self, outcome: Outcome, direction: PageDirection) {
         self.view.outcome = outcome;
-        self.navigate(Page::Outcome, direction);
         self.view.busy = false;
+        if self.return_to_launcher {
+            self.return_to_launcher = false;
+            self.launcher.resume();
+            self.launcher.result(match outcome {
+                Outcome::SinglePlayer => "LOCAL DEMO: single-player requested",
+                Outcome::Multiplayer => "LOCAL DEMO: multiplayer requested",
+                Outcome::KeepNetwork => "LOCAL DEMO: direct network retained",
+                _ => "LOCAL DEMO: returned to launcher",
+            });
+            return;
+        }
+        self.navigate(Page::Outcome, direction);
     }
 }
 
@@ -682,18 +699,8 @@ impl DisplayStateHandle {
         self.subtitle_value()
     }
     pub(super) fn library_counter(&self) -> Option<(usize, usize)> {
-        let library = self.launcher();
-        if library.active() {
-            let games = library.games();
-            let mut count = 0;
-            let mut position = 0;
-            for game in games.iter().filter(|game| game.favorite()) {
-                count += 1;
-                if game.key() as usize == library.shelf_selection() {
-                    position = count;
-                }
-            }
-            return (count > 0).then_some((position, count));
+        if self.launcher().active() {
+            return self.launcher().shelf_counter();
         }
         self.view_revision();
         self.library_counter_value()
@@ -712,46 +719,14 @@ impl DisplayStateHandle {
         copy::status_text(&self.presentation())
     }
     pub(super) fn hint(&self) -> &'static str {
-        let library = self.launcher();
-        if library.active() {
-            if !library.notice().is_empty() {
-                return library.notice();
-            }
-            return match library.screen() {
-                super::launcher::Screen::Favorites
-                    if library.games().iter().any(|game| {
-                        game.key() as usize == library.selected() && game.directory()
-                    }) =>
-                {
-                    "Y 排序"
-                }
-                super::launcher::Screen::Favorites => "X 游玩 / 长按联机 · Y 排序",
-                super::launcher::Screen::Platforms => "Y 搜索",
-                super::launcher::Screen::Games => "X 游玩 / 长按联机 · Y 收藏",
-                super::launcher::Screen::Search if library.keyboard() => "Y 退格 · START 结果",
-                super::launcher::Screen::Search => {
-                    let query = library.query().to_lowercase();
-                    if !query.trim().is_empty()
-                        && library.games().iter().any(|game| {
-                            game.key() as usize == library.selected() && game.matches(&query)
-                        })
-                    {
-                        "X 游玩 · Y 收藏 · START 键盘"
-                    } else {
-                        "Y 键盘"
-                    }
-                }
-            };
+        if self.launcher().active() {
+            return self.launcher().browser_hint();
         }
         copy::hint_text(&self.presentation())
     }
     pub(super) fn back(&self) -> &'static str {
         if self.launcher().active() {
-            return if self.launcher().screen() == super::launcher::Screen::Games {
-                "上级"
-            } else {
-                "返回"
-            };
+            return self.launcher().browser_back();
         }
         let view = self.presentation();
         if view.page == Page::Choice && view.source == LaunchSource::Game {
@@ -777,27 +752,8 @@ impl DisplayStateHandle {
         copy::peer_text(&self.presentation())
     }
     pub(super) fn confirm_label(&self) -> &'static str {
-        let library = self.launcher();
-        if library.active() {
-            if library.keyboard() {
-                return "输入";
-            }
-            let available = match library.screen() {
-                super::launcher::Screen::Platforms => true,
-                super::launcher::Screen::Favorites => {
-                    library.games().iter().any(|game| game.favorite())
-                }
-                super::launcher::Screen::Games => library
-                    .games()
-                    .iter()
-                    .any(|game| game.platform() == library.platform()),
-                super::launcher::Screen::Search => {
-                    let query = library.query().to_lowercase();
-                    !query.trim().is_empty()
-                        && library.games().iter().any(|game| game.matches(&query))
-                }
-            };
-            return if available { "选择" } else { "" };
+        if self.launcher().active() {
+            return self.launcher().browser_confirm();
         }
         copy::confirm_text(&self.presentation())
     }

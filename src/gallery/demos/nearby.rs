@@ -20,6 +20,7 @@ mod palette;
 mod pixel;
 mod sessions;
 mod shelf;
+mod snapshot;
 mod style;
 mod widgets;
 
@@ -54,7 +55,7 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
         .expect("bundled Nearby title font"),
     );
     app.with_fonts(fonts);
-    app.with_offscreen_pool_budget(640 * 480 * 8);
+    app.with_offscreen_pool_budget(8 * 1024 * 1024);
     app.with_widget(crate::ui::widgets::page_view::view::<model::PageKey>());
     app.with_widget(crate::ui::widgets::page_view::view::<launcher::Screen>());
     app.with_widget(input::selection_target::view());
@@ -66,16 +67,19 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     app.with_widget(pixel::signal_sprite::view());
     app.with_widget(pixel::search_sprite::view());
     app.with_widget(pixel::actor_sprite::view());
+    app.with_widget(snapshot::backdrop_snapshot::view());
     #[cfg(feature = "std")]
     app.add_plugin(crate::app::plugins::StdInstantClockPlugin);
     let state = app.add_model(model::DisplayState::default()).finish();
     state.resize(app.backend.viewport().logical_size().1);
     app.add_system(launcher_hold::system(state.launcher()));
     app.add_system(launcher_layout::system(state.launcher()));
+    app.add_system(room_panel::system(state.clone()));
     app.add_system(library::follow::system(state.launcher()));
     app.add_system(launcher_palette::system(state.launcher()));
     app.add_system(scene_animation::system(state.clone()));
     app.add_system(actor::follow::system(state.clone()));
+    app.add_system(input::follow::system(state.clone()));
     app.on_event(
         crate::input::event::input::Key::EVENT,
         input::keyboard::callback(state.clone()),
@@ -89,6 +93,14 @@ fn launcher_hold(library: model!(launcher::Launcher), delta: res!(crate::ecs::De
     if library.active() && library.holding() && library.hold_progress() < Fixed::ONE {
         library.advance_hold(delta.0);
     }
+}
+
+#[system(order = Animation)]
+fn room_panel(state: model!(model::DisplayState), delta: res!(crate::ecs::DeltaTimeMs)) {
+    state
+        .launcher()
+        .deck()
+        .advance_panel(state.return_to_launcher(), delta.0);
 }
 
 #[system(order = Animation)]

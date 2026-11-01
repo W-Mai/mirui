@@ -46,6 +46,8 @@ Nearby demonstrates a local game launcher with favorites, platform and game brow
 
 Nearby starts with the forest palette; settings switch between forest, sunset and night. Pixel scenery uses the same theme roles. Initial viewport height selects native 12 px or 24 px typography and compact spacing; Flex handles subsequent window resizing. Tab switches favorites and catalog, F1 opens settings or toggles the search keyboard, and Space opens the connection flow. Y sorts favorites, opens catalog search, edits favorites in game results, or deletes a search character. Connection choice pages use Y to switch themes. F2 toggles the simulation controls above the application.
 
+Connection flows opened from the launcher use an animated panel while retaining the browser below. Closing the panel restores the same collection and selection. Modal backgrounds retain completed widget output within the demo's shared offscreen budget.
+
 ```sh
 cargo run -p gallery --example nearby_demo
 cargo run -p gallery --example nearby_demo --no-default-features --features sdl-gpu

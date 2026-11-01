@@ -14,6 +14,74 @@ pub(super) struct SelectionTarget {
 pub(super) struct SelectionFrame {
     pub body: Entity,
     pub page: PageKey,
+    pub room: bool,
+    pub state: model!(DisplayState),
+}
+
+#[system(order = Animation)]
+pub(super) fn follow(
+    state: model!(DisplayState),
+    frames: query!(Entity, SelectionFrame, optional crate::ui::Hidden, optional FollowBounds),
+    targets: query!(Entity, SelectionTarget, crate::ui::ComputedRect),
+    parents: query!(Parent),
+    commands: commands!(),
+) {
+    let mut active = None;
+    let selectable = match state.presentation().page {
+        super::data::Page::Rooms | super::data::Page::Lobby => state.rooms_visible(),
+        super::data::Page::Games | super::data::Page::Candidates => {
+            !state.presentation().entries_empty
+        }
+        super::data::Page::Host | super::data::Page::Joined => state.confirm_visible(),
+        _ => true,
+    };
+    for (entity, frame, hidden, bounds) in frames {
+        if selectable
+            && !state.launcher().active()
+            && frame.page == state.page_key()
+            && frame.room == state.return_to_launcher()
+        {
+            active = Some((
+                entity,
+                frame.body,
+                hidden.is_some(),
+                bounds.map(|b| b.target),
+            ));
+        } else {
+            if hidden.is_none() {
+                commands.insert(entity, crate::ui::Hidden);
+            }
+            if bounds.is_some() {
+                commands.remove::<FollowBounds>(entity);
+            }
+        }
+    }
+    let Some((frame, body, hidden, previous)) = active else {
+        return;
+    };
+    let target = targets.into_iter().find_map(|(entity, marker, _)| {
+        (marker.index == state.selected()
+            && contains(body, entity, |e| parents.get(e).map(|p| p.0)))
+        .then_some(entity)
+    });
+    if let Some(target) = target {
+        if previous != Some(target) {
+            commands.insert(
+                frame,
+                FollowBounds::new(target).with_transition(crate::anim::SNAPPY),
+            );
+        }
+        if hidden {
+            commands.remove::<crate::ui::Hidden>(frame);
+        }
+    } else {
+        if !hidden {
+            commands.insert(frame, crate::ui::Hidden);
+        }
+        if previous.is_some() {
+            commands.remove::<FollowBounds>(frame);
+        }
+    }
 }
 
 pub(super) fn contains(
@@ -46,7 +114,11 @@ fn initialize(
     for (frame, marker) in frames {
         if contains(marker.body, node, |entity| parents.get(entity).map(|p| p.0)) {
             target.frame = Some(frame);
-            if target.state.selected() == target.index {
+            if !target.state.launcher().active()
+                && marker.room == target.state.return_to_launcher()
+                && marker.page == target.state.page_key()
+                && target.state.selected() == target.index
+            {
                 commands.insert(
                     frame,
                     FollowBounds::new(node).with_transition(crate::anim::SNAPPY),
@@ -71,6 +143,12 @@ fn initialize_frame(
     let Some(frame) = frames.get(node) else {
         return;
     };
+    if frame.state.launcher().active()
+        || frame.room != frame.state.return_to_launcher()
+        || frame.page != frame.state.page_key()
+    {
+        return;
+    }
     for (entity, target) in targets {
         if contains(frame.body, entity, |entity| {
             parents.get(entity).map(|p| p.0)
@@ -213,7 +291,7 @@ pub(super) fn keyboard(
             return true;
         }
         if event.physical == Some(PhysicalKey::Space) {
-            library.close();
+            state.open_network();
             return true;
         }
         let direction = match event.physical {
@@ -282,6 +360,7 @@ pub(super) fn keyboard(
             && let Some(frame) = row.frame
             && let Some((marker, bounds)) = frames.get(frame)
             && marker.page == page
+            && marker.room == state.return_to_launcher()
         {
             bounds.target = target;
         }

@@ -65,7 +65,7 @@ fn character_follows_the_active_choice_and_sessions_own_their_character() {
         .world
         .query::<actor::ActorFrame>()
         .iter()
-        .next()
+        .find(|(_, marker)| !marker.launcher)
         .unwrap()
         .0;
     assert!(app.world.get::<FollowBounds>(actor).is_some());
@@ -316,6 +316,131 @@ fn launcher_deck_retains_shelf_members_and_independent_selection_on_reversal() {
     );
     library.open(Screen::Platforms);
     assert_eq!(library.selected(), 2);
+}
+
+#[test]
+fn room_panel_retains_browser_entities_and_returns_to_the_same_selection() {
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    library.select(4);
+    for _ in 0..40 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    let shelf = app.world.find_by_id("nearby_shelf").unwrap();
+    state.launch_game("双人冒险".into(), true);
+    for _ in 0..40 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    assert!(state.return_to_launcher());
+    assert_eq!(library.deck().panel(), Fixed::ONE);
+    assert_eq!(app.world.find_by_id("nearby_shelf"), Some(shelf));
+    let panel = app.world.find_by_id("nearby_room_panel").unwrap();
+    let rect = app.world.get::<crate::ui::ComputedRect>(panel).unwrap().0;
+    assert!(rect.w > Fixed::from_int(500) && rect.h > Fixed::from_int(350));
+    let actor = app
+        .world
+        .query::<actor::ActorFrame>()
+        .iter()
+        .find(|(_, frame)| frame.launcher)
+        .unwrap()
+        .0;
+    let target = app
+        .world
+        .get::<crate::ui::widgets::FollowBounds>(actor)
+        .unwrap()
+        .target;
+    let body = app
+        .world
+        .query::<input::SelectionFrame>()
+        .iter()
+        .find(|(_, frame)| frame.room && frame.page == state.page_key())
+        .unwrap()
+        .1
+        .body;
+    assert!(input::contains(body, target, |e| app
+        .world
+        .get::<crate::ui::Parent>(e)
+        .map(|p| p.0)));
+    state.back_page();
+    assert!(library.active());
+    for _ in 0..40 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    assert_eq!(library.deck().panel(), Fixed::ZERO);
+    assert_eq!(library.selected(), 4);
+    assert_eq!(app.world.find_by_id("nearby_shelf"), Some(shelf));
+}
+
+#[test]
+fn modal_background_uses_output_history_until_the_overlay_closes() {
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    app.render().unwrap();
+    library.show_overlay(launcher::Overlay::System);
+    for _ in 0..40 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    let pixel =
+        |app: &mut TestApp| app.backend.framebuffer().read_pixels().unwrap().bytes()[..4].to_vec();
+    let frozen = pixel(&mut app);
+    library.adjust(launcher::MenuAction::CycleTheme);
+    for _ in 0..5 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    assert_eq!(app.theme().id().as_str(), "sunset");
+    assert_eq!(pixel(&mut app), frozen);
+    library.dismiss_menu();
+    for _ in 0..5 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    assert_ne!(pixel(&mut app), frozen);
+    let partial = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .bytes()
+        .to_vec();
+    app.render().unwrap();
+    assert_eq!(
+        partial,
+        app.backend.framebuffer().read_pixels().unwrap().bytes()
+    );
+}
+
+#[test]
+fn modal_panels_remain_drawable_without_offscreen_capacity() {
+    let (mut app, state) = fixture();
+    state.launcher().resume();
+    app.with_offscreen_pool_budget(0);
+    state.launcher().show_overlay(launcher::Overlay::System);
+    app.render().unwrap();
+    assert!(app.world.find_by_id("nearby_actions_panel").is_some());
+    let tile = app
+        .world
+        .query::<actions::ActionAnchor>()
+        .iter()
+        .find(|(_, marker)| marker.0 == 0)
+        .unwrap()
+        .0;
+    let rect = app.world.get::<crate::ui::ComputedRect>(tile).unwrap().0;
+    let expected = app.theme().resolve(style::ACCENT);
+    assert_eq!(
+        app.backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .get_pixel(rect.x.to_int() + 4, rect.y.to_int() + 4),
+        expected
+    );
 }
 
 #[test]

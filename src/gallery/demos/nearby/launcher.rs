@@ -57,7 +57,14 @@ impl Game {
         self.played = order;
     }
     pub fn matches(&self, query: &str) -> bool {
-        !self.directory && (self.name.contains(query) || self.search.contains(query))
+        !self.directory
+            && (self.name.contains(query)
+                || query.is_empty()
+                || self
+                    .search
+                    .as_bytes()
+                    .windows(query.len())
+                    .any(|word| word.eq_ignore_ascii_case(query.as_bytes())))
     }
     pub fn multiplayer(&self) -> bool {
         self.multiplayer
@@ -395,6 +402,9 @@ impl Launcher {
     }
     pub fn query(&self) -> String {
         self.query.clone()
+    }
+    pub fn search_empty(&self) -> bool {
+        self.query.trim().is_empty() || self.games.iter().all(|game| !game.matches(&self.query))
     }
     #[observe]
     pub fn transition(&self) -> PageTransition {
@@ -747,6 +757,75 @@ impl Launcher {
 }
 
 impl LauncherHandle {
+    pub(super) fn shelf_counter(&self) -> Option<(usize, usize)> {
+        let games = self.games();
+        let mut count = 0;
+        let mut position = 0;
+        for game in games.iter().filter(|game| game.favorite()) {
+            count += 1;
+            if game.key() as usize == self.shelf_selection() {
+                position = count;
+            }
+        }
+        (count > 0).then_some((position, count))
+    }
+    pub(super) fn browser_confirm(&self) -> &'static str {
+        if self.keyboard() {
+            return "输入";
+        }
+        let available = match self.screen() {
+            Screen::Platforms => true,
+            Screen::Favorites => self.games().iter().any(|game| game.favorite()),
+            Screen::Games => self
+                .games()
+                .iter()
+                .any(|game| game.platform() == self.platform()),
+            Screen::Search => {
+                let query = self.query().to_lowercase();
+                !query.trim().is_empty() && self.games().iter().any(|game| game.matches(&query))
+            }
+        };
+        if available { "选择" } else { "" }
+    }
+    pub(super) fn browser_back(&self) -> &'static str {
+        if self.screen() == Screen::Games {
+            "上级"
+        } else {
+            "返回"
+        }
+    }
+    pub(super) fn browser_hint(&self) -> &'static str {
+        if !self.notice().is_empty() {
+            return self.notice();
+        }
+        match self.screen() {
+            Screen::Favorites
+                if self
+                    .games()
+                    .iter()
+                    .any(|game| game.key() as usize == self.selected() && game.directory()) =>
+            {
+                "Y 排序"
+            }
+            Screen::Favorites => "X 游玩 / 长按联机 · Y 排序",
+            Screen::Platforms => "Y 搜索",
+            Screen::Games => "X 游玩 / 长按联机 · Y 收藏",
+            Screen::Search if self.keyboard() => "Y 退格 · START 结果",
+            Screen::Search => {
+                let query = self.query().to_lowercase();
+                if !query.trim().is_empty()
+                    && self
+                        .games()
+                        .iter()
+                        .any(|game| game.key() as usize == self.selected() && game.matches(&query))
+                {
+                    "X 游玩 · Y 收藏 · START 键盘"
+                } else {
+                    "Y 键盘"
+                }
+            }
+        }
+    }
     pub fn overlay_title(&self) -> String {
         self.overlay();
         self.selected_game();
