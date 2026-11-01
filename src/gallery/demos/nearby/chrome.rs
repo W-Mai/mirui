@@ -154,9 +154,9 @@ fn footer_controls(view: &Snapshot, state: model!(DisplayState), metrics: Metric
             column_gap: metrics.control_gap(),
             align: AlignItems::Center
         ) {
-            if ${ state.launcher().active() || state.confirm_visible() } {
+            if ${ state.confirm_visible() } {
                 control_key ("A", metrics, true)
-                control_label (move || if confirm.launcher().active() { "选择".into() } else { confirm.confirm_label().to_string() }, metrics)
+                control_label (move || confirm.confirm_label().to_string(), metrics)
             }
             if ${
                 !state.launcher().active()

@@ -18,7 +18,7 @@ The tab snapshot accepts a selected index from 0 to 2. The list accepts `top`, `
 
 The preview tool accepts an optional demo slug after the output directory; omit it to capture the catalog. It writes PNG directly without Pillow.
 
-Set `NEARBY_SCENE` when selecting `nearby` to capture a deterministic 640×480 scene: `NEARBY_SCENE=actions cargo run -p gallery --example demo_previews_snapshot --no-default-features --features snapshot -- .local/screenshots/nearby-actions nearby`. Available scenes are `favorites`, `actions`, `platforms`, `search`, `settings`, `controls`, `tools`, `power`, `exit`, `mode`, `game-entry`, `choice`, `host`, `joined`, `rooms`, `leaving`, `network` and `unavailable`.
+Set `NEARBY_SCENE` when selecting `nearby` to capture a deterministic 640×480 scene: `NEARBY_SCENE=actions cargo run -p gallery --example demo_previews_snapshot --no-default-features --features snapshot -- .local/screenshots/nearby-actions nearby`. Available scenes are `favorites`, `actions`, `platforms`, `games`, `search`, `search-results`, `search-empty`, `settings`, `controls`, `tools`, `power`, `exit`, `mode`, `game-entry`, `choice`, `host`, `joined`, `rooms`, `leaving`, `network` and `unavailable`.
 
 The Web pre-build hook invokes the same tool for all entries in `gallery::DEMOS` and caches the previews under `target/gallery-site/demo-previews`. A failed generation preserves the previous preview directory; a successful generation replaces it. Adding a demo does not require maintaining a separate image count.
 

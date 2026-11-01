@@ -164,7 +164,31 @@ pub(super) fn keyboard(
         return true;
     }
     if code == 0x79 {
-        library.adjust(super::launcher::MenuAction::CycleTheme);
+        if library.active() {
+            if library.menu() {
+                return true;
+            }
+            match library.screen() {
+                super::launcher::Screen::Favorites => library.sort_favorites(),
+                super::launcher::Screen::Platforms => library.open(super::launcher::Screen::Search),
+                super::launcher::Screen::Search if library.keyboard() => library.type_key("退格"),
+                super::launcher::Screen::Search => {
+                    let query = library.query().to_lowercase();
+                    if !query.trim().is_empty()
+                        && library.games().iter().any(|game| {
+                            game.key() as usize == library.selected() && game.matches(&query)
+                        })
+                    {
+                        library.toggle_selected_favorite();
+                    } else {
+                        library.edit_query();
+                    }
+                }
+                super::launcher::Screen::Games => library.toggle_selected_favorite(),
+            }
+        } else if state.can_switch_theme() {
+            library.adjust(super::launcher::MenuAction::CycleTheme);
+        }
         return true;
     }
     if library.active() {
@@ -177,7 +201,15 @@ pub(super) fn keyboard(
             return true;
         }
         if event.physical == Some(PhysicalKey::F1) {
-            library.show_overlay(super::launcher::Overlay::System);
+            if library.screen() == super::launcher::Screen::Search {
+                if library.keyboard() {
+                    library.type_key("结果");
+                } else {
+                    library.edit_query();
+                }
+            } else {
+                library.show_overlay(super::launcher::Overlay::System);
+            }
             return true;
         }
         if event.physical == Some(PhysicalKey::Space) {
@@ -200,7 +232,32 @@ pub(super) fn keyboard(
                 library.select_action((library.menu_selection() as i32 + delta).max(0) as usize);
                 return true;
             }
-            super::launcher_view::move_selection(state, forward);
+            if library.keyboard() {
+                let delta = match event.physical {
+                    Some(PhysicalKey::ArrowUp) => -10,
+                    Some(PhysicalKey::ArrowDown) => 10,
+                    Some(PhysicalKey::ArrowLeft) => -1,
+                    _ => 1,
+                };
+                library.select(
+                    100 + library
+                        .selected()
+                        .saturating_sub(100)
+                        .saturating_add_signed(delta)
+                        .min(39),
+                );
+            } else {
+                let vertical = matches!(
+                    event.physical,
+                    Some(PhysicalKey::ArrowUp | PhysicalKey::ArrowDown)
+                );
+                let step = if vertical && library.screen() == super::launcher::Screen::Favorites {
+                    library.shelf().plan().grid.columns
+                } else {
+                    1
+                } as isize;
+                super::launcher_view::move_selection(state, if forward { step } else { -step });
+            }
             return true;
         }
         match code {

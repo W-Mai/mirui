@@ -34,7 +34,16 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
         "actions" => library.choose_game(0, 0),
         "favorites" => {}
         "platforms" => library.open(Screen::Platforms),
+        "games" => library.choose_platform(0),
         "search" => library.open(Screen::Search),
+        "search-results" | "search-empty" => {
+            library.open(Screen::Search);
+            library.set_query(if scene == "search-results" {
+                "adventure".into()
+            } else {
+                "not-a-game".into()
+            });
+        }
         "settings" => library.show_overlay(nearby::launcher::Overlay::System),
         "controls" => library.show_overlay(nearby::launcher::Overlay::Controls),
         "tools" => library.show_overlay(nearby::launcher::Overlay::Tools),
@@ -76,9 +85,9 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
     }
     app.prepare_text_layout().expect("prepare Nearby scene");
     app.render().expect("layout Nearby scene");
-    for _ in 0..3 {
+    for _ in 0..40 {
         app.tick();
-        app.render().expect("settle Nearby scene");
+        app.render_dirty().expect("settle Nearby scene");
     }
     root
 }

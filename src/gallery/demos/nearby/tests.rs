@@ -246,7 +246,7 @@ fn launcher_filtered_selection_and_all_tools_are_reachable() {
     let library = state.launcher();
     library.resume();
     library.choose_platform(1);
-    launcher_view::move_selection(&state, true);
+    launcher_view::move_selection(&state, 1);
     assert_eq!(library.selected(), 7);
     launcher_view::confirm(&state);
     assert_eq!(library.game_key(), Some(7));
@@ -364,7 +364,7 @@ fn launcher_search_and_tools_are_local_and_reversible() {
     library.open(launcher::Screen::Search);
     library.type_key("X");
     assert_eq!(library.query(), "X");
-    library.type_key("DEL");
+    library.type_key("退格");
     assert!(library.query().is_empty());
     library.set_query("冒险".into());
     assert_eq!(
@@ -389,6 +389,66 @@ fn launcher_search_and_tools_are_local_and_reversible() {
     assert!(!library.active());
     assert_eq!(state.snapshot().source, LaunchSource::Menu);
     assert_eq!(state.snapshot().page, Page::Mode);
+}
+
+#[test]
+fn catalog_windows_keyboard_and_game_selection_share_the_native_routes() {
+    use launcher::Screen;
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    library.open(Screen::Search);
+    assert!(library.keyboard());
+    assert_eq!(library.selected(), 100);
+    library.select(100);
+    launcher_view::confirm(&state);
+    assert_eq!(library.query(), "Q");
+    library.type_key("退格");
+    library.type_key("空格");
+    library.type_key("清空");
+    assert!(library.query().is_empty());
+    library.set_query("racing".into());
+    assert!(!library.keyboard());
+    assert_eq!(library.selected(), 1);
+    for _ in 0..40 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    launcher_view::confirm(&state);
+    assert_eq!(library.game_key(), Some(1));
+    library.dismiss_menu();
+    library.open(Screen::Platforms);
+    for selection in 0..6 {
+        library.select(selection);
+        app.tick();
+        app.render_dirty().unwrap();
+        let target =
+            app.world
+                .query::<library::LibraryTarget>()
+                .iter()
+                .find_map(|(entity, row)| {
+                    (row.screen == Screen::Platforms && row.key == selection).then_some(entity)
+                });
+        assert!(target.is_some());
+    }
+    library.open(Screen::Search);
+    library.set_query("not-a-game".into());
+    for _ in 0..40 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    let partial = app
+        .backend
+        .framebuffer()
+        .read_pixels()
+        .unwrap()
+        .bytes()
+        .to_vec();
+    app.render().unwrap();
+    assert_eq!(
+        partial,
+        app.backend.framebuffer().read_pixels().unwrap().bytes()
+    );
 }
 
 #[test]

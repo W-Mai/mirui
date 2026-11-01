@@ -1,6 +1,7 @@
-use super::consoles::Platform::Favorites;
+use super::consoles::Platform::Favorites as EmptyFavorites;
 use super::consoles::{Platform, console};
 use super::input::contains;
+use super::launcher::Screen::Favorites;
 use super::launcher::{Game, Launcher, PLATFORMS, Screen};
 use super::model::DisplayState;
 use super::pixel::Scenery;
@@ -8,6 +9,7 @@ use super::shelf;
 use super::style::*;
 use super::widgets::paragraph;
 use crate::prelude::*;
+use crate::ui::widgets::Image;
 use crate::ui::widgets::{FollowBounds, Text};
 use crate::ui::{ComputedRect, Hidden, Parent};
 use alloc::vec::Vec;
@@ -16,15 +18,84 @@ const CARTRIDGE_RAIL: i32 = 2;
 const CARTRIDGE_CAP: i32 = 4;
 const CARTRIDGE_CONTACTS: usize = 8;
 
+#[compose]
+pub(super) fn library_icon(metrics: Metrics) -> Entity {
+    ui! {
+        Column (
+            grow: 1.0,
+            min_height: 0,
+            min_width: 0,
+            align: AlignItems::Center,
+            justify: JustifyContent::Center,
+            padding: Padding::all(metrics.gap),
+            bg_color: SKY
+        ) {
+            View (grow: 1.0, min_height: 0, width: Dimension::percent(100)) {
+                Image (
+                    src: path!(M 22 20 H 138 V 111 H 136 V 116 H 128 V 111 H 32 V 116 H 24 V 111 H 22 Z),
+                    viewbox: 160,
+                    position: Position::Absolute,
+                    width: Dimension::percent(100),
+                    height: Dimension::percent(100),
+                    color: FOREGROUND
+                )
+                Image (
+                    src: path!(M 27 25 H 133 V 106 H 27 Z),
+                    viewbox: 160,
+                    position: Position::Absolute,
+                    width: Dimension::percent(100),
+                    height: Dimension::percent(100),
+                    color: PANEL
+                )
+                Image (
+                    src: path!(
+                        M 31 61 H 129 V 66 H 31 Z M 31 96 H 129 V 101 H 31 Z M 87 34 H 118 V 57 H 87 Z M
+                        35 73 H 63 V 92 H 35 Z
+                    ),
+                    viewbox: 160,
+                    position: Position::Absolute,
+                    width: Dimension::percent(100),
+                    height: Dimension::percent(100),
+                    color: ACCENT
+                )
+                Image (
+                    src: path!(M 35 32 H 56 V 57 H 35 Z M 69 71 H 89 V 92 H 69 Z),
+                    viewbox: 160,
+                    position: Position::Absolute,
+                    width: Dimension::percent(100),
+                    height: Dimension::percent(100),
+                    color: CLAY
+                )
+                Image (
+                    src: path!(M 61 31 H 82 V 57 H 61 Z M 95 71 H 118 V 92 H 95 Z),
+                    viewbox: 160,
+                    position: Position::Absolute,
+                    width: Dimension::percent(100),
+                    height: Dimension::percent(100),
+                    color: WARNING
+                )
+            }
+            Image (
+                src: path!(M 0 0 L 9 8 L 18 0 V 5 L 9 14 L 0 5 Z),
+                viewbox: 18,
+                width: 18,
+                height: 14,
+                shrink: 0.0,
+                color: ACCENT
+            )
+        }
+    }
+}
+
 #[component]
 pub(super) struct LibraryTarget {
     pub key: usize,
-    pub shelf: bool,
+    pub screen: Screen,
 }
 #[component]
 pub(super) struct LibraryFocus {
     pub body: Entity,
-    pub shelf: bool,
+    pub screen: Screen,
 }
 
 #[system(order = Animation)]
@@ -37,9 +108,7 @@ pub(super) fn follow(
 ) {
     let mut active_frame = None;
     for (frame, marker, bounds, hidden) in frames {
-        let active = library.active()
-            && !library.menu()
-            && (library.screen() == Screen::Favorites) == marker.shelf;
+        let active = library.active() && !library.menu() && library.screen() == marker.screen;
         if active {
             active_frame = Some((
                 frame,
@@ -52,13 +121,13 @@ pub(super) fn follow(
         }
     }
     if let Some((frame, marker, previous, hidden)) = active_frame {
-        let selected = if marker.shelf {
+        let selected = if marker.screen == Screen::Favorites {
             library.shelf_selection()
         } else {
             library.selected()
         };
         let target = targets.into_iter().find_map(|(entity, row, _)| {
-            (row.shelf == marker.shelf
+            (row.screen == marker.screen
                 && row.key == selected
                 && contains(marker.body, entity, |e| parents.get(e).map(|p| p.0)))
             .then_some(entity)
@@ -80,18 +149,18 @@ pub(super) fn follow(
 }
 
 #[compose]
-pub(super) fn focus(body: Entity, library: model!(Launcher), shelf: bool) -> Entity {
+pub(super) fn focus(body: Entity, library: model!(Launcher), screen: Screen) -> Entity {
     ui! {
         View (position: Position::Absolute, width: 0, height: 0) [
-            LibraryFocus { body, shelf },
+            LibraryFocus { body, screen },
             crate::ui::IgnoreHitTest,
         ] {
             View (
                 position: Position::Absolute,
-                left: ${ Dimension::Percent(-library.card_motion().expansion().0) },
-                top: ${ Dimension::Percent(-library.card_motion().expansion().1) },
-                width: ${ Dimension::Percent(Fixed::from_int(100) + library.card_motion().expansion().0 * 2) },
-                height: ${ Dimension::Percent(Fixed::from_int(100) + library.card_motion().expansion().1 * 2) },
+                left: ${ Dimension::Percent(-if screen == Screen::Favorites { library.shelf_card_motion() } else { library.card_motion() }.expansion().0) },
+                top: ${ Dimension::Percent(-if screen == Screen::Favorites { library.shelf_card_motion() } else { library.card_motion() }.expansion().1) },
+                width: ${ Dimension::Percent(Fixed::from_int(100) + if screen == Screen::Favorites { library.shelf_card_motion() } else { library.card_motion() }.expansion().0 * 2) },
+                height: ${ Dimension::Percent(Fixed::from_int(100) + if screen == Screen::Favorites { library.shelf_card_motion() } else { library.card_motion() }.expansion().1 * 2) },
                 border_width: 2,
                 border_color: ACCENT
             ) [crate::ui::IgnoreHitTest]
@@ -118,7 +187,7 @@ fn favorites_grid(
             padding: Padding::all(shelf::INSET), row_gap: 4
         ) [Scenery::Ridge] {
             if ${ library.games().iter().all(|game| !game.favorite()) } {
-                console (Favorites)
+                console (EmptyFavorites)
             } else {
                 Column (grow: 1.0, min_height: 0, min_width: 0, row_gap: shelf::GAP, align: AlignItems::Center, justify: JustifyContent::Center) {
                     walk ${ 0..grid.plan().grid.rows } with line {
@@ -144,7 +213,7 @@ fn favorites_grid(
             }
         } on SizeChanged { grid.set_size(event.new.width, event.new.height); }
     };
-    ui! { focus (body, library, true) }
+    ui! { focus (body, library, Favorites) }
 }
 
 #[compose]
@@ -163,13 +232,13 @@ fn cartridge_grid(
     ui! {
         Column (
             width: ${ grid.plan().card_width }, shrink: 0.0, min_width: 0, min_height: 0,
-            transform: ${ library.card_motion().card_transform(key) }
+            transform: ${ library.shelf_card_motion().card_transform(key) }
         ) {
             Column (
                 grow: 1.0, min_width: 0, min_height: 0, padding: Padding::all(shelf::CARD_INSET),
-                container: true, bg_color: ${ library.card_motion().card_color(key) }
-            ) [LibraryTarget { key, shelf: true }] {
-                cartridge_source (game, metrics)
+                container: true, bg_color: ${ library.shelf_card_motion().card_color(key) }
+            ) [LibraryTarget { key, screen: Screen::Favorites }] {
+                if game.directory() { library_icon (metrics) } else { cartridge_source (game, metrics) }
                 Row (
                     height: shelf::LABEL_HEIGHT, shrink: 0.0, min_width: 0, container: true,
                     padding: Padding { left: metrics.gap.into(), right: shelf::LABEL_ACTOR_SPACE.into(), ..Default::default() }

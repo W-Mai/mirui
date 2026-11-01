@@ -25,6 +25,8 @@ impl Screen {
 
 #[model]
 pub struct Game {
+    pub directory: bool,
+    pub played: u64,
     pub key: u32,
     pub name: &'static str,
     pub search: &'static str,
@@ -45,8 +47,17 @@ impl Game {
     pub fn platform(&self) -> usize {
         self.platform
     }
+    pub fn directory(&self) -> bool {
+        self.directory
+    }
+    pub fn played(&self) -> u64 {
+        self.played
+    }
+    pub fn record_play(&mut self, order: u64) {
+        self.played = order;
+    }
     pub fn matches(&self, query: &str) -> bool {
-        self.name.contains(query) || self.search.contains(query)
+        !self.directory && (self.name.contains(query) || self.search.contains(query))
     }
     pub fn multiplayer(&self) -> bool {
         self.multiplayer
@@ -171,6 +182,11 @@ pub struct Launcher {
     #[observe]
     pub query_revision: u32,
     #[observe]
+    pub keyboard: bool,
+    #[observe]
+    pub recent_sort: bool,
+    play_count: u64,
+    #[observe]
     pub overlay: Option<Overlay>,
     #[observe]
     pub menu_selection: usize,
@@ -197,11 +213,14 @@ pub struct Launcher {
     pub shelf_selection: usize,
     #[observe]
     pub catalog_screen: Screen,
+    #[observe]
     catalog_selection: usize,
     #[observe]
-    pub(super) selection_age: u16,
+    shelf_age: u16,
     #[observe]
-    pub(super) pulse_age: u16,
+    catalog_age: u16,
+    #[observe]
+    menu_age: u16,
     direction: PageDirection,
     origin: Screen,
     #[observe]
@@ -223,6 +242,8 @@ impl Default for Launcher {
         .into_iter()
         .enumerate()
         .map(|(index, (name, platform, multiplayer))| Game {
+            directory: false,
+            played: 0,
             key: index as u32,
             search: [
                 "adventure",
@@ -238,16 +259,29 @@ impl Default for Launcher {
             platform,
             multiplayer,
             favorite: index < 6,
-        });
+        })
+        .chain(core::iter::once(Game {
+            directory: true,
+            played: 0,
+            key: 8,
+            name: "游戏库",
+            search: "",
+            platform: usize::MAX,
+            multiplayer: false,
+            favorite: true,
+        }));
         let mut list = ModelList::default();
         list.load(games).expect("demo games");
-        Self {
+        let mut result = Self {
             active: true,
             screen: Screen::Favorites,
             selected: 0,
             platform: 0,
             query: String::new(),
             query_revision: 0,
+            keyboard: false,
+            recent_sort: false,
+            play_count: 0,
             overlay: None,
             menu_selection: 0,
             notice: "",
@@ -265,34 +299,97 @@ impl Default for Launcher {
             shelf_selection: 0,
             catalog_screen: Screen::Platforms,
             catalog_selection: 0,
-            selection_age: 800,
-            pulse_age: 800,
+            shelf_age: 800,
+            catalog_age: 800,
+            menu_age: 800,
             direction: PageDirection::Forward,
             origin: Screen::Favorites,
             selected_game: None,
-        }
+        };
+        result.sort_games();
+        result
     }
 }
 
 #[model]
 impl Launcher {
-    pub(super) fn animate(&mut self, delta: u16) {
-        let age = self.selection_age.saturating_add(delta).min(800);
-        if age != self.selection_age {
-            self.selection_age = age;
+    fn sort_games(&mut self) {
+        let mut order: alloc::vec::Vec<_> = self
+            .games
+            .entries()
+            .map(|(id, game)| (id, game.directory(), game.name(), game.played()))
+            .collect();
+        order.sort_by(|a, b| {
+            a.1.cmp(&b.1)
+                .then_with(|| {
+                    if self.recent_sort {
+                        b.3.cmp(&a.3)
+                    } else {
+                        core::cmp::Ordering::Equal
+                    }
+                })
+                .then_with(|| a.2.cmp(&b.2))
+        });
+        for (index, (id, _, _, _)) in order.into_iter().enumerate() {
+            self.games.move_to(id, index).expect("existing game member");
         }
-        let pulse = self.pulse_age.saturating_add(delta).min(800);
-        if pulse != self.pulse_age {
-            self.pulse_age = pulse;
+    }
+    pub fn sort_favorites(&mut self) {
+        self.recent_sort = !self.recent_sort;
+        self.sort_games();
+    }
+    pub fn toggle_selected_favorite(&mut self) {
+        for game in self.games.iter_mut() {
+            if game.key() as usize == self.selected && !game.directory() {
+                game.toggle_favorite();
+            }
+        }
+    }
+    pub(super) fn animate(&mut self, delta: u16) {
+        if self.overlay.is_some() {
+            let value = self.menu_age.saturating_add(delta).min(800);
+            if self.menu_age != value {
+                self.menu_age = value;
+            }
+        } else if self.screen == Screen::Favorites {
+            let value = self.shelf_age.saturating_add(delta).min(800);
+            if self.shelf_age != value {
+                self.shelf_age = value;
+            }
+        } else {
+            let value = self.catalog_age.saturating_add(delta).min(800);
+            if self.catalog_age != value {
+                self.catalog_age = value;
+            }
+        }
+    }
+    #[observe]
+    pub(super) fn selection_age(&self) -> u16 {
+        if self.overlay.is_some() {
+            self.menu_age
+        } else if self.screen == Screen::Favorites {
+            self.shelf_age
+        } else {
+            self.catalog_age
         }
     }
     #[observe]
     pub(super) fn card_motion(&self) -> super::motion::Frame {
         super::motion::Frame {
             page: super::data::Page::Games,
-            selected: Some(self.selected),
-            selection: self.selection_age,
-            pulse: self.pulse_age,
+            selected: Some(self.catalog_selection),
+            selection: self.catalog_age,
+            pulse: self.catalog_age,
+            ..Default::default()
+        }
+    }
+    #[observe]
+    pub(super) fn shelf_card_motion(&self) -> super::motion::Frame {
+        super::motion::Frame {
+            page: super::data::Page::Games,
+            selected: Some(self.shelf_selection),
+            selection: self.shelf_age,
+            pulse: self.shelf_age,
             ..Default::default()
         }
     }
@@ -319,6 +416,7 @@ impl Launcher {
             self.catalog_selection = self.selected;
         }
         self.screen = screen;
+        self.keyboard = screen == Screen::Search;
         self.selected = if screen == Screen::Favorites {
             self.shelf_selection
         } else if screen == self.catalog_screen {
@@ -327,26 +425,46 @@ impl Launcher {
             0
         };
         if screen != Screen::Favorites {
+            if self.catalog_screen != screen {
+                self.catalog_age = 0;
+            }
             self.catalog_screen = screen;
+            self.catalog_selection = self.selected;
+        }
+        if self.keyboard {
+            self.selected = 100;
         }
     }
 
     pub fn select(&mut self, index: usize) {
         if self.selected != index {
-            self.selection_age = 0;
-            self.pulse_age = 0;
+            if self.screen == Screen::Favorites {
+                self.shelf_age = 0;
+            } else {
+                self.catalog_age = 0;
+            }
         }
         self.cancel_hold();
         self.selected = index;
         if self.screen == Screen::Favorites {
             self.shelf_selection = index;
+        } else {
+            self.catalog_selection = index;
         }
     }
 
     pub fn choose_game(&mut self, key: u32, index: usize) {
+        if self
+            .games
+            .iter()
+            .any(|game| game.key() == key && game.directory())
+        {
+            self.open(Screen::Platforms);
+            return;
+        }
         self.cancel_hold();
         self.selected_game = Some(key);
-        self.selected = index;
+        self.select(index);
         if self.screen == Screen::Favorites {
             self.shelf_selection = index;
         }
@@ -359,7 +477,7 @@ impl Launcher {
     pub fn select_action(&mut self, index: usize) {
         let index = index.min(self.item_count().saturating_sub(1));
         if self.menu_selection != index {
-            self.selection_age = 0;
+            self.menu_age = 0;
         }
         self.menu_selection = index;
     }
@@ -367,20 +485,41 @@ impl Launcher {
     pub fn set_query(&mut self, query: String) {
         self.query = query;
         self.query_revision = self.query_revision.wrapping_add(1);
-        self.selected = 0;
+        self.keyboard = false;
+        self.select_result();
     }
 
     pub fn type_key(&mut self, key: &'static str) {
         match key {
-            "DEL" => {
+            "退格" => {
                 self.query.pop();
             }
-            "CLEAR" => self.query.clear(),
-            "SPACE" => self.query.push(' '),
+            "清空" => self.query.clear(),
+            "空格" => self.query.push(' '),
+            "结果" => {
+                self.keyboard = false;
+            }
             _ => self.query.push_str(key),
         }
         self.query_revision = self.query_revision.wrapping_add(1);
-        self.selected = 0;
+        if !self.keyboard {
+            self.select_result();
+        }
+    }
+
+    fn select_result(&mut self) {
+        let query = self.query.to_lowercase();
+        let key = self
+            .games
+            .iter()
+            .find(|game| !query.trim().is_empty() && game.matches(&query))
+            .map_or(0, |game| game.key() as usize);
+        self.select(key);
+    }
+
+    pub fn edit_query(&mut self) {
+        self.keyboard = true;
+        self.selected = 100;
     }
 
     pub fn game_key(&self) -> Option<u32> {
@@ -407,6 +546,15 @@ impl Launcher {
     }
 
     pub fn launch(&mut self) {
+        self.play_count = self.play_count.saturating_add(1);
+        for game in self.games.iter_mut() {
+            if Some(game.key()) == self.selected_game {
+                game.record_play(self.play_count);
+            }
+        }
+        if self.recent_sort {
+            self.sort_games();
+        }
         self.overlay = None;
         self.notice = "单机游玩 · LOCAL DEMO";
     }
@@ -559,7 +707,7 @@ impl Launcher {
         self.cancel_hold();
         self.overlay = Some(overlay);
         self.menu_selection = 0;
-        self.selection_age = 0;
+        self.menu_age = 0;
         self.notice = "";
     }
     pub fn back(&mut self) {
@@ -572,6 +720,11 @@ impl Launcher {
                 }
                 _ => self.overlay = None,
             }
+            return;
+        }
+        if self.screen == Screen::Search && self.keyboard {
+            self.keyboard = false;
+            self.selected = 0;
             return;
         }
         let target = if self.screen == Screen::Games {
@@ -617,6 +770,38 @@ impl LauncherHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retained_layers_keep_independent_motion_and_collection_identity() {
+        let mut launcher = Launcher::default();
+        launcher.select(4);
+        launcher.animate(70);
+        let shelf = launcher.shelf_card_motion();
+        launcher.open(Screen::Platforms);
+        launcher.select(2);
+        launcher.animate(90);
+        assert_eq!(launcher.shelf_card_motion(), shelf);
+        let catalog = launcher.card_motion();
+        launcher.show_overlay(Overlay::System);
+        launcher.select_action(2);
+        launcher.animate(300);
+        assert_eq!(launcher.shelf_card_motion(), shelf);
+        assert_eq!(launcher.card_motion(), catalog);
+        launcher.dismiss_menu();
+        launcher.open(Screen::Favorites);
+        let identities: alloc::vec::Vec<_> = launcher
+            .games
+            .entries()
+            .map(|(id, game)| (game.key(), id))
+            .collect();
+        launcher.sort_favorites();
+        for (key, id) in identities {
+            assert_eq!(launcher.games.get_by_id(id).unwrap().key(), key);
+        }
+        launcher.choose_game(8, 8);
+        assert_eq!(launcher.screen, Screen::Platforms);
+        assert!(!launcher.menu());
+    }
     #[test]
     fn nested_overlays_preserve_the_browser_and_return_to_their_parent() {
         let mut launcher = Launcher::default();

@@ -31,6 +31,7 @@ pub(super) const FOCUS_OUTSET_Y_PERCENT: f32 = 3.5;
 pub(super) const FONT_PAINT: crate::ui::dirty::PaintInflate =
     crate::ui::dirty::PaintInflate::uniform(Fixed::ONE);
 pub(super) const LABEL_LEADING: i32 = 6;
+pub(super) const ROW_LEADING: i32 = 2;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(super) struct Metrics {
@@ -52,6 +53,21 @@ impl Default for Metrics {
 }
 
 impl Metrics {
+    pub(super) fn library_row_height(self) -> i32 {
+        self.sized(40, 48, 80)
+    }
+    pub(super) fn row_min_height(self) -> i32 {
+        i32::from(self.row_title + self.row_detail)
+            + ROW_LEADING * 2
+            + self.sized(6, 6, 12)
+            + self.shadow_height()
+    }
+    pub(super) fn row_padding(self) -> Padding {
+        Padding::all(self.sized(3, 4, 6))
+    }
+    pub(super) fn preview_title_height(self) -> i32 {
+        i32::from(self.title) * 2 + LABEL_LEADING * 2
+    }
     pub(super) fn rule_height(self) -> i32 {
         self.sized(2, 2, 3)
     }

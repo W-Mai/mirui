@@ -9,14 +9,26 @@ pub(super) fn actor_sprite(
     state: model!(component.state, watch(actor_motion)),
     actions: model!(
         component.actions,
-        watch(active, menu, menu_selection, selection_age, card_motion)
+        watch(
+            active,
+            screen,
+            menu,
+            menu_selection,
+            selection_age,
+            card_motion,
+            shelf_card_motion
+        )
     ),
     paint: paint!(),
     theme: res!(Theme),
 ) {
     let rect = paint.rect();
     let frame = if actions.active {
-        let frame = actions.card_motion();
+        let frame = if actions.screen == super::launcher::Screen::Favorites {
+            actions.shelf_card_motion()
+        } else {
+            actions.card_motion()
+        };
         cursor_frame(
             frame,
             Some(if actions.menu() {
@@ -24,7 +36,7 @@ pub(super) fn actor_sprite(
             } else {
                 frame.selected.unwrap_or(0)
             }),
-            actions.selection_age,
+            actions.selection_age(),
         )
     } else {
         cursor_frame(state.actor_motion(), None, 800)

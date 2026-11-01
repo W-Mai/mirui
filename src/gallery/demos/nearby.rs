@@ -1,5 +1,6 @@
 mod actions;
 mod actor;
+mod catalog;
 mod choices;
 mod chrome;
 mod composition;

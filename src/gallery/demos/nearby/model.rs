@@ -675,16 +675,8 @@ impl DisplayStateHandle {
         self.room_name_value()
     }
     pub(super) fn subtitle(&self) -> alloc::string::String {
-        let library = self.launcher();
-        if library.active() {
-            return match library.screen() {
-                super::launcher::Screen::Favorites => "收藏游戏".into(),
-                super::launcher::Screen::Platforms => "游戏平台".into(),
-                super::launcher::Screen::Games => {
-                    super::launcher::PLATFORMS[library.platform()].0.into()
-                }
-                super::launcher::Screen::Search => "搜索游戏".into(),
-            };
+        if self.launcher().active() {
+            return "本机游戏".into();
         }
         self.view_revision();
         self.subtitle_value()
@@ -692,18 +684,12 @@ impl DisplayStateHandle {
     pub(super) fn library_counter(&self) -> Option<(usize, usize)> {
         let library = self.launcher();
         if library.active() {
-            let query = library.query();
             let games = library.games();
             let mut count = 0;
             let mut position = 0;
-            for game in games.iter().filter(|game| match library.screen() {
-                super::launcher::Screen::Favorites => game.favorite(),
-                super::launcher::Screen::Games => game.platform() == library.platform(),
-                super::launcher::Screen::Search => game.matches(&query.to_lowercase()),
-                _ => false,
-            }) {
+            for game in games.iter().filter(|game| game.favorite()) {
                 count += 1;
-                if game.key() as usize == library.selected() {
+                if game.key() as usize == library.shelf_selection() {
                     position = count;
                 }
             }
@@ -713,6 +699,9 @@ impl DisplayStateHandle {
         self.library_counter_value()
     }
     pub(super) fn can_switch_theme(&self) -> bool {
+        if self.launcher().active() {
+            return false;
+        }
         let view = self.presentation();
         matches!(view.page, Page::Mode | Page::Choice) && !view.busy
     }
@@ -723,9 +712,47 @@ impl DisplayStateHandle {
         copy::status_text(&self.presentation())
     }
     pub(super) fn hint(&self) -> &'static str {
+        let library = self.launcher();
+        if library.active() {
+            if !library.notice().is_empty() {
+                return library.notice();
+            }
+            return match library.screen() {
+                super::launcher::Screen::Favorites
+                    if library.games().iter().any(|game| {
+                        game.key() as usize == library.selected() && game.directory()
+                    }) =>
+                {
+                    "Y 排序"
+                }
+                super::launcher::Screen::Favorites => "X 游玩 / 长按联机 · Y 排序",
+                super::launcher::Screen::Platforms => "Y 搜索",
+                super::launcher::Screen::Games => "X 游玩 / 长按联机 · Y 收藏",
+                super::launcher::Screen::Search if library.keyboard() => "Y 退格 · START 结果",
+                super::launcher::Screen::Search => {
+                    let query = library.query().to_lowercase();
+                    if !query.trim().is_empty()
+                        && library.games().iter().any(|game| {
+                            game.key() as usize == library.selected() && game.matches(&query)
+                        })
+                    {
+                        "X 游玩 · Y 收藏 · START 键盘"
+                    } else {
+                        "Y 键盘"
+                    }
+                }
+            };
+        }
         copy::hint_text(&self.presentation())
     }
     pub(super) fn back(&self) -> &'static str {
+        if self.launcher().active() {
+            return if self.launcher().screen() == super::launcher::Screen::Games {
+                "上级"
+            } else {
+                "返回"
+            };
+        }
         let view = self.presentation();
         if view.page == Page::Choice && view.source == LaunchSource::Game {
             "单机游玩"
@@ -750,6 +777,28 @@ impl DisplayStateHandle {
         copy::peer_text(&self.presentation())
     }
     pub(super) fn confirm_label(&self) -> &'static str {
+        let library = self.launcher();
+        if library.active() {
+            if library.keyboard() {
+                return "输入";
+            }
+            let available = match library.screen() {
+                super::launcher::Screen::Platforms => true,
+                super::launcher::Screen::Favorites => {
+                    library.games().iter().any(|game| game.favorite())
+                }
+                super::launcher::Screen::Games => library
+                    .games()
+                    .iter()
+                    .any(|game| game.platform() == library.platform()),
+                super::launcher::Screen::Search => {
+                    let query = library.query().to_lowercase();
+                    !query.trim().is_empty()
+                        && library.games().iter().any(|game| game.matches(&query))
+                }
+            };
+            return if available { "选择" } else { "" };
+        }
         copy::confirm_text(&self.presentation())
     }
     pub(super) fn confirm_visible(&self) -> bool {
