@@ -74,6 +74,11 @@ mod x11_clipboard_contracts;
 use crate::render::texture::Texture;
 use crate::types::{Fixed, PhysicalRect, Rect, Viewport};
 
+mod size_control;
+pub use size_control::{
+    SurfaceSizeControl, SurfaceSizeError, SurfaceSizeHost, SurfaceSizeRequest, SurfaceSizeState,
+};
+
 /// Display information reported by a backend. `width` / `height` are in
 /// **logical pixels** — the units user code writes `Dimension::px(…)` in.
 /// Physical framebuffer size is `Surface::physical_size()`.
@@ -135,6 +140,11 @@ pub enum RedrawStrategy {
 /// `SwRendererFactory`.
 pub trait Surface: crate::core::cache::InspectCaches {
     fn display_info(&self) -> DisplayInfo;
+
+    /// Optional logical content-size control. Fixed displays do not create a controller.
+    fn size_control(&mut self) -> Option<SurfaceSizeControl> {
+        None
+    }
 
     /// Current logical safe-area insets. Surfaces without cutouts or system overlays return zero.
     fn safe_area_insets(&self) -> SafeAreaInsets {
