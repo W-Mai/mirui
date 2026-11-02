@@ -269,6 +269,7 @@ fn direct_format_args_call(
 fn reactive_property(widget: &str, attr: &str) -> Option<&'static str> {
     match attr {
         "text" => Some("TextContent"),
+        "src" if widget == "Image" => Some("ImageSource"),
         "visible" => Some("Visible"),
         "bg_color" => Some("BackgroundColor"),
         "text_color" => Some("TextColor"),
@@ -302,10 +303,10 @@ fn reactive_property(widget: &str, attr: &str) -> Option<&'static str> {
 fn binding_role(property: &syn::Ident) -> proc_macro2::TokenStream {
     let role = match property.to_string().as_str() {
         "Visible" | "Page" | "PageTransition" | "LazyListItems" | "LazyListExtent" => "Maintenance",
-        "TextContent" | "BackgroundColor" | "TextColor" | "BorderColor" | "BorderWidth"
-        | "ButtonNormalColor" | "RenderKey" | "Transform" | "FontSize" | "Direction" | "Width"
-        | "Height" | "Left" | "Top" | "Paragraph" | "TextPath" | "ProgressValue"
-        | "SliderValue" | "SwitchOn" | "CheckboxChecked" => "Display",
+        "TextContent" | "ImageSource" | "BackgroundColor" | "TextColor" | "BorderColor"
+        | "BorderWidth" | "ButtonNormalColor" | "RenderKey" | "Transform" | "FontSize"
+        | "Direction" | "Width" | "Height" | "Left" | "Top" | "Paragraph" | "TextPath"
+        | "ProgressValue" | "SliderValue" | "SwitchOn" | "CheckboxChecked" => "Display",
         _ => "Ordinary",
     };
     let role = syn::Ident::new(role, property.span());
@@ -329,6 +330,7 @@ mod binding_role_tests {
         }
         for (property, expected) in [
             ("TextContent", "Display"),
+            ("ImageSource", "Display"),
             ("Width", "Display"),
             ("CustomProperty", "Ordinary"),
         ] {

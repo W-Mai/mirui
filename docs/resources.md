@@ -2,6 +2,8 @@
 
 `ResourceManager<T>` resolves tokens into shared values under its existing cache budget. `ResourceHandle::get()` and `ResourceManager::resolve()` return `cache::Handle<T>` for the completed value or the manager's fallback, retaining the same cache entry without copying its contents. A retained value remains readable after replacement, eviction or manager destruction; a subsequent demand-handle read follows the manager's current value. Static registrations and completed handle reads do not run loaders.
 
+`Image(src: ${expression})` binds a resource token or vector source through the existing reactive property mechanism. A `prop!(ImageSource)` input can forward the source across compositions. Source changes preserve the image's paint configuration, release the previous resource demand and subscribe to the current resource; equal values leave the component unchanged. Typed builders use `bind_property::<prop::ImageSource>(getter)`, and callbacks can use `commands.set::<prop::ImageSource>(entity, source.into())`.
+
 ## Metadata
 
 The optional `sync` feature allows transferable textures, immutable value handles and byte sources while leaving resource managers and demand handles on their owning App thread. See [shared textures](shared-textures.md) for worker handoff, source constraints, device lifetimes and budget retention.

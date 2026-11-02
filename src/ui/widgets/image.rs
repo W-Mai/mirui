@@ -10,7 +10,7 @@ use crate::types::{Color, Fixed, Point, Rect, Transform};
 use crate::ui::theme::{ColorToken, ThemedColor};
 use crate::ui::view::PaintCtx;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ImageSource {
     Texture(Cow<'static, str>),
     Vector(Path),
@@ -137,6 +137,30 @@ pub(crate) fn attach_image_resource(
         return;
     };
     synchronize_resource(image, manager.as_deref());
+}
+
+pub(crate) fn set_source(
+    world: &mut World,
+    entity: Entity,
+    source: ImageSource,
+) -> crate::ui::property::PropertyChange {
+    use crate::ui::property::PropertyChange;
+
+    if world
+        .get::<Image>(entity)
+        .is_none_or(|image| image.src == source)
+    {
+        return PropertyChange::Unchanged;
+    }
+    let image = world
+        .get_mut_with_change::<Image>(entity, crate::ecs::world::ComponentChangeKind::Visual)
+        .expect("image was checked above");
+    image.src = source;
+    synchronize_resource(
+        world.get::<Image>(entity).expect("image remains attached"),
+        world.resource::<ResourceManager<Texture<'static>>>(),
+    );
+    PropertyChange::Visual
 }
 
 fn synchronize_resource(image: &Image, manager: Option<&ResourceManager<Texture<'static>>>) {
@@ -409,6 +433,100 @@ mod tests {
             "blue",
             Texture::from_static(&BLUE, 1, 1, ColorFormat::RGBA8888).expect("valid pixel storage"),
         )
+    }
+
+    #[test]
+    fn source_property_preserves_paint_configuration_and_releases_vector_leases() {
+        use crate::ui::property::{Property, PropertyChange, prop};
+
+        let mut world = World::new();
+        world.insert_resource(image_manager());
+        let entity = world.spawn(
+            Image::new("blue")
+                .with_composite(CompositeMode::Screen)
+                .with_radius(3)
+                .with_color(ColorToken::Primary)
+                .with_viewbox(16)
+                .with_scale(2),
+        );
+        view().auto_attach().unwrap().invoke(&mut world, entity);
+        let first = resolve_image(world.get::<Image>(entity).unwrap(), world.resource()).unwrap();
+        world.watch_component_revision::<Image>();
+        let revision = world.component_revision::<Image>();
+        assert_eq!(
+            tracked_allocations(|| {
+                assert_eq!(
+                    prop::ImageSource::apply(&mut world, entity, "blue".into()),
+                    PropertyChange::Unchanged
+                );
+            }),
+            0
+        );
+        assert_eq!(world.component_revision::<Image>(), revision);
+        assert!(
+            first.ptr_eq(&resolve_image(world.get(entity).unwrap(), world.resource()).unwrap())
+        );
+        let path = Path::from_static(&[PathCmd::Close]);
+        assert_eq!(
+            prop::ImageSource::apply(&mut world, entity, path.into()),
+            PropertyChange::Visual
+        );
+        let image = world.get::<Image>(entity).unwrap();
+        assert!(image.resource.borrow().is_none());
+        assert_eq!(image.composite, CompositeMode::Screen);
+        assert_eq!(image.radius, Fixed::from_int(3));
+        assert_eq!(image.color, ColorToken::Primary.into());
+        assert_eq!(image.viewbox, Fixed::from_int(16));
+        assert_eq!(image.scale, Fixed::from_int(2));
+        assert_eq!(
+            prop::ImageSource::apply(&mut world, entity, "blue".into()),
+            PropertyChange::Visual
+        );
+        assert_eq!(
+            world
+                .get::<Image>(entity)
+                .unwrap()
+                .resource
+                .borrow()
+                .as_ref()
+                .unwrap()
+                .token(),
+            "blue"
+        );
+    }
+
+    #[test]
+    fn source_property_moves_view_observation_to_the_current_resource() {
+        use crate::ui::property::prop;
+
+        let manager = image_manager().with_static(
+            "red",
+            Texture::from_static(&RED, 1, 1, ColorFormat::RGBA8888).unwrap(),
+        );
+        let blue = manager.subscribe("blue");
+        let red = manager.subscribe("red");
+        let mut app = crate::app::App::headless(8, 8);
+        app.with_widget(view());
+        app.add_resource(manager);
+        let root = app.spawn_root().id();
+        let image = app.compose(root, |tree| tree.spawn(Image::build("blue")));
+        app.render_dirty().unwrap();
+        assert!(blue.has_subscribers());
+        assert!(!red.has_subscribers());
+        app.world
+            .widget_mut(image)
+            .unwrap()
+            .set::<prop::ImageSource>("red".into());
+        app.render_dirty().unwrap();
+        assert!(!blue.has_subscribers());
+        assert!(red.has_subscribers());
+        app.world
+            .widget_mut(image)
+            .unwrap()
+            .set::<prop::ImageSource>(Path::from_static(&[PathCmd::Close]).into());
+        app.render_dirty().unwrap();
+        assert!(!blue.has_subscribers());
+        assert!(!red.has_subscribers());
     }
 
     #[test]

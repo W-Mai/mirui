@@ -159,6 +159,7 @@ pub mod prop {
 
     pub struct TextPath;
     pub struct TextContent;
+    pub struct ImageSource;
     pub struct Visible;
     pub struct BackgroundColor;
     pub struct TextColor;
@@ -215,6 +216,14 @@ pub mod prop {
     pub struct ColumnGap;
     pub struct Left;
     pub struct Top;
+
+    impl Property for ImageSource {
+        type Value = crate::ui::widgets::image::ImageSource;
+
+        fn apply(world: &mut World, entity: Entity, value: Self::Value) -> PropertyChange {
+            crate::ui::widgets::image::set_source(world, entity, value)
+        }
+    }
 
     impl Property for TextContent {
         type Value = alloc::string::String;

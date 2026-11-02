@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Image sources accept reactive `${expression}` bindings and typed `prop::ImageSource` updates without replacing the component or its paint configuration.
 - `Prop<T>` and `#[compose]` parameters declared with `prop!(T)` carry static values or shared read-only getters between compositions without intermediate reactive sources. Both composition call forms accept `${expression}` inputs.
 - Niche `prop!(T)` fields retain reactive inputs across attachment and nested compositions, preserving child and slot identities.
 - Surfaces can expose optional logical content-size control with reactive actual-size feedback, coalesced requests and owner-lifetime checks.
