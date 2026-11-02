@@ -59,6 +59,8 @@ pub struct DisplayState {
     room_selection: usize,
     mode_selection: usize,
     has_current_game: bool,
+    #[cfg(feature = "audio")]
+    heard_rooms: bool,
 }
 
 impl Default for DisplayState {
@@ -135,6 +137,8 @@ impl Default for DisplayState {
             room_selection: 0,
             mode_selection: 0,
             has_current_game: false,
+            #[cfg(feature = "audio")]
+            heard_rooms: false,
         }
     }
 }
@@ -252,6 +256,8 @@ impl DisplayState {
         }
     }
     pub(super) fn animate(&mut self, delta: u16, theme: &crate::ui::Theme) {
+        #[cfg(feature = "audio")]
+        self.launcher.advance_audio(delta);
         self.elapsed_ms = self.elapsed_ms.saturating_add(u64::from(delta));
         let selected = match self.view.page {
             Page::Choice
@@ -319,13 +325,25 @@ impl DisplayState {
         }
     }
     pub fn open_network(&mut self) {
+        #[cfg(feature = "audio")]
+        {
+            self.heard_rooms = false;
+        }
         self.return_to_launcher = true;
         self.launcher.close();
         self.view.source = LaunchSource::Menu;
         self.view.lobby = true;
         self.restart();
+        #[cfg(feature = "audio")]
+        self.discover_sound();
     }
     pub fn launch_game(&mut self, name: alloc::string::String, multiplayer: bool) {
+        #[cfg(feature = "audio")]
+        self.launcher.emit_sound(if multiplayer {
+            super::sound::Cue::Confirm
+        } else {
+            super::sound::Cue::Error
+        });
         self.return_to_launcher = true;
         self.launcher.close();
         self.view.source = LaunchSource::Game;
@@ -464,6 +482,8 @@ impl DisplayState {
         if self.view.selected != selected {
             self.view.selected = selected;
             self.view_revision = self.view_revision.wrapping_add(1);
+            #[cfg(feature = "audio")]
+            self.launcher.emit_sound(super::sound::Cue::Focus);
         }
     }
     pub fn activate(&mut self, index: usize) {
@@ -471,6 +491,10 @@ impl DisplayState {
         self.confirm();
     }
     pub fn confirm(&mut self) {
+        #[cfg(feature = "audio")]
+        if !copy::confirm_text(&self.presentation()).is_empty() {
+            self.launcher.emit_sound(super::sound::Cue::Confirm);
+        }
         self.feedback.press(self.elapsed_ms);
         match self.view.page {
             Page::Mode => {
@@ -586,6 +610,8 @@ impl DisplayState {
         {
             self.view.refreshing = false;
             self.view_revision = self.view_revision.wrapping_add(1);
+            #[cfg(feature = "audio")]
+            self.discover_sound();
             return;
         }
         let current = self.view.phase;
@@ -626,6 +652,8 @@ impl DisplayState {
                 self.set_phase(Phase::Idle);
                 self.clear_connection();
                 self.view.selected = 0;
+                #[cfg(feature = "audio")]
+                self.launcher.emit_sound(super::sound::Cue::Restored);
                 return;
             }
             _ => return,
@@ -639,6 +667,8 @@ impl DisplayState {
             }
             return;
         }
+        #[cfg(feature = "audio")]
+        self.launcher.emit_sound(super::sound::Cue::Back);
         if matches!(self.view.page, Page::Choice | Page::Unavailable)
             && self.view.source == LaunchSource::Game
         {
@@ -707,6 +737,10 @@ impl DisplayState {
         if !matches!(self.view.page, Page::Rooms | Page::Lobby | Page::Mode) {
             return;
         }
+        #[cfg(feature = "audio")]
+        if !self.view.refreshing {
+            self.launcher.emit_sound(super::sound::Cue::Refresh);
+        }
         self.view.refreshing = true;
         self.view.selected = 0;
     }
@@ -741,10 +775,28 @@ impl DisplayState {
 }
 
 impl DisplayState {
+    #[cfg(feature = "audio")]
+    fn discover_sound(&mut self) {
+        if matches!(self.view.scene_page(), Page::Rooms | Page::Lobby)
+            && self.rooms_visible()
+            && !self.heard_rooms
+            && self.view.rooms.iter().any(|room| room.available)
+        {
+            self.heard_rooms = true;
+            self.launcher.emit_sound(super::sound::Cue::RoomFound);
+        }
+    }
+
     fn navigate(&mut self, page: Page, direction: PageDirection) {
+        #[cfg(feature = "audio")]
+        if self.view.scene_page() != page && matches!(page, Page::Rooms | Page::Lobby) {
+            self.heard_rooms = false;
+        }
         self.view_revision = self.view_revision.wrapping_add(1);
         self.view.page = page;
         self.direction = direction;
+        #[cfg(feature = "audio")]
+        self.discover_sound();
     }
     fn take_fault(&mut self, scenario: Scenario) -> bool {
         if self.scenario != scenario || self.fault_delivered {
@@ -759,6 +811,8 @@ impl DisplayState {
         self.view.peers.clear();
     }
     fn set_phase(&mut self, phase: Phase) {
+        #[cfg(feature = "audio")]
+        let previous = self.view.phase;
         self.view_revision = self.view_revision.wrapping_add(1);
         self.view.phase = phase;
         self.view.ready = matches!(
@@ -784,6 +838,20 @@ impl DisplayState {
             }];
         } else if matches!(phase, Phase::Closed | Phase::Failed) {
             self.clear_connection();
+        }
+        #[cfg(feature = "audio")]
+        if previous != phase {
+            use super::sound::Cue;
+            if let Some(cue) = match phase {
+                Phase::Failed | Phase::RestoreFailed => Some(Cue::Error),
+                Phase::ApprovalPending => Some(Cue::JoinRequest),
+                Phase::HostReady | Phase::WaitingStart if self.view.ready => Some(Cue::Ready),
+                Phase::NetworkConnected if self.view.connected => Some(Cue::Ready),
+                Phase::Starting => Some(Cue::Start),
+                _ => None,
+            } {
+                self.launcher.emit_sound(cue);
+            }
         }
     }
     fn exit(&mut self, outcome: Outcome) {

@@ -245,6 +245,8 @@ pub struct Launcher {
     origin: Screen,
     #[observe]
     selected_game: Option<u32>,
+    #[cfg(feature = "audio")]
+    audio_feedback: super::sound::Feedback,
 }
 
 impl Default for Launcher {
@@ -325,6 +327,8 @@ impl Default for Launcher {
             direction: PageDirection::Forward,
             origin: Screen::Favorites,
             selected_game: None,
+            #[cfg(feature = "audio")]
+            audio_feedback: super::sound::Feedback::default(),
         };
         result.sort_games();
         result
@@ -333,6 +337,27 @@ impl Default for Launcher {
 
 #[model]
 impl Launcher {
+    #[cfg(feature = "audio")]
+    pub(super) fn bind_audio(&mut self, state: Option<crate::audio::AudioStateSignal>) {
+        self.audio_feedback.bind(state);
+    }
+
+    #[cfg(feature = "audio")]
+    pub(super) fn advance_audio(&mut self, delta: u16) {
+        self.audio_feedback.advance(delta);
+    }
+
+    #[cfg(feature = "audio")]
+    pub(super) fn emit_sound(&mut self, cue: super::sound::Cue) {
+        self.audio_feedback.emit(cue);
+    }
+
+    #[cfg(feature = "audio")]
+    #[effects]
+    fn take_sound(&mut self) -> Option<super::sound::Effect> {
+        self.audio_feedback.take()
+    }
+
     fn sort_games(&mut self) {
         let mut order: alloc::vec::Vec<_> = self
             .games
@@ -357,15 +382,25 @@ impl Launcher {
     pub fn sort_favorites(&mut self) {
         self.recent_sort = !self.recent_sort;
         self.sort_games();
+        #[cfg(feature = "audio")]
+        self.audio_feedback.emit(super::sound::Cue::Confirm);
     }
     pub fn toggle_selected_favorite(&mut self) {
+        let mut changed = false;
         for game in self.games.iter_mut() {
             if game.key() as usize == self.selected && !game.directory() {
                 game.toggle_favorite();
+                changed = true;
             }
+        }
+        if changed {
+            #[cfg(feature = "audio")]
+            self.audio_feedback.emit(super::sound::Cue::Confirm);
         }
     }
     pub(super) fn animate(&mut self, delta: u16) {
+        #[cfg(feature = "audio")]
+        self.audio_feedback.advance(delta);
         if self.overlay.is_some() {
             let value = self.menu_age.saturating_add(delta).min(800);
             if self.menu_age != value {
@@ -425,6 +460,10 @@ impl Launcher {
     }
 
     pub fn open(&mut self, screen: Screen) {
+        #[cfg(feature = "audio")]
+        if self.screen != screen {
+            self.audio_feedback.emit(super::sound::Cue::Confirm);
+        }
         self.cancel_hold();
         self.overlay = None;
         self.notice = "";
@@ -460,6 +499,14 @@ impl Launcher {
     }
 
     pub fn select(&mut self, index: usize) {
+        #[cfg(feature = "audio")]
+        if self.selected != index {
+            self.audio_feedback.emit(super::sound::Cue::Focus);
+        }
+        self.set_selection(index);
+    }
+
+    fn set_selection(&mut self, index: usize) {
         if self.selected != index {
             self.cancel_hold();
             if self.screen == Screen::Favorites {
@@ -495,12 +542,18 @@ impl Launcher {
     }
 
     pub fn dismiss_menu(&mut self) {
+        #[cfg(feature = "audio")]
+        if self.overlay.is_some() {
+            self.audio_feedback.emit(super::sound::Cue::Back);
+        }
         self.overlay = None;
     }
     pub fn select_action(&mut self, index: usize) {
         let index = index.min(self.item_count().saturating_sub(1));
         if self.menu_selection != index {
             self.menu_age = 0;
+            #[cfg(feature = "audio")]
+            self.audio_feedback.emit(super::sound::Cue::Focus);
         }
         self.menu_selection = index;
     }
@@ -513,6 +566,8 @@ impl Launcher {
     }
 
     pub fn type_key(&mut self, key: &'static str) {
+        #[cfg(feature = "audio")]
+        self.audio_feedback.emit(super::sound::Cue::Confirm);
         match key {
             "退格" => {
                 self.query.pop();
@@ -537,10 +592,14 @@ impl Launcher {
             .iter()
             .find(|game| !query.trim().is_empty() && game.matches(&query))
             .map_or(0, |game| game.key() as usize);
-        self.select(key);
+        self.set_selection(key);
     }
 
     pub fn edit_query(&mut self) {
+        #[cfg(feature = "audio")]
+        if !self.keyboard {
+            self.audio_feedback.emit(super::sound::Cue::Confirm);
+        }
         self.keyboard = true;
         self.selected = 100;
     }
@@ -564,10 +623,16 @@ impl Launcher {
         }
     }
     pub fn toggle_game_favorite(&mut self, key: u32) {
+        let mut changed = false;
         for game in self.games.iter_mut() {
             if game.key() == key {
                 game.toggle_favorite();
+                changed = true;
             }
+        }
+        if changed {
+            #[cfg(feature = "audio")]
+            self.audio_feedback.emit(super::sound::Cue::Confirm);
         }
     }
 
@@ -583,9 +648,13 @@ impl Launcher {
         }
         self.overlay = None;
         self.notice = "单机游玩 · LOCAL DEMO";
+        #[cfg(feature = "audio")]
+        self.audio_feedback.emit(super::sound::Cue::Start);
     }
 
     pub fn network(&mut self) {
+        #[cfg(feature = "audio")]
+        self.audio_feedback.emit(super::sound::Cue::Confirm);
         self.connected = !self.connected;
         self.notice = if self.connected {
             "已连接 · LOCAL DEMO"
@@ -598,10 +667,25 @@ impl Launcher {
     }
 
     pub fn toggle_sound(&mut self) {
-        self.sound = !self.sound;
+        #[cfg(feature = "audio")]
+        {
+            let (sound, volume) = self.audio_feedback.preferences(self.sound, self.volume);
+            self.sound = !sound;
+            self.volume = volume;
+            self.audio_feedback.configure(self.sound, self.volume);
+        }
+        #[cfg(not(feature = "audio"))]
+        {
+            self.sound = !self.sound;
+        }
     }
 
     pub fn adjust(&mut self, tool: MenuAction) {
+        #[cfg(feature = "audio")]
+        {
+            (self.sound, self.volume) = self.audio_feedback.preferences(self.sound, self.volume);
+        }
+        let old = (self.sound, self.volume, self.brightness, self.palette);
         match tool {
             MenuAction::ToggleSound => self.toggle_sound(),
             MenuAction::CycleTheme => self.palette = (self.palette + 1) % 3,
@@ -613,7 +697,24 @@ impl Launcher {
             }
             _ => return,
         }
+        if old != (self.sound, self.volume, self.brightness, self.palette) {
+            #[cfg(feature = "audio")]
+            {
+                if matches!(tool, MenuAction::VolumeDown | MenuAction::VolumeUp) {
+                    self.audio_feedback.configure(self.sound, self.volume);
+                } else {
+                    self.audio_feedback.emit(super::sound::Cue::Confirm);
+                }
+            }
+        }
         self.notice = "LOCAL DEMO: settings updated";
+        #[cfg(feature = "audio")]
+        if matches!(
+            tool,
+            MenuAction::ToggleSound | MenuAction::VolumeDown | MenuAction::VolumeUp
+        ) {
+            self.notice = "";
+        }
     }
 
     pub fn result(&mut self, notice: &'static str) {
@@ -714,6 +815,14 @@ impl Launcher {
         let mut enabled = true;
         let mut reason = "";
         let mut value = String::new();
+        #[cfg(feature = "audio")]
+        let (sound, volume) = if matches!(action, ToggleSound | VolumeDown | VolumeUp) {
+            self.audio_feedback.preferences(self.sound, self.volume)
+        } else {
+            (self.sound, self.volume)
+        };
+        #[cfg(not(feature = "audio"))]
+        let (sound, volume) = (self.sound, self.volume);
         match action {
             Multiplayer => {
                 enabled = self
@@ -739,15 +848,9 @@ impl Launcher {
                     reason = "尚未保留直连网络";
                 }
             }
-            VolumeDown | VolumeUp => value = alloc::format!("{}%", self.volume),
+            VolumeDown | VolumeUp => value = alloc::format!("{}%", volume),
             BrightnessDown | BrightnessUp => value = alloc::format!("{}%", self.brightness),
-            ToggleSound => {
-                value = if self.sound {
-                    "开".into()
-                } else {
-                    "关".into()
-                }
-            }
+            ToggleSound => value = if sound { "开".into() } else { "关".into() },
             CycleTheme => value = ["森林", "落日", "夜色"][self.palette].into(),
             _ => {}
         }
@@ -760,6 +863,10 @@ impl Launcher {
         })
     }
     pub fn show_overlay(&mut self, overlay: Overlay) {
+        #[cfg(feature = "audio")]
+        if self.overlay != Some(overlay) {
+            self.audio_feedback.emit(super::sound::Cue::Confirm);
+        }
         self.cancel_hold();
         self.overlay = Some(overlay);
         self.menu_selection = 0;
@@ -776,11 +883,15 @@ impl Launcher {
                 }
                 _ => self.overlay = None,
             }
+            #[cfg(feature = "audio")]
+            self.audio_feedback.emit(super::sound::Cue::Back);
             return;
         }
         if self.screen == Screen::Search && self.keyboard {
             self.keyboard = false;
             self.selected = 0;
+            #[cfg(feature = "audio")]
+            self.audio_feedback.emit(super::sound::Cue::Back);
             return;
         }
         let target = if self.screen == Screen::Games {
@@ -790,6 +901,8 @@ impl Launcher {
         };
         self.open(target);
         self.direction = PageDirection::Backward;
+        #[cfg(feature = "audio")]
+        self.audio_feedback.emit(super::sound::Cue::Back);
     }
 
     pub fn close(&mut self) {

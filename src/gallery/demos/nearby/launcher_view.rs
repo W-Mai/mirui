@@ -174,6 +174,13 @@ fn activate_action(state: &super::model::DisplayStateHandle, action: MenuAction)
         Back => library.back(),
         _ => library.adjust(action),
     }
+    #[cfg(feature = "audio")]
+    if matches!(
+        action,
+        NetworkInfo | SystemInfo | FileManager | Exit | Poweroff
+    ) {
+        library.emit_sound(super::sound::Cue::Confirm);
+    }
 }
 
 fn join_game(state: &super::model::DisplayStateHandle) {

@@ -38,6 +38,8 @@ Resizable demos without upper size bounds open at 640×480, constrained by the a
 
 Run the same Nearby UI in a resizable SDL window with `cargo run -p gallery --example nearby_demo` from the repository root. It opens at 640×480. Page transitions distinguish entering from returning; rapid returns reverse the active motion.
 
+Nearby uses bundled sound cues for navigation, confirmation, return, refresh, room discovery, join requests, readiness, starting, errors and restored connections. Its sound and volume settings control actual audio output. In the browser, enable sound beside the canvas to unlock playback; the in-canvas sound setting stays synchronized with that control. Muted or locked interactions are skipped without later replay. Native audio uses the optional SDL audio feature independently of the selected video backend; builds without audio remain silent.
+
 The source panel embeds each demo's root module and listed child modules. Each Lab keeps its primary `ui!` tree inside the focused source region and moves named sections into `#[compose]` functions.
 
 Fixed demos keep their logical coordinate space while the browser changes CSS size or device pixel ratio. The canvas maps pointer coordinates from CSS pixels into that logical space, and a viewport change invalidates retained layout geometry before the next hit test. Audio-enabled demos expose a mute button beside the canvas orientation control; the first visit starts muted, while an explicit choice is remembered by the browser for later visits. A remembered unmuted preference is shown as pending until the first trusted page interaction unlocks the browser audio context, as required by autoplay policies.

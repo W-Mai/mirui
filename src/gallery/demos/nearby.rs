@@ -80,6 +80,27 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     #[cfg(feature = "std")]
     app.add_plugin(crate::app::plugins::StdInstantClockPlugin);
     let state = app.add_model(model::DisplayState::default()).finish();
+    #[cfg(feature = "audio")]
+    {
+        let audio = app.audio();
+        if let Some(audio) = &audio {
+            audio.set_master_gain(sound::gain(state.launcher().volume()));
+            audio.set_muted(!state.launcher().sound());
+        }
+        state.launcher().bind_audio(
+            audio
+                .as_ref()
+                .and_then(crate::audio::AudioHandle::state_signal),
+        );
+        state
+            .launcher()
+            .on_effect(move |effect: &sound::Effect| {
+                if let Some(audio) = &audio {
+                    sound::submit(audio, effect);
+                }
+            })
+            .expect("Nearby sound consumer is registered once");
+    }
     state.resize(app.backend.viewport().logical_size().1);
     app.add_system(launcher_hold::system(state.clone()));
     app.add_system(launcher_layout::system(state.launcher()));
