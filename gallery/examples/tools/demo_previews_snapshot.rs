@@ -23,6 +23,16 @@ fn preview_size(size: DemoSize) -> (u16, u16) {
 
 fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::prelude::Entity {
     use mirui::gallery::demos::nearby::{self, data::Scenario, launcher::Screen};
+    use mirui::surface::{Surface, SurfaceSizeHost};
+    let inspector = (scene == "simulation").then(|| {
+        let (width, height) = app.backend.viewport().logical_size();
+        let host = SurfaceSizeHost::new(
+            width.checked_sub(300).expect("inspector content width"),
+            height,
+        );
+        app.add_resource(host.control());
+        host
+    });
     let root = app.spawn_root().id();
     let state = nearby::setup_app(app, root);
     app.add_resource(mirui::ecs::MonoClock::new(|| {
@@ -171,6 +181,11 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
         app.tick();
         app.render_dirty().expect("settle Nearby scene");
     }
+    if let Some(host) = inspector {
+        let request = host.take_request().expect("inspector expansion request");
+        host.complete(request, Ok(request.size()));
+        app.add_resource(host);
+    }
     root
 }
 
@@ -191,16 +206,21 @@ fn main() {
         snapshot_render::render(
             &output.join(format!("{}.png", demo.slug)),
             if demo.slug == "nearby" && env::var_os("NEARBY_SCENE").is_some() {
-                env::var("NEARBY_VIEWPORT").map_or((640, 480), |value| {
-                    let (width, height) =
-                        value.split_once('x').expect("Nearby viewport WIDTHxHEIGHT");
-                    let size = (
-                        width.parse().expect("viewport width"),
-                        height.parse().expect("viewport height"),
-                    );
-                    assert!(size.0 > 0 && size.1 > 0, "viewport must be nonzero");
-                    size
-                })
+                let mut size: (u16, u16) =
+                    env::var("NEARBY_VIEWPORT").map_or((640, 480), |value| {
+                        let (width, height) =
+                            value.split_once('x').expect("Nearby viewport WIDTHxHEIGHT");
+                        let size = (
+                            width.parse().expect("viewport width"),
+                            height.parse().expect("viewport height"),
+                        );
+                        assert!(size.0 > 0 && size.1 > 0, "viewport must be nonzero");
+                        size
+                    });
+                if env::var("NEARBY_SCENE").as_deref() == Ok("simulation") {
+                    size.0 = size.0.checked_add(300).expect("expanded inspector width");
+                }
+                size
             } else {
                 preview_size(demo.size)
             },

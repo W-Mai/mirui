@@ -10,8 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Surfaces can expose optional logical content-size control with reactive actual-size feedback, coalesced requests and owner-lifetime checks.
-- SDL and desktop WGPU apply size requests through their existing window and viewport paths; Web canvas hosts can opt into asynchronous document sizing, and surface wrappers retain size control.
-- Nearby simulation controls provide direct flow and case selection, state-gated remote replies, failure injection, retry and repeat controls without resizing the application.
+- SDL and desktop WGPU apply size requests through their existing window and viewport paths; Web canvas hosts can opt into document sizing, and surface wrappers retain size control.
+- Nearby simulation controls provide direct flow and case selection, state-gated remote replies, failure injection, retry and repeat controls in a docked left panel. The host grows while the Demo retains its dimensions and state.
 - Nearby exposes a Web simulation button and an F2 window hint; inactive replies leave the inspector scrollable.
 - Nearby includes ten static sound cues and installs audio output in its SDL and Web entry points.
 - Nearby navigation and connection state changes play sound cues; settings control output volume and share mute state with the Web audio control.

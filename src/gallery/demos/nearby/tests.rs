@@ -1661,97 +1661,23 @@ fn every_simulation_preset_restarts_and_reaches_its_advertised_condition() {
 }
 
 #[test]
-fn simulation_inspector_keeps_the_original_viewport_and_renders_after_repeated_replies() {
-    use super::simulation::{Action, Route};
-    use crate::ui::{ComputedRect, Hidden};
-    for (width, height) in [(360, 480), (640, 480)] {
-        let (mut app, state) = fixture_at(width, height);
-        state.launcher().resume();
-        for _ in 0..3 {
-            app.tick();
-            app.render_dirty().unwrap();
-        }
-        let shelf = app.world.find_by_id("nearby_shelf").unwrap();
-        let original = app.world.get::<ComputedRect>(shelf).unwrap().0;
-        for _ in 0..2 {
-            state.toggle_controls();
-            app.prepare_text_layout().unwrap();
-            app.render_dirty().unwrap();
-            let panel = app.world.find_by_id("nearby_simulation").unwrap();
-            assert!(app.world.get::<Hidden>(panel).is_none());
-            let bounds = app.world.get::<ComputedRect>(panel).unwrap().0;
-            assert!(bounds.w > Fixed::ZERO && bounds.w <= Fixed::from_int(width.into()));
-            assert_eq!(app.world.get::<ComputedRect>(shelf).unwrap().0, original);
-            let options = app.world.find_by_id("nearby_simulation_options").unwrap();
-            let area = app.world.get::<ComputedRect>(options).unwrap().0;
-            let point = (area.x + area.w / 2, area.y + area.h / 2);
-            let root = app.root;
-            crate::input::event::dispatch_input(
-                &mut app.world,
-                root,
-                &crate::input::event::input::InputEvent::Wheel {
-                    dx: Fixed::ZERO,
-                    dy: Fixed::from_int(-200),
-                    x: area.x + area.w / 2,
-                    y: area.y + Fixed::ONE,
-                },
-                1,
-                width,
-                height,
-            );
-            app.render_dirty().unwrap();
-            let before = app
-                .world
-                .get::<crate::input::event::scroll::ScrollOffset>(options)
-                .unwrap()
-                .y;
-            assert!(before > Fixed::ZERO);
-            crate::input::event::dispatch_input(
-                &mut app.world,
-                root,
-                &crate::input::event::input::InputEvent::Wheel {
-                    dx: Fixed::ZERO,
-                    dy: Fixed::from_int(100),
-                    x: point.0,
-                    y: point.1,
-                },
-                2,
-                width,
-                height,
-            );
-            assert!(
-                app.world
-                    .get::<crate::input::event::scroll::ScrollOffset>(options)
-                    .unwrap()
-                    .y
-                    < before
-            );
-            state.toggle_controls();
-            app.prepare_text_layout().unwrap();
-            app.render_dirty().unwrap();
-        }
-        state.toggle_controls();
-        state.run_simulation(Route::NetworkJoin, Scenario::Normal);
-        for action in [Action::Advance, Action::Reject] {
-            state.simulate(action);
-            for _ in 0..3 {
-                app.tick();
-                app.render_dirty().unwrap();
-            }
-        }
-        let pixels = app
-            .backend
-            .framebuffer()
-            .read_pixels()
-            .unwrap()
-            .bytes()
-            .to_vec();
-        app.render().unwrap();
-        assert_eq!(
-            pixels,
-            app.backend.framebuffer().read_pixels().unwrap().bytes()
-        );
-    }
+fn fixed_surfaces_do_not_replace_the_demo_with_an_inspector_overlay() {
+    let (mut app, state) = fixture();
+    app.render().unwrap();
+    let body = app.world.find_by_id("nearby_demo_content").unwrap();
+    let original = app.world.get::<crate::ui::ComputedRect>(body).unwrap().0;
+    state.toggle_controls();
+    app.prepare_text_layout().unwrap();
+    app.render_dirty().unwrap();
+    assert!(
+        app.world
+            .find_by_id("nearby_simulation")
+            .is_none_or(|entity| crate::ui::branch::is_hidden_in_tree(&app.world, entity))
+    );
+    assert_eq!(
+        app.world.get::<crate::ui::ComputedRect>(body).unwrap().0,
+        original
+    );
 }
 
 fn enter_host(model: &mut model::DisplayState, network: bool) {

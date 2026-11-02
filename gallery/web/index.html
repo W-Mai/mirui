@@ -1013,6 +1013,15 @@
           min-height: 0;
         }
         .stage { max-width: 100%; padding: var(--s3); }
+        main:has(.stage.host-expanded) { overflow: auto; }
+        .stage-wrap:has(.stage.host-expanded) {
+          display: grid;
+          width: max-content;
+          height: max-content;
+          min-width: 100%;
+          min-height: 100%;
+        }
+        .stage.host-expanded { max-width: none; }
         .stage-meta { gap: var(--s2); margin-bottom: var(--s2); }
         .stage-meta .name { font-size: 12px; }
         .stage-meta .size { padding: 4px 7px; }
@@ -1532,7 +1541,7 @@
                   </button>
                 </span>
               </div>
-              <canvas id="mirui" tabindex="0"></canvas>
+              <canvas id="mirui" tabindex="0" data-mirui-size-host="true"></canvas>
               <div class="resize-ring" id="resize-ring" title="Drag to resize"></div>
             </div>
           </div>
@@ -1789,6 +1798,35 @@
         let demoContract = sizeContract(activeDemo);
         let orientationSwapped = false;
         let currentSize = null;
+        let hostExtraWidth = 0;
+
+        canvas.addEventListener("mirui-size-request", () => {
+          const raw = canvas.getAttribute("data-mirui-size-request");
+          const fields = raw?.split(",");
+          const id = fields?.[0];
+          const requested = fields?.slice(1).map(Number);
+          const demo = currentSize && { ...currentSize };
+          const reply = (result) => canvas.setAttribute("data-mirui-size-result", `${id}:${result}`);
+          // Only DOM state changes here; the owning App call is still active.
+          if (!demo || !requested || fields.length !== 3
+            || !requested.every((value) => Number.isInteger(value) && value > 0 && value <= 65535)) {
+            reply("rejected");
+            return;
+          }
+          if (activeSlug === "nearby") {
+            const extra = requested[0] - Math.round(demo.logicalWidth);
+            if (extra < 0 || requested[1] !== Math.round(demo.logicalHeight)) {
+              reply("rejected");
+              return;
+            }
+            hostExtraWidth = extra;
+            applyCanvasSize(demo, false);
+          } else {
+            hostExtraWidth = 0;
+            applyCanvasSize(resolveCanvasSize({ width: requested[0], height: requested[1] }), false);
+          }
+          reply("ok");
+        });
 
         function orientedContract() {
           return orientationSwapped ? swapContract(demoContract) : demoContract;
@@ -1860,13 +1898,14 @@
         }
         adoptPortraitOrientation();
 
-        function applyCanvasSize(size) {
+        function applyCanvasSize(size, notifySurface = true) {
           const displayWidth = Math.max(1, size.displayWidth);
           const displayHeight = Math.max(1, size.displayHeight);
-          canvas.style.width = `${displayWidth}px`;
+          canvas.style.width = `${displayWidth + hostExtraWidth * size.scale}px`;
           canvas.style.height = `${displayHeight}px`;
-          wasmBindings.set_canvas_logical_size(
-            size.fixed ? Math.round(size.logicalWidth) : 0,
+          stage.classList.toggle("host-expanded", hostExtraWidth > 0);
+          if (notifySurface) wasmBindings.set_canvas_logical_size(
+            size.fixed ? Math.round(size.logicalWidth + hostExtraWidth) : 0,
             size.fixed ? Math.round(size.logicalHeight) : 0,
           );
           const logical = `${Math.round(size.logicalWidth)} × ${Math.round(size.logicalHeight)}`;
@@ -2405,6 +2444,7 @@
             return false;
           }
 
+          hostExtraWidth = 0;
           activeDemo = demo;
           activeSlug = slug;
           syncSimulationControl();

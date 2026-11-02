@@ -32,6 +32,7 @@ pub struct DisplayState {
     pub return_to_launcher: bool,
     #[observe]
     pub controls: bool,
+    inspector_intent: Option<super::simulation::Visibility>,
     #[observe]
     pub(super) view_revision: u64,
     #[observe]
@@ -73,6 +74,7 @@ impl Default for DisplayState {
         Self {
             return_to_launcher: false,
             controls: false,
+            inspector_intent: None,
             view_revision: 0,
             actor_stage: true,
             motion: super::motion::Frame::default(),
@@ -155,6 +157,12 @@ impl Default for DisplayState {
 impl DisplayState {
     pub fn toggle_controls(&mut self) {
         self.controls = !self.controls;
+        self.inspector_intent = Some(super::simulation::Visibility(self.controls));
+    }
+
+    #[effects]
+    fn take_inspector(&mut self) -> Option<super::simulation::Visibility> {
+        self.inspector_intent.take()
     }
 
     pub(super) fn run_simulation(&mut self, route: super::simulation::Route, scenario: Scenario) {

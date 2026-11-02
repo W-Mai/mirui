@@ -217,12 +217,12 @@ fn read_demo_query() -> Option<String> {
     let trimmed = search.trim_start_matches('?');
     for pair in trimmed.split('&') {
         let mut parts = pair.splitn(2, '=');
-        if parts.next() == Some("demo") {
-            if let Some(value) = parts.next() {
-                return js_sys::decode_uri_component(value)
-                    .ok()
-                    .map(|s| s.as_string().unwrap_or_default());
-            }
+        if parts.next() == Some("demo")
+            && let Some(value) = parts.next()
+        {
+            return js_sys::decode_uri_component(value)
+                .ok()
+                .map(|s| s.as_string().unwrap_or_default());
         }
     }
     None

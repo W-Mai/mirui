@@ -115,7 +115,11 @@ pub fn setup_app<B: Surface, F: RendererFactory<B>>(
         crate::input::event::input::Key::EVENT,
         input::keyboard::callback(state.clone()),
     );
-    app.compose(parent, composition::build_widgets(state.clone()));
+    let size_control = app.backend.size_control();
+    app.compose(
+        parent,
+        composition::build_widgets(state.clone(), size_control),
+    );
     state
 }
 

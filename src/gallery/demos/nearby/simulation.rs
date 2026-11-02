@@ -6,6 +6,12 @@ use crate::prelude::*;
 use crate::ui::UserState;
 use crate::ui::widgets::{Button, Text};
 
+mod host;
+pub(crate) use host::{InspectorHost, Visibility};
+
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum Route {
     #[default]
@@ -194,11 +200,8 @@ pub(super) fn controls(state: model!(DisplayState)) -> Entity {
     ui! {
         Column (
             id: "nearby_simulation",
-            position: Position::Absolute,
-            top: 0,
-            left: 0,
-            width: 300,
-            max_width: Dimension::percent(100),
+            width: host::PANEL_WIDTH,
+            shrink: 0.0,
             height: Dimension::percent(100),
             min_height: 0,
             padding: Padding::all(8),

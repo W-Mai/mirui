@@ -1,6 +1,6 @@
 # Snapshot tools
 
-`cargo run -p gallery --example surface_size_probe --no-default-features --features sdl` checks owner-thread content resizing, viewport feedback, rapid replacement and handle retirement in a temporary native window. Select `sdl-gpu` or `wgpu` to exercise those backends; this tool requires a windowed desktop session.
+`cargo run -p gallery --example surface_size_probe --no-default-features --features sdl` checks owner-thread content resizing, viewport feedback, rapid replacement, Nearby dock rendering and handle retirement in a temporary native window. Select `sdl-gpu` or `wgpu` to exercise those backends; this tool requires a windowed desktop session.
 
 The embedded font asset can be regenerated with `cargo xtask gen-mirx builtin-font`; `cargo xtask gen-mirx builtin-font --check` verifies it against the glyph source. The generator uses the MIRX font encoder and does not require external font tooling.
 
@@ -22,7 +22,7 @@ The preview tool accepts an optional demo slug after the output directory; omit 
 
 Set `NEARBY_SCENE` when selecting `nearby` to capture a deterministic scene (640×480 by default): `NEARBY_SCENE=actions cargo run -p gallery --example demo_previews_snapshot --no-default-features --features snapshot -- .local/screenshots/nearby-actions nearby`. Available scenes are `favorites`, `actions`, `platforms`, `games`, `connection-games`, `empty-games`, `search`, `search-results`, `search-empty`, `settings`, `controls`, `tools`, `power`, `exit`, `network-menu`, `lobby`, `discovery-actions`, `discovery-current`, `discovery-empty`, `candidates`, `panel`, `panel-game`, `panel-host`, `mode`, `game-entry`, `choice`, `host`, `joined`, `joined-game`, `approval`, `ready`, `connection-failed`, `restore-failed`, `rooms`, `leaving`, `network` and `unavailable`. Set `NEARBY_VIEWPORT=320x240` or another nonzero logical size to inspect responsive geometry, and `NEARBY_PALETTE=0`, `1` or `2` for forest, sunset or night. `NEARBY_SETTLE_FRAMES=0` captures the first paint; the default advances 40 frames before capture.
 
-`NEARBY_SCENE=simulation` captures the floating network simulation inspector over the retained launcher. Its scrollable controls remain independent of the application viewport.
+`NEARBY_SCENE=simulation` captures the network simulation inspector beside the retained launcher. The output adds a 300-pixel left panel to `NEARBY_VIEWPORT`, preserving the application dimensions; the default output is 940×480.
 
 The Web pre-build hook invokes the same tool for all entries in `gallery::DEMOS` and caches the previews under `target/gallery-site/demo-previews`. A failed generation preserves the previous preview directory; a successful generation replaces it. Adding a demo does not require maintaining a separate image count.
 

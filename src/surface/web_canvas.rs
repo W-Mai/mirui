@@ -51,7 +51,8 @@ impl Drop for Listener {
 /// uniform CSS display scale.
 pub struct WebCanvasSurface {
     size_host: Option<super::SurfaceSizeHost>,
-    pending_size: Option<super::SurfaceSizeRequest>,
+    pending_size: Option<(super::SurfaceSizeRequest, u64)>,
+    size_sequence: u64,
     canvas: HtmlCanvasElement,
     ctx: CanvasRenderingContext2d,
     backbuffer: BackbufferInvalidation,
@@ -81,6 +82,7 @@ impl WebCanvasSurface {
         Self {
             size_host: None,
             pending_size: None,
+            size_sequence: 0,
             canvas,
             ctx,
             backbuffer: BackbufferInvalidation::new((css_w, css_h, scale)),
@@ -118,8 +120,14 @@ impl WebCanvasSurface {
         };
         let info = self.display_info();
         host.observe_size(info.width, info.height);
-        if let Some(request) = self.pending_size {
+        if let Some((request, sequence)) = self.pending_size {
             if let Some(result) = self.canvas.get_attribute("data-mirui-size-result") {
+                let Some((id, result)) = result.split_once(':') else {
+                    return;
+                };
+                if id.parse::<u64>().ok() != Some(sequence) {
+                    return;
+                }
                 self.pending_size = None;
                 let result = if result == "ok" {
                     Ok((info.width, info.height))
@@ -135,13 +143,15 @@ impl WebCanvasSurface {
             return;
         };
         let size = request.size();
+        self.size_sequence = self.size_sequence.wrapping_add(1);
+        let sequence = self.size_sequence;
         let result = self
             .canvas
             .remove_attribute("data-mirui-size-result")
             .and_then(|_| {
                 self.canvas.set_attribute(
                     "data-mirui-size-request",
-                    &alloc::format!("{},{}", size.0, size.1),
+                    &alloc::format!("{sequence},{},{}", size.0, size.1),
                 )
             })
             .and_then(|_| web_sys::Event::new("mirui-size-request"))
@@ -149,7 +159,20 @@ impl WebCanvasSurface {
         if result.is_err() {
             host.complete(request, Err(super::SurfaceSizeError::Backend));
         } else {
-            self.pending_size = Some(request);
+            if let Some(result) = self.canvas.get_attribute("data-mirui-size-result")
+                && let Some((id, result)) = result.split_once(':')
+                && id.parse::<u64>().ok() == Some(sequence)
+            {
+                let info = self.display_info();
+                let result = if result == "ok" {
+                    Ok((info.width, info.height))
+                } else {
+                    Err(super::SurfaceSizeError::Restricted)
+                };
+                host.complete(request, result);
+            } else {
+                self.pending_size = Some((request, sequence));
+            }
         }
     }
 }
