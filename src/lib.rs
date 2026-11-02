@@ -275,7 +275,7 @@ pub mod prelude {
     pub use crate::ui::theme::{
         ColorToken, Theme, ThemeCatalog, ThemeError, ThemeId, ThemeInfo, ThemeSource, ThemedColor,
     };
-    pub use crate::ui::{HitTarget, InteractionFeedback, RespectSafeArea, Style, Widget};
+    pub use crate::ui::{HitTarget, InteractionFeedback, Prop, RespectSafeArea, Style, Widget};
     pub use crate::ui::{WidgetMut, property};
 
     pub use mirui_macros::{

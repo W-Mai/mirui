@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `Prop<T>` carries static values or shared read-only getters between compositions without intermediate reactive sources.
 - Surfaces can expose optional logical content-size control with reactive actual-size feedback, coalesced requests and owner-lifetime checks.
 - SDL and desktop WGPU apply size requests through their existing window and viewport paths; Web canvas hosts can opt into document sizing, and surface wrappers retain size control.
 - Nearby simulation controls provide direct flow and case selection, state-gated remote replies, failure injection, retry and repeat controls in a docked left panel. The host grows while the Demo retains its dimensions and state.

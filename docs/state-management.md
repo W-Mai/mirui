@@ -81,6 +81,8 @@ A prepared composition also works as the child callback of `tree.children(recipe
 
 Calling a `#[compose]` function prepares a stack-held composition without executing its body. All arguments remain owned or borrowed by that value until it is executed or dropped. Model validation, resource access, bindings, and widget creation run inside `App::compose`; preparing a composition does not require an active application owner. Composition outputs use concrete Rust types, including generics. Returned references may borrow application data supplied as arguments, but not the construction scope or its resources.
 
+`Prop<T>` carries a static value or a shared read-only getter. `Prop::from(value)` stores a value; `Prop::new(move || source.get())` retains a getter without evaluating it. `get()` reads in the caller's reactive scope, so a widget binding subscribes to the original sources. Cloning a dynamic prop shares its getter without allocating or registering another consumer. Each read evaluates the getter; use `Computed` when a result needs caching. Static props add no framework allocation, while each dynamic prop allocates one shared closure during preparation. Allocations performed by the value or getter, including String creation, remain separate.
+
 For construction without the UI DSL, pass a closure to `App::compose`. Its scope accepts components, typed widget builders, and tuples of both. `children` returns the container entity and the closure's result. Scope creation and raw widget builders are internal; generated UI and Niche construction use the same implementation through hidden macro support. The supplied scope does not expose World access or require manual parent wiring.
 
 ```rust
