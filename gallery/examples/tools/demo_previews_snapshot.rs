@@ -77,6 +77,7 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
         }
         "favorites" => {}
         "favorites-full" => {
+            const TOTAL: u32 = 24;
             const NAMES: [&str; 6] = [
                 "双人冒险",
                 "街头赛车",
@@ -87,19 +88,22 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
             ];
             library
                 .games()
-                .load((0..24).map(|key| nearby::launcher::Game {
-                    directory: key == 8,
-                    played: 0,
-                    key,
-                    name: if key == 8 {
-                        "游戏库"
-                    } else {
-                        NAMES[key as usize % NAMES.len()]
-                    },
-                    search: "game",
-                    platform: (key != 8).then_some(key as usize % 6),
-                    multiplayer: key != 8,
-                    favorite: true,
+                .load((0..TOTAL).map(|key| {
+                    let directory = key == TOTAL - 1;
+                    nearby::launcher::Game {
+                        directory,
+                        played: 0,
+                        key,
+                        name: if directory {
+                            "游戏库"
+                        } else {
+                            NAMES[key as usize % NAMES.len()]
+                        },
+                        search: "game",
+                        platform: (!directory).then_some(key as usize % 6),
+                        multiplayer: !directory,
+                        favorite: true,
+                    }
                 }))
                 .expect("bounded snapshot inventory");
         }
