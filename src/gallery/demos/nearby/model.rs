@@ -60,6 +60,10 @@ pub struct DisplayState {
     mode_selection: usize,
     has_current_game: bool,
     network_page: Page,
+    #[observe]
+    pub(super) simulation_route: super::simulation::Route,
+    #[observe]
+    pub(super) simulation_note: &'static str,
     #[cfg(feature = "audio")]
     heard_rooms: bool,
 }
@@ -139,6 +143,8 @@ impl Default for DisplayState {
             mode_selection: 0,
             has_current_game: false,
             network_page: Page::Host,
+            simulation_route: super::simulation::Route::Host,
+            simulation_note: "",
             #[cfg(feature = "audio")]
             heard_rooms: false,
         }
@@ -150,6 +156,120 @@ impl DisplayState {
     pub fn toggle_controls(&mut self) {
         self.controls = !self.controls;
     }
+
+    pub(super) fn run_simulation(&mut self, route: super::simulation::Route, scenario: Scenario) {
+        use super::simulation::Route;
+        self.simulation_route = route;
+        self.scenario = scenario;
+        self.simulation_note = "";
+        self.launcher.clear_network();
+        self.has_current_game = route == Route::InGame;
+        match route {
+            Route::InGame => {
+                self.return_to_launcher = false;
+                self.view.source = LaunchSource::Game;
+                self.view.lobby = false;
+                self.has_current_game = true;
+                self.view.title.clear();
+                self.view.title.push_str("双人冒险");
+                self.launcher.close();
+                self.restart();
+            }
+            Route::Match => {
+                self.open_network();
+                self.choose_room(0);
+            }
+            Route::Host | Route::Join => {
+                self.launch_game("双人冒险".into(), true);
+                self.activate(usize::from(route == Route::Join));
+                if route == Route::Join {
+                    self.advance();
+                    self.choose_room(0);
+                }
+            }
+            Route::NetworkHost | Route::NetworkJoin => {
+                self.open_network();
+                self.choose_connection(0);
+                self.activate(usize::from(route == Route::NetworkJoin));
+                if route == Route::NetworkJoin {
+                    self.advance();
+                    self.choose_room(0);
+                }
+            }
+        }
+        if scenario == Scenario::RestoreFailure && self.view.page == Page::Host {
+            self.back_page();
+        }
+    }
+
+    pub(super) fn stop_simulation(&mut self) {
+        self.exit(Outcome::System);
+        self.clear_connection();
+        self.view.network_only = false;
+        self.launcher.clear_network();
+        self.set_phase(Phase::Idle);
+    }
+
+    fn simulation_allowed_value(&self, action: super::simulation::Action) -> bool {
+        let fault_reply = action == super::simulation::Action::Advance
+            && !self.fault_delivered
+            && matches!(self.scenario, Scenario::PeerClosed | Scenario::Reconnect)
+            && matches!(
+                self.view.phase,
+                Phase::HostReady | Phase::WaitingStart | Phase::NetworkConnected
+            );
+        !self.launcher.active()
+            && (fault_reply
+                || action.allowed(
+                    self.view.page,
+                    self.view.phase,
+                    self.view.network_only,
+                    self.view.refreshing,
+                ))
+    }
+
+    pub(super) fn simulate(&mut self, action: super::simulation::Action) {
+        use super::simulation::Action;
+        if !self.simulation_allowed_value(action) {
+            return;
+        }
+        match action {
+            Action::Advance => self.advance(),
+            Action::Failure | Action::Timeout | Action::Reject => {
+                self.set_phase(Phase::Failed);
+                self.simulation_note = match action {
+                    Action::Failure => "Simulated connection failure",
+                    Action::Timeout => "Simulated request timeout",
+                    _ => "Simulated host rejected the join request",
+                };
+            }
+            Action::PeerLeft => {
+                self.view.peers.clear();
+                self.set_phase(if self.view.page == Page::Host {
+                    Phase::WaitingPeer
+                } else {
+                    Phase::Closed
+                });
+                self.simulation_note = if self.view.page == Page::Host {
+                    "Friend left; waiting for another peer"
+                } else {
+                    "Host closed the room"
+                };
+            }
+            Action::Disconnect => self.set_phase(Phase::NetworkReconnecting),
+            Action::RestoreFailure => {
+                self.set_phase(Phase::RestoreFailed);
+                self.simulation_note = "Simulated Wi-Fi restore failure";
+            }
+            Action::RestoreSuccess => {
+                if self.scenario == Scenario::RestoreFailure {
+                    self.fault_delivered = true;
+                }
+                self.advance();
+            }
+        }
+    }
+
     fn heading_value(&self) -> alloc::string::String {
         match self.view.page {
             Page::Lobby => "附近正在玩的伙伴".into(),
@@ -860,6 +980,7 @@ impl DisplayState {
         self.view.peers.clear();
     }
     fn set_phase(&mut self, phase: Phase) {
+        self.simulation_note = "";
         #[cfg(feature = "audio")]
         let previous = self.view.phase;
         self.view_revision = self.view_revision.wrapping_add(1);
@@ -940,6 +1061,28 @@ pub struct Presentation {
 }
 
 impl DisplayStateHandle {
+    pub(super) fn simulation_step(&self) -> &'static str {
+        if self.launcher().active() {
+            return "Choose a flow or case to begin";
+        }
+        let view = self.presentation();
+        if matches!(self.scenario(), Scenario::PeerClosed | Scenario::Reconnect)
+            && matches!(
+                view.phase,
+                Phase::HostReady | Phase::WaitingStart | Phase::NetworkConnected
+            )
+            && self.simulation_allowed(super::simulation::Action::Advance)
+        {
+            return "Deliver simulated disconnect";
+        }
+        super::simulation::step_label(view.phase, view.refreshing)
+    }
+    pub(super) fn simulation_allowed(&self, action: super::simulation::Action) -> bool {
+        self.view_revision();
+        self.launcher().active();
+        self.scenario();
+        self.simulation_allowed_value(action)
+    }
     pub(super) fn selected_platform(&self) -> super::consoles::Platform {
         self.view_revision();
         self.selected();
@@ -999,7 +1142,12 @@ impl DisplayStateHandle {
         !copy::confirm_text(&self.presentation()).is_empty()
     }
     pub(super) fn status(&self) -> &'static str {
-        copy::status_text(&self.presentation())
+        let note = self.simulation_note();
+        if note.is_empty() {
+            copy::status_text(&self.presentation())
+        } else {
+            note
+        }
     }
     pub(super) fn hint(&self) -> &'static str {
         if self.launcher().active() {

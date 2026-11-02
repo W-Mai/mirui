@@ -1517,6 +1517,199 @@ fn set_scenario(model: &mut model::DisplayState, scenario: Scenario) {
     panic!("scenario is not reachable");
 }
 
+#[test]
+fn simulation_remote_replies_preserve_local_host_approval_and_start() {
+    use super::simulation::{Action, Route};
+    let mut state = model::DisplayState::default();
+    state.run_simulation(Route::Host, Scenario::Normal);
+    for phase in [Phase::Creating, Phase::WaitingPeer, Phase::PeerPreparing] {
+        assert_eq!(state.presentation().phase, phase);
+        state.simulate(Action::Advance);
+    }
+    assert_eq!(state.presentation().phase, Phase::ApprovalPending);
+    state.simulate(Action::Advance);
+    assert_eq!(state.presentation().phase, Phase::ApprovalPending);
+    state.confirm();
+    assert_eq!(state.presentation().phase, Phase::HostReady);
+    state.simulate(Action::Advance);
+    assert_eq!(state.presentation().phase, Phase::HostReady);
+    state.confirm();
+    state.simulate(Action::Advance);
+    assert!(state.launcher.active());
+    assert_eq!(state.presentation().outcome, Outcome::Multiplayer);
+}
+
+#[test]
+fn simulation_client_can_be_rejected_reconnect_and_keep_the_network() {
+    use super::simulation::{Action, Route};
+    let mut state = model::DisplayState::default();
+    state.run_simulation(Route::NetworkJoin, Scenario::Normal);
+    assert_eq!(state.presentation().phase, Phase::Connecting);
+    state.simulate(Action::Advance);
+    assert_eq!(state.presentation().phase, Phase::ApprovalPendingClient);
+    state.simulate(Action::Reject);
+    assert_eq!(state.presentation().phase, Phase::Failed);
+    assert!(!state.simulation_note.is_empty());
+    state.run_simulation(Route::NetworkJoin, Scenario::Normal);
+    for _ in 0..3 {
+        state.simulate(Action::Advance);
+    }
+    assert_eq!(state.presentation().phase, Phase::NetworkConnected);
+    state.simulate(Action::Disconnect);
+    assert_eq!(state.presentation().phase, Phase::NetworkReconnecting);
+    state.simulate(Action::Advance);
+    assert_eq!(state.presentation().phase, Phase::NetworkConnected);
+    state.confirm();
+    assert_eq!(state.presentation().outcome, Outcome::KeepNetwork);
+    assert!(state.launcher.connected());
+    state.stop_simulation();
+    assert!(state.launcher.active());
+    assert!(!state.launcher.connected());
+    assert!(!state.presentation().connected);
+}
+
+#[test]
+fn simulation_faults_only_apply_to_the_current_operation_and_restore_is_retryable() {
+    use super::simulation::{Action, Route};
+    let mut state = model::DisplayState::default();
+    state.run_simulation(Route::Host, Scenario::Normal);
+    for action in [Action::Reject, Action::Disconnect, Action::RestoreFailure] {
+        let before = state.snapshot();
+        state.simulate(action);
+        assert_eq!(state.snapshot(), before);
+    }
+    state.simulate(Action::Failure);
+    assert_eq!(state.presentation().phase, Phase::Failed);
+    state.run_simulation(Route::Host, Scenario::Normal);
+    assert!(state.simulation_note.is_empty());
+    state.simulate(Action::Advance);
+    state.simulate(Action::Timeout);
+    assert_eq!(state.presentation().phase, Phase::Failed);
+    state.run_simulation(Route::NetworkHost, Scenario::RestoreFailure);
+    state.simulate(Action::RestoreFailure);
+    assert_eq!(state.presentation().phase, Phase::RestoreFailed);
+    state.simulate(Action::RestoreSuccess);
+    assert_eq!(state.presentation().phase, Phase::RestoreFailed);
+    state.confirm();
+    assert_eq!(state.presentation().phase, Phase::Leaving);
+    state.simulate(Action::RestoreSuccess);
+    assert_eq!(state.presentation().phase, Phase::Idle);
+    assert_eq!(state.presentation().page, Page::Choice);
+    assert!(!state.presentation().connected);
+}
+
+#[test]
+fn every_simulation_preset_restarts_and_reaches_its_advertised_condition() {
+    use super::simulation::{Action, Route, SCENARIOS};
+    let mut state = model::DisplayState::default();
+    for scenario in SCENARIOS {
+        for _ in 0..2 {
+            state.run_simulation(Route::InGame.for_scenario(scenario), scenario);
+            match scenario {
+                Scenario::Normal => {
+                    assert_eq!(state.presentation().source, LaunchSource::Game);
+                    assert_eq!(state.presentation().page, Page::Choice);
+                }
+                Scenario::ConnectionFailure | Scenario::RestoreFailure => {
+                    state.simulate(Action::Advance);
+                    assert_eq!(
+                        state.presentation().phase,
+                        if scenario == Scenario::ConnectionFailure {
+                            Phase::Failed
+                        } else {
+                            Phase::RestoreFailed
+                        }
+                    );
+                }
+                Scenario::ExistingRoom => {
+                    assert_eq!(state.presentation().phase, Phase::RoomActive);
+                }
+                Scenario::EmptyRooms => {
+                    assert_eq!(state.presentation().page, Page::Rooms);
+                    assert!(state.presentation().rooms_empty);
+                }
+                Scenario::Reconnect => {
+                    for _ in 0..3 {
+                        state.simulate(Action::Advance);
+                    }
+                    assert_eq!(state.presentation().phase, Phase::NetworkConnected);
+                    state.simulate(Action::Advance);
+                    assert_eq!(state.presentation().phase, Phase::NetworkReconnecting);
+                    state.simulate(Action::Advance);
+                    assert_eq!(state.presentation().phase, Phase::NetworkConnected);
+                }
+                Scenario::PeerClosed => {
+                    for _ in 0..3 {
+                        state.simulate(Action::Advance);
+                    }
+                    state.confirm();
+                    state.simulate(Action::Advance);
+                    assert_eq!(state.presentation().phase, Phase::Closed);
+                }
+                Scenario::EmptyGames => {
+                    assert_eq!(state.presentation().phase, Phase::ResolvingGame);
+                    state.simulate(Action::Advance);
+                    assert_eq!(state.presentation().page, Page::Candidates);
+                    assert!(state.presentation().entries_empty);
+                }
+                Scenario::UnsupportedGame => {
+                    assert_eq!(state.presentation().page, Page::Unavailable);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn simulation_inspector_keeps_the_original_viewport_and_renders_after_repeated_replies() {
+    use super::simulation::{Action, Route};
+    use crate::ui::{ComputedRect, Hidden};
+    for (width, height) in [(360, 480), (640, 480)] {
+        let (mut app, state) = fixture_at(width, height);
+        state.launcher().resume();
+        for _ in 0..3 {
+            app.tick();
+            app.render_dirty().unwrap();
+        }
+        let shelf = app.world.find_by_id("nearby_shelf").unwrap();
+        let original = app.world.get::<ComputedRect>(shelf).unwrap().0;
+        for _ in 0..2 {
+            state.toggle_controls();
+            app.prepare_text_layout().unwrap();
+            app.render_dirty().unwrap();
+            let panel = app.world.find_by_id("nearby_simulation").unwrap();
+            assert!(app.world.get::<Hidden>(panel).is_none());
+            let bounds = app.world.get::<ComputedRect>(panel).unwrap().0;
+            assert!(bounds.w > Fixed::ZERO && bounds.w <= Fixed::from_int(width.into()));
+            assert_eq!(app.world.get::<ComputedRect>(shelf).unwrap().0, original);
+            state.toggle_controls();
+            app.prepare_text_layout().unwrap();
+            app.render_dirty().unwrap();
+        }
+        state.toggle_controls();
+        state.run_simulation(Route::NetworkJoin, Scenario::Normal);
+        for action in [Action::Advance, Action::Reject] {
+            state.simulate(action);
+            for _ in 0..3 {
+                app.tick();
+                app.render_dirty().unwrap();
+            }
+        }
+        let pixels = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
+        app.render().unwrap();
+        assert_eq!(
+            pixels,
+            app.backend.framebuffer().read_pixels().unwrap().bytes()
+        );
+    }
+}
+
 fn enter_host(model: &mut model::DisplayState, network: bool) {
     if network {
         model.activate(0);

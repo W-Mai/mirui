@@ -21,6 +21,7 @@ mod palette;
 mod pixel;
 mod sessions;
 mod shelf;
+mod simulation;
 mod snapshot;
 #[cfg(feature = "audio")]
 mod sound;

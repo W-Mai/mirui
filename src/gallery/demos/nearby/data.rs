@@ -61,15 +61,15 @@ impl Scenario {
     }
     pub fn label(self) -> &'static str {
         match self {
-            Self::Normal => "Case: normal",
-            Self::ConnectionFailure => "Case: fail",
-            Self::RestoreFailure => "Case: restore",
-            Self::ExistingRoom => "Case: occupied",
-            Self::EmptyRooms => "Case: empty",
-            Self::Reconnect => "Case: reconnect",
-            Self::PeerClosed => "Case: closed",
-            Self::EmptyGames => "Case: no games",
-            Self::UnsupportedGame => "Case: unsupported",
+            Self::Normal => "Success",
+            Self::ConnectionFailure => "Fail connect",
+            Self::RestoreFailure => "Fail restore",
+            Self::ExistingRoom => "Room exists",
+            Self::EmptyRooms => "No rooms",
+            Self::Reconnect => "Reconnect",
+            Self::PeerClosed => "Peer closes",
+            Self::EmptyGames => "No matches",
+            Self::UnsupportedGame => "Unsupported",
         }
     }
 }

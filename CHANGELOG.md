@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Nearby simulation controls provide direct flow and case selection, state-gated remote replies, failure injection, retry and repeat controls without resizing the application.
 - Nearby includes ten static sound cues and installs audio output in its SDL and Web entry points.
 - Nearby navigation and connection state changes play sound cues; settings control output volume and share mute state with the Web audio control.
 - Nearby demo launcher state uses nested Models and an observable game collection, retaining browser context across nested menus.
