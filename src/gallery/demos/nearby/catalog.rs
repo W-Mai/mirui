@@ -295,7 +295,6 @@ fn entry(
 
 #[compose]
 fn empty(library: model!(Launcher), metrics: Metrics) -> Entity {
-    let label = library.clone();
     ui! {
         Column (grow: 1.0, min_height: 0) {
             Column (
@@ -321,7 +320,7 @@ fn empty(library: model!(Launcher), metrics: Metrics) -> Entity {
                 }
                 caption (
                     ${
-                        if label.query().trim().is_empty() {
+                        if library.query().trim().is_empty() {
                             "输入游戏名或文件名"
                         } else {
                             "没有匹配的游戏"
@@ -341,7 +340,6 @@ fn empty(library: model!(Launcher), metrics: Metrics) -> Entity {
 
 #[compose]
 fn search(library: model!(Launcher), metrics: Metrics) -> Entity {
-    let query = library.clone();
     ui! {
         Column (grow: 1.0, min_height: 0, row_gap: metrics.gap) {
             Row (
@@ -359,7 +357,7 @@ fn search(library: model!(Launcher), metrics: Metrics) -> Entity {
                 Column (grow: 1.0, min_width: 0) {
                     caption (
                         ${
-                            let value = query.query();
+                            let value = library.query();
                             if value.is_empty() { "输入游戏名或文件名".into() } else { value }
                         },
                         FOREGROUND,
@@ -388,7 +386,6 @@ fn search(library: model!(Launcher), metrics: Metrics) -> Entity {
 
 #[compose]
 fn keycap(library: model!(Launcher), index: usize, metrics: Metrics) -> Entity {
-    let text = library.clone();
     ui! {
         Column (
             grow: 1.0,
@@ -414,7 +411,7 @@ fn keycap(library: model!(Launcher), index: usize, metrics: Metrics) -> Entity {
             ] {
                 caption (
                     KEYS[index],
-                    ${ if text.selected() == 100 + index { ON_ACCENT } else { FOREGROUND } },
+                    ${ if library.selected() == 100 + index { ON_ACCENT } else { FOREGROUND } },
                     if KEYS[index].len() == 1 { metrics.title } else { metrics.body },
                     Center,
                     LABEL_LEADING

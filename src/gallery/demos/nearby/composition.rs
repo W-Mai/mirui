@@ -75,7 +75,7 @@ pub(super) fn build_widgets(
                 bg_color: BACKGROUND
             ) {
                 if ${ state.launcher().active() || state.return_to_launcher() } {
-                    launcher (state.clone(), state.launcher())
+                    launcher (state, state.launcher())
                 } else {
                     page_host (state)
                     actor (state, false)

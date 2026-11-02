@@ -31,12 +31,10 @@ pub(super) fn header(
     };
     ui! {
         Row (
-            height: ${
-                if launcher || page == Page::Games {
-                    metrics.launcher_header_height()
-                } else {
-                    metrics.header_height()
-                }
+            height: if launcher || page == Page::Games {
+                metrics.launcher_header_height()
+            } else {
+                metrics.header_height()
             },
             shrink: 0.0,
             column_gap: metrics.gap + 4,
@@ -161,8 +159,6 @@ fn footer_controls(
     metrics: Metrics,
     launcher: bool,
 ) -> Entity {
-    let confirm = state.clone();
-    let back = state.clone();
     ui! {
         Row (
             height: metrics.footer_height(),
@@ -181,9 +177,9 @@ fn footer_controls(
                 control_label (
                     ${
                         if launcher {
-                            confirm.launcher().browser_confirm().into()
+                            state.launcher().browser_confirm().into()
                         } else {
-                            confirm.confirm_label().to_string()
+                            state.confirm_label().to_string()
                         }
                     },
                     metrics
@@ -194,9 +190,9 @@ fn footer_controls(
                 control_label (
                     ${
                         if launcher {
-                            back.launcher().browser_back().into()
+                            state.launcher().browser_back().into()
                         } else {
-                            back.back().to_string()
+                            state.back().to_string()
                         }
                     },
                     metrics

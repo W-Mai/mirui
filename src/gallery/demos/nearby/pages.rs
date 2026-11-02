@@ -67,7 +67,7 @@ fn mounted_contents(
 
 #[compose]
 fn contents(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> Entity {
-    let view = view.clone();
+    let page = view.page;
     ui! {
         Column (
             grow: 1.0,
@@ -76,7 +76,7 @@ fn contents(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> E
             bg_color: BACKGROUND
         ) {
             header (
-                &view,
+                view,
                 state,
                 metrics,
                 false
@@ -96,21 +96,21 @@ fn contents(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> E
                 Column (
                     grow: 1.0,
                     min_height: 0,
-                    row_gap: if view.page == Page::Lobby { 0 } else { metrics.gap }
+                    row_gap: if page == Page::Lobby { 0 } else { metrics.gap }
                 ) {
-                    if ${ view.page != Page::Games } {
+                    if page != Page::Games {
                         Row (
-                            height: if view.page == Page::Lobby { 0 } else { i32::from(metrics.title) + 8 },
+                            height: if page == Page::Lobby { 0 } else { i32::from(metrics.title) + 8 },
                             shrink: 0.0,
                             align: AlignItems::Center,
                             column_gap: metrics.gap
                         ) {
                             Text (
-                                text: ${ if view.page == Page::Lobby { String::new() } else { state.heading() } },
+                                text: ${ if page == Page::Lobby { String::new() } else { state.heading() } },
                                 grow: 1.0,
                                 min_width: 0,
                                 height: Dimension::Content,
-                                min_height: if view.page == Page::Lobby { 0 } else { i32::from(metrics.title) + 8 },
+                                min_height: if page == Page::Lobby { 0 } else { i32::from(metrics.title) + 8 },
                                 font: font(metrics.title),
                                 font_size: metrics.title,
                                 text_color: FOREGROUND,
@@ -119,7 +119,7 @@ fn contents(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> E
                                 FONT_PAINT,
                             ]
                             Row (
-                                width: if view.page == Page::Lobby { 0 } else { 36 },
+                                width: if page == Page::Lobby { 0 } else { 36 },
                                 clip_children: true,
                                 shrink: 0.0,
                                 align: AlignItems::Center,
@@ -135,11 +135,11 @@ fn contents(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> E
                             }
                         }
                     }
-                    if ${ !(view.page == Page::Games && state.status().is_empty()) } {
+                    if ${ !(page == Page::Games && state.status().is_empty()) } {
                         Text (
-                            text: ${ if view.page == Page::Lobby { String::new() } else { state.status().to_string() } },
-                            height: if view.page == Page::Lobby { Dimension::px(0) } else { Dimension::Content },
-                            min_height: if view.page == Page::Lobby { 0 } else { i32::from(metrics.small) + LABEL_LEADING },
+                            text: ${ if page == Page::Lobby { String::new() } else { state.status().to_string() } },
+                            height: if page == Page::Lobby { Dimension::px(0) } else { Dimension::Content },
+                            min_height: if page == Page::Lobby { 0 } else { i32::from(metrics.small) + LABEL_LEADING },
                             shrink: 0.0,
                             width: Dimension::percent(100),
                             min_width: 0,
@@ -152,24 +152,24 @@ fn contents(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> E
                             FONT_PAINT,
                         ]
                     }
-                    if view.network_only && matches!(view.page, Page::Host | Page::Joined) {
+                    if view.network_only && matches!(page, Page::Host | Page::Joined) {
                         network_panel (state, metrics)
                     } else {
-                        match view.page {
+                        match page {
                             Page :: Lobby => {
-                                lobby (&view, state, metrics)
+                                lobby (view, state, metrics)
                             }
                             Page :: Candidates => {
-                                rows (&view, state, metrics, false)
+                                rows (view, state, metrics, false)
                             }
                             Page :: Choice | Page :: Mode => {
-                                choice (&view, state, metrics)
+                                choice (view, state, metrics)
                             }
                             Page :: Host => {
                                 host (state, metrics)
                             }
                             Page :: Rooms => {
-                                rooms (&view, state, metrics)
+                                rooms (view, state, metrics)
                             }
                             Page :: Joined => {
                                 joined (state, metrics)
@@ -181,13 +181,13 @@ fn contents(view: &Snapshot, state: model!(DisplayState), metrics: Metrics) -> E
                                 unavailable (metrics)
                             }
                             Page :: Games => {
-                                games (&view, state, metrics)
+                                games (view, state, metrics)
                             }
                         }
                     }
                 }
                 footer (
-                    &view,
+                    view,
                     state,
                     metrics,
                     false

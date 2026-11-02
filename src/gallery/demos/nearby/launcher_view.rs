@@ -194,7 +194,7 @@ fn join_game(state: &super::model::DisplayStateHandle) {
 #[event]
 fn create_page(event: event!(CreatePage<Screen>), state: model!(DisplayState)) -> Entity {
     ui! {
-        page (*event.route(), state.clone(), state.launcher())
+        page (*event.route(), state, state.launcher())
     }
 }
 
@@ -325,7 +325,7 @@ fn background(
                             PageView (
                                 id: "nearby_launcher_pages", grow: 1.0, min_height: 0, min_width: 0,
                                 page: ${ library.catalog_screen() }, transition: ${ library.transition() }
-                            ) on CreatePage(create_page::callback(state.clone()))
+                            ) on CreatePage(create_page::callback(state))
                         }
                     }
                 } on SizeChanged { deck.set_height(event.new.height); }

@@ -91,7 +91,7 @@ fn graphical_overlay(
                                                 if ${ line * 2 + column < state.item_count() } {
                                                     action_tile (
                                                         state,
-                                                        display.clone(),
+                                                        display,
                                                         line * 2 + column,
                                                         metrics
                                                     )
@@ -196,7 +196,7 @@ fn action_tile(
                     overlay_label (state, Some(index), metrics)
                     action_value (state, index, metrics)
                 }
-            } on HoverChanged(hover::callback(state.clone())) on Tap {
+            } on HoverChanged(hover::callback(state)) on Tap {
                 state.select_action(index);
                 super::launcher_view::confirm(&display);
             }

@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Nearby compositions use declared Model captures directly and retain static page conditions without reactive wrappers or an owned snapshot copy.
 - Nearby uses forest, sunset and night palettes, pixel-art backgrounds and viewport-dependent typography.
 - Nearby retains the favorites layer while the catalog expands, with responsive cartridge grids, paging and independent selection.
 - Nearby catalog uses a four-row browser with platform previews, a pixel keyboard, search results, empty-state artwork and identity-preserving favorite sorting.
