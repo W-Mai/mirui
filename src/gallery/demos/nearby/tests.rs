@@ -445,6 +445,74 @@ fn launcher_deck_retains_shelf_members_and_independent_selection_on_reversal() {
 }
 
 #[test]
+fn discovery_game_action_returns_to_the_retained_catalog_before_expanding_it() {
+    for restore_catalog in [false, true] {
+        let (mut app, state) = fixture();
+        let library = state.launcher();
+        library.resume();
+        if restore_catalog {
+            library.choose_platform(1);
+            library.select(1);
+        }
+        for _ in 0..60 {
+            app.tick();
+            app.render_dirty().unwrap();
+        }
+        let screen = library.catalog_screen();
+        let shelf = app.world.find_by_id("nearby_shelf").unwrap();
+        let expansion = library.deck().expansion();
+        state.open_network();
+        for _ in 0..40 {
+            app.tick();
+            app.render_dirty().unwrap();
+        }
+        state.expand_discovery(true);
+        finish_transition(&mut app);
+        let route = state.page_key();
+        state.choose_connection(1);
+        assert!(library.active());
+        assert!(!state.return_to_launcher());
+        assert_eq!(library.screen(), screen);
+        assert_eq!(state.page_key(), route);
+        for _ in 0..5 {
+            app.tick();
+            app.render_dirty().unwrap();
+        }
+        assert!(library.deck().panel() > Fixed::ZERO);
+        assert_eq!(library.deck().expansion(), expansion);
+        state.open_network();
+        for _ in 0..5 {
+            app.tick();
+            app.render_dirty().unwrap();
+        }
+        assert!(!library.active());
+        assert!(library.deck().panel() > Fixed::ZERO);
+        state.choose_connection(1);
+        assert!(library.active());
+        assert_eq!(library.screen(), screen);
+        for _ in 0..60 {
+            app.tick();
+            app.render_dirty().unwrap();
+        }
+        assert_eq!(library.deck().panel(), Fixed::ZERO);
+        assert_eq!(library.deck().expansion(), Fixed::ONE);
+        assert_eq!(app.world.find_by_id("nearby_shelf"), Some(shelf));
+        let partial = app
+            .backend
+            .framebuffer()
+            .read_pixels()
+            .unwrap()
+            .bytes()
+            .to_vec();
+        app.render().unwrap();
+        assert_eq!(
+            partial,
+            app.backend.framebuffer().read_pixels().unwrap().bytes()
+        );
+    }
+}
+
+#[test]
 fn room_panel_retains_browser_entities_and_returns_to_the_same_selection() {
     let (mut app, state) = fixture();
     let library = state.launcher();

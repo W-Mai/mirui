@@ -153,7 +153,7 @@ fn launcher_layout(library: model!(launcher::Launcher), delta: res!(crate::ecs::
     library.deck().advance(
         library.screen() != launcher::Screen::Favorites,
         delta.0,
-        library.menu(),
+        library.menu() || library.deck().panel() > Fixed::ZERO,
     );
     library.animate(delta.0);
 }

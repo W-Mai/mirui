@@ -506,6 +506,13 @@ impl DisplayState {
                     return;
                 }
                 self.view.network_only = self.view.selected == 0;
+                if !self.view.network_only && self.return_to_launcher {
+                    let screen = self.launcher.catalog_screen();
+                    self.launcher.open(screen);
+                    self.return_to_launcher = false;
+                    self.launcher.resume();
+                    return;
+                }
                 let page = if self.view.network_only {
                     Page::Choice
                 } else {
