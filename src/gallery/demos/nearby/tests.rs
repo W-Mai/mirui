@@ -6,6 +6,34 @@ use crate::ui::widgets::navigation::transition;
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 #[test]
+fn launcher_query_bindings_subscribe_without_manual_revision_reads() {
+    use crate::core::reactive::flush_signal_dirty;
+    use crate::ui::widgets::Text;
+
+    let mut app = App::headless(64, 64);
+    let root = app.spawn_root().id();
+    let library = app.add_model(launcher::Launcher::default()).finish();
+    let read = library.clone();
+    let label = app.compose(root, |cx| {
+        ui! {
+            Text (text: ${ if read.query().trim().is_empty() { "empty" } else { "no matches" } })
+        }
+    });
+    for (query, expected) in [("", "empty"), ("not-a-game", "no matches"), ("  ", "empty")] {
+        library.set_query(query.into());
+        flush_signal_dirty(&mut app.world);
+        assert_eq!(app.world.query::<Text>().collect(), [label]);
+        assert_eq!(
+            app.world
+                .get::<Text>(label)
+                .unwrap()
+                .resolve(app.world.resource()),
+            expected
+        );
+    }
+}
+
+#[test]
 fn composed_live_label_updates_through_both_text_helpers() {
     use crate::core::reactive::flush_signal_dirty;
     use crate::ui::widgets::{Text, TextAlign};

@@ -448,7 +448,7 @@ impl Launcher {
             ..Default::default()
         }
     }
-    pub fn query(&self) -> String {
+    fn query_value(&self) -> String {
         self.query.clone()
     }
     pub fn search_empty(&self) -> bool {
@@ -939,6 +939,11 @@ impl Launcher {
 }
 
 impl LauncherHandle {
+    pub fn query(&self) -> String {
+        self.query_revision();
+        self.query_value()
+    }
+
     pub(super) fn shelf_counter(&self) -> Option<(usize, usize)> {
         let games = self.games();
         let mut count = 0;

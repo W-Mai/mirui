@@ -123,7 +123,6 @@ fn rows(screen: Screen, library: model!(Launcher), metrics: Metrics) -> Entity {
             } else {
                 Column (grow: 1.0, min_height: 0, row_gap: metrics.gap) {
                     if ${
-                        library.query_revision();
                         let query = library.query().to_lowercase();
                         library
                             .games()
@@ -140,7 +139,6 @@ fn rows(screen: Screen, library: model!(Launcher), metrics: Metrics) -> Entity {
                     } else {
                         Column (grow: 1.0, min_height: 0, row_gap: metrics.gap) {
                             walk ${
-                                library.query_revision();
                                 let query = library.query().to_lowercase();
                                 let matches = |game: &super::launcher::GameHandle| {
                                     if screen == Screen::Search {
@@ -361,7 +359,6 @@ fn search(library: model!(Launcher), metrics: Metrics) -> Entity {
                 Column (grow: 1.0, min_width: 0) {
                     caption (
                         ${
-                            query.query_revision();
                             let value = query.query();
                             if value.is_empty() { "输入游戏名或文件名".into() } else { value }
                         },

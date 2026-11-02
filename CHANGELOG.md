@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Nearby search text and empty-state bindings subscribe through the query getter, including updates that retain the same result branch.
+
 ### Added
 
 - Image sources accept reactive `${expression}` bindings and typed `prop::ImageSource` updates without replacing the component or its paint configuration.
