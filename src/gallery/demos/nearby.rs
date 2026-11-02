@@ -22,6 +22,8 @@ mod pixel;
 mod sessions;
 mod shelf;
 mod snapshot;
+#[cfg(feature = "audio")]
+mod sound;
 mod style;
 mod widgets;
 
@@ -30,6 +32,11 @@ mod tests;
 
 use crate::prelude::*;
 use crate::render::font::{Font, FontManager};
+
+#[cfg(feature = "audio")]
+pub fn audio_bank() -> &'static crate::audio::AudioBank {
+    sound::audio_bank()
+}
 
 pub fn setup_app<B: Surface, F: RendererFactory<B>>(
     app: &mut App<B, F>,

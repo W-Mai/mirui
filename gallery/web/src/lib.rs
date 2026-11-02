@@ -30,10 +30,15 @@ fn apply_appearance(app: &mut WebApp) {
 fn build_app_for(demo: &gallery::DemoEntry, backend: gallery::ActiveSurface) -> WebApp {
     let mut app = gallery::assemble_app(backend, gallery::configured_factory());
     app.add_plugin(gallery::mirui::app::plugins::StdInstantClockPlugin);
-    if demo.slug == "marble_play" {
+    let audio_bank = match demo.slug {
+        "marble_play" => Some(gallery::mirui::gallery::demos::marble_play::audio_bank()),
+        "nearby" => Some(gallery::mirui::gallery::demos::nearby::audio_bank()),
+        _ => None,
+    };
+    if let Some(bank) = audio_bank {
         app.add_plugin(gallery::mirui::app::plugins::AudioPlugin::new(
             gallery::mirui::audio::WebAudioSink::new(),
-            gallery::mirui::gallery::demos::marble_play::audio_bank(),
+            bank,
         ));
     }
     let root = {

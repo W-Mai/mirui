@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Nearby includes ten static sound cues and installs audio output in its SDL and Web entry points.
 - Nearby demo launcher state uses nested Models and an observable game collection, retaining browser context across nested menus.
 - Nearby demo includes cartridge favorites, platform artwork, game browsing, search and game actions; connection and in-game entry flows remain available.
 - Nearby connection scenes include animated characters, selection pulses, walking, session transitions and loading feedback; F2 toggles the simulation controls.
