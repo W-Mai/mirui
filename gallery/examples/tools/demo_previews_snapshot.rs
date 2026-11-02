@@ -76,6 +76,33 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
             }
         }
         "favorites" => {}
+        "favorites-full" => {
+            const NAMES: [&str; 6] = [
+                "双人冒险",
+                "街头赛车",
+                "方块世界",
+                "旅途中的朋友",
+                "周末一起玩",
+                "经典游戏",
+            ];
+            library
+                .games()
+                .load((0..24).map(|key| nearby::launcher::Game {
+                    directory: key == 8,
+                    played: 0,
+                    key,
+                    name: if key == 8 {
+                        "游戏库"
+                    } else {
+                        NAMES[key as usize % NAMES.len()]
+                    },
+                    search: "game",
+                    platform: (key != 8).then_some(key as usize % 6),
+                    multiplayer: key != 8,
+                    favorite: true,
+                }))
+                .expect("bounded snapshot inventory");
+        }
         "simulation" => state.toggle_controls(),
         "platforms" => library.open(Screen::Platforms),
         "games" => library.choose_platform(0),

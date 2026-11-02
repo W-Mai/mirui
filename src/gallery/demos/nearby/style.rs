@@ -58,6 +58,12 @@ impl Metrics {
     pub(super) fn library_row_height(self) -> i32 {
         self.sized(40, 48, 80)
     }
+    pub(super) fn library_row_min_height(self) -> i32 {
+        i32::from(24 + self.row_detail)
+            + ROW_LEADING * 2
+            + self.sized(6, 8, 12)
+            + self.shadow_height()
+    }
     pub(super) fn row_min_height(self) -> i32 {
         i32::from(self.row_title + self.row_detail)
             + ROW_LEADING * 2

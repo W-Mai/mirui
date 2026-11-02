@@ -51,6 +51,7 @@ pub struct DisplayState {
     #[observe]
     pub(super) deck_height: Fixed,
     pub launcher: model!(owned super::launcher::Launcher),
+    pub(super) list_layout: model!(owned super::list_layout::ListLayout),
     view: Snapshot,
     session: u32,
     scenario: Scenario,
@@ -86,6 +87,7 @@ impl Default for DisplayState {
             metrics: Metrics::default(),
             deck_height: Fixed::ZERO,
             launcher: super::launcher::Launcher::default().into(),
+            list_layout: super::list_layout::ListLayout::default().into(),
             view: Snapshot {
                 page: Page::Mode,
                 title: "双人冒险".to_string(),

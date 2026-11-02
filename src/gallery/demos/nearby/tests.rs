@@ -315,6 +315,156 @@ fn fixture_at(width: u16, height: u16) -> (TestApp, model::DisplayStateHandle) {
     (app, state)
 }
 
+#[test]
+fn catalog_windows_resize_from_their_content_and_keep_selected_entry_identity() {
+    use crate::surface::framebuf::FramebufSurface;
+    use crate::ui::{ComputedRect, Parent, Style, widgets::Text};
+    use launcher::Screen;
+
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    library.open(Screen::Platforms);
+    library.select(2);
+    library.deck().advance(true, 1000, false);
+    let mut selected_entity = None;
+    let mut counts = alloc::vec::Vec::new();
+    for (width, height) in [(640, 480), (640, 900), (640, 480)] {
+        let flush: fn(&[u8], PhysicalRect) = |_, _| {};
+        app.backend = FramebufSurface::new(width, height, flush);
+        for _ in 0..3 {
+            app.tick();
+            app.render_dirty().unwrap();
+        }
+        let targets: alloc::vec::Vec<_> = app
+            .world
+            .query::<library::LibraryTarget>()
+            .iter()
+            .filter(|(_, row)| row.screen == Screen::Platforms)
+            .map(|(entity, row)| (entity, row.key))
+            .collect();
+        assert_eq!(
+            targets.len(),
+            library.list_layout().rows().min(launcher::PLATFORMS.len())
+        );
+        let entity = targets.iter().find(|(_, key)| *key == 2).unwrap().0;
+        assert_eq!(*selected_entity.get_or_insert(entity), entity);
+        assert_eq!(library.selected(), 2);
+        for (target, _) in &targets {
+            let rect = app.world.get::<ComputedRect>(*target).unwrap().0;
+            assert!(rect.h >= Fixed::from_int(24 + style::ROW_LEADING));
+            assert!(rect.y >= Fixed::ZERO && rect.y + rect.h <= Fixed::from_int(i32::from(height)));
+            let title = app.world.query::<Text>().iter().find_map(|(node, _)| {
+                (input::contains(*target, node, |parent| {
+                    app.world.get::<Parent>(parent).map(|parent| parent.0)
+                }) && app
+                    .world
+                    .get::<Style>(node)
+                    .is_some_and(|style| style.font_size == Some(24)))
+                .then_some(node)
+            });
+            assert!(title.is_some());
+        }
+        counts.push(targets.len());
+    }
+    assert!(counts[1] > counts[0]);
+    assert_eq!(counts[0], counts[2]);
+}
+
+#[test]
+fn short_catalog_search_and_connection_lists_use_native_titles_and_bounded_windows() {
+    use crate::ui::{Parent, Style, widgets::Text};
+    use launcher::Screen;
+    let (mut app, state) = fixture_at(480, 320);
+    let library = state.launcher();
+    library.resume();
+    library.deck().advance(true, 1000, false);
+    for screen in [Screen::Platforms, Screen::Search, Screen::Games] {
+        if screen == Screen::Games {
+            library.choose_platform(0);
+        } else {
+            library.open(screen);
+        }
+        if screen == Screen::Search {
+            library.set_query("a".into());
+        }
+        for _ in 0..80 {
+            app.tick();
+        }
+        for _ in 0..3 {
+            app.tick();
+            app.render_dirty().unwrap();
+        }
+        let selected = app
+            .world
+            .query::<library::LibraryTarget>()
+            .iter()
+            .find_map(|(node, row)| {
+                (row.screen == screen && row.key == library.selected()).then_some(node)
+            })
+            .unwrap_or_else(|| {
+                panic!(
+                    "missing selected row for {screen:?}: {}",
+                    library.selected()
+                )
+            });
+        assert!(app.world.query::<Text>().iter().any(|(node, _)| {
+            input::contains(selected, node, |node| {
+                app.world.get::<Parent>(node).map(|parent| parent.0)
+            }) && app
+                .world
+                .get::<Style>(node)
+                .is_some_and(|style| style.font_size == Some(24))
+        }));
+        assert!((1..=8).contains(&library.list_layout().rows()));
+    }
+    library.close();
+    state.activate(1);
+    for _ in 0..80 {
+        app.tick();
+    }
+    for _ in 0..3 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    assert_eq!(state.snapshot().page, Page::Games);
+    assert!((1..=8).contains(&state.list_layout().rows()));
+    let body = app
+        .world
+        .query::<input::SelectionFrame>()
+        .iter()
+        .find_map(|(_, frame)| (frame.page == state.page_key()).then_some(frame.body))
+        .unwrap();
+    let visible = app
+        .world
+        .query::<input::SelectionTarget>()
+        .iter()
+        .filter(|(node, _)| {
+            input::contains(body, *node, |node| {
+                app.world.get::<Parent>(node).map(|parent| parent.0)
+            })
+        })
+        .map(|(node, _)| node)
+        .collect::<alloc::vec::Vec<_>>();
+    assert_eq!(
+        visible.len(),
+        state
+            .list_layout()
+            .rows()
+            .min(state.snapshot().entries.len())
+    );
+    for target in visible {
+        assert!(app.world.query::<Text>().iter().any(|(node, _)| {
+            input::contains(target, node, |node| {
+                app.world.get::<Parent>(node).map(|parent| parent.0)
+            }) && app
+                .world
+                .get::<Style>(node)
+                .is_some_and(|style| style.font_size == Some(24))
+        }));
+    }
+}
+
 fn discovery_deck(app: &TestApp, state: &model::DisplayStateHandle) -> Entity {
     use crate::ui::{LayoutContainer, Parent};
     let body = app

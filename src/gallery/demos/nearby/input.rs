@@ -348,11 +348,11 @@ pub(super) fn keyboard(event: event!(Key), state: model!(DisplayState)) -> bool 
         super::data::Page::Games | super::data::Page::Candidates
     ) {
         if event.physical == Some(PhysicalKey::KeyL) {
-            state.select(state.selected().saturating_sub(4));
+            state.select(state.selected().saturating_sub(state.list_layout().rows()));
             return true;
         }
         if event.physical == Some(PhysicalKey::KeyR) {
-            state.select(state.selected().saturating_add(4));
+            state.select(state.selected().saturating_add(state.list_layout().rows()));
             return true;
         }
         if code == KEY_X && state.focus_page() == super::data::Page::Games {

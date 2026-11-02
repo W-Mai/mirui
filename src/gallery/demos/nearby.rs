@@ -13,6 +13,7 @@ mod input;
 pub mod launcher;
 mod launcher_view;
 mod library;
+mod list_layout;
 mod lists;
 pub mod model;
 mod motion;

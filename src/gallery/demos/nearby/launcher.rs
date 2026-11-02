@@ -274,6 +274,7 @@ pub struct Launcher {
     pending_play: Option<(u32, bool)>,
     pub games: model!(owned ModelList<Game>),
     pub(super) shelf: model!(owned super::shelf::Shelf),
+    pub(super) list_layout: model!(owned super::list_layout::ListLayout),
     pub(super) deck: model!(owned super::deck::Deck),
     #[observe]
     pub shelf_selection: usize,
@@ -369,6 +370,7 @@ impl Default for Launcher {
             pending_play: None,
             games: list.into(),
             shelf: super::shelf::Shelf::default().into(),
+            list_layout: super::list_layout::ListLayout::default().into(),
             deck: super::deck::Deck::default().into(),
             shelf_selection: 0,
             catalog_screen: Screen::Platforms,

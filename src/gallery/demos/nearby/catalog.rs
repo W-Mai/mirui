@@ -2,6 +2,7 @@ use super::consoles::{Platform, console};
 use super::launcher::Screen::Search;
 use super::launcher::{Game, Launcher, PLATFORMS, Screen};
 use super::library::{LibraryTarget, focus};
+use super::list_layout::first;
 use super::model::DisplayState;
 use super::pixel::{ActorAnchor, Scenery, Stage};
 use super::style::*;
@@ -18,10 +19,6 @@ pub(super) const KEYS: [&str; 40] = [
     "退格", "Z", "X", "C", "V", "B", "N", "M", "空格", "清空", "结果", "1", "2", "3", "4", "5",
     "6", "7", "8", "9", "0",
 ];
-
-fn first(selected: usize, total: usize) -> usize {
-    selected.saturating_sub(3).min(total.saturating_sub(4))
-}
 
 #[compose]
 pub(super) fn catalog(
@@ -114,8 +111,9 @@ fn rows(screen: Screen, library: model!(Launcher), metrics: Metrics) -> Entity {
             if screen == Screen::Platforms {
                 Column (grow: 1.0, min_height: 0, row_gap: metrics.gap) {
                     walk ${
-                        let start = first(library.selected(), PLATFORMS.len());
-                        start..(start + 4).min(PLATFORMS.len())
+                        let rows = library.list_layout().rows();
+                        let start = first(library.selected(), PLATFORMS.len(), rows);
+                        start..(start + rows).min(PLATFORMS.len())
                     } with index by index {
                         entry (library, None, index, screen, metrics)
                     }
@@ -154,11 +152,12 @@ fn rows(screen: Screen, library: model!(Launcher), metrics: Metrics) -> Entity {
                                     .position(|game| game.key() as usize == library.selected())
                                     .unwrap_or(0);
                                 let total = games.iter().filter(matches).count();
+                                let rows = library.list_layout().rows();
                                 games
                                     .entries()
                                     .filter(|(_, game)| matches(game))
-                                    .skip(first(selected, total))
-                                    .take(4)
+                                    .skip(first(selected, total, rows))
+                                    .take(rows)
                                     .collect::<Vec<_>>()
                             } with item by item.0 {
                                 entry (
@@ -173,6 +172,10 @@ fn rows(screen: Screen, library: model!(Launcher), metrics: Metrics) -> Entity {
                     }
                 }
             }
+        } on SizeChanged {
+            library
+                .list_layout()
+                .resize(event.new.height, metrics.library_row_min_height(), metrics.gap);
         }
     }
 }
@@ -191,8 +194,8 @@ fn entry(
     ui! {
         Column (
             grow: 1.0,
-            min_height: metrics.row_min_height(),
-            max_height: metrics.library_row_height(),
+            min_height: metrics.library_row_min_height(),
+            max_height: metrics.library_row_height().max(metrics.library_row_min_height()),
             min_width: 0,
             transform: ${ library.card_motion().card_transform(key) }
         ) {
@@ -226,10 +229,10 @@ fn entry(
                         },
                         width: Dimension::percent(100),
                         min_width: 0,
-                        min_height: i32::from(metrics.row_title) + ROW_LEADING,
+                        min_height: 24 + ROW_LEADING,
                         height: Dimension::Content,
-                        font: font(metrics.row_title),
-                        font_size: metrics.row_title,
+                        font: TITLE_FONT,
+                        font_size: 24,
                         text_color: FOREGROUND,
                         paragraph: paragraph(Start, 1),
                         clip_children: true

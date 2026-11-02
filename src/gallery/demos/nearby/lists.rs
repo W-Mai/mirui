@@ -3,6 +3,7 @@ use super::choices::choice;
 use super::consoles::{Platform, console};
 use super::data::{Page, Snapshot};
 use super::input::{PaneScope, SelectionTarget};
+use super::list_layout::first;
 use super::model::DisplayState;
 use super::pixel::{Scenery, Stage::Search, art};
 use super::style::*;
@@ -210,12 +211,19 @@ pub(super) fn rows(
             } else {
                 Column (grow: 1.0, min_height: 0, row_gap: metrics.gap) {
                     walk ${
-                        let first = state.selected().saturating_sub(3).min(total.saturating_sub(4));
-                        first..(first + 4).min(total)
+                        let rows = if has_signal { 4 } else { state.list_layout().rows() };
+                        let start = first(state.selected(), total, rows);
+                        start..(start + rows).min(total)
                     } with index by index {
                         list_row (&view, state, index, metrics, has_signal)
                     }
                 }
+            }
+        } on SizeChanged {
+            if !has_signal {
+                state
+                    .list_layout()
+                    .resize(event.new.height, metrics.library_row_min_height(), metrics.gap);
             }
         }
     }
@@ -252,8 +260,12 @@ fn list_row(
     ui! {
         Column (
             grow: 1.0,
-            min_height: metrics.row_min_height(),
-            max_height: if has_signal { metrics.row_height() } else { metrics.library_row_height() },
+            min_height: if has_signal { metrics.row_min_height() } else { metrics.library_row_min_height() },
+            max_height: if has_signal {
+                metrics.row_height()
+            } else {
+                metrics.library_row_height().max(metrics.library_row_min_height())
+            },
             min_width: 0,
             transform: ${ state.card_motion().card_transform(index) }
         ) {
@@ -284,7 +296,7 @@ fn list_row(
                 Column (grow: 1.0, min_width: 0, justify: JustifyContent::Center) {
                     row_label (
                         title,
-                        metrics.row_title,
+                        if has_signal { metrics.row_title } else { 24 },
                         if available { FOREGROUND } else { DISABLED }
                     )
                     if has_signal || view.page == Page::Candidates || view.entries[index].directory {
