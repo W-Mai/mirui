@@ -333,6 +333,37 @@ mod tests {
             }
             assert!(group["native"].is_boolean());
             assert!(["", "format", "cha"].contains(&group["tool"].as_str().unwrap()));
+            let components: BTreeSet<_> = group["components"]
+                .as_str()
+                .unwrap()
+                .split(',')
+                .filter(|component| !component.is_empty())
+                .collect();
+            for name in &names {
+                match name.as_str() {
+                    "format" => {
+                        assert!(components.contains("rustfmt"));
+                        assert_eq!(group["tool"], "format");
+                    }
+                    "host-clippy" | "riscv-check" => assert!(components.contains("clippy")),
+                    "cha-policy" | "cha-analysis" => assert_eq!(group["tool"], "cha"),
+                    _ => {}
+                }
+                if matches!(
+                    name.as_str(),
+                    "build"
+                        | "size"
+                        | "host-clippy"
+                        | "examples"
+                        | "linux-fb-check"
+                        | "tests-std"
+                        | "contracts-std"
+                        | "tests-linux-fb"
+                        | "contracts-linux-fb"
+                ) {
+                    assert_eq!(group["native"], true, "native libraries required by {name}");
+                }
+            }
             assert!(group["targets"].is_string());
             for (check, target) in [
                 ("wasm-check", "wasm32-unknown-unknown"),
@@ -350,6 +381,27 @@ mod tests {
             }
         }
         assert_eq!(seen, CHECKS.iter().map(|check| check.name).collect());
+    }
+
+    #[test]
+    fn workflow_forwards_matrix_prerequisites_to_the_toolchain_installer() {
+        let workflow = include_str!("../../.github/workflows/ci.yml");
+        let installer = workflow
+            .split("dtolnay/rust-toolchain@")
+            .nth(1)
+            .unwrap()
+            .split("- uses:")
+            .next()
+            .unwrap();
+        for binding in [
+            "components: ${{ matrix.components }}",
+            "targets: ${{ matrix.targets }}",
+        ] {
+            assert!(
+                installer.lines().any(|line| line.trim() == binding),
+                "missing installer binding: {binding}"
+            );
+        }
     }
 
     #[test]

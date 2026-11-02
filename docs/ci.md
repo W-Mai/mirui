@@ -29,6 +29,8 @@ GitHub Actions reads check groups from `.github/ci-matrix.json` and runs up to s
 
 Groups use distinct Rust cache keys and install their required native libraries and tools. Build and size checks share a runner, as do host Clippy and examples. Cargo commands within a group run sequentially to reuse that runner's target directory. The workflow explicitly selects the pinned Rust toolchain, with cross-target components declared for the target-check group.
 
+Toolchain components are explicit matrix prerequisites: formatting installs `rustfmt`, while host lint and RV32 checks install `clippy`. Formatting also installs `xrune-fmt`; both analysis groups install Cha. Native build/test groups install SDL and evdev development libraries. The target-check group installs the WASM and RV32 standard-library targets. Matrix coverage checks validate these requirements and their forwarding to the toolchain installer.
+
 The final `ci` job requires successful matrix preparation and successful completion of every group. Missing, skipped, cancelled or failed results cannot produce a successful summary. Architecture tests check that the matrix covers every registered check exactly once and execute the summary script against each result combination. The release tool continues to wait for the complete workflow on its exact commit.
 
 Parallel jobs reduce the serial critical path but can increase aggregate runner time and cache storage. New group caches may be cold; compare complete workflow durations on comparable runs before claiming a speedup. GitHub's [matrix execution documentation](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/run-job-variations) describes runner concurrency and failure handling.

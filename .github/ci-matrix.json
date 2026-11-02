@@ -1,14 +1,14 @@
 {
   "include": [
-    { "name": "format", "checks": ["format"], "native": false, "tool": "format", "targets": "" },
-    { "name": "cha-policy", "checks": ["cha-policy"], "native": false, "tool": "cha", "targets": "" },
-    { "name": "cha-analysis", "checks": ["cha-analysis"], "native": false, "tool": "cha", "targets": "" },
-    { "name": "release", "checks": ["build", "size"], "native": true, "tool": "", "targets": "" },
-    { "name": "host", "checks": ["host-clippy", "examples"], "native": true, "tool": "", "targets": "" },
-    { "name": "runtime-std", "checks": ["tests-std"], "native": true, "tool": "", "targets": "" },
-    { "name": "contracts-std", "checks": ["contracts-std"], "native": true, "tool": "", "targets": "" },
-    { "name": "runtime-linux-fb", "checks": ["tests-linux-fb"], "native": true, "tool": "", "targets": "" },
-    { "name": "contracts-linux-fb", "checks": ["contracts-linux-fb"], "native": true, "tool": "", "targets": "" },
-    { "name": "targets", "checks": ["wasm-check", "riscv-check", "linux-fb-check"], "native": true, "tool": "", "targets": "wasm32-unknown-unknown,riscv32imc-unknown-none-elf" }
+    { "name": "format", "checks": ["format"], "native": false, "tool": "format", "components": "rustfmt", "targets": "" },
+    { "name": "cha-policy", "checks": ["cha-policy"], "native": false, "tool": "cha", "components": "", "targets": "" },
+    { "name": "cha-analysis", "checks": ["cha-analysis"], "native": false, "tool": "cha", "components": "", "targets": "" },
+    { "name": "release", "checks": ["build", "size"], "native": true, "tool": "", "components": "", "targets": "" },
+    { "name": "host", "checks": ["host-clippy", "examples"], "native": true, "tool": "", "components": "clippy", "targets": "" },
+    { "name": "runtime-std", "checks": ["tests-std"], "native": true, "tool": "", "components": "", "targets": "" },
+    { "name": "contracts-std", "checks": ["contracts-std"], "native": true, "tool": "", "components": "", "targets": "" },
+    { "name": "runtime-linux-fb", "checks": ["tests-linux-fb"], "native": true, "tool": "", "components": "", "targets": "" },
+    { "name": "contracts-linux-fb", "checks": ["contracts-linux-fb"], "native": true, "tool": "", "components": "", "targets": "" },
+    { "name": "targets", "checks": ["wasm-check", "riscv-check", "linux-fb-check"], "native": true, "tool": "", "components": "clippy", "targets": "wasm32-unknown-unknown,riscv32imc-unknown-none-elf" }
   ]
 }
