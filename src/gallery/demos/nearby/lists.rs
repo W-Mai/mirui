@@ -35,7 +35,7 @@ pub(super) fn lobby(view: &Snapshot, state: model!(DisplayState), metrics: Metri
     mode.page = Page::Mode;
     mode.network_only = false;
     ui! {
-        Column (id: "discovery_deck", grow: 1.0, min_height: 0, container: true) on SizeChanged {
+        Column (grow: 1.0, min_height: 0, container: true) on SizeChanged {
             state.set_deck_height(event.new.height);
         } {
             walk [false, true].into_iter() with actions {
@@ -46,14 +46,13 @@ pub(super) fn lobby(view: &Snapshot, state: model!(DisplayState), metrics: Metri
                     height: ${ Dimension::Percent(sheet_share(if actions { state.motion().deck } else { Fixed::ONE - state.motion().deck }) * Fixed::from_int(100)) },
                     transform: ${ Transform::translate(Fixed::ZERO, if actions { state.deck_height() * sheet_share(Fixed::ONE - state.motion().deck) } else { Fixed::ZERO }) },
                     shrink: 0.0,
-                    container: true,
                     min_height: 0,
                     clip_children: true
                 ) {
                     Column (
                         position: Position::Absolute,
                         width: Dimension::percent(100),
-                        height: @(id("discovery_deck").height as deck_height) { deck_height * DECK_FULL },
+                        height: @(height as deck_height) { deck_height * DECK_FULL },
                         top: 0,
                         transform: ${ sheet_transform(if actions { state.motion().deck } else { Fixed::ONE - state.motion().deck }, state.deck_height()) },
                         shrink: 0.0,

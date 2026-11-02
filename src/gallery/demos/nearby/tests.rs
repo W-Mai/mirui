@@ -22,6 +22,38 @@ fn fixture_at(width: u16, height: u16) -> (TestApp, model::DisplayStateHandle) {
     (app, state)
 }
 
+fn discovery_deck(app: &TestApp, state: &model::DisplayStateHandle) -> Entity {
+    use crate::ui::{LayoutContainer, Parent};
+    let body = app
+        .world
+        .query::<input::SelectionFrame>()
+        .iter()
+        .find(|(_, frame)| {
+            frame.page == state.page_key() && frame.room == state.return_to_launcher()
+        })
+        .unwrap()
+        .1
+        .body;
+    let pane = app
+        .world
+        .query::<input::PaneScope>()
+        .iter()
+        .find(|(entity, scope)| {
+            scope.0 == Page::Lobby
+                && input::contains(body, *entity, |e| app.world.get::<Parent>(e).map(|p| p.0))
+        })
+        .unwrap()
+        .0;
+    let mut parent = app.world.get::<Parent>(pane).map(|p| p.0);
+    while let Some(entity) = parent {
+        if app.world.has::<LayoutContainer>(entity) {
+            return entity;
+        }
+        parent = app.world.get::<Parent>(entity).map(|p| p.0);
+    }
+    panic!("discovery pane must have a local layout container");
+}
+
 #[test]
 fn all_palettes_define_the_same_paint_roles_and_cycle_without_replacing_models() {
     use super::style::*;
@@ -616,7 +648,7 @@ fn discovery_panes_share_the_mounted_page_and_join_through_candidates() {
     state.launcher().resume();
     state.open_network();
     finish_transition(&mut app);
-    let deck = app.world.find_by_id("discovery_deck").unwrap();
+    let deck = discovery_deck(&app, &state);
     let key = state.page_key();
     state.expand_discovery(true);
     assert_eq!(state.page_key(), key);
@@ -624,7 +656,7 @@ fn discovery_panes_share_the_mounted_page_and_join_through_candidates() {
     for _ in 0..24 {
         app.tick();
     }
-    assert_eq!(app.world.find_by_id("discovery_deck"), Some(deck));
+    assert_eq!(discovery_deck(&app, &state), deck);
     assert_eq!(state.motion().deck, Fixed::ONE);
     state.back_page();
     finish_transition(&mut app);
@@ -632,7 +664,7 @@ fn discovery_panes_share_the_mounted_page_and_join_through_candidates() {
         app.tick();
     }
     assert_eq!(state.motion().deck, Fixed::ZERO);
-    assert_eq!(app.world.find_by_id("discovery_deck"), Some(deck));
+    assert_eq!(discovery_deck(&app, &state), deck);
     state.choose_room(0);
     assert_eq!(state.snapshot().phase, Phase::ResolvingGame);
     state.advance();
@@ -668,7 +700,7 @@ fn discovery_focus_and_characters_stay_in_the_active_pane_at_native_sizes() {
         for expanded in [false, true, false] {
             state.expand_discovery(expanded);
             finish_transition(&mut app);
-            let body = app.world.find_by_id("discovery_deck").unwrap();
+            let body = discovery_deck(&app, &state);
             let frames: alloc::vec::Vec<_> = app
                 .world
                 .query::<input::SelectionFrame>()
@@ -786,6 +818,12 @@ fn launcher_j_k_shortcuts_keep_connection_and_settings_interactive() {
     press(PhysicalKey::ArrowDown, 4);
     press(PhysicalKey::KeyB, 5);
     assert!(library.active());
+    for cycle in 0..3 {
+        press(PhysicalKey::KeyJ, 10 + cycle * 2);
+        assert_eq!(state.focus_page(), Page::Lobby);
+        press(PhysicalKey::KeyB, 11 + cycle * 2);
+        assert!(library.active());
+    }
     library.open(launcher::Screen::Search);
     assert!(library.keyboard());
     press(PhysicalKey::KeyK, 6);
