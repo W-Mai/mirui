@@ -6,6 +6,34 @@ use crate::ui::widgets::navigation::transition;
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 #[test]
+fn page_marker_nodes_keep_absolute_page_identity_while_width_and_window_change() {
+    use crate::core::reactive::flush_signal_dirty;
+    use crate::ui::Children;
+
+    let mut app = App::headless(640, 480);
+    let root = app.spawn_root().id();
+    let shelf = app.add_model(shelf::Shelf::default()).finish();
+    shelf.present(80, 0);
+    shelf.advance(260);
+    let row = app.compose(root, library::page_markers(shelf.clone()));
+    let initial = app.world.get::<Children>(row).unwrap().0.clone();
+    let capacity = shelf.plan().grid.capacity();
+    shelf.present(80, capacity);
+    shelf.advance(80);
+    flush_signal_dirty(&mut app.world);
+    assert_eq!(app.world.get::<Children>(row).unwrap().0, initial);
+    shelf.present(80, capacity * 4);
+    flush_signal_dirty(&mut app.world);
+    let window = &app.world.get::<Children>(row).unwrap().0;
+    assert_eq!(&window[..6], &initial[1..]);
+    assert_ne!(window[6], initial[0]);
+    shelf.present(80, 0);
+    shelf.advance(260);
+    flush_signal_dirty(&mut app.world);
+    assert!(shelf.markers_settled());
+}
+
+#[test]
 fn favorites_navigation_uses_the_layout_grid_and_modal_back_keeps_its_owner() {
     let mut app = App::headless(640, 480);
     let state = app.add_model(model::DisplayState::default()).finish();

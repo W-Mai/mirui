@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Nearby page indicators retain absolute page identities and animate their widths with redirectable 260 ms tweens.
 - Nearby favorites derive a bounded multi-row grid from their full viewport, support directional page navigation and return to the first page without escaping an open modal.
 - Nearby compositions use declared Model captures directly and retain static page conditions without reactive wrappers or an owned snapshot copy.
 - Nearby uses forest, sunset and night palettes, pixel-art backgrounds and viewport-dependent typography.

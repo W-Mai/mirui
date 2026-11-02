@@ -1,3 +1,4 @@
+use crate::anim::{Tween, TweenConfig, ease};
 use crate::prelude::*;
 
 pub(super) const INSET: i32 = 12;
@@ -14,6 +15,16 @@ const PAGE_MARK_HEIGHT: i32 = 4;
 const PAGE_MARK_GAP: i32 = 4;
 
 pub(super) const WINDOW_BUDGET: usize = 128;
+const PAGE_MARKERS: usize = 7;
+const SHORT_MARK: Fixed = Fixed::from_int(6);
+const LONG_MARK: Fixed = Fixed::from_int(22);
+const PAGE_MOTION: TweenConfig = TweenConfig::new(260, &ease::OUT_CUBIC);
+
+#[derive(Clone, Copy)]
+struct MarkerMotion {
+    page: usize,
+    tween: Tween,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Grid {
@@ -88,6 +99,30 @@ impl Grid {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn page_markers_retarget_the_existing_tweens_without_restarting_same_page_motion() {
+        let mut shelf = Shelf::default();
+        shelf.present(48, 0);
+        shelf.advance(260);
+        assert_eq!(shelf.marker_lengths[0], LONG_MARK);
+        assert!(shelf.markers_settled());
+        let capacity = shelf.plan.grid.capacity();
+        shelf.present(48, capacity);
+        shelf.advance(80);
+        let middle = shelf.marker_lengths;
+        assert!(middle[0] > SHORT_MARK && middle[0] < LONG_MARK);
+        assert!(middle[1] > SHORT_MARK && middle[1] < LONG_MARK);
+        let elapsed = shelf.markers[1].tween.elapsed_ms;
+        shelf.present(48, capacity + 1);
+        assert_eq!(shelf.markers[1].tween.elapsed_ms, elapsed);
+        shelf.present(48, 0);
+        assert_eq!(shelf.marker_lengths, middle);
+        shelf.advance(260);
+        assert_eq!(shelf.marker_lengths[0], LONG_MARK);
+        assert_eq!(shelf.marker_lengths[1], SHORT_MARK);
+        assert!(shelf.markers_settled());
+    }
+
     #[test]
     fn bounded_grids_reach_every_entry_across_partial_pages() {
         use alloc::collections::{BTreeSet, VecDeque};
@@ -247,6 +282,9 @@ pub(super) struct Shelf {
     pub page: usize,
     #[observe]
     pub count: usize,
+    #[observe]
+    pub marker_lengths: [Fixed; PAGE_MARKERS],
+    markers: [MarkerMotion; PAGE_MARKERS],
     size: (i32, i32),
     total: usize,
     selected: usize,
@@ -258,6 +296,11 @@ impl Default for Shelf {
             plan: Plan::fit(560, 350, 6),
             page: 0,
             count: 1,
+            marker_lengths: [SHORT_MARK; PAGE_MARKERS],
+            markers: [MarkerMotion {
+                page: usize::MAX,
+                tween: Tween::preset(SHORT_MARK, SHORT_MARK, PAGE_MOTION),
+            }; PAGE_MARKERS],
             size: (560, 350),
             total: 6,
             selected: 0,
@@ -267,15 +310,52 @@ impl Default for Shelf {
 
 impl Shelf {
     fn update(&mut self) {
+        let previous_pages = self.pages();
         self.plan = Plan::fit(self.size.0, self.size.1, self.total);
         let capacity = self.plan.grid.rows * self.plan.grid.columns;
         self.page = self.selected / capacity;
         self.count = self.total.div_ceil(capacity);
+        let pages = self.pages();
+        if previous_pages != pages {
+            let previous = self.markers;
+            for (slot, motion) in self.markers.iter_mut().enumerate() {
+                let page = pages.0 + slot;
+                let target = if page == pages.2 {
+                    LONG_MARK
+                } else {
+                    SHORT_MARK
+                };
+                *motion = previous
+                    .iter()
+                    .find(|old| old.page == page)
+                    .copied()
+                    .unwrap_or(MarkerMotion {
+                        page,
+                        tween: Tween::preset(SHORT_MARK, SHORT_MARK, PAGE_MOTION),
+                    });
+                motion.tween.retarget(target, PAGE_MOTION);
+            }
+            self.marker_lengths = self.markers.map(|marker| marker.tween.value());
+        }
     }
 }
 
 #[model]
 impl Shelf {
+    pub fn advance(&mut self, delta: u16) {
+        if self.markers_settled() {
+            return;
+        }
+        for marker in &mut self.markers {
+            marker.tween.tick(delta);
+        }
+        self.marker_lengths = self.markers.map(|marker| marker.tween.value());
+    }
+
+    pub fn markers_settled(&self) -> bool {
+        self.markers.iter().all(|marker| marker.tween.is_finished())
+    }
+
     pub fn set_size(&mut self, width: Fixed, height: Fixed) {
         let size = (width.to_int(), height.to_int());
         if size != self.size {
@@ -302,5 +382,14 @@ impl Shelf {
         } else {
             (0, 0, 0)
         }
+    }
+}
+
+impl ShelfHandle {
+    pub fn marker_width(&self, page: usize) -> Fixed {
+        self.marker_lengths()
+            .get(page.saturating_sub(self.pages().0))
+            .copied()
+            .unwrap_or(SHORT_MARK)
     }
 }

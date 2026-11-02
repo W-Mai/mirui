@@ -155,6 +155,7 @@ fn launcher_layout(library: model!(launcher::Launcher), delta: res!(crate::ecs::
         total += 1;
     }
     library.shelf().present(total, selected);
+    library.shelf().advance(delta.0);
     library.deck().advance(
         library.screen() != launcher::Screen::Favorites,
         delta.0,

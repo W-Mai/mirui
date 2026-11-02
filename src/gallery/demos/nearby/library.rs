@@ -331,21 +331,35 @@ fn favorites_grid(
                     }
                 }
             }
-            Row (height: 4, shrink: 0.0, column_gap: 4, justify: JustifyContent::Center) {
-                walk ${
-                    let (first, end, selected) = grid.pages();
-                    (first..end).map(|i| (i, i == selected)).collect::<Vec<_>>()
-                } with page by page.0 {
-                    View (
-                        width: if page.1 { 12 } else { 4 },
-                        bg_color: if page.1 { ACCENT } else { DIVIDER }
-                    )
-                }
-            }
+            page_markers (grid)
         } on SizeChanged { grid.set_size(event.new.width, event.new.height); }
     };
     ui! {
         focus (body, library, Favorites)
+    }
+}
+
+#[compose]
+pub(super) fn page_markers(grid: model!(shelf::Shelf)) -> Entity {
+    ui! {
+        Row (height: 4, shrink: 0.0, column_gap: 4, justify: JustifyContent::Center) {
+            walk ${
+                let (first, end, _) = grid.pages();
+                first..end
+            } with page by page {
+                page_marker (grid, page)
+            }
+        }
+    }
+}
+
+#[compose]
+fn page_marker(grid: model!(shelf::Shelf), page: usize) -> Entity {
+    ui! {
+        View (
+            width: ${ grid.marker_width(page) },
+            bg_color: ${ if grid.pages().2 == page { ACCENT } else { DIVIDER } }
+        )
     }
 }
 
