@@ -131,7 +131,30 @@ fn nearby_scene(app: &mut snapshot_render::SnapshotApp, scene: &str) -> mirui::p
             });
         }
         "settings" => library.show_overlay(nearby::launcher::Overlay::System),
-        "controls" => library.show_overlay(nearby::launcher::Overlay::Controls),
+        "controls"
+        | "controls-muted"
+        | "controls-loading"
+        | "controls-pending"
+        | "controls-unavailable" => {
+            use nearby::launcher::{LevelStatus, SystemLevel};
+            library.show_overlay(nearby::launcher::Overlay::Controls);
+            library.set_level(SystemLevel::Volume, 55);
+            library.set_level(SystemLevel::Brightness, 70);
+            match scene {
+                "controls-muted" => library.toggle_sound(),
+                "controls-loading" => {
+                    library.set_level_status(SystemLevel::Volume, LevelStatus::Reading)
+                }
+                "controls-pending" => {
+                    library.set_level_status(SystemLevel::Volume, LevelStatus::Pending)
+                }
+                "controls-unavailable" => library.set_level_status(
+                    SystemLevel::Volume,
+                    LevelStatus::Unavailable("设置读取失败"),
+                ),
+                _ => {}
+            }
+        }
         "tools" => library.show_overlay(nearby::launcher::Overlay::Tools),
         "power" => library.show_overlay(nearby::launcher::Overlay::Power),
         "exit" => library.show_overlay(nearby::launcher::Overlay::Exit),

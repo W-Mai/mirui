@@ -6,6 +6,168 @@ use crate::ui::widgets::navigation::transition;
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
 #[test]
+fn level_track_pointer_callbacks_share_the_typed_level_owner() {
+    use crate::input::event::gesture::GestureEvent;
+    use crate::ui::{ComputedRect, Parent, Style};
+
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    library.show_overlay(launcher::Overlay::Controls);
+    app.render_dirty().unwrap();
+    let row = app
+        .world
+        .query::<actions::ActionAnchor>()
+        .iter()
+        .find_map(|(entity, anchor)| {
+            (anchor.index == 0
+                && anchor.active(&library)
+                && app
+                    .world
+                    .get::<ComputedRect>(entity)
+                    .is_some_and(|rect| rect.0.w > 400.into()))
+            .then_some(entity)
+        })
+        .unwrap();
+    let track = app
+        .world
+        .query::<Style>()
+        .iter()
+        .find_map(|(entity, style)| {
+            (style.layout.height == Dimension::px(14)
+                && input::contains(row, entity, |node| {
+                    app.world.get::<Parent>(node).map(|parent| parent.0)
+                }))
+            .then_some(entity)
+        })
+        .unwrap();
+    let rect = app.world.get::<ComputedRect>(track).unwrap().0;
+    crate::ui::delivery::dispatch_gesture(
+        &mut app.world,
+        &GestureEvent::Tap {
+            x: rect.x + rect.w / 2,
+            y: rect.y + rect.h / 2,
+            target: track,
+        },
+        1,
+    )
+    .unwrap();
+    assert_eq!(library.level(0).unwrap().value, Some(50));
+    crate::ui::delivery::dispatch_gesture(
+        &mut app.world,
+        &GestureEvent::DragMove {
+            x: rect.x + rect.w,
+            y: rect.y,
+            dx: rect.w / 2,
+            dy: Fixed::ZERO,
+            target: track,
+        },
+        2,
+    )
+    .unwrap();
+    assert_eq!(library.level(0).unwrap().value, Some(100));
+    library.set_level_status(
+        launcher::SystemLevel::Volume,
+        launcher::LevelStatus::Reading,
+    );
+    crate::ui::delivery::dispatch_gesture(
+        &mut app.world,
+        &GestureEvent::Tap {
+            x: rect.x,
+            y: rect.y,
+            target: track,
+        },
+        3,
+    )
+    .unwrap();
+    assert_eq!(library.volume(), 100);
+    assert_eq!(library.level(0).unwrap().value, None);
+}
+
+#[test]
+fn menu_actor_targets_only_its_active_layout_independently_of_the_background() {
+    use crate::ui::Children;
+    use crate::ui::widgets::FollowBounds;
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    for screen in [
+        launcher::Screen::Favorites,
+        launcher::Screen::Platforms,
+        launcher::Screen::Search,
+    ] {
+        library.open(screen);
+        if screen == launcher::Screen::Search {
+            library.set_query("not-a-game".into());
+        }
+        for overlay in [
+            launcher::Overlay::System,
+            launcher::Overlay::Controls,
+            launcher::Overlay::Tools,
+        ] {
+            library.show_overlay(overlay);
+            for selected in 0..library.item_count() {
+                library.select_action(selected);
+                app.tick();
+                app.render_dirty().unwrap();
+                let frame = app
+                    .world
+                    .query::<actor::ActorFrame>()
+                    .iter()
+                    .find_map(|(entity, frame)| frame.launcher.then_some(entity))
+                    .unwrap();
+                let target = app.world.get::<FollowBounds>(frame).unwrap().target;
+                let anchor = app.world.get::<actions::ActionAnchor>(target).unwrap();
+                assert!(anchor.active(&library));
+                assert_eq!(anchor.index, selected);
+                assert!(!state.actor_stage());
+                let body = app.world.get::<Children>(frame).unwrap().0[0];
+                let style = app.world.get::<crate::ui::Style>(body).unwrap();
+                assert_eq!(style.layout.left, Dimension::percent(100));
+                assert_eq!(style.layout.top, Dimension::percent(100));
+            }
+        }
+        library.dismiss_menu();
+    }
+}
+
+#[test]
+fn level_menu_keys_adjust_values_without_entering_an_edit_mode_or_escaping() {
+    use crate::input::event::input::{Key, PhysicalKey};
+    let mut app = App::headless(640, 480);
+    app.with_default_widgets().with_default_systems();
+    let root = app.spawn_root().id();
+    let state = app.add_model(model::DisplayState::default()).finish();
+    app.on_event(Key::EVENT, input::keyboard::callback(state.clone()));
+    let library = state.launcher();
+    library.select(8);
+    library.show_overlay(launcher::Overlay::Controls);
+    launcher_view::confirm(&state);
+    assert_eq!(library.volume(), 60);
+    for key in [
+        PhysicalKey::ArrowRight,
+        PhysicalKey::ArrowDown,
+        PhysicalKey::ArrowLeft,
+    ] {
+        crate::input::event::dispatch_input(
+            &mut app.world,
+            Some(root),
+            &crate::test_support::physical_key(key).into(),
+            1,
+            640,
+            480,
+        );
+    }
+    assert_eq!(library.volume(), 65);
+    assert_eq!(library.brightness(), 75);
+    assert_eq!(library.menu_selection(), 1);
+    library.back();
+    assert_eq!(library.overlay(), Some(launcher::Overlay::System));
+    assert_eq!(library.menu_selection(), 2);
+    assert_eq!(library.selected(), 8);
+}
+
+#[test]
 fn page_marker_nodes_keep_absolute_page_identity_while_width_and_window_change() {
     use crate::core::reactive::flush_signal_dirty;
     use crate::ui::Children;
@@ -331,7 +493,9 @@ fn action_overlay_keeps_preview_and_all_menu_items_inside_the_panel() {
             .query::<actions::ActionAnchor>()
             .iter()
             .filter_map(|(entity, anchor)| {
-                Some((anchor.0, app.world.get::<ComputedRect>(entity)?.0))
+                anchor
+                    .active(&library)
+                    .then_some((anchor.index, app.world.get::<ComputedRect>(entity)?.0))
             })
             .collect();
         assert_eq!(tiles.len(), 4);
@@ -440,7 +604,7 @@ fn hold_feedback_and_stale_frames_cannot_retrigger_a_consumed_press() {
 #[test]
 fn native_menu_hierarchy_reflows_without_replacing_the_browser() {
     use crate::ui::ComputedRect;
-    use launcher::{MenuAction, Overlay};
+    use launcher::Overlay;
     for (width, height) in [(320, 240), (640, 480)] {
         let (mut app, state) = fixture_at(width, height);
         let library = state.launcher();
@@ -462,7 +626,10 @@ fn native_menu_hierarchy_reflows_without_replacing_the_browser() {
                 .world
                 .query::<actions::ActionAnchor>()
                 .iter()
-                .filter_map(|(entity, _)| {
+                .filter_map(|(entity, anchor)| {
+                    if !anchor.active(&library) {
+                        return None;
+                    }
                     let mut ancestor = entity;
                     loop {
                         if crate::ui::branch::is_effectively_hidden(&app.world, ancestor) {
@@ -485,9 +652,9 @@ fn native_menu_hierarchy_reflows_without_replacing_the_browser() {
             assert_eq!(library.selected(), 4);
         }
         library.show_overlay(Overlay::Controls);
-        library.adjust(MenuAction::VolumeUp);
+        library.adjust_level(launcher::SystemLevel::Volume, 1);
         app.render_dirty().unwrap();
-        assert_eq!(library.item(0).unwrap().value, "70%");
+        assert_eq!(library.item(0).unwrap().level.unwrap().value, Some(65));
         library.show_overlay(Overlay::Game);
         library.choose_game(2, 2);
         library.select_action(1);
@@ -948,7 +1115,7 @@ fn modal_panels_remain_drawable_without_offscreen_capacity() {
         .world
         .query::<actions::ActionAnchor>()
         .iter()
-        .find(|(_, marker)| marker.0 == 0)
+        .find(|(_, marker)| marker.index == 0 && marker.active(&state.launcher()))
         .unwrap()
         .0;
     let rect = app.world.get::<crate::ui::ComputedRect>(tile).unwrap().0;

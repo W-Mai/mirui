@@ -45,6 +45,12 @@ fn resolve<'a, 'b, 'c, 'd>(
     if !library.active() && matches!(page.page, Page::Host | Page::Joined | Page::Leaving) {
         return None;
     }
+    if library.active() && library.menu() {
+        return action_targets.into_iter().find_map(|(entity, row)| {
+            (row.index == library.menu_selection() && row.active(&library))
+                .then_some((entity, false))
+        });
+    }
     let inside = |entity| root.is_some_and(|root| contains(root, entity, &parent));
     let anchor = anchors.into_iter().find_map(|(entity, anchor)| {
         let empty = if library.active() {
@@ -57,24 +63,18 @@ fn resolve<'a, 'b, 'c, 'd>(
         (inside(entity) && (!matches!(anchor.0, Stage::Search) || empty)).then_some(entity)
     });
     let target = if library.active() {
-        if library.menu() {
-            action_targets
-                .into_iter()
-                .find_map(|(entity, row)| (row.0 == library.menu_selection()).then_some(entity))
-        } else {
-            anchor.or_else(|| {
-                if library.screen() == super::launcher::Screen::Search && library.search_empty() {
-                    None
-                } else {
-                    library_targets.into_iter().find_map(|(entity, row)| {
-                        (row.screen == library.screen()
-                            && row.key == library.selected()
-                            && inside(entity))
-                        .then_some(entity)
-                    })
-                }
-            })
-        }
+        anchor.or_else(|| {
+            if library.screen() == super::launcher::Screen::Search && library.search_empty() {
+                None
+            } else {
+                library_targets.into_iter().find_map(|(entity, row)| {
+                    (row.screen == library.screen()
+                        && row.key == library.selected()
+                        && inside(entity))
+                    .then_some(entity)
+                })
+            }
+        })
     } else {
         anchor.or_else(|| {
             targets.into_iter().find_map(|(entity, row)| {
@@ -207,8 +207,9 @@ pub(super) fn actor(state: model!(DisplayState), launcher: bool) -> Entity {
                 left: ${
                     Dimension::Percent(
                         if state.launcher().active()
-                            && (state.launcher().screen() == super::launcher::Screen::Favorites
-                                || state.launcher().keyboard()) && !state.launcher().menu()
+                            && (state.launcher().menu()
+                                || state.launcher().screen() == super::launcher::Screen::Favorites
+                                || state.launcher().keyboard())
                         {
                             Fixed::from_int(100)
                         } else if state.actor_stage() {
@@ -226,12 +227,11 @@ pub(super) fn actor(state: model!(DisplayState), launcher: bool) -> Entity {
                     Dimension::percent(
                         if state.actor_stage()
                             || (state.launcher().active()
-                                && (state.launcher().screen() == super::launcher::Screen::Favorites
-                                    || state.launcher().keyboard()) && !state.launcher().menu())
+                                && (state.launcher().menu()
+                                    || state.launcher().screen() == super::launcher::Screen::Favorites
+                                    || state.launcher().keyboard()))
                         {
                             100
-                        } else if state.launcher().active() && state.launcher().menu() {
-                            50
                         } else {
                             85
                         },
@@ -245,7 +245,7 @@ pub(super) fn actor(state: model!(DisplayState), launcher: bool) -> Entity {
                             || state.launcher().screen() == super::launcher::Screen::Favorites
                             || state.launcher().keyboard());
                     Transform::translate(
-                            Fixed::from_int(if compact && !state.launcher().menu() { -24 } else { -16 }),
+                            Fixed::from_int(if compact { -24 } else { -16 }),
                             Fixed::from_int(if compact { -36 } else { -48 }),
                         )
                         .compose(

@@ -1,10 +1,7 @@
 use super::*;
 use crate::app::plugins::AudioPlugin;
 use crate::audio::{AudioCommand, AudioMixer, AudioSink};
-use crate::gallery::demos::nearby::{
-    launcher::{MenuAction, Overlay},
-    model, setup_app,
-};
+use crate::gallery::demos::nearby::{launcher::Overlay, model, setup_app};
 use crate::prelude::*;
 use alloc::{rc::Rc, vec::Vec};
 use core::{cell::RefCell, convert::Infallible};
@@ -135,9 +132,18 @@ fn sound_and_volume_controls_share_the_host_audio_state_and_expire_with_the_app(
     assert_eq!(library.item(1).unwrap().value, "关");
     audio.set_master_gain(gain(25));
     library.show_overlay(Overlay::Controls);
-    assert_eq!(library.item(0).unwrap().value, "25%");
-    library.adjust(MenuAction::VolumeUp);
-    assert_eq!(audio.state().unwrap().master_gain, gain(35));
+    assert_eq!(library.item(0).unwrap().level.unwrap().value, Some(25));
+    library.set_level(
+        crate::gallery::demos::nearby::launcher::SystemLevel::Volume,
+        40,
+    );
+    assert_eq!(audio.state().unwrap().master_gain, gain(40));
+    assert!(audio.state().unwrap().muted);
+    library.adjust_level(
+        crate::gallery::demos::nearby::launcher::SystemLevel::Volume,
+        1,
+    );
+    assert_eq!(audio.state().unwrap().master_gain, gain(45));
     assert!(audio.state().unwrap().muted);
     drop(app);
     assert!(audio.state().is_none());

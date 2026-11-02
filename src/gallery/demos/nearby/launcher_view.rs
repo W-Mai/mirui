@@ -173,6 +173,7 @@ fn activate_action(state: &super::model::DisplayStateHandle, action: MenuAction)
     use MenuAction::*;
     let library = state.launcher();
     match action {
+        Volume | Brightness => {}
         Play => library.launch(),
         Multiplayer => join_game(state),
         ToggleFavorite => library.toggle_favorite(),

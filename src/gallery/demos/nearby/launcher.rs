@@ -1,3 +1,4 @@
+use crate::anim::{Tween, TweenConfig, ease};
 use crate::core::model::ModelList;
 use crate::prelude::*;
 use crate::ui::widgets::navigation::{PageDirection, PageTransition};
@@ -96,10 +97,8 @@ pub enum MenuAction {
     NetworkInfo,
     SystemInfo,
     FileManager,
-    VolumeDown,
-    VolumeUp,
-    BrightnessDown,
-    BrightnessUp,
+    Volume,
+    Brightness,
     ManageNetwork,
     ShowExit,
     ShowPower,
@@ -139,12 +138,10 @@ impl Overlay {
                 (ShowPower, "关机"),
             ],
             Self::Controls => &[
-                (VolumeDown, "音量 -"),
-                (VolumeUp, "音量 +"),
-                (BrightnessDown, "亮度 -"),
-                (BrightnessUp, "亮度 +"),
-                (ShowTools, "Wi-Fi 与工具"),
-                (Back, "返回"),
+                (Volume, "音量"),
+                (Brightness, "亮度"),
+                (ShowTools, "系统工具"),
+                (Back, "更多设置"),
             ],
             Self::Tools => &[
                 (OpenWifi, "Wi-Fi 设置"),
@@ -171,7 +168,51 @@ pub struct MenuItem {
     pub enabled: bool,
     pub reason: &'static str,
     pub value: String,
+    pub level: Option<Level>,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SystemLevel {
+    Volume,
+    Brightness,
+}
+
+impl SystemLevel {
+    pub const ALL: [Self; 2] = [Self::Volume, Self::Brightness];
+    pub const fn index(self) -> usize {
+        match self {
+            Self::Volume => 0,
+            Self::Brightness => 1,
+        }
+    }
+    pub const fn minimum(self) -> u8 {
+        match self {
+            Self::Volume => 0,
+            Self::Brightness => 1,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LevelStatus {
+    #[default]
+    Ready,
+    Pending,
+    Reading,
+    Unavailable(&'static str),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Level {
+    pub value: Option<u8>,
+    pub minimum: u8,
+    pub maximum: u8,
+    pub step: u8,
+    pub muted: bool,
+    pub pending: bool,
+}
+
+const LEVEL_MOTION: TweenConfig = TweenConfig::new(150, &ease::OUT_CUBIC);
 
 pub const HOLD_MS: u16 = 700;
 const FEEDBACK_MS: u16 = 130;
@@ -220,6 +261,11 @@ pub struct Launcher {
     pub volume: u8,
     #[observe]
     pub brightness: u8,
+    #[observe]
+    pub level_status: [LevelStatus; 2],
+    #[observe]
+    pub level_positions: [Fixed; 2],
+    level_motion: [Tween; 2],
     #[observe]
     pub palette: usize,
     #[observe]
@@ -311,6 +357,12 @@ impl Default for Launcher {
             connected: false,
             volume: 60,
             brightness: 80,
+            level_status: [LevelStatus::Ready; 2],
+            level_positions: [Fixed::from_int(60), Fixed::from_int(80)],
+            level_motion: [
+                Tween::preset(60.into(), 60.into(), LEVEL_MOTION),
+                Tween::preset(80.into(), 80.into(), LEVEL_MOTION),
+            ],
             palette: 0,
             hold_progress: Fixed::ZERO,
             gesture: Gesture::Idle,
@@ -401,6 +453,16 @@ impl Launcher {
     pub(super) fn animate(&mut self, delta: u16) {
         #[cfg(feature = "audio")]
         self.audio_feedback.advance(delta);
+        for (index, control) in SystemLevel::ALL.into_iter().enumerate() {
+            if let Some(value) = self
+                .read_level(control.index())
+                .and_then(|level| level.value)
+            {
+                self.level_motion[index].retarget(i32::from(value).into(), LEVEL_MOTION);
+            }
+            self.level_motion[index].tick(delta);
+        }
+        self.level_positions = self.level_motion.map(|motion| motion.value());
         if self.overlay.is_some() {
             let value = self.menu_age.saturating_add(delta).min(800);
             if self.menu_age != value {
@@ -696,6 +758,77 @@ impl Launcher {
         }
     }
 
+    fn read_level(&self, index: usize) -> Option<Level> {
+        let control = *SystemLevel::ALL.get(index)?;
+        #[cfg(feature = "audio")]
+        let (sound, volume) = self.audio_feedback.preferences(self.sound, self.volume);
+        #[cfg(not(feature = "audio"))]
+        let (sound, volume) = (self.sound, self.volume);
+        Some(Level {
+            value: (self.level_status[index] != LevelStatus::Reading).then_some(match control {
+                SystemLevel::Volume => volume,
+                SystemLevel::Brightness => self.brightness,
+            }),
+            minimum: control.minimum(),
+            maximum: 100,
+            step: 5,
+            muted: control == SystemLevel::Volume && !sound,
+            pending: self.level_status[index] == LevelStatus::Pending,
+        })
+    }
+
+    pub fn set_level_status(&mut self, control: SystemLevel, status: LevelStatus) {
+        self.level_status[control.index()] = status;
+        if status == LevelStatus::Reading {
+            self.level_motion[control.index()] =
+                Tween::preset(Fixed::ZERO, Fixed::ZERO, LEVEL_MOTION);
+            self.level_positions[control.index()] = Fixed::ZERO;
+        }
+    }
+
+    pub fn set_level(&mut self, control: SystemLevel, value: u8) {
+        #[cfg(feature = "audio")]
+        {
+            (self.sound, self.volume) = self.audio_feedback.preferences(self.sound, self.volume);
+        }
+        if matches!(
+            self.level_status[control.index()],
+            LevelStatus::Reading | LevelStatus::Unavailable(_)
+        ) {
+            return;
+        }
+        let value = value.clamp(control.minimum(), 100);
+        let current = match control {
+            SystemLevel::Volume => &mut self.volume,
+            SystemLevel::Brightness => &mut self.brightness,
+        };
+        if *current == value {
+            return;
+        }
+        *current = value;
+        self.level_motion[control.index()].retarget(i32::from(value).into(), LEVEL_MOTION);
+        #[cfg(feature = "audio")]
+        if control == SystemLevel::Volume {
+            self.audio_feedback.configure(self.sound, self.volume);
+        } else {
+            self.audio_feedback.emit(super::sound::Cue::Confirm);
+        }
+    }
+
+    pub fn adjust_level(&mut self, control: SystemLevel, direction: isize) {
+        #[cfg(feature = "audio")]
+        {
+            (self.sound, self.volume) = self.audio_feedback.preferences(self.sound, self.volume);
+        }
+        let value = match control {
+            SystemLevel::Volume => self.volume,
+            SystemLevel::Brightness => self.brightness,
+        };
+        let next = (isize::from(value) + direction.signum() * 5)
+            .clamp(isize::from(control.minimum()), 100) as u8;
+        self.set_level(control, next);
+    }
+
     pub fn adjust(&mut self, tool: MenuAction) {
         #[cfg(feature = "audio")]
         {
@@ -705,30 +838,17 @@ impl Launcher {
         match tool {
             MenuAction::ToggleSound => self.toggle_sound(),
             MenuAction::CycleTheme => self.palette = (self.palette + 1) % 3,
-            MenuAction::VolumeDown => self.volume = self.volume.saturating_sub(10),
-            MenuAction::VolumeUp => self.volume = self.volume.saturating_add(10).min(100),
-            MenuAction::BrightnessDown => self.brightness = self.brightness.saturating_sub(10),
-            MenuAction::BrightnessUp => {
-                self.brightness = self.brightness.saturating_add(10).min(100)
-            }
             _ => return,
         }
         if old != (self.sound, self.volume, self.brightness, self.palette) {
             #[cfg(feature = "audio")]
             {
-                if matches!(tool, MenuAction::VolumeDown | MenuAction::VolumeUp) {
-                    self.audio_feedback.configure(self.sound, self.volume);
-                } else {
-                    self.audio_feedback.emit(super::sound::Cue::Confirm);
-                }
+                self.audio_feedback.emit(super::sound::Cue::Confirm);
             }
         }
         self.notice = "LOCAL DEMO: settings updated";
         #[cfg(feature = "audio")]
-        if matches!(
-            tool,
-            MenuAction::ToggleSound | MenuAction::VolumeDown | MenuAction::VolumeUp
-        ) {
+        if matches!(tool, MenuAction::ToggleSound) {
             self.notice = "";
         }
     }
@@ -832,13 +952,18 @@ impl Launcher {
         let mut reason = "";
         let mut value = String::new();
         #[cfg(feature = "audio")]
-        let (sound, volume) = if matches!(action, ToggleSound | VolumeDown | VolumeUp) {
+        let (sound, _volume) = if matches!(action, ToggleSound | Volume) {
             self.audio_feedback.preferences(self.sound, self.volume)
         } else {
             (self.sound, self.volume)
         };
         #[cfg(not(feature = "audio"))]
-        let (sound, volume) = (self.sound, self.volume);
+        let (sound, _volume) = (self.sound, self.volume);
+        let level = match action {
+            Volume => self.read_level(0),
+            Brightness => self.read_level(1),
+            _ => None,
+        };
         match action {
             Multiplayer => {
                 enabled = self
@@ -864,8 +989,20 @@ impl Launcher {
                     reason = "尚未保留直连网络";
                 }
             }
-            VolumeDown | VolumeUp => value = alloc::format!("{}%", volume),
-            BrightnessDown | BrightnessUp => value = alloc::format!("{}%", self.brightness),
+            Volume | Brightness => {
+                let index = if action == Volume { 0 } else { 1 };
+                match self.level_status[index] {
+                    LevelStatus::Reading => {
+                        enabled = false;
+                        reason = "正在读取系统设置";
+                    }
+                    LevelStatus::Unavailable(message) => {
+                        enabled = false;
+                        reason = message;
+                    }
+                    _ => {}
+                }
+            }
             ToggleSound => value = if sound { "开".into() } else { "关".into() },
             CycleTheme => value = ["森林", "落日", "夜色"][self.palette].into(),
             _ => {}
@@ -876,6 +1013,7 @@ impl Launcher {
             enabled,
             reason,
             value,
+            level,
         })
     }
     pub fn show_overlay(&mut self, overlay: Overlay) {
@@ -895,7 +1033,7 @@ impl Launcher {
             match overlay {
                 Overlay::Tools => {
                     self.show_overlay(Overlay::Controls);
-                    self.select_action(4);
+                    self.select_action(2);
                 }
                 Overlay::Controls => {
                     self.show_overlay(Overlay::System);
@@ -952,6 +1090,13 @@ impl Launcher {
 }
 
 impl LauncherHandle {
+    pub fn level(&self, index: usize) -> Option<Level> {
+        self.volume();
+        self.brightness();
+        self.sound();
+        self.level_status();
+        self.read_level(index)
+    }
     pub fn query(&self) -> String {
         self.query_revision();
         self.query_value()
@@ -1037,6 +1182,7 @@ impl LauncherHandle {
         self.connected();
         self.volume();
         self.brightness();
+        self.level_status();
         self.palette();
         let key = self.selected_game();
         if let Some(game) = self.games().iter().find(|game| Some(game.key()) == key) {
@@ -1049,6 +1195,55 @@ impl LauncherHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn simulated_levels_keep_confirmed_values_bounds_and_parent_focus() {
+        let mut state = Launcher::default();
+        state.show_overlay(Overlay::Controls);
+        assert_eq!(state.item_count(), 4);
+        state.adjust_level(SystemLevel::Volume, -1);
+        assert_eq!(state.volume, 55);
+        for _ in 0..30 {
+            state.adjust_level(SystemLevel::Brightness, -1);
+        }
+        assert_eq!(state.brightness, 1);
+        state.set_level_status(SystemLevel::Volume, LevelStatus::Reading);
+        assert_eq!(state.read_level(0).unwrap().value, None);
+        assert!(!state.read_item(0).unwrap().enabled);
+        state.adjust_level(SystemLevel::Volume, 1);
+        assert_eq!(state.volume, 55);
+        state.set_level_status(
+            SystemLevel::Volume,
+            LevelStatus::Unavailable("设置读取失败"),
+        );
+        assert_eq!(state.read_level(0).unwrap().value, Some(55));
+        assert!(!state.read_item(0).unwrap().enabled);
+        state.set_level_status(SystemLevel::Volume, LevelStatus::Pending);
+        assert!(state.read_level(0).unwrap().pending);
+        assert!(state.read_item(0).unwrap().enabled);
+        state.show_overlay(Overlay::Tools);
+        state.back();
+        assert_eq!(state.overlay, Some(Overlay::Controls));
+        assert_eq!(state.menu_selection, 2);
+        state.back();
+        assert_eq!(state.overlay, Some(Overlay::System));
+        assert_eq!(state.menu_selection, 2);
+        assert_eq!(state.volume, 55);
+    }
+
+    #[test]
+    fn level_tweens_redirect_from_the_displayed_value() {
+        let mut state = Launcher::default();
+        state.set_level(SystemLevel::Volume, 90);
+        state.animate(75);
+        let middle = state.level_positions[0];
+        assert!(middle > 60.into() && middle < 90.into());
+        state.set_level(SystemLevel::Volume, 30);
+        assert_eq!(state.level_positions[0], middle);
+        state.animate(150);
+        assert_eq!(state.level_positions[0], 30.into());
+        state.set_level(SystemLevel::Volume, 30);
+        assert!(state.level_motion[0].is_finished());
+    }
 
     #[test]
     fn retained_layers_keep_independent_motion_and_collection_identity() {
@@ -1091,7 +1286,7 @@ mod tests {
         launcher.show_overlay(Overlay::Tools);
         launcher.back();
         assert_eq!(launcher.overlay, Some(Overlay::Controls));
-        assert_eq!(launcher.menu_selection, 4);
+        assert_eq!(launcher.menu_selection, 2);
         launcher.back();
         assert_eq!(launcher.overlay, Some(Overlay::System));
         assert_eq!(launcher.menu_selection, 2);

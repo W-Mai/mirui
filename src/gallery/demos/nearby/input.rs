@@ -287,13 +287,10 @@ pub(super) fn keyboard(event: event!(Key), state: model!(DisplayState)) -> bool 
         };
         if let Some(forward) = direction {
             if library.menu() {
-                let delta = match event.physical {
-                    Some(PhysicalKey::ArrowUp) => -2,
-                    Some(PhysicalKey::ArrowDown) => 2,
-                    Some(PhysicalKey::ArrowLeft) => -1,
-                    _ => 1,
-                };
-                library.select_action((library.menu_selection() as i32 + delta).max(0) as usize);
+                move_menu(
+                    &library,
+                    event.physical.expect("direction has a physical key"),
+                );
                 return true;
             }
             if library.keyboard() {
@@ -390,4 +387,50 @@ pub(super) fn keyboard(event: event!(Key), state: model!(DisplayState)) -> bool 
         _ => return false,
     }
     true
+}
+
+fn move_menu(
+    library: &super::launcher::LauncherHandle,
+    key: crate::input::event::input::PhysicalKey,
+) {
+    use super::launcher::{Overlay, SystemLevel};
+    use crate::input::event::input::PhysicalKey;
+    let selected = library.menu_selection();
+    if library.overlay() == Some(Overlay::Controls) {
+        let (next, adjustment) = match key {
+            PhysicalKey::ArrowUp => (
+                match selected {
+                    1 => 0,
+                    2 | 3 => 1,
+                    _ => 0,
+                },
+                0,
+            ),
+            PhysicalKey::ArrowDown => (
+                match selected {
+                    0 => 1,
+                    1 => 2,
+                    _ => selected,
+                },
+                0,
+            ),
+            PhysicalKey::ArrowLeft if selected < 2 => (selected, -1),
+            PhysicalKey::ArrowRight if selected < 2 => (selected, 1),
+            PhysicalKey::ArrowLeft => (2, 0),
+            _ => (3, 0),
+        };
+        if adjustment != 0 {
+            library.adjust_level(SystemLevel::ALL[selected], adjustment);
+        } else {
+            library.select_action(next);
+        }
+    } else {
+        let delta = match key {
+            PhysicalKey::ArrowUp => -2,
+            PhysicalKey::ArrowDown => 2,
+            PhysicalKey::ArrowLeft => -1,
+            _ => 1,
+        };
+        library.select_action(selected.saturating_add_signed(delta));
+    }
 }
