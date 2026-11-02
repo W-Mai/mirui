@@ -188,6 +188,10 @@ pub(super) fn keyboard(event: event!(Key), state: model!(DisplayState)) -> bool 
         Some(PhysicalKey::KeyB) => 0x62,
         Some(PhysicalKey::KeyX) => KEY_X,
         Some(PhysicalKey::KeyY) => 0x79,
+        Some(PhysicalKey::ArrowLeft) => KEY_LEFT,
+        Some(PhysicalKey::ArrowRight) => KEY_RIGHT,
+        Some(PhysicalKey::Escape) => KEY_ESCAPE,
+        Some(PhysicalKey::Enter) => KEY_RETURN,
         _ => event.code,
     };
     if code == KEY_X && (library.active() || !event.pressed) {
@@ -201,6 +205,20 @@ pub(super) fn keyboard(event: event!(Key), state: model!(DisplayState)) -> bool 
     if !event.pressed {
         return false;
     }
+    if event.repeat == Some(true)
+        && !matches!(
+            event.physical,
+            Some(
+                PhysicalKey::ArrowUp
+                    | PhysicalKey::ArrowDown
+                    | PhysicalKey::ArrowLeft
+                    | PhysicalKey::ArrowRight
+            )
+        )
+    {
+        return false;
+    }
+    library.cancel_hold();
     if event.physical == Some(PhysicalKey::F2) {
         state.toggle_controls();
         return true;
@@ -234,12 +252,16 @@ pub(super) fn keyboard(event: event!(Key), state: model!(DisplayState)) -> bool 
         return true;
     }
     if library.active() {
+        if library.menu()
+            && matches!(
+                event.physical,
+                Some(PhysicalKey::Tab | PhysicalKey::KeyJ | PhysicalKey::KeyK)
+            )
+        {
+            return true;
+        }
         if event.physical == Some(PhysicalKey::Tab) {
-            library.open(if library.screen() == super::launcher::Screen::Favorites {
-                super::launcher::Screen::Platforms
-            } else {
-                super::launcher::Screen::Favorites
-            });
+            library.toggle_tab();
             return true;
         }
         if event.physical == Some(PhysicalKey::KeyK) {

@@ -59,6 +59,7 @@ pub struct DisplayState {
     room_selection: usize,
     mode_selection: usize,
     has_current_game: bool,
+    network_page: Page,
     #[cfg(feature = "audio")]
     heard_rooms: bool,
 }
@@ -137,6 +138,7 @@ impl Default for DisplayState {
             room_selection: 0,
             mode_selection: 0,
             has_current_game: false,
+            network_page: Page::Host,
             #[cfg(feature = "audio")]
             heard_rooms: false,
         }
@@ -337,6 +339,19 @@ impl DisplayState {
         #[cfg(feature = "audio")]
         self.discover_sound();
     }
+    pub(super) fn manage_network(&mut self) {
+        self.return_to_launcher = true;
+        self.launcher.close();
+        self.session = self.session.wrapping_add(1);
+        self.view.source = LaunchSource::Menu;
+        self.view.lobby = false;
+        self.view.network_only = true;
+        self.view.selected = 0;
+        self.view.refreshing = false;
+        self.fault_delivered = false;
+        self.navigate(self.network_page, PageDirection::Forward);
+        self.set_phase(Phase::NetworkConnected);
+    }
     pub fn launch_game(&mut self, name: alloc::string::String, multiplayer: bool) {
         #[cfg(feature = "audio")]
         self.launcher.emit_sound(if multiplayer {
@@ -471,6 +486,9 @@ impl DisplayState {
         })
     }
     pub fn select(&mut self, index: usize) {
+        if self.view.busy {
+            return;
+        }
         let count = match self.view.page {
             Page::Mode if self.current_game() => 3,
             Page::Mode | Page::Choice => 2,
@@ -491,6 +509,9 @@ impl DisplayState {
         self.confirm();
     }
     pub fn confirm(&mut self) {
+        if self.view.busy || self.view.page == Page::Unavailable {
+            return;
+        }
         #[cfg(feature = "audio")]
         if !copy::confirm_text(&self.presentation()).is_empty() {
             self.launcher.emit_sound(super::sound::Cue::Confirm);
@@ -658,6 +679,9 @@ impl DisplayState {
                 self.navigate(self.leave_to, PageDirection::Backward);
                 self.set_phase(Phase::Idle);
                 self.clear_connection();
+                if self.view.network_only {
+                    self.launcher.clear_network();
+                }
                 self.view.selected = 0;
                 #[cfg(feature = "audio")]
                 self.launcher.emit_sound(super::sound::Cue::Restored);
@@ -679,7 +703,11 @@ impl DisplayState {
         if matches!(self.view.page, Page::Choice | Page::Unavailable)
             && self.view.source == LaunchSource::Game
         {
-            self.exit(Outcome::SinglePlayer);
+            self.exit(if self.return_to_launcher {
+                Outcome::System
+            } else {
+                Outcome::SinglePlayer
+            });
             return;
         }
         if self.view.page == Page::Mode && self.view.lobby {
@@ -688,6 +716,21 @@ impl DisplayState {
         }
         if matches!(self.view.page, Page::Mode | Page::Lobby) {
             self.exit(Outcome::System);
+            return;
+        }
+        if self.view.page == Page::Choice && self.view.network_only {
+            if self.return_to_launcher && !self.view.lobby {
+                self.exit(Outcome::System);
+            } else if self.view.lobby {
+                self.view.network_only = false;
+                self.navigate(Page::Lobby, PageDirection::Backward);
+                self.view.selected = self.room_selection;
+                self.set_phase(Phase::Idle);
+            } else {
+                self.navigate(Page::Mode, PageDirection::Backward);
+                self.set_phase(Phase::Idle);
+                self.view.selected = 0;
+            }
             return;
         }
         if matches!(self.view.page, Page::Host | Page::Joined) {
@@ -706,7 +749,6 @@ impl DisplayState {
         }
         let page = match self.view.page {
             Page::Games => Page::Mode,
-            Page::Choice if self.view.network_only => Page::Mode,
             Page::Candidates => Page::Lobby,
             Page::Choice | Page::Unavailable => Page::Games,
             _ => Page::Choice,
@@ -865,6 +907,7 @@ impl DisplayState {
         self.view.outcome = outcome;
         self.view.busy = false;
         if outcome == Outcome::KeepNetwork {
+            self.network_page = self.view.page;
             self.launcher.retain_network();
         }
         self.return_to_launcher = false;

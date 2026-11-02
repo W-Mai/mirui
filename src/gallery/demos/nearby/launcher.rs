@@ -498,6 +498,14 @@ impl Launcher {
         }
     }
 
+    pub fn toggle_tab(&mut self) {
+        self.open(if self.screen == Screen::Favorites {
+            self.catalog_screen
+        } else {
+            Screen::Favorites
+        });
+    }
+
     pub fn select(&mut self, index: usize) {
         #[cfg(feature = "audio")]
         if self.selected != index {
@@ -529,7 +537,7 @@ impl Launcher {
             .iter()
             .any(|game| game.key() == key && game.directory())
         {
-            self.open(Screen::Platforms);
+            self.open(self.catalog_screen);
             return;
         }
         self.cancel_hold();
@@ -620,6 +628,7 @@ impl Launcher {
     pub fn toggle_favorite(&mut self) {
         if let Some(key) = self.selected_game {
             self.toggle_game_favorite(key);
+            self.overlay = None;
         }
     }
     pub fn toggle_game_favorite(&mut self, key: u32) {
@@ -637,6 +646,10 @@ impl Launcher {
     }
 
     pub fn launch(&mut self) {
+        if self.connected && self.overlay != Some(Overlay::Network) {
+            self.show_overlay(Overlay::Network);
+            return;
+        }
         self.play_count = self.play_count.saturating_add(1);
         for game in self.games.iter_mut() {
             if Some(game.key()) == self.selected_game {
@@ -664,6 +677,9 @@ impl Launcher {
     }
     pub fn retain_network(&mut self) {
         self.connected = true;
+    }
+    pub fn clear_network(&mut self) {
+        self.connected = false;
     }
 
     pub fn toggle_sound(&mut self) {
@@ -877,9 +893,13 @@ impl Launcher {
         self.cancel_hold();
         if let Some(overlay) = self.overlay {
             match overlay {
-                Overlay::Tools => self.show_overlay(Overlay::Controls),
-                Overlay::Controls | Overlay::Exit | Overlay::Power => {
-                    self.show_overlay(Overlay::System)
+                Overlay::Tools => {
+                    self.show_overlay(Overlay::Controls);
+                    self.select_action(4);
+                }
+                Overlay::Controls => {
+                    self.show_overlay(Overlay::System);
+                    self.select_action(2);
                 }
                 _ => self.overlay = None,
             }
@@ -900,6 +920,9 @@ impl Launcher {
             Screen::Favorites
         };
         self.open(target);
+        if target == Screen::Platforms {
+            self.set_selection(self.platform);
+        }
         self.direction = PageDirection::Backward;
         #[cfg(feature = "audio")]
         self.audio_feedback.emit(super::sound::Cue::Back);
@@ -1050,14 +1073,17 @@ mod tests {
         launcher.show_overlay(Overlay::Tools);
         launcher.back();
         assert_eq!(launcher.overlay, Some(Overlay::Controls));
+        assert_eq!(launcher.menu_selection, 4);
         launcher.back();
         assert_eq!(launcher.overlay, Some(Overlay::System));
+        assert_eq!(launcher.menu_selection, 2);
         launcher.back();
         assert_eq!(launcher.overlay, None);
         assert_eq!((launcher.screen, launcher.selected), (Screen::Games, 3));
         launcher.show_overlay(Overlay::Power);
         launcher.back();
-        assert_eq!(launcher.overlay, Some(Overlay::System));
+        assert_eq!(launcher.overlay, None);
+        launcher.show_overlay(Overlay::System);
         assert_eq!(launcher.item_count(), 6);
         assert!(!launcher.read_item(3).unwrap().enabled);
         assert!(!launcher.read_item(3).unwrap().reason.is_empty());

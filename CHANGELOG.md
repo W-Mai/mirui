@@ -43,6 +43,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Nearby restores catalog locations and parent-menu selection, keeps modal shortcuts isolated, cancels interrupted game holds, and shares retained-network confirmation across launch paths.
+- Nearby network management opens the active connection, and cancelling network setup restores the discovery selection.
+
 - Nearby retained catalog previews handle directory and keyboard selections without treating them as game-platform indices.
 
 - Nearby's connection panel returns to the retained game catalog when choosing a game, closes before the catalog expands, and preserves the catalog's current location.

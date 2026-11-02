@@ -445,6 +445,174 @@ fn launcher_deck_retains_shelf_members_and_independent_selection_on_reversal() {
 }
 
 #[test]
+fn modal_keys_and_repeats_do_not_escape_or_trigger_a_pending_game_launch() {
+    use crate::input::event::input::PhysicalKey;
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    library.choose_game(0, 0);
+    let mut press = |position, repeat| {
+        let mut key = crate::test_support::physical_key(position);
+        key.repeat = Some(repeat);
+        let root = app.root;
+        crate::input::event::dispatch_input(&mut app.world, root, &key.into(), 1, 640, 480);
+    };
+    for key in [PhysicalKey::Tab, PhysicalKey::KeyJ, PhysicalKey::KeyK] {
+        press(key, false);
+        assert_eq!(library.overlay(), Some(launcher::Overlay::Game));
+        assert!(library.active());
+    }
+    library.dismiss_menu();
+    launcher_view::begin_play(&state);
+    assert!(library.holding());
+    press(PhysicalKey::KeyY, false);
+    assert!(!library.holding());
+    launcher_view::finish_play(&state);
+    assert!(!library.menu());
+    press(PhysicalKey::KeyK, true);
+    assert!(!library.menu());
+    press(PhysicalKey::KeyK, false);
+    assert_eq!(library.overlay(), Some(launcher::Overlay::System));
+    press(PhysicalKey::KeyB, true);
+    assert!(library.menu());
+    press(PhysicalKey::KeyB, false);
+    assert!(!library.menu());
+    assert!(library.games().iter().all(|game| game.played() == 0));
+}
+
+#[test]
+fn launcher_tabs_and_parent_navigation_restore_the_current_catalog_location() {
+    let (_app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    library.choose_platform(3);
+    library.select(3);
+    library.toggle_tab();
+    assert_eq!(library.screen(), launcher::Screen::Favorites);
+    library.toggle_tab();
+    assert_eq!(library.screen(), launcher::Screen::Games);
+    assert_eq!(library.selected(), 3);
+    library.back();
+    assert_eq!(library.screen(), launcher::Screen::Platforms);
+    assert_eq!(library.selected(), 3);
+    library.choose_platform(2);
+    library.select(2);
+    library.toggle_tab();
+    library.choose_game(8, 8);
+    assert_eq!(library.screen(), launcher::Screen::Games);
+    assert_eq!(library.selected(), 2);
+}
+
+#[test]
+fn retained_network_launch_and_management_use_their_existing_confirmation_paths() {
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    library.select(0);
+    library.retain_network();
+    launcher_view::begin_play(&state);
+    launcher_view::finish_play(&state);
+    assert_eq!(library.overlay(), Some(launcher::Overlay::Network));
+    assert_eq!(
+        library
+            .games()
+            .iter()
+            .find(|game| game.key() == 0)
+            .unwrap()
+            .played(),
+        0
+    );
+    launcher_view::confirm(&state);
+    assert!(library.connected());
+    assert!(!library.menu());
+    library.choose_game(0, 0);
+    launcher_view::confirm(&state);
+    assert_eq!(library.overlay(), Some(launcher::Overlay::Network));
+    library.select_action(1);
+    launcher_view::confirm(&state);
+    assert!(!library.connected());
+    assert_eq!(
+        library
+            .games()
+            .iter()
+            .find(|game| game.key() == 0)
+            .unwrap()
+            .played(),
+        2
+    );
+    library.retain_network();
+    library.show_overlay(launcher::Overlay::System);
+    library.select_action(3);
+    launcher_view::confirm(&state);
+    assert!(!library.active());
+    assert!(state.snapshot().network_only);
+    assert_eq!(state.snapshot().page, Page::Host);
+    assert_eq!(state.snapshot().phase, Phase::NetworkConnected);
+    app.render_dirty().unwrap();
+    state.back_page();
+    state.advance();
+    assert!(!library.connected());
+    assert_eq!(state.snapshot().page, Page::Choice);
+    state.back_page();
+    assert!(library.active());
+    app.render_dirty().unwrap();
+}
+
+#[test]
+fn cancelling_launcher_multiplayer_does_not_request_single_player() {
+    let (_app, state) = fixture();
+    for supported in [true, false] {
+        state.launch_game("双人冒险".into(), supported);
+        state.back_page();
+        assert!(state.launcher().active());
+        assert_eq!(state.snapshot().outcome, Outcome::System);
+    }
+    state.launch_game("双人冒险".into(), true);
+    state.activate(0);
+    let snapshot = state.snapshot();
+    assert!(snapshot.busy);
+    state.select(1);
+    state.confirm();
+    assert_eq!(state.snapshot(), snapshot);
+}
+
+#[test]
+fn retained_client_network_management_keeps_the_joined_role() {
+    let (_app, state) = fixture();
+    state.launcher().resume();
+    state.open_network();
+    state.choose_connection(0);
+    state.activate(1);
+    state.advance();
+    state.choose_room(0);
+    for _ in 0..4 {
+        state.advance();
+    }
+    assert_eq!(state.snapshot().phase, Phase::NetworkConnected);
+    state.confirm();
+    assert!(state.launcher().connected());
+    state.manage_network();
+    assert_eq!(state.snapshot().page, Page::Joined);
+    assert_eq!(state.snapshot().phase, Phase::NetworkConnected);
+}
+
+#[test]
+fn cancelling_network_only_returns_to_the_discovery_pane_and_room_selection() {
+    let (_app, state) = fixture();
+    state.open_network();
+    state.select(1);
+    state.expand_discovery(true);
+    state.choose_connection(0);
+    assert_eq!(state.snapshot().page, Page::Choice);
+    assert!(state.snapshot().network_only);
+    state.back_page();
+    assert_eq!(state.snapshot().page, Page::Lobby);
+    assert_eq!(state.selected(), 1);
+    assert!(!state.snapshot().network_only);
+    assert!(!state.launcher().active());
+}
+
+#[test]
 fn retained_catalog_handles_directory_and_keyboard_selection_changes() {
     let (mut app, state) = fixture();
     let library = state.launcher();
@@ -459,7 +627,7 @@ fn retained_catalog_handles_directory_and_keyboard_selection_changes() {
     app.render_dirty().unwrap();
     launcher_view::confirm(&state);
     app.render_dirty().unwrap();
-    assert_eq!(library.screen(), launcher::Screen::Platforms);
+    assert_eq!(library.screen(), launcher::Screen::Games);
     library.open(launcher::Screen::Search);
     for _ in 0..40 {
         app.tick();

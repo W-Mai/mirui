@@ -144,9 +144,6 @@ fn activate_action(state: &super::model::DisplayStateHandle, action: MenuAction)
     use MenuAction::*;
     let library = state.launcher();
     match action {
-        Play if library.connected() && library.overlay() != Some(Overlay::Network) => {
-            library.show_overlay(Overlay::Network)
-        }
         Play => library.launch(),
         Multiplayer => join_game(state),
         ToggleFavorite => library.toggle_favorite(),
@@ -154,7 +151,7 @@ fn activate_action(state: &super::model::DisplayStateHandle, action: MenuAction)
         ShowTools => library.show_overlay(Overlay::Tools),
         ShowExit => library.show_overlay(Overlay::Exit),
         ShowPower => library.show_overlay(Overlay::Power),
-        ManageNetwork => state.open_network(),
+        ManageNetwork => state.manage_network(),
         OpenWifi => library.network(),
         NetworkInfo => library.result(if library.connected() {
             "LOCAL DEMO: Nearby Guest / 192.168.4.2"
