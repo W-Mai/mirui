@@ -55,8 +55,7 @@ fn cmd_wasm_check() -> Result {
         .map(|o| String::from_utf8_lossy(&o.stdout).contains("wasm32-unknown-unknown"))
         .unwrap_or(false);
     if !installed {
-        println!("  ⏭ wasm32-unknown-unknown not installed, skipping");
-        return Ok(());
+        return ci::skip_local("wasm32-unknown-unknown target is not installed");
     }
     cargo(&[
         "check",
@@ -75,8 +74,7 @@ fn cmd_linux_fb_check() -> Result {
     // runner exercises the path. Pick the host's own architecture so
     // a separate cross toolchain isn't required.
     if !cfg!(target_os = "linux") {
-        println!("  ⏭ host is not linux, skipping");
-        return Ok(());
+        return ci::skip_local("Linux framebuffer checks require a Linux host");
     }
     cargo(&[
         "check",
@@ -128,16 +126,23 @@ fn cmd_web_serve() -> Result {
 }
 
 fn cmd_cha() -> Result {
+    cha_health()?;
+    cha_policy()?;
+    cha_analysis()
+}
+
+fn cmd_cha_policy() -> Result {
+    cha_health()?;
+    cha_policy()
+}
+
+fn cmd_cha_analysis() -> Result {
+    cha_health()?;
+    cha_analysis()
+}
+
+fn cha_health() -> Result {
     const CHA_VERSION: &str = "cha 1.20.0";
-    const POLICY_ROOTS: &[&str] = &[
-        "src/",
-        "mirx/src/",
-        "mirx/tests/",
-        "mirui-macros/src/",
-        "tests/",
-        "gallery/examples/",
-        "xtask/src/",
-    ];
 
     let version = Command::new("cha")
         .arg("--version")
@@ -187,6 +192,19 @@ fn cmd_cha() -> Result {
         }
     }
 
+    Ok(())
+}
+
+fn cha_policy() -> Result {
+    const POLICY_ROOTS: &[&str] = &[
+        "src/",
+        "mirx/src/",
+        "mirx/tests/",
+        "mirui-macros/src/",
+        "tests/",
+        "gallery/examples/",
+        "xtask/src/",
+    ];
     let mut policy = Command::new("cha");
     policy.arg("analyze").args(POLICY_ROOTS).args([
         "--plugin",
@@ -207,6 +225,10 @@ fn cmd_cha() -> Result {
         .into());
     }
 
+    Ok(())
+}
+
+fn cha_analysis() -> Result {
     let general = ci::timed_output(
         "source analysis",
         Command::new("cha")
@@ -222,7 +244,6 @@ fn cmd_cha() -> Result {
         .into());
     }
 
-    println!("  ✓ api-misuse health check and repository policy passed");
     Ok(())
 }
 
@@ -308,9 +329,7 @@ fn cmd_riscv_clippy() -> Result {
             "warnings",
         ])?;
     } else {
-        println!(
-            "  ⏭ riscv32imc-unknown-none-elf target not installed, no_std gallery clippy skipped"
-        );
+        return ci::skip_local("riscv32imc-unknown-none-elf target is not installed");
     }
     Ok(())
 }

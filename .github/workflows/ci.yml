@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTUP_TOOLCHAIN: 1.97.0
   CARGO_BUILD_JOBS: 2
   CARGO_INCREMENTAL: 0
   CARGO_PROFILE_DEV_DEBUG: 0
@@ -16,26 +17,60 @@ env:
   CARGO_PROFILE_TEST_STRIP: symbols
 
 jobs:
-  ci:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: matrix
+        name: Read check groups
+        run: echo "matrix=$(tr -d '\n' < .github/ci-matrix.json)" >> "$GITHUB_OUTPUT"
+
+  checks:
+    name: ${{ matrix.name }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.97.0
         with:
-          targets: wasm32-unknown-unknown, riscv32imc-unknown-none-elf
+          targets: ${{ matrix.targets }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-${{ matrix.name }}
       - name: Install Linux build dependencies
+        if: matrix.native
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends libsdl2-dev libevdev-dev
       - run: cargo install xrune-fmt
+        if: matrix.tool == 'format'
       - run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/W-Mai/Cha/releases/download/v1.20.0/cha-cli-installer.sh | sh
+        if: matrix.tool == 'cha'
       - run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - name: Report available build storage
         run: df -h .
-      - run: cargo xtask ci
+      - name: Run selected checks
+        run: cargo xtask ci ${{ join(matrix.checks, ' ') }}
       - name: Report build storage usage
         if: always()
         run: |
           df -h .
           if [ -d target ]; then du -sh target; fi
+
+  ci:
+    needs: [prepare, checks]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require all check groups
+        env:
+          CI_PLAN_RESULT: ${{ needs.prepare.result }}
+          CI_CHECKS_RESULT: ${{ needs.checks.result }}
+        run: bash .github/scripts/ci-summary.sh

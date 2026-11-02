@@ -17,8 +17,12 @@ const CHECKS: &[Check] = &[
         run: super::cmd_format,
     },
     Check {
-        name: "cha",
-        run: super::cmd_cha,
+        name: "cha-policy",
+        run: super::cmd_cha_policy,
+    },
+    Check {
+        name: "cha-analysis",
+        run: super::cmd_cha_analysis,
     },
     Check {
         name: "build",
@@ -125,6 +129,18 @@ pub(super) fn timed_output(name: &str, command: &mut Command) -> std::io::Result
     result
 }
 
+fn optional_prerequisite(reason: &str, required: bool) -> Result {
+    if required {
+        return Err(format!("required CI prerequisite unavailable: {reason}").into());
+    }
+    println!("  ⏭ {reason}");
+    Ok(())
+}
+
+pub(super) fn skip_local(reason: &str) -> Result {
+    optional_prerequisite(reason, std::env::var_os("GITHUB_ACTIONS").is_some())
+}
+
 #[derive(Debug, Default, PartialEq)]
 struct TestTargets {
     runtime: BTreeSet<String>,
@@ -181,8 +197,7 @@ fn partition(metadata: &Value) -> Result<TestTargets> {
 
 fn test_suite(linux: bool, contracts: bool) -> Result {
     if linux && !cfg!(target_os = "linux") {
-        println!("  ⏭ host is not linux, Linux framebuffer tests skipped");
-        return Ok(());
+        return skip_local("Linux framebuffer tests require a Linux host");
     }
     let metadata = Command::new("cargo")
         .args(["metadata", "--no-deps", "--format-version", "1"])
@@ -296,5 +311,72 @@ mod tests {
             .count();
         assert_eq!(tests.runtime.len() + tests.contracts.len(), count);
         assert!(!tests.contracts.is_empty());
+    }
+
+    #[test]
+    fn workflow_groups_cover_every_registered_check_once() {
+        let matrix: Value =
+            serde_json::from_str(include_str!("../../.github/ci-matrix.json")).unwrap();
+        let mut seen = BTreeSet::new();
+        let mut groups = BTreeSet::new();
+        for group in matrix["include"].as_array().unwrap() {
+            assert!(groups.insert(group["name"].as_str().unwrap()));
+            let names: Vec<_> = group["checks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|name| name.as_str().unwrap().to_owned())
+                .collect();
+            assert!(!names.is_empty());
+            for check in select(&names).unwrap() {
+                assert!(seen.insert(check.name), "repeated check {}", check.name);
+            }
+            assert!(group["native"].is_boolean());
+            assert!(["", "format", "cha"].contains(&group["tool"].as_str().unwrap()));
+            assert!(group["targets"].is_string());
+            for (check, target) in [
+                ("wasm-check", "wasm32-unknown-unknown"),
+                ("riscv-check", "riscv32imc-unknown-none-elf"),
+            ] {
+                if names.iter().any(|name| name == check) {
+                    assert!(
+                        group["targets"]
+                            .as_str()
+                            .unwrap()
+                            .split(',')
+                            .any(|value| value == target)
+                    );
+                }
+            }
+        }
+        assert_eq!(seen, CHECKS.iter().map(|check| check.name).collect());
+    }
+
+    #[test]
+    fn missing_prerequisites_can_only_be_skipped_outside_ci() {
+        assert!(optional_prerequisite("fixture target", false).is_ok());
+        assert!(optional_prerequisite("fixture target", true).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn workflow_summary_rejects_failures_cancellation_skips_and_missing_results() {
+        let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../.github/scripts/ci-summary.sh");
+        for plan in ["success", "failure", "cancelled", "skipped", ""] {
+            for checks in ["success", "failure", "cancelled", "skipped", ""] {
+                let result = Command::new("bash")
+                    .arg(&script)
+                    .env("CI_PLAN_RESULT", plan)
+                    .env("CI_CHECKS_RESULT", checks)
+                    .output()
+                    .unwrap();
+                assert_eq!(
+                    result.status.success(),
+                    plan == "success" && checks == "success",
+                    "plan={plan}, checks={checks}"
+                );
+            }
+        }
     }
 }

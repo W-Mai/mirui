@@ -460,6 +460,10 @@ Wrap code with `mirui::trace_span!("name")` or annotate a function with `#[mirui
 
 Flash with `cargo run --release --features demo-XXX --no-default-features`.
 
+## Development checks
+
+`cargo xtask ci` runs the complete check set. Use `cargo xtask ci --list` to list selectable checks; the [CI guide](docs/ci.md) describes test groups, prerequisites and parallel workflow execution.
+
 ## License
 
 MIT
