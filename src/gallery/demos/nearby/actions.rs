@@ -418,9 +418,9 @@ fn preview(state: model!(Launcher)) -> Entity {
         .games()
         .iter()
         .find(|game| Some(game.key()) == state.game_key())
-        .map_or(Platform::Unknown, |game| {
-            Platform::from_id(PLATFORMS[game.platform()].1)
-        });
+        .and_then(|game| game.platform())
+        .and_then(|index| PLATFORMS.get(index))
+        .map_or(Platform::Unknown, |(_, id)| Platform::from_id(id));
     ui! {
         Column (
             id: "nearby_actions_preview",

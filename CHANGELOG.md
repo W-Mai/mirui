@@ -43,6 +43,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Nearby retained catalog previews handle directory and keyboard selections without treating them as game-platform indices.
+
 - Nearby's connection panel returns to the retained game catalog when choosing a game, closes before the catalog expands, and preserves the catalog's current location.
 
 - Nearby discovery uses page-local layout containers so retained connection pages can be reopened without duplicate widget IDs.

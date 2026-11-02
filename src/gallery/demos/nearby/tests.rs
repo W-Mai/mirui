@@ -445,6 +445,33 @@ fn launcher_deck_retains_shelf_members_and_independent_selection_on_reversal() {
 }
 
 #[test]
+fn retained_catalog_handles_directory_and_keyboard_selection_changes() {
+    let (mut app, state) = fixture();
+    let library = state.launcher();
+    library.resume();
+    library.choose_platform(0);
+    for _ in 0..40 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    library.open(launcher::Screen::Favorites);
+    library.select(8);
+    app.render_dirty().unwrap();
+    launcher_view::confirm(&state);
+    app.render_dirty().unwrap();
+    assert_eq!(library.screen(), launcher::Screen::Platforms);
+    library.open(launcher::Screen::Search);
+    for _ in 0..40 {
+        app.tick();
+        app.render_dirty().unwrap();
+    }
+    library.select(139);
+    app.render_dirty().unwrap();
+    library.back();
+    app.render_dirty().unwrap();
+}
+
+#[test]
 fn discovery_game_action_returns_to_the_retained_catalog_before_expanding_it() {
     for restore_catalog in [false, true] {
         let (mut app, state) = fixture();

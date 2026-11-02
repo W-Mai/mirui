@@ -30,7 +30,7 @@ pub struct Game {
     pub key: u32,
     pub name: &'static str,
     pub search: &'static str,
-    pub platform: usize,
+    pub platform: Option<usize>,
     pub multiplayer: bool,
     #[observe]
     pub favorite: bool,
@@ -44,7 +44,7 @@ impl Game {
     pub fn name(&self) -> String {
         self.name.into()
     }
-    pub fn platform(&self) -> usize {
+    pub fn platform(&self) -> Option<usize> {
         self.platform
     }
     pub fn directory(&self) -> bool {
@@ -278,7 +278,7 @@ impl Default for Launcher {
                 "speed",
             ][index],
             name,
-            platform,
+            platform: Some(platform),
             multiplayer,
             favorite: index < 6,
         })
@@ -288,7 +288,7 @@ impl Default for Launcher {
             key: 8,
             name: "游戏库",
             search: "",
-            platform: usize::MAX,
+            platform: None,
             multiplayer: false,
             favorite: true,
         }));
@@ -938,7 +938,7 @@ impl LauncherHandle {
             Screen::Games => self
                 .games()
                 .iter()
-                .any(|game| game.platform() == self.platform()),
+                .any(|game| game.platform() == Some(self.platform())),
             Screen::Search => {
                 let query = self.query().to_lowercase();
                 !query.trim().is_empty() && self.games().iter().any(|game| game.matches(&query))

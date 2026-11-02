@@ -69,9 +69,10 @@ fn games(screen: Screen, library: model!(Launcher), metrics: Metrics) -> Entity 
                                 .games()
                                 .iter()
                                 .find(|game| game.key() as usize == library.selected())
-                                .map_or(library.platform(), |game| game.platform())
+                                .and_then(|game| game.platform())
+                                .unwrap_or(library.platform())
                         };
-                        core::iter::once(Platform::from_id(PLATFORMS[platform].1))
+                        PLATFORMS.get(platform).map(|(_, id)| Platform::from_id(id))
                     } with platform by platform {
                         console (platform)
                     }
@@ -131,7 +132,7 @@ fn rows(screen: Screen, library: model!(Launcher), metrics: Metrics) -> Entity {
                                 if screen == Screen::Search {
                                     !game.matches(&query) || query.trim().is_empty()
                                 } else {
-                                    game.platform() != library.platform()
+                                    game.platform() != Some(library.platform())
                                 }
                             })
                     } {
@@ -145,7 +146,7 @@ fn rows(screen: Screen, library: model!(Launcher), metrics: Metrics) -> Entity {
                                     if screen == Screen::Search {
                                         game.matches(&query)
                                     } else {
-                                        game.platform() == library.platform()
+                                        game.platform() == Some(library.platform())
                                     }
                                 };
                                 let games = library.games();
@@ -186,8 +187,9 @@ fn entry(
     screen: Screen,
     metrics: Metrics,
 ) -> Entity {
-    let platform = game.as_ref().map_or(key, |game| game.platform());
-    let icon = Platform::from_id(PLATFORMS[platform].1);
+    let platform = game.as_ref().map_or(Some(key), |game| game.platform());
+    let info = platform.and_then(|index| PLATFORMS.get(index));
+    let icon = info.map_or(Platform::Unknown, |(_, id)| Platform::from_id(id));
     ui! {
         Column (
             grow: 1.0,
@@ -217,7 +219,13 @@ fn entry(
                 }
                 Column (grow: 1.0, min_width: 0, justify: JustifyContent::Center) {
                     Text (
-                        text: ${ game.as_ref().map_or_else(|| String::from(PLATFORMS[platform].0), |game| game.name()) },
+                        text: ${
+                            game.as_ref()
+                                .map_or_else(
+                                    || String::from(info.map_or("", |(name, _)| *name)),
+                                    |game| game.name(),
+                                )
+                        },
                         width: Dimension::percent(100),
                         min_width: 0,
                         min_height: i32::from(metrics.row_title) + ROW_LEADING,
@@ -239,7 +247,7 @@ fn entry(
                                         platform).count()
                                     )
                                 } else {
-                                    PLATFORMS[platform].0.into()
+                                    info.map_or("", |(name, _)| *name).into()
                                 }
                             },
                             width: Dimension::percent(100),

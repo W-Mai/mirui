@@ -41,7 +41,7 @@ pub(super) fn confirm(state: &super::model::DisplayStateHandle) {
                 .iter()
                 .filter(|game| match library.screen() {
                     Screen::Favorites => game.favorite(),
-                    Screen::Games => game.platform() == library.platform(),
+                    Screen::Games => game.platform() == Some(library.platform()),
                     _ => game.matches(&query),
                 })
                 .map(|game| game.key())
@@ -71,7 +71,7 @@ pub(super) fn move_selection(state: &super::model::DisplayStateHandle, delta: is
             .iter()
             .filter(|game| match library.screen() {
                 Favorites => game.favorite(),
-                Screen::Games => game.platform() == library.platform(),
+                Screen::Games => game.platform() == Some(library.platform()),
                 _ => game.matches(&query),
             })
             .map(|game| game.key() as usize)
@@ -100,7 +100,7 @@ pub(super) fn begin_play(state: &super::model::DisplayStateHandle) {
         .iter()
         .filter(|game| match library.screen() {
             Favorites => game.favorite(),
-            Screen::Games => game.platform() == library.platform(),
+            Screen::Games => game.platform() == Some(library.platform()),
             Search => game.matches(&query),
             _ => false,
         })

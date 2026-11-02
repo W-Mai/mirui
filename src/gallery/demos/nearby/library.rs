@@ -426,7 +426,10 @@ fn cartridge_grid(
 
 #[compose]
 fn cartridge_source(game: model!(Game), _metrics: Metrics) -> Entity {
-    let platform = Platform::from_id(PLATFORMS[game.platform()].1);
+    let platform = game
+        .platform()
+        .and_then(|index| PLATFORMS.get(index))
+        .map_or(Platform::Unknown, |(_, id)| Platform::from_id(id));
     ui! {
         Column (grow: 1.0, min_width: 0, min_height: 0, row_gap: 0) {
             Column (
