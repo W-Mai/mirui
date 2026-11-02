@@ -13,7 +13,6 @@ use crate::ui::widgets::{
     Image, Text,
     TextAlign::{Center, Start},
 };
-use alloc::string::ToString;
 
 const DECK_PEEK: Fixed = Fixed::from_ratio(14, 100);
 const DECK_FULL: Fixed = Fixed::from_ratio(86, 100);
@@ -77,7 +76,7 @@ pub(super) fn lobby(view: &Snapshot, state: model!(DisplayState), metrics: Metri
 #[compose]
 fn discovery_status(state: model!(DisplayState), metrics: Metrics) -> Entity {
     ui! {
-        caption (move || state.status().into(), || SECONDARY, metrics.small, Start, LABEL_LEADING)
+        caption (${ state.status() }, SECONDARY, metrics.small, Start, LABEL_LEADING)
     }
 }
 
@@ -334,8 +333,7 @@ fn list_row(
 
 #[compose]
 fn row_label(value: &str, size: u16, color: ColorToken) -> Entity {
-    let value = value.to_string();
     ui! {
-        text_block (move || value.clone(), move || color, size, Start, ROW_LEADING, 1)
+        text_block (value, color, size, Start, ROW_LEADING, 1)
     }
 }

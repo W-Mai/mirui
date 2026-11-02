@@ -157,6 +157,22 @@ fn call_form_and_explicit_rust_inputs_keep_the_same_reading_scope() {
 }
 
 #[compose]
+fn converted_inputs() -> u32 {
+    ui! {
+        caption (${ "borrowed" })
+    };
+    ui!(configured(${7_u16}))
+}
+
+#[test]
+fn reactive_values_use_the_declared_input_conversion_without_an_extra_wrapper() {
+    let mut app = App::headless(32, 32);
+    let root = app.spawn_root().id();
+    assert_eq!(app.compose(root, converted_inputs()), 7);
+    assert_eq!(text_values(&app), ["borrowed"]);
+}
+
+#[compose]
 fn typed<T: Clone>(value: prop!(T)) -> T {
     value.get()
 }
@@ -381,4 +397,39 @@ fn local_values_keep_their_rust_meaning_when_shadowing_prop_names() {
     let root = app.spawn_root().id();
     app.compose(root, shadowed("prop"));
     assert_eq!(text_values(&app), ["prop", "local", "closure", "prop"]);
+}
+
+#[test]
+fn opaque_getters_preserve_source_ownership_and_registration_guards() {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    let mut owner = App::headless(32, 32);
+    let root = owner.spawn_root().id();
+    let status = owner.add_model(Status { number: 1 }).finish();
+    let mut other = App::headless(32, 32);
+    let other_root = other.spawn_root().id();
+    let captured = status.clone();
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            other.compose(
+                other_root,
+                caption(Prop::new(move || captured.number().to_string())),
+            );
+        }))
+        .is_err()
+    );
+    owner.compose(root, screen(status.clone()));
+    status.set_number(2);
+    flush_signal_dirty(&mut owner.world);
+    assert!(text_values(&owner).iter().any(|text| text == "2"));
+    drop(owner);
+    assert!(
+        catch_unwind(AssertUnwindSafe(|| {
+            other.compose(
+                other_root,
+                caption(Prop::new(move || status.number().to_string())),
+            );
+        }))
+        .is_err()
+    );
 }

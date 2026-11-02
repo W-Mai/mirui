@@ -49,6 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reactive Niche text inputs initialize their declared component field before attachment instead of targeting a Text component on the outer entity.
 - Nearby restores catalog locations and parent-menu selection, keeps modal shortcuts isolated, cancels interrupted game holds, and shares retained-network confirmation across launch paths.
 - Nearby network management opens the active connection, and cancelling network setup restores the discovery selection.
 

@@ -322,14 +322,14 @@ fn empty(library: model!(Launcher), metrics: Metrics) -> Entity {
                     ]
                 }
                 caption (
-                    move || {
+                    ${
                         if label.query().trim().is_empty() {
-                            "输入游戏名或文件名".into()
+                            "输入游戏名或文件名"
                         } else {
-                            "没有匹配的游戏".into()
+                            "没有匹配的游戏"
                         }
                     },
-                    || SECONDARY,
+                    SECONDARY,
                     metrics.body,
                     Center,
                     LABEL_LEADING
@@ -360,12 +360,12 @@ fn search(library: model!(Launcher), metrics: Metrics) -> Entity {
                 search_icon (16)
                 Column (grow: 1.0, min_width: 0) {
                     caption (
-                        move || {
+                        ${
                             query.query_revision();
                             let value = query.query();
                             if value.is_empty() { "输入游戏名或文件名".into() } else { value }
                         },
-                        || FOREGROUND,
+                        FOREGROUND,
                         metrics.body,
                         Start,
                         LABEL_LEADING
@@ -416,8 +416,8 @@ fn keycap(library: model!(Launcher), index: usize, metrics: Metrics) -> Entity {
                 },
             ] {
                 caption (
-                    move || KEYS[index].into(),
-                    move || if text.selected() == 100 + index { ON_ACCENT } else { FOREGROUND },
+                    KEYS[index],
+                    ${ if text.selected() == 100 + index { ON_ACCENT } else { FOREGROUND } },
                     if KEYS[index].len() == 1 { metrics.title } else { metrics.body },
                     Center,
                     LABEL_LEADING

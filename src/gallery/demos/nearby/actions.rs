@@ -108,9 +108,9 @@ fn graphical_overlay(
                             align: AlignItems::Center
                         ) {
                             control_key ("A", metrics, true)
-                            control_label (|| "确认".into(), metrics)
+                            control_label ("确认", metrics)
                             control_key ("B", metrics, false)
-                            control_label (|| "返回".into(), metrics)
+                            control_label ("返回", metrics)
                             Column (grow: 1.0, min_width: 0) {
                                 action_reason (state, metrics)
                             }
@@ -207,15 +207,14 @@ fn action_tile(
 
 #[compose]
 fn action_value(state: model!(Launcher), index: usize, metrics: Metrics) -> Entity {
-    let foreground = state.clone();
     ui! {
         Column (
             visible: ${ state.item(index).is_some_and(|item| !item.value.is_empty()) },
             shrink: 0.0
         ) {
             text_block (
-                move || state.item(index).map(|item| item.value).unwrap_or_default(),
-                move || action_foreground(&foreground, index),
+                ${ state.item(index).map(|item| item.value).unwrap_or_default() },
+                ${ action_foreground(&state, index) },
                 metrics.small,
                 Center,
                 LABEL_LEADING,
@@ -229,14 +228,14 @@ fn action_value(state: model!(Launcher), index: usize, metrics: Metrics) -> Enti
 fn action_reason(state: model!(Launcher), metrics: Metrics) -> Entity {
     ui! {
         text_block (
-            move || {
+            ${
                 let reason: alloc::string::String = state
                     .item(state.menu_selection())
                     .map(|item| item.reason.into())
                     .unwrap_or_default();
                 if reason.is_empty() { state.notice().into() } else { reason }
             },
-            || SECONDARY,
+            SECONDARY,
             metrics.small,
             Start,
             LABEL_LEADING,
@@ -391,19 +390,18 @@ fn action_icon(state: model!(Launcher), index: usize) -> Entity {
 
 #[compose]
 fn overlay_label(state: model!(Launcher), index: Option<usize>, metrics: Metrics) -> Entity {
-    let text = state.clone();
     ui! {
         text_block (
-            move || {
+            ${
                 index
                     .map_or_else(
-                        || text.overlay_title(),
+                        || state.overlay_title(),
                         |index| {
-                            text.item(index).map(|item| item.name.into()).unwrap_or_default()
+                            state.item(index).map(|item| item.name.into()).unwrap_or_default()
                         },
                     )
             },
-            move || { index.map_or(FOREGROUND, |index| action_foreground(&state, index)) },
+            ${ index.map_or(FOREGROUND, |index| action_foreground(&state, index)) },
             if index.is_none() { metrics.title } else { metrics.body },
             if index.is_none() { Start } else { Center },
             LABEL_LEADING,

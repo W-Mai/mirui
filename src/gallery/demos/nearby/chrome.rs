@@ -179,7 +179,7 @@ fn footer_controls(
             } {
                 control_key ("A", metrics, true)
                 control_label (
-                    move || {
+                    ${
                         if launcher {
                             confirm.launcher().browser_confirm().into()
                         } else {
@@ -192,7 +192,7 @@ fn footer_controls(
             if ${ !launcher || state.launcher().screen() != super::launcher::Screen::Favorites } {
                 control_key ("B", metrics, false)
                 control_label (
-                    move || {
+                    ${
                         if launcher {
                             back.launcher().browser_back().into()
                         } else {
@@ -204,11 +204,11 @@ fn footer_controls(
             }
             if !launcher && matches!(view.page, Page::Rooms | Page::Lobby) {
                 control_key ("X", metrics, false)
-                control_label (|| "刷新".into(), metrics)
+                control_label ("刷新", metrics)
             }
             if ${ !launcher && state.can_switch_theme() } {
                 control_key ("Y", metrics, false)
-                control_label (|| "主题".into(), metrics)
+                control_label ("主题", metrics)
             }
             Text (
                 text: ${ if launcher { state.launcher().browser_hint() } else { state.hint() } },
@@ -225,11 +225,11 @@ fn footer_controls(
             ]
             if launcher {
                 control_key ("J", metrics, false)
-                control_label (|| "联机".into(), metrics)
+                control_label ("联机", metrics)
             }
             if ${ launcher && state.launcher().screen() != super::launcher::Screen::Search } {
                 control_key ("K", metrics, false)
-                control_label (|| "设置".into(), metrics)
+                control_label ("设置", metrics)
             }
         }
     }

@@ -1,10 +1,10 @@
-error[E0277]: the trait bound `String: From<Prop<String>>` is not satisfied
+error[E0277]: the trait bound `String: From<Prop<_>>` is not satisfied
   --> tests/ui/compose_prop_field_type.rs:12:9
    |
 12 | /         ui! {
 13 | |             PlainCard (text: ${ String::from("dynamic") })
 14 | |         }
-   | |_________^ the trait `From<Prop<String>>` is not implemented for `String`
+   | |_________^ the trait `From<Prop<_>>` is not implemented for `String`
    |
    = help: `String` implements trait `From<T>`:
              From<&String>
@@ -13,5 +13,5 @@ error[E0277]: the trait bound `String: From<Prop<String>>` is not satisfied
              From<Box<str>>
              From<Cow<'_, str>>
              From<char>
-   = note: required for `Prop<String>` to implement `Into<String>`
+   = note: required for `Prop<_>` to implement `Into<String>`
    = note: this error originates in the macro `ui` (in Nightly builds, run with -Z macro-backtrace for more info)

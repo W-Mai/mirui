@@ -2,8 +2,7 @@ use alloc::{rc::Rc, string::String};
 
 /// A static value or a shared, read-only getter passed between compositions.
 ///
-/// Reading a getter inside a widget binding tracks its original reactive sources.
-/// Forwarding or cloning a prop creates no subscriptions or intermediate signals.
+/// Reading a getter inside a widget binding tracks its original reactive sources. Forwarding or cloning a prop creates no subscriptions or intermediate signals. Static clones use `T::clone`; dynamic clones share their getter without allocating.
 pub struct Prop<T> {
     value: Value<T>,
 }
@@ -21,8 +20,7 @@ impl<T> Prop<T> {
 
     /// Retain a getter without evaluating it or registering a reactive consumer.
     ///
-    /// Construction allocates one shared closure. Clones share that closure;
-    /// each read evaluates it independently. Use `Computed` for cached results.
+    /// Construction allocates one shared closure. Clones share that closure; each read evaluates it independently. Use `Computed` for cached results.
     pub fn new(read: impl Fn() -> T + 'static) -> Self {
         Self {
             value: Value::Read(Rc::new(read)),

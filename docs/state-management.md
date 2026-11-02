@@ -83,7 +83,7 @@ Calling a `#[compose]` function prepares a stack-held composition without execut
 
 `Prop<T>` carries a static value or a shared read-only getter. `Prop::from(value)` stores a value; `Prop::new(move || source.get())` retains a getter without evaluating it. `get()` reads in the caller's reactive scope, so a widget binding subscribes to the original sources. Cloning a dynamic prop shares its getter without allocating or registering another consumer. Each read evaluates the getter; use `Computed` when a result needs caching. Static props add no framework allocation, while each dynamic prop allocates one shared closure during preparation. Allocations performed by the value or getter, including String creation, remain separate.
 
-Declare composition inputs with `prop!(T)`. Pass an ordinary value for static content or `${expression}` for a getter. Intermediate compositions forward the input directly; the final widget's `${text}` reads the prop in its existing binding. This registers no intermediate effects and does not reconstruct the subtree when a source changes. String inputs accept `&str` and `String`; ordinary parameters retain Rust value semantics.
+Declare composition inputs with `prop!(T)`. Pass an ordinary value for static content or `${expression}` for a getter. Intermediate compositions forward the input directly; the final widget's `${text}` reads the prop in its existing binding. This registers no intermediate effects and does not reconstruct the subtree when a source changes. Static values and `${expression}` results convert to the declared input type through `Into`; String inputs accept `&str` and `String`. Ordinary parameters retain Rust value semantics.
 
 ```rust
 # use mirui::prelude::*;

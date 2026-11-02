@@ -5,6 +5,47 @@ use crate::ui::widgets::navigation::transition;
 
 type TestApp = App<crate::surface::framebuf::FramebufSurface<fn(&[u8], PhysicalRect)>>;
 
+#[test]
+fn composed_live_label_updates_through_both_text_helpers() {
+    use crate::core::reactive::flush_signal_dirty;
+    use crate::ui::widgets::{Text, TextAlign};
+
+    let mut app = App::headless(64, 64);
+    let root = app.spawn_root().id();
+    let state = app.add_model(model::DisplayState::default()).finish();
+    let label = app.compose(
+        root,
+        widgets::live_label(
+            state.clone(),
+            model::TextField::Headline,
+            12,
+            style::FOREGROUND,
+            TextAlign::Start,
+        ),
+    );
+    let initial = state.text(model::TextField::Headline);
+    assert_eq!(
+        app.world
+            .get::<Text>(label)
+            .unwrap()
+            .resolve(app.world.resource()),
+        initial
+    );
+    state.activate(0);
+    state.activate(0);
+    flush_signal_dirty(&mut app.world);
+    let expected = state.text(model::TextField::Headline);
+    assert_ne!(expected, initial);
+    assert_eq!(
+        app.world
+            .get::<Text>(label)
+            .unwrap()
+            .resolve(app.world.resource()),
+        expected
+    );
+    assert_eq!(app.world.query::<Text>().collect(), [label]);
+}
+
 fn fixture() -> (TestApp, model::DisplayStateHandle) {
     fixture_at(640, 480)
 }

@@ -29,7 +29,11 @@ pub(crate) fn direct_prop<'a>(value: &'a Expr, props: &[Ident]) -> Option<&'a Id
 pub(crate) fn getter(value: &Expr, props: &[Ident]) -> Expr {
     let value = normalize(value, props);
     let read = crate::reactive_read(&value);
-    syn::parse_quote!(::mirui::ui::Prop::new(move || #read))
+    let value = Ident::new("__mirui_prop_value", proc_macro2::Span::mixed_site());
+    syn::parse_quote!(::mirui::ui::Prop::new(move || {
+        let #value = #read;
+        ::core::convert::Into::into(#value)
+    }))
 }
 
 pub(crate) fn share(value: &Expr, props: &[Ident]) -> Expr {
