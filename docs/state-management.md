@@ -640,6 +640,28 @@ Paint priority orders only drawing, with registration order breaking ties. View 
 
 `ui!(compose Name { ... })` declares a Niche with tree and slot attachment but no paint hook. Register its descriptor with `app.with_widget(ui!(compose Name))`. Declared fields retain their Rust types, and parameter snapshots, fallback content, filled slots, and instance isolation remain part of attachment rather than paint traversal.
 
+Niche fields declared as `prop!(T)` retain their input's getter across attachment. Static fields remain ordinary snapshots. Supply reactive inputs through the same `${expression}` syntax and forward existing props directly. Updating an input changes its consuming properties, retaining the Niche instance, child entities and filled slots. Shared layout and style attributes still configure the instance's outer node; its declared `text` field belongs to the component rather than a separate outer Text component.
+
+```rust
+# use mirui::prelude::*;
+# use mirui::ui::widgets::Text;
+ui!(compose StatusCard(text: prop!(String)) {
+    Column() {
+        Text(text: ${text})
+        @@body
+    }
+});
+
+#[compose]
+fn status_card(status: model!(Signal<String>)) -> Entity {
+    ui! {
+        StatusCard(text: ${status.get()}) {
+            @body { Text("Details") }
+        }
+    }
+}
+```
+
 Event declarations, callback binding, delivery order, and capacity configuration are covered in [Events and callbacks](events.md). Widget-specific notifications are listed in [Widget events](widget-events.md).
 
 ## Choosing state and rendering roles
@@ -649,7 +671,7 @@ Event declarations, callback binding, delivery order, and capacity configuration
 | `#[model]` | Registered business state, including multiple instances of one type | Generated handle methods compare `#[observe]` values, publish named revisions, and deliver typed effects |
 | `Signal<T>` | A standalone reactive value or a value published by another owner | `set` / `update` notify reactive readers |
 | `#[component]` | Data attached to an entity | World insertion and replacement drive component lifecycle; `model!(T)` fields retain registered model identity |
-| `#[compose]` | Build a widget subtree | `model!(T)` parameters share instances among generated bindings, callbacks, and direct child calls |
+| `#[compose]` | Build a widget subtree | `model!(T)` parameters share instances; `prop!(T)` inputs forward static values or getters to consuming bindings |
 | `com!(entity, T)` | Read a component during composition | Returns a short-lived `Option<&T>` without subscribing; event callbacks use `query!` parameters |
 | `View` / `#[view]` | Register a widget kind; nonempty bodies supply painting and empty bodies omit it | Independent hooks provide painting, attachment, gestures, observation, and systems; typed roles declare model projections and resources |
 | `#[system]` | Scheduled updates | `model!(T)` captures a registered instance; `res!`, `query!`, and `commands!` declare all other runtime access |

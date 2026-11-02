@@ -631,6 +631,19 @@ impl MiruiRune {
             // Must run before the Text / Component `text` routes below, or a
             // reactive `text` gets frozen as static content instead of bound.
             if attr.reactive {
+                if widget_kind == WidgetKind::Component
+                    && ((name == "text" && !is_text_widget && !is_button_widget)
+                        || reactive_property(widget_name, &name).is_none())
+                {
+                    let field = syn::Ident::new(&name, attr_span);
+                    let input = compose_input::getter(value, &self.props);
+                    component_fields.push(Self::field_init_tokens(
+                        &field,
+                        &input,
+                        &mut component_field_names,
+                    ));
+                    continue;
+                }
                 match reactive_property(widget_name, &name) {
                     Some(property) => {
                         reactive_binds.push(ReactiveBind {
@@ -678,9 +691,10 @@ impl MiruiRune {
 
             if widget_kind == WidgetKind::Component && name == "text" {
                 let field_ident = syn::Ident::new(&name, attr_span);
+                let shared = compose_input::share(value, &self.props);
                 component_fields.push(Self::field_init_tokens(
                     &field_ident,
-                    value,
+                    &shared,
                     &mut component_field_names,
                 ));
                 continue;
@@ -759,9 +773,10 @@ impl MiruiRune {
                 unknown => match widget_kind {
                     WidgetKind::Component => {
                         let field_ident = syn::Ident::new(unknown, attr_span);
+                        let shared = compose_input::share(value, &self.props);
                         component_fields.push(Self::field_init_tokens(
                             &field_ident,
-                            value,
+                            &shared,
                             &mut component_field_names,
                         ));
                     }
@@ -2218,11 +2233,14 @@ impl DsRune for MiruiRune {
         key: Option<&syn::Expr>,
         children: &[DsTreeRef],
     ) {
+        let props = self.props.clone();
+        self.props.retain(|name| name != variable);
         self.stack.push(Vec::new());
         for child in children {
             decipher(child, self);
         }
         let body = self.stack.pop().unwrap();
+        self.props = props;
 
         let cmd = Cmd::Iter(IterCmd {
             iterable: quote! { #iterable },
@@ -2278,11 +2296,15 @@ impl DsRune for MiruiRune {
     ) {
         let mut arm_cmds = Vec::with_capacity(arms.len());
         for arm in arms {
+            let props = self.props.clone();
+            self.props
+                .retain(|name| !FreeCaptureUse::bound_by(name, arm.get_pat()));
             self.stack.push(Vec::new());
             for child in arm.get_children() {
                 decipher(child, self);
             }
             let body = self.stack.pop().unwrap();
+            self.props = props;
             arm_cmds.push(MatchArm {
                 pat: arm.get_pat().clone(),
                 body,
@@ -2647,6 +2669,14 @@ struct FreeCaptureUse<'a> {
 }
 
 impl<'a> FreeCaptureUse<'a> {
+    fn bound_by(name: &'a syn::Ident, pat: &syn::Pat) -> bool {
+        Self {
+            name,
+            found: false,
+            shadowed: false,
+        }
+        .pattern_binds(pat)
+    }
     fn contains(expr: &syn::Expr, name: &'a syn::Ident) -> bool {
         use syn::visit::Visit;
         let mut visitor = Self {

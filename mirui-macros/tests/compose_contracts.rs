@@ -8,4 +8,6 @@ fn compose_role_contracts() {
     cases.compile_fail("tests/ui/compose_projection.rs");
     cases.compile_fail("tests/ui/compose_raw_model_call.rs");
     cases.compile_fail("tests/ui/compose_unsupported_role.rs");
+    cases.compile_fail("tests/ui/compose_prop_field_type.rs");
+    cases.compile_fail("tests/ui/compose_prop_source_type.rs");
 }

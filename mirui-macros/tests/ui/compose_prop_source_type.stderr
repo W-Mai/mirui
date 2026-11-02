@@ -1,0 +1,26 @@
+error[E0277]: the trait bound `Prop<u32>: From<Prop<String>>` is not satisfied
+  --> tests/ui/compose_prop_source_type.rs:12:9
+   |
+12 | /         ui! {
+13 | |             number (${ String::from("wrong type") })
+   | |             ------ required by a bound introduced by this call
+14 | |         }
+   | |_________^ the trait `From<Prop<String>>` is not implemented for `Prop<u32>`
+   |
+help: the following other types implement trait `From<T>`
+  --> $WORKSPACE/src/ui/prop.rs
+   |
+   | impl<T> From<T> for Prop<T> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Prop<T>` implements `From<T>`
+...
+   | impl From<&str> for Prop<String> {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Prop<String>` implements `From<&str>`
+   = note: required for `Prop<String>` to implement `Into<Prop<u32>>`
+note: required by a bound in `number`
+  --> tests/ui/compose_prop_source_type.rs:3:1
+   |
+ 3 | #[compose]
+   | ^^^^^^^^^^ required by this bound in `number`
+ 4 | fn number(value: prop!(u32)) -> u32 {
+   |    ------ required by a bound in this function
+   = note: this error originates in the macro `ui` which comes from the expansion of the attribute macro `compose` (in Nightly builds, run with -Z macro-backtrace for more info)

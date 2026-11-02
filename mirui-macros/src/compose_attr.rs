@@ -361,6 +361,38 @@ struct BoundUiCalls {
 }
 
 impl VisitMut for BoundUiCalls {
+    fn visit_block_mut(&mut self, block: &mut syn::Block) {
+        let saved = (self.captures.clone(), self.props.clone());
+        for statement in &mut block.stmts {
+            syn::visit_mut::visit_stmt_mut(self, statement);
+            if let syn::Stmt::Local(local) = statement {
+                self.captures
+                    .retain(|name| !crate::FreeCaptureUse::bound_by(name, &local.pat));
+                self.props
+                    .retain(|name| !crate::FreeCaptureUse::bound_by(name, &local.pat));
+            }
+        }
+        (self.captures, self.props) = saved;
+    }
+
+    fn visit_expr_closure_mut(&mut self, closure: &mut syn::ExprClosure) {
+        let saved = (self.captures.clone(), self.props.clone());
+        self.captures.retain(|name| {
+            !closure
+                .inputs
+                .iter()
+                .any(|pat| crate::FreeCaptureUse::bound_by(name, pat))
+        });
+        self.props.retain(|name| {
+            !closure
+                .inputs
+                .iter()
+                .any(|pat| crate::FreeCaptureUse::bound_by(name, pat))
+        });
+        syn::visit_mut::visit_expr_closure_mut(self, closure);
+        (self.captures, self.props) = saved;
+    }
+
     fn visit_macro_mut(&mut self, macro_call: &mut syn::Macro) {
         if !is_ui_macro(&macro_call.path) {
             return;

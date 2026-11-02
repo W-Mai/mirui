@@ -13,14 +13,23 @@ use crate::MiruiRune;
 pub struct MoldParam {
     name: syn::Ident,
     ty: syn::Type,
+    prop: bool,
 }
 
 impl Parse for MoldParam {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let name: syn::Ident = input.parse()?;
         input.parse::<syn::Token![:]>()?;
-        let ty: syn::Type = input.parse()?;
-        Ok(MoldParam { name, ty })
+        let mut ty: syn::Type = input.parse()?;
+        let role = crate::binding::NICHE_ROLES.classify(&ty, "ui!(compose ...)")?;
+        let prop = if let Some((crate::binding::RoleKind::Prop, role)) = role {
+            let value: syn::Type = syn::parse2(role.mac.tokens)?;
+            ty = syn::parse_quote!(::mirui::ui::Prop<#value>);
+            true
+        } else {
+            false
+        };
+        Ok(MoldParam { name, ty, prop })
     }
 }
 
@@ -88,10 +97,16 @@ pub fn expand(input: TokenStream) -> TokenStream {
 fn expand_decl(name: syn::Ident, params: Vec<MoldParam>, children: &[DsTreeRef]) -> TokenStream {
     let world_expr = crate::scope_world_expr();
     let mut rune = MiruiRune::new_mold(world_expr.clone(), quote! { cx.parent() });
+    let props: Vec<_> = params
+        .iter()
+        .filter(|param| param.prop)
+        .map(|param| param.name.clone())
+        .collect();
+    rune.props = props.clone();
     for child in children {
         decipher(child, &mut rune);
     }
-    let body_tokens = rune.seal();
+    let body_tokens = crate::capture_output(rune.seal(), props);
 
     let mut slot_names = Vec::new();
     for child in children {

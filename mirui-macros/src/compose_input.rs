@@ -32,6 +32,17 @@ pub(crate) fn getter(value: &Expr, props: &[Ident]) -> Expr {
     syn::parse_quote!(::mirui::ui::Prop::new(move || #read))
 }
 
+pub(crate) fn share(value: &Expr, props: &[Ident]) -> Expr {
+    if let Expr::Path(path) = value
+        && let Some(name) = path.path.get_ident()
+        && props.contains(name)
+    {
+        syn::parse_quote!(::mirui::core::model::SharedValue::share(&#name))
+    } else {
+        value.clone()
+    }
+}
+
 /// Parse composition calls without changing expressions inside Rust macros.
 pub(crate) fn call(input: &TokenStream, props: &[Ident]) -> Option<ExprCall> {
     (|input: ParseStream<'_>| parse_call(input, props))

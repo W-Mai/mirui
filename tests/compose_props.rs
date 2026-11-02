@@ -212,3 +212,173 @@ fn non_text_inputs_use_existing_property_updates() {
         Dimension::px(24)
     );
 }
+
+ui!(compose StatusCard(text: prop!(String)) {
+    Column() {
+        Text(text: ${text})
+        @@body { Text("fallback") }
+    }
+});
+
+ui!(compose Envelope(text: prop!(String)) {
+    Column() {
+        StatusCard(text: text) { @body { Text("slot") } }
+        StatusCard(text: text)
+    }
+});
+
+#[compose]
+fn cards(text: model!(Signal<String>)) -> Entity {
+    ui! {
+        Column () {
+            Envelope (text: ${ text.get() })
+            Envelope (text: ${ text.get() })
+        }
+    }
+}
+
+#[test]
+fn niche_inputs_keep_live_sources_across_instances_layers_and_slots() {
+    let mut app = App::headless(64, 64);
+    app.with_widget(ui!(compose StatusCard))
+        .with_widget(ui!(compose Envelope));
+    let root = app.spawn_root().id();
+    let source = Signal::new(String::from("before"));
+    app.compose(root, cards(source.clone()));
+    let entities = app.world.query::<Text>().collect();
+    let slots: Vec<_> = app.world.query::<mirui::ui::NicheMap>().collect();
+    assert_eq!(
+        text_values(&app)
+            .iter()
+            .filter(|text| text.as_str() == "before")
+            .count(),
+        4
+    );
+    assert_eq!(
+        text_values(&app)
+            .iter()
+            .filter(|text| text.as_str() == "slot")
+            .count(),
+        2
+    );
+    assert_eq!(
+        text_values(&app)
+            .iter()
+            .filter(|text| text.as_str() == "fallback")
+            .count(),
+        2
+    );
+    source.set(String::from("after"));
+    flush_signal_dirty(&mut app.world);
+    assert_eq!(
+        text_values(&app)
+            .iter()
+            .filter(|text| text.as_str() == "after")
+            .count(),
+        4
+    );
+    assert_eq!(app.world.query::<Text>().collect(), entities);
+    assert_eq!(app.world.query::<mirui::ui::NicheMap>().collect(), slots);
+    for entity in app.world.query::<StatusCard>().collect() {
+        assert!(!app.world.has::<Text>(entity));
+    }
+}
+
+#[compose]
+fn conditional_card(shown: model!(Signal<bool>), text: model!(Signal<String>)) -> Entity {
+    ui! {
+        Column () {
+            if ${ shown.get() } {
+                StatusCard (text: ${ text.get() })
+            } else {
+                Text ("other")
+            }
+        }
+    }
+}
+
+#[test]
+fn hidden_niche_inputs_resume_with_the_latest_value() {
+    let mut app = App::headless(64, 64);
+    app.with_widget(ui!(compose StatusCard));
+    let root = app.spawn_root().id();
+    let shown = Signal::new(true);
+    let text = Signal::new(String::from("visible"));
+    app.compose(root, conditional_card(shown.clone(), text.clone()));
+    let entities = app.world.query::<Text>().collect();
+    shown.set(false);
+    flush_signal_dirty(&mut app.world);
+    text.set(String::from("latest"));
+    flush_signal_dirty(&mut app.world);
+    assert!(text_values(&app).iter().any(|value| value == "visible"));
+    shown.set(true);
+    flush_signal_dirty(&mut app.world);
+    assert!(text_values(&app).iter().any(|value| value == "latest"));
+    assert_eq!(app.world.query::<Text>().collect(), entities);
+}
+
+#[test]
+fn niche_retirement_releases_inputs_and_never_updates_reused_entities() {
+    let mut app = App::headless(64, 64);
+    app.with_widget(ui!(compose StatusCard));
+    let root = app.spawn_root().id();
+    let source = Signal::new(String::from("old"));
+    let input_source = source.clone();
+    let capture = Rc::new(Cell::new(0));
+    let retired = Rc::downgrade(&capture);
+    let input = Prop::new(move || {
+        capture.set(capture.get() + 1);
+        input_source.get()
+    });
+    app.compose(root, |cx| {
+        ui! {
+            StatusCard (text: input)
+        }
+    });
+    let removed: Vec<_> = app
+        .world
+        .query::<Widget>()
+        .collect()
+        .into_iter()
+        .filter(|entity| *entity != root)
+        .collect();
+    for entity in removed {
+        app.world.despawn(entity);
+    }
+    flush_signal_dirty(&mut app.world);
+    assert!(retired.upgrade().is_none());
+    app.compose(root, caption("replacement"));
+    source.set(String::from("stale"));
+    flush_signal_dirty(&mut app.world);
+    assert_eq!(text_values(&app), ["replacement"]);
+}
+
+#[compose]
+fn shadowed(text: prop!(String)) {
+    ui! {
+        Text (text: ${ text })
+    };
+    {
+        let text = "local";
+        ui! {
+            Text (text: ${ text })
+        };
+    }
+    let mut create = |text: &'static str| {
+        ui! {
+            Text (text: ${ text })
+        }
+    };
+    create("closure");
+    ui! {
+        Text (text: ${ text })
+    };
+}
+
+#[test]
+fn local_values_keep_their_rust_meaning_when_shadowing_prop_names() {
+    let mut app = App::headless(64, 64);
+    let root = app.spawn_root().id();
+    app.compose(root, shadowed("prop"));
+    assert_eq!(text_values(&app), ["prop", "local", "closure", "prop"]);
+}

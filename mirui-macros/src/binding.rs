@@ -159,6 +159,7 @@ pub(crate) struct RoleSet {
 
 pub(crate) const COMPONENT_FIELD_ROLES: RoleSet = RoleSet::new(&[RoleKind::Model]);
 pub(crate) const COMPOSE_ROLES: RoleSet = RoleSet::new(&[RoleKind::Model, RoleKind::Prop]);
+pub(crate) const NICHE_ROLES: RoleSet = RoleSet::new(&[RoleKind::Prop]);
 pub(crate) const VIEW_ROLES: RoleSet = RoleSet::new(&[
     RoleKind::Component,
     RoleKind::Model,
