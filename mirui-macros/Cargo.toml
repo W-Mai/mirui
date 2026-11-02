@@ -11,6 +11,9 @@ publish = true
 [lib]
 proc-macro = true
 
+[package.metadata.ci]
+contract-tests = ["animate_contracts", "component_contracts", "compose_contracts", "event_contracts", "model_cross_crate", "system_contracts", "timer_contracts", "trybuild", "view_contracts"]
+
 [dependencies]
 xrune = "1.10"
 syn = { version = "2", features = ["full", "visit", "visit-mut"] }

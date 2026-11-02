@@ -16,6 +16,9 @@ rust-version = "1.85"
 [workspace]
 members = [".", "xtask", "mirui-macros", "mirx", "gallery", "gallery/web"]
 
+[package.metadata.ci]
+contract-tests = ["compose_backend_fail", "compose_resource_contracts", "event_type_contracts", "prelude_contracts", "query_borrow_contracts", "ui_diagnostics_fail", "view_query_contracts"]
+
 [dependencies]
 mirui-macros = { version = "0.53.0", path = "mirui-macros" }
 mirx = { version = "0.53.0", path = "mirx" }
